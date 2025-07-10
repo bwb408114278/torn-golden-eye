@@ -9,3 +9,6 @@ bot:
       http: 23000
       socket: 23001
     token: 1qazXSW@3edc
+
+test:
+  groupId: 782024117

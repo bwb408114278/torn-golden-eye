@@ -4,7 +4,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.Bot;
-import pn.torn.goldeneye.base.BotReqParam;
+import pn.torn.goldeneye.base.BotHttpReqParam;
 
 /**
  * 机器人类
@@ -29,7 +29,7 @@ class BotImpl implements Bot {
     }
 
     @Override
-    public <T> ResponseEntity<T> sendRequest(BotReqParam param, Class<T> responseType) {
+    public <T> ResponseEntity<T> sendRequest(BotHttpReqParam param, Class<T> responseType) {
         RestClient.RequestBodySpec request = this.restClient
                 .method(param.method())
                 .uri(param.uri());
