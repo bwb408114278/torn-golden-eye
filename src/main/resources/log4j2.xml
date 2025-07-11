@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN" monitorInterval="30">
+    <Properties>
+        <!-- 日志文件路径 -->
+        <Property name="LOG_DIR">logs</Property>
+        <Property name="FILE_NAME">app</Property>
+
+        <!-- 控制台彩色日志格式 -->
+        <Property name="CONSOLE_PATTERN">
+            %style{%d{yyyy-MM-dd HH:mm:ss.SSS}}{cyan} %highlight{%-5level} %style{[%t]}{green} %style{%c{1.}}{yellow}: %msg%n%throwable
+        </Property>
+
+        <!-- 文件日志格式 -->
+        <Property name="FILE_PATTERN">
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %c{1.}: %msg%n%throwable
+        </Property>
+
+        <!-- 包名 -->
+        <Property name="APP_PACKAGE">pn.torn.goldeneye</Property>
+    </Properties>
+
+    <Appenders>
+        <!-- 彩色控制台输出 -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${CONSOLE_PATTERN}" disableAnsi="false"/>
+            <!-- 设置控制台只输出金眼的DEBUG及以上 -->
+            <Filters>
+                <!-- 先允许金眼的DEBUG+日志 -->
+                <LoggerNameFilter loggerName="${APP_PACKAGE}" onMatch="ACCEPT" onMismatch="NEUTRAL"/>
+                <ThresholdFilter level="debug" onMatch="ACCEPT" onMismatch="DENY"/>
+
+                <!-- 然后允许其他包的WARN+日志 -->
+                <LoggerNameFilter loggerName="${APP_PACKAGE}" onMatch="DENY" onMismatch="NEUTRAL"/>
+                <ThresholdFilter level="warn" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </Console>
+
+        <!-- 文件输出（INFO及以上） -->
+        <RollingRandomAccessFile name="File"
+                                 fileName="${LOG_DIR}/${FILE_NAME}.log"
+                                 filePattern="${LOG_DIR}/${FILE_NAME}-%d{yyyy-MM-dd}-%i.log">
+            <PatternLayout pattern="${FILE_PATTERN}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1"/>
+                <SizeBasedTriggeringPolicy size="10 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+            <!-- 确保只记录INFO及以上级别 -->
+            <ThresholdFilter level="info" onMatch="ACCEPT" onMismatch="DENY"/>
+        </RollingRandomAccessFile>
+    </Appenders>
+
+    <Loggers>
+        <Root level="info">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="File"/>
+        </Root>
+
+        <Logger name="${APP_PACKAGE}" level="debug" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="File"/>
+        </Logger>
+    </Loggers>
+</Configuration>
