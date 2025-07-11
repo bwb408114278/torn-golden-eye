@@ -1,8 +1,8 @@
-package pn.torn.goldeneye.msg;
+package pn.torn.goldeneye.msg.send;
 
 import org.springframework.http.HttpMethod;
-import pn.torn.goldeneye.base.BotHttpReqParam;
-import pn.torn.goldeneye.msg.param.GroupMsgParam;
+import pn.torn.goldeneye.base.bot.BotHttpReqParam;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 
 import java.util.ArrayList;
 import java.util.List;

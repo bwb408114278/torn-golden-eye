@@ -7,7 +7,7 @@ import lombok.Getter;
  * 群聊消息类型
  *
  * @author Bai
- * @version 1.0
+ * @version 0.1.0
  * @since 2025.06.22
  */
 @Getter

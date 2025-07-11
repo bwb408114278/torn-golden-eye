@@ -1,8 +1,8 @@
-package pn.torn.goldeneye.msg.param;
+package pn.torn.goldeneye.msg.send.param;
 
 import lombok.Data;
 import pn.torn.goldeneye.constants.bot.enums.GroupMsgTypeEnum;
-import pn.torn.goldeneye.msg.data.TextMsgData;
+import pn.torn.goldeneye.msg.send.data.TextMsgData;
 
 /**
  * 文本群聊消息

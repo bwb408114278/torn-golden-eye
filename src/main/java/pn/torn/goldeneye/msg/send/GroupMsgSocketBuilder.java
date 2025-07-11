@@ -1,8 +1,8 @@
-package pn.torn.goldeneye.msg;
+package pn.torn.goldeneye.msg.send;
 
 import lombok.extern.slf4j.Slf4j;
-import pn.torn.goldeneye.base.BotSocketReqParam;
-import pn.torn.goldeneye.msg.param.GroupMsgParam;
+import pn.torn.goldeneye.base.bot.BotSocketReqParam;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 
 import java.util.ArrayList;
 import java.util.List;

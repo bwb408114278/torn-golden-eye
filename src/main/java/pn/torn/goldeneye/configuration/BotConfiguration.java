@@ -3,7 +3,7 @@ package pn.torn.goldeneye.configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import pn.torn.goldeneye.base.Bot;
+import pn.torn.goldeneye.base.bot.Bot;
 
 /**
  * 机器人配置类

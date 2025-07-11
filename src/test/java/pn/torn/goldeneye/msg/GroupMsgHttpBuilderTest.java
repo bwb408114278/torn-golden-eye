@@ -4,17 +4,18 @@ import jakarta.annotation.Resource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import pn.torn.goldeneye.base.Bot;
-import pn.torn.goldeneye.base.BotHttpReqParam;
+import pn.torn.goldeneye.base.bot.Bot;
+import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.TestProperty;
-import pn.torn.goldeneye.msg.param.AtGroupMsg;
-import pn.torn.goldeneye.msg.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
+import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 
 /**
  * 群聊消息构建器测试
  *
  * @author Bai
- * @version 1.0
+ * @version 0.1.0
  * @since 2025.06.22
  */
 @SpringBootTest

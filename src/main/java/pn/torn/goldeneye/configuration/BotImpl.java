@@ -3,8 +3,8 @@ package pn.torn.goldeneye.configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
-import pn.torn.goldeneye.base.Bot;
-import pn.torn.goldeneye.base.BotHttpReqParam;
+import pn.torn.goldeneye.base.bot.Bot;
+import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 
 /**
  * 机器人类

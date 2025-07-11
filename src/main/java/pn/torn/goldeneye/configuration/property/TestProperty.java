@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * 测试属性
  *
@@ -13,14 +15,14 @@ import org.springframework.stereotype.Component;
  */
 @Data
 @Component
-@ConfigurationProperties(prefix = "test")
+@ConfigurationProperties(prefix = "golden-eye.test")
 public class TestProperty {
     /**
      * 测试群号
      */
     private long groupId;
-
-    public void setGroupId(String groupId) {
-        this.groupId = Long.valueOf(groupId);
-    }
+    /**
+     * 管理员ID
+     */
+    private List<Long> adminId;
 }

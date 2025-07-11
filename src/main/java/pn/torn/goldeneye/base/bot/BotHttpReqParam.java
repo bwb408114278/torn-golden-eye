@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.base;
+package pn.torn.goldeneye.base.bot;
 
 import org.springframework.http.HttpMethod;
 

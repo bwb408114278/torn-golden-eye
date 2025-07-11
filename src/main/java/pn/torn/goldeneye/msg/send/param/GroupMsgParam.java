@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.param;
+package pn.torn.goldeneye.msg.send.param;
 
 import pn.torn.goldeneye.constants.bot.enums.GroupMsgTypeEnum;
 

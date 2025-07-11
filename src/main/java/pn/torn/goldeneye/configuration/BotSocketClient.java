@@ -2,6 +2,7 @@ package pn.torn.goldeneye.configuration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import jakarta.websocket.*;
@@ -11,10 +12,13 @@ import org.glassfish.tyrus.client.ClientManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.base.BotSocketReqParam;
+import pn.torn.goldeneye.base.bot.BotSocketReqParam;
+import pn.torn.goldeneye.base.ex.BotException;
 import pn.torn.goldeneye.configuration.property.TestProperty;
-import pn.torn.goldeneye.msg.GroupMsgSocketBuilder;
-import pn.torn.goldeneye.msg.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.receive.GroupRecMsg;
+import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
+import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
+import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 
 import java.io.IOException;
 import java.net.URI;
@@ -70,7 +74,10 @@ public class BotSocketClient {
         virtualThreadExecutor.setCorePoolSize(32);
         virtualThreadExecutor.setMaxPoolSize(256);
         virtualThreadExecutor.initialize();
+    }
 
+    @PostConstruct
+    public void init() {
         connect();
         startConnectionMonitor();
     }
@@ -98,7 +105,7 @@ public class BotSocketClient {
                     lastHeartbeatTime.set(System.currentTimeMillis());
 
                     // 注册消息处理器
-                    session.addMessageHandler((MessageHandler.Whole<String>) message -> handleIncomingMessage(message));
+                    session.addMessageHandler(String.class, message -> handleIncomingMessage(message));
                 }
 
                 @Override
@@ -131,7 +138,7 @@ public class BotSocketClient {
                 try {
                     String msg = objectMapper.writeValueAsString(param);
                     session.getBasicRemote().sendText(msg);
-                    log.info("➡️ 发送消息: " + param);
+                    log.debug("➡️ 发送消息: " + msg);
                 } finally {
                     rateLimiter.release();
                 }
@@ -142,7 +149,7 @@ public class BotSocketClient {
             Thread.currentThread().interrupt();
         } catch (JsonProcessingException e) {
             log.error("转换Json出错! 参数: " + param, e);
-            throw new RuntimeException(e);
+            throw new BotException(e);
         } catch (Exception e) {
             log.error("消息发送失败: ", e);
             scheduleReconnect();
@@ -206,7 +213,7 @@ public class BotSocketClient {
                     }
 
                     // 处理普通消息
-                    log.info("处理消息: " + rawMessage);
+                    log.info("处理消息: {}", rawMessage);
                     processMessage(rawMessage);
                 } catch (Exception e) {
                     log.error("消息处理失败: ", e);
@@ -243,15 +250,31 @@ public class BotSocketClient {
         boolean isGroupMessage = rawMessage.contains("\"message_type\":\"group\"");
 
         if (isGroupMessage) {
-            // TODO: 2025/7/10 创建虚拟线程处理，此处是接收消息并处理的关键
-            Thread.ofVirtual().name("msg-processor", System.nanoTime())
-                    .start(() -> {
-                        BotSocketReqParam param = new GroupMsgSocketBuilder()
-                                .setGroupId(testProperty.getGroupId())
-                                .addMsg(new TextGroupMsg("收到了再催自杀"))
+            try {
+                GroupRecMsg msg = objectMapper.readValue(rawMessage, GroupRecMsg.class);
+                boolean isTestMsg = msg.getMessage().size() == 1 &&
+                        "text".equals(msg.getMessage().get(0).getType()) &&
+                        "叫我大哥".equals(msg.getMessage().get(0).getData().getText());
+                if (testProperty.getGroupId() == msg.getGroupId() && isTestMsg) {
+                    BotSocketReqParam param;
+                    GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(testProperty.getGroupId());
+                    if (testProperty.getAdminId().contains(msg.getSender().getUserId())) {
+                        param = builder.addMsg(new TextGroupMsg(msg.getSender().getCard() + "! 大哥! "))
+                                .addMsg(new AtGroupMsg(msg.getSender().getUserId()))
                                 .build();
-                        sendMessage(param);
-                    });
+                    } else {
+                        param = builder.addMsg(new TextGroupMsg(msg.getSender().getCard() + "! 你才不是我大哥! "))
+                                .addMsg(new AtGroupMsg(msg.getSender().getUserId()))
+                                .build();
+                    }
+
+                    Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
+                }
+
+            } catch (JsonProcessingException e) {
+                log.error("转换Json出错! 参数: " + rawMessage, e);
+                throw new BotException(e);
+            }
         }
     }
 
@@ -295,17 +318,6 @@ public class BotSocketClient {
 
         connectionMonitor.shutdownNow();
         virtualThreadExecutor.shutdown();
-    }
-
-    /**
-     * 状态访问
-     */
-    public boolean isConnected() {
-        return isConnected.get();
-    }
-
-    public long getLastHeartbeatTime() {
-        return lastHeartbeatTime.get();
     }
 
     /**

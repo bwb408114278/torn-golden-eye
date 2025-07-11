@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.base;
+package pn.torn.goldeneye.base.bot;
 
 /**
  * Bot请求参数 - Socket请求
