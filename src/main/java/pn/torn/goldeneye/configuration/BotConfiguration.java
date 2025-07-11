@@ -3,7 +3,7 @@ package pn.torn.goldeneye.configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import pn.torn.goldeneye.base.Bot;
+import pn.torn.goldeneye.base.bot.Bot;
 
 /**
  * 机器人配置类
@@ -16,13 +16,13 @@ import pn.torn.goldeneye.base.Bot;
 public class BotConfiguration {
     @Value("${bot.server.addr}")
     private String serverAddr;
-    @Value("${bot.server.port}")
-    private String serverPort;
+    @Value("${bot.server.port.http}")
+    private String serverHttpPort;
     @Value("${bot.server.token}")
     private String serverToken;
 
     @Bean
-    public Bot buildBot() {
-        return new BotImpl(serverAddr, serverPort, serverToken);
+    public Bot buildHttpBot() {
+        return new BotImpl(serverAddr, serverHttpPort, serverToken);
     }
 }

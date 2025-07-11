@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.base;
+package pn.torn.goldeneye.base.bot;
 
 import org.springframework.http.ResponseEntity;
 
@@ -13,5 +13,5 @@ public interface Bot {
     /**
      * 发送Http请求
      */
-    <T> ResponseEntity<T> sendRequest(BotReqParam param, Class<T> responseType);
+    <T> ResponseEntity<T> sendRequest(BotHttpReqParam param, Class<T> responseType);
 }

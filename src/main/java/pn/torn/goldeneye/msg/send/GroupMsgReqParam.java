@@ -1,9 +1,9 @@
-package pn.torn.goldeneye.msg;
+package pn.torn.goldeneye.msg.send;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import pn.torn.goldeneye.msg.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 
 import java.util.List;
 
@@ -11,7 +11,7 @@ import java.util.List;
  * 群聊消息请求参数
  *
  * @author Bai
- * @version 1.0
+ * @version 0.1.0
  * @since 2025.06.22
  */
 @Data

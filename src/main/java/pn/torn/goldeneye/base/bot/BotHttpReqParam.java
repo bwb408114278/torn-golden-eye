@@ -1,15 +1,15 @@
-package pn.torn.goldeneye.base;
+package pn.torn.goldeneye.base.bot;
 
 import org.springframework.http.HttpMethod;
 
 /**
- * Bot请求参数
+ * Bot请求参数 - Http请求
  *
  * @author Bai
  * @version 0.1.0
  * @since 2025.06.22
  */
-public interface BotReqParam {
+public interface BotHttpReqParam {
     /**
      * Http请求方式
      *

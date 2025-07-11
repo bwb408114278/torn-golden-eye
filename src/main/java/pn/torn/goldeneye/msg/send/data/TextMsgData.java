@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.data;
+package pn.torn.goldeneye.msg.send.data;
 
 /**
  * Text群聊数据

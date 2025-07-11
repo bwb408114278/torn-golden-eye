@@ -5,5 +5,13 @@ spring:
 bot:
   server:
     addr: 127.0.0.1
-    port: 23000
+    port:
+      http: 23000
+      socket: 23001
     token: 1qazXSW@3edc
+
+golden-eye:
+  test:
+    groupId: 782024117
+    adminId:
+      - 408114278

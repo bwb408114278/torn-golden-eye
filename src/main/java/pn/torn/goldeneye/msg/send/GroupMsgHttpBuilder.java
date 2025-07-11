@@ -1,20 +1,20 @@
-package pn.torn.goldeneye.msg;
+package pn.torn.goldeneye.msg.send;
 
 import org.springframework.http.HttpMethod;
-import pn.torn.goldeneye.base.BotReqParam;
-import pn.torn.goldeneye.msg.param.GroupMsgParam;
+import pn.torn.goldeneye.base.bot.BotHttpReqParam;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 群聊消息构建器
+ * 群聊消息构建器 - Http接口
  *
  * @author Bai
- * @version 1.0
+ * @version 0.1.0
  * @since 2025.06.22
  */
-public class GroupMsgBuilder {
+public class GroupMsgHttpBuilder {
     private static final String URI_GROUP_MSG = "/send_group_msg";
 
     /**
@@ -26,7 +26,7 @@ public class GroupMsgBuilder {
     /**
      * 设置群号
      */
-    public GroupMsgBuilder setGroupId(long groupId) {
+    public GroupMsgHttpBuilder setGroupId(long groupId) {
         this.groupId = groupId;
         return this;
     }
@@ -34,13 +34,13 @@ public class GroupMsgBuilder {
     /**
      * 添加消息
      */
-    public GroupMsgBuilder addMsg(GroupMsgParam<?> param) {
+    public GroupMsgHttpBuilder addMsg(GroupMsgParam<?> param) {
         this.paramList.add(param);
         return this;
     }
 
-    public BotReqParam build() {
-        return new BotReqParam() {
+    public BotHttpReqParam build() {
+        return new BotHttpReqParam() {
             @Override
             public HttpMethod method() {
                 return HttpMethod.POST;
