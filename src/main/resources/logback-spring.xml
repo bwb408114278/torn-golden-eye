@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty name="LOKI_URL" source="loki.url"/>
+    <springProperty name="APP_NAME" source="spring.application.name"/>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml" />
+
+    <!-- Loki 推送 Appender -->
+    <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+        <http>
+            <url>${LOKI_URL}</url>
+        </http>
+
+        <labels>
+            app = ${APP_NAME}
+        </labels>
+        <structuredMetadata>
+            level = %level
+            thread = %thread
+            class = %logger
+        </structuredMetadata>
+        <batch>
+            <staticLabels>true</staticLabels>
+        </batch>
+
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+
+        <message>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </message>
+    </appender>
+
+    <!-- 控制台输出 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 日志级别 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="LOKI"/>
+    </root>
+
+    <logger name="pn.torn.goldeneye" level="DEBUG"/>
+</configuration>

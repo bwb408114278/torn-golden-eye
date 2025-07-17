@@ -2,6 +2,9 @@ spring:
   application:
     name: golden-eye
 
+loki:
+  url: http://localhost:13131/loki/api/v1/push
+
 bot:
   server:
     addr: 127.0.0.1

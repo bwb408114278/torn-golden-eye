@@ -1,5 +1,3 @@
-version: '2'
-
 services:
   napcat:
     container_name: napcat
@@ -14,7 +12,36 @@ services:
       - ${NAPCAT_DIR}/qq/config:/app/.config/QQ
       - ${NAPCAT_DIR}/config:/app/napcat/config
       - ${NAPCAT_DIR}/logs:/app/napcat/logs
-    restart: always
+
+  loki:
+    container_name: loki
+    image: grafana/loki:3.5.2
+    ports:
+      - 13131:3100
+    volumes:
+      - ./loki/local-config.yaml:/etc/loki/local-config.yaml
+      - ${LOKI_DIR}/data/chunks:/loki/chunks
+      - ${LOKI_DIR}/data/rules:/loki/rules
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - golden-eye-net
+    restart: unless-stopped
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:12.0.2
+    ports:
+      - 13130:3000
+    env_file:
+      - .env
+    volumes:
+      - ${GRAFANA_DIR}/data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+    networks:
+      - golden-eye-net
+    restart: unless-stopped
 
   golden-eye:
     container_name: golden-eye
@@ -27,6 +54,7 @@ services:
       - golden-eye-net
     environment:
       - BOT_SERVER_ADDR=napcat
+      - LOKI_URL=http://loki:3100/loki/api/v1/push
 
 networks:
   golden-eye-net:
