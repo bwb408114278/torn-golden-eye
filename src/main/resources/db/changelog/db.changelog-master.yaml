@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - preConditions:
+      - dbms:
+          type: postgresql
+          minVersion: 17.0
+
+  - include:
+      file: db/changelog/detail/0.1.0.yaml

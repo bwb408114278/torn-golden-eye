@@ -213,7 +213,7 @@ public class BotSocketClient {
                     }
 
                     // 处理普通消息
-                    log.info("处理消息: {}", rawMessage);
+                    log.debug("处理消息: {}", rawMessage);
                     processMessage(rawMessage);
                 } catch (Exception e) {
                     log.error("消息处理失败: ", e);
@@ -241,7 +241,7 @@ public class BotSocketClient {
      */
     private void handleServerHeartbeat() {
         lastHeartbeatTime.set(System.currentTimeMillis());
-        log.info("接收到服务器心跳");
+        log.debug("接收到服务器心跳");
     }
 
     // 消息处理逻辑

@@ -1,6 +1,15 @@
 spring:
   application:
     name: golden-eye
+  datasource:
+    url: jdbc:postgresql://localhost:14321/golden-eye
+    username: postgres
+    password: 1qazXSW@
+    driver-class-name: org.postgresql.Driver
+
+loki:
+  url: http://localhost:13131/loki/api/v1/push
+
 
 bot:
   server:
