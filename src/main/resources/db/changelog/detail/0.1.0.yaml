@@ -1,0 +1,35 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_base_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: base_user
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "Torn ID"
+              - column:
+                  name: nickname
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "Torn 昵称"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

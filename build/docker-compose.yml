@@ -1,17 +1,15 @@
 services:
-  napcat:
-    container_name: napcat
-    image: mlikiowa/napcat-docker:v4.8.93
+  pgsql:
+    container_name: pgsql
+    image: postgres:17.5
     networks:
       - golden-eye-net
     ports:
-      - 16699:6099
-      - 23000:23000
-      - 23001:23001
+      - 14321:5432
     volumes:
-      - ${NAPCAT_DIR}/qq/config:/app/.config/QQ
-      - ${NAPCAT_DIR}/config:/app/napcat/config
-      - ${NAPCAT_DIR}/logs:/app/napcat/logs
+      - ${PGSQL_DIR}/data:/var/lib/postgresql/data
+      - ${PGSQL_DIR}/log:/var/log/postgresql
+    restart: always
 
   loki:
     container_name: loki
@@ -26,6 +24,20 @@ services:
     networks:
       - golden-eye-net
     restart: unless-stopped
+
+  napcat:
+    container_name: napcat
+    image: mlikiowa/napcat-docker:v4.8.93
+    networks:
+      - golden-eye-net
+    ports:
+      - 16699:6099
+      - 23000:23000
+      - 23001:23001
+    volumes:
+      - ${NAPCAT_DIR}/qq/config:/app/.config/QQ
+      - ${NAPCAT_DIR}/config:/app/napcat/config
+      - ${NAPCAT_DIR}/logs:/app/napcat/logs
 
   grafana:
     container_name: grafana
@@ -53,6 +65,7 @@ services:
     networks:
       - golden-eye-net
     environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://pgsql:5432/golden-eye
       - BOT_SERVER_ADDR=napcat
       - LOKI_URL=http://loki:3100/loki/api/v1/push
 
