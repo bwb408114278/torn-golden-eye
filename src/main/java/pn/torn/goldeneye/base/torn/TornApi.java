@@ -18,15 +18,14 @@ public interface TornApi {
      * @param responseType 响应类型
      * @return 响应数据
      */
-    <T> ResponseEntity<T> sendRequest(String uri, TornReqParam param, Class<T> responseType);
+    <T> T sendRequest(String uri, TornReqParam param, Class<T> responseType);
 
     /**
      * 发送Torn Api请求, v2版本api
      *
-     * @param uri          请求路径
      * @param param        请求参数
      * @param responseType 响应类型
      * @return 响应数据
      */
-    <T> ResponseEntity<T> sendRequest(String uri, TornReqParamV2 param, Class<T> responseType);
+    <T> T sendRequest(TornReqParamV2 param, Class<T> responseType);
 }

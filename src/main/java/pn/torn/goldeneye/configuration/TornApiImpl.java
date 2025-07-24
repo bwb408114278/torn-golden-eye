@@ -3,7 +3,6 @@ package pn.torn.goldeneye.configuration;
 import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -42,7 +41,7 @@ class TornApiImpl implements TornApi {
     }
 
     @Override
-    public <T> ResponseEntity<T> sendRequest(String uri, TornReqParam param, Class<T> responseType) {
+    public <T> T sendRequest(String uri, TornReqParam param, Class<T> responseType) {
         String uriWithParam = uri + "/" +
                 (param.getId() == null ? "" : param.getId()) +
                 "?selections=" + param.getSection() +
@@ -52,12 +51,13 @@ class TornApiImpl implements TornApi {
                 .method(HttpMethod.GET)
                 .uri(uriWithParam)
                 .retrieve()
-                .toEntity(responseType);
+                .toEntity(responseType)
+                .getBody();
     }
 
     @Override
-    public <T> ResponseEntity<T> sendRequest(String uri, TornReqParamV2 param, Class<T> responseType) {
-        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(uri);
+    public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
         MultiValueMap<String, String> paramMap = param.buildReqParam();
         if (!MapUtils.isEmpty(paramMap)) {
             uriBuilder.queryParams(paramMap);
@@ -69,7 +69,8 @@ class TornApiImpl implements TornApi {
                 .uri(finalUri)
                 .header("Authorization", "ApiKey " + getEnableKey())
                 .retrieve()
-                .toEntity(responseType);
+                .toEntity(responseType)
+                .getBody();
     }
 
     /**

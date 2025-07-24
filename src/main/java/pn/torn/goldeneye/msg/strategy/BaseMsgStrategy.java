@@ -39,11 +39,20 @@ public abstract class BaseMsgStrategy {
     public abstract void handle(String msg);
 
     /**
+     * 发送文本消息
+     *
+     * @param msg 消息内容
+     */
+    protected void sendTextMsg(String msg) {
+        GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(getGroupId());
+        BotSocketReqParam param = builder.addMsg(new TextGroupMsg(msg)).build();
+        Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> client.sendMessage(param));
+    }
+
+    /**
      * 发送错误格式的消息
      */
     protected void sendErrorFormatMsg() {
-        GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(getGroupId());
-        BotSocketReqParam param = builder.addMsg(new TextGroupMsg("参数有误")).build();
-        Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> client.sendMessage(param));
+        sendTextMsg("参数有误");
     }
 }

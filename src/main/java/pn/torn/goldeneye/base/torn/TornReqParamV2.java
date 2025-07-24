@@ -11,11 +11,11 @@ import org.springframework.util.MultiValueMap;
  */
 public interface TornReqParamV2 {
     /**
-     * 获取ID
+     * 请求路径
      *
-     * @return ID
+     * @return 绝对路径
      */
-    Long getId();
+    String uri();
 
     /**
      * 获取请求参数
