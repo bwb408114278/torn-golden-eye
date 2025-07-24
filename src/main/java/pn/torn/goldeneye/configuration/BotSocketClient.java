@@ -14,15 +14,13 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
 import pn.torn.goldeneye.base.exception.BotException;
-import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.receive.GroupRecMsg;
-import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
-import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -66,7 +64,7 @@ public class BotSocketClient {
     @Resource
     private ObjectMapper objectMapper;
     @Resource
-    private TestProperty testProperty;
+    private List<BaseMsgStrategy> msgStrategyList;
 
     public BotSocketClient() {
         // 初始化虚拟线程池
@@ -252,25 +250,18 @@ public class BotSocketClient {
         if (isGroupMessage) {
             try {
                 GroupRecMsg msg = objectMapper.readValue(rawMessage, GroupRecMsg.class);
-                boolean isTestMsg = msg.getMessage().size() == 1 &&
+                boolean isCommandMsg = msg.getMessage().size() == 1 &&
                         "text".equals(msg.getMessage().get(0).getType()) &&
-                        "叫我大哥".equals(msg.getMessage().get(0).getData().getText());
-                if (testProperty.getGroupId() == msg.getGroupId() && isTestMsg) {
-                    BotSocketReqParam param;
-                    GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(testProperty.getGroupId());
-                    if (testProperty.getAdminId().contains(msg.getSender().getUserId())) {
-                        param = builder.addMsg(new TextGroupMsg(msg.getSender().getCard() + "! 大哥! "))
-                                .addMsg(new AtGroupMsg(msg.getSender().getUserId()))
-                                .build();
-                    } else {
-                        param = builder.addMsg(new TextGroupMsg(msg.getSender().getCard() + "! 你才不是我大哥! "))
-                                .addMsg(new AtGroupMsg(msg.getSender().getUserId()))
-                                .build();
+                        msg.getMessage().get(0).getData().getText().startsWith("g# ");
+                String[] msgArray = msg.getMessage().get(0).getData().getText().split("#");
+                if (isCommandMsg && msgArray.length > 1) {
+                    for (BaseMsgStrategy strategy : msgStrategyList) {
+                        if (strategy.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
+                            strategy.handle(msgArray.length > 2 ? msgArray[2] : "");
+                            break;
+                        }
                     }
-
-                    Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
                 }
-
             } catch (JsonProcessingException e) {
                 log.error("转换Json出错! 参数: " + rawMessage, e);
                 throw new BotException(e);
