@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.base.ex.BotException;
+import pn.torn.goldeneye.base.exception.BotException;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.receive.GroupRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;

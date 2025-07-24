@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.base.ex;
+package pn.torn.goldeneye.base.exception;
 
 /**
  * 机器人异常
