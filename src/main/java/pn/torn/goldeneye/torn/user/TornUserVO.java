@@ -5,7 +5,7 @@ import lombok.Data;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.faction.TornFactionVO;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * Torn用户响应参数
@@ -28,7 +28,7 @@ public class TornUserVO {
     /**
      * 注册日期
      */
-    private LocalDate signup;
+    private LocalDateTime signup;
     /**
      * 所在帮派
      */
@@ -39,7 +39,7 @@ public class TornUserVO {
         user.setId(this.playerId);
         user.setNickname(this.name);
         user.setFactionId(this.faction == null ? 0 : this.faction.getFactionId());
-        user.setRegisterDate(this.signup);
+        user.setRegisterTime(this.signup);
         return user;
     }
 }

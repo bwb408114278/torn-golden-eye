@@ -5,7 +5,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * Torn用户表
@@ -33,5 +33,5 @@ public class TornUserDO extends BaseDO {
     /**
      * 注册日期
      */
-    private LocalDate registerDate;
+    private LocalDateTime registerTime;
 }

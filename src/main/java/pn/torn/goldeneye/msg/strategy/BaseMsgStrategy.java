@@ -1,10 +1,9 @@
 package pn.torn.goldeneye.msg.strategy;
 
-import jakarta.annotation.Resource;
-import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.configuration.BotSocketClient;
-import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+
+import java.util.List;
 
 /**
  * 基础消息策略
@@ -14,9 +13,6 @@ import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
-    @Resource
-    private BotSocketClient client;
-
     /**
      * 获取群ID
      *
@@ -35,24 +31,23 @@ public abstract class BaseMsgStrategy {
      * 处理消息
      *
      * @param msg 消息
+     * @return 需要发送的消息，为空则为不发送
      */
-    public abstract void handle(String msg);
+    public abstract List<? extends GroupMsgParam<?>> handle(String msg);
 
     /**
      * 发送文本消息
      *
      * @param msg 消息内容
      */
-    protected void sendTextMsg(String msg) {
-        GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(getGroupId());
-        BotSocketReqParam param = builder.addMsg(new TextGroupMsg(msg)).build();
-        Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> client.sendMessage(param));
+    protected List<TextGroupMsg> buildTextMsg(String msg) {
+        return List.of(new TextGroupMsg(msg));
     }
 
     /**
      * 发送错误格式的消息
      */
-    protected void sendErrorFormatMsg() {
-        sendTextMsg("参数有误");
+    protected List<TextGroupMsg> sendErrorFormatMsg() {
+        return buildTextMsg("参数有误");
     }
 }

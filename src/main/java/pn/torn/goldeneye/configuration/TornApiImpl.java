@@ -3,6 +3,7 @@ package pn.torn.goldeneye.configuration;
 import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -10,6 +11,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 /**
  * Torn Api 类
@@ -47,12 +49,13 @@ class TornApiImpl implements TornApi {
                 "?selections=" + param.getSection() +
                 "&key=" + getEnableKey();
 
-        return this.restClient
+        ResponseEntity<String> entity = this.restClient
                 .method(HttpMethod.GET)
                 .uri(uriWithParam)
                 .retrieve()
-                .toEntity(responseType)
-                .getBody();
+                .toEntity(String.class);
+
+        return handleResponse(entity, responseType);
     }
 
     @Override
@@ -64,13 +67,33 @@ class TornApiImpl implements TornApi {
         }
 
         String finalUri = uriBuilder.encode().build().toUriString();
-        return this.restClientV2
+        ResponseEntity<String> entity = this.restClientV2
                 .method(HttpMethod.GET)
                 .uri(finalUri)
                 .header("Authorization", "ApiKey " + getEnableKey())
                 .retrieve()
-                .toEntity(responseType)
-                .getBody();
+                .toEntity(String.class);
+
+        return handleResponse(entity, responseType);
+    }
+
+    /**
+     * 处理响应体
+     */
+    private <T> T handleResponse(ResponseEntity<String> entity, Class<T> responseType) {
+        try {
+            if (entity.getBody().isEmpty()) {
+                return null;
+            }
+
+            if (JsonUtils.existsNode(entity.getBody(), "error")) {
+                return null;
+            }
+
+            return JsonUtils.jsonToObj(entity.getBody(), responseType);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

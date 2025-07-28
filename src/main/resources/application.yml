@@ -16,6 +16,7 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+  type-aliases-package: pn.torn.goldeneye.repository.model
 
 bot:
   server:

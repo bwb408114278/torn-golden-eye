@@ -1,7 +1,5 @@
 package pn.torn.goldeneye.configuration;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
@@ -12,10 +10,13 @@ import org.glassfish.tyrus.client.ClientManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.base.exception.BotException;
 import pn.torn.goldeneye.msg.receive.GroupRecMsg;
+import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -61,8 +62,6 @@ public class BotSocketClient {
     private final ThreadPoolTaskExecutor virtualThreadExecutor = new ThreadPoolTaskExecutor();
     private Session session;
     // 其他
-    @Resource
-    private ObjectMapper objectMapper;
     @Resource
     private List<BaseMsgStrategy> msgStrategyList;
 
@@ -134,7 +133,7 @@ public class BotSocketClient {
         try {
             if (rateLimiter.tryAcquire(2000, TimeUnit.MILLISECONDS)) {
                 try {
-                    String msg = objectMapper.writeValueAsString(param);
+                    String msg = JsonUtils.objToJson(param);
                     session.getBasicRemote().sendText(msg);
                     log.debug("➡️ 发送消息: " + msg);
                 } finally {
@@ -145,9 +144,6 @@ public class BotSocketClient {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        } catch (JsonProcessingException e) {
-            log.error("转换Json出错! 参数: " + param, e);
-            throw new BotException(e);
         } catch (Exception e) {
             log.error("消息发送失败: ", e);
             scheduleReconnect();
@@ -242,31 +238,52 @@ public class BotSocketClient {
         log.debug("接收到服务器心跳");
     }
 
-    // 消息处理逻辑
+    /**
+     * 处理收到的消息
+     *
+     * @param rawMessage 原始消息数据
+     */
     private void processMessage(String rawMessage) {
         // 检查是否为群消息
         boolean isGroupMessage = rawMessage.contains("\"message_type\":\"group\"");
+        if (!isGroupMessage) {
+            return;
+        }
 
-        if (isGroupMessage) {
-            try {
-                GroupRecMsg msg = objectMapper.readValue(rawMessage, GroupRecMsg.class);
-                boolean isCommandMsg = msg.getMessage().size() == 1 &&
-                        "text".equals(msg.getMessage().get(0).getType()) &&
-                        msg.getMessage().get(0).getData().getText().startsWith("g# ");
-                String[] msgArray = msg.getMessage().get(0).getData().getText().split("#");
-                if (isCommandMsg && msgArray.length > 1) {
-                    for (BaseMsgStrategy strategy : msgStrategyList) {
-                        if (strategy.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
-                            strategy.handle(msgArray.length > 2 ? msgArray[2] : "");
-                            break;
-                        }
-                    }
+        GroupRecMsg msg = JsonUtils.jsonToObj(rawMessage, GroupRecMsg.class);
+        if (!isCommandMsg(msg)) {
+            return;
+        }
+
+        String[] msgArray = msg.getMessage().get(0).getData().getText().split("#");
+        if (msgArray.length < 2) {
+            return;
+        }
+
+        for (BaseMsgStrategy strategy : msgStrategyList) {
+            if (strategy.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
+                List<? extends GroupMsgParam<?>> paramList = strategy.handle(msgArray.length > 2 ? msgArray[2] : "");
+                if (!CollectionUtils.isEmpty(paramList)) {
+                    GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
+                    paramList.forEach(builder::addMsg);
+                    BotSocketReqParam param = builder.build();
+                    Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
                 }
-            } catch (JsonProcessingException e) {
-                log.error("转换Json出错! 参数: " + rawMessage, e);
-                throw new BotException(e);
+                break;
             }
         }
+    }
+
+    /**
+     * 判断是否为指令消息
+     *
+     * @param msg 群聊消息
+     * @return true为是
+     */
+    private boolean isCommandMsg(GroupRecMsg msg) {
+        return msg.getMessage().size() == 1 &&
+                "text".equals(msg.getMessage().get(0).getType()) &&
+                msg.getMessage().get(0).getData().getText().startsWith("g#");
     }
 
     /**

@@ -3,12 +3,15 @@ package pn.torn.goldeneye.msg.strategy.user;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.user.TornUserDTO;
 import pn.torn.goldeneye.torn.user.TornUserVO;
 import pn.torn.goldeneye.utils.NumberUtils;
+
+import java.util.List;
 
 /**
  * 匹配用户策略实现类
@@ -29,17 +32,15 @@ public class MatchUserStrategyImpl extends ManageMsgStrategy {
     }
 
     @Override
-    public void handle(String msg) {
+    public List<? extends GroupMsgParam<?>> handle(String msg) {
         if (!NumberUtils.isLong(msg)) {
-            super.sendErrorFormatMsg();
-            return;
+            return super.sendErrorFormatMsg();
         }
 
         Long id = Long.parseLong(msg);
         TornUserVO user = tornApi.sendRequest(new TornUserDTO(id), TornUserVO.class);
         if (user == null) {
-            super.sendTextMsg("未查询到用户");
-            return;
+            return super.buildTextMsg("未查询到用户");
         }
 
         TornUserDO oldData = userDao.getById(id);
@@ -49,6 +50,6 @@ public class MatchUserStrategyImpl extends ManageMsgStrategy {
         } else {
             userDao.updateById(newData);
         }
-        super.sendTextMsg("更新用户" + id + "成功");
+        return super.buildTextMsg("更新用户" + id + "成功");
     }
 }

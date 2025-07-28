@@ -26,11 +26,11 @@ databaseChangeLog:
                     nullable: false
                   remarks: "帮派ID"
               - column:
-                  name: register_date
-                  type: DATE
+                  name: register_time
+                  type: DATETIME
                   constraints:
                     nullable: false
-                  remarks: "注册日期"
+                  remarks: "注册时间"
               - column:
                   name: deleted
                   type: TINYINT
