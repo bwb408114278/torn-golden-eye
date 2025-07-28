@@ -4,6 +4,7 @@ import jakarta.annotation.Resource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import pn.torn.goldeneye.BaseWithoutSocketTest;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.TestProperty;
@@ -20,7 +21,7 @@ import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
  */
 @SpringBootTest
 @DisplayName("群聊消息测试")
-class GroupMsgHttpBuilderTest {
+class GroupMsgHttpBuilderTest extends BaseWithoutSocketTest {
     @Resource
     private Bot bot;
     @Resource

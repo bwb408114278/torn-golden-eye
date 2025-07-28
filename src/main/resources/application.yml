@@ -10,6 +10,13 @@ spring:
 loki:
   url: http://localhost:13131/loki/api/v1/push
 
+mybatis-plus:
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  type-aliases-package: pn.torn.goldeneye.repository.model
 
 bot:
   server:
@@ -20,6 +27,9 @@ bot:
     token: 1qazXSW@3edc
 
 golden-eye:
+  api:
+    key:
+      - abcdefg
   test:
     groupId: 782024117
     adminId:

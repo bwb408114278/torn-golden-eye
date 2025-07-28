@@ -1,9 +1,10 @@
 package pn.torn.goldeneye.configuration;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import pn.torn.goldeneye.base.bot.Bot;
+import pn.torn.goldeneye.base.torn.TornApi;
 
 /**
  * 通用配置类
@@ -14,10 +15,20 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class CommonConfiguration {
+    @Value("${bot.server.addr}")
+    private String serverAddr;
+    @Value("${bot.server.port.http}")
+    private String serverHttpPort;
+    @Value("${bot.server.token}")
+    private String serverToken;
+
     @Bean
-    public ObjectMapper objectMapper() {
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        return objectMapper;
+    public Bot buildHttpBot() {
+        return new BotImpl(serverAddr, serverHttpPort, serverToken);
+    }
+
+    @Bean
+    public TornApi buildTornApi() {
+        return new TornApiImpl();
     }
 }

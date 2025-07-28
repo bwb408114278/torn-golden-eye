@@ -12,6 +12,10 @@ import org.springframework.http.ResponseEntity;
 public interface Bot {
     /**
      * 发送Http请求
+     *
+     * @param param        HTTP请求参数
+     * @param responseType 响应类型
+     * @return 响应数据
      */
     <T> ResponseEntity<T> sendRequest(BotHttpReqParam param, Class<T> responseType);
 }
