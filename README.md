@@ -60,3 +60,7 @@ docker compose up -d golden-eye
   docker pull maven:3.9.10-amazoncorretto-21
   docker pull openjdk:21-jdk-slim
   ```
+
+> 请求Torn Api失败
+
+- 请确认是否修改了.env环境下的api key, Idea启动的话要增加环境变量配置

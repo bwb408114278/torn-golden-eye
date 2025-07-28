@@ -3,6 +3,15 @@
     <springProperty name="LOKI_URL" source="loki.url"/>
     <springProperty name="APP_NAME" source="spring.application.name"/>
     <include resource="org/springframework/boot/logging/logback/defaults.xml" />
+    <!-- 彩色日志格式 --><!-- 移除默认值覆盖，直接使用定义好的格式 -->
+    <property name="CONSOLE_LOG_PATTERN"
+              value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} [%X{Trace-ID}] %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}"/>
+    <!-- 彩色日志依赖的渲染类 -->
+    <conversionRule conversionWord="clr" class="org.springframework.boot.logging.logback.ColorConverter"/>
+    <conversionRule conversionWord="wex"
+                    class="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter"/>
+    <conversionRule conversionWord="wEx"
+                    class="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter"/>
 
     <!-- Loki 推送 Appender -->
     <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">

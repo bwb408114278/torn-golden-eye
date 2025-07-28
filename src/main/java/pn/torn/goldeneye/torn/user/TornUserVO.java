@@ -39,7 +39,7 @@ public class TornUserVO {
         user.setId(this.playerId);
         user.setNickname(this.name);
         user.setFactionId(this.faction == null ? 0 : this.faction.getFactionId());
-        user.setRegisterTime(this.signup);
+        user.setRegisterTime(this.signup.plusHours(8L));
         return user;
     }
 }

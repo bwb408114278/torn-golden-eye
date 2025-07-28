@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.configuration;
 
+import jakarta.annotation.Resource;
 import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -10,8 +11,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
+import pn.torn.goldeneye.configuration.property.TornApiProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.utils.JsonUtils;
+
+import java.util.Random;
 
 /**
  * Torn Api 类
@@ -21,6 +25,10 @@ import pn.torn.goldeneye.utils.JsonUtils;
  * @since 2025.07.22
  */
 class TornApiImpl implements TornApi {
+    @Resource
+    private TornApiProperty apiProperty;
+    private static final Random RANDOM = new Random();
+
     /**
      * Web请求
      */
@@ -102,6 +110,6 @@ class TornApiImpl implements TornApi {
      * @return Api Key
      */
     private String getEnableKey() {
-        return "";
+        return apiProperty.getKey().get(RANDOM.nextInt(apiProperty.getKey().size()));
     }
 }
