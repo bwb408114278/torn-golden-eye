@@ -5,4 +5,6 @@ databaseChangeLog:
           minVersion: 17.0
 
   - include:
-      file: db/changelog/detail/0.1.0.yaml
+      file: db/changelog/detail/user.yaml
+  - include:
+      file: db/changelog/detail/oc.yaml

@@ -31,4 +31,23 @@ public class NumberUtils {
             return false;
         }
     }
+
+    /**
+     * 判断字符串是否为整数
+     *
+     * @param str 字符串
+     * @return true为是
+     */
+    public static boolean isInt(String str) {
+        if (!StringUtils.hasText(str)) {
+            return false;
+        }
+
+        try {
+            Integer.parseInt(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
 }

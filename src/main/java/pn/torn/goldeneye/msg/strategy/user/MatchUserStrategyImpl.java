@@ -7,8 +7,8 @@ import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.user.TornUserDTO;
-import pn.torn.goldeneye.torn.user.TornUserVO;
+import pn.torn.goldeneye.torn.model.user.TornUserDTO;
+import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;

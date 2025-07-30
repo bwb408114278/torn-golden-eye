@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.faction;
+package pn.torn.goldeneye.torn.model.faction;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;

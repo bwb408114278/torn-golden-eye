@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.user;
+package pn.torn.goldeneye.torn.model.user;
 
 import lombok.Data;
 import org.springframework.util.LinkedMultiValueMap;

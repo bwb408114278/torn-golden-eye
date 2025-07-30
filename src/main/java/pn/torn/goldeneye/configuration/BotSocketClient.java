@@ -255,7 +255,7 @@ public class BotSocketClient {
             return;
         }
 
-        String[] msgArray = msg.getMessage().get(0).getData().getText().split("#");
+        String[] msgArray = msg.getMessage().get(0).getData().getText().split("#", 3);
         if (msgArray.length < 2) {
             return;
         }
