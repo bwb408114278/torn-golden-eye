@@ -20,7 +20,11 @@ public enum TornOcStatusEnum {
     /**
      * 计划中
      */
-    PLANNING("Planning");
+    PLANNING("Planning"),
+    /**
+     * 已完成
+     */
+    COMPLETED("Completed");
 
     private final String code;
 }

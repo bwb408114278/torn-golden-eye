@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -16,6 +18,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,6 +36,8 @@ public class TornFactionOcService {
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
+    private final OcNoticeService ocNoticeService;
+    private final DynamicTaskService taskService;
 
     /**
      * 更新OC数据
@@ -61,6 +66,27 @@ public class TornFactionOcService {
 
         insertOcData(newDataList);
         updateUserPassRate(ocList);
+        updateScheduleTask(allSkipList, ocList);
+    }
+
+    private void updateScheduleTask(List<TornFactionOcSkipDO> allSkipList, List<TornFactionCrimeVO> ocList) {
+        for (TornFactionCrimeVO oc : ocList) {
+            if (checkOcSkip(allSkipList, oc) || !oc.getStatus().equals(TornOcStatusEnum.PLANNING.getCode())) {
+                continue;
+            }
+
+            taskService.updateTask("oc-join-" + oc.getDifficulty(),
+                    ocNoticeService.buildNotice(oc.getDifficulty()),
+                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1)),
+                    (taskId, executed) -> {
+                        if (executed) {
+                            ocDao.lambdaUpdate()
+                                    .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
+                                    .eq(TornFactionOcDO::getId, oc.getId())
+                                    .update();
+                        }
+                    });
+        }
     }
 
     /**
