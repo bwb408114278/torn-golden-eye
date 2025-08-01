@@ -74,8 +74,8 @@ public class OcNoticeService {
             List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, oc.getId()).list();
             BotSocketReqParam param = new GroupMsgSocketBuilder()
                     .setGroupId(testProperty.getGroupId())
-                    .addMsg(new TextGroupMsg("5分钟后准备抢车位" +
-                            "\n执行时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
+                    .addMsg(new TextGroupMsg("5分钟后" + oc.getRank() + "级OC准备抢车位" +
+                            "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
                     .addMsg(buildSlotMsg(slotList))
                     .build();
             BotSocketClient socketClient = applicationContext.getBean(BotSocketClient.class);

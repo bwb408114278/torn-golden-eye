@@ -1,12 +1,16 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -19,7 +23,6 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,12 +36,14 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class TornFactionOcService {
+    private final Bot bot;
+    private final DynamicTaskService taskService;
+    private final OcNoticeService ocNoticeService;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
-    private final OcNoticeService ocNoticeService;
-    private final DynamicTaskService taskService;
+    private final TestProperty testProperty;
 
     /**
      * 更新OC数据
@@ -67,7 +72,7 @@ public class TornFactionOcService {
 
         insertOcData(newDataList);
         updateUserPassRate(ocList);
-        updateScheduleTask(allSkipList, ocList);
+        updateScheduleTask(ocDao.queryPlanningList());
     }
 
     /**
@@ -95,6 +100,7 @@ public class TornFactionOcService {
         if (oc.getReadyAt() != null) {
             ocDao.lambdaUpdate()
                     .set(TornFactionOcDO::getReadyTime, DateTimeUtils.convertToDateTime(oc.getReadyAt()))
+                    .set(TornFactionOcDO::getStatus, oc.getStatus())
                     .eq(TornFactionOcDO::getId, oc.getId())
                     .update();
         }
@@ -146,18 +152,34 @@ public class TornFactionOcService {
         }
     }
 
+    @PostConstruct
+    public void init() {
+        List<TornFactionOcDO> ocList = ocDao.queryPlanningList();
+        updateScheduleTask(ocList);
+
+        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
+                .setGroupId(testProperty.getGroupId())
+                .addMsg(new TextGroupMsg("OC轮转队加载完成"));
+        if (CollectionUtils.isEmpty(ocList)) {
+            builder.addMsg(new TextGroupMsg("\n当前没有轮转队"));
+        } else {
+            for (TornFactionOcDO oc : ocList) {
+                builder.addMsg(new TextGroupMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
+                        DateTimeUtils.convertToString(oc.getReadyTime())));
+            }
+        }
+
+        bot.sendRequest(builder.build(), String.class);
+    }
+
     /**
      * 更新定时提醒
      */
-    private void updateScheduleTask(List<TornFactionOcSkipDO> allSkipList, List<TornFactionCrimeVO> ocList) {
-        for (TornFactionCrimeVO oc : ocList) {
-            if (checkOcSkip(allSkipList, oc) || !oc.getStatus().equals(TornOcStatusEnum.PLANNING.getCode())) {
-                continue;
-            }
-
-            taskService.updateTask("oc-join-" + oc.getDifficulty(),
-                    ocNoticeService.buildNotice(oc.getDifficulty()),
-                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(-5)), null);
+    private void updateScheduleTask(List<TornFactionOcDO> ocList) {
+        for (TornFactionOcDO oc : ocList) {
+            taskService.updateTask("oc-join-" + oc.getRank(),
+                    ocNoticeService.buildNotice(oc.getRank()),
+                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
         }
     }
 
