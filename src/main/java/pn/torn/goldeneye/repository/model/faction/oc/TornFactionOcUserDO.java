@@ -29,6 +29,10 @@ public class TornFactionOcUserDO extends BaseDO {
      */
     private Integer rank;
     /**
+     * OC名称
+     */
+    private String ocName;
+    /**
      * 岗位
      */
     private String position;

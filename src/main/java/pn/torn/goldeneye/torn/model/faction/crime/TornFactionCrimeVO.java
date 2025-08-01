@@ -21,6 +21,10 @@ public class TornFactionCrimeVO {
      */
     private Long id;
     /**
+     * Name
+     */
+    private String name;
+    /**
      * 难度
      */
     private Integer difficulty;

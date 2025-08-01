@@ -20,4 +20,8 @@ public class TornConstants {
      * 基础路径
      */
     public static final String BASE_URL_V2 = "https://api.torn.com/v2";
+    /**
+     * 8级 oc chain名称
+     */
+    public static final String OC_RANK_8_CHAIN = "Stacking the Deck";
 }

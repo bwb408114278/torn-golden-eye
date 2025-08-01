@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
@@ -69,26 +70,6 @@ public class TornFactionOcService {
         updateScheduleTask(allSkipList, ocList);
     }
 
-    private void updateScheduleTask(List<TornFactionOcSkipDO> allSkipList, List<TornFactionCrimeVO> ocList) {
-        for (TornFactionCrimeVO oc : ocList) {
-            if (checkOcSkip(allSkipList, oc) || !oc.getStatus().equals(TornOcStatusEnum.PLANNING.getCode())) {
-                continue;
-            }
-
-            taskService.updateTask("oc-join-" + oc.getDifficulty(),
-                    ocNoticeService.buildNotice(oc.getDifficulty()),
-                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1)),
-                    (taskId, executed) -> {
-                        if (executed) {
-                            ocDao.lambdaUpdate()
-                                    .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
-                                    .eq(TornFactionOcDO::getId, oc.getId())
-                                    .update();
-                        }
-                    });
-        }
-    }
-
     /**
      * 插入新OC
      */
@@ -147,6 +128,7 @@ public class TornFactionOcService {
                 TornFactionOcUserDO oldData = allUserList.stream().filter(u ->
                         u.getUserId().equals(slot.getUser().getId()) &&
                                 u.getRank().equals(oc.getDifficulty()) &&
+                                u.getOcName().equals(oc.getName()) &&
                                 u.getPosition().equals(slot.getPosition())).findAny().orElse(null);
                 if (oldData != null && !oldData.getPassRate().equals(slot.getCheckpointPassRate())) {
                     userDao.lambdaUpdate()
@@ -154,7 +136,7 @@ public class TornFactionOcService {
                             .eq(TornFactionOcUserDO::getId, oldData.getId())
                             .update();
                 } else if (oldData == null) {
-                    newDataList.add(slot.convert2UserDO(oc.getDifficulty()));
+                    newDataList.add(slot.convert2UserDO(oc.getDifficulty(), oc.getName()));
                 }
             }
         }
@@ -165,12 +147,33 @@ public class TornFactionOcService {
     }
 
     /**
+     * 更新定时提醒
+     */
+    private void updateScheduleTask(List<TornFactionOcSkipDO> allSkipList, List<TornFactionCrimeVO> ocList) {
+        for (TornFactionCrimeVO oc : ocList) {
+            if (checkOcSkip(allSkipList, oc) || !oc.getStatus().equals(TornOcStatusEnum.PLANNING.getCode())) {
+                continue;
+            }
+
+            taskService.updateTask("oc-join-" + oc.getDifficulty(),
+                    ocNoticeService.buildNotice(oc.getDifficulty()),
+                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(-5)), null);
+        }
+    }
+
+    /**
      * 检测OC是否需要跳过校准
      *
      * @return true为跳过
      */
     private boolean checkOcSkip(List<TornFactionOcSkipDO> allSkipList, TornFactionCrimeVO oc) {
-        if (!oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7)) {
+        boolean notRotationRank = !oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7);
+        boolean isChainOc = oc.getDifficulty().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
+        if (notRotationRank || isChainOc) {
+            return true;
+        }
+
+        if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
             return true;
         }
 

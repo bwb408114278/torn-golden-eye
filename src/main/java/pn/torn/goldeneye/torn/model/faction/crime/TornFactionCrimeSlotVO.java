@@ -47,10 +47,11 @@ public class TornFactionCrimeSlotVO {
         return slot;
     }
 
-    public TornFactionOcUserDO convert2UserDO(int rank) {
+    public TornFactionOcUserDO convert2UserDO(int rank, String name) {
         TornFactionOcUserDO ocUser = new TornFactionOcUserDO();
         ocUser.setUserId(this.user.getId());
         ocUser.setRank(rank);
+        ocUser.setOcName(name);
         ocUser.setPosition(this.position);
         ocUser.setPassRate(this.checkpointPassRate);
         return ocUser;

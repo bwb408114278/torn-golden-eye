@@ -134,6 +134,12 @@ databaseChangeLog:
                     nullable: false
                   remarks: "级别"
               - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
                   name: position
                   type: VARCHAR(16)
                   constraints:
@@ -212,5 +218,5 @@ databaseChangeLog:
                   remarks: "更新时间"
         - addUniqueConstraint:
             tableName: torn_faction_oc_user
-            columnNames: user_id, rank, position
+            columnNames: user_id, rank, oc_name, position
             constraintName: uk_user_rate
