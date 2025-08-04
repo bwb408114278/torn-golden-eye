@@ -6,15 +6,14 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
-import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.configuration.BotSocketClient;
+import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
 import pn.torn.goldeneye.msg.send.GroupMemberReqParam;
-import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
+import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
@@ -23,10 +22,12 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 获取Oc策略实现类
@@ -37,10 +38,11 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class OcNoticeService {
+public class TornFactionOcNoticeService {
     private final ApplicationContext applicationContext;
     private final DynamicTaskService taskService;
     private final Bot bot;
+    private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TestProperty testProperty;
@@ -66,20 +68,20 @@ public class OcNoticeService {
             TornFactionOcDO oc = ocDao.lambdaQuery()
                     .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                     .eq(TornFactionOcDO::getRank, rank)
+                    .eq(TornFactionOcDO::isHasCurrent, true)
                     .one();
             if (oc == null) {
                 return;
             }
 
             List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, oc.getId()).list();
-            BotSocketReqParam param = new GroupMsgSocketBuilder()
+            BotHttpReqParam param = new GroupMsgHttpBuilder()
                     .setGroupId(testProperty.getGroupId())
                     .addMsg(new TextGroupMsg("5分钟后" + oc.getRank() + "级OC准备抢车位" +
                             "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
                     .addMsg(buildSlotMsg(slotList))
                     .build();
-            BotSocketClient socketClient = applicationContext.getBean(BotSocketClient.class);
-            socketClient.sendMessage(param);
+            bot.sendRequest(param, String.class);
             // 2分钟后更新当前OC状态，拉取新的OC
             taskService.updateTask("oc-complete-" + rank,
                     new ReloadOc(oc.getId()),
@@ -97,16 +99,31 @@ public class OcNoticeService {
 
             List<GroupMsgParam<?>> resultList = new ArrayList<>();
             for (TornFactionOcSlotDO slot : slots) {
-                String card = "[" + slot.getUserId() + "]";
-                GroupMemberDataRec member = memberList.getBody().getData().stream().filter(m ->
-                        m.getCard().contains(card)).findAny().orElse(null);
-                if (member == null) {
-                    resultList.add(new TextGroupMsg(slot.getUserId() + " "));
-                } else {
-                    resultList.add(new AtGroupMsg(member.getUserId()));
-                }
+                resultList.add(buildOcMsg(slot.getUserId(), memberList));
             }
+
+            Set<Long> freeUserIdSet = ocUserManager.findFreeUser(this.rank, slots);
+            for (Long userId : freeUserIdSet) {
+                resultList.add(buildOcMsg(userId, memberList));
+            }
+
             return resultList;
+        }
+
+        /**
+         * 构建OC提醒消息
+         *
+         * @param userId 用户ID
+         */
+        private GroupMsgParam<?> buildOcMsg(long userId, ResponseEntity<GroupMemberRec> memberList) {
+            String card = "[" + userId + "]";
+            GroupMemberDataRec member = memberList.getBody().getData().stream().filter(m ->
+                    m.getCard().contains(card)).findAny().orElse(null);
+            if (member == null) {
+                return new TextGroupMsg(userId + " ");
+            } else {
+                return new AtGroupMsg(member.getUserId());
+            }
         }
     }
 

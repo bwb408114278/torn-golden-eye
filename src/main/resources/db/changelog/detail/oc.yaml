@@ -34,6 +34,12 @@ databaseChangeLog:
                   type: BIGINT
                   remarks: "上级OC ID"
               - column:
+                  name: has_current
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  remarks: "是否当天轮转"
+              - column:
                   name: deleted
                   type: TINYINT
                   defaultValueComputed: '0'

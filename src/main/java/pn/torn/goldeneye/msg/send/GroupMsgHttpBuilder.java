@@ -5,6 +5,7 @@ import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -36,6 +37,14 @@ public class GroupMsgHttpBuilder {
      */
     public GroupMsgHttpBuilder addMsg(GroupMsgParam<?> param) {
         this.paramList.add(param);
+        return this;
+    }
+
+    /**
+     * 添加消息
+     */
+    public GroupMsgHttpBuilder addMsg(Collection<GroupMsgParam<?>> param) {
+        this.paramList.addAll(param);
         return this;
     }
 

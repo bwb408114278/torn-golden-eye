@@ -9,6 +9,7 @@ import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -38,7 +39,7 @@ import java.util.List;
 public class TornFactionOcService {
     private final Bot bot;
     private final DynamicTaskService taskService;
-    private final OcNoticeService ocNoticeService;
+    private final TornFactionOcNoticeService noticeService;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
@@ -55,22 +56,22 @@ public class TornFactionOcService {
         }
 
         List<TornFactionOcSkipDO> allSkipList = skipDao.list();
+        List<TornFactionCrimeVO> newDataList = new ArrayList<>();
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
         List<TornFactionOcDO> oldDataList = ocDao.lambdaQuery().in(TornFactionOcDO::getId, ocIdList).list();
-        List<TornFactionCrimeVO> newDataList = new ArrayList<>();
         for (TornFactionCrimeVO oc : ocList) {
-            if (checkOcSkip(allSkipList, oc)) {
+            if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
                 continue;
             }
 
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc);
+                updateOcData(oc, checkOcSkip(allSkipList, oc));
             } else {
                 newDataList.add(oc);
             }
         }
 
-        insertOcData(newDataList);
+        insertOcData(newDataList, allSkipList);
         updateUserPassRate(ocList);
         updateScheduleTask(ocDao.queryPlanningList());
     }
@@ -78,12 +79,12 @@ public class TornFactionOcService {
     /**
      * 插入新OC
      */
-    public void insertOcData(List<TornFactionCrimeVO> ocList) {
+    public void insertOcData(List<TornFactionCrimeVO> ocList, List<TornFactionOcSkipDO> allSkipList) {
         if (ocList.isEmpty()) {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(TornFactionCrimeVO::convert2DO).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkOcSkip(allSkipList, oc))).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -96,14 +97,14 @@ public class TornFactionOcService {
     /**
      * 更新OC
      */
-    public void updateOcData(TornFactionCrimeVO oc) {
-        if (oc.getReadyAt() != null) {
-            ocDao.lambdaUpdate()
-                    .set(TornFactionOcDO::getReadyTime, DateTimeUtils.convertToDateTime(oc.getReadyAt()))
-                    .set(TornFactionOcDO::getStatus, oc.getStatus())
-                    .eq(TornFactionOcDO::getId, oc.getId())
-                    .update();
-        }
+    public void updateOcData(TornFactionCrimeVO oc, boolean isCurrent) {
+        ocDao.lambdaUpdate()
+                .set(oc.getReadyAt() != null, TornFactionOcDO::getReadyTime,
+                        DateTimeUtils.convertToDateTime(oc.getReadyAt()))
+                .set(TornFactionOcDO::getStatus, oc.getStatus())
+                .set(TornFactionOcDO::isHasCurrent, isCurrent)
+                .eq(TornFactionOcDO::getId, oc.getId())
+                .update();
 
         for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
             if (slot.getUser() != null) {
@@ -178,7 +179,7 @@ public class TornFactionOcService {
     private void updateScheduleTask(List<TornFactionOcDO> ocList) {
         for (TornFactionOcDO oc : ocList) {
             taskService.updateTask("oc-join-" + oc.getRank(),
-                    ocNoticeService.buildNotice(oc.getRank()),
+                    noticeService.buildNotice(oc.getRank()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
         }
     }
@@ -191,12 +192,8 @@ public class TornFactionOcService {
     private boolean checkOcSkip(List<TornFactionOcSkipDO> allSkipList, TornFactionCrimeVO oc) {
         boolean notRotationRank = !oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7);
         boolean isChainOc = oc.getDifficulty().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (notRotationRank || isChainOc) {
-            return true;
-        }
-
-        if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
-            return true;
+        if (notRotationRank || isChainOc || !TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())) {
+            return false;
         }
 
         for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
@@ -208,10 +205,10 @@ public class TornFactionOcService {
                     p.getUserId().equals(slot.getUser().getId()) &&
                             p.getRank().equals(oc.getDifficulty()));
             if (isSkip) {
-                return true;
+                return false;
             }
         }
 
-        return false;
+        return true;
     }
 }

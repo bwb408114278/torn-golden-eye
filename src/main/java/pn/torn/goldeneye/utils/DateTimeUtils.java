@@ -29,7 +29,11 @@ public class DateTimeUtils {
     /**
      * 转换时间戳为日期时间
      */
-    public static LocalDateTime convertToDateTime(long timestamp) {
+    public static LocalDateTime convertToDateTime(Long timestamp) {
+        if (timestamp == null) {
+            return null;
+        }
+
         final boolean isSeconds = String.valueOf(timestamp).length() <= 10;
         long adjustedTimestamp = isSeconds ? timestamp * 1000 : timestamp;
         Instant instant = Instant.ofEpochMilli(adjustedTimestamp);

@@ -47,12 +47,13 @@ public class TornFactionCrimeVO {
      */
     private List<TornFactionCrimeSlotVO> slots;
 
-    public TornFactionOcDO convert2DO() {
+    public TornFactionOcDO convert2DO(boolean isCurrent) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(this.id);
         oc.setRank(this.difficulty);
         oc.setStatus(this.status);
         oc.setPreviousOcId(this.previousCrimeId);
+        oc.setHasCurrent(isCurrent);
 
         if (this.readyAt != null) {
             oc.setReadyTime(DateTimeUtils.convertToDateTime(readyAt));

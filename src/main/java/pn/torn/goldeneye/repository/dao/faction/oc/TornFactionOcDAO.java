@@ -23,6 +23,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     public List<TornFactionOcDO> queryPlanningList() {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
+                .eq(TornFactionOcDO::isHasCurrent, true)
                 .list();
     }
 }
