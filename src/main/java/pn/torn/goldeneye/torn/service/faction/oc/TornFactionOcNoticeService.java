@@ -106,7 +106,7 @@ public class TornFactionOcNoticeService {
                 resultList.add(buildOcMsg(slot.getUserId(), memberList));
             }
 
-            Set<Long> freeUserIdSet = ocUserManager.findFreeUser(this.rank);
+            Set<Long> freeUserIdSet = ocUserManager.findRotationUser(this.rank);
             for (Long userId : freeUserIdSet) {
                 resultList.add(buildOcMsg(userId, memberList));
             }

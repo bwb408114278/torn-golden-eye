@@ -24,6 +24,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,6 +73,7 @@ public class TornFactionOcService {
         }
 
         insertOcData(newDataList, allSkipList);
+        completeOcData();
         updateUserPassRate(ocList);
         updateScheduleTask(ocDao.queryPlanningList());
     }
@@ -116,6 +118,22 @@ public class TornFactionOcService {
                         .eq(TornFactionOcSlotDO::getPosition, slot.getPosition() + "#" + slot.getPositionNumber())
                         .update();
             }
+        }
+    }
+
+    /**
+     * 已执行的OC设为完成状态
+     */
+    public void completeOcData() {
+        List<TornFactionOcDO> completedList = ocDao.lambdaQuery()
+                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
+                .lt(TornFactionOcDO::getReadyTime, LocalDateTime.now())
+                .list();
+        for (TornFactionOcDO oc : completedList) {
+            ocDao.lambdaUpdate()
+                    .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
+                    .eq(TornFactionOcDO::getId, oc.getId())
+                    .update();
         }
     }
 

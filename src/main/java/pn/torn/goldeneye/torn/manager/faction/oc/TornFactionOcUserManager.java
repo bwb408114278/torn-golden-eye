@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.manager.faction.oc;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -35,24 +36,38 @@ public class TornFactionOcUserManager {
      * @param rank OC级别
      * @return 用户ID列表
      */
-    public Set<Long> findFreeUser(int rank) {
-        List<TornFactionOcUserDO> userList = ocUserDao.lambdaQuery().eq(TornFactionOcUserDO::getRank, rank).list();
+    public Set<Long> findRotationUser(int rank) {
+        List<TornFactionOcUserDO> userList = findFreeUser(rank, null);
         userList.removeIf(u -> u.getPassRate().compareTo(60) < 1);
-        Set<Long> userIdSet = userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
+        return userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
+    }
+
+    /**
+     * 查询可参加OC的替补人员
+     *
+     * @param rank OC级别
+     */
+    public List<TornFactionOcUserDO> findFreeUser(int rank, String position) {
+        List<TornFactionOcUserDO> userList = ocUserDao.lambdaQuery()
+                .eq(TornFactionOcUserDO::getRank, rank)
+                .eq(position != null, TornFactionOcUserDO::getPosition, position)
+                .orderByDesc(TornFactionOcUserDO::getPassRate)
+                .page(new Page<>(1, 10))
+                .getRecords();
 
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
         if (CollectionUtils.isEmpty(ocList)) {
-            return userIdSet;
+            return userList;
         }
         // 移除已经参加了OC的人
         List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery()
                 .in(TornFactionOcSlotDO::getOcId, ocList.stream().map(TornFactionOcDO::getId).toList())
                 .list();
         Set<Long> joinedUserSet = slotList.stream().map(TornFactionOcSlotDO::getUserId).collect(Collectors.toSet());
-        userIdSet.removeIf(joinedUserSet::contains);
+        userList.removeIf(u -> joinedUserSet.contains(u.getUserId()));
 
-        return userIdSet;
+        return userList;
     }
 }
