@@ -20,11 +20,14 @@ import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.msg.strategy.faction.crime.OcCheckStrategyImpl;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -45,6 +48,7 @@ public class TornFactionOcNoticeService {
     private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
+    private final TornUserDAO userDao;
     private final TestProperty testProperty;
 
     /**
@@ -70,7 +74,7 @@ public class TornFactionOcNoticeService {
                     .eq(TornFactionOcDO::getRank, rank)
                     .eq(TornFactionOcDO::isHasCurrent, true)
                     .one();
-            if (oc == null) {
+            if (oc == null || LocalDateTime.now().isAfter(oc.getReadyTime())) {
                 return;
             }
 
@@ -120,7 +124,8 @@ public class TornFactionOcNoticeService {
             GroupMemberDataRec member = memberList.getBody().getData().stream().filter(m ->
                     m.getCard().contains(card)).findAny().orElse(null);
             if (member == null) {
-                return new TextGroupMsg(userId + " ");
+                TornUserDO user = userDao.getById(userId);
+                return new TextGroupMsg((user == null ? userId : user.getNickname()) + " ");
             } else {
                 return new AtGroupMsg(member.getUserId());
             }
@@ -138,6 +143,7 @@ public class TornFactionOcNoticeService {
         public void run() {
             ocDao.lambdaUpdate()
                     .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
+                    .set(TornFactionOcDO::isHasCurrent, false)
                     .eq(TornFactionOcDO::getId, id)
                     .update();
 

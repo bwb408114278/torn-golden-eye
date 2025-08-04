@@ -23,6 +23,10 @@ public class TornFactionOcDO extends BaseDO {
      */
     private Long id;
     /**
+     * 名称
+     */
+    private String name;
+    /**
      * 级别
      */
     private Integer rank;

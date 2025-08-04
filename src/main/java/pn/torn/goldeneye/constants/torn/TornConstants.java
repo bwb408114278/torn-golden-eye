@@ -20,6 +20,12 @@ public class TornConstants {
      * 基础路径
      */
     public static final String BASE_URL_V2 = "https://api.torn.com/v2";
+
+    /**
+     * PN帮派ID
+     */
+    public static final long FACTION_PN_ID = 20465L;
+
     /**
      * 8级 oc chain名称
      */

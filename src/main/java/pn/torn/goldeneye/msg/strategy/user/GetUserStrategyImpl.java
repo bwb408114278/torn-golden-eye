@@ -2,6 +2,7 @@ package pn.torn.goldeneye.msg.strategy.user;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -26,7 +27,7 @@ public class GetUserStrategyImpl extends ManageMsgStrategy {
 
     @Override
     public String getCommand() {
-        return "查询用户";
+        return BotCommands.QUERY_USER;
     }
 
     @Override

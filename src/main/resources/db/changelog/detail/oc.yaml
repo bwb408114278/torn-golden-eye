@@ -14,6 +14,12 @@ databaseChangeLog:
                     nullable: false
                   remarks: "OC ID"
               - column:
+                  name: name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
                   name: rank
                   type: INT
                   constraints:

@@ -2,6 +2,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
@@ -24,7 +25,7 @@ public class CancelOcSkipStrategyImpl extends ManageMsgStrategy {
 
     @Override
     public String getCommand() {
-        return "取消OC跳过";
+        return BotCommands.CANCEL_OC_SKIP;
     }
 
     @Override

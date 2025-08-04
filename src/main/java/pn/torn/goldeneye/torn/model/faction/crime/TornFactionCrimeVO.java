@@ -50,6 +50,7 @@ public class TornFactionCrimeVO {
     public TornFactionOcDO convert2DO(boolean isCurrent) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(this.id);
+        oc.setName(this.name);
         oc.setRank(this.difficulty);
         oc.setStatus(this.status);
         oc.setPreviousOcId(this.previousCrimeId);

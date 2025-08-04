@@ -52,3 +52,11 @@ databaseChangeLog:
                   constraints:
                     nullable: false
                   remarks: "更新时间"
+
+  - changeSet:
+      id: drop_reg_time_constraint
+      author: Bai
+      changes:
+        - dropNotNullConstraint:
+            tableName: torn_user
+            columnName: register_time
