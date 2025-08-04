@@ -106,7 +106,7 @@ public class TornFactionOcNoticeService {
                 resultList.add(buildOcMsg(slot.getUserId(), memberList));
             }
 
-            Set<Long> freeUserIdSet = ocUserManager.findFreeUser(this.rank, slots);
+            Set<Long> freeUserIdSet = ocUserManager.findFreeUser(this.rank);
             for (Long userId : freeUserIdSet) {
                 resultList.add(buildOcMsg(userId, memberList));
             }
@@ -125,7 +125,9 @@ public class TornFactionOcNoticeService {
                     m.getCard().contains(card)).findAny().orElse(null);
             if (member == null) {
                 TornUserDO user = userDao.getById(userId);
-                return new TextGroupMsg((user == null ? userId : user.getNickname()) + " ");
+                return new TextGroupMsg((user == null ?
+                        userId :
+                        user.getNickname()) + card + " ");
             } else {
                 return new AtGroupMsg(member.getUserId());
             }

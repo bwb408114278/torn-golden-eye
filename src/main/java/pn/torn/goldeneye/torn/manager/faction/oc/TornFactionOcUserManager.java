@@ -35,13 +35,13 @@ public class TornFactionOcUserManager {
      * @param rank OC级别
      * @return 用户ID列表
      */
-    public Set<Long> findFreeUser(int rank, List<TornFactionOcSlotDO> planningSlotList) {
+    public Set<Long> findFreeUser(int rank) {
         List<TornFactionOcUserDO> userList = ocUserDao.lambdaQuery().eq(TornFactionOcUserDO::getRank, rank).list();
         userList.removeIf(u -> u.getPassRate().compareTo(60) < 1);
         Set<Long> userIdSet = userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
 
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
         if (CollectionUtils.isEmpty(ocList)) {
             return userIdSet;
@@ -50,8 +50,7 @@ public class TornFactionOcUserManager {
         List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery()
                 .in(TornFactionOcSlotDO::getOcId, ocList.stream().map(TornFactionOcDO::getId).toList())
                 .list();
-        Set<Long> joinedUserSet = planningSlotList.stream().map(TornFactionOcSlotDO::getUserId).collect(Collectors.toSet());
-        joinedUserSet.addAll(slotList.stream().map(TornFactionOcSlotDO::getUserId).collect(Collectors.toSet()));
+        Set<Long> joinedUserSet = slotList.stream().map(TornFactionOcSlotDO::getUserId).collect(Collectors.toSet());
         userIdSet.removeIf(joinedUserSet::contains);
 
         return userIdSet;

@@ -28,6 +28,10 @@ public class BotCommands {
      */
     public static final String OC_CHECK = "OC校准";
     /**
+     * OC查询
+     */
+    public static final String OC_QUERY = "OC查询";
+    /**
      * OC跳过
      */
     public static final String OC_SKIP = "OC跳过";
