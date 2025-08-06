@@ -5,13 +5,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
@@ -19,7 +22,9 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
+import pn.torn.goldeneye.utils.TableImageUtils;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -33,12 +38,13 @@ import java.util.Objects;
  */
 @Component
 @RequiredArgsConstructor
-public class OcQueryStrategyImpl extends ManageMsgStrategy {
+public class OcQueryStrategyImpl extends BaseMsgStrategy {
     private final TornApi tornApi;
     private final TornFactionOcService ocService;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
+    private final TornFactionOcSkipDAO skipDao;
 
     @Override
     public String getCommand() {
@@ -63,6 +69,8 @@ public class OcQueryStrategyImpl extends ManageMsgStrategy {
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getStatus, ocStatus.getCode())
                 .eq(TornFactionOcDO::getRank, Integer.parseInt(msgArray[1]))
+                .orderByAsc(TornFactionOcDO::isHasCurrent)
+                .orderByDesc(TornFactionOcDO::getReadyTime)
                 .list();
         if (CollectionUtils.isEmpty(ocList)) {
             return super.buildTextMsg("未查询到对应OC");
@@ -70,7 +78,7 @@ public class OcQueryStrategyImpl extends ManageMsgStrategy {
 
         List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
         List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().in(TornFactionOcSlotDO::getOcId, ocIdList).list();
-        return super.buildTextMsg(buildOcListMsg(ocList, slotList));
+        return super.buildImageMsg(buildOcListMsg(ocList, slotList));
     }
 
     /**
@@ -81,34 +89,72 @@ public class OcQueryStrategyImpl extends ManageMsgStrategy {
     private String buildOcListMsg(List<TornFactionOcDO> ocList, List<TornFactionOcSlotDO> slotList) {
         List<Long> userIdList = slotList.stream().map(TornFactionOcSlotDO::getUserId).filter(Objects::nonNull).toList();
         List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
+        List<TornFactionOcSkipDO> skipList = skipDao.list();
 
-        StringBuilder builder = new StringBuilder();
+        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
+        List<List<String>> tableData = new ArrayList<>();
+        int rowIndex = 0;
         for (TornFactionOcDO oc : ocList) {
-            builder.append("\nID: ").append(oc.getId());
-            if (oc.isHasCurrent()) {
-                builder.append(" 今日轮转队 ");
-            }
-            if (TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())) {
-                builder.append(" 执行时间: ").append(DateTimeUtils.convertToString(oc.getReadyTime()));
-            }
-            builder.append(" 岗位列表: ");
-
             List<TornFactionOcSlotDO> currenSlotList = slotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId()))
                     .sorted(Comparator.comparing(TornFactionOcSlotDO::getPosition))
                     .toList();
+
+            tableData.add(List.of(
+                    "ID: " + oc.getId() +
+                            "     完成时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) +
+                     "     "+getTeamFlag(oc, currenSlotList,skipList),
+                    "", "", "", "", ""));
+
+            List<String> positionRow = new ArrayList<>();
+            List<String> memberRow = new ArrayList<>();
             for (TornFactionOcSlotDO slot : currenSlotList) {
+                positionRow.add(slot.getPosition() + (slot.getPassRate() == null ? "" : " " + slot.getPassRate()));
                 TornUserDO user = slot.getUserId() == null ?
                         null :
                         userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
-                builder.append("\n").append(slot.getPosition()).append(": ")
-                        .append(user == null ?
-                                "空缺" :
-                                user.getNickname() + "[" + user.getId() + "] 成功率: " + slot.getPassRate());
+                memberRow.add(user == null ?
+                        "空缺" :
+                        user.getNickname() + "[" + user.getId() + "] ");
+            }
+
+            tableData.add(positionRow);
+            tableData.add(memberRow);
+
+            tableConfig = tableConfig
+                    .addMergedRow(rowIndex)
+                    .setRowAlignment(rowIndex + 1, TableImageUtils.TextAlignment.DISPERSED);
+            rowIndex += 3;
+        }
+
+        return TableImageUtils.renderTableToBase64(tableData, tableConfig);
+    }
+
+    /**
+     * 获取队伍标识
+     *
+     * @return 队伍标识
+     */
+    private String getTeamFlag(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
+                               List<TornFactionOcSkipDO> skipList) {
+        boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
+        boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
+        if (notRotationRank || isChainOc) {
+            return "";
+        }
+
+        for (TornFactionOcSlotDO slot : slotList) {
+            if (slot.getUserId() == null) {
+                continue;
+            }
+
+            if (skipList.stream().anyMatch(s ->
+                    s.getUserId().equals(slot.getUserId()) && s.getRank().equals(oc.getRank()))) {
+                return "咸鱼队";
             }
         }
 
-        return builder.toString().replaceFirst("\n", "");
+        return "轮转队";
     }
 
     /**

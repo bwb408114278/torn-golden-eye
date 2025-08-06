@@ -8,7 +8,7 @@ import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
@@ -26,7 +26,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class OcCheckStrategyImpl extends ManageMsgStrategy {
+public class OcCheckStrategyImpl extends BaseMsgStrategy {
     private final DynamicTaskService taskService;
     private final TornApi tornApi;
     private final TornFactionOcService ocService;

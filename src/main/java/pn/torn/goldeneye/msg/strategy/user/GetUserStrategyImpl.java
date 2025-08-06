@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -22,7 +22,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class GetUserStrategyImpl extends ManageMsgStrategy {
+public class GetUserStrategyImpl extends BaseMsgStrategy {
     private final TornUserDAO userDao;
 
     @Override

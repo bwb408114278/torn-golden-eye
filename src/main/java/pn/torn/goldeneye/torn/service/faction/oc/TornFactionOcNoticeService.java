@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.property.TestProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
@@ -49,7 +49,6 @@ public class TornFactionOcNoticeService {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
-    private final TestProperty testProperty;
 
     /**
      * 构建提醒
@@ -80,7 +79,7 @@ public class TornFactionOcNoticeService {
 
             List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, oc.getId()).list();
             BotHttpReqParam param = new GroupMsgHttpBuilder()
-                    .setGroupId(testProperty.getGroupId())
+                    .setGroupId(BotConstants.PN_GROUP_ID)
                     .addMsg(new TextGroupMsg("5分钟后" + oc.getRank() + "级OC准备抢车位" +
                             "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
                     .addMsg(buildSlotMsg(slotList))
@@ -99,7 +98,7 @@ public class TornFactionOcNoticeService {
          */
         private List<GroupMsgParam<?>> buildSlotMsg(List<TornFactionOcSlotDO> slots) {
             ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
-                    new GroupMemberReqParam(testProperty.getGroupId()), GroupMemberRec.class);
+                    new GroupMemberReqParam(BotConstants.PN_GROUP_ID), GroupMemberRec.class);
 
             List<GroupMsgParam<?>> resultList = new ArrayList<>();
             for (TornFactionOcSlotDO slot : slots) {

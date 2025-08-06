@@ -7,7 +7,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
@@ -26,7 +26,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class MatchMemberStrategyImpl extends ManageMsgStrategy {
+public class MatchMemberStrategyImpl extends BaseMsgStrategy {
     private final TornApi tornApi;
     private final TornUserDAO userDao;
 

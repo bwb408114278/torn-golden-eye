@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.user.TornUserDTO;
@@ -23,7 +23,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class MatchUserStrategyImpl extends ManageMsgStrategy {
+public class MatchUserStrategyImpl extends BaseMsgStrategy {
     private final TornApi tornApi;
     private final TornUserDAO userDao;
 

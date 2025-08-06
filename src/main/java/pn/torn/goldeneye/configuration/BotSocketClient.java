@@ -6,6 +6,7 @@ import jakarta.annotation.Resource;
 import jakarta.websocket.*;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
 import org.glassfish.tyrus.client.ClientManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -261,7 +262,7 @@ public class BotSocketClient {
         }
 
         for (BaseMsgStrategy strategy : msgStrategyList) {
-            if (strategy.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
+            if (ArrayUtils.contains(strategy.getGroupId(), msg.getGroupId()) && strategy.getCommand().equals(msgArray[1])) {
                 List<? extends GroupMsgParam<?>> paramList = strategy.handle(msgArray.length > 2 ? msgArray[2] : "");
                 if (!CollectionUtils.isEmpty(paramList)) {
                     GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());

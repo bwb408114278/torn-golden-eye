@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -20,7 +20,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class CancelOcSkipStrategyImpl extends ManageMsgStrategy {
+public class CancelOcSkipStrategyImpl extends BaseMsgStrategy {
     private final TornFactionOcSkipDAO skipDao;
 
     @Override

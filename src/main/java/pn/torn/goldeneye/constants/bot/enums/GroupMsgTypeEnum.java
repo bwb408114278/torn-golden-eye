@@ -20,7 +20,11 @@ public enum GroupMsgTypeEnum {
     /**
      * AT某人
      */
-    AT("at");
+    AT("at"),
+    /**
+     * 图片
+     */
+    IMAGE("image");
 
     private final String code;
 }
