@@ -5,9 +5,12 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 动态定时任务配置
@@ -71,17 +74,26 @@ public class DynamicTaskService {
     }
 
     /**
-     * 检查任务状态
+     * 获取排序中的任务
      *
-     * @param taskId 任务ID
-     * @return 任务状态字符串
+     * @return Key为任务名，Value为执行时间
      */
-    public String checkTaskStatus(String taskId) {
-        ScheduledFuture<?> future = scheduledTasks.get(taskId);
-        if (future == null) return "NOT_EXISTS";
-        if (future.isDone()) return "COMPLETED";
-        if (future.isCancelled()) return "CANCELLED";
-        return "SCHEDULED";
+    public Map<String, LocalDateTime> getScheduledTask() {
+        Map<String, LocalDateTime> resultMap = HashMap.newHashMap(scheduledTasks.size());
+        LocalDateTime current = LocalDateTime.now();
+        for (Map.Entry<String, ScheduledFuture<?>> entry : scheduledTasks.entrySet()) {
+            ScheduledFuture<?> future = entry.getValue();
+            if (future.isDone() || future.isCancelled()) {
+                continue;
+            }
+
+            long delayMillis = future.getDelay(TimeUnit.MILLISECONDS);
+            if (delayMillis > 0) {
+                resultMap.put(entry.getKey(), current.plusSeconds(delayMillis / 1000));
+            }
+        }
+
+        return resultMap;
     }
 
     /**

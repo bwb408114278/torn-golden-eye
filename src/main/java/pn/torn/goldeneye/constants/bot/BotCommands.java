@@ -49,4 +49,10 @@ public class BotCommands {
      * 同步成员
      */
     public static final String MATCH_MEMBER = "同步成员";
+
+    // ====================管理功能相关====================
+    /**
+     * 当前任务
+     */
+    public static final String CURRENT_TASK = "当前任务";
 }

@@ -17,15 +17,6 @@ import java.util.List;
  */
 @Data
 public class TornFactionOcDTO implements TornReqParamV2 {
-    /**
-     * 执行状态
-     */
-    private String cat;
-
-    public TornFactionOcDTO(TornOcStatusEnum status) {
-        this.cat = status.getCode();
-    }
-
     @Override
     public String uri() {
         return "/faction/crimes";
@@ -34,7 +25,7 @@ public class TornFactionOcDTO implements TornReqParamV2 {
     @Override
     public MultiValueMap<String, String> buildReqParam() {
         MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
-        param.put("cat", List.of(this.cat));
+        param.put("cat", List.of("available"));
         return param;
     }
 }

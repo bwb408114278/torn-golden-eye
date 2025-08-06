@@ -1,17 +1,12 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
-import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -38,14 +33,14 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class TornFactionOcService {
-    private final Bot bot;
     private final DynamicTaskService taskService;
     private final TornFactionOcNoticeService noticeService;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
-    private final TestProperty testProperty;
+    // 上次同步托恩api的时间
+    private static LocalDateTime lastSyncTime = LocalDateTime.now();
 
     /**
      * 更新OC数据
@@ -155,7 +150,7 @@ public class TornFactionOcService {
                                 u.getRank().equals(oc.getDifficulty()) &&
                                 u.getOcName().equals(oc.getName()) &&
                                 u.getPosition().equals(slot.getPosition())).findAny().orElse(null);
-                if (oldData != null && !oldData.getPassRate().equals(slot.getCheckpointPassRate())) {
+                if (oldData != null && oldData.getPassRate().compareTo(slot.getCheckpointPassRate()) < 0) {
                     userDao.lambdaUpdate()
                             .set(TornFactionOcUserDO::getPassRate, slot.getCheckpointPassRate())
                             .eq(TornFactionOcUserDO::getId, oldData.getId())
@@ -171,24 +166,18 @@ public class TornFactionOcService {
         }
     }
 
-    @PostConstruct
-    public void init() {
-        List<TornFactionOcDO> ocList = ocDao.queryPlanningList();
-        updateScheduleTask(ocList);
+    /**
+     * 更新上次同步时间为当前时间
+     */
+    public static void reloadLastSyncTime() {
+        lastSyncTime = LocalDateTime.now();
+    }
 
-        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextGroupMsg("OC轮转队加载完成"));
-        if (CollectionUtils.isEmpty(ocList)) {
-            builder.addMsg(new TextGroupMsg("\n当前没有轮转队"));
-        } else {
-            for (TornFactionOcDO oc : ocList) {
-                builder.addMsg(new TextGroupMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
-                        DateTimeUtils.convertToString(oc.getReadyTime())));
-            }
-        }
-
-        bot.sendRequest(builder.build(), String.class);
+    /**
+     * 获取上次同步时间
+     */
+    public static LocalDateTime getLastSyncTime() {
+        return lastSyncTime;
     }
 
     /**

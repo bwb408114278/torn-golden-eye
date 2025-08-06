@@ -3,12 +3,11 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -17,8 +16,6 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -38,9 +35,7 @@ import java.util.Objects;
  */
 @Component
 @RequiredArgsConstructor
-public class OcQueryStrategyImpl extends BaseMsgStrategy {
-    private final TornApi tornApi;
-    private final TornFactionOcService ocService;
+public class OcQueryStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
@@ -54,22 +49,15 @@ public class OcQueryStrategyImpl extends BaseMsgStrategy {
     @Override
     public List<? extends GroupMsgParam<?>> handle(String msg) {
         String[] msgArray = msg.split("#");
-        if (msgArray.length < 2 || !NumberUtils.isInt(msgArray[1])) {
+        if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();
         }
-
-        TornOcStatusEnum ocStatus = getOcStatus(msgArray[0]);
-        if (ocStatus == null) {
-            return super.sendErrorFormatMsg();
-        }
-
-        TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(ocStatus), TornFactionOcVO.class);
-        ocService.updateOc(oc.getCrimes());
 
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getStatus, ocStatus.getCode())
-                .eq(TornFactionOcDO::getRank, Integer.parseInt(msgArray[1]))
-                .orderByAsc(TornFactionOcDO::isHasCurrent)
+                .eq(TornFactionOcDO::getRank, Integer.parseInt(msgArray[0]))
+                .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
+                .orderByAsc(TornFactionOcDO::getName)
+                .orderByAsc(TornFactionOcDO::getStatus)
                 .orderByDesc(TornFactionOcDO::getReadyTime)
                 .list();
         if (CollectionUtils.isEmpty(ocList)) {
@@ -102,8 +90,9 @@ public class OcQueryStrategyImpl extends BaseMsgStrategy {
 
             tableData.add(List.of(
                     "ID: " + oc.getId() +
-                            "     完成时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) +
-                     "     "+getTeamFlag(oc, currenSlotList,skipList),
+                            "     " + oc.getStatus() +
+                            "     " + getTeamFlag(oc, currenSlotList, skipList) +
+                            "     完成时间: " + DateTimeUtils.convertToString(oc.getReadyTime()),
                     "", "", "", "", ""));
 
             List<String> positionRow = new ArrayList<>();
@@ -124,9 +113,12 @@ public class OcQueryStrategyImpl extends BaseMsgStrategy {
             tableConfig = tableConfig
                     .addMergedRow(rowIndex)
                     .setRowAlignment(rowIndex + 1, TableImageUtils.TextAlignment.DISPERSED);
-            rowIndex += 3;
+            tableData.add(List.of("", "", "", "", "", ""));
+            rowIndex += 4;
         }
 
+        tableData.add(List.of("上次更新时间: " + DateTimeUtils.convertToString(TornFactionOcService.getLastSyncTime()),
+                "", "", "", "", ""));
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 
@@ -138,9 +130,13 @@ public class OcQueryStrategyImpl extends BaseMsgStrategy {
     private String getTeamFlag(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
                                List<TornFactionOcSkipDO> skipList) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
-        boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (notRotationRank || isChainOc) {
+        if (notRotationRank) {
             return "";
+        }
+
+        boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
+        if (isChainOc) {
+            return "9级前置";
         }
 
         for (TornFactionOcSlotDO slot : slotList) {
@@ -155,18 +151,5 @@ public class OcQueryStrategyImpl extends BaseMsgStrategy {
         }
 
         return "轮转队";
-    }
-
-    /**
-     * 获取OC状态
-     *
-     * @param command 命令
-     */
-    private TornOcStatusEnum getOcStatus(String command) {
-        return switch (command.toUpperCase()) {
-            case "REC" -> TornOcStatusEnum.RECRUITING;
-            case "PLAN" -> TornOcStatusEnum.PLANNING;
-            default -> null;
-        };
     }
 }
