@@ -18,9 +18,22 @@ import java.util.List;
 @Repository
 public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFactionOcDO> {
     /**
-     * 查询计划中的OC列表
+     * 更新OC为已完成
+     *
+     * @param id OC ID
      */
-    public List<TornFactionOcDO> queryPlanningList() {
+    public void updateCompleted(long id) {
+        lambdaUpdate()
+                .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
+                .set(TornFactionOcDO::isHasCurrent, false)
+                .eq(TornFactionOcDO::getId, id)
+                .update();
+    }
+
+    /**
+     * 查询轮转队中的执行队
+     */
+    public List<TornFactionOcDO> queryRotationExecList() {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                 .eq(TornFactionOcDO::isHasCurrent, true)

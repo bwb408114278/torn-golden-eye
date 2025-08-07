@@ -54,7 +54,7 @@ public class OcCheckStrategyImpl extends BaseMsgStrategy {
     @PostConstruct
     public void init() {
         handle("");
-        List<TornFactionOcDO> ocList = ocDao.queryPlanningList();
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList();
 
         GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
                 .setGroupId(testProperty.getGroupId())
