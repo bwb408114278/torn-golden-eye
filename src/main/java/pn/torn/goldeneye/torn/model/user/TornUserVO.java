@@ -1,9 +1,10 @@
-package pn.torn.goldeneye.torn.user;
+package pn.torn.goldeneye.torn.model.user;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.faction.TornFactionVO;
+import pn.torn.goldeneye.torn.model.faction.TornFactionVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
 
@@ -39,7 +40,7 @@ public class TornUserVO {
         user.setId(this.playerId);
         user.setNickname(this.name);
         user.setFactionId(this.faction == null ? 0 : this.faction.getFactionId());
-        user.setRegisterTime(this.signup.plusHours(8L));
+        user.setRegisterTime(DateTimeUtils.convertLocalTime(this.signup));
         return user;
     }
 }

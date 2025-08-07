@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.configuration;
 
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -24,6 +25,7 @@ import java.util.Random;
  * @version 0.1.0
  * @since 2025.07.22
  */
+@Slf4j
 class TornApiImpl implements TornApi {
     @Resource
     private TornApiProperty apiProperty;
@@ -52,37 +54,47 @@ class TornApiImpl implements TornApi {
 
     @Override
     public <T> T sendRequest(String uri, TornReqParam param, Class<T> responseType) {
-        String uriWithParam = uri + "/" +
-                (param.getId() == null ? "" : param.getId()) +
-                "?selections=" + param.getSection() +
-                "&key=" + getEnableKey();
+        try {
+            String uriWithParam = uri + "/" +
+                    (param.getId() == null ? "" : param.getId()) +
+                    "?selections=" + param.getSection() +
+                    "&key=" + getEnableKey();
 
-        ResponseEntity<String> entity = this.restClient
-                .method(HttpMethod.GET)
-                .uri(uriWithParam)
-                .retrieve()
-                .toEntity(String.class);
+            ResponseEntity<String> entity = this.restClient
+                    .method(HttpMethod.GET)
+                    .uri(uriWithParam)
+                    .retrieve()
+                    .toEntity(String.class);
 
-        return handleResponse(entity, responseType);
+            return handleResponse(entity, responseType);
+        } catch (Exception e) {
+            log.error("请求Torn Api出错", e);
+            return null;
+        }
     }
 
     @Override
     public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
-        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
-        MultiValueMap<String, String> paramMap = param.buildReqParam();
-        if (!MapUtils.isEmpty(paramMap)) {
-            uriBuilder.queryParams(paramMap);
+        try {
+            UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
+            MultiValueMap<String, String> paramMap = param.buildReqParam();
+            if (!MapUtils.isEmpty(paramMap)) {
+                uriBuilder.queryParams(paramMap);
+            }
+
+            String finalUri = uriBuilder.encode().build().toUriString();
+            ResponseEntity<String> entity = this.restClientV2
+                    .method(HttpMethod.GET)
+                    .uri(finalUri)
+                    .header("Authorization", "ApiKey " + getEnableKey())
+                    .retrieve()
+                    .toEntity(String.class);
+
+            return handleResponse(entity, responseType);
+        } catch (Exception e) {
+            log.error("请求Torn Api V2出错", e);
+            return null;
         }
-
-        String finalUri = uriBuilder.encode().build().toUriString();
-        ResponseEntity<String> entity = this.restClientV2
-                .method(HttpMethod.GET)
-                .uri(finalUri)
-                .header("Authorization", "ApiKey " + getEnableKey())
-                .retrieve()
-                .toEntity(String.class);
-
-        return handleResponse(entity, responseType);
     }
 
     /**

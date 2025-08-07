@@ -40,6 +40,14 @@ public class GroupMsgSocketBuilder {
         return this;
     }
 
+    /**
+     * 添加消息
+     */
+    public GroupMsgSocketBuilder addMsg(List<GroupMsgParam<?>> param) {
+        this.paramList.addAll(param);
+        return this;
+    }
+
     public BotSocketReqParam build() {
         return new BotSocketReqParam() {
             @Override

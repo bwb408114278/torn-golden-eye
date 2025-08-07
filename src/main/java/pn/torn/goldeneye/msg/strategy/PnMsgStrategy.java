@@ -11,7 +11,7 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
  */
 public abstract class PnMsgStrategy extends BaseMsgStrategy {
     @Override
-    public long getGroupId() {
-        return BotConstants.PN_GROUP_ID;
+    public long[] getGroupId() {
+        return new long[]{super.testProperty.getGroupId(), BotConstants.PN_GROUP_ID};
     }
 }

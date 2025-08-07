@@ -1,0 +1,234 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_oc_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "OC ID"
+              - column:
+                  name: name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "级别"
+              - column:
+                  name: status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "状态"
+              - column:
+                  name: ready_time
+                  type: DATETIME
+                  remarks: "准备时间"
+              - column:
+                  name: previous_oc_id
+                  type: BIGINT
+                  remarks: "上级OC ID"
+              - column:
+                  name: has_current
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  remarks: "是否当天轮转"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_faction_oc_slot
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: oc_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "OC ID"
+              - column:
+                  name: position
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "岗位"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  remarks: "用户ID"
+              - column:
+                  name: pass_rate
+                  type: INT
+                  remarks: "成功率"
+              - column:
+                  name: join_time
+                  type: DATETIME
+                  remarks: "加入时间"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_faction_oc_user
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "级别"
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: position
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "岗位"
+              - column:
+                  name: pass_rate
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "成功率"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_faction_oc_skip
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "级别"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - addUniqueConstraint:
+            tableName: torn_faction_oc_user
+            columnNames: user_id, rank, oc_name, position
+            constraintName: uk_user_rate

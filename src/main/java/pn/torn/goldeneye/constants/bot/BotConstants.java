@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class BotConstants {
     /**
-     * 基础路径
+     * PN群号
      */
     public static final long PN_GROUP_ID = 818347578L;
 }

@@ -1,6 +1,9 @@
 package pn.torn.goldeneye.msg.strategy;
 
+import jakarta.annotation.Resource;
+import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 
 import java.util.List;
@@ -13,12 +16,17 @@ import java.util.List;
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
+    @Resource
+    protected TestProperty testProperty;
+
     /**
      * 获取群ID
      *
      * @return 群ID
      */
-    public abstract long getGroupId();
+    public long[] getGroupId() {
+        return new long[]{testProperty.getGroupId()};
+    }
 
     /**
      * 获取指令
@@ -42,6 +50,15 @@ public abstract class BaseMsgStrategy {
      */
     protected List<TextGroupMsg> buildTextMsg(String msg) {
         return List.of(new TextGroupMsg(msg));
+    }
+
+    /**
+     * 发送图片消息
+     *
+     * @param base64 图片Base64
+     */
+    protected List<ImageGroupMsg> buildImageMsg(String base64) {
+        return List.of(new ImageGroupMsg(base64));
     }
 
     /**

@@ -3,12 +3,13 @@ package pn.torn.goldeneye.msg.strategy.user;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.ManageMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.user.TornUserDTO;
-import pn.torn.goldeneye.torn.user.TornUserVO;
+import pn.torn.goldeneye.torn.model.user.TornUserDTO;
+import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;
@@ -22,13 +23,13 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class MatchUserStrategyImpl extends ManageMsgStrategy {
+public class MatchUserStrategyImpl extends BaseMsgStrategy {
     private final TornApi tornApi;
     private final TornUserDAO userDao;
 
     @Override
     public String getCommand() {
-        return "同步用户";
+        return BotCommands.MATCH_USER;
     }
 
     @Override
