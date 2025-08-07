@@ -27,9 +27,6 @@ bot:
     token: 1qazXSW@3edc
 
 golden-eye:
-  api:
-    key:
-      - abcdefg
   test:
     groupId: 782024117
     adminId:

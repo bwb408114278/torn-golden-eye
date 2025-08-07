@@ -5,7 +5,7 @@ import org.apache.ibatis.annotations.Mapper;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
 
 /**
- * 帮派物品使用就数据库访问层
+ * 帮派物品使用记录数据库访问层
  *
  * @author Bai
  * @version 0.1.0

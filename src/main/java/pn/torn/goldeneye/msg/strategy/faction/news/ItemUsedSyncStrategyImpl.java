@@ -9,7 +9,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionItemUsedDAO;
+import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsDTO;

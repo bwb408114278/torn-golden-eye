@@ -1,14 +1,15 @@
 databaseChangeLog:
   - changeSet:
-      id: create_item_use_table
+      id: create_api_table
       author: Bai
       changes:
         - createTable:
-            tableName: torn_faction_item_used
+            tableName: torn_api_key
             columns:
               - column:
                   name: id
-                  type: CHAR(20)
+                  type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -20,27 +21,27 @@ databaseChangeLog:
                     nullable: false
                   remarks: "用户ID"
               - column:
-                  name: user_nickname
-                  type: VARCHAR(64)
+                  name: api_key
+                  type: VARCHAR(32)
                   constraints:
                     nullable: false
-                  remarks: "用户昵称"
+                  remarks: "Api Key"
               - column:
-                  name: use_type
-                  type: VARCHAR(16)
+                  name: key_level
+                  type: VARCHAR(8)
                   constraints:
                     nullable: false
-                  remarks: "使用类型"
+                  remarks: "Key级别"
               - column:
-                  name: item_name
-                  type: VARCHAR(64)
+                  name: use_count
+                  type: INTEGER
                   constraints:
                     nullable: false
-                  remarks: "物品名称"
+                  remarks: "使用次数"
               - column:
-                  name: use_time
-                  type: DATETIME
-                  remarks: "使用时间"
+                  name: use_date
+                  type: DATE
+                  remarks: "使用日期"
                   constraints:
                     nullable: false
               - column:

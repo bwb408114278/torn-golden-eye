@@ -1,22 +1,27 @@
 package pn.torn.goldeneye.configuration;
 
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
-import pn.torn.goldeneye.configuration.property.TornApiProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
+import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.utils.JsonUtils;
 
-import java.util.Random;
+import java.time.LocalDate;
+import java.util.Comparator;
+import java.util.List;
+import java.util.PriorityQueue;
+import java.util.Queue;
 
 /**
  * Torn Api 类
@@ -27,9 +32,8 @@ import java.util.Random;
  */
 @Slf4j
 class TornApiImpl implements TornApi {
-    @Resource
-    private TornApiProperty apiProperty;
-    private static final Random RANDOM = new Random();
+    private final TornApiKeyDAO keyDao;
+    private static final Queue<TornApiKeyDO> KEY_QUEUE = new PriorityQueue<>(Comparator.comparingInt(TornApiKeyDO::getUseCount));
 
     /**
      * Web请求
@@ -40,7 +44,8 @@ class TornApiImpl implements TornApi {
      */
     private final RestClient restClientV2;
 
-    public TornApiImpl() {
+    public TornApiImpl(TornApiKeyDAO keyDao) {
+        this.keyDao = keyDao;
         this.restClient = RestClient.builder()
                 .baseUrl(TornConstants.BASE_URL)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
@@ -50,6 +55,15 @@ class TornApiImpl implements TornApi {
                 .baseUrl(TornConstants.BASE_URL_V2)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
+
+        List<TornApiKeyDO> keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, LocalDate.now()).list();
+        if (CollectionUtils.isEmpty(keyList)) {
+            keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, LocalDate.now().plusDays(-1)).list();
+            List<TornApiKeyDO> newList = keyList.stream().map(TornApiKeyDO::copyNewData).toList();
+            keyDao.saveBatch(newList);
+            keyList = newList;
+        }
+        KEY_QUEUE.addAll(keyList);
     }
 
     @Override
@@ -122,6 +136,14 @@ class TornApiImpl implements TornApi {
      * @return Api Key
      */
     private String getEnableKey() {
-        return apiProperty.getKey().get(RANDOM.nextInt(apiProperty.getKey().size()));
+        TornApiKeyDO key = KEY_QUEUE.poll();
+        key.setUseCount(key.getUseCount() + 1);
+        KEY_QUEUE.offer(key);
+
+        keyDao.lambdaUpdate()
+                .set(TornApiKeyDO::getUseCount, key.getUseCount())
+                .eq(TornApiKeyDO::getId, key.getId())
+                .update();
+        return key.getApiKey();
     }
 }

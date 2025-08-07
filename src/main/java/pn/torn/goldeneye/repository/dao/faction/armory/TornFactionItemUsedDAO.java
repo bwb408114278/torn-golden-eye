@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.repository.dao.faction.oc;
+package pn.torn.goldeneye.repository.dao.faction.armory;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
