@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,9 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcCompleteService;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
@@ -34,12 +38,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TornFactionOcService {
     private final DynamicTaskService taskService;
-    private final TornFactionOcNoticeService noticeService;
+    private final TornFactionOcReadyService readyService;
+    private final TornFactionOcJoinService joinService;
+    private final TornFactionOcCompleteService completeService;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
     // 上次同步托恩api的时间
+    @Getter
     private static LocalDateTime lastSyncTime = LocalDateTime.now();
 
     /**
@@ -70,7 +77,7 @@ public class TornFactionOcService {
         insertOcData(newDataList, allSkipList);
         completeOcData();
         updateUserPassRate(ocList);
-        updateScheduleTask(ocDao.queryPlanningList());
+        updateScheduleTask(ocDao.queryRotationExecList());
     }
 
     /**
@@ -125,10 +132,7 @@ public class TornFactionOcService {
                 .lt(TornFactionOcDO::getReadyTime, LocalDateTime.now())
                 .list();
         for (TornFactionOcDO oc : completedList) {
-            ocDao.lambdaUpdate()
-                    .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
-                    .eq(TornFactionOcDO::getId, oc.getId())
-                    .update();
+            ocDao.updateCompleted(oc.getId());
         }
     }
 
@@ -174,20 +178,19 @@ public class TornFactionOcService {
     }
 
     /**
-     * 获取上次同步时间
-     */
-    public static LocalDateTime getLastSyncTime() {
-        return lastSyncTime;
-    }
-
-    /**
      * 更新定时提醒
      */
     private void updateScheduleTask(List<TornFactionOcDO> ocList) {
         for (TornFactionOcDO oc : ocList) {
-            taskService.updateTask("oc-join-" + oc.getRank(),
-                    noticeService.buildNotice(oc.getRank()),
+            taskService.updateTask("oc-ready-" + oc.getRank(),
+                    readyService.buildNotice(oc.getRank()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
+            taskService.updateTask("oc-join-" + oc.getRank(),
+                    joinService.buildNotice(oc.getId()),
+                    DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
+            taskService.updateTask("oc-completed-" + oc.getRank(),
+                    completeService.buildNotice(oc.getId()),
+                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
         }
     }
 
