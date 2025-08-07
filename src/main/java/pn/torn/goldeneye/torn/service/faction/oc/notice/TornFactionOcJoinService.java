@@ -53,7 +53,7 @@ public class TornFactionOcJoinService {
 
             BotHttpReqParam param = new GroupMsgHttpBuilder()
                     .setGroupId(BotConstants.PN_GROUP_ID)
-                    .addMsg(new TextGroupMsg(oc.getRank() + "可以进了"))
+                    .addMsg(new TextGroupMsg(oc.getRank() + "可以进了\n"))
                     .addMsg(msgManager.buildSlotMsg(oc))
                     .build();
             bot.sendRequest(param, String.class);
