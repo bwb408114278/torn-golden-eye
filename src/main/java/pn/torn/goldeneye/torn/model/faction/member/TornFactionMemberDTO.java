@@ -15,7 +15,7 @@ import pn.torn.goldeneye.base.torn.TornReqParamV2;
 @Data
 public class TornFactionMemberDTO implements TornReqParamV2 {
     /**
-     * 用户ID
+     * 帮派ID
      */
     private Long id;
 

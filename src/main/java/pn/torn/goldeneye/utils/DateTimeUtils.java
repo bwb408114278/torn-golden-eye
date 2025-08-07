@@ -48,7 +48,21 @@ public class DateTimeUtils {
     }
 
     /**
-     * 转换为当前时间
+     * 转转为短时间戳
+     */
+    public static Integer convertToShortTimestamp(LocalDateTime dateTime) {
+        return Long.valueOf(convertToTimestamp(dateTime) / 1000).intValue();
+    }
+
+    /**
+     * 转转为时间戳
+     */
+    public static Long convertToTimestamp(LocalDateTime dateTime) {
+        return dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    /**
+     * 转换为当前时区
      */
     public static LocalDateTime convertLocalTime(LocalDateTime dateTime) {
         return dateTime.plusHours(8L);

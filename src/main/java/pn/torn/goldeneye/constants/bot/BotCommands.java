@@ -50,6 +50,12 @@ public class BotCommands {
      */
     public static final String MATCH_MEMBER = "同步成员";
 
+    // ====================帮派成员相关====================
+    /**
+     * 帮派物品记录
+     */
+    public static final String ITEM_USED = "帮派物品记录";
+
     // ====================管理功能相关====================
     /**
      * 当前任务
