@@ -8,3 +8,5 @@ databaseChangeLog:
       file: db/changelog/detail/user.yaml
   - include:
       file: db/changelog/detail/oc.yaml
+  - include:
+      file: db/changelog/detail/news.yaml

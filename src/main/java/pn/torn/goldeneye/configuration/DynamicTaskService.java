@@ -96,24 +96,6 @@ public class DynamicTaskService {
         return resultMap;
     }
 
-    /**
-     * 更新任务时间
-     *
-     * @param taskId  任务ID
-     * @param newTime 新的执行时间
-     * @return true-更新成功, false-任务不存在
-     */
-    public boolean updateTaskTime(String taskId, Instant newTime, TaskCallback callback) {
-        if (!scheduledTasks.containsKey(taskId)) return false;
-        cancelTask(taskId);
-
-        // 重新创建任务(复用原任务逻辑)
-        Runnable originalTask = () -> {
-        }; // 实际应用中应从上下文获取
-        updateTask(taskId, originalTask, newTime, callback);
-        return true;
-    }
-
     public interface TaskCallback {
         /**
          * 任务是否执行完毕
