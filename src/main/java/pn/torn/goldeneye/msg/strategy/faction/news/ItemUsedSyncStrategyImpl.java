@@ -2,7 +2,6 @@ package pn.torn.goldeneye.msg.strategy.faction.news;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
@@ -46,7 +45,6 @@ public class ItemUsedSyncStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public List<? extends GroupMsgParam<?>> handle(String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 2 || !NumberUtils.isInt(msgArray[0]) || !NumberUtils.isInt(msgArray[1])) {
@@ -106,7 +104,8 @@ public class ItemUsedSyncStrategyImpl extends BaseMsgStrategy {
         for (TornFactionItemUsedDO news : newsList) {
             boolean notValidType = !news.getUseType().equals("used") && !news.getUseType().equals("filled");
             boolean isOldData = oldIdList.contains(news.getId());
-            if (notValidType || isOldData) {
+            boolean isRefill = news.getItemName().contains("refill");
+            if (notValidType || isOldData || isRefill) {
                 continue;
             }
 

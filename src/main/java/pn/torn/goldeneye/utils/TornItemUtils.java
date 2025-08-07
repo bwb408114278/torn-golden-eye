@@ -21,6 +21,9 @@ public class TornItemUtils {
 
     static {
         ITEM_NAME_LIST.add("Bottle of Beer");
+        ITEM_NAME_LIST.add("Bottle of Moonshine");
+
+        ITEM_NAME_LIST.add("Can of Crocozade");
 
         ITEM_NAME_LIST.add("Small First Aid Kit");
         ITEM_NAME_LIST.add("First Aid Kit");
