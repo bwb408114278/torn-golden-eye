@@ -183,7 +183,7 @@ public class TornFactionOcService {
     private void updateScheduleTask(List<TornFactionOcDO> ocList) {
         for (TornFactionOcDO oc : ocList) {
             taskService.updateTask("oc-ready-" + oc.getRank(),
-                    readyService.buildNotice(oc.getRank()),
+                    readyService.buildNotice(oc.getId()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
             taskService.updateTask("oc-join-" + oc.getRank(),
                     joinService.buildNotice(oc.getId()),
