@@ -7,8 +7,8 @@ import lombok.NoArgsConstructor;
  * Torn常量
  *
  * @author Bai
- * @since 2025.07.22
  * @version 0.1.0
+ * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class TornConstants {
@@ -25,6 +25,11 @@ public class TornConstants {
      * PN帮派ID
      */
     public static final long FACTION_PN_ID = 20465L;
+
+    /**
+     * 配置Key - 物品使用记录读取时间
+     */
+    public static final String SETTING_KEY_ITEM_USE_LOAD = "ITEM_USED_LOAD_DATE";
 
     /**
      * 8级 oc chain名称

@@ -3,10 +3,7 @@ package pn.torn.goldeneye.utils;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -18,6 +15,19 @@ import java.time.format.DateTimeFormatter;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class DateTimeUtils {
+    private static final DateTimeFormatter DATE_FORMATTER;
+
+    static {
+        DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    }
+
+    /**
+     * 转换为字符串
+     */
+    public static String convertToString(LocalDate date) {
+        return date.format(DATE_FORMATTER);
+    }
+
     /**
      * 转换为字符串
      */
@@ -41,6 +51,13 @@ public class DateTimeUtils {
     }
 
     /**
+     * 转换字符串为日期
+     */
+    public static LocalDate convertToDate(String datetime) {
+        return LocalDate.parse(datetime, DATE_FORMATTER);
+    }
+
+    /**
      * 转换为Instant
      */
     public static Instant convertToInstant(LocalDateTime dateTime) {
@@ -51,7 +68,7 @@ public class DateTimeUtils {
      * 转转为短时间戳
      */
     public static Integer convertToShortTimestamp(LocalDateTime dateTime) {
-        return Long.valueOf(convertToTimestamp(dateTime) / 1000).intValue();
+        return Integer.valueOf(String.valueOf(convertToTimestamp(dateTime) / 1000));
     }
 
     /**
