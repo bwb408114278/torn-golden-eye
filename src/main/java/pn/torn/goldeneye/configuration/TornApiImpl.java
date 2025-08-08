@@ -9,6 +9,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
@@ -121,7 +122,7 @@ class TornApiImpl implements TornApi {
             }
 
             if (JsonUtils.existsNode(entity.getBody(), "error")) {
-                return null;
+                throw new BizException("Torn Api报错: " + entity.getBody());
             }
 
             return JsonUtils.jsonToObj(entity.getBody(), responseType);

@@ -30,4 +30,8 @@ public class TornConstants {
      * 8级 oc chain名称
      */
     public static final String OC_RANK_8_CHAIN = "Stacking the Deck";
+    /**
+     * 物品名称 - 小红
+     */
+    public static final String ITEM_NAME_SMALL_RED = "Small First Aid Kit";
 }

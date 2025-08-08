@@ -57,33 +57,36 @@ public class ItemUsedSyncStrategyImpl extends BaseMsgStrategy {
             return super.sendErrorFormatMsg();
         }
 
-        int limit = 100;
-        TornFactionNewsDTO param;
-        while (true) {
-            param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, to, limit);
-            TornFactionNewsListVO resp = tornApi.sendRequest(param, TornFactionNewsListVO.class);
-
-            List<TornFactionItemUsedDO> newsList = resp.getNews().stream().map(TornFactionNewsVO::convert2DO).toList();
-            List<TornFactionItemUsedDO> dataList = buildDataList(newsList);
-            if (!CollectionUtils.isEmpty(dataList)) {
-                Set<String> nicknameSet = dataList.stream().map(TornFactionItemUsedDO::getUserNickname).collect(Collectors.toSet());
-                Map<String, Long> nicknameMap = userDao.getNicknameMap(nicknameSet);
-                dataList.forEach(n -> n.setUserId(nicknameMap.get(n.getUserNickname())));
-                usedDao.saveBatch(dataList);
-            }
-
-            if (newsList.size() < limit) {
-                break;
-            } else {
-                to = DateTimeUtils.convertToDateTime(resp.getNews().get(limit - 1).getTimestamp());
-                try {
-                    Thread.sleep(1000L);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new BizException("同步帮派记录的等待时间出错", e);
-                }
-            }
-        }
+//        int limit = 100;
+//        TornFactionNewsDTO param;
+//        while (true) {
+//            param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, to, limit);
+//            TornFactionNewsListVO resp = tornApi.sendRequest(param, TornFactionNewsListVO.class);
+//            if (resp == null) {
+//                continue;
+//            }
+//
+//            List<TornFactionItemUsedDO> newsList = resp.getNews().stream().map(TornFactionNewsVO::convert2DO).toList();
+//            List<TornFactionItemUsedDO> dataList = buildDataList(newsList);
+//            if (!CollectionUtils.isEmpty(dataList)) {
+//                Set<String> nicknameSet = dataList.stream().map(TornFactionItemUsedDO::getUserNickname).collect(Collectors.toSet());
+//                Map<String, Long> nicknameMap = userDao.getNicknameMap(nicknameSet);
+//                dataList.forEach(n -> n.setUserId(nicknameMap.get(n.getUserNickname())));
+//                usedDao.saveBatch(dataList);
+//            }
+//
+//            if (newsList.size() < limit) {
+//                break;
+//            } else {
+//                to = DateTimeUtils.convertToDateTime(resp.getNews().get(limit - 1).getTimestamp());
+//                try {
+//                    Thread.sleep(1000L);
+//                } catch (InterruptedException e) {
+//                    Thread.currentThread().interrupt();
+//                    throw new BizException("同步帮派记录的等待时间出错", e);
+//                }
+//            }
+//        }
 
         return super.buildTextMsg("同步" +
                 DateTimeUtils.convertToString(from) +
