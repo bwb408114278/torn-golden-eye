@@ -1,6 +1,6 @@
 databaseChangeLog:
   - changeSet:
-      id: create_oc_table
+      id: create_item_use_table
       author: Bai
       changes:
         - createTable:
@@ -41,6 +41,8 @@ databaseChangeLog:
                   name: use_time
                   type: DATETIME
                   remarks: "使用时间"
+                  constraints:
+                    nullable: false
               - column:
                   name: deleted
                   type: TINYINT

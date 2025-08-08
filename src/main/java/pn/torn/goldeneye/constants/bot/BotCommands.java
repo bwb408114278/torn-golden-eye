@@ -55,6 +55,10 @@ public class BotCommands {
      * 帮派物品记录
      */
     public static final String ITEM_USED = "帮派物品记录";
+    /**
+     * 小红毁灭者
+     */
+    public static final String SMALL_RED_BROKER = "小红毁灭者";
 
     // ====================管理功能相关====================
     /**

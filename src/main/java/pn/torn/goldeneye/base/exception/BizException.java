@@ -15,6 +15,10 @@ import lombok.extern.slf4j.Slf4j;
 public class BizException extends RuntimeException {
     private final String msg;
 
+    public BizException(String msg) {
+        this.msg = msg;
+    }
+
     public BizException(String msg, Throwable cause) {
         super(cause);
         this.msg = msg;

@@ -89,7 +89,7 @@ public class DynamicTaskService {
 
             long delayMillis = future.getDelay(TimeUnit.MILLISECONDS);
             if (delayMillis > 0) {
-                resultMap.put(entry.getKey(), current.plusSeconds(delayMillis / 1000));
+                resultMap.put(entry.getKey(), current.plusSeconds(delayMillis / 1000).plusSeconds(1));
             }
         }
 

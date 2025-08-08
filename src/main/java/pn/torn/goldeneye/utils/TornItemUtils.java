@@ -3,6 +3,7 @@ package pn.torn.goldeneye.utils;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,8 +22,14 @@ public class TornItemUtils {
 
     static {
         ITEM_NAME_LIST.add("Bottle of Beer");
+        ITEM_NAME_LIST.add("Bottle of Moonshine");
 
-        ITEM_NAME_LIST.add("Small First Aid Kit");
+        ITEM_NAME_LIST.add("Can of Crocozade");
+
+        ITEM_NAME_LIST.add("Bag of Bon Bons");
+        ITEM_NAME_LIST.add("Box of Extra Strong Mints");
+
+        ITEM_NAME_LIST.add(TornConstants.ITEM_NAME_SMALL_RED);
         ITEM_NAME_LIST.add("First Aid Kit");
         ITEM_NAME_LIST.add("Morphine");
         ITEM_NAME_LIST.add("Neumune Tablet");
