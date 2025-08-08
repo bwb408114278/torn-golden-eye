@@ -1,30 +1,22 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
+import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcCompleteService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -37,150 +29,39 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class TornFactionOcService {
+    private final TornApi tornApi;
     private final DynamicTaskService taskService;
     private final TornFactionOcReadyService readyService;
     private final TornFactionOcJoinService joinService;
     private final TornFactionOcCompleteService completeService;
+    private final TornFactionOcManager ocManager;
     private final TornFactionOcDAO ocDao;
-    private final TornFactionOcSlotDAO slotDao;
-    private final TornFactionOcUserDAO userDao;
-    private final TornFactionOcSkipDAO skipDao;
-    // 上次同步托恩api的时间
-    @Getter
-    private static LocalDateTime lastSyncTime = LocalDateTime.now();
+    private final SysSettingDAO settingDao;
 
     /**
-     * 更新OC数据
+     * 刷新OC
      */
-    @Transactional(rollbackFor = Exception.class)
-    public void updateOc(List<TornFactionCrimeVO> ocList) {
-        if (CollectionUtils.isEmpty(ocList)) {
-            return;
+    public void refreshOc() {
+        TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
+        if (oc == null) {
+            taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::refreshOc,
+                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1)), null);
+        } else {
+            ocManager.updateOc(oc.getCrimes());
+            LocalDateTime execTime = LocalDateTime.now();
+            settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(execTime));
+            taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::refreshOc,
+                    DateTimeUtils.convertToInstant(execTime.plusHours(1)), null);
+
+            updateScheduleTask();
         }
-
-        List<TornFactionOcSkipDO> allSkipList = skipDao.list();
-        List<TornFactionCrimeVO> newDataList = new ArrayList<>();
-        List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
-        List<TornFactionOcDO> oldDataList = ocDao.lambdaQuery().in(TornFactionOcDO::getId, ocIdList).list();
-        for (TornFactionCrimeVO oc : ocList) {
-            if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
-                continue;
-            }
-
-            if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc, checkOcSkip(allSkipList, oc));
-            } else {
-                newDataList.add(oc);
-            }
-        }
-
-        insertOcData(newDataList, allSkipList);
-        completeOcData();
-        updateUserPassRate(ocList);
-        updateScheduleTask(ocDao.queryRotationExecList());
-    }
-
-    /**
-     * 插入新OC
-     */
-    public void insertOcData(List<TornFactionCrimeVO> ocList, List<TornFactionOcSkipDO> allSkipList) {
-        if (ocList.isEmpty()) {
-            return;
-        }
-
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkOcSkip(allSkipList, oc))).toList();
-        ocDao.saveBatch(dataList);
-
-        List<TornFactionOcSlotDO> slotList = new ArrayList<>();
-        for (TornFactionCrimeVO oc : ocList) {
-            slotList.addAll(oc.getSlots().stream().map(s -> s.convert2SlotDO(oc.getId())).toList());
-        }
-        slotDao.saveBatch(slotList);
-    }
-
-    /**
-     * 更新OC
-     */
-    public void updateOcData(TornFactionCrimeVO oc, boolean isCurrent) {
-        ocDao.lambdaUpdate()
-                .set(oc.getReadyAt() != null, TornFactionOcDO::getReadyTime,
-                        DateTimeUtils.convertToDateTime(oc.getReadyAt()))
-                .set(TornFactionOcDO::getStatus, oc.getStatus())
-                .set(TornFactionOcDO::isHasCurrent, isCurrent)
-                .eq(TornFactionOcDO::getId, oc.getId())
-                .update();
-
-        for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-            if (slot.getUser() != null) {
-                slotDao.lambdaUpdate()
-                        .set(TornFactionOcSlotDO::getUserId, slot.getUser().getId())
-                        .set(TornFactionOcSlotDO::getJoinTime, DateTimeUtils.convertToDateTime(slot.getUser().getJoinedAt()))
-                        .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
-                        .eq(TornFactionOcSlotDO::getOcId, oc.getId())
-                        .eq(TornFactionOcSlotDO::getPosition, slot.getPosition() + "#" + slot.getPositionNumber())
-                        .update();
-            }
-        }
-    }
-
-    /**
-     * 已执行的OC设为完成状态
-     */
-    public void completeOcData() {
-        List<TornFactionOcDO> completedList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
-                .lt(TornFactionOcDO::getReadyTime, LocalDateTime.now())
-                .list();
-        for (TornFactionOcDO oc : completedList) {
-            ocDao.updateCompleted(oc.getId());
-        }
-    }
-
-    /**
-     * 更新用户成功率
-     */
-    public void updateUserPassRate(List<TornFactionCrimeVO> ocList) {
-        List<TornFactionOcUserDO> allUserList = userDao.list();
-        List<TornFactionOcUserDO> newDataList = new ArrayList<>();
-
-        for (TornFactionCrimeVO oc : ocList) {
-            for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-                if (slot.getUser() == null) {
-                    continue;
-                }
-
-                TornFactionOcUserDO oldData = allUserList.stream().filter(u ->
-                        u.getUserId().equals(slot.getUser().getId()) &&
-                                u.getRank().equals(oc.getDifficulty()) &&
-                                u.getOcName().equals(oc.getName()) &&
-                                u.getPosition().equals(slot.getPosition())).findAny().orElse(null);
-                if (oldData != null && oldData.getPassRate().compareTo(slot.getCheckpointPassRate()) < 0) {
-                    userDao.lambdaUpdate()
-                            .set(TornFactionOcUserDO::getPassRate, slot.getCheckpointPassRate())
-                            .eq(TornFactionOcUserDO::getId, oldData.getId())
-                            .update();
-                } else if (oldData == null) {
-                    newDataList.add(slot.convert2UserDO(oc.getDifficulty(), oc.getName()));
-                }
-            }
-        }
-
-        if (!newDataList.isEmpty()) {
-            userDao.saveBatch(newDataList);
-        }
-    }
-
-    /**
-     * 更新上次同步时间为当前时间
-     */
-    public static void reloadLastSyncTime() {
-        lastSyncTime = LocalDateTime.now();
     }
 
     /**
      * 更新定时提醒
      */
-    private void updateScheduleTask(List<TornFactionOcDO> ocList) {
+    public void updateScheduleTask() {
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList();
         for (TornFactionOcDO oc : ocList) {
             taskService.updateTask("oc-ready-" + oc.getRank(),
                     readyService.buildNotice(oc.getId()),
@@ -189,36 +70,8 @@ public class TornFactionOcService {
                     joinService.buildNotice(oc.getId()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
             taskService.updateTask("oc-completed-" + oc.getRank(),
-                    completeService.buildNotice(oc.getId()),
+                    completeService.buildNotice(oc.getId(), this::refreshOc),
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
         }
-    }
-
-    /**
-     * 检测OC是否需要跳过校准
-     *
-     * @return true为跳过
-     */
-    private boolean checkOcSkip(List<TornFactionOcSkipDO> allSkipList, TornFactionCrimeVO oc) {
-        boolean notRotationRank = !oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7);
-        boolean isChainOc = oc.getDifficulty().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (notRotationRank || isChainOc || !TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())) {
-            return false;
-        }
-
-        for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-            if (slot.getUser() == null) {
-                continue;
-            }
-
-            boolean isSkip = allSkipList.stream().anyMatch(p ->
-                    p.getUserId().equals(slot.getUser().getId()) &&
-                            p.getRank().equals(oc.getDifficulty()));
-            if (isSkip) {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

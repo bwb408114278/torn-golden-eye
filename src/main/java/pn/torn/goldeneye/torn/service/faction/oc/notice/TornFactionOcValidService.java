@@ -2,9 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.notice;
 
 import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.msg.strategy.faction.crime.OcCheckStrategyImpl;
 
 import java.time.LocalDateTime;
 
@@ -18,7 +16,12 @@ import java.time.LocalDateTime;
 @Component
 @RequiredArgsConstructor
 public class TornFactionOcValidService {
-    private final ApplicationContext applicationContext;
+    /**
+     * 构建提醒
+     */
+    public Runnable buildNotice(LocalDateTime readyTime, Runnable refreshOc) {
+        return new Notice(readyTime, refreshOc);
+    }
 
     @AllArgsConstructor
     private class Notice implements Runnable {
@@ -26,12 +29,14 @@ public class TornFactionOcValidService {
          * 要执行的OC准备完成时间
          */
         private LocalDateTime readyTime;
+        /**
+         * 刷新OC的方式
+         */
+        private final Runnable refreshOc;
 
         @Override
         public void run() {
-            OcCheckStrategyImpl check = applicationContext.getBean(OcCheckStrategyImpl.class);
-            check.handle("");
-
+            refreshOc.run();
             if (LocalDateTime.now().isBefore(readyTime)) {
                 checkFalseStart();
             } else {

@@ -22,8 +22,8 @@ public class TornFactionOcCompleteService {
      *
      * @param id oc ID
      */
-    public Runnable buildNotice(long id) {
-        return new Notice(id);
+    public Runnable buildNotice(long id, Runnable refreshOc) {
+        return new Notice(id, refreshOc);
     }
 
     @AllArgsConstructor
@@ -32,10 +32,15 @@ public class TornFactionOcCompleteService {
          * OC级别
          */
         private final long id;
+        /**
+         * 刷新OC的方式
+         */
+        private final Runnable refreshOc;
 
         @Override
         public void run() {
             ocDao.updateCompleted(id);
+            refreshOc.run();
         }
     }
 }

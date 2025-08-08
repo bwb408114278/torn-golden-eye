@@ -11,12 +11,12 @@ import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
@@ -40,6 +40,7 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
+    private final SysSettingDAO settingDao;
 
     @Override
     public String getCommand() {
@@ -117,7 +118,8 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
             rowIndex += 4;
         }
 
-        tableData.add(List.of("上次更新时间: " + DateTimeUtils.convertToString(TornFactionOcService.getLastSyncTime()),
+        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
+        tableData.add(List.of("上次更新时间: " + lastRefreshTime,
                 "", "", "", "", ""));
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
