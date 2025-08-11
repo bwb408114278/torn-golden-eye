@@ -36,10 +36,10 @@ public class TornFactionOcUserManager {
      * @param rank OC级别
      * @return 用户ID列表
      */
-    public Set<Long> findRotationUser(int rank) {
+    public List<Long> findRotationUser(int rank) {
         List<TornFactionOcUserDO> userList = findFreeUser(rank, null);
         userList.removeIf(u -> u.getPassRate().compareTo(60) < 1);
-        return userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
+        return userList.stream().map(TornFactionOcUserDO::getUserId).toList();
     }
 
     /**
@@ -62,9 +62,7 @@ public class TornFactionOcUserManager {
             return userList;
         }
         // 移除已经参加了OC的人
-        List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery()
-                .in(TornFactionOcSlotDO::getOcId, ocList.stream().map(TornFactionOcDO::getId).toList())
-                .list();
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
         Set<Long> joinedUserSet = slotList.stream().map(TornFactionOcSlotDO::getUserId).collect(Collectors.toSet());
         userList.removeIf(u -> joinedUserSet.contains(u.getUserId()));
 

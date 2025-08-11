@@ -3,6 +3,7 @@ package pn.torn.goldeneye.utils;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.base.exception.BizException;
+import pn.torn.goldeneye.base.model.TableDataBO;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -57,6 +58,13 @@ public class TableImageUtils {
             this.font = font;
             return this;
         }
+    }
+
+    /**
+     * 默认渲染表格到Base64（不包含特殊配置）
+     */
+    public static String renderTableToBase64(TableDataBO table) {
+        return renderTableToBase64(table.getTableData(), table.getTableConfig());
     }
 
     /**

@@ -47,7 +47,7 @@ public class TornFactionOcJoinService {
             TornFactionOcDO oc = ocDao.getById(id);
             BotHttpReqParam param = new GroupMsgHttpBuilder()
                     .setGroupId(BotConstants.PN_GROUP_ID)
-                    .addMsg(new TextGroupMsg(oc.getRank() + "可以进了\n"))
+                    .addMsg(new TextGroupMsg(oc.getRank() + "级可以进了\n"))
                     .addMsg(msgManager.buildSlotMsg(oc))
                     .build();
             bot.sendRequest(param, String.class);

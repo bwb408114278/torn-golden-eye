@@ -31,6 +31,17 @@ public class DynamicTaskService {
      * @param taskId        任务唯一ID
      * @param task          要执行的任务逻辑
      * @param executionTime 任务执行时间(UTC时间)
+     */
+    public void updateTask(String taskId, Runnable task, Instant executionTime) {
+        updateTask(taskId, task, executionTime, null);
+    }
+
+    /**
+     * 创建/更新一次性定时任务
+     *
+     * @param taskId        任务唯一ID
+     * @param task          要执行的任务逻辑
+     * @param executionTime 任务执行时间(UTC时间)
      * @param callback      可选回调(执行后通知)
      */
     public void updateTask(String taskId, Runnable task, Instant executionTime, TaskCallback callback) {

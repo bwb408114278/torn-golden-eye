@@ -106,6 +106,14 @@ public class TornFactionOcManager {
                         .eq(TornFactionOcSlotDO::getOcId, oc.getId())
                         .eq(TornFactionOcSlotDO::getPosition, slot.getPosition() + "#" + slot.getPositionNumber())
                         .update();
+            } else {
+                slotDao.lambdaUpdate()
+                        .set(TornFactionOcSlotDO::getUserId, null)
+                        .set(TornFactionOcSlotDO::getJoinTime, null)
+                        .set(TornFactionOcSlotDO::getPassRate, null)
+                        .eq(TornFactionOcSlotDO::getOcId, oc.getId())
+                        .eq(TornFactionOcSlotDO::getPosition, slot.getPosition() + "#" + slot.getPositionNumber())
+                        .update();
             }
         }
     }
@@ -158,11 +166,44 @@ public class TornFactionOcManager {
     }
 
     /**
+     * 获取轮转队招募中的OC ID列表
+     */
+    public List<TornFactionOcDO> queryRotationRecruitList(TornFactionOcDO planOc) {
+        List<TornFactionOcDO> recList = ocDao.lambdaQuery()
+                .eq(TornFactionOcDO::getRank, planOc.getRank())
+                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .list();
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(recList);
+        List<Long> skipUserIdList = skipDao.lambdaQuery()
+                .eq(TornFactionOcSkipDO::getRank, planOc.getRank())
+                .list()
+                .stream().map(TornFactionOcSkipDO::getUserId)
+                .toList();
+
+        List<TornFactionOcDO> resultList = new ArrayList<>();
+        for (TornFactionOcDO oc : recList) {
+            boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
+            List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
+                    s.getOcId().equals(oc.getId())).toList();
+            boolean isSkip = currentSlotList.stream().anyMatch(s ->
+                    s.getUserId() != null && skipUserIdList.contains(s.getUserId()));
+
+            if (isChainOc || isSkip) {
+                continue;
+            }
+
+            resultList.add(oc);
+        }
+
+        return resultList;
+    }
+
+    /**
      * 检测OC是否需要跳过校准
      *
      * @return true为跳过
      */
-    private boolean checkOcSkip(List<TornFactionOcSkipDO> allSkipList, TornFactionCrimeVO oc) {
+    private boolean checkOcSkip(List<TornFactionOcSkipDO> skipList, TornFactionCrimeVO oc) {
         boolean notRotationRank = !oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7);
         boolean isChainOc = oc.getDifficulty().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
         if (notRotationRank || isChainOc || !TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())) {
@@ -174,7 +215,7 @@ public class TornFactionOcManager {
                 continue;
             }
 
-            boolean isSkip = allSkipList.stream().anyMatch(p ->
+            boolean isSkip = skipList.stream().anyMatch(p ->
                     p.getUserId().equals(slot.getUser().getId()) &&
                             p.getRank().equals(oc.getDifficulty()));
             if (isSkip) {

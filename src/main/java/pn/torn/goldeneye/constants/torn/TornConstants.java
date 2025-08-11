@@ -30,6 +30,10 @@ public class TornConstants {
      * OC重载任务ID
      */
     public static final String TASK_ID_OC_RELOAD = "oc-reload";
+    /**
+     * OC校验任务ID
+     */
+    public static final String TASK_ID_OC_VALID = "oc-valid-";
 
     /**
      * 配置Key - 物品使用记录读取时间

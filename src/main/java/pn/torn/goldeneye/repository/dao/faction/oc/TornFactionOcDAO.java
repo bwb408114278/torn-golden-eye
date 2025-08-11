@@ -2,10 +2,12 @@ package pn.torn.goldeneye.repository.dao.faction.oc;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -38,5 +40,16 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                 .eq(TornFactionOcDO::isHasCurrent, true)
                 .list();
+    }
+
+    /**
+     * 通过ID列表查询列表
+     */
+    public List<TornFactionOcDO> queryListByIdList(Collection<Long> idList) {
+        if (CollectionUtils.isEmpty(idList)) {
+            return List.of();
+        }
+
+        return lambdaQuery().in(TornFactionOcDO::getId, idList).list();
     }
 }
