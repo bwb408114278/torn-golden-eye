@@ -62,19 +62,11 @@ public class BotSocketClient {
     private final AtomicLong lastHeartbeatTime = new AtomicLong();
     // 线程管理
     private final ScheduledExecutorService connectionMonitor = Executors.newSingleThreadScheduledExecutor();
-    private final ThreadPoolTaskExecutor virtualThreadExecutor = new ThreadPoolTaskExecutor();
     private Session session;
-    // 其他
+    @Resource
+    private ThreadPoolTaskExecutor virtualThreadExecutor;
     @Resource
     private List<BaseMsgStrategy> msgStrategyList;
-
-    public BotSocketClient() {
-        // 初始化虚拟线程池
-        virtualThreadExecutor.setThreadFactory(Thread.ofVirtual().name("virtual-", 0).factory());
-        virtualThreadExecutor.setCorePoolSize(32);
-        virtualThreadExecutor.setMaxPoolSize(256);
-        virtualThreadExecutor.initialize();
-    }
 
     @PostConstruct
     public void init() {

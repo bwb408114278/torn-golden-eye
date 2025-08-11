@@ -36,10 +36,10 @@ public class TornFactionOcUserManager {
      * @param rank OC级别
      * @return 用户ID列表
      */
-    public List<Long> findRotationUser(int rank) {
+    public Set<Long> findRotationUser(int rank) {
         List<TornFactionOcUserDO> userList = findFreeUser(rank, null);
         userList.removeIf(u -> u.getPassRate().compareTo(60) < 1);
-        return userList.stream().map(TornFactionOcUserDO::getUserId).toList();
+        return userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
     }
 
     /**

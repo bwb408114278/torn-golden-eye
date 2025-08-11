@@ -23,10 +23,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * OC消息公共逻辑
@@ -127,7 +124,7 @@ public class TornFactionOcMsgManager {
      *
      * @param userIdList 用户ID列表
      */
-    public List<GroupMsgParam<?>> buildAtMsg(List<Long> userIdList) {
+    public List<GroupMsgParam<?>> buildAtMsg(Collection<Long> userIdList) {
         ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
                 new GroupMemberReqParam(BotConstants.PN_GROUP_ID), GroupMemberRec.class);
         List<GroupMsgParam<?>> resultList = new ArrayList<>();
@@ -185,6 +182,6 @@ public class TornFactionOcMsgManager {
          *
          * @return 获取其他用户
          */
-        List<Long> getOtherUser();
+        Collection<Long> getOtherUser();
     }
 }

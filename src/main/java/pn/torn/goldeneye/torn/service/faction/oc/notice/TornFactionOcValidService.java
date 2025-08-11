@@ -147,7 +147,7 @@ public class TornFactionOcValidService {
                 // 车位已满，重载任务时间
                 reloadSchedule.run();
             } else {
-                List<Long> userIdList = ocUserManager.findRotationUser(planOc.getRank());
+                Set<Long> userIdSet = ocUserManager.findRotationUser(planOc.getRank());
                 TableDataBO table = msgManager.buildOcTable(lackMap);
                 String ocTableImage = TableImageUtils.renderTableToBase64(table);
                 String noticeMsg = isLackNew ?
@@ -158,7 +158,7 @@ public class TornFactionOcValidService {
                         .setGroupId(testProperty.getGroupId())
                         .addMsg(new TextGroupMsg(noticeMsg))
                         .addMsg(new ImageGroupMsg(ocTableImage))
-                        .addMsg(msgManager.buildAtMsg(userIdList))
+                        .addMsg(msgManager.buildAtMsg(userIdSet))
                         .build();
                 bot.sendRequest(param, String.class);
             }

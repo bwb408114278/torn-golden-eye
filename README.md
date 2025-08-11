@@ -63,4 +63,4 @@ docker compose up -d golden-eye
 
 > 请求Torn Api失败
 
-- 请确认是否修改了.env环境下的api key, Idea启动的话要增加环境变量配置
+- 请确认是否在`torn_api_key`表中插入了可用的api key数据，多条数据时会根据当天最少的次数按序请求

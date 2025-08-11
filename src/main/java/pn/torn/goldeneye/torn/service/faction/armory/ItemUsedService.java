@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.faction.armory;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -42,8 +43,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Order(10002)
 public class ItemUsedService {
-    private final Bot bot;
     private final DynamicTaskService taskService;
+    private final Bot bot;
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final TornFactionItemUsedDAO usedDao;
     private final TornUserDAO userDao;
@@ -57,7 +59,7 @@ public class ItemUsedService {
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            spiderItemUseData(from, to);
+            virtualThreadExecutor.execute(() -> spiderItemUseData(from, to));
         }
 
         addScheduleTask(to);
@@ -74,8 +76,9 @@ public class ItemUsedService {
     public void spiderItemUseData(LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionNewsDTO param;
+        LocalDateTime queryTo = to;
         while (true) {
-            param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, to, limit);
+            param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
             TornFactionNewsListVO resp = tornApi.sendRequest(param, TornFactionNewsListVO.class);
             if (resp == null) {
                 continue;
@@ -93,7 +96,7 @@ public class ItemUsedService {
             if (newsList.size() < limit) {
                 break;
             } else {
-                to = DateTimeUtils.convertToDateTime(resp.getNews().get(limit - 1).getTimestamp());
+                queryTo = DateTimeUtils.convertToDateTime(resp.getNews().get(limit - 1).getTimestamp());
                 try {
                     Thread.sleep(1000L);
                 } catch (InterruptedException e) {
@@ -113,7 +116,7 @@ public class ItemUsedService {
     private void addScheduleTask(LocalDateTime to) {
         taskService.updateTask("item-use-reload",
                 () -> spiderItemUseData(to.plusSeconds(1), to.plusDays(1)),
-                DateTimeUtils.convertToInstant(to.plusDays(1).plusSeconds(1)),
+                DateTimeUtils.convertToInstant(to.plusDays(1).plusSeconds(1).plusMinutes(10L)),
                 null);
     }
 
