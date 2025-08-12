@@ -84,35 +84,18 @@ public class TornFactionOcMsgManager {
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         List<List<String>> tableData = new ArrayList<>();
         int rowIndex = 0;
+        int maxSize = ocMap.values().stream().max(Comparator.comparingInt(List::size)).orElse(List.of()).size();
+
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
             TornFactionOcDO oc = entry.getKey();
             List<TornFactionOcSlotDO> slotList = entry.getValue();
-            tableData.add(List.of(
-                    "ID: " + oc.getId() +
-                            "     " + oc.getStatus() +
-                            "     " + getTeamFlag(oc, slotList, skipList) +
-                            "     完成时间: " + DateTimeUtils.convertToString(oc.getReadyTime()),
-                    "", "", "", "", ""));
 
-            List<String> positionRow = new ArrayList<>();
-            List<String> memberRow = new ArrayList<>();
-            for (TornFactionOcSlotDO slot : slotList) {
-                positionRow.add(slot.getPosition() + (slot.getPassRate() == null ? "" : " " + slot.getPassRate()));
-                TornUserDO user = slot.getUserId() == null ?
-                        null :
-                        userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
-                memberRow.add(user == null ?
-                        "空缺" :
-                        user.getNickname() + "[" + user.getId() + "] ");
-            }
+            List<String> subTitle = buildOcSubTitle(oc, slotList, skipList, maxSize);
+            tableData.add(subTitle);
 
-            tableData.add(positionRow);
-            tableData.add(memberRow);
+            fillOcMemberSubTable(slotList, userList, tableData, maxSize);
+            tableConfig = buildSubTableStyle(tableConfig, rowIndex, maxSize);
 
-            tableConfig = tableConfig
-                    .addMerge(rowIndex, 0, 1, 6)
-                    .setCellStyle(rowIndex + 1, 0,
-                            new TableImageUtils.CellStyle().setAlignment(TableImageUtils.TextAlignment.DISPERSED));
             tableData.add(List.of("", "", "", "", "", ""));
             rowIndex += 4;
         }
@@ -144,6 +127,72 @@ public class TornFactionOcMsgManager {
             }
         }
         return resultList;
+    }
+
+    /**
+     * 构建每个OC的子标题
+     *
+     * @param maxSize 当前级别OC的最大岗位数
+     */
+    private List<String> buildOcSubTitle(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
+                                         List<TornFactionOcSkipDO> skipList, int maxSize) {
+        List<String> subTitle = new ArrayList<>();
+        subTitle.add("ID: " + oc.getId() +
+                "     " + oc.getStatus() +
+                "     " + getTeamFlag(oc, slotList, skipList) +
+                "     完成时间: " + DateTimeUtils.convertToString(oc.getReadyTime()));
+        for (int i = 1; i < maxSize; i++) {
+            subTitle.add("");
+        }
+        return subTitle;
+    }
+
+    /**
+     * 构建每个OC的成员单元格
+     *
+     * @param maxSize 当前级别OC的最大岗位数
+     */
+    private void fillOcMemberSubTable(List<TornFactionOcSlotDO> slotList, List<TornUserDO> userList,
+                                      List<List<String>> tableData, int maxSize) {
+        List<String> positionRow = new ArrayList<>();
+        List<String> memberRow = new ArrayList<>();
+        for (TornFactionOcSlotDO slot : slotList) {
+            positionRow.add(slot.getPosition().replace(" ", "") +
+                    (slot.getPassRate() == null ? "" : " " + slot.getPassRate()));
+            TornUserDO user = slot.getUserId() == null ?
+                    null :
+                    userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
+            memberRow.add(user == null ?
+                    "空缺" :
+                    user.getNickname() + "[" + user.getId() + "] ");
+        }
+
+        if (slotList.size() < maxSize) {
+            for (int i = slotList.size(); i < maxSize; i++) {
+                positionRow.add("");
+                memberRow.add("");
+            }
+        }
+
+        tableData.add(positionRow);
+        tableData.add(memberRow);
+    }
+
+    /**
+     * 构建子表的样式
+     *
+     * @param rowIndex 起始行索引
+     * @param maxSize  最大列数
+     */
+    private TableImageUtils.TableConfig buildSubTableStyle(TableImageUtils.TableConfig tableConfig,
+                                                           int rowIndex, int maxSize) {
+        TableImageUtils.CellStyle cellStyle = new TableImageUtils.CellStyle()
+                .setAlignment(TableImageUtils.TextAlignment.DISPERSED);
+        tableConfig = tableConfig.addMerge(rowIndex, 0, 1, 6);
+        for (int i = 0; i < maxSize; i++) {
+            tableConfig = tableConfig.setCellStyle(rowIndex + 1, i, cellStyle);
+        }
+        return tableConfig;
     }
 
     /**

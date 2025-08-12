@@ -18,7 +18,7 @@ import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -70,7 +70,7 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
      * @return 消息内容
      */
     private String buildOcListMsg(List<TornFactionOcDO> ocList, List<TornFactionOcSlotDO> slotList) {
-        Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = HashMap.newHashMap(ocList.size());
+        Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
         for (TornFactionOcDO oc : ocList) {
             List<TornFactionOcSlotDO> currentSlotList = slotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId())).toList();
