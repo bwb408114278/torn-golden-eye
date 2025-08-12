@@ -14,6 +14,7 @@ import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -82,12 +83,12 @@ public class TornFactionOcValidService {
             if (LocalDateTime.now().isBefore(planOc.getReadyTime())) {
                 checkFalseStart(planOc, recList);
                 taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                        () -> new Notice(planId, refreshOc, reloadSchedule),
+                        buildNotice(planId, refreshOc, reloadSchedule),
                         DateTimeUtils.convertToInstant(LocalDateTime.now().plusSeconds(10L)));
             } else {
                 checkPositionFull(planOc, recList);
                 taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                        () -> new Notice(planId, refreshOc, reloadSchedule),
+                        buildNotice(planId, refreshOc, reloadSchedule),
                         DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
             }
         }
@@ -109,12 +110,20 @@ public class TornFactionOcValidService {
             }
 
             if (!CollectionUtils.isEmpty(falseStartList)) {
-                BotHttpReqParam param = new GroupMsgHttpBuilder()
+                GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
                         .setGroupId(testProperty.getGroupId())
-                        .addMsg(new TextGroupMsg("抢跑啦! 踢掉词条要添新素材啦\n"))
-                        .addMsg(msgManager.buildSlotMsg(falseStartList, null))
-                        .build();
-                bot.sendRequest(param, String.class);
+                        .addMsg(new TextGroupMsg("抢跑啦! 踢掉词条要添新素材啦, 加入时间为 + " +
+                                DateTimeUtils.convertToString(planOc.getReadyTime()) + "\n"));
+                List<GroupMsgParam<?>> paramList = new ArrayList<>();
+                for (int i = 0; i < falseStartList.size(); i++) {
+                    TornFactionOcSlotDO slot = falseStartList.get(i);
+                    paramList.addAll(msgManager.buildSlotMsg(List.of(slot), null));
+                    paramList.add(new TextGroupMsg(String.format(" 加入时间为 %s%s",
+                            DateTimeUtils.convertToString(slot.getJoinTime()),
+                            i + 1 == falseStartList.size() ? "" : "\n")));
+                }
+
+                bot.sendRequest(builder.addMsg(paramList).build(), String.class);
             }
         }
 

@@ -78,7 +78,7 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
                 "", "", "", ""));
 
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-        tableConfig.addMergedRow(21);
+        tableConfig.addMerge(21, 0, 1, 5);
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 }

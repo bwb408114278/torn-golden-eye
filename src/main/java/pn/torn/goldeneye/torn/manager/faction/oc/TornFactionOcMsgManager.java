@@ -110,8 +110,9 @@ public class TornFactionOcMsgManager {
             tableData.add(memberRow);
 
             tableConfig = tableConfig
-                    .addMergedRow(rowIndex)
-                    .setRowAlignment(rowIndex + 1, TableImageUtils.TextAlignment.DISPERSED);
+                    .addMerge(rowIndex, 0, 1, 6)
+                    .setCellStyle(rowIndex + 1, 0,
+                            new TableImageUtils.CellStyle().setAlignment(TableImageUtils.TextAlignment.DISPERSED));
             tableData.add(List.of("", "", "", "", "", ""));
             rowIndex += 4;
         }

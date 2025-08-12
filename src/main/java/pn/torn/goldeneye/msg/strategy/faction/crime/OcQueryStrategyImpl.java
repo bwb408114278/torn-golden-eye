@@ -82,6 +82,7 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
         String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
                 "", "", "", "", ""));
+        table.getTableConfig().addMerge(ocList.size() * 4, 0, 1, 6);
         return TableImageUtils.renderTableToBase64(table);
     }
 }
