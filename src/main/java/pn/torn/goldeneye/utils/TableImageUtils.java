@@ -59,6 +59,7 @@ public class TableImageUtils {
         private Color bgColor;
         private TextAlignment alignment = TextAlignment.CENTER;
         private int padding = 10;
+        private int lineSpacing = 20;
 
         public CellStyle setFont(Font font) {
             this.font = font;
@@ -82,6 +83,11 @@ public class TableImageUtils {
 
         public CellStyle setPadding(int padding) {
             this.padding = padding;
+            return this;
+        }
+
+        public CellStyle setLineSpacing(int spacing) {
+            this.lineSpacing = spacing;
             return this;
         }
     }
@@ -163,8 +169,13 @@ public class TableImageUtils {
 
         // 1. 计算行高（考虑合并单元格和自定义样式）
         int[] rowHeights = new int[rows];
+        Arrays.fill(rowHeights, config.defaultCellHeight);
+
+        // 创建一个数组来记录每行所需的最小高度
+        int[] minRowHeights = new int[rows];
+        Arrays.fill(minRowHeights, 0);
+
         for (int r = 0; r < rows; r++) {
-            rowHeights[r] = config.defaultCellHeight;
             for (int c = 0; c < cols; c++) {
                 // 跳过被合并的单元格
                 if (isCellMergedFromLeft(config, r, c) || isCellMergedFromAbove(config, r, c)) {
@@ -181,14 +192,45 @@ public class TableImageUtils {
 
                 // 计算内容所需高度
                 String text = tableData.get(r).get(c);
-                int textHeight = metrics.getHeight();
+                int lineCount = countLines(text);
+                int lineHeight = metrics.getHeight();
+                int lineSpacing = (style != null) ? style.lineSpacing : 4;
                 int padding = (style != null) ? style.padding : 10;
+
+                // 计算多行文本高度（包括行间距）
+                int textHeight = lineHeight * lineCount + lineSpacing * (lineCount - 1);
                 int requiredHeight = textHeight + 2 * padding;
 
-                // 更新行高（取最大值）
-                if (requiredHeight > rowHeights[r]) {
-                    rowHeights[r] = requiredHeight;
+                // 获取单元格合并信息
+                CellMerge merge = getCellMerge(config, r, c);
+                int rowSpan = merge.getRowSpan();
+
+                if (rowSpan == 1) {
+                    // 单行单元格：直接更新当前行高度
+                    if (requiredHeight > minRowHeights[r]) {
+                        minRowHeights[r] = requiredHeight;
+                    }
+                } else {
+                    // 合并单元格：计算每行所需的最小高度
+                    int minHeightPerRow = (int) Math.ceil((double) requiredHeight / rowSpan);
+
+                    // 更新所有跨越行的最小高度
+                    for (int i = 0; i < rowSpan; i++) {
+                        int rowIndex = r + i;
+                        if (rowIndex < rows) {
+                            if (minHeightPerRow > minRowHeights[rowIndex]) {
+                                minRowHeights[rowIndex] = minHeightPerRow;
+                            }
+                        }
+                    }
                 }
+            }
+        }
+
+        // 应用最小行高要求
+        for (int r = 0; r < rows; r++) {
+            if (minRowHeights[r] > rowHeights[r]) {
+                rowHeights[r] = minRowHeights[r];
             }
         }
 
@@ -211,8 +253,16 @@ public class TableImageUtils {
                 tempG.dispose();
 
                 String text = tableData.get(r).get(c);
-                int textWidth = metrics.stringWidth(text);
-                int requiredWidth = textWidth + 2 * padding;
+                int maxLineWidth = 0;
+                String[] lines = text.split("\n");
+                for (String line : lines) {
+                    int lineWidth = metrics.stringWidth(line);
+                    if (lineWidth > maxLineWidth) {
+                        maxLineWidth = lineWidth;
+                    }
+                }
+
+                int requiredWidth = maxLineWidth + 2 * padding;
 
                 // 获取单元格合并信息
                 CellMerge merge = getCellMerge(config, r, c);
@@ -252,6 +302,18 @@ public class TableImageUtils {
         g.setFont(config.defaultFont);
         g.setColor(Color.WHITE);
         g.fillRect(0, 0, width, height);
+    }
+
+    /**
+     * 计算文本中的换行符数量
+     */
+    private static int countLines(String text) {
+        if (text == null || text.isEmpty()) return 1;
+        int count = 1;
+        for (char c : text.toCharArray()) {
+            if (c == '\n') count++;
+        }
+        return count;
     }
 
     /**
@@ -339,48 +401,61 @@ public class TableImageUtils {
                                         TableConfig config, CellStyle style) {
         if (text == null || text.isEmpty()) return;
 
-        // 应用单元格样式
         Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
         Color textColor = (style != null) ? style.textColor : Color.BLACK;
         int padding = (style != null) ? style.padding : 10;
+        int lineSpacing = (style != null) ? style.lineSpacing : 20;
         TextAlignment alignment = (style != null) ? style.alignment : TextAlignment.CENTER;
 
         g.setFont(cellFont);
         g.setColor(textColor);
-
-        // 获取字体尺寸
         FontMetrics metrics = g.getFontMetrics();
-        int textWidth = metrics.stringWidth(text);
-        int textHeight = metrics.getHeight();
 
-        // 计算文本位置
-        int textX = cellX + padding;
-        int textY = cellY + (cellHeight + metrics.getAscent() - metrics.getDescent()) / 2;
-
-        // 处理文本过长
+        // 计算可用宽度
         int maxWidth = cellWidth - 2 * padding;
-        if (textWidth > maxWidth) {
-            text = truncateText(metrics, text, maxWidth);
-            textWidth = metrics.stringWidth(text);
-        }
 
-        // 应用对齐方式
-        switch (alignment) {
-            case CENTER:
-                textX = cellX + (cellWidth - textWidth) / 2;
-                break;
-            case RIGHT:
-                textX = cellX + cellWidth - textWidth - padding;
-                break;
-            case DISPERSED:
-                drawDispersedText(g, text, cellX + padding, textY, maxWidth, metrics);
-                return;
-            case LEFT:
-            default:
-                // 保持左对齐
-        }
+        // 分割文本行
+        String[] lines = text.split("\n");
+        int lineHeight = metrics.getHeight();
 
-        g.drawString(text, textX, textY);
+        // 计算文本总高度（包括行间距）
+        int totalTextHeight = lines.length * lineHeight + (lines.length - 1) * lineSpacing;
+
+        // 垂直居中计算（考虑padding）
+        int startY = cellY + padding + (cellHeight - 2 * padding - totalTextHeight) / 2 + metrics.getAscent();
+
+        // 绘制每一行
+        for (String line : lines) {
+            int textWidth = metrics.stringWidth(line);
+            int x = cellX + padding;
+
+            // 处理文本过长
+            if (textWidth > maxWidth) {
+                line = truncateText(metrics, line, maxWidth);
+                textWidth = metrics.stringWidth(line);
+            }
+
+            switch (alignment) {
+                case CENTER:
+                    x = cellX + (cellWidth - textWidth) / 2;
+                    break;
+                case RIGHT:
+                    x = cellX + cellWidth - textWidth - padding;
+                    break;
+                case DISPERSED:
+                    drawDispersedText(g, line, cellX + padding, startY, maxWidth, metrics);
+                    break;
+                default:
+            }
+
+            // 如果不是分散对齐，则绘制文本
+            if (alignment != TextAlignment.DISPERSED) {
+                g.drawString(line, x, startY);
+            }
+
+            // 更新Y位置（考虑行间距）
+            startY += lineHeight + lineSpacing;
+        }
     }
 
     /**

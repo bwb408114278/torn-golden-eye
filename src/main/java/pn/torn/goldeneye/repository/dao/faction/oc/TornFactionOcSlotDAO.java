@@ -7,10 +7,7 @@ import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcSlotMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -48,7 +45,7 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
 
         Map<Long, List<TornFactionOcSlotDO>> resultMap = HashMap.newHashMap(ocList.size());
         ocList.forEach(oc -> resultMap.put(oc.getId(),
-                slotList.stream().filter(s -> s.getOcId().equals(oc.getId())).toList()));
+                new ArrayList<>(slotList.stream().filter(s -> s.getOcId().equals(oc.getId())).toList())));
         return resultMap;
     }
 

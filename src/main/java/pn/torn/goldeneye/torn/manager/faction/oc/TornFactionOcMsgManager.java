@@ -23,6 +23,8 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
+import java.awt.*;
+import java.util.List;
 import java.util.*;
 
 /**
@@ -40,6 +42,13 @@ public class TornFactionOcMsgManager {
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
+    private final TableImageUtils.CellStyle positionStyle = new TableImageUtils.CellStyle()
+            .setAlignment(TableImageUtils.TextAlignment.DISPERSED)
+            .setBgColor(Color.BLACK).setTextColor(Color.WHITE);
+    private final TableImageUtils.CellStyle memberFullStyle = new TableImageUtils.CellStyle()
+            .setBgColor(new Color(122, 167, 56));
+    private final TableImageUtils.CellStyle memberEmptyStyle = new TableImageUtils.CellStyle()
+            .setBgColor(new Color(230, 119, 0));
 
     /**
      * 构建岗位详细消息
@@ -90,14 +99,20 @@ public class TornFactionOcMsgManager {
             TornFactionOcDO oc = entry.getKey();
             List<TornFactionOcSlotDO> slotList = entry.getValue();
 
-            List<String> subTitle = buildOcSubTitle(oc, slotList, skipList, maxSize);
-            tableData.add(subTitle);
+            slotList.sort((o1, o2) -> {
+                if (o1.getUserId() != null && o2.getUserId() == null) {
+                    return -1;
+                } else if (o1.getUserId() == null && o2.getUserId() != null) {
+                    return 1;
+                } else {
+                    return o1.getPosition().compareTo(o2.getPosition());
+                }
+            });
 
-            fillOcMemberSubTable(slotList, userList, tableData, maxSize);
-            tableConfig = buildSubTableStyle(tableConfig, rowIndex, maxSize);
+            tableData.add(buildPositionRow(oc, slotList, skipList, rowIndex, maxSize, tableConfig));
+            tableData.add(buildMemberRow(oc, slotList, userList, rowIndex, maxSize, tableConfig));
 
-            tableData.add(List.of("", "", "", "", "", ""));
-            rowIndex += 4;
+            rowIndex += 2;
         }
 
         return new TableDataBO(tableData, tableConfig);
@@ -130,69 +145,66 @@ public class TornFactionOcMsgManager {
     }
 
     /**
-     * 构建每个OC的子标题
+     * 构建岗位行
      *
-     * @param maxSize 当前级别OC的最大岗位数
+     * @param rowIndex 当前行数
+     * @param maxSize  最大列数
      */
-    private List<String> buildOcSubTitle(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                         List<TornFactionOcSkipDO> skipList, int maxSize) {
-        List<String> subTitle = new ArrayList<>();
-        subTitle.add("ID: " + oc.getId() +
-                "     " + oc.getStatus() +
-                "     " + getTeamFlag(oc, slotList, skipList) +
-                "     完成时间: " + DateTimeUtils.convertToString(oc.getReadyTime()));
-        for (int i = 1; i < maxSize; i++) {
-            subTitle.add("");
-        }
-        return subTitle;
-    }
+    private List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
+                                          List<TornFactionOcSkipDO> skipList,
+                                          int rowIndex, int maxSize, TableImageUtils.TableConfig tableConfig) {
+        List<String> resultList = new ArrayList<>();
+        String teamFlag = getTeamFlag(oc, slotList, skipList);
+        resultList.add((teamFlag.isEmpty() ? teamFlag : teamFlag + "   ") + oc.getStatus() +
+                "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
+        tableConfig.addMerge(rowIndex, 0, 2, 1);
 
-    /**
-     * 构建每个OC的成员单元格
-     *
-     * @param maxSize 当前级别OC的最大岗位数
-     */
-    private void fillOcMemberSubTable(List<TornFactionOcSlotDO> slotList, List<TornUserDO> userList,
-                                      List<List<String>> tableData, int maxSize) {
-        List<String> positionRow = new ArrayList<>();
-        List<String> memberRow = new ArrayList<>();
-        for (TornFactionOcSlotDO slot : slotList) {
-            positionRow.add(slot.getPosition().replace(" ", "") +
+        for (int i = 0; i < slotList.size(); i++) {
+            TornFactionOcSlotDO slot = slotList.get(i);
+            resultList.add(slot.getPosition().replace(" ", "") +
                     (slot.getPassRate() == null ? "" : " " + slot.getPassRate()));
-            TornUserDO user = slot.getUserId() == null ?
-                    null :
-                    userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
-            memberRow.add(user == null ?
-                    "空缺" :
-                    user.getNickname() + "[" + user.getId() + "] ");
+            tableConfig.setCellStyle(rowIndex, i + 1, positionStyle);
         }
 
         if (slotList.size() < maxSize) {
             for (int i = slotList.size(); i < maxSize; i++) {
-                positionRow.add("");
-                memberRow.add("");
+                resultList.add("");
             }
         }
 
-        tableData.add(positionRow);
-        tableData.add(memberRow);
+        return resultList;
     }
 
     /**
-     * 构建子表的样式
+     * 构建成员行
      *
-     * @param rowIndex 起始行索引
+     * @param rowIndex 当前行数
      * @param maxSize  最大列数
      */
-    private TableImageUtils.TableConfig buildSubTableStyle(TableImageUtils.TableConfig tableConfig,
-                                                           int rowIndex, int maxSize) {
-        TableImageUtils.CellStyle cellStyle = new TableImageUtils.CellStyle()
-                .setAlignment(TableImageUtils.TextAlignment.DISPERSED);
-        tableConfig = tableConfig.addMerge(rowIndex, 0, 1, 6);
-        for (int i = 0; i < maxSize; i++) {
-            tableConfig = tableConfig.setCellStyle(rowIndex + 1, i, cellStyle);
+    private List<String> buildMemberRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList, List<TornUserDO> userList,
+                                        int rowIndex, int maxSize, TableImageUtils.TableConfig tableConfig) {
+        List<String> resultList = new ArrayList<>();
+        resultList.add("");
+
+        for (int i = 0; i < slotList.size(); i++) {
+            TornFactionOcSlotDO slot = slotList.get(i);
+            boolean isLack = slot.getUserId() == null;
+            TornUserDO user = isLack ?
+                    null :
+                    userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
+            resultList.add(user == null ?
+                    "空缺" :
+                    user.getNickname() + "[" + user.getId() + "] ");
+            tableConfig.setCellStyle(rowIndex + 1, i + 1, isLack ? memberEmptyStyle : memberFullStyle);
         }
-        return tableConfig;
+
+        if (slotList.size() < maxSize) {
+            for (int i = slotList.size(); i < maxSize; i++) {
+                resultList.add("");
+            }
+        }
+
+        return resultList;
     }
 
     /**
