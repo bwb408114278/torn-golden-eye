@@ -56,8 +56,8 @@ public class TornFactionOcValidService {
     /**
      * 构建提醒
      */
-    public Runnable buildNotice(long planId, Runnable refreshOc, Runnable reloadSchedule) {
-        return new Notice(planId, refreshOc, reloadSchedule);
+    public Runnable buildNotice(long planId, Runnable refreshOc, Runnable reloadSchedule, int lackCount) {
+        return new Notice(planId, refreshOc, reloadSchedule, lackCount);
     }
 
     @AllArgsConstructor
@@ -74,23 +74,24 @@ public class TornFactionOcValidService {
          * 重载定时任务的方式
          */
         private final Runnable reloadSchedule;
+        /**
+         * 确认队伍的数量
+         */
+        private int lackCount;
 
         @Override
         public void run() {
             refreshOc.run();
             TornFactionOcDO planOc = ocDao.getById(this.planId);
             List<TornFactionOcDO> recList = ocManager.queryRotationRecruitList(planOc);
-            if (LocalDateTime.now().isBefore(planOc.getReadyTime())) {
-                checkFalseStart(planOc, recList);
-                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                        buildNotice(planId, refreshOc, reloadSchedule),
-                        DateTimeUtils.convertToInstant(LocalDateTime.now().plusSeconds(10L)));
-            } else {
-                checkPositionFull(planOc, recList);
-                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                        buildNotice(planId, refreshOc, reloadSchedule),
-                        DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
-            }
+//            if (LocalDateTime.now().isBefore(planOc.getReadyTime())) {
+//                checkFalseStart(planOc, recList);
+//                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
+//                        buildNotice(planId, refreshOc, reloadSchedule),
+//                        DateTimeUtils.convertToInstant(LocalDateTime.now().plusSeconds(10L)));
+//            } else {
+            checkPositionFull(planOc, recList);
+//            }
         }
 
         /**
@@ -169,7 +170,14 @@ public class TornFactionOcValidService {
                         .addMsg(new ImageGroupMsg(ocTableImage))
                         .addMsg(msgManager.buildAtMsg(userIdSet))
                         .build();
-                bot.sendRequest(param, String.class);
+                if (lackCount == 0 || lackMap.size() < lackCount) {
+                    lackCount = lackMap.size();
+                    bot.sendRequest(param, String.class);
+                }
+
+                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
+                        buildNotice(planId, refreshOc, reloadSchedule, lackCount),
+                        DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
             }
         }
     }

@@ -1,10 +1,17 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -29,6 +36,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class TornFactionOcService {
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
+    private final Bot bot;
     private final TornApi tornApi;
     private final DynamicTaskService taskService;
     private final TornFactionOcReadyService readyService;
@@ -37,6 +46,33 @@ public class TornFactionOcService {
     private final TornFactionOcManager ocManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
+    private final TestProperty testProperty;
+
+    @PostConstruct
+    public void init() {
+        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
+        LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
+        if (last.plusHours(1).isBefore(LocalDateTime.now())) {
+            scheduleOcTask();
+        } else {
+            updateScheduleTask();
+        }
+
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList();
+        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
+                .setGroupId(testProperty.getGroupId())
+                .addMsg(new TextGroupMsg("OC轮转队加载完成"));
+        if (CollectionUtils.isEmpty(ocList)) {
+            builder.addMsg(new TextGroupMsg("\n当前没有轮转队"));
+        } else {
+            for (TornFactionOcDO oc : ocList) {
+                builder.addMsg(new TextGroupMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
+                        DateTimeUtils.convertToString(oc.getReadyTime())));
+            }
+        }
+
+        bot.sendRequest(builder.build(), String.class);
+    }
 
     /**
      * 计划OC任务
@@ -50,13 +86,16 @@ public class TornFactionOcService {
      * 刷新OC
      */
     public void refreshOc() {
-        TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
-        if (oc == null) {
-            refreshOc();
-        } else {
-            ocManager.updateOc(oc.getCrimes());
-            settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(LocalDateTime.now()));
-        }
+        virtualThreadExecutor.execute(() -> {
+            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
+            if (oc == null) {
+                refreshOc();
+            } else {
+                ocManager.updateOc(oc.getCrimes());
+                settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD,
+                        DateTimeUtils.convertToString(LocalDateTime.now()));
+            }
+        });
     }
 
     /**
@@ -81,8 +120,9 @@ public class TornFactionOcService {
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + oc.getRank(),
-                    validService.buildNotice(oc.getId(), this::refreshOc, this::updateScheduleTask),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
+                    validService.buildNotice(oc.getId(), this::refreshOc, this::updateScheduleTask, 0),
+//                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
+                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
         }
     }
 }

@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -32,10 +33,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Order(10001)
 public class OcCheckStrategyImpl extends BaseMsgStrategy {
-    private final Bot bot;
     private final TornFactionOcService ocService;
-    private final SysSettingDAO settingDao;
-    private final TornFactionOcDAO ocDao;
 
     @Override
     public String getCommand() {
@@ -46,31 +44,5 @@ public class OcCheckStrategyImpl extends BaseMsgStrategy {
     public List<? extends GroupMsgParam<?>> handle(String msg) {
         ocService.scheduleOcTask();
         return super.buildTextMsg("OC数据校准完成");
-    }
-
-    @PostConstruct
-    public void init() {
-        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
-        LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
-        if (last.plusHours(1).isBefore(LocalDateTime.now())) {
-            ocService.scheduleOcTask();
-        } else {
-            ocService.updateScheduleTask();
-        }
-
-        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList();
-        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextGroupMsg("OC轮转队加载完成"));
-        if (CollectionUtils.isEmpty(ocList)) {
-            builder.addMsg(new TextGroupMsg("\n当前没有轮转队"));
-        } else {
-            for (TornFactionOcDO oc : ocList) {
-                builder.addMsg(new TextGroupMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
-                        DateTimeUtils.convertToString(oc.getReadyTime())));
-            }
-        }
-
-        bot.sendRequest(builder.build(), String.class);
     }
 }
