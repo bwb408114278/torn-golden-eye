@@ -56,8 +56,8 @@ public class TornFactionOcValidService {
     /**
      * 构建提醒
      */
-    public Runnable buildNotice(long planId, Runnable refreshOc, Runnable reloadSchedule, int lackCount) {
-        return new Notice(planId, refreshOc, reloadSchedule, lackCount);
+    public Runnable buildNotice(long planId, Runnable refreshOc, Runnable reloadSchedule, int lackCount, int freeCount) {
+        return new Notice(planId, refreshOc, reloadSchedule, lackCount, freeCount);
     }
 
     @AllArgsConstructor
@@ -78,6 +78,10 @@ public class TornFactionOcValidService {
          * 确认队伍的数量
          */
         private int lackCount;
+        /**
+         * 空闲人数
+         */
+        private int freeCount;
 
         @Override
         public void run() {
@@ -161,7 +165,7 @@ public class TornFactionOcValidService {
                 TableDataBO table = msgManager.buildOcTable(lackMap);
                 String ocTableImage = TableImageUtils.renderTableToBase64(table);
                 String noticeMsg = isLackNew ?
-                        "还剩" + (lackMap.size() + 1) + "坑, 新队一坑\n" :
+                        "还剩" + (lackMap.size() + 1) + "坑, 包含新队一坑\n" :
                         "还剩" + lackMap.size() + "坑\n";
 
                 BotHttpReqParam param = new GroupMsgHttpBuilder()
@@ -170,13 +174,14 @@ public class TornFactionOcValidService {
                         .addMsg(new ImageGroupMsg(ocTableImage))
                         .addMsg(msgManager.buildAtMsg(userIdSet))
                         .build();
-                if (lackCount == 0 || lackMap.size() < lackCount) {
+                if (lackCount == 0 || lackMap.size() < lackCount || userIdSet.size() != freeCount) {
                     lackCount = lackMap.size();
+                    freeCount = userIdSet.size();
                     bot.sendRequest(param, String.class);
                 }
 
                 taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                        buildNotice(planId, refreshOc, reloadSchedule, lackCount),
+                        buildNotice(planId, refreshOc, reloadSchedule, lackCount, freeCount),
                         DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
             }
         }
