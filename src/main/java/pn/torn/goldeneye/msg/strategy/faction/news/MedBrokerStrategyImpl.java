@@ -9,9 +9,9 @@ import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.ItemUseRankingDO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
-import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
+import java.awt.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -46,7 +46,7 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
                 .eq(TornFactionItemUsedDO::getItemName, TornConstants.ITEM_NAME_SMALL_RED)
                 .between(TornFactionItemUsedDO::getUseTime, fromDate, toDate)
                 .count();
-        return super.buildImageMsg(buildRankingMsg(rankingList, totalCount, fromDate, toDate));
+        return super.buildImageMsg(buildRankingMsg(rankingList, totalCount));
     }
 
     /**
@@ -54,10 +54,25 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
      *
      * @return 消息内容
      */
-    private String buildRankingMsg(List<ItemUseRankingDO> rankingList, long totalCount,
-                                   LocalDateTime fromDate, LocalDateTime toDate) {
+    private String buildRankingMsg(List<ItemUseRankingDO> rankingList, long totalCount) {
         List<List<String>> tableData = new ArrayList<>();
-        tableData.add(List.of("No.", "ID ", "Name", "数量", "总占比"));
+        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
+
+        tableData.add(List.of("PHN近30日小红毁灭者", "", "", "", ""));
+        tableConfig.addMerge(0, 0, 1, 5);
+        tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
+                .setBgColor(Color.WHITE)
+                .setPadding(25)
+                .setFont(new Font("微软雅黑", Font.BOLD, 30)));
+
+        tableData.add(List.of("Rank", "ID ", "Name", "数量", "总占比"));
+        TableImageUtils.CellStyle subTitleStyle = new TableImageUtils.CellStyle()
+                .setFont(new Font("微软雅黑", Font.BOLD, 16));
+        tableConfig.setCellStyle(1, 0, subTitleStyle);
+        tableConfig.setCellStyle(1, 1, subTitleStyle);
+        tableConfig.setCellStyle(1, 2, subTitleStyle);
+        tableConfig.setCellStyle(1, 3, subTitleStyle);
+        tableConfig.setCellStyle(1, 4, subTitleStyle);
 
         for (int i = 0; i < rankingList.size(); i++) {
             ItemUseRankingDO ranking = rankingList.get(i);
@@ -70,15 +85,6 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
                             .multiply(BigDecimal.valueOf(100))
                             .divide(BigDecimal.valueOf(totalCount), 2, RoundingMode.HALF_UP) + "%"));
         }
-
-        tableData.add(List.of("数据范围: " +
-                        DateTimeUtils.convertToString(fromDate) +
-                        " - " +
-                        DateTimeUtils.convertToString(toDate),
-                "", "", "", ""));
-
-        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-        tableConfig.addMerge(21, 0, 1, 5);
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 }

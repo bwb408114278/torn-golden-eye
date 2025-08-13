@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
@@ -35,6 +36,7 @@ import java.util.List;
  */
 @Service
 @RequiredArgsConstructor
+@Order(10001)
 public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
@@ -53,7 +55,7 @@ public class TornFactionOcService {
         String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         if (last.plusHours(1).isBefore(LocalDateTime.now())) {
-            scheduleOcTask();
+            virtualThreadExecutor.execute(this::scheduleOcTask);
         } else {
             updateScheduleTask();
         }
@@ -86,16 +88,14 @@ public class TornFactionOcService {
      * 刷新OC
      */
     public void refreshOc() {
-        virtualThreadExecutor.execute(() -> {
-            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
-            if (oc == null) {
-                refreshOc();
-            } else {
-                ocManager.updateOc(oc.getCrimes());
-                settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD,
-                        DateTimeUtils.convertToString(LocalDateTime.now()));
-            }
-        });
+        TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
+        if (oc == null) {
+            refreshOc();
+        } else {
+            ocManager.updateOc(oc.getCrimes());
+            settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD,
+                    DateTimeUtils.convertToString(LocalDateTime.now()));
+        }
     }
 
     /**

@@ -25,7 +25,10 @@ public class TableImageUtils {
      * 文本对齐方式枚举
      */
     public enum TextAlignment {
-        LEFT, CENTER, RIGHT, DISPERSED
+        LEFT,
+        CENTER,
+        RIGHT,
+        DISPERSED
     }
 
     /**
@@ -54,7 +57,7 @@ public class TableImageUtils {
         private Font font;
         private Color textColor = Color.BLACK;
         private Color bgColor;
-        private TextAlignment alignment = TextAlignment.LEFT;
+        private TextAlignment alignment = TextAlignment.CENTER;
         private int padding = 10;
 
         public CellStyle setFont(Font font) {
@@ -91,9 +94,8 @@ public class TableImageUtils {
         private final Map<Point, CellStyle> styleMap = new HashMap<>();
         private int defaultCellHeight = 40;
         private Font defaultFont = new Font("微软雅黑", Font.PLAIN, 14);
-        private Color defaultBgColor = new Color(240, 240, 240);
-        private Color headerBgColor = new Color(200, 200, 255);
-        private Color borderColor = Color.LIGHT_GRAY;
+        private Color defaultBgColor = new Color(255, 255, 255);
+        private Color borderColor = new Color(217, 217, 217);
 
         public TableConfig addMerge(int row, int col, int rowSpan, int colSpan) {
             mergeMap.put(new Point(col, row), new CellMerge(rowSpan, colSpan));
@@ -117,11 +119,6 @@ public class TableImageUtils {
 
         public TableConfig setDefaultBgColor(Color color) {
             this.defaultBgColor = color;
-            return this;
-        }
-
-        public TableConfig setHeaderBgColor(Color color) {
-            this.headerBgColor = color;
             return this;
         }
 
@@ -323,8 +320,8 @@ public class TableImageUtils {
 
         if (style != null && style.bgColor != null) {
             bgColor = style.bgColor;
-        } else if (row == 0 && config.headerBgColor != null) {
-            bgColor = config.headerBgColor;
+        } else if (row % 2 == 0) {
+            bgColor = new Color(242, 242, 242);
         } else {
             bgColor = config.defaultBgColor;
         }
@@ -346,7 +343,7 @@ public class TableImageUtils {
         Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
         Color textColor = (style != null) ? style.textColor : Color.BLACK;
         int padding = (style != null) ? style.padding : 10;
-        TextAlignment alignment = (style != null) ? style.alignment : TextAlignment.LEFT;
+        TextAlignment alignment = (style != null) ? style.alignment : TextAlignment.CENTER;
 
         g.setFont(cellFont);
         g.setColor(textColor);
