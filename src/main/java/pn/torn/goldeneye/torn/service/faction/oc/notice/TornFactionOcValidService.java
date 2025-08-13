@@ -2,8 +2,10 @@ package pn.torn.goldeneye.torn.service.faction.oc.notice;
 
 import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -42,7 +44,9 @@ import java.util.*;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class TornFactionOcValidService {
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final DynamicTaskService taskService;
     private final TornFactionOcManager ocManager;
@@ -159,7 +163,15 @@ public class TornFactionOcValidService {
                     throw new BizException("发送车位已满消息出错", e);
                 }
                 // 车位已满，重载任务时间
-                reloadSchedule.run();
+                virtualThreadExecutor.execute(() -> {
+                    try {
+                        Thread.sleep(1000L);
+                        reloadSchedule.run();
+                    } catch (InterruptedException e) {
+                        log.error("车位已满时重载任务等待任务移除出错", e);
+                        Thread.currentThread().interrupt();
+                    }
+                });
             } else {
                 Set<Long> userIdSet = ocUserManager.findRotationUser(planOc.getRank());
                 TableDataBO table = msgManager.buildOcTable(lackMap);
