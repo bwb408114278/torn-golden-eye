@@ -120,7 +120,7 @@ public class TornFactionOcService {
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + oc.getRank(),
-                    validService.buildNotice(oc.getId(), this::refreshOc, this::updateScheduleTask, 0, 0),
+                    validService.buildNotice(oc, this::refreshOc, this::updateScheduleTask, 0, 0),
 //                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
         }

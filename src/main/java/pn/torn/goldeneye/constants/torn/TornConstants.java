@@ -51,6 +51,10 @@ public class TornConstants {
      * 配置Key - 临时OC队伍ID
      */
     public static final String SETTING_KEY_OC_TEMP_ID = "OC_TEMP_TEAM_ID";
+    /**
+     * 配置Key - 临时OC队伍准备ID
+     */
+    public static final String SETTING_KEY_OC_TEMP_PLAN_ID = "OC_TEMP_TEAM_PLAN_ID";
 
     /**
      * 8级 oc chain名称

@@ -19,11 +19,11 @@ import java.util.List;
 import java.util.*;
 
 /**
- * OC消息公共逻辑
+ * OC表格消息公共逻辑
  *
  * @author Bai
  * @version 0.1.0
- * @since 2025.08.06
+ * @since 2025.08.15
  */
 @Component
 @RequiredArgsConstructor

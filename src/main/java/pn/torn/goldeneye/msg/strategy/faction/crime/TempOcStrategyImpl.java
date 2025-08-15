@@ -16,11 +16,11 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * 获取Oc策略实现类
+ * 获取OC临时轮转队策略实现类
  *
  * @author Bai
  * @version 0.1.0
- * @since 2025.07.24
+ * @since 2025.08.15
  */
 @Component
 @RequiredArgsConstructor
