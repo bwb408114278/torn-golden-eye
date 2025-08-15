@@ -12,8 +12,6 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 
-import java.time.LocalDateTime;
-
 /**
  * OC可加入提示逻辑
  *
@@ -47,13 +45,9 @@ public class TornFactionOcJoinService {
         @Override
         public void run() {
             TornFactionOcDO oc = ocDao.getById(id);
-            if (LocalDateTime.now().isAfter(oc.getReadyTime())) {
-                return;
-            }
-
             BotHttpReqParam param = new GroupMsgHttpBuilder()
                     .setGroupId(BotConstants.PN_GROUP_ID)
-                    .addMsg(new TextGroupMsg(oc.getRank() + "可以进了\n"))
+                    .addMsg(new TextGroupMsg(oc.getRank() + "级可以进了\n"))
                     .addMsg(msgManager.buildSlotMsg(oc))
                     .build();
             bot.sendRequest(param, String.class);

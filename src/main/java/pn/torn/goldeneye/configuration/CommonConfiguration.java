@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.torn.TornApi;
@@ -29,6 +29,7 @@ public class CommonConfiguration {
     private String serverHttpPort;
     @Value("${bot.server.token}")
     private String serverToken;
+    private final DynamicTaskService taskService;
     private final TestProperty testProperty;
     private final TornApiKeyDAO keyDao;
 
@@ -45,15 +46,16 @@ public class CommonConfiguration {
 
     @Bean
     public TornApi buildTornApi() {
-        return new TornApiImpl(this.keyDao);
+        return new TornApiImpl(this.keyDao, this.taskService);
     }
 
     @Bean
-    public ThreadPoolTaskScheduler taskScheduler() {
-        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(4);
-        scheduler.setThreadNamePrefix("dynamic-task-");
-        scheduler.initialize();
-        return scheduler;
+    public ThreadPoolTaskExecutor virtualThreadExecutor() {
+        ThreadPoolTaskExecutor virtualThreadExecutor = new ThreadPoolTaskExecutor();
+        virtualThreadExecutor.setThreadFactory(Thread.ofVirtual().name("virtual-", 0).factory());
+        virtualThreadExecutor.setCorePoolSize(32);
+        virtualThreadExecutor.setMaxPoolSize(256);
+        virtualThreadExecutor.initialize();
+        return virtualThreadExecutor;
     }
 }

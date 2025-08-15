@@ -27,9 +27,22 @@ public class TornConstants {
     public static final long FACTION_PN_ID = 20465L;
 
     /**
+     * OC重载任务ID
+     */
+    public static final String TASK_ID_OC_RELOAD = "oc-reload";
+    /**
+     * OC校验任务ID
+     */
+    public static final String TASK_ID_OC_VALID = "oc-valid-";
+
+    /**
      * 配置Key - 物品使用记录读取时间
      */
     public static final String SETTING_KEY_ITEM_USE_LOAD = "ITEM_USED_LOAD_DATE";
+    /**
+     * 配置Key - OC读取时间
+     */
+    public static final String SETTING_KEY_OC_LOAD = "OC_LOAD_TIME";
 
     /**
      * 8级 oc chain名称

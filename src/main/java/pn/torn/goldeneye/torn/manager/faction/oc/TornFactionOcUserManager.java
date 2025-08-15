@@ -62,9 +62,7 @@ public class TornFactionOcUserManager {
             return userList;
         }
         // 移除已经参加了OC的人
-        List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery()
-                .in(TornFactionOcSlotDO::getOcId, ocList.stream().map(TornFactionOcDO::getId).toList())
-                .list();
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
         Set<Long> joinedUserSet = slotList.stream().map(TornFactionOcSlotDO::getUserId).collect(Collectors.toSet());
         userList.removeIf(u -> joinedUserSet.contains(u.getUserId()));
 

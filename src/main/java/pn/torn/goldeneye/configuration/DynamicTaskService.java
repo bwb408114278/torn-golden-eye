@@ -25,6 +25,25 @@ public class DynamicTaskService {
     private final ThreadPoolTaskScheduler taskScheduler;
     private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
+    public DynamicTaskService() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(4);
+        scheduler.setThreadNamePrefix("dynamic-task-");
+        scheduler.initialize();
+        this.taskScheduler = scheduler;
+    }
+
+    /**
+     * 创建/更新一次性定时任务
+     *
+     * @param taskId        任务唯一ID
+     * @param task          要执行的任务逻辑
+     * @param executionTime 任务执行时间(UTC时间)
+     */
+    public void updateTask(String taskId, Runnable task, Instant executionTime) {
+        updateTask(taskId, task, executionTime, null);
+    }
+
     /**
      * 创建/更新一次性定时任务
      *

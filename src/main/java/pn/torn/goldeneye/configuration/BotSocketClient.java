@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 import org.glassfish.tyrus.client.ClientManager;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Slf4j
 @Component
+@Order(1)
 public class BotSocketClient {
     // 连接配置
     @Value("${bot.server.addr}")
@@ -60,19 +62,11 @@ public class BotSocketClient {
     private final AtomicLong lastHeartbeatTime = new AtomicLong();
     // 线程管理
     private final ScheduledExecutorService connectionMonitor = Executors.newSingleThreadScheduledExecutor();
-    private final ThreadPoolTaskExecutor virtualThreadExecutor = new ThreadPoolTaskExecutor();
     private Session session;
-    // 其他
+    @Resource
+    private ThreadPoolTaskExecutor virtualThreadExecutor;
     @Resource
     private List<BaseMsgStrategy> msgStrategyList;
-
-    public BotSocketClient() {
-        // 初始化虚拟线程池
-        virtualThreadExecutor.setThreadFactory(Thread.ofVirtual().name("virtual-", 0).factory());
-        virtualThreadExecutor.setCorePoolSize(32);
-        virtualThreadExecutor.setMaxPoolSize(256);
-        virtualThreadExecutor.initialize();
-    }
 
     @PostConstruct
     public void init() {

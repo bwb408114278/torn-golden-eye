@@ -10,6 +10,8 @@ import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -37,12 +39,15 @@ public class CurrentTaskStrategyImpl extends BaseMsgStrategy {
             return buildTextMsg("当前没有待执行的任务");
         }
 
+        List<String> sortedKeys = new ArrayList<>(taskMap.keySet());
+        Collections.sort(sortedKeys);
+
         StringBuilder builder = new StringBuilder();
-        for (Map.Entry<String, LocalDateTime> entry : taskMap.entrySet()) {
+        for (String key: sortedKeys) {
             builder.append("\nID: ")
-                    .append(entry.getKey())
+                    .append(key)
                     .append(" 下次执行时间: ")
-                    .append(DateTimeUtils.convertToString(entry.getValue()));
+                    .append(DateTimeUtils.convertToString(taskMap.get(key)));
         }
         return super.buildTextMsg(builder.toString().replaceFirst("\n", ""));
     }

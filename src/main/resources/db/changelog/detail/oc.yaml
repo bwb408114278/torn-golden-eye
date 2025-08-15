@@ -232,3 +232,17 @@ databaseChangeLog:
             tableName: torn_faction_oc_user
             columnNames: user_id, rank, oc_name, position
             constraintName: uk_user_rate
+
+  - changeSet:
+      id: add_oc_default_date
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "OC_LOAD_TIME"
+              - column:
+                  name: setting_value
+                  value: "2025-08-08 12:00:00"

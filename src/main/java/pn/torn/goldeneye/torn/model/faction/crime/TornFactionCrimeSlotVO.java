@@ -42,6 +42,10 @@ public class TornFactionCrimeSlotVO {
             slot.setUserId(this.user.getId());
             slot.setPassRate(this.checkpointPassRate);
             slot.setJoinTime(DateTimeUtils.convertToDateTime(this.user.getJoinedAt()));
+        } else {
+            slot.setUserId(null);
+            slot.setPassRate(null);
+            slot.setJoinTime(null);
         }
 
         return slot;

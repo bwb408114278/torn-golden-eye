@@ -6,7 +6,6 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.constants.bot.BotConstants;
-import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;

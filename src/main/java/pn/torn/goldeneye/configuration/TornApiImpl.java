@@ -16,9 +16,11 @@ import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -33,6 +35,7 @@ import java.util.Queue;
  */
 @Slf4j
 class TornApiImpl implements TornApi {
+    private final DynamicTaskService taskService;
     private final TornApiKeyDAO keyDao;
     private static final Queue<TornApiKeyDO> KEY_QUEUE = new PriorityQueue<>(Comparator.comparingInt(TornApiKeyDO::getUseCount));
 
@@ -45,8 +48,9 @@ class TornApiImpl implements TornApi {
      */
     private final RestClient restClientV2;
 
-    public TornApiImpl(TornApiKeyDAO keyDao) {
+    public TornApiImpl(TornApiKeyDAO keyDao, DynamicTaskService taskService) {
         this.keyDao = keyDao;
+        this.taskService = taskService;
         this.restClient = RestClient.builder()
                 .baseUrl(TornConstants.BASE_URL)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
@@ -57,14 +61,7 @@ class TornApiImpl implements TornApi {
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
 
-        List<TornApiKeyDO> keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, LocalDate.now()).list();
-        if (CollectionUtils.isEmpty(keyList)) {
-            keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, LocalDate.now().plusDays(-1)).list();
-            List<TornApiKeyDO> newList = keyList.stream().map(TornApiKeyDO::copyNewData).toList();
-            keyDao.saveBatch(newList);
-            keyList = newList;
-        }
-        KEY_QUEUE.addAll(keyList);
+        refreshKeyData();
     }
 
     @Override
@@ -129,6 +126,28 @@ class TornApiImpl implements TornApi {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 刷新API KEY数据
+     */
+    private void refreshKeyData() {
+        KEY_QUEUE.clear();
+
+        LocalDate queryDate = LocalTime.now().isAfter(LocalTime.of(8, 0)) ?
+                LocalDate.now() : LocalDate.now().plusDays(-1);
+
+        List<TornApiKeyDO> keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate).list();
+        if (CollectionUtils.isEmpty(keyList)) {
+            keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate.plusDays(-1)).list();
+            List<TornApiKeyDO> newList = keyList.stream().map(TornApiKeyDO::copyNewData).toList();
+            keyDao.saveBatch(newList);
+            keyList = newList;
+        }
+
+        KEY_QUEUE.addAll(keyList);
+        taskService.updateTask("refresh-api", this::refreshKeyData,
+                DateTimeUtils.convertToInstant(LocalDate.now().atTime(8, 1, 0).plusDays(1)));
     }
 
     /**

@@ -2,13 +2,19 @@ package pn.torn.goldeneye.torn.service.faction.armory;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.annotation.Order;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
+import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -35,12 +41,16 @@ import java.util.stream.Collectors;
  */
 @Component
 @RequiredArgsConstructor
+@Order(10002)
 public class ItemUsedService {
     private final DynamicTaskService taskService;
+    private final Bot bot;
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final TornFactionItemUsedDAO usedDao;
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
+    private final TestProperty testProperty;
 
     @PostConstruct
     public void init() {
@@ -49,10 +59,15 @@ public class ItemUsedService {
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            spiderItemUseData(from, to);
+            virtualThreadExecutor.execute(() -> spiderItemUseData(from, to));
         }
 
         addScheduleTask(to);
+        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
+                .setGroupId(testProperty.getGroupId())
+                .addMsg(new TextGroupMsg("帮派物品使用记录读取完成，读取截止时间" +
+                        DateTimeUtils.convertToString(to.toLocalDate())));
+        bot.sendRequest(builder.build(), String.class);
     }
 
     /**
@@ -61,8 +76,9 @@ public class ItemUsedService {
     public void spiderItemUseData(LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionNewsDTO param;
+        LocalDateTime queryTo = to;
         while (true) {
-            param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, to, limit);
+            param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
             TornFactionNewsListVO resp = tornApi.sendRequest(param, TornFactionNewsListVO.class);
             if (resp == null) {
                 continue;
@@ -80,7 +96,7 @@ public class ItemUsedService {
             if (newsList.size() < limit) {
                 break;
             } else {
-                to = DateTimeUtils.convertToDateTime(resp.getNews().get(limit - 1).getTimestamp());
+                queryTo = DateTimeUtils.convertToDateTime(resp.getNews().get(limit - 1).getTimestamp());
                 try {
                     Thread.sleep(1000L);
                 } catch (InterruptedException e) {
@@ -100,7 +116,7 @@ public class ItemUsedService {
     private void addScheduleTask(LocalDateTime to) {
         taskService.updateTask("item-use-reload",
                 () -> spiderItemUseData(to.plusSeconds(1), to.plusDays(1)),
-                DateTimeUtils.convertToInstant(to.plusDays(1).plusSeconds(1)),
+                DateTimeUtils.convertToInstant(to.plusDays(1).plusSeconds(1).plusMinutes(10L)),
                 null);
     }
 
@@ -108,6 +124,10 @@ public class ItemUsedService {
      * 构建可以插入的数据列表
      */
     private List<TornFactionItemUsedDO> buildDataList(List<TornFactionItemUsedDO> newsList) {
+        if (CollectionUtils.isEmpty(newsList)) {
+            return List.of();
+        }
+
         List<String> idList = newsList.stream().map(TornFactionItemUsedDO::getId).toList();
         List<TornFactionItemUsedDO> oldDataList = usedDao.lambdaQuery().in(TornFactionItemUsedDO::getId, idList).list();
         List<String> oldIdList = oldDataList.stream().map(TornFactionItemUsedDO::getId).toList();
