@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 动态定时任务配置
@@ -57,22 +58,15 @@ public class DynamicTaskService {
         cancelTask(taskId);
         // 计算延迟时间
         long delayMillis = Math.max(0, executionTime.toEpochMilli() - System.currentTimeMillis());
-
-        Runnable wrappedTask = () -> {
-            try {
-                task.run();
-                if (callback != null) {
-                    callback.onTaskExecuted(taskId, true);
-                }
-            } finally {
-                scheduledTasks.remove(taskId);
-            }
-        };
-
-        // 提交任务
+        // 创建 TaskWrapper 实例（持有任务逻辑和回调）
+        TaskWrapper wrapper = new TaskWrapper(taskId, task, callback);
+        // 提交任务并获取 ScheduledFuture
         ScheduledFuture<?> future = taskScheduler.schedule(
-                wrappedTask,
+                wrapper,
                 Instant.ofEpochMilli(System.currentTimeMillis() + delayMillis));
+        // 设置 future 引用到 wrapper 中
+        wrapper.setFuture(future);
+        // 存储到 scheduledTasks
         scheduledTasks.put(taskId, future);
     }
 
@@ -123,5 +117,40 @@ public class DynamicTaskService {
          * @param executed 是否执行完毕
          */
         void onTaskExecuted(String taskId, boolean executed);
+    }
+
+    /**
+     * 内部任务包装类，用于持有 future 引用
+     */
+    private class TaskWrapper implements Runnable {
+        private final String taskId;
+        private final Runnable task;
+        private final TaskCallback callback;
+        private final AtomicReference<ScheduledFuture<?>> futureRef = new AtomicReference<>();
+
+        public TaskWrapper(String taskId, Runnable task, TaskCallback callback) {
+            this.taskId = taskId;
+            this.task = task;
+            this.callback = callback;
+        }
+
+        public void setFuture(ScheduledFuture<?> future) {
+            this.futureRef.set(future);
+        }
+
+        @Override
+        public void run() {
+            try {
+                task.run();
+                if (callback != null) {
+                    callback.onTaskExecuted(taskId, true);
+                }
+            } finally {
+                ScheduledFuture<?> currentFuture = futureRef.get();
+                if (currentFuture != null) {
+                    scheduledTasks.remove(taskId, currentFuture);
+                }
+            }
+        }
     }
 }

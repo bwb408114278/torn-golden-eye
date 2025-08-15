@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -13,7 +12,7 @@ import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.property.TestProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
@@ -46,7 +45,6 @@ import java.util.*;
 @RequiredArgsConstructor
 @Slf4j
 public class TornFactionOcValidService {
-    private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final DynamicTaskService taskService;
     private final TornFactionOcManager ocManager;
@@ -119,7 +117,7 @@ public class TornFactionOcValidService {
 
             if (!CollectionUtils.isEmpty(falseStartList)) {
                 GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                        .setGroupId(TornConstants.FACTION_PN_ID)
+                        .setGroupId(BotConstants.PN_GROUP_ID)
                         .addMsg(new TextGroupMsg("抢跑啦! 踢掉词条要添新素材啦, 加入时间为 + " +
                                 DateTimeUtils.convertToString(planOc.getReadyTime()) + "\n"));
                 List<GroupMsgParam<?>> paramList = new ArrayList<>();
@@ -154,7 +152,7 @@ public class TornFactionOcValidService {
                 try (InputStream inputStream = resource.getInputStream()) {
                     byte[] imageBytes = inputStream.readAllBytes();
                     BotHttpReqParam param = new GroupMsgHttpBuilder()
-                            .setGroupId(TornConstants.FACTION_PN_ID)
+                            .setGroupId(BotConstants.PN_GROUP_ID)
                             .addMsg(new ImageGroupMsg(Base64.getEncoder().encodeToString(imageBytes)))
                             .build();
                     bot.sendRequest(param, String.class);
@@ -162,15 +160,7 @@ public class TornFactionOcValidService {
                     throw new BizException("发送车位已满消息出错", e);
                 }
                 // 车位已满，重载任务时间
-                virtualThreadExecutor.execute(() -> {
-                    try {
-                        Thread.sleep(1000L);
-                        reloadSchedule.run();
-                    } catch (InterruptedException e) {
-                        log.error("车位已满时重载任务等待任务移除出错", e);
-                        Thread.currentThread().interrupt();
-                    }
-                });
+                reloadSchedule.run();
             } else {
                 sendLackMsg(planOc, isLackNew, lackMap);
             }
@@ -190,7 +180,7 @@ public class TornFactionOcValidService {
                     "还剩" + lackMap.size() + "坑\n";
 
             BotHttpReqParam param = new GroupMsgHttpBuilder()
-                    .setGroupId(TornConstants.FACTION_PN_ID)
+                    .setGroupId(BotConstants.PN_GROUP_ID)
                     .addMsg(new TextGroupMsg(noticeMsg))
                     .addMsg(new ImageGroupMsg(ocTableImage))
                     .addMsg(msgManager.buildAtMsg(userIdSet))
