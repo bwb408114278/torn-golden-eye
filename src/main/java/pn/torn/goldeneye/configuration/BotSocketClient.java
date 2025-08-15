@@ -257,7 +257,8 @@ public class BotSocketClient {
 
         for (BaseMsgStrategy strategy : msgStrategyList) {
             if (ArrayUtils.contains(strategy.getGroupId(), msg.getGroupId()) && strategy.getCommand().equals(msgArray[1])) {
-                List<? extends GroupMsgParam<?>> paramList = strategy.handle(msgArray.length > 2 ? msgArray[2] : "");
+                List<? extends GroupMsgParam<?>> paramList = strategy.handle(msg.getGroupId(),
+                        msgArray.length > 2 ? msgArray[2] : "");
                 if (!CollectionUtils.isEmpty(paramList)) {
                     GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
                     paramList.forEach(builder::addMsg);

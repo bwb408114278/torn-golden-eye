@@ -45,7 +45,12 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "查询执行中的OC，格式g#" + BotCommands.OC_QUERY + "#OC级别";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();

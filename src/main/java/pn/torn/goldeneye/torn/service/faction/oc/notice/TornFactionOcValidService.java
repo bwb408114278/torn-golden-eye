@@ -55,7 +55,6 @@ public class TornFactionOcValidService {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final ResourceLoader resourceLoader;
-    private final TestProperty testProperty;
 
     /**
      * 构建提醒
@@ -120,7 +119,7 @@ public class TornFactionOcValidService {
 
             if (!CollectionUtils.isEmpty(falseStartList)) {
                 GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                        .setGroupId(testProperty.getGroupId())
+                        .setGroupId(TornConstants.FACTION_PN_ID)
                         .addMsg(new TextGroupMsg("抢跑啦! 踢掉词条要添新素材啦, 加入时间为 + " +
                                 DateTimeUtils.convertToString(planOc.getReadyTime()) + "\n"));
                 List<GroupMsgParam<?>> paramList = new ArrayList<>();
@@ -155,7 +154,7 @@ public class TornFactionOcValidService {
                 try (InputStream inputStream = resource.getInputStream()) {
                     byte[] imageBytes = inputStream.readAllBytes();
                     BotHttpReqParam param = new GroupMsgHttpBuilder()
-                            .setGroupId(testProperty.getGroupId())
+                            .setGroupId(TornConstants.FACTION_PN_ID)
                             .addMsg(new ImageGroupMsg(Base64.getEncoder().encodeToString(imageBytes)))
                             .build();
                     bot.sendRequest(param, String.class);
@@ -191,7 +190,7 @@ public class TornFactionOcValidService {
                     "还剩" + lackMap.size() + "坑\n";
 
             BotHttpReqParam param = new GroupMsgHttpBuilder()
-                    .setGroupId(testProperty.getGroupId())
+                    .setGroupId(TornConstants.FACTION_PN_ID)
                     .addMsg(new TextGroupMsg(noticeMsg))
                     .addMsg(new ImageGroupMsg(ocTableImage))
                     .addMsg(msgManager.buildAtMsg(userIdSet))

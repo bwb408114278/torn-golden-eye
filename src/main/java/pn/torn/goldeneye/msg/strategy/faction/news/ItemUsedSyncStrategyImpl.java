@@ -30,7 +30,12 @@ public class ItemUsedSyncStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "强制刷新帮派物品使用记录，慎用（格式不告诉你）";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 2 || !NumberUtils.isInt(msgArray[0]) || !NumberUtils.isInt(msgArray[1])) {
             return super.sendErrorFormatMsg();

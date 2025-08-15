@@ -17,10 +17,6 @@ public class BotCommands {
      * 同步用户
      */
     public static final String MATCH_USER = "同步用户";
-    /**
-     * 查询用户
-     */
-    public static final String QUERY_USER = "查询用户";
 
     // ====================OC相关====================
     /**
@@ -65,4 +61,8 @@ public class BotCommands {
      * 当前任务
      */
     public static final String CURRENT_TASK = "当前任务";
+    /**
+     * 手册
+     */
+    public static final String DOC = "手册";
 }

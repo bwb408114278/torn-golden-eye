@@ -36,7 +36,12 @@ public class MatchMemberStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "刷新帮派人员，来人了就刷一下";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         TornFactionMemberDTO param = new TornFactionMemberDTO(TornConstants.FACTION_PN_ID);
         TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
 

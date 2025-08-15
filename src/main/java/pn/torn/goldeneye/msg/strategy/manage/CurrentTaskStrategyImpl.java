@@ -33,7 +33,12 @@ public class CurrentTaskStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "获取当前待运行的定时任务";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         Map<String, LocalDateTime> taskMap = taskService.getScheduledTask();
         if (MapUtils.isEmpty(taskMap)) {
             return buildTextMsg("当前没有待执行的任务");
@@ -43,7 +48,7 @@ public class CurrentTaskStrategyImpl extends BaseMsgStrategy {
         Collections.sort(sortedKeys);
 
         StringBuilder builder = new StringBuilder();
-        for (String key: sortedKeys) {
+        for (String key : sortedKeys) {
             builder.append("\nID: ")
                     .append(key)
                     .append(" 下次执行时间: ")
