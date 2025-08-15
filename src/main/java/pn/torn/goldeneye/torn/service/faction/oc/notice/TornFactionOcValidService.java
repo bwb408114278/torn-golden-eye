@@ -141,7 +141,7 @@ public class TornFactionOcValidService {
          */
         private void checkPositionFull(TornFactionOcDO planOc, List<TornFactionOcDO> recList) {
             Map<Long, List<TornFactionOcSlotDO>> slotMap = slotDao.queryMapByOc(recList);
-            boolean isLackNew = recList.size() < 5;
+            boolean isLackNew = recList.size() < 6;
 
             Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = HashMap.newHashMap(recList.size());
             for (TornFactionOcDO oc : recList) {
@@ -173,29 +173,38 @@ public class TornFactionOcValidService {
                     }
                 });
             } else {
-                Set<Long> userIdSet = ocUserManager.findRotationUser(planOc.getRank());
-                TableDataBO table = msgManager.buildOcTable(lackMap);
-                String ocTableImage = TableImageUtils.renderTableToBase64(table);
-                String noticeMsg = isLackNew ?
-                        "还剩" + (lackMap.size() + 1) + "坑, 包含新队一坑\n" :
-                        "还剩" + lackMap.size() + "坑\n";
-
-                BotHttpReqParam param = new GroupMsgHttpBuilder()
-                        .setGroupId(testProperty.getGroupId())
-                        .addMsg(new TextGroupMsg(noticeMsg))
-                        .addMsg(new ImageGroupMsg(ocTableImage))
-                        .addMsg(msgManager.buildAtMsg(userIdSet))
-                        .build();
-                if (lackCount == 0 || lackMap.size() < lackCount || userIdSet.size() != freeCount) {
-                    lackCount = lackMap.size();
-                    freeCount = userIdSet.size();
-                    bot.sendRequest(param, String.class);
-                }
-
-                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                        buildNotice(planId, refreshOc, reloadSchedule, lackCount, freeCount),
-                        DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
+                sendLackMsg(planOc, isLackNew, lackMap);
             }
+        }
+
+        /**
+         * 发送OC队伍缺人的消息
+         */
+        private void sendLackMsg(TornFactionOcDO planOc, boolean isLackNew,
+                                 Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap) {
+            Set<Long> userIdSet = ocUserManager.findRotationUser(planOc.getRank());
+            String title = isLackNew ? planOc.getRank() + "级OC缺人队伍（未包含新队）" : planOc.getRank() + "级OC缺人队伍";
+            TableDataBO table = msgManager.buildOcTable(title, lackMap);
+            String ocTableImage = TableImageUtils.renderTableToBase64(table);
+            String noticeMsg = isLackNew ?
+                    "还剩" + (lackMap.size() + 1) + "坑, 包含新队一坑\n" :
+                    "还剩" + lackMap.size() + "坑\n";
+
+            BotHttpReqParam param = new GroupMsgHttpBuilder()
+                    .setGroupId(testProperty.getGroupId())
+                    .addMsg(new TextGroupMsg(noticeMsg))
+                    .addMsg(new ImageGroupMsg(ocTableImage))
+                    .addMsg(msgManager.buildAtMsg(userIdSet))
+                    .build();
+            if (lackCount == 0 || lackMap.size() < lackCount || userIdSet.size() != freeCount) {
+                lackCount = lackMap.size();
+                freeCount = userIdSet.size();
+                bot.sendRequest(param, String.class);
+            }
+
+            taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
+                    buildNotice(planId, refreshOc, reloadSchedule, lackCount, freeCount),
+                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
         }
     }
 }

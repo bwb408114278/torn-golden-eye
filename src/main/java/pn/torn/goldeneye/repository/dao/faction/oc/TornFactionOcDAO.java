@@ -52,4 +52,17 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
 
         return lambdaQuery().in(TornFactionOcDO::getId, idList).list();
     }
+
+    /**
+     * 通过ID列表删除
+     *
+     * @param idList ID列表
+     */
+    public void deleteByIdList(List<Long> idList) {
+        if (CollectionUtils.isEmpty(idList)) {
+            return;
+        }
+
+        baseMapper.deleteByIdList(idList);
+    }
 }

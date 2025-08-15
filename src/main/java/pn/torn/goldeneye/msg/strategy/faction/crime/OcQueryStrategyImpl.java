@@ -18,6 +18,7 @@ import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,8 +51,9 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
             return super.sendErrorFormatMsg();
         }
 
+        int rank = Integer.parseInt(msgArray[0]);
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, Integer.parseInt(msgArray[0]))
+                .eq(TornFactionOcDO::getRank, rank)
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .orderByAsc(TornFactionOcDO::getName)
                 .orderByAsc(TornFactionOcDO::getStatus)
@@ -62,7 +64,7 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
         }
 
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        return super.buildImageMsg(buildOcListMsg(ocList, slotList));
+        return super.buildImageMsg(buildOcListMsg(rank, ocList, slotList));
     }
 
     /**
@@ -70,7 +72,7 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
      *
      * @return 消息内容
      */
-    private String buildOcListMsg(List<TornFactionOcDO> ocList, List<TornFactionOcSlotDO> slotList) {
+    private String buildOcListMsg(int rank, List<TornFactionOcDO> ocList, List<TornFactionOcSlotDO> slotList) {
         Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
         for (TornFactionOcDO oc : ocList) {
             List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
@@ -78,12 +80,17 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
             ocMap.put(oc, currentSlotList);
         }
 
-        TableDataBO table = msgManager.buildOcTable(ocMap);
+        TableDataBO table = msgManager.buildOcTable(rank + "级执行中OC", ocMap);
 
         String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
                 "", "", "", "", ""));
-        table.getTableConfig().addMerge(ocList.size() * 2, 0, 1, 7);
+
+        int row = ocList.size() * 3;
+        table.getTableConfig().addMerge(row, 0, 1, 7)
+                .setCellStyle(row, 0, new TableImageUtils.CellStyle()
+                        .setFont(new Font("微软雅黑", Font.BOLD, 14))
+                        .setAlignment(TableImageUtils.TextAlignment.LEFT));
         return TableImageUtils.renderTableToBase64(table);
     }
 }

@@ -116,7 +116,7 @@ public class TornFactionOcService {
                     joinService.buildNotice(oc.getId()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
             taskService.updateTask("oc-completed-" + oc.getRank(),
-                    ocManager::completeOcData,
+                    () -> ocManager.completeOcData(List.of()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + oc.getRank(),

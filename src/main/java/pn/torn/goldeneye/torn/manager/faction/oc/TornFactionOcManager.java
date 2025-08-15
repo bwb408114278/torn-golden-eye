@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.manager.faction.oc;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,12 +50,14 @@ public class TornFactionOcManager {
         List<TornFactionOcSkipDO> allSkipList = skipDao.list();
         List<TornFactionCrimeVO> newDataList = new ArrayList<>();
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
+        List<Long> validOcIdList = new ArrayList<>();
         List<TornFactionOcDO> oldDataList = ocDao.lambdaQuery().in(TornFactionOcDO::getId, ocIdList).list();
         for (TornFactionCrimeVO oc : ocList) {
             if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
                 continue;
             }
 
+            validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
                 updateOcData(oc, checkOcSkip(allSkipList, oc));
             } else {
@@ -63,7 +66,7 @@ public class TornFactionOcManager {
         }
 
         insertOcData(newDataList, allSkipList);
-        completeOcData();
+        completeOcData(validOcIdList);
         updateUserPassRate(ocList);
     }
 
@@ -121,13 +124,28 @@ public class TornFactionOcManager {
     /**
      * 已执行的OC设为完成状态
      */
-    public void completeOcData() {
+    public void completeOcData(List<Long> validOcIdList) {
         List<TornFactionOcDO> completedList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                 .lt(TornFactionOcDO::getReadyTime, LocalDateTime.now())
                 .list();
         for (TornFactionOcDO oc : completedList) {
             ocDao.updateCompleted(oc.getId());
+        }
+
+        if (!CollectionUtils.isEmpty(validOcIdList)) {
+            List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
+                    .notIn(TornFactionOcDO::getId, validOcIdList)
+                    .ne(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
+                    .list();
+            if (CollectionUtils.isEmpty(ocList)) {
+                return;
+            }
+
+            List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
+            ocDao.deleteByIdList(ocIdList);
+            slotDao.remove(new LambdaQueryWrapper<TornFactionOcSlotDO>()
+                    .in(TornFactionOcSlotDO::getOcId, ocIdList));
         }
     }
 
@@ -171,7 +189,7 @@ public class TornFactionOcManager {
     public List<TornFactionOcDO> queryRotationRecruitList(TornFactionOcDO planOc) {
         List<TornFactionOcDO> recList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getRank, planOc.getRank())
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(recList);
         List<Long> skipUserIdList = skipDao.lambdaQuery()
@@ -188,7 +206,7 @@ public class TornFactionOcManager {
             boolean isSkip = currentSlotList.stream().anyMatch(s ->
                     s.getUserId() != null && skipUserIdList.contains(s.getUserId()));
 
-            if (isChainOc || isSkip) {
+            if (isChainOc || isSkip || oc.getId().equals(planOc.getId())) {
                 continue;
             }
 
