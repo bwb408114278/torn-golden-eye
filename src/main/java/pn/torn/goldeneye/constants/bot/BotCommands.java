@@ -28,6 +28,10 @@ public class BotCommands {
      */
     public static final String OC_QUERY = "OC查询";
     /**
+     * OC查询
+     */
+    public static final String OC_TEMP_QUERY = "OC临时";
+    /**
      * OC替补
      */
     public static final String OC_FREE = "OC替补";

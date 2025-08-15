@@ -25,6 +25,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
+import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
@@ -49,6 +50,7 @@ public class TornFactionOcValidService {
     private final DynamicTaskService taskService;
     private final TornFactionOcManager ocManager;
     private final TornFactionOcMsgManager msgManager;
+    private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
@@ -173,7 +175,7 @@ public class TornFactionOcValidService {
                                  Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap) {
             Set<Long> userIdSet = ocUserManager.findRotationUser(planOc.getRank());
             String title = isLackNew ? planOc.getRank() + "级OC缺人队伍（未包含新队）" : planOc.getRank() + "级OC缺人队伍";
-            TableDataBO table = msgManager.buildOcTable(title, lackMap);
+            TableDataBO table = msgTableManager.buildOcTable(title, lackMap);
             String ocTableImage = TableImageUtils.renderTableToBase64(table);
             String noticeMsg = isLackNew ?
                     "还剩" + (lackMap.size() + 1) + "坑, 包含新队一坑\n" :

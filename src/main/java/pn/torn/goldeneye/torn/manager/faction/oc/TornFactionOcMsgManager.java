@@ -13,18 +13,16 @@ import pn.torn.goldeneye.msg.send.GroupMemberReqParam;
 import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.*;
 
@@ -40,13 +38,10 @@ import java.util.*;
 public class TornFactionOcMsgManager {
     private final Bot bot;
     private final TornFactionOcUserManager ocUserManager;
+    private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
-    private final TornFactionOcSkipDAO skipDao;
-    private static final Color MEMBER_FULL_COLOR = new Color(122, 167, 56);
-    private static final Color MEMBER_EMPTY_COLOR = new Color(230, 119, 0);
-    private static final String PRE_TEAM = "9级前置";
-    private static final String ROTATION_TEAM = "轮转队";
+    private final SysSettingDAO settingDao;
 
     /**
      * 构建岗位详细消息
@@ -72,67 +67,6 @@ public class TornFactionOcMsgManager {
         }
 
         return buildAtMsg(userIdList);
-    }
-
-    /**
-     * 绘制OC表格
-     *
-     * @return 表格数据，第一层为行，第二层为单元格
-     */
-    public TableDataBO buildOcTable(String title, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
-        List<Long> userIdList = new ArrayList<>();
-        ocMap.values().forEach(v -> userIdList.addAll(v.stream()
-                .map(TornFactionOcSlotDO::getUserId)
-                .filter(Objects::nonNull)
-                .toList()));
-        List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
-        List<TornFactionOcSkipDO> skipList = skipDao.list();
-
-        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-        List<List<String>> tableData = new ArrayList<>();
-        int columnCount = ocMap.values().stream().max(Comparator.comparingInt(List::size)).orElse(List.of()).size();
-
-        List<String> titleRow = new ArrayList<>();
-        titleRow.add(title);
-        fillEmptyColumn(titleRow, 1, columnCount + 1);
-        tableConfig.addMerge(0, 0, 1, columnCount + 1)
-                .setCellStyle(0, 0, new TableImageUtils.CellStyle()
-                        .setAlignment(TableImageUtils.TextAlignment.CENTER)
-                        .setFont(new Font("微软雅黑", Font.BOLD, 30)));
-        tableData.add(titleRow);
-
-        int rowIndex = 1;
-        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
-            TornFactionOcDO oc = entry.getKey();
-            List<TornFactionOcSlotDO> slotList = entry.getValue();
-
-            slotList.sort((o1, o2) -> {
-                if (o1.getUserId() != null && o2.getUserId() == null) {
-                    return -1;
-                } else if (o1.getUserId() == null && o2.getUserId() != null) {
-                    return 1;
-                } else {
-                    return o1.getPosition().compareTo(o2.getPosition());
-                }
-            });
-
-            tableData.add(buildPositionRow(oc, slotList, skipList, rowIndex, columnCount, tableConfig));
-            tableData.add(buildMemberRow(slotList, userList, rowIndex, columnCount, tableConfig));
-
-            List<String> splitLine = new ArrayList<>();
-            fillEmptyColumn(splitLine, 0, columnCount + 1);
-            tableData.add(splitLine);
-
-            tableConfig.addMerge(rowIndex + 2, 0, 1, columnCount + 1);
-            tableConfig.setCellStyle(rowIndex + 2, 0,
-                    new TableImageUtils.CellStyle().setBgColor(new Color(242, 242, 242)));
-
-            rowIndex += 3;
-        }
-
-        // 移除最后一行分隔行
-        tableData.remove(rowIndex - 1);
-        return new TableDataBO(tableData, tableConfig);
     }
 
     /**
@@ -162,139 +96,32 @@ public class TornFactionOcMsgManager {
     }
 
     /**
-     * 构建岗位行
+     * 构建OC表格
      *
-     * @param rowIndex    当前行数
-     * @param columnCount 最大列数
+     * @param title 标题
+     * @return 表格图片的Base64
      */
-    private List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                          List<TornFactionOcSkipDO> skipList,
-                                          int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
-        List<String> resultList = new ArrayList<>();
-        String teamFlag = getTeamFlag(oc, slotList, skipList);
-        resultList.add((teamFlag.isEmpty() ? teamFlag : teamFlag + "   ") + oc.getStatus() +
-                "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
-        tableConfig.addMerge(rowIndex, 0, 2, 1);
-
-        TableImageUtils.CellStyle teamStyle = new TableImageUtils.CellStyle()
-                .setFont(new Font("微软雅黑", Font.BOLD, 14));
-        if (LocalDateTime.now().isAfter(oc.getReadyTime())) {
-            teamStyle.setBgColor(Color.YELLOW);
-        } else if (PRE_TEAM.equals(teamFlag)) {
-            teamStyle.setBgColor(new Color(201, 119, 221));
-        } else if (ROTATION_TEAM.equals(teamFlag)) {
-            teamStyle.setBgColor(new Color(119, 199, 221));
-        } else {
-            teamStyle.setBgColor(new Color(14, 133, 49)).setTextColor(Color.WHITE);
-        }
-        tableConfig.setCellStyle(rowIndex, 0, teamStyle);
-
-        for (int i = 0; i < slotList.size(); i++) {
-            TornFactionOcSlotDO slot = slotList.get(i);
-            resultList.add(slot.getPosition().replace(" ", "") +
-                    (slot.getPassRate() == null ? "" : " " + slot.getPassRate()));
-
-            boolean isLack = slot.getUserId() == null;
-            tableConfig.setCellStyle(rowIndex, i + 1, new TableImageUtils.CellStyle()
-                    .setBgColor(isLack ? MEMBER_EMPTY_COLOR : MEMBER_FULL_COLOR)
-                    .setFont(new Font("微软雅黑", Font.BOLD, 14))
-                    .setAlignment(TableImageUtils.TextAlignment.DISPERSED));
+    public String buildOcTable(String title, List<TornFactionOcDO> ocList) {
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
+        Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
+        for (TornFactionOcDO oc : ocList) {
+            List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
+                    .filter(s -> s.getOcId().equals(oc.getId())).toList());
+            ocMap.put(oc, currentSlotList);
         }
 
-        fillEmptyColumn(resultList, slotList.size(), columnCount, columnIndex ->
-                tableConfig.setCellStyle(rowIndex, columnIndex + 1,
-                        new TableImageUtils.CellStyle().setBgColor(new Color(242, 242, 242))));
-        return resultList;
-    }
+        TableDataBO table = msgTableManager.buildOcTable(title, ocMap);
 
-    /**
-     * 构建成员行
-     *
-     * @param rowIndex    当前行数
-     * @param columnCount 最大列数
-     */
-    private List<String> buildMemberRow(List<TornFactionOcSlotDO> slotList, List<TornUserDO> userList,
-                                        int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
-        List<String> resultList = new ArrayList<>();
-        resultList.add("");
+        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
+        table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
+                "", "", "", "", ""));
 
-        for (int i = 0; i < slotList.size(); i++) {
-            TornFactionOcSlotDO slot = slotList.get(i);
-            boolean isLack = slot.getUserId() == null;
-            TornUserDO user = isLack ?
-                    null :
-                    userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
-            resultList.add(user == null ?
-                    "空缺" :
-                    user.getNickname() + "[" + user.getId() + "] ");
-            tableConfig.setCellStyle(rowIndex + 1, i + 1, new TableImageUtils.CellStyle()
-                            .setAlignment(TableImageUtils.TextAlignment.LEFT)
-                    .setBgColor(isLack ? MEMBER_EMPTY_COLOR : MEMBER_FULL_COLOR));
-        }
-
-        fillEmptyColumn(resultList, slotList.size(), columnCount, columnIndex ->
-                tableConfig.setCellStyle(rowIndex + 1, columnIndex + 1,
-                        new TableImageUtils.CellStyle().setBgColor(new Color(242, 242, 242))));
-        return resultList;
-    }
-
-    /**
-     * 填充空列
-     *
-     * @param startIndex  起始列
-     * @param columnCount 最大列数
-     */
-    private void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount) {
-        fillEmptyColumn(rowList, startIndex, columnCount, null);
-    }
-
-    /**
-     * 填充空列
-     *
-     * @param startIndex  起始列
-     * @param columnCount 最大列数
-     */
-    private void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount, FillEmptyColumnCallback callback) {
-        if (startIndex < columnCount) {
-            for (int i = startIndex; i < columnCount; i++) {
-                rowList.add("");
-
-                if (callback != null) {
-                    callback.handle(i);
-                }
-            }
-        }
-    }
-
-    /**
-     * 获取队伍标识
-     *
-     * @return 队伍标识
-     */
-    private String getTeamFlag(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                               List<TornFactionOcSkipDO> skipList) {
-        boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
-        if (notRotationRank) {
-            return "";
-        }
-
-        boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (isChainOc) {
-            return PRE_TEAM;
-        }
-
-        for (TornFactionOcSlotDO slot : slotList) {
-            if (slot.getUserId() == null) {
-                continue;
-            }
-
-            if (skipList.stream().anyMatch(s ->
-                    s.getUserId().equals(slot.getUserId()) && s.getRank().equals(oc.getRank()))) {
-                return "咸鱼队";
-            }
-        }
-
-        return ROTATION_TEAM;
+        int row = ocList.size() * 3;
+        table.getTableConfig().addMerge(row, 0, 1, 7)
+                .setCellStyle(row, 0, new TableImageUtils.CellStyle()
+                        .setFont(new Font("微软雅黑", Font.BOLD, 14))
+                        .setAlignment(TableImageUtils.TextAlignment.LEFT));
+        return TableImageUtils.renderTableToBase64(table);
     }
 
     public interface SlotMsgCallback {
@@ -304,14 +131,5 @@ public class TornFactionOcMsgManager {
          * @return 获取其他用户
          */
         Collection<Long> getOtherUser();
-    }
-
-    public interface FillEmptyColumnCallback {
-        /**
-         * 处理其他操作
-         *
-         * @param columnIndex 列序号
-         */
-        void handle(int columnIndex);
     }
 }

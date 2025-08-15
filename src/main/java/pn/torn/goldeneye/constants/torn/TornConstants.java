@@ -43,6 +43,14 @@ public class TornConstants {
      * 配置Key - OC读取时间
      */
     public static final String SETTING_KEY_OC_LOAD = "OC_LOAD_TIME";
+    /**
+     * 配置Key - 是否启用临时OC
+     */
+    public static final String SETTING_KEY_OC_TEMP_ENABLE = "OC_TEMP_ENABLE";
+    /**
+     * 配置Key - 临时OC队伍ID
+     */
+    public static final String SETTING_KEY_OC_TEMP_ID = "OC_TEMP_TEAM_ID";
 
     /**
      * 8级 oc chain名称
