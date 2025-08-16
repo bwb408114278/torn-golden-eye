@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.model.setting;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 /**
@@ -15,6 +16,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @TableName(value = "sys_setting", autoResultMap = true)
+@NoArgsConstructor
 public class SysSettingDO extends BaseDO {
     /**
      * ID
@@ -28,4 +30,9 @@ public class SysSettingDO extends BaseDO {
      * 设置值
      */
     private String settingValue;
+
+    public SysSettingDO(String settingKey, String settingValue) {
+        this.settingKey = settingKey;
+        this.settingValue = settingValue;
+    }
 }

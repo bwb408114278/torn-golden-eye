@@ -59,20 +59,9 @@ public class TornFactionOcValidService {
     /**
      * 构建提醒
      */
-    public Runnable buildNotice(TornFactionOcDO planOc, Runnable refreshOc, Runnable reloadSchedule,
-                                int lackCount, int freeCount) {
-        List<TornFactionOcDO> recList = ocManager.queryRotationRecruitList(planOc);
-        return new Notice(planOc.getId(), recList, refreshOc, reloadSchedule, lackCount, freeCount, 6);
-    }
-
-    /**
-     * 构建提醒
-     */
-    public Runnable buildNotice(TornFactionOcDO planOc, List<Long> recIdList,
-                                Runnable refreshOc, Runnable reloadSchedule,
-                                int lackCount, int freeCount, int rotationCount) {
-        List<TornFactionOcDO> recList = ocDao.queryListByIdList(recIdList);
-        return new Notice(planOc.getId(), recList, refreshOc, reloadSchedule, lackCount, freeCount, rotationCount);
+    public Runnable buildNotice(TornFactionOcDO planOc, String settingKey,
+                                Runnable refreshOc, Runnable reloadSchedule, int lackCount, int freeCount) {
+        return new Notice(planOc.getId(), settingKey, refreshOc, reloadSchedule, lackCount, freeCount);
     }
 
     @AllArgsConstructor
@@ -80,11 +69,11 @@ public class TornFactionOcValidService {
         /**
          * OC ID
          */
-        private long planId;
+        private final long planId;
         /**
-         * 招募中列表
+         * 配置Key
          */
-        private List<TornFactionOcDO> recList;
+        private final String settingKey;
         /**
          * 刷新OC的方式
          */
@@ -101,16 +90,13 @@ public class TornFactionOcValidService {
          * 空闲人数
          */
         private int freeCount;
-        /**
-         * 轮转队数量
-         */
-        private int rotationCount;
 
         @Override
         public void run() {
             refreshOc.run();
 
             TornFactionOcDO planOc = ocDao.getById(this.planId);
+            List<TornFactionOcDO> recList = ocManager.queryRotationRecruitList(planOc, settingKey);
 //            if (LocalDateTime.now().isBefore(planOc.getReadyTime())) {
 //                checkFalseStart(planOc, recList);
 //                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
@@ -160,7 +146,7 @@ public class TornFactionOcValidService {
          */
         private void checkPositionFull(TornFactionOcDO planOc, List<TornFactionOcDO> recList) {
             Map<Long, List<TornFactionOcSlotDO>> slotMap = slotDao.queryMapByOc(recList);
-            boolean isLackNew = recList.size() < rotationCount;
+            boolean isLackNew = recList.size() < recList.size() + 1;
 
             Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = HashMap.newHashMap(recList.size());
             for (TornFactionOcDO oc : recList) {
@@ -220,7 +206,7 @@ public class TornFactionOcValidService {
             }
 
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                    new Notice(planId, recList, refreshOc, reloadSchedule, lackCount, freeCount, rotationCount),
+                    new Notice(planId, settingKey, refreshOc, reloadSchedule, lackCount, freeCount),
                     DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
         }
     }

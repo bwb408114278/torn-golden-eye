@@ -15,7 +15,6 @@ import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyServic
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -40,8 +39,7 @@ public class TornFactionOcTempService {
 
     @PostConstruct
     public void init() {
-        String isEnable = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
-        if (!"true".equals(isEnable)) {
+        if (!ocManager.isCheckEnableTemp()) {
             return;
         }
 
@@ -52,29 +50,25 @@ public class TornFactionOcTempService {
      * 更新定时提醒
      */
     public void updateScheduleTask() {
-        String planOcId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_PLAN_ID);
+        String planOcId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP");
         if (planOcId == null) {
             return;
         }
 
         TornFactionOcDO oc = ocDao.getById(Long.parseLong(planOcId));
-        taskService.updateTask("oc-ready-临时",
+        taskService.updateTask("oc-ready-TEMP",
                 readyService.buildNotice(oc.getId()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
-        taskService.updateTask("oc-join-临时",
+        taskService.updateTask("oc-join-TEMP",
                 joinService.buildNotice(oc.getId()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
-        taskService.updateTask("oc-completed-临时",
+        taskService.updateTask("oc-completed-TEMP",
                 () -> ocManager.completeOcData(List.of()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
-        String teamIds = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ID);
-        List<Long> ocIdList = teamIds == null ?
-                List.of() :
-                Arrays.stream(teamIds.split(",")).map(Long::parseLong).toList();
-        taskService.updateTask(TornConstants.TASK_ID_OC_VALID + "临时",
-                validService.buildNotice(oc, ocIdList, ocService::refreshOc, this::updateScheduleTask,
-                        0, 0, ocIdList.size() + 1),
+        taskService.updateTask(TornConstants.TASK_ID_OC_VALID + "TEMP",
+                validService.buildNotice(oc, TornConstants.SETTING_KEY_OC_REC_ID + "TEMP",
+                        ocService::refreshOc, this::updateScheduleTask, 0, 0),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
     }
 }

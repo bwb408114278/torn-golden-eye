@@ -60,7 +60,7 @@ public class TornFactionOcService {
             updateScheduleTask();
         }
 
-        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList();
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
         GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
                 .setGroupId(testProperty.getGroupId())
                 .addMsg(new TextGroupMsg("OC轮转队加载完成"));
@@ -107,7 +107,7 @@ public class TornFactionOcService {
         taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::scheduleOcTask,
                 DateTimeUtils.convertToInstant(last.plusHours(1)), null);
 
-        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList();
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
         for (TornFactionOcDO oc : ocList) {
             taskService.updateTask("oc-ready-" + oc.getRank(),
                     readyService.buildNotice(oc.getId()),
@@ -120,7 +120,8 @@ public class TornFactionOcService {
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + oc.getRank(),
-                    validService.buildNotice(oc, this::refreshOc, this::updateScheduleTask, 0, 0),
+                    validService.buildNotice(oc, TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank(),
+                            this::refreshOc, this::updateScheduleTask, 0, 0),
 //                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
         }

@@ -5,12 +5,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
@@ -21,6 +23,7 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -37,6 +40,7 @@ public class TornFactionOcManager {
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
+    private final SysSettingDAO settingDao;
 
     /**
      * 更新OC数据
@@ -186,11 +190,22 @@ public class TornFactionOcManager {
     /**
      * 获取轮转队招募中的OC ID列表
      */
-    public List<TornFactionOcDO> queryRotationRecruitList(TornFactionOcDO planOc) {
-        List<TornFactionOcDO> recList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, planOc.getRank())
-                .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
-                .list();
+    public List<TornFactionOcDO> queryRotationRecruitList(TornFactionOcDO planOc, String settingKey) {
+        String recIdList = settingDao.querySettingValue(settingKey);
+        List<TornFactionOcDO> recList;
+        if (StringUtils.hasText(recIdList)) {
+            recList = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getRank, planOc.getRank())
+                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
+                    .list();
+            recIdList = String.join(",", recList.stream().map(r -> r.getId().toString()).toList());
+            settingDao.updateSetting(settingKey, recIdList);
+        } else {
+            String[] teamIdArray = recIdList.split(",");
+            List<Long> teamIdList = Arrays.stream(teamIdArray).map(Long::parseLong).toList();
+            recList = ocDao.queryListByIdList(teamIdList);
+        }
+
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(recList);
         List<Long> skipUserIdList = skipDao.lambdaQuery()
                 .eq(TornFactionOcSkipDO::getRank, planOc.getRank())
@@ -214,6 +229,14 @@ public class TornFactionOcManager {
         }
 
         return resultList;
+    }
+
+    /**
+     * 检查是否启用临时轮转
+     */
+    public boolean isCheckEnableTemp() {
+        String tempSetting = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
+        return "true".equals(tempSetting);
     }
 
     /**

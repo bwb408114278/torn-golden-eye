@@ -18,7 +18,12 @@ public class SysSettingDAO extends ServiceImpl<SysSettingMapper, SysSettingDO> {
      * 更新配置
      */
     public void updateSetting(String key, String value) {
-        lambdaUpdate().set(SysSettingDO::getSettingValue, value).eq(SysSettingDO::getSettingKey, key).update();
+        String exists = querySettingValue(key);
+        if (exists != null) {
+            lambdaUpdate().set(SysSettingDO::getSettingValue, value).eq(SysSettingDO::getSettingKey, key).update();
+        } else {
+            save(new SysSettingDO(key, value));
+        }
     }
 
     /**

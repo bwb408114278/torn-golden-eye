@@ -48,13 +48,13 @@ public class TornConstants {
      */
     public static final String SETTING_KEY_OC_TEMP_ENABLE = "OC_TEMP_ENABLE";
     /**
-     * 配置Key - 临时OC队伍ID
+     * 配置Key - 7级OC队伍ID
      */
-    public static final String SETTING_KEY_OC_TEMP_ID = "OC_TEMP_TEAM_ID";
+    public static final String SETTING_KEY_OC_REC_ID = "OC_TEAM_REC_ID_";
     /**
-     * 配置Key - 临时OC队伍准备ID
+     * 配置Key - 7级OC队伍准备ID
      */
-    public static final String SETTING_KEY_OC_TEMP_PLAN_ID = "OC_TEMP_TEAM_PLAN_ID";
+    public static final String SETTING_KEY_OC_PLAN_ID = "OC_TEAM_PLAN_ID_";
 
     /**
      * 8级 oc chain名称

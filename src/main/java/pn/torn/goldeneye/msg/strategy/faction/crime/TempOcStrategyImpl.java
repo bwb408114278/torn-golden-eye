@@ -10,8 +10,10 @@ import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -25,6 +27,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class TempOcStrategyImpl extends BaseMsgStrategy {
+    private final TornFactionOcManager ocManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
@@ -41,18 +44,23 @@ public class TempOcStrategyImpl extends BaseMsgStrategy {
 
     @Override
     public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
-        String isEnable = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
-        if (!"true".equals(isEnable)) {
+        if (!ocManager.isCheckEnableTemp()) {
             return super.buildTextMsg("当前未启用临时轮转队");
         }
 
-        String teamId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ID);
-        if (teamId == null) {
+        String recId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_REC_ID + "TEMP");
+        String planId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP");
+        if (recId == null && planId == null) {
             return super.buildTextMsg("未查询到临时轮转队");
         }
 
-        String[] teamIdArray = teamId.split(",");
-        List<Long> teamIdList = Arrays.stream(teamIdArray).map(Long::parseLong).toList();
+        List<Long> teamIdList = new ArrayList<>();
+        teamIdList.add(Long.parseLong(planId));
+        if (recId != null) {
+            String[] teamIdArray = recId.split(",");
+            teamIdList.addAll(Arrays.stream(teamIdArray).map(Long::parseLong).toList());
+        }
+
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
                 .in(TornFactionOcDO::getId, teamIdList)
                 .orderByAsc(TornFactionOcDO::getName)

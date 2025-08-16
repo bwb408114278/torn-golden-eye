@@ -35,10 +35,11 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     /**
      * 查询轮转队中的执行队
      */
-    public List<TornFactionOcDO> queryRotationExecList() {
+    public List<TornFactionOcDO> queryRotationExecList(boolean tempEnable) {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                 .eq(TornFactionOcDO::isHasCurrent, true)
+                .ne(tempEnable, TornFactionOcDO::getRank, 8)
                 .list();
     }
 
