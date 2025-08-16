@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
@@ -56,7 +57,7 @@ public class TempOcStrategyImpl extends BaseMsgStrategy {
 
         List<Long> teamIdList = new ArrayList<>();
         teamIdList.add(Long.parseLong(planId));
-        if (recId != null) {
+        if (StringUtils.hasText(recId)) {
             String[] teamIdArray = recId.split(",");
             teamIdList.addAll(Arrays.stream(teamIdArray).map(Long::parseLong).toList());
         }

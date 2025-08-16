@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -15,6 +16,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyServic
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -36,6 +38,7 @@ public class TornFactionOcTempService {
     private final TornFactionOcManager ocManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
+    private static final String TEMP_FLAG = "TEMP";
 
     @PostConstruct
     public void init() {
@@ -50,25 +53,34 @@ public class TornFactionOcTempService {
      * 更新定时提醒
      */
     public void updateScheduleTask() {
-        String planOcId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP");
+        String planOcId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + TEMP_FLAG);
         if (planOcId == null) {
             return;
         }
 
         TornFactionOcDO oc = ocDao.getById(Long.parseLong(planOcId));
-        taskService.updateTask("oc-ready-TEMP",
+        taskService.updateTask("oc-ready-" + TEMP_FLAG,
                 readyService.buildNotice(oc.getId()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
-        taskService.updateTask("oc-join-TEMP",
+        taskService.updateTask("oc-join-" + TEMP_FLAG,
                 joinService.buildNotice(oc.getId()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
-        taskService.updateTask("oc-completed-TEMP",
+        taskService.updateTask("oc-completed-" + TEMP_FLAG,
                 () -> ocManager.completeOcData(List.of()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
-        taskService.updateTask(TornConstants.TASK_ID_OC_VALID + "TEMP",
-                validService.buildNotice(oc, TornConstants.SETTING_KEY_OC_REC_ID + "TEMP",
-                        ocService::refreshOc, this::updateScheduleTask, 0, 0),
+        String recId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_REC_ID + "TEMP");
+        List<TornFactionOcDO> ocList;
+        if (StringUtils.hasText(recId)) {
+            String[] teamIdArray = recId.split(",");
+            List<Long> teamIdList = Arrays.stream(teamIdArray).map(Long::parseLong).toList();
+            ocList = ocDao.queryListByIdList(teamIdList);
+        } else {
+            ocList = List.of();
+        }
+
+        taskService.updateTask(TornConstants.TASK_ID_OC_VALID + TEMP_FLAG,
+                validService.buildNotice(oc, ocList, ocService::refreshOc, this::updateScheduleTask, 0, 0),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
     }
 }

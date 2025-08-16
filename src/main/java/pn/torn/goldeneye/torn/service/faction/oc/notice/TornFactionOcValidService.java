@@ -22,7 +22,6 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
@@ -48,7 +47,6 @@ import java.util.*;
 public class TornFactionOcValidService {
     private final Bot bot;
     private final DynamicTaskService taskService;
-    private final TornFactionOcManager ocManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserManager ocUserManager;
@@ -59,9 +57,9 @@ public class TornFactionOcValidService {
     /**
      * 构建提醒
      */
-    public Runnable buildNotice(TornFactionOcDO planOc, String settingKey,
+    public Runnable buildNotice(TornFactionOcDO planOc, List<TornFactionOcDO> recList,
                                 Runnable refreshOc, Runnable reloadSchedule, int lackCount, int freeCount) {
-        return new Notice(planOc.getId(), settingKey, refreshOc, reloadSchedule, lackCount, freeCount);
+        return new Notice(planOc.getId(), recList, refreshOc, reloadSchedule, lackCount, freeCount);
     }
 
     @AllArgsConstructor
@@ -73,7 +71,7 @@ public class TornFactionOcValidService {
         /**
          * 配置Key
          */
-        private final String settingKey;
+        private final List<TornFactionOcDO> recList;
         /**
          * 刷新OC的方式
          */
@@ -96,14 +94,13 @@ public class TornFactionOcValidService {
             refreshOc.run();
 
             TornFactionOcDO planOc = ocDao.getById(this.planId);
-            List<TornFactionOcDO> recList = ocManager.queryRotationRecruitList(planOc, settingKey);
 //            if (LocalDateTime.now().isBefore(planOc.getReadyTime())) {
 //                checkFalseStart(planOc, recList);
 //                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
 //                        buildNotice(planId, refreshOc, reloadSchedule),
 //                        DateTimeUtils.convertToInstant(LocalDateTime.now().plusSeconds(10L)));
 //            } else {
-            checkPositionFull(planOc, recList);
+            checkPositionFull(planOc);
 //            }
         }
 
@@ -144,9 +141,9 @@ public class TornFactionOcValidService {
         /**
          * 检查车位已满
          */
-        private void checkPositionFull(TornFactionOcDO planOc, List<TornFactionOcDO> recList) {
+        private void checkPositionFull(TornFactionOcDO planOc) {
             Map<Long, List<TornFactionOcSlotDO>> slotMap = slotDao.queryMapByOc(recList);
-            boolean isLackNew = recList.size() < recList.size() + 1;
+            boolean isLackNew = recList.size() < 6;
 
             Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = HashMap.newHashMap(recList.size());
             for (TornFactionOcDO oc : recList) {
@@ -206,7 +203,7 @@ public class TornFactionOcValidService {
             }
 
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
-                    new Notice(planId, settingKey, refreshOc, reloadSchedule, lackCount, freeCount),
+                    new Notice(planId, recList, refreshOc, reloadSchedule, lackCount, freeCount),
                     DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
         }
     }
