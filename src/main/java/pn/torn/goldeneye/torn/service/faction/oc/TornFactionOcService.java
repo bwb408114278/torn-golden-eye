@@ -6,13 +6,11 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -23,11 +21,11 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidNoticeBO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -122,21 +120,14 @@ public class TornFactionOcService {
                     () -> ocManager.completeOcData(List.of()),
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
-            String settingKey = TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank();
-            String recIdList = settingDao.querySettingValue(settingKey);
-            List<TornFactionOcDO> recList;
-            if (StringUtils.hasText(recIdList)) {
-                String[] teamIdArray = recIdList.split(",");
-                List<Long> teamIdList = Arrays.stream(teamIdArray).map(Long::parseLong).toList();
-                recList = ocDao.queryListByIdList(teamIdList);
-            } else {
-                recList = ocManager.queryRotationRecruitList(oc);
-                recIdList = String.join(",", recList.stream().map(r -> r.getId().toString()).toList());
-                settingDao.updateSetting(settingKey, recIdList);
-            }
-
+            TornFactionOcValidNoticeBO validParam = new TornFactionOcValidNoticeBO(oc.getId(),
+                    TornConstants.SETTING_KEY_OC_PLAN_ID + oc.getRank(),
+                    TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP",
+                    TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank(),
+                    TornConstants.SETTING_KEY_OC_REC_ID + "TEMP",
+                    this::refreshOc, this::updateScheduleTask, 0, 0, oc.getRank());
             taskService.updateTask(TornConstants.TASK_ID_OC_VALID + oc.getRank(),
-                    validService.buildNotice(oc, recList, this::refreshOc, this::updateScheduleTask, 0, 0),
+                    validService.buildNotice(validParam),
 //                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
                     DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
         }

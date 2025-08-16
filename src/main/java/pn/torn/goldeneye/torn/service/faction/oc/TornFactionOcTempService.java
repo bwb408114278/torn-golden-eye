@@ -4,7 +4,6 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -13,10 +12,10 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidNoticeBO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -69,18 +68,14 @@ public class TornFactionOcTempService {
                 () -> ocManager.completeOcData(List.of()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
-        String recId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_REC_ID + "TEMP");
-        List<TornFactionOcDO> ocList;
-        if (StringUtils.hasText(recId)) {
-            String[] teamIdArray = recId.split(",");
-            List<Long> teamIdList = Arrays.stream(teamIdArray).map(Long::parseLong).toList();
-            ocList = ocDao.queryListByIdList(teamIdList);
-        } else {
-            ocList = List.of();
-        }
-
+        TornFactionOcValidNoticeBO validParam = new TornFactionOcValidNoticeBO(oc.getId(),
+                TornConstants.SETTING_KEY_OC_PLAN_ID + TEMP_FLAG,
+                TornConstants.SETTING_KEY_OC_PLAN_ID + oc.getRank(),
+                TornConstants.SETTING_KEY_OC_REC_ID + TEMP_FLAG,
+                TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank(),
+                ocService::refreshOc, this::updateScheduleTask, 0, 0, 7, 8);
         taskService.updateTask(TornConstants.TASK_ID_OC_VALID + TEMP_FLAG,
-                validService.buildNotice(oc, ocList, ocService::refreshOc, this::updateScheduleTask, 0, 0),
+                validService.buildNotice(validParam),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
     }
 }

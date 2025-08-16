@@ -22,6 +22,7 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -186,36 +187,41 @@ public class TornFactionOcManager {
     }
 
     /**
-     * 获取轮转队招募中的OC ID列表
+     * 刷新轮转队配置
+     *
+     * @param planKey        计划队伍配置Key
+     * @param excludePlanKey 排除的计划队伍配置Key
+     * @param recKey         招募队伍配置Key
+     * @param excludeRecKey  排除的招募队伍配置Key
+     * @param rank           查询级别
      */
-    public List<TornFactionOcDO> queryRotationRecruitList(TornFactionOcDO planOc) {
+    public void refreshRotationSetting(String planKey, String excludePlanKey, String recKey, String excludeRecKey,
+                                       int... rank) {
+        List<TornFactionOcDO> planList = ocDao.lambdaQuery()
+                .eq(TornFactionOcDO::getRank, Arrays.asList(rank))
+                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
+                .list();
+        TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey).get(0);
+        settingDao.updateSetting(planKey, planOc.getId().toString());
+
+        List<TornFactionOcDO> recList = queryRotationRecruitList(planOc.getId(), excludeRecKey, rank);
+        String recIds = String.join(",", recList.stream().map(s -> s.getId().toString()).toList());
+        settingDao.updateSetting(recKey, recIds);
+    }
+
+    /**
+     * 获取轮转队招募中的OC列表
+     *
+     * @param planOcId          计划OC ID
+     * @param excludeSettingKey 排除这些队伍的设置Key
+     * @param rank              包含的级别
+     */
+    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, String excludeSettingKey, int... rank) {
         List<TornFactionOcDO> recList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, planOc.getRank())
+                .eq(TornFactionOcDO::getRank, Arrays.asList(rank))
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(recList);
-        List<Long> skipUserIdList = skipDao.lambdaQuery()
-                .eq(TornFactionOcSkipDO::getRank, planOc.getRank())
-                .list()
-                .stream().map(TornFactionOcSkipDO::getUserId)
-                .toList();
-
-        List<TornFactionOcDO> resultList = new ArrayList<>();
-        for (TornFactionOcDO oc : recList) {
-            boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-            List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
-                    s.getOcId().equals(oc.getId())).toList();
-            boolean isSkip = currentSlotList.stream().anyMatch(s ->
-                    s.getUserId() != null && skipUserIdList.contains(s.getUserId()));
-
-            if (isChainOc || isSkip || oc.getId().equals(planOc.getId())) {
-                continue;
-            }
-
-            resultList.add(oc);
-        }
-
-        return resultList;
+        return buildRotationList(recList, planOcId, excludeSettingKey);
     }
 
     /**
@@ -252,5 +258,40 @@ public class TornFactionOcManager {
         }
 
         return true;
+    }
+
+    /**
+     * 构建轮转队列表
+     *
+     * @param planOcId          计划OC ID
+     * @param excludeSettingKey 排除这些队伍的设置Key
+     */
+    private List<TornFactionOcDO> buildRotationList(List<TornFactionOcDO> ocList, long planOcId,
+                                                    String excludeSettingKey) {
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
+        List<TornFactionOcSkipDO> skipUserList = skipDao.lambdaQuery().list();
+
+        String excludeIds = settingDao.querySettingValue(excludeSettingKey);
+        List<Long> excludeIdList = Arrays.stream(excludeIds.split(",")).map(Long::parseLong).toList();
+
+        List<TornFactionOcDO> resultList = new ArrayList<>();
+        for (TornFactionOcDO oc : ocList) {
+            boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
+            List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
+                    s.getOcId().equals(oc.getId())).toList();
+            boolean isSkip = false;
+            for (TornFactionOcSlotDO slot : currentSlotList) {
+                isSkip = skipUserList.stream().anyMatch(s ->
+                        s.getRank().equals(oc.getRank()) && s.getUserId().equals(slot.getUserId()));
+            }
+
+            if (isChainOc || isSkip || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
+                continue;
+            }
+
+            resultList.add(oc);
+        }
+
+        return resultList;
     }
 }
