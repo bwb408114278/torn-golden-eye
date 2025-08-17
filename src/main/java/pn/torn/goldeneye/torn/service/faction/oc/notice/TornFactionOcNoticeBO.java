@@ -18,7 +18,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.notice;
  * @version 0.1.0
  * @since 2025.08.16
  */
-public record TornFactionOcValidNoticeBO(
+public record TornFactionOcNoticeBO(
         long planId,
         String taskId,
         String planKey,

@@ -198,11 +198,11 @@ public class TornFactionOcManager {
     public void refreshRotationSetting(String planKey, String excludePlanKey, String recKey, String excludeRecKey,
                                        int... rank) {
         List<TornFactionOcDO> planList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.PLANNING, rank);
-        TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey).get(0);
+        TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey, excludePlanKey).get(0);
         settingDao.updateSetting(planKey, planOc.getId().toString());
 
         List<TornFactionOcDO> allRecList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.RECRUITING, rank);
-        List<TornFactionOcDO> recList = buildRotationList(allRecList, planOc.getId(), excludeRecKey);
+        List<TornFactionOcDO> recList = buildRotationList(allRecList, planOc.getId(), excludePlanKey, excludeRecKey);
         String recIds = String.join(",", recList.stream().map(s -> s.getId().toString()).toList());
         settingDao.updateSetting(recKey, recIds);
     }
@@ -210,16 +210,18 @@ public class TornFactionOcManager {
     /**
      * 获取轮转队招募中的OC列表
      *
-     * @param planOcId          计划OC ID
-     * @param excludeSettingKey 排除这些队伍的设置Key
-     * @param rank              包含的级别
+     * @param planOcId       计划OC ID
+     * @param excludePlanKey 排除计划队的设置Key
+     * @param excludeRecKey  排除招募队的设置Key
+     * @param rank           包含的级别
      */
-    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, String excludeSettingKey, int... rank) {
+    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, String excludePlanKey, String excludeRecKey,
+                                                          int... rank) {
         List<TornFactionOcDO> recList = ocDao.lambdaQuery()
                 .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
-        return buildRotationList(recList, planOcId, excludeSettingKey);
+        return buildRotationList(recList, planOcId, excludePlanKey, excludeRecKey);
     }
 
     /**
@@ -265,12 +267,14 @@ public class TornFactionOcManager {
      * @param excludeSettingKey 排除这些队伍的设置Key
      */
     private List<TornFactionOcDO> buildRotationList(List<TornFactionOcDO> ocList, long planOcId,
-                                                    String excludeSettingKey) {
+                                                    String excludePlanKey, String excludeSettingKey) {
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
         List<TornFactionOcSkipDO> skipUserList = skipDao.lambdaQuery().list();
 
+        List<Long> excludeIdList = new ArrayList<>();
+        excludeIdList.add(Long.parseLong(settingDao.querySettingValue(excludePlanKey)));
         String excludeIds = settingDao.querySettingValue(excludeSettingKey);
-        List<Long> excludeIdList = Arrays.stream(excludeIds.split(",")).map(Long::parseLong).toList();
+        excludeIdList.addAll(Arrays.stream(excludeIds.split(",")).map(Long::parseLong).toList());
 
         List<TornFactionOcDO> resultList = new ArrayList<>();
         for (TornFactionOcDO oc : ocList) {

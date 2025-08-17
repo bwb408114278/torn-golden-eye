@@ -12,7 +12,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidNoticeBO;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcNoticeBO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -58,25 +58,25 @@ public class TornFactionOcTempService {
         }
 
         TornFactionOcDO oc = ocDao.getById(Long.parseLong(planOcId));
-        taskService.updateTask("oc-ready-" + TEMP_FLAG,
-                readyService.buildNotice(oc.getId()),
-                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
-        taskService.updateTask("oc-join-" + TEMP_FLAG,
-                joinService.buildNotice(oc.getId()),
-                DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
-        taskService.updateTask("oc-completed-" + TEMP_FLAG,
-                () -> ocManager.completeOcData(List.of()),
-                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
-
         String taskId = TornConstants.TASK_ID_OC_VALID + TEMP_FLAG;
-        TornFactionOcValidNoticeBO validParam = new TornFactionOcValidNoticeBO(oc.getId(), taskId,
+        TornFactionOcNoticeBO noticeParam = new TornFactionOcNoticeBO(oc.getId(), taskId,
                 TornConstants.SETTING_KEY_OC_PLAN_ID + TEMP_FLAG,
                 TornConstants.SETTING_KEY_OC_PLAN_ID + "7",
                 TornConstants.SETTING_KEY_OC_REC_ID + TEMP_FLAG,
                 TornConstants.SETTING_KEY_OC_REC_ID + "7",
                 ocService::refreshOc, this::updateScheduleTask, 0, 0, 7, 8);
+
+        taskService.updateTask("oc-ready-" + TEMP_FLAG,
+                readyService.buildNotice(noticeParam),
+                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)));
+        taskService.updateTask("oc-join-" + TEMP_FLAG,
+                joinService.buildNotice(noticeParam),
+                DateTimeUtils.convertToInstant(oc.getReadyTime()));
+        taskService.updateTask("oc-completed-" + TEMP_FLAG,
+                () -> ocManager.completeOcData(List.of()),
+                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)));
         taskService.updateTask(taskId,
-                validService.buildNotice(validParam),
-                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
+                validService.buildNotice(noticeParam),
+                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)));
     }
 }

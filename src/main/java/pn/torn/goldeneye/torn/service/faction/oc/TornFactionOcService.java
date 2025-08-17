@@ -20,8 +20,8 @@ import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcNoticeBO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidNoticeBO;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -110,27 +110,27 @@ public class TornFactionOcService {
 
         List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
         for (TornFactionOcDO oc : ocList) {
-            taskService.updateTask("oc-ready-" + oc.getRank(),
-                    readyService.buildNotice(oc.getId()),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)), null);
-            taskService.updateTask("oc-join-" + oc.getRank(),
-                    joinService.buildNotice(oc.getId()),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime()), null);
-            taskService.updateTask("oc-completed-" + oc.getRank(),
-                    () -> ocManager.completeOcData(List.of()),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
-
             String taskId = TornConstants.TASK_ID_OC_VALID + oc.getRank();
-            TornFactionOcValidNoticeBO validParam = new TornFactionOcValidNoticeBO(oc.getId(), taskId,
+            TornFactionOcNoticeBO noticeParam = new TornFactionOcNoticeBO(oc.getId(), taskId,
                     TornConstants.SETTING_KEY_OC_PLAN_ID + oc.getRank(),
                     TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP",
                     TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank(),
                     TornConstants.SETTING_KEY_OC_REC_ID + "TEMP",
                     this::refreshOc, this::updateScheduleTask, 0, 0, oc.getRank());
+
+            taskService.updateTask("oc-ready-" + oc.getRank(),
+                    readyService.buildNotice(noticeParam),
+                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)));
+            taskService.updateTask("oc-join-" + oc.getRank(),
+                    joinService.buildNotice(noticeParam),
+                    DateTimeUtils.convertToInstant(oc.getReadyTime()));
+            taskService.updateTask("oc-completed-" + oc.getRank(),
+                    () -> ocManager.completeOcData(List.of()),
+                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)));
             taskService.updateTask(taskId,
-                    validService.buildNotice(validParam),
+                    validService.buildNotice(noticeParam),
 //                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
+                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)));
         }
     }
 }

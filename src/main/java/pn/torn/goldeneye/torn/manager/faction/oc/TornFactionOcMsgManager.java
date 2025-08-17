@@ -46,9 +46,9 @@ public class TornFactionOcMsgManager {
     /**
      * 构建岗位详细消息
      */
-    public List<GroupMsgParam<?>> buildSlotMsg(TornFactionOcDO oc) {
-        List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, oc.getId()).list();
-        return buildSlotMsg(slotList, () -> ocUserManager.findRotationUser(oc.getRank()));
+    public List<GroupMsgParam<?>> buildSlotMsg(long ocId, int... rank) {
+        List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, ocId).list();
+        return buildSlotMsg(slotList, () -> ocUserManager.findRotationUser(rank));
     }
 
     /**

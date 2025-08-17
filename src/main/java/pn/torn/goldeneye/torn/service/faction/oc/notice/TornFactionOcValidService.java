@@ -12,13 +12,11 @@ import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
@@ -45,21 +43,20 @@ import java.util.*;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class TornFactionOcValidService {
+public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
     private final Bot bot;
     private final DynamicTaskService taskService;
     private final TornFactionOcManager ocManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserManager ocUserManager;
-    private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final ResourceLoader resourceLoader;
 
     /**
      * 构建提醒
      */
-    public Runnable buildNotice(TornFactionOcValidNoticeBO param) {
+    public Runnable buildNotice(TornFactionOcNoticeBO param) {
         return new Notice(param);
     }
 
@@ -68,14 +65,13 @@ public class TornFactionOcValidService {
         /**
          * OC ID
          */
-        private final TornFactionOcValidNoticeBO param;
+        private final TornFactionOcNoticeBO param;
 
         @Override
         public void run() {
             param.refreshOc().run();
 
-            List<TornFactionOcDO> recList = ocManager.queryRotationRecruitList(param.planId(),
-                    param.excludeRecKey(), param.rank());
+            List<TornFactionOcDO> recList = findRecList(param);
 //            if (LocalDateTime.now().isBefore(planOc.getReadyTime())) {
 //                checkFalseStart(planOc, recList);
 //                taskService.updateTask(TornConstants.TASK_ID_OC_VALID + planOc.getRank(),
@@ -124,16 +120,9 @@ public class TornFactionOcValidService {
          * 检查车位已满
          */
         private void checkPositionFull(List<TornFactionOcDO> recList) {
-            Map<Long, List<TornFactionOcSlotDO>> slotMap = slotDao.queryMapByOc(recList);
             boolean isLackNew = recList.size() < 6;
 
-            Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = HashMap.newHashMap(recList.size());
-            for (TornFactionOcDO oc : recList) {
-                if (!oc.getReadyTime().toLocalDate().isAfter(LocalDate.now())) {
-                    lackMap.put(oc, slotMap.get(oc.getId()));
-                }
-            }
-
+            Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = buildLackMap(recList);
             if (lackMap.isEmpty() && !isLackNew) {
                 Resource resource = resourceLoader.getResource("classpath:/img/ocSlotFull.gif");
                 try (InputStream inputStream = resource.getInputStream()) {
@@ -169,21 +158,22 @@ public class TornFactionOcValidService {
                 String noticeMsg = isLackNew ?
                         "还剩" + (lackMap.size() + 1) + "坑, 包含新队一坑\n" :
                         "还剩" + lackMap.size() + "坑\n";
-                String title = String.join("/",
-                        Arrays.stream(param.rank()).boxed().map(Object::toString).toList()) +
-                        (isLackNew ? "级OC缺人队伍（未包含新队）" : "级OC缺人队伍");
-                TableDataBO table = msgTableManager.buildOcTable(title, lackMap);
-
                 GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
                         .setGroupId(BotConstants.PN_GROUP_ID)
                         .addMsg(new TextGroupMsg(noticeMsg))
-                        .addMsg(msgManager.buildAtMsg(userIdSet))
-                        .addMsg(new ImageGroupMsg(TableImageUtils.renderTableToBase64(table)));
+                        .addMsg(msgManager.buildAtMsg(userIdSet));
+
+                if (!lackMap.isEmpty()) {
+                    String title = buildRankDesc(param) + (isLackNew ? "级OC缺人队伍（未包含新队）" : "级OC缺人队伍");
+                    TableDataBO table = msgTableManager.buildOcTable(title, lackMap);
+                    msgBuilder.addMsg(new ImageGroupMsg(TableImageUtils.renderTableToBase64(table)));
+                }
+
                 bot.sendRequest(msgBuilder.build(), String.class);
             }
 
             taskService.updateTask(param.taskId(),
-                    new Notice(new TornFactionOcValidNoticeBO(param.planId(), param.taskId(),
+                    new Notice(new TornFactionOcNoticeBO(param.planId(), param.taskId(),
                             param.planKey(), param.excludePlanKey(), param.recKey(), param.excludeRecKey(),
                             param.refreshOc(), param.reloadSchedule(), lackCount, freeCount, param.rank())),
                     DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
