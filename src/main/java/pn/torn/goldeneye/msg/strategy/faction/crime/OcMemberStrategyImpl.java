@@ -46,7 +46,7 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
             return super.sendErrorFormatMsg();
         }
 
-        List<TornFactionOcUserDO> userList = userManager.findFreeUser(Integer.parseInt(msgArray[0]), msgArray[1]);
+        List<TornFactionOcUserDO> userList = userManager.findFreeUser(msgArray[1], Integer.parseInt(msgArray[0]));
         if (CollectionUtils.isEmpty(userList)) {
             return super.buildTextMsg("暂时没有可以加入OC的成员");
         }

@@ -7,6 +7,7 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -52,6 +53,16 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         }
 
         return lambdaQuery().in(TornFactionOcDO::getId, idList).list();
+    }
+
+    /**
+     * 通过状态和级别查询
+     */
+    public List<TornFactionOcDO> queryListByStatusAndRank(TornOcStatusEnum ocStatus, int... rank) {
+        return lambdaQuery()
+                .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
+                .eq(TornFactionOcDO::getStatus, ocStatus.getCode())
+                .list();
     }
 
     /**

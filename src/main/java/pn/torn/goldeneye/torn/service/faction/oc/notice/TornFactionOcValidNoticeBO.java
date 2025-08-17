@@ -3,7 +3,8 @@ package pn.torn.goldeneye.torn.service.faction.oc.notice;
 /**
  * OC校验通知逻辑对象
  *
- * @param planId           计划OC ID
+ * @param planId         计划OC ID
+ * @param taskId         任务ID
  * @param planKey        计划队伍配置Key
  * @param excludePlanKey 排除的计划队伍配置Key
  * @param recKey         招募队伍配置Key
@@ -19,6 +20,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.notice;
  */
 public record TornFactionOcValidNoticeBO(
         long planId,
+        String taskId,
         String planKey,
         String excludePlanKey,
         String recKey,

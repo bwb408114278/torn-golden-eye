@@ -68,13 +68,14 @@ public class TornFactionOcTempService {
                 () -> ocManager.completeOcData(List.of()),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)), null);
 
-        TornFactionOcValidNoticeBO validParam = new TornFactionOcValidNoticeBO(oc.getId(),
+        String taskId = TornConstants.TASK_ID_OC_VALID + TEMP_FLAG;
+        TornFactionOcValidNoticeBO validParam = new TornFactionOcValidNoticeBO(oc.getId(), taskId,
                 TornConstants.SETTING_KEY_OC_PLAN_ID + TEMP_FLAG,
-                TornConstants.SETTING_KEY_OC_PLAN_ID + oc.getRank(),
+                TornConstants.SETTING_KEY_OC_PLAN_ID + "7",
                 TornConstants.SETTING_KEY_OC_REC_ID + TEMP_FLAG,
-                TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank(),
+                TornConstants.SETTING_KEY_OC_REC_ID + "7",
                 ocService::refreshOc, this::updateScheduleTask, 0, 0, 7, 8);
-        taskService.updateTask(TornConstants.TASK_ID_OC_VALID + TEMP_FLAG,
+        taskService.updateTask(taskId,
                 validService.buildNotice(validParam),
                 DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)), null);
     }

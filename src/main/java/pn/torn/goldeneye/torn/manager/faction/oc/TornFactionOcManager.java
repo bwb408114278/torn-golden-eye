@@ -197,14 +197,12 @@ public class TornFactionOcManager {
      */
     public void refreshRotationSetting(String planKey, String excludePlanKey, String recKey, String excludeRecKey,
                                        int... rank) {
-        List<TornFactionOcDO> planList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, Arrays.asList(rank))
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
-                .list();
+        List<TornFactionOcDO> planList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.PLANNING, rank);
         TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey).get(0);
         settingDao.updateSetting(planKey, planOc.getId().toString());
 
-        List<TornFactionOcDO> recList = queryRotationRecruitList(planOc.getId(), excludeRecKey, rank);
+        List<TornFactionOcDO> allRecList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.RECRUITING, rank);
+        List<TornFactionOcDO> recList = buildRotationList(allRecList, planOc.getId(), excludeRecKey);
         String recIds = String.join(",", recList.stream().map(s -> s.getId().toString()).toList());
         settingDao.updateSetting(recKey, recIds);
     }
@@ -218,7 +216,7 @@ public class TornFactionOcManager {
      */
     public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, String excludeSettingKey, int... rank) {
         List<TornFactionOcDO> recList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, Arrays.asList(rank))
+                .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
         return buildRotationList(recList, planOcId, excludeSettingKey);
@@ -283,6 +281,9 @@ public class TornFactionOcManager {
             for (TornFactionOcSlotDO slot : currentSlotList) {
                 isSkip = skipUserList.stream().anyMatch(s ->
                         s.getRank().equals(oc.getRank()) && s.getUserId().equals(slot.getUserId()));
+                if (isSkip) {
+                    break;
+                }
             }
 
             if (isChainOc || isSkip || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
