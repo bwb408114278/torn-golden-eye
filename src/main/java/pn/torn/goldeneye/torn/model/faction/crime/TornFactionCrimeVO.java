@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.model.faction.crime;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOc;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.List;
@@ -15,7 +16,7 @@ import java.util.List;
  * @since 2025.07.29
  */
 @Data
-public class TornFactionCrimeVO {
+public class TornFactionCrimeVO implements TornFactionOc {
     /**
      * Crime id
      */
@@ -61,5 +62,10 @@ public class TornFactionCrimeVO {
         }
 
         return oc;
+    }
+
+    @Override
+    public Integer getRank() {
+        return this.difficulty;
     }
 }

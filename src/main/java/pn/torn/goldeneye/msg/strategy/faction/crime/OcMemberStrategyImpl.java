@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
@@ -36,13 +35,18 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "获取没加OC的人，格式g#" + BotCommands.OC_FREE + "#OC级别#岗位";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length != 2 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();
         }
 
-        List<TornFactionOcUserDO> userList = userManager.findFreeUser(Integer.parseInt(msgArray[0]), msgArray[1]);
+        List<TornFactionOcUserDO> userList = userManager.findFreeUser(msgArray[1], Integer.parseInt(msgArray[0]));
         if (CollectionUtils.isEmpty(userList)) {
             return super.buildTextMsg("暂时没有可以加入OC的成员");
         }

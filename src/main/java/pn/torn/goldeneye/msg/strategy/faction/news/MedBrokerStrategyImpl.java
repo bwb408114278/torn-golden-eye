@@ -37,7 +37,12 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "谁吃的小红，赔钱！";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         LocalDateTime toDate = LocalDate.now().atTime(7, 59, 59);
         LocalDateTime fromDate = toDate.minusDays(30).plusSeconds(1);
         List<ItemUseRankingDO> rankingList = itemUsedDao.queryItemUseRanking(TornConstants.ITEM_NAME_SMALL_RED,

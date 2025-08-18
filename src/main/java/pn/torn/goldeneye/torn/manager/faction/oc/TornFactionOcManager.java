@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
@@ -18,9 +19,11 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.utils.torn.TornOcUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -37,6 +40,7 @@ public class TornFactionOcManager {
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcUserDAO userDao;
     private final TornFactionOcSkipDAO skipDao;
+    private final SysSettingDAO settingDao;
 
     /**
      * 更新OC数据
@@ -59,7 +63,7 @@ public class TornFactionOcManager {
 
             validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc, checkOcSkip(allSkipList, oc));
+                updateOcData(oc, checkTodayPlanning(allSkipList, oc));
             } else {
                 newDataList.add(oc);
             }
@@ -78,7 +82,7 @@ public class TornFactionOcManager {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkOcSkip(allSkipList, oc))).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkTodayPlanning(allSkipList, oc))).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -184,36 +188,49 @@ public class TornFactionOcManager {
     }
 
     /**
-     * 获取轮转队招募中的OC ID列表
+     * 刷新轮转队配置
+     *
+     * @param planKey        计划队伍配置Key
+     * @param excludePlanKey 排除的计划队伍配置Key
+     * @param recKey         招募队伍配置Key
+     * @param excludeRecKey  排除的招募队伍配置Key
+     * @param rank           查询级别
      */
-    public List<TornFactionOcDO> queryRotationRecruitList(TornFactionOcDO planOc) {
+    public void refreshRotationSetting(String planKey, String excludePlanKey, String recKey, String excludeRecKey,
+                                       int... rank) {
+        List<TornFactionOcDO> planList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.PLANNING, rank);
+        TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey, excludePlanKey).get(0);
+        settingDao.updateSetting(planKey, planOc.getId().toString());
+
+        List<TornFactionOcDO> allRecList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.RECRUITING, rank);
+        List<TornFactionOcDO> recList = buildRotationList(allRecList, planOc.getId(), excludePlanKey, excludeRecKey);
+        String recIds = String.join(",", recList.stream().map(s -> s.getId().toString()).toList());
+        settingDao.updateSetting(recKey, recIds);
+    }
+
+    /**
+     * 获取轮转队招募中的OC列表
+     *
+     * @param planOcId       计划OC ID
+     * @param excludePlanKey 排除计划队的设置Key
+     * @param excludeRecKey  排除招募队的设置Key
+     * @param rank           包含的级别
+     */
+    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, String excludePlanKey, String excludeRecKey,
+                                                          int... rank) {
         List<TornFactionOcDO> recList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, planOc.getRank())
+                .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(recList);
-        List<Long> skipUserIdList = skipDao.lambdaQuery()
-                .eq(TornFactionOcSkipDO::getRank, planOc.getRank())
-                .list()
-                .stream().map(TornFactionOcSkipDO::getUserId)
-                .toList();
+        return buildRotationList(recList, planOcId, excludePlanKey, excludeRecKey);
+    }
 
-        List<TornFactionOcDO> resultList = new ArrayList<>();
-        for (TornFactionOcDO oc : recList) {
-            boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-            List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
-                    s.getOcId().equals(oc.getId())).toList();
-            boolean isSkip = currentSlotList.stream().anyMatch(s ->
-                    s.getUserId() != null && skipUserIdList.contains(s.getUserId()));
-
-            if (isChainOc || isSkip || oc.getId().equals(planOc.getId())) {
-                continue;
-            }
-
-            resultList.add(oc);
-        }
-
-        return resultList;
+    /**
+     * 检查是否启用临时轮转
+     */
+    public boolean isCheckEnableTemp() {
+        String tempSetting = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
+        return "true".equals(tempSetting);
     }
 
     /**
@@ -221,26 +238,39 @@ public class TornFactionOcManager {
      *
      * @return true为跳过
      */
-    private boolean checkOcSkip(List<TornFactionOcSkipDO> skipList, TornFactionCrimeVO oc) {
-        boolean notRotationRank = !oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7);
-        boolean isChainOc = oc.getDifficulty().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (notRotationRank || isChainOc || !TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())) {
-            return false;
-        }
+    private boolean checkTodayPlanning(List<TornFactionOcSkipDO> skipList, TornFactionCrimeVO oc) {
+        boolean isRotationOc = TornOcUtils.isRotationOc(oc, oc.getSlots(), skipList);
+        return isRotationOc && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus());
+    }
 
-        for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-            if (slot.getUser() == null) {
+    /**
+     * 构建轮转队列表
+     *
+     * @param planOcId          计划OC ID
+     * @param excludeSettingKey 排除这些队伍的设置Key
+     */
+    private List<TornFactionOcDO> buildRotationList(List<TornFactionOcDO> ocList, long planOcId,
+                                                    String excludePlanKey, String excludeSettingKey) {
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
+        List<TornFactionOcSkipDO> skipUserList = skipDao.lambdaQuery().list();
+
+        List<Long> excludeIdList = new ArrayList<>();
+        excludeIdList.add(Long.parseLong(settingDao.querySettingValue(excludePlanKey)));
+        String excludeIds = settingDao.querySettingValue(excludeSettingKey);
+        excludeIdList.addAll(Arrays.stream(excludeIds.split(",")).map(Long::parseLong).toList());
+
+        List<TornFactionOcDO> resultList = new ArrayList<>();
+        for (TornFactionOcDO oc : ocList) {
+            List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
+                    s.getOcId().equals(oc.getId())).toList();
+            boolean isRotationOc = TornOcUtils.isRotationOc(oc, currentSlotList, skipUserList);
+            if (!isRotationOc || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
                 continue;
             }
 
-            boolean isSkip = skipList.stream().anyMatch(p ->
-                    p.getUserId().equals(slot.getUser().getId()) &&
-                            p.getRank().equals(oc.getDifficulty()));
-            if (isSkip) {
-                return false;
-            }
+            resultList.add(oc);
         }
 
-        return true;
+        return resultList;
     }
 }

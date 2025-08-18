@@ -246,3 +246,17 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: "2025-08-08 12:00:00"
+
+  - changeSet:
+      id: add_temp_oc_setting
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "OC_TEMP_ENABLE"
+              - column:
+                  name: setting_value
+                  value: "false"

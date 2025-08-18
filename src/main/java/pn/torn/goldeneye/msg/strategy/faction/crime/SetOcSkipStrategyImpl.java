@@ -29,7 +29,12 @@ public class SetOcSkipStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "设置咸鱼队人员，命令格式g#" + BotCommands.CANCEL_OC_SKIP + "#ID#OC等级";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 2 || !NumberUtils.isLong(msgArray[0]) || !NumberUtils.isInt(msgArray[1])) {
             return super.sendErrorFormatMsg();

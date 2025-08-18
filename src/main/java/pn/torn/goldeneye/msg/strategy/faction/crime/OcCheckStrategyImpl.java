@@ -27,7 +27,12 @@ public class OcCheckStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(String msg) {
+    public String getCommandDescription() {
+        return "强制刷新当前执行中OC";
+    }
+
+    @Override
+    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
         ocService.scheduleOcTask();
         return super.buildTextMsg("OC数据校准完成");
     }

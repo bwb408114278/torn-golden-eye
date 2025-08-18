@@ -12,6 +12,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -36,9 +37,9 @@ public class TornFactionOcUserManager {
      * @param rank OC级别
      * @return 用户ID列表
      */
-    public Set<Long> findRotationUser(int rank) {
-        List<TornFactionOcUserDO> userList = findFreeUser(rank, null);
-        userList.removeIf(u -> u.getPassRate().compareTo(60) < 1);
+    public Set<Long> findRotationUser(int... rank) {
+        List<TornFactionOcUserDO> userList = findFreeUser(null, rank);
+        userList.removeIf(u -> u.getPassRate().compareTo(60) < 0);
         return userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
     }
 
@@ -47,9 +48,9 @@ public class TornFactionOcUserManager {
      *
      * @param rank OC级别
      */
-    public List<TornFactionOcUserDO> findFreeUser(int rank, String position) {
+    public List<TornFactionOcUserDO> findFreeUser(String position, int... rank) {
         List<TornFactionOcUserDO> userList = ocUserDao.lambdaQuery()
-                .eq(TornFactionOcUserDO::getRank, rank)
+                .in(TornFactionOcUserDO::getRank, Arrays.stream(rank).boxed().toList())
                 .eq(position != null, TornFactionOcUserDO::getPosition, position)
                 .orderByDesc(TornFactionOcUserDO::getPassRate)
                 .page(new Page<>(1, 10))

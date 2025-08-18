@@ -31,6 +31,18 @@ public class TornConstants {
      */
     public static final String TASK_ID_OC_RELOAD = "oc-reload";
     /**
+     * OC重载任务ID
+     */
+    public static final String TASK_ID_OC_READY = "oc-ready-";
+    /**
+     * OC重载任务ID
+     */
+    public static final String TASK_ID_OC_JOIN = "oc-join-";
+    /**
+     * OC重载任务ID
+     */
+    public static final String TASK_ID_OC_COMPLETE = "oc-completed-";
+    /**
      * OC校验任务ID
      */
     public static final String TASK_ID_OC_VALID = "oc-valid-";
@@ -43,11 +55,19 @@ public class TornConstants {
      * 配置Key - OC读取时间
      */
     public static final String SETTING_KEY_OC_LOAD = "OC_LOAD_TIME";
-
     /**
-     * 8级 oc chain名称
+     * 配置Key - 是否启用临时OC
      */
-    public static final String OC_RANK_8_CHAIN = "Stacking the Deck";
+    public static final String SETTING_KEY_OC_TEMP_ENABLE = "OC_TEMP_ENABLE";
+    /**
+     * 配置Key - OC队伍招募ID
+     */
+    public static final String SETTING_KEY_OC_REC_ID = "OC_TEAM_REC_ID_";
+    /**
+     * 配置Key - OC队伍计划ID
+     */
+    public static final String SETTING_KEY_OC_PLAN_ID = "OC_TEAM_PLAN_ID_";
+
     /**
      * 物品名称 - 小红
      */

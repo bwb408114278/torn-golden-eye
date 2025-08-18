@@ -36,12 +36,20 @@ public abstract class BaseMsgStrategy {
     public abstract String getCommand();
 
     /**
+     * 获取指令描述
+     *
+     * @return 指令描述
+     */
+    public abstract String getCommandDescription();
+
+    /**
      * 处理消息
      *
-     * @param msg 消息
+     * @param groupId 群聊ID
+     * @param msg     消息
      * @return 需要发送的消息，为空则为不发送
      */
-    public abstract List<? extends GroupMsgParam<?>> handle(String msg);
+    public abstract List<? extends GroupMsgParam<?>> handle(long groupId, String msg);
 
     /**
      * 发送文本消息
