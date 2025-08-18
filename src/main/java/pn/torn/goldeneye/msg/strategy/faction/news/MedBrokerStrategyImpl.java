@@ -71,13 +71,7 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
                 .setFont(new Font("微软雅黑", Font.BOLD, 30)));
 
         tableData.add(List.of("Rank", "ID ", "Name", "数量", "总占比"));
-        TableImageUtils.CellStyle subTitleStyle = new TableImageUtils.CellStyle()
-                .setFont(new Font("微软雅黑", Font.BOLD, 16));
-        tableConfig.setCellStyle(1, 0, subTitleStyle);
-        tableConfig.setCellStyle(1, 1, subTitleStyle);
-        tableConfig.setCellStyle(1, 2, subTitleStyle);
-        tableConfig.setCellStyle(1, 3, subTitleStyle);
-        tableConfig.setCellStyle(1, 4, subTitleStyle);
+        tableConfig.setSubTitle(1, 5);
 
         for (int i = 0; i < rankingList.size(); i++) {
             ItemUseRankingDO ranking = rankingList.get(i);
