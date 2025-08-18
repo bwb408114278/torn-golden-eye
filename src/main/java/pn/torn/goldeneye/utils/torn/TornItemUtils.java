@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.utils;
+package pn.torn.goldeneye.utils.torn;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;

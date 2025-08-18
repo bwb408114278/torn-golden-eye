@@ -116,8 +116,7 @@ public class ItemUsedService {
     private void addScheduleTask(LocalDateTime to) {
         taskService.updateTask("item-use-reload",
                 () -> spiderItemUseData(to.plusSeconds(1), to.plusDays(1)),
-                DateTimeUtils.convertToInstant(to.plusDays(1).plusSeconds(1).plusMinutes(10L)),
-                null);
+                to.plusDays(1).plusSeconds(1).plusMinutes(10L));
     }
 
     /**

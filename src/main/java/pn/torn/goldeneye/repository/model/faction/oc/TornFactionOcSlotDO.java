@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
+import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 
 import java.time.LocalDateTime;
 
@@ -17,7 +18,7 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @TableName(value = "torn_faction_oc_slot", autoResultMap = true)
-public class TornFactionOcSlotDO extends BaseDO {
+public class TornFactionOcSlotDO extends BaseDO implements TornFactionOcSlot {
     /**
      * ID
      */

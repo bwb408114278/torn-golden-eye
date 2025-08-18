@@ -11,10 +11,9 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcNoticeBO;
+import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
 import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
-import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.List;
 
@@ -66,17 +65,12 @@ public class TornFactionOcTempService {
                 TornConstants.SETTING_KEY_OC_REC_ID + "7",
                 ocService::refreshOc, this::updateScheduleTask, 0, 0, 7, 8);
 
-        taskService.updateTask("oc-ready-" + TEMP_FLAG,
-                readyService.buildNotice(noticeParam),
-                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)));
-        taskService.updateTask("oc-join-" + TEMP_FLAG,
-                joinService.buildNotice(noticeParam),
-                DateTimeUtils.convertToInstant(oc.getReadyTime()));
-        taskService.updateTask("oc-completed-" + TEMP_FLAG,
-                () -> ocManager.completeOcData(List.of()),
-                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)));
-        taskService.updateTask(taskId,
-                validService.buildNotice(noticeParam),
-                DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)));
+        taskService.updateTask(TornConstants.TASK_ID_OC_READY + TEMP_FLAG,
+                readyService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(-5));
+        taskService.updateTask(TornConstants.TASK_ID_OC_JOIN + TEMP_FLAG,
+                joinService.buildNotice(noticeParam), oc.getReadyTime());
+        taskService.updateTask(TornConstants.TASK_ID_OC_COMPLETE + TEMP_FLAG,
+                () -> ocManager.completeOcData(List.of()), oc.getReadyTime().plusMinutes(2));
+        taskService.updateTask(taskId, validService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(1L));
     }
 }

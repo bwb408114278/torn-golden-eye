@@ -19,6 +19,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.utils.torn.TornOcUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -62,7 +63,7 @@ public class TornFactionOcManager {
 
             validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc, checkOcSkip(allSkipList, oc));
+                updateOcData(oc, checkTodayPlanning(allSkipList, oc));
             } else {
                 newDataList.add(oc);
             }
@@ -81,7 +82,7 @@ public class TornFactionOcManager {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkOcSkip(allSkipList, oc))).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkTodayPlanning(allSkipList, oc))).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -237,27 +238,9 @@ public class TornFactionOcManager {
      *
      * @return true为跳过
      */
-    private boolean checkOcSkip(List<TornFactionOcSkipDO> skipList, TornFactionCrimeVO oc) {
-        boolean notRotationRank = !oc.getDifficulty().equals(8) && !oc.getDifficulty().equals(7);
-        boolean isChainOc = oc.getDifficulty().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (notRotationRank || isChainOc || !TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())) {
-            return false;
-        }
-
-        for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-            if (slot.getUser() == null) {
-                continue;
-            }
-
-            boolean isSkip = skipList.stream().anyMatch(p ->
-                    p.getUserId().equals(slot.getUser().getId()) &&
-                            p.getRank().equals(oc.getDifficulty()));
-            if (isSkip) {
-                return false;
-            }
-        }
-
-        return true;
+    private boolean checkTodayPlanning(List<TornFactionOcSkipDO> skipList, TornFactionCrimeVO oc) {
+        boolean isRotationOc = TornOcUtils.isRotationOc(oc, oc.getSlots(), skipList);
+        return isRotationOc && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus());
     }
 
     /**
@@ -278,19 +261,10 @@ public class TornFactionOcManager {
 
         List<TornFactionOcDO> resultList = new ArrayList<>();
         for (TornFactionOcDO oc : ocList) {
-            boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
             List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
                     s.getOcId().equals(oc.getId())).toList();
-            boolean isSkip = false;
-            for (TornFactionOcSlotDO slot : currentSlotList) {
-                isSkip = skipUserList.stream().anyMatch(s ->
-                        s.getRank().equals(oc.getRank()) && s.getUserId().equals(slot.getUserId()));
-                if (isSkip) {
-                    break;
-                }
-            }
-
-            if (isChainOc || isSkip || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
+            boolean isRotationOc = TornOcUtils.isRotationOc(oc, currentSlotList, skipUserList);
+            if (!isRotationOc || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
                 continue;
             }
 

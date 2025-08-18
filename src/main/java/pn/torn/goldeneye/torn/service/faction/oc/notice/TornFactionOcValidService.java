@@ -17,10 +17,8 @@ import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
 import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
@@ -46,11 +44,9 @@ import java.util.*;
 public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
     private final Bot bot;
     private final DynamicTaskService taskService;
-    private final TornFactionOcManager ocManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserManager ocUserManager;
-    private final TornFactionOcSlotDAO slotDao;
     private final ResourceLoader resourceLoader;
 
     /**
@@ -176,7 +172,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                     new Notice(new TornFactionOcNoticeBO(param.planId(), param.taskId(),
                             param.planKey(), param.excludePlanKey(), param.recKey(), param.excludeRecKey(),
                             param.refreshOc(), param.reloadSchedule(), lackCount, freeCount, param.rank())),
-                    DateTimeUtils.convertToInstant(LocalDateTime.now().plusMinutes(1L)));
+                    LocalDateTime.now().plusMinutes(1L));
         }
     }
 }

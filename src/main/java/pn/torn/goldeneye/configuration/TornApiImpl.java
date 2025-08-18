@@ -16,7 +16,6 @@ import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
-import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
@@ -147,7 +146,7 @@ class TornApiImpl implements TornApi {
 
         KEY_QUEUE.addAll(keyList);
         taskService.updateTask("refresh-api", this::refreshKeyData,
-                DateTimeUtils.convertToInstant(LocalDate.now().atTime(8, 1, 0).plusDays(1)));
+                LocalDate.now().atTime(8, 1, 0).plusDays(1));
     }
 
     /**

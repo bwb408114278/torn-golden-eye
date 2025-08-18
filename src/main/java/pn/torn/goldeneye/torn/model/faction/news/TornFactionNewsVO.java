@@ -3,7 +3,7 @@ package pn.torn.goldeneye.torn.model.faction.news;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
-import pn.torn.goldeneye.utils.TornItemUtils;
+import pn.torn.goldeneye.utils.torn.TornItemUtils;
 
 /**
  * 帮派新闻响应参数

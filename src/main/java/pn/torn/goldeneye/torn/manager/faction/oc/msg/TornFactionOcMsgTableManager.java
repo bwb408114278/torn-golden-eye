@@ -3,7 +3,6 @@ package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.model.TableDataBO;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -12,6 +11,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.torn.TornOcUtils;
 
 import java.awt.*;
 import java.time.LocalDateTime;
@@ -213,8 +213,7 @@ public class TornFactionOcMsgTableManager {
             return "";
         }
 
-        boolean isChainOc = oc.getRank().equals(8) && oc.getName().equals(TornConstants.OC_RANK_8_CHAIN);
-        if (isChainOc) {
+        if (TornOcUtils.isChainOc(oc)) {
             return PRE_TEAM;
         }
 

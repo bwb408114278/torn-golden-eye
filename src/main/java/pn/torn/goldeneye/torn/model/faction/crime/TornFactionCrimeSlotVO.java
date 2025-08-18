@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
+import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 /**
@@ -14,7 +15,7 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
  * @since 2025.07.29
  */
 @Data
-public class TornFactionCrimeSlotVO {
+public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
     /**
      * 岗位名称
      */
@@ -59,5 +60,10 @@ public class TornFactionCrimeSlotVO {
         ocUser.setPosition(this.position);
         ocUser.setPassRate(this.checkpointPassRate);
         return ocUser;
+    }
+
+    @Override
+    public Long getUserId() {
+        return this.user == null ? null : user.getId();
     }
 }

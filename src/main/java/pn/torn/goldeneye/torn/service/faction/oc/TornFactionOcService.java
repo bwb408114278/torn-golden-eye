@@ -105,8 +105,7 @@ public class TornFactionOcService {
     public void updateScheduleTask() {
         String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
-        taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::scheduleOcTask,
-                DateTimeUtils.convertToInstant(last.plusHours(1)), null);
+        taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::scheduleOcTask, last.plusHours(1));
 
         List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
         for (TornFactionOcDO oc : ocList) {
@@ -118,19 +117,13 @@ public class TornFactionOcService {
                     TornConstants.SETTING_KEY_OC_REC_ID + "TEMP",
                     this::refreshOc, this::updateScheduleTask, 0, 0, oc.getRank());
 
-            taskService.updateTask("oc-ready-" + oc.getRank(),
-                    readyService.buildNotice(noticeParam),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-5)));
-            taskService.updateTask("oc-join-" + oc.getRank(),
-                    joinService.buildNotice(noticeParam),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime()));
-            taskService.updateTask("oc-completed-" + oc.getRank(),
-                    () -> ocManager.completeOcData(List.of()),
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(2)));
-            taskService.updateTask(taskId,
-                    validService.buildNotice(noticeParam),
-//                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(-2)), null);
-                    DateTimeUtils.convertToInstant(oc.getReadyTime().plusMinutes(1L)));
+            taskService.updateTask(TornConstants.TASK_ID_OC_READY + oc.getRank(),
+                    readyService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(-5));
+            taskService.updateTask(TornConstants.TASK_ID_OC_JOIN + oc.getRank(),
+                    joinService.buildNotice(noticeParam), oc.getReadyTime());
+            taskService.updateTask(TornConstants.TASK_ID_OC_COMPLETE + oc.getRank(),
+                    () -> ocManager.completeOcData(List.of()), oc.getReadyTime().plusMinutes(2));
+            taskService.updateTask(taskId, validService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(1L));
         }
     }
 }
