@@ -132,6 +132,14 @@ public class TableImageUtils {
             this.borderColor = color;
             return this;
         }
+
+        public TableConfig setSubTitle(int row, int columnSize) {
+            CellStyle subTitleStyle = new CellStyle().setFont(new Font("微软雅黑", Font.BOLD, 16));
+            for (int i = 0; i < columnSize; i++) {
+                this.setCellStyle(row, i, subTitleStyle);
+            }
+            return this;
+        }
     }
 
     /**

@@ -88,7 +88,7 @@ public class ItemUsedService {
             List<TornFactionItemUsedDO> dataList = buildDataList(newsList);
             if (!CollectionUtils.isEmpty(dataList)) {
                 Set<String> nicknameSet = dataList.stream().map(TornFactionItemUsedDO::getUserNickname).collect(Collectors.toSet());
-                Map<String, Long> nicknameMap = userDao.getNicknameMap(nicknameSet);
+                Map<String, Long> nicknameMap = userDao.queryNicknameMap(nicknameSet);
                 dataList.forEach(n -> n.setUserId(nicknameMap.get(n.getUserNickname())));
                 usedDao.saveBatch(dataList);
             }
