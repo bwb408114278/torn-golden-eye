@@ -19,6 +19,7 @@ import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.utils.JsonUtils;
+import pn.torn.goldeneye.utils.StrMatchingUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -251,6 +252,8 @@ public class BotSocketClient {
         }
 
         String[] msgArray = msg.getMessage().get(0).getData().getText().split("#", 3);
+        // todo 模糊匹配
+        List<String> strings = StrMatchingUtils.fuzzyMatching("", StrMatchingUtils.botCommandsMap);
         if (msgArray.length < 2) {
             return;
         }
