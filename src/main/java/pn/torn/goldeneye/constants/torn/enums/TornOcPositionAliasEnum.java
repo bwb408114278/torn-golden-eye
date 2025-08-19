@@ -1,53 +1,69 @@
 package pn.torn.goldeneye.constants.torn.enums;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+import pn.torn.goldeneye.utils.StringFuzzyMatchUtils;
+
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * OC岗位枚举
  *
- * @author Bai
+ * @author zmpress
  * @version 0.1.0
  * @since 2025.08.18
  */
 @Getter
 public enum TornOcPositionAliasEnum {
-
-    IMITATOR("Imitator", "模仿者", "冒牌货", "假扮者"),
-    LOOTER("Looter", "掠夺者", "抢劫者", "劫掠者"),
-    CAR_THIEF("Car Thief", "偷车贼", "汽车窃贼"),
-    HUSTLER("Hustler", "骗子", "投机者", "混混", "奸商"),
-    MUSCLE("Muscle", "肌肉", "壮汉", "保镖", "武力担当"),
-    ENFORCER("Enforcer", "执行者", "打手", "执法者"),
-    LOOKOUT("Lookout", "望风者", "放哨", "警戒者"),
-    SNIPER("Sniper", "狙击手"),
-    ENGINEER("Engineer", "工程师", "技工", "机械师"),
-    HACKER("Hacker", "黑客", "骇客"),
-    PICKLOCK("Picklock", "撬锁匠", "开锁人", "锁匠"),
-    ROBBER("Robber", "强盗", "劫匪", "抢劫犯"),
-    NEGOTIATOR("Negotiator", "谈判专家", "斡旋者", "调解人"),
-    TECHIE("Techie", "技术员", "技术宅", "科技迷"),
-    BOMBER("Bomber", "爆破手", "投弹手", "炸弹客"),
-    DRIVER("Driver", "司机", "车手", "驾驶员"),
+    IMITATOR("Imitator", "模仿"),
+    LOOTER("Looter", "掠夺"),
+    CAR_THIEF("Car Thief", "偷车"),
+    HUSTLER("Hustler", "骗子"),
+    MUSCLE("Muscle", "肌肉"),
+    ENFORCER("Enforcer", "打手"),
+    LOOKOUT("Lookout", "放哨"),
+    SNIPER("Sniper", "狙击"),
+    ENGINEER("Engineer", "工程", "工程师"),
+    HACKER("Hacker", "黑客"),
+    PICKLOCK("Picklock", "锁匠", "开锁"),
+    ROBBER("Robber", "强盗", "抢劫"),
+    NEGOTIATOR("Negotiator", "谈判"),
+    TECHIE("Techie", "技术"),
+    BOMBER("Bomber", "爆破", "炸弹"),
+    DRIVER("Driver", "司机", "开车"),
     THIEF("Thief", "小偷", "贼"),
-    CAT_BURGLAR("Cat Burglar", "飞贼", "夜贼", "攀爬盗");
+    CAT_BURGLAR("Cat Burglar", "飞贼");
 
     private final String key;
     private final String[] aliases;
+    private final Set<String> aliasSet = new HashSet<>();
 
     TornOcPositionAliasEnum(String key, String... aliases) {
         this.key = key;
         this.aliases = aliases;
+        aliasSet.addAll(Arrays.stream(aliases).collect(Collectors.toSet()));
     }
 
-    public static TornOcPositionAliasEnum keyOf(String key) {
-        if (!StringUtils.hasText(key)) {
+    public static TornOcPositionAliasEnum codeOf(String code) {
+        if (!StringUtils.hasText(code)) {
             return null;
         }
 
+        Map<String, Set<String>> keyValueMap = new LinkedHashMap<>();
         for (TornOcPositionAliasEnum value : values()) {
-            if (org.apache.commons.lang3.StringUtils.equalsAnyIgnoreCase(key, value.key)) {
+            keyValueMap.put(value.getKey(), value.getAliasSet());
+        }
+
+        List<String> matchedKeys = StringFuzzyMatchUtils.fuzzyMatching(code, keyValueMap);
+        if (CollectionUtils.isEmpty(matchedKeys)) {
+            return null;
+        }
+
+        String matchedKey = matchedKeys.get(0);
+        for (TornOcPositionAliasEnum value : values()) {
+            if (value.getKey().equals(matchedKey)) {
                 return value;
             }
         }
