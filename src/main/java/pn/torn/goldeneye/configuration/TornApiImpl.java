@@ -36,7 +36,10 @@ import java.util.Queue;
 class TornApiImpl implements TornApi {
     private final DynamicTaskService taskService;
     private final TornApiKeyDAO keyDao;
-    private static final Queue<TornApiKeyDO> KEY_QUEUE = new PriorityQueue<>(Comparator.comparingInt(TornApiKeyDO::getUseCount));
+    private static final Queue<TornApiKeyDO> KEY_QUEUE =
+            new PriorityQueue<>(Comparator.comparingInt(TornApiKeyDO::getUseCount));
+    private static final Queue<TornApiKeyDO> FACTION_KEY_QUEUE =
+            new PriorityQueue<>(Comparator.comparingInt(TornApiKeyDO::getUseCount));
 
     /**
      * Web请求
@@ -69,7 +72,7 @@ class TornApiImpl implements TornApi {
             String uriWithParam = uri + "/" +
                     (param.getId() == null ? "" : param.getId()) +
                     "?selections=" + param.getSection() +
-                    "&key=" + getEnableKey();
+                    "&key=" + getEnableKey(param.needFactionAccess());
 
             ResponseEntity<String> entity = this.restClient
                     .method(HttpMethod.GET)
@@ -86,6 +89,11 @@ class TornApiImpl implements TornApi {
 
     @Override
     public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
+        return sendRequest(param, getEnableKey(param.needFactionAccess()), responseType);
+    }
+
+    @Override
+    public <T> T sendRequest(TornReqParamV2 param, TornApiKeyDO apiKey, Class<T> responseType) {
         try {
             UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
             MultiValueMap<String, String> paramMap = param.buildReqParam();
@@ -97,7 +105,7 @@ class TornApiImpl implements TornApi {
             ResponseEntity<String> entity = this.restClientV2
                     .method(HttpMethod.GET)
                     .uri(finalUri)
-                    .header("Authorization", "ApiKey " + getEnableKey())
+                    .header("Authorization", "ApiKey " + apiKey.getApiKey())
                     .retrieve()
                     .toEntity(String.class);
 
@@ -105,7 +113,14 @@ class TornApiImpl implements TornApi {
         } catch (Exception e) {
             log.error("请求Torn Api V2出错", e);
             return null;
+        } finally {
+            updateKeyUseCount(apiKey);
         }
+    }
+
+    @Override
+    public List<TornApiKeyDO> getEnableKeyList() {
+        return KEY_QUEUE.stream().toList();
     }
 
     /**
@@ -132,11 +147,12 @@ class TornApiImpl implements TornApi {
      */
     private void refreshKeyData() {
         KEY_QUEUE.clear();
+        FACTION_KEY_QUEUE.clear();
 
         LocalDate queryDate = LocalTime.now().isAfter(LocalTime.of(8, 0)) ?
                 LocalDate.now() : LocalDate.now().plusDays(-1);
 
-        List<TornApiKeyDO> keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate).list();
+        List<TornApiKeyDO> keyList = keyDao.queryListByDate(queryDate);
         if (CollectionUtils.isEmpty(keyList)) {
             keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate.plusDays(-1)).list();
             List<TornApiKeyDO> newList = keyList.stream().map(TornApiKeyDO::copyNewData).toList();
@@ -145,6 +161,7 @@ class TornApiImpl implements TornApi {
         }
 
         KEY_QUEUE.addAll(keyList);
+        FACTION_KEY_QUEUE.addAll(keyList.stream().filter(TornApiKeyDO::getHasFactionAccess).toList());
         taskService.updateTask("refresh-api", this::refreshKeyData,
                 LocalDate.now().atTime(8, 1, 0).plusDays(1));
     }
@@ -152,17 +169,27 @@ class TornApiImpl implements TornApi {
     /**
      * 获取可用的Api Key
      *
-     * @return Api Key
+     * @param needFactionAccess 是否需要帮派权限
      */
-    private String getEnableKey() {
-        TornApiKeyDO key = KEY_QUEUE.poll();
+    private TornApiKeyDO getEnableKey(boolean needFactionAccess) {
+        return needFactionAccess ? FACTION_KEY_QUEUE.poll() : KEY_QUEUE.poll();
+    }
+
+    /**
+     * 获取可用的Api Key
+     */
+    private void updateKeyUseCount(TornApiKeyDO key) {
         key.setUseCount(key.getUseCount() + 1);
         KEY_QUEUE.offer(key);
+
+        FACTION_KEY_QUEUE.stream()
+                .filter(k -> k.getId().equals(key.getId()))
+                .findAny()
+                .ifPresent(facKey -> FACTION_KEY_QUEUE.offer(key));
 
         keyDao.lambdaUpdate()
                 .set(TornApiKeyDO::getUseCount, key.getUseCount())
                 .eq(TornApiKeyDO::getId, key.getId())
                 .update();
-        return key.getApiKey();
     }
 }

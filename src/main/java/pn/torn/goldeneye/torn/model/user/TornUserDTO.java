@@ -31,6 +31,11 @@ public class TornUserDTO implements TornReqParamV2 {
     }
 
     @Override
+    public boolean needFactionAccess() {
+        return false;
+    }
+
+    @Override
     public MultiValueMap<String, String> buildReqParam() {
         MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
         param.put("id", List.of(id.toString()));

@@ -142,3 +142,32 @@ databaseChangeLog:
                     nullable: false
                   defaultValue: "0"
                   remarks: "QQ号"
+
+  - changeSet:
+      id: add_oc_pass_rate_load_date
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "OC_PASS_RATE_LOAD_DATE"
+              - column:
+                  name: setting_value
+                  value: "2025-08-19"
+
+  - changeSet:
+      id: add_key_faction_access
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: has_faction_access
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  defaultValue: "f"
+                  remarks: "是否有帮派权限"

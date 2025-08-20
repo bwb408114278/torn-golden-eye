@@ -44,6 +44,11 @@ public class TornFactionNewsDTO implements TornReqParamV2 {
     }
 
     @Override
+    public boolean needFactionAccess() {
+        return true;
+    }
+
+    @Override
     public MultiValueMap<String, String> buildReqParam() {
         MultiValueMap<String, String> resultMap = new LinkedMultiValueMap<>(5);
         resultMap.put("cat", List.of(this.cat.getCode()));

@@ -10,12 +10,10 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -36,9 +34,9 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class TornFactionOcManager {
+    private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
-    private final TornFactionOcUserDAO userDao;
     private final TornFactionOcNoticeDAO noticeDao;
     private final SysSettingDAO settingDao;
 
@@ -71,7 +69,7 @@ public class TornFactionOcManager {
 
         insertOcData(newDataList, skipList);
         completeOcData(validOcIdList);
-        updateUserPassRate(ocList);
+        ocUserManager.updateJoinedUserPassRate(ocList);
     }
 
     /**
@@ -150,40 +148,6 @@ public class TornFactionOcManager {
             ocDao.deleteByIdList(ocIdList);
             slotDao.remove(new LambdaQueryWrapper<TornFactionOcSlotDO>()
                     .in(TornFactionOcSlotDO::getOcId, ocIdList));
-        }
-    }
-
-    /**
-     * 更新用户成功率
-     */
-    public void updateUserPassRate(List<TornFactionCrimeVO> ocList) {
-        List<TornFactionOcUserDO> allUserList = userDao.list();
-        List<TornFactionOcUserDO> newDataList = new ArrayList<>();
-
-        for (TornFactionCrimeVO oc : ocList) {
-            for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-                if (slot.getUser() == null) {
-                    continue;
-                }
-
-                TornFactionOcUserDO oldData = allUserList.stream().filter(u ->
-                        u.getUserId().equals(slot.getUser().getId()) &&
-                                u.getRank().equals(oc.getDifficulty()) &&
-                                u.getOcName().equals(oc.getName()) &&
-                                u.getPosition().equals(slot.getPosition())).findAny().orElse(null);
-                if (oldData != null && oldData.getPassRate().compareTo(slot.getCheckpointPassRate()) < 0) {
-                    userDao.lambdaUpdate()
-                            .set(TornFactionOcUserDO::getPassRate, slot.getCheckpointPassRate())
-                            .eq(TornFactionOcUserDO::getId, oldData.getId())
-                            .update();
-                } else if (oldData == null) {
-                    newDataList.add(slot.convert2UserDO(oc.getDifficulty(), oc.getName()));
-                }
-            }
-        }
-
-        if (!newDataList.isEmpty()) {
-            userDao.saveBatch(newDataList);
         }
     }
 

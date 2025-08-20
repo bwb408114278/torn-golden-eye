@@ -39,6 +39,10 @@ public class TornApiKeyDO extends BaseDO {
      */
     private String keyLevel;
     /**
+     * 是否有帮派权限
+     */
+    private Boolean hasFactionAccess;
+    /**
      * 使用次数
      */
     private Integer useCount;
@@ -53,6 +57,7 @@ public class TornApiKeyDO extends BaseDO {
         key.setQqId(this.qqId);
         key.setApiKey(this.apiKey);
         key.setKeyLevel(this.keyLevel);
+        key.setHasFactionAccess(this.hasFactionAccess);
         key.setUseCount(0);
         key.setUseDate(LocalDate.now());
         return key;
