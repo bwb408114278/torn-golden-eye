@@ -44,7 +44,9 @@ public class TornFactionOcUserManager {
         List<TornFactionOcUserDO> userList = findFreeUser(null, rank);
         List<TornFactionOcNoticeDO> skipList = noticeDao.lambdaQuery()
                 .in(TornFactionOcNoticeDO::getRank, Arrays.stream(rank).boxed().toList())
-                .or(wrapper -> wrapper.eq(TornFactionOcNoticeDO::getHasNotice, false)
+                .and(wrapper -> wrapper
+                        .eq(TornFactionOcNoticeDO::getHasNotice, false)
+                        .or()
                         .eq(TornFactionOcNoticeDO::getHasSkip, true))
                 .list();
 
