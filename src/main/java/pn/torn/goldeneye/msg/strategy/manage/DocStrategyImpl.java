@@ -5,6 +5,7 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.msg.receive.GroupRecSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
@@ -34,13 +35,13 @@ public class DocStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
         List<BaseMsgStrategy> strategies = applicationContext.getBeansOfType(BaseMsgStrategy.class)
                 .values().stream()
                 .filter(strategy -> !(strategy instanceof DocStrategyImpl))
                 .toList();
 
-        StringBuilder helpText = new StringBuilder("可用指令列表：\n");
+        StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
         strategies.stream()
                 .filter(strategy -> ArrayUtils.contains(strategy.getGroupId(), groupId))
                 .forEach(strategy -> helpText.append(strategy.getCommand())

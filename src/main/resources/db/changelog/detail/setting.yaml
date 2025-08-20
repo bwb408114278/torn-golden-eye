@@ -127,3 +127,18 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: "2025-08-08"
+
+  - changeSet:
+      id: bind_key_and_qq
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: qq_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "QQ号"

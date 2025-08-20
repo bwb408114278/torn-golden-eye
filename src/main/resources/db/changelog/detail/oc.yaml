@@ -260,3 +260,28 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: "false"
+
+  - changeSet:
+      id: skip_expand_to_notice
+      author: Bai
+      changes:
+        - renameTable:
+            oldTableName: torn_faction_oc_skip
+            newTableName: torn_faction_oc_notice
+        - addColumn:
+            tableName: torn_faction_oc_notice
+            columns:
+              - column:
+                  name: has_notice
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  defaultValue: "f"
+                  remarks: "是否提醒"
+              - column:
+                  name: has_skip
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  defaultValue: "f"
+                  remarks: "是否咸鱼队"

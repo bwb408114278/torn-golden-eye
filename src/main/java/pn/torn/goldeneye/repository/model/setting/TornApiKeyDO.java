@@ -27,6 +27,10 @@ public class TornApiKeyDO extends BaseDO {
      */
     private Long userId;
     /**
+     * QQ号
+     */
+    private Long qqId;
+    /**
      * Api Key
      */
     private String apiKey;
@@ -46,6 +50,7 @@ public class TornApiKeyDO extends BaseDO {
     public TornApiKeyDO copyNewData() {
         TornApiKeyDO key = new TornApiKeyDO();
         key.setUserId(this.userId);
+        key.setQqId(this.qqId);
         key.setApiKey(this.apiKey);
         key.setKeyLevel(this.keyLevel);
         key.setUseCount(0);

@@ -6,9 +6,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 
@@ -30,6 +32,7 @@ public class TornFactionOcUserManager {
     private final TornFactionOcUserDAO ocUserDao;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
+    private final TornFactionOcNoticeDAO noticeDao;
 
     /**
      * 查询可参加OC的替补人员
@@ -39,7 +42,22 @@ public class TornFactionOcUserManager {
      */
     public Set<Long> findRotationUser(int... rank) {
         List<TornFactionOcUserDO> userList = findFreeUser(null, rank);
-        userList.removeIf(u -> u.getPassRate().compareTo(60) < 0);
+        List<TornFactionOcNoticeDO> skipList = noticeDao.lambdaQuery()
+                .in(TornFactionOcNoticeDO::getRank, Arrays.stream(rank).boxed().toList())
+                .or(wrapper -> wrapper.eq(TornFactionOcNoticeDO::getHasNotice, false)
+                        .eq(TornFactionOcNoticeDO::getHasSkip, true))
+                .list();
+
+        userList.removeIf(u -> {
+            if (u.getPassRate().compareTo(60) < 0) {
+                return true;
+            }
+            // 如果多个级别要提醒，当这些级别都屏蔽时才不提醒
+            List<TornFactionOcNoticeDO> blockList = skipList.stream()
+                    .filter(s -> s.getUserId().equals(u.getUserId()))
+                    .toList();
+            return blockList.size() == rank.length;
+        });
         return userList.stream().map(TornFactionOcUserDO::getUserId).collect(Collectors.toSet());
     }
 

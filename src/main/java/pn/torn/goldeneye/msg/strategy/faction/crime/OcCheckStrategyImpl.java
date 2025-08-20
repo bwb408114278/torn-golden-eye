@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.msg.receive.GroupRecSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
@@ -32,7 +33,7 @@ public class OcCheckStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
         ocService.scheduleOcTask();
         return super.buildTextMsg("OC数据校准完成");
     }

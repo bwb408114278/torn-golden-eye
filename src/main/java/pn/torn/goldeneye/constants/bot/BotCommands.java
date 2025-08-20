@@ -12,12 +12,6 @@ import lombok.NoArgsConstructor;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class BotCommands {
-    // ====================用户相关====================
-    /**
-     * 同步用户
-     */
-    public static final String MATCH_USER = "同步用户";
-
     // ====================OC相关====================
     /**
      * OC校准
@@ -28,21 +22,17 @@ public class BotCommands {
      */
     public static final String OC_QUERY = "OC查询";
     /**
-     * OC查询
-     */
-    public static final String OC_TEMP_QUERY = "OC临时";
-    /**
      * OC替补
      */
     public static final String OC_FREE = "OC替补";
     /**
-     * OC跳过
+     * OC提醒
      */
-    public static final String OC_SKIP = "OC跳过";
+    public static final String OC_NOTICE = "OC提醒";
     /**
-     * 取消OC跳过
+     * 取消OC提醒
      */
-    public static final String CANCEL_OC_SKIP = "取消OC跳过";
+    public static final String CANCEL_OC_NOTICE = "取消OC提醒";
 
     // ====================帮派成员相关====================
     /**

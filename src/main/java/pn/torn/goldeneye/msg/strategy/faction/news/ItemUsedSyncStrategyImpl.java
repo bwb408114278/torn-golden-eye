@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.news;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.msg.receive.GroupRecSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
 import pn.torn.goldeneye.torn.service.faction.armory.ItemUsedService;
@@ -35,7 +36,7 @@ public class ItemUsedSyncStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 2 || !NumberUtils.isInt(msgArray[0]) || !NumberUtils.isInt(msgArray[1])) {
             return super.sendErrorFormatMsg();

@@ -3,6 +3,9 @@ package pn.torn.goldeneye.constants.torn;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Torn常量
  *
@@ -12,6 +15,7 @@ import lombok.NoArgsConstructor;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class TornConstants {
+
     /**
      * 基础路径
      */
@@ -25,6 +29,16 @@ public class TornConstants {
      * PN帮派ID
      */
     public static final long FACTION_PN_ID = 20465L;
+
+    /**
+     * OC轮转级别
+     */
+    public static final List<Integer> ROTATION_OC_RANK = new ArrayList<>();
+
+    static {
+        ROTATION_OC_RANK.add(7);
+        ROTATION_OC_RANK.add(8);
+    }
 
     /**
      * OC重载任务ID

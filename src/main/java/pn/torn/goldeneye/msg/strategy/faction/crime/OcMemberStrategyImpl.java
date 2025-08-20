@@ -6,6 +6,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornOcPositionAliasEnum;
+import pn.torn.goldeneye.msg.receive.GroupRecSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -40,11 +41,11 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "获取空闲成员，例g#" + BotCommands.OC_FREE + "#8";
+        return "获取空闲成员，例g#" + BotCommands.OC_FREE + "#8(#肌肉)";
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();
