@@ -26,6 +26,10 @@ public class BotCommands {
      */
     public static final String OC_FREE = "OC替补";
     /**
+     * OC成功率
+     */
+    public static final String OC_PASS_RATE = "OC成功率";
+    /**
      * OC提醒
      */
     public static final String OC_NOTICE = "OC提醒";
@@ -59,4 +63,8 @@ public class BotCommands {
      * 手册
      */
     public static final String DOC = "手册";
+    /**
+     * 绑Key
+     */
+    public static final String BIND_KEY = "绑Key";
 }

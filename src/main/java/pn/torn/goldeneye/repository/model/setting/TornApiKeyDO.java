@@ -3,7 +3,10 @@ package pn.torn.goldeneye.repository.model.setting;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import pn.torn.goldeneye.constants.torn.enums.key.TornKeyTypeEnum;
 import pn.torn.goldeneye.repository.model.BaseDO;
+import pn.torn.goldeneye.torn.model.key.TornApiKeyInfoVO;
 
 import java.time.LocalDate;
 
@@ -17,6 +20,7 @@ import java.time.LocalDate;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @TableName(value = "torn_api_key", autoResultMap = true)
+@NoArgsConstructor
 public class TornApiKeyDO extends BaseDO {
     /**
      * ID
@@ -61,5 +65,20 @@ public class TornApiKeyDO extends BaseDO {
         key.setUseCount(0);
         key.setUseDate(LocalDate.now());
         return key;
+    }
+
+    public TornApiKeyDO(long qqId, String apiKey, TornApiKeyInfoVO keyInfo) {
+        TornKeyTypeEnum keyType = TornKeyTypeEnum.codeOf(keyInfo.getAccess().getType());
+        if (keyType == null) {
+            return;
+        }
+
+        this.userId = keyInfo.getUser().getId();
+        this.qqId = qqId;
+        this.apiKey = apiKey;
+        this.keyLevel = keyType.getShortCode();
+        this.hasFactionAccess = keyInfo.getAccess().getFaction();
+        this.useCount = 1;
+        this.useDate = LocalDate.now();
     }
 }

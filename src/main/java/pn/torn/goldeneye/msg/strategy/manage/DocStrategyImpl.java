@@ -5,9 +5,9 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.msg.receive.GroupRecSender;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 
 import java.util.List;
@@ -35,8 +35,8 @@ public class DocStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
-        List<BaseMsgStrategy> strategies = applicationContext.getBeansOfType(BaseMsgStrategy.class)
+    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+        List<BaseGroupMsgStrategy> strategies = applicationContext.getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
                 .filter(strategy -> !(strategy instanceof DocStrategyImpl))
                 .toList();

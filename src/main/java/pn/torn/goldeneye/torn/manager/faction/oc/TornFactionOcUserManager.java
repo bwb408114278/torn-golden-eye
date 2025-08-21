@@ -1,6 +1,5 @@
 package pn.torn.goldeneye.torn.manager.faction.oc;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -147,8 +146,7 @@ public class TornFactionOcUserManager {
                 .in(TornFactionOcUserDO::getRank, Arrays.stream(rank).boxed().toList())
                 .eq(position != null, TornFactionOcUserDO::getPosition, position)
                 .orderByDesc(TornFactionOcUserDO::getPassRate)
-                .page(new Page<>(1, 10))
-                .getRecords();
+                .list();
 
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())

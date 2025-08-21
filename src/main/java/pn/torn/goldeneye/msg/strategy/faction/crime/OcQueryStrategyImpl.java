@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
-import pn.torn.goldeneye.msg.receive.GroupRecSender;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -39,7 +39,7 @@ public class OcQueryStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();

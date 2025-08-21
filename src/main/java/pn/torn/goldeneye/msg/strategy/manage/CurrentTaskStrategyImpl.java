@@ -5,9 +5,9 @@ import org.apache.commons.collections4.MapUtils;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.msg.receive.GroupRecSender;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
@@ -25,7 +25,7 @@ import java.util.Map;
  */
 @Component
 @RequiredArgsConstructor
-public class CurrentTaskStrategyImpl extends BaseMsgStrategy {
+public class CurrentTaskStrategyImpl extends BaseGroupMsgStrategy {
     private final DynamicTaskService taskService;
 
     @Override
@@ -39,7 +39,7 @@ public class CurrentTaskStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         Map<String, LocalDateTime> taskMap = taskService.getScheduledTask();
         if (MapUtils.isEmpty(taskMap)) {
             return buildTextMsg("当前没有待执行的任务");

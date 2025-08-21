@@ -3,7 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime.notice;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.msg.receive.GroupRecSender;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
@@ -13,6 +13,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.utils.NumberUtils;
+import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -34,7 +35,7 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
     private TornApiKeyDAO apiKeyDao;
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, GroupRecSender sender, String msg) {
+    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         if (!NumberUtils.isInt(msg)) {
             return super.sendErrorFormatMsg();
         }
@@ -99,12 +100,9 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
     /**
      * 获取用户Id
      */
-    private long findUserId(GroupRecSender sender) {
-        long userId;
-        String[] card = sender.getCard().split("\\[");
-        if (card.length > 1) {
-            userId = Long.parseLong(card[1].replace("]", ""));
-        } else {
+    private long findUserId(QqRecMsgSender sender) {
+        long userId = TornUserUtils.getUserIdFromSender(sender);
+        if (userId == 0L) {
             TornApiKeyDO apiKey = apiKeyDao.lambdaQuery()
                     .eq(TornApiKeyDO::getQqId, sender.getUserId())
                     .eq(TornApiKeyDO::getUseDate, LocalDate.now())

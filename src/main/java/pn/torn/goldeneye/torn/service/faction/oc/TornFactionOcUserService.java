@@ -56,25 +56,31 @@ public class TornFactionOcUserService {
      */
     public void spiderOcPassRate(LocalDateTime to) {
         List<TornApiKeyDO> keyList = tornApi.getEnableKeyList();
-        List<TornFactionCrimeVO> ocList = new ArrayList<>();
         for (TornApiKeyDO key : keyList) {
-            ocList.clear();
-            if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
-                TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), key, TornFactionOcVO.class);
-                ocList.addAll(oc.getCrimes());
-            } else {
-                TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);
-                if (oc == null) {
-                    continue;
-                }
-                ocList.add(oc.getOrganizedCrime());
-            }
-
-            ocUserManager.updateEmptyUserPassRate(key.getUserId(), ocList);
+            updateOcRate(key);
         }
 
         settingDao.updateSetting(TornConstants.SETTING_KEY_OC_PASS_RATE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
+    }
+
+    /**
+     * 更新OC成功率
+     */
+    public void updateOcRate(TornApiKeyDO key) {
+        List<TornFactionCrimeVO> ocList = new ArrayList<>();
+        if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
+            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), key, TornFactionOcVO.class);
+            ocList.addAll(oc.getCrimes());
+        } else {
+            TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);
+            if (oc == null) {
+                return;
+            }
+            ocList.add(oc.getOrganizedCrime());
+        }
+
+        ocUserManager.updateEmptyUserPassRate(key.getUserId(), ocList);
     }
 
     /**

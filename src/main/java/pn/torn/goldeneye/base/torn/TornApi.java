@@ -47,4 +47,19 @@ public interface TornApi {
      * @return Key列表
      */
     List<TornApiKeyDO> getEnableKeyList();
+
+    /**
+     * 插入Api Key
+     *
+     * @param apiKey ApiKey
+     */
+    void addApiKey(TornApiKeyDO apiKey);
+
+    /**
+     * 更新Api Key
+     *
+     * @param existingKey 已存在的Key
+     * @param newKey      新Key
+     */
+    void updateApiKey(TornApiKeyDO existingKey, TornApiKeyDO newKey);
 }

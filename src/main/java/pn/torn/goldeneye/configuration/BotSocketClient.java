@@ -14,10 +14,10 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.msg.receive.GroupRecMsg;
+import pn.torn.goldeneye.msg.receive.QqRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.io.IOException;
@@ -66,7 +66,7 @@ public class BotSocketClient {
     @Resource
     private ThreadPoolTaskExecutor virtualThreadExecutor;
     @Resource
-    private List<BaseMsgStrategy> msgStrategyList;
+    private List<BaseGroupMsgStrategy> msgStrategyList;
 
     @PostConstruct
     public void init() {
@@ -245,7 +245,7 @@ public class BotSocketClient {
             return;
         }
 
-        GroupRecMsg msg = JsonUtils.jsonToObj(rawMessage, GroupRecMsg.class);
+        QqRecMsg msg = JsonUtils.jsonToObj(rawMessage, QqRecMsg.class);
         if (!isCommandMsg(msg)) {
             return;
         }
@@ -255,7 +255,7 @@ public class BotSocketClient {
             return;
         }
 
-        for (BaseMsgStrategy strategy : msgStrategyList) {
+        for (BaseGroupMsgStrategy strategy : msgStrategyList) {
             if (ArrayUtils.contains(strategy.getGroupId(), msg.getGroupId()) && strategy.getCommand().equals(msgArray[1])) {
                 List<? extends GroupMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),
                         msgArray.length > 2 ? msgArray[2] : "");
@@ -276,7 +276,7 @@ public class BotSocketClient {
      * @param msg 群聊消息
      * @return true为是
      */
-    private boolean isCommandMsg(GroupRecMsg msg) {
+    private boolean isCommandMsg(QqRecMsg msg) {
         return msg.getMessage().size() == 1 &&
                 "text".equals(msg.getMessage().get(0).getType()) &&
                 msg.getMessage().get(0).getData().getText().startsWith("g#");
