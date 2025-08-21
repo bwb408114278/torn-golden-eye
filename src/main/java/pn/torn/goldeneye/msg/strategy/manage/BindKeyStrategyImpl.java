@@ -4,11 +4,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;
@@ -25,8 +26,9 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class BindKeyStrategyImpl extends BaseMsgStrategy {
+public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
     private final TornApi tornApi;
+    private final TornApiKeyConfig apiKeyConfig;
     private final TornFactionOcUserService ocUserService;
 
     @Override
@@ -40,7 +42,7 @@ public class BindKeyStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
         if (!StringUtils.hasText(msg)) {
             return super.buildTextMsg("消息格式不正确");
         }
@@ -55,21 +57,21 @@ public class BindKeyStrategyImpl extends BaseMsgStrategy {
         }
 
         TornApiKeyDO keyData = new TornApiKeyDO(sender.getUserId(), msg, key.getInfo());
-        TornApiKeyDO oldKey = tornApi.getEnableKeyList().stream()
+        TornApiKeyDO oldKey = apiKeyConfig.getEnableKeyList().stream()
                 .filter(s -> s.getUserId().equals(key.getInfo().getUser().getId()))
                 .findAny().orElse(null);
         if (oldKey == null) {
-            tornApi.addApiKey(keyData);
+            apiKeyConfig.addApiKey(keyData);
             ocUserService.updateOcRate(keyData);
             return super.buildTextMsg(keyData.getUserId() + "绑定" + keyData.getKeyLevel() + "级别的Key成功");
         }
 
-        oldKey = tornApi.getEnableKeyList().stream().filter(s -> s.getApiKey().equals(msg)).findAny().orElse(null);
-        if (oldKey != null) {
+        TornApiKeyDO sameKey = apiKeyConfig.getEnableKeyList().stream().filter(s -> s.getApiKey().equals(msg)).findAny().orElse(null);
+        if (sameKey != null) {
             return super.buildTextMsg("已存在相同的Key");
         }
 
-        tornApi.updateApiKey(oldKey, keyData);
+        apiKeyConfig.updateApiKey(oldKey, keyData);
         return super.buildTextMsg(keyData.getUserId() + "替换" + keyData.getKeyLevel() + "级别的Key成功");
     }
 }

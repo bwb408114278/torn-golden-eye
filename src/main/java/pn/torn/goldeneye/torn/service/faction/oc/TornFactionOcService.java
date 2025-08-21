@@ -12,7 +12,7 @@ import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -64,12 +64,12 @@ public class TornFactionOcService {
         List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
         GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
                 .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextGroupMsg("OC轮转队加载完成"));
+                .addMsg(new TextQqMsg("OC轮转队加载完成"));
         if (CollectionUtils.isEmpty(ocList)) {
-            builder.addMsg(new TextGroupMsg("\n当前没有轮转队"));
+            builder.addMsg(new TextQqMsg("\n当前没有轮转队"));
         } else {
             for (TornFactionOcDO oc : ocList) {
-                builder.addMsg(new TextGroupMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
+                builder.addMsg(new TextQqMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
                         DateTimeUtils.convertToString(oc.getReadyTime())));
             }
         }

@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.ItemUseRankingDO;
@@ -43,7 +43,7 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         LocalDateTime toDate = LocalDate.now().atTime(7, 59, 59);
         LocalDateTime fromDate = toDate.minusDays(30).plusSeconds(1);
         List<ItemUseRankingDO> rankingList = itemUsedDao.queryItemUseRanking(TornConstants.ITEM_NAME_SMALL_RED,

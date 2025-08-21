@@ -7,6 +7,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
@@ -37,6 +38,7 @@ public class TornFactionOcUserService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
+    private final TornApiKeyConfig apiKeyConfig;
     private final TornFactionOcUserManager ocUserManager;
     private final SysSettingDAO settingDao;
 
@@ -55,7 +57,7 @@ public class TornFactionOcUserService {
      * 爬取物品使用记录
      */
     public void spiderOcPassRate(LocalDateTime to) {
-        List<TornApiKeyDO> keyList = tornApi.getEnableKeyList();
+        List<TornApiKeyDO> keyList = apiKeyConfig.getEnableKeyList();
         for (TornApiKeyDO key : keyList) {
             updateOcRate(key);
         }

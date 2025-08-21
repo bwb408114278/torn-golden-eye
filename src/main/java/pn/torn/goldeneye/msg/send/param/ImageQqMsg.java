@@ -12,7 +12,7 @@ import pn.torn.goldeneye.msg.send.data.ImageMsgData;
  * @since 2025.08.05
  */
 @Data
-public class ImageGroupMsg implements GroupMsgParam<ImageMsgData> {
+public class ImageQqMsg implements QqMsgParam<ImageMsgData> {
     /**
      * 类型
      */
@@ -22,7 +22,7 @@ public class ImageGroupMsg implements GroupMsgParam<ImageMsgData> {
      */
     private final ImageMsgData data;
 
-    public ImageGroupMsg(String base64) {
+    public ImageQqMsg(String base64) {
         this.data = new ImageMsgData("base64://" + base64);
     }
 }

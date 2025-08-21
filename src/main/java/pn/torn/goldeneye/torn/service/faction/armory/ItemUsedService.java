@@ -14,7 +14,7 @@ import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -65,7 +65,7 @@ public class ItemUsedService {
         addScheduleTask(to);
         GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
                 .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextGroupMsg("帮派物品使用记录读取完成，读取截止时间" +
+                .addMsg(new TextQqMsg("帮派物品使用记录读取完成，读取截止时间" +
                         DateTimeUtils.convertToString(to.toLocalDate())));
         bot.sendRequest(builder.build(), String.class);
     }

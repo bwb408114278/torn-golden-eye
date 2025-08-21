@@ -2,8 +2,6 @@ package pn.torn.goldeneye.base.torn;
 
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 
-import java.util.List;
-
 /**
  * Torn Api 基类
  *
@@ -40,26 +38,4 @@ public interface TornApi {
      * @return 响应数据
      */
     <T> T sendRequest(TornReqParamV2 param, TornApiKeyDO apiKey, Class<T> responseType);
-
-    /**
-     * 获取所有可用的Key列表
-     *
-     * @return Key列表
-     */
-    List<TornApiKeyDO> getEnableKeyList();
-
-    /**
-     * 插入Api Key
-     *
-     * @param apiKey ApiKey
-     */
-    void addApiKey(TornApiKeyDO apiKey);
-
-    /**
-     * 更新Api Key
-     *
-     * @param existingKey 已存在的Key
-     * @param newKey      新Key
-     */
-    void updateApiKey(TornApiKeyDO existingKey, TornApiKeyDO newKey);
 }

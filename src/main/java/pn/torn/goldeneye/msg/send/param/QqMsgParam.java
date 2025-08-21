@@ -9,7 +9,7 @@ import pn.torn.goldeneye.constants.bot.enums.GroupMsgTypeEnum;
  * @version 0.1.0
  * @since 2025.06.22
  */
-public interface GroupMsgParam<T> {
+public interface QqMsgParam<T> {
     /**
      * 获取消息类型 {@link GroupMsgTypeEnum}
      */

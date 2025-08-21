@@ -2,7 +2,7 @@ package pn.torn.goldeneye.msg.send;
 
 import org.springframework.http.HttpMethod;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -21,7 +21,7 @@ public class GroupMsgHttpBuilder {
     /**
      * 请求参数列表
      */
-    private final List<GroupMsgParam<?>> paramList = new ArrayList<>();
+    private final List<QqMsgParam<?>> paramList = new ArrayList<>();
     private long groupId = 0L;
 
     /**
@@ -35,7 +35,7 @@ public class GroupMsgHttpBuilder {
     /**
      * 添加消息
      */
-    public GroupMsgHttpBuilder addMsg(GroupMsgParam<?> param) {
+    public GroupMsgHttpBuilder addMsg(QqMsgParam<?> param) {
         this.paramList.add(param);
         return this;
     }
@@ -43,7 +43,7 @@ public class GroupMsgHttpBuilder {
     /**
      * 添加消息
      */
-    public GroupMsgHttpBuilder addMsg(Collection<GroupMsgParam<?>> param) {
+    public GroupMsgHttpBuilder addMsg(Collection<QqMsgParam<?>> param) {
         this.paramList.addAll(param);
         return this;
     }

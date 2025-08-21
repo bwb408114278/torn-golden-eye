@@ -4,6 +4,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
+import pn.torn.goldeneye.utils.NumberUtils;
 
 /**
  * Torn用户工具
@@ -21,7 +22,8 @@ public class TornUserUtils {
     public static long getUserIdFromSender(QqRecMsgSender sender) {
         String[] card = sender.getCard().split("\\[");
         if (card.length > 1) {
-            return Long.parseLong(card[1].replace("]", ""));
+            String[] userId = card[1].split("]");
+            return NumberUtils.isLong(userId[0]) ? Long.parseLong(userId[0]) : 0L;
         }
 
         return 0L;

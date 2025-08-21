@@ -8,20 +8,20 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import java.util.List;
 
 /**
- * 群聊消息请求参数
+ * 私聊消息请求参数
  *
  * @author Bai
  * @version 0.1.0
- * @since 2025.06.22
+ * @since 2025.08.21
  */
 @Data
 @AllArgsConstructor
-class GroupMsgReqParam {
+class PrivateMsgReqParam {
     /**
-     * 群号
+     * QQ号
      */
-    @JsonProperty("group_id")
-    private long groupId;
+    @JsonProperty("user_id")
+    private long userId;
     /**
      * 消息列表
      */

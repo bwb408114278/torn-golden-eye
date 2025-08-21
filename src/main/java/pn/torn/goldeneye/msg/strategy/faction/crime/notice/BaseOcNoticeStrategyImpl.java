@@ -4,7 +4,7 @@ import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
@@ -35,7 +35,7 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
     private TornApiKeyDAO apiKeyDao;
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         if (!NumberUtils.isInt(msg)) {
             return super.sendErrorFormatMsg();
         }

@@ -10,8 +10,7 @@ import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
-import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 
 /**
  * 通用配置类
@@ -29,16 +28,15 @@ public class CommonConfiguration {
     private String serverHttpPort;
     @Value("${bot.server.token}")
     private String serverToken;
-    private final DynamicTaskService taskService;
+    private final TornApiKeyConfig apiKeyConfig;
     private final TestProperty testProperty;
-    private final TornApiKeyDAO keyDao;
 
     @Bean
     public Bot buildHttpBot() {
         BotImpl bot = new BotImpl(serverAddr, serverHttpPort, serverToken);
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextGroupMsg("金眼重启完成"))
+                .addMsg(new TextQqMsg("金眼重启完成"))
                 .build();
         bot.sendRequest(param, String.class);
         return bot;
@@ -46,7 +44,7 @@ public class CommonConfiguration {
 
     @Bean
     public TornApi buildTornApi() {
-        return new TornApiImpl(this.keyDao, this.taskService);
+        return new TornApiImpl(this.apiKeyConfig);
     }
 
     @Bean

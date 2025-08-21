@@ -10,9 +10,9 @@ import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
 import pn.torn.goldeneye.msg.send.GroupMemberReqParam;
-import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.param.AtQqMsg;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -46,7 +46,7 @@ public class TornFactionOcMsgManager {
     /**
      * 构建岗位详细消息
      */
-    public List<GroupMsgParam<?>> buildSlotMsg(long ocId, int... rank) {
+    public List<QqMsgParam<?>> buildSlotMsg(long ocId, int... rank) {
         List<TornFactionOcSlotDO> slotList = slotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, ocId).list();
         return buildSlotMsg(slotList, () -> ocUserManager.findRotationUser(rank));
     }
@@ -54,7 +54,7 @@ public class TornFactionOcMsgManager {
     /**
      * 构建岗位详细消息
      */
-    public List<GroupMsgParam<?>> buildSlotMsg(List<TornFactionOcSlotDO> slotList, SlotMsgCallback callback) {
+    public List<QqMsgParam<?>> buildSlotMsg(List<TornFactionOcSlotDO> slotList, SlotMsgCallback callback) {
         List<Long> userIdList = new ArrayList<>();
         slotList.forEach(s -> {
             if (s.getUserId() != null) {
@@ -74,10 +74,10 @@ public class TornFactionOcMsgManager {
      *
      * @param userIdList 用户ID列表
      */
-    public List<GroupMsgParam<?>> buildAtMsg(Collection<Long> userIdList) {
+    public List<QqMsgParam<?>> buildAtMsg(Collection<Long> userIdList) {
         ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
                 new GroupMemberReqParam(BotConstants.PN_GROUP_ID), GroupMemberRec.class);
-        List<GroupMsgParam<?>> resultList = new ArrayList<>();
+        List<QqMsgParam<?>> resultList = new ArrayList<>();
 
         for (Long userId : userIdList) {
             String card = "[" + userId + "]";
@@ -85,11 +85,11 @@ public class TornFactionOcMsgManager {
                     m.getCard().contains(card)).findAny().orElse(null);
             if (member == null) {
                 TornUserDO user = userDao.getById(userId);
-                resultList.add(new TextGroupMsg((user == null ?
+                resultList.add(new TextQqMsg((user == null ?
                         userId :
                         user.getNickname()) + card + " "));
             } else {
-                resultList.add(new AtGroupMsg(member.getUserId()));
+                resultList.add(new AtQqMsg(member.getUserId()));
             }
         }
         return resultList;

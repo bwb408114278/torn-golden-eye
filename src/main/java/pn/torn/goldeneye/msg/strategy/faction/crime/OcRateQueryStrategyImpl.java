@@ -5,8 +5,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -31,7 +31,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class OcRateQueryStrategyImpl extends BaseGroupMsgStrategy {
+public class OcRateQueryStrategyImpl extends PnMsgStrategy {
     private final TornApiKeyDAO keyDao;
     private final TornUserDAO userDao;
     private final TornFactionOcUserDAO ocUserDao;
@@ -47,7 +47,7 @@ public class OcRateQueryStrategyImpl extends BaseGroupMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         long userId;
         if (StringUtils.hasText(msg)) {
             String[] msgArray = msg.split("#");

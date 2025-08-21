@@ -3,7 +3,7 @@ package pn.torn.goldeneye.msg.strategy;
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 
 import java.util.List;
 
@@ -35,10 +35,10 @@ public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
      * @param msg     消息
      * @return 需要发送的消息，为空则为不发送
      */
-    public abstract List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg);
+    public abstract List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg);
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
         return List.of();
     }
 }

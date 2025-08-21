@@ -14,9 +14,9 @@ import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
@@ -97,13 +97,13 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
             if (!CollectionUtils.isEmpty(falseStartList)) {
                 GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
                         .setGroupId(BotConstants.PN_GROUP_ID)
-                        .addMsg(new TextGroupMsg("抢跑啦! 踢掉词条要添新素材啦, 加入时间为 + " +
+                        .addMsg(new TextQqMsg("抢跑啦! 踢掉词条要添新素材啦, 加入时间为 + " +
                                 DateTimeUtils.convertToString(planOc.getReadyTime()) + "\n"));
-                List<GroupMsgParam<?>> paramList = new ArrayList<>();
+                List<QqMsgParam<?>> paramList = new ArrayList<>();
                 for (int i = 0; i < falseStartList.size(); i++) {
                     TornFactionOcSlotDO slot = falseStartList.get(i);
                     paramList.addAll(msgManager.buildSlotMsg(List.of(slot), null));
-                    paramList.add(new TextGroupMsg(String.format(" 加入时间为 %s%s",
+                    paramList.add(new TextQqMsg(String.format(" 加入时间为 %s%s",
                             DateTimeUtils.convertToString(slot.getJoinTime()),
                             i + 1 == falseStartList.size() ? "" : "\n")));
                 }
@@ -125,7 +125,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                     byte[] imageBytes = inputStream.readAllBytes();
                     BotHttpReqParam botParam = new GroupMsgHttpBuilder()
                             .setGroupId(BotConstants.PN_GROUP_ID)
-                            .addMsg(new ImageGroupMsg(Base64.getEncoder().encodeToString(imageBytes)))
+                            .addMsg(new ImageQqMsg(Base64.getEncoder().encodeToString(imageBytes)))
                             .build();
                     bot.sendRequest(botParam, String.class);
                 } catch (IOException e) {
@@ -156,13 +156,13 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                         "还剩" + lackMap.size() + "坑\n";
                 GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
                         .setGroupId(BotConstants.PN_GROUP_ID)
-                        .addMsg(new TextGroupMsg(noticeMsg))
+                        .addMsg(new TextQqMsg(noticeMsg))
                         .addMsg(msgManager.buildAtMsg(userIdSet));
 
                 if (!lackMap.isEmpty()) {
                     String title = buildRankDesc(param) + (isLackNew ? "级OC缺人队伍（未包含新队）" : "级OC缺人队伍");
                     TableDataBO table = msgTableManager.buildOcTable(title, lackMap);
-                    msgBuilder.addMsg(new ImageGroupMsg(TableImageUtils.renderTableToBase64(table)));
+                    msgBuilder.addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)));
                 }
 
                 bot.sendRequest(msgBuilder.build(), String.class);

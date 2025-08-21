@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 
@@ -33,7 +33,7 @@ public class OcCheckStrategyImpl extends BaseGroupMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         ocService.scheduleOcTask();
         return super.buildTextMsg("OC数据校准完成");
     }
