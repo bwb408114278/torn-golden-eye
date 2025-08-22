@@ -13,7 +13,7 @@ import java.util.List;
  * @since 2025.07.11
  */
 @Data
-public class GroupRecMsg {
+public class QqRecMsg {
     /**
      * 自己的QQ
      */
@@ -85,9 +85,9 @@ public class GroupRecMsg {
     /**
      * 发送人详细信息
      */
-    private GroupRecSender sender;
+    private QqRecMsgSender sender;
     /**
      * 消息详细列表
      */
-    private List<GroupRecMsgDetail> message;
+    private List<QqRecMsgDetail> message;
 }

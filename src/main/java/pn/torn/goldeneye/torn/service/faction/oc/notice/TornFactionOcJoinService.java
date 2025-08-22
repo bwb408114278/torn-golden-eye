@@ -8,8 +8,8 @@ import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
@@ -57,9 +57,9 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
 
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
                     .setGroupId(BotConstants.PN_GROUP_ID)
-                    .addMsg(new TextGroupMsg(rankDesc + "级可以进了\n"))
+                    .addMsg(new TextQqMsg(rankDesc + "级可以进了\n"))
                     .addMsg(msgManager.buildSlotMsg(param.planId(), param.rank()))
-                    .addMsg(new ImageGroupMsg(TableImageUtils.renderTableToBase64(table)))
+                    .addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)))
                     .build();
             bot.sendRequest(botParam, String.class);
         }

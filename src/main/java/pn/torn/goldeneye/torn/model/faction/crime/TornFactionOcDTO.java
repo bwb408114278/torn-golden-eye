@@ -23,6 +23,11 @@ public class TornFactionOcDTO implements TornReqParamV2 {
     }
 
     @Override
+    public boolean needFactionAccess() {
+        return true;
+    }
+
+    @Override
     public MultiValueMap<String, String> buildReqParam() {
         MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
         param.put("cat", List.of("available"));

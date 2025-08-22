@@ -5,8 +5,11 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 
 import java.util.List;
@@ -34,20 +37,34 @@ public class DocStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
-        List<BaseMsgStrategy> strategies = applicationContext.getBeansOfType(BaseMsgStrategy.class)
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+        List<BasePrivateMsgStrategy> privateStrategyList = applicationContext
+                .getBeansOfType(BasePrivateMsgStrategy.class)
+                .values().stream()
+                .toList();
+
+        List<BaseGroupMsgStrategy> groupStrategyList = applicationContext
+                .getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
                 .filter(strategy -> !(strategy instanceof DocStrategyImpl))
                 .toList();
 
-        StringBuilder helpText = new StringBuilder("可用指令列表：\n");
-        strategies.stream()
+        StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
+        for (BasePrivateMsgStrategy strategy : privateStrategyList) {
+            appendCommandDesc(strategy, helpText);
+        }
+
+        groupStrategyList.stream()
                 .filter(strategy -> ArrayUtils.contains(strategy.getGroupId(), groupId))
-                .forEach(strategy -> helpText.append(strategy.getCommand())
-                        .append(" - ")
-                        .append(strategy.getCommandDescription())
-                        .append("\n"));
+                .forEach(strategy -> appendCommandDesc(strategy, helpText));
 
         return buildTextMsg(helpText.toString());
+    }
+
+    private void appendCommandDesc(BaseMsgStrategy strategy, StringBuilder helpText) {
+        helpText.append(strategy.getCommand())
+                .append(" - ")
+                .append(strategy.getCommandDescription())
+                .append("\n");
     }
 }

@@ -12,7 +12,7 @@ import org.springframework.util.StringUtils;
  * @since 2025.07.11
  */
 @Data
-public class GroupRecSender {
+public class QqRecMsgSender {
     /**
      * 发送人QQ号
      */

@@ -10,7 +10,7 @@ import lombok.Data;
  * @since 2025.07.11
  */
 @Data
-public class GroupRecMsgDetail {
+public class QqRecMsgDetail {
     /**
      * 消息类型
      */

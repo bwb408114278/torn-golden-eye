@@ -16,6 +16,13 @@ public interface TornReqParam {
     Long getId();
 
     /**
+     * 是否需要帮派权限
+     *
+     * @return true为是
+     */
+    boolean needFactionAccess();
+
+    /**
      * 获取请求参数
      *
      * @return 请求参数

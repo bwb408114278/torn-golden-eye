@@ -3,7 +3,7 @@ package pn.torn.goldeneye.utils.torn;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOc;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 
@@ -30,7 +30,7 @@ public class TornOcUtils {
      * @return true为是
      */
     public static boolean isRotationOc(TornFactionOc oc, List<? extends TornFactionOcSlot> slotList,
-                                       List<TornFactionOcSkipDO> skipList) {
+                                       List<TornFactionOcNoticeDO> skipList) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
         if (notRotationRank || isChainOc(oc)) {
             return false;

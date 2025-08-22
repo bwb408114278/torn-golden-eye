@@ -52,9 +52,9 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
         return slot;
     }
 
-    public TornFactionOcUserDO convert2UserDO(int rank, String name) {
+    public TornFactionOcUserDO convert2UserDO(long userId, int rank, String name) {
         TornFactionOcUserDO ocUser = new TornFactionOcUserDO();
-        ocUser.setUserId(this.user.getId());
+        ocUser.setUserId(userId);
         ocUser.setRank(rank);
         ocUser.setOcName(name);
         ocUser.setPosition(this.position);

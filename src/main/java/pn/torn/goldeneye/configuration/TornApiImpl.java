@@ -5,7 +5,6 @@ import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -14,29 +13,19 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.utils.JsonUtils;
 
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.util.Comparator;
-import java.util.List;
-import java.util.PriorityQueue;
-import java.util.Queue;
-
 /**
- * Torn Api 类
+ * Torn Api请求实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.1.1
  * @since 2025.07.22
  */
 @Slf4j
 class TornApiImpl implements TornApi {
-    private final DynamicTaskService taskService;
-    private final TornApiKeyDAO keyDao;
-    private static final Queue<TornApiKeyDO> KEY_QUEUE = new PriorityQueue<>(Comparator.comparingInt(TornApiKeyDO::getUseCount));
+    private final TornApiKeyConfig apiKeyConfig;
 
     /**
      * Web请求
@@ -47,9 +36,8 @@ class TornApiImpl implements TornApi {
      */
     private final RestClient restClientV2;
 
-    public TornApiImpl(TornApiKeyDAO keyDao, DynamicTaskService taskService) {
-        this.keyDao = keyDao;
-        this.taskService = taskService;
+    public TornApiImpl(TornApiKeyConfig apiKeyConfig) {
+        this.apiKeyConfig = apiKeyConfig;
         this.restClient = RestClient.builder()
                 .baseUrl(TornConstants.BASE_URL)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
@@ -60,16 +48,18 @@ class TornApiImpl implements TornApi {
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
 
-        refreshKeyData();
+        apiKeyConfig.refreshKeyData();
     }
 
     @Override
     public <T> T sendRequest(String uri, TornReqParam param, Class<T> responseType) {
+        TornApiKeyDO apiKey = null;
         try {
+            apiKey = apiKeyConfig.getEnableKey(param.needFactionAccess());
             String uriWithParam = uri + "/" +
                     (param.getId() == null ? "" : param.getId()) +
                     "?selections=" + param.getSection() +
-                    "&key=" + getEnableKey();
+                    "&key=" + apiKey.getApiKey();
 
             ResponseEntity<String> entity = this.restClient
                     .method(HttpMethod.GET)
@@ -81,11 +71,18 @@ class TornApiImpl implements TornApi {
         } catch (Exception e) {
             log.error("请求Torn Api出错", e);
             return null;
+        } finally {
+            apiKeyConfig.returnKeyToQueue(apiKey);
         }
     }
 
     @Override
     public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
+        return sendRequest(param, apiKeyConfig.getEnableKey(param.needFactionAccess()), responseType);
+    }
+
+    @Override
+    public <T> T sendRequest(TornReqParamV2 param, TornApiKeyDO apiKey, Class<T> responseType) {
         try {
             UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
             MultiValueMap<String, String> paramMap = param.buildReqParam();
@@ -94,17 +91,20 @@ class TornApiImpl implements TornApi {
             }
 
             String finalUri = uriBuilder.encode().build().toUriString();
-            ResponseEntity<String> entity = this.restClientV2
+            RestClient.RequestBodySpec reqSpec = this.restClientV2
                     .method(HttpMethod.GET)
-                    .uri(finalUri)
-                    .header("Authorization", "ApiKey " + getEnableKey())
-                    .retrieve()
-                    .toEntity(String.class);
+                    .uri(finalUri);
+            if (apiKey != null) {
+                reqSpec = reqSpec.header("Authorization", "ApiKey " + apiKey.getApiKey());
+            }
+            ResponseEntity<String> entity = reqSpec.retrieve().toEntity(String.class);
 
             return handleResponse(entity, responseType);
         } catch (Exception e) {
             log.error("请求Torn Api V2出错", e);
             return null;
+        } finally {
+            apiKeyConfig.returnKeyToQueue(apiKey);
         }
     }
 
@@ -113,7 +113,7 @@ class TornApiImpl implements TornApi {
      */
     private <T> T handleResponse(ResponseEntity<String> entity, Class<T> responseType) {
         try {
-            if (entity.getBody().isEmpty()) {
+            if (entity.getBody() == null || entity.getBody().isEmpty()) {
                 return null;
             }
 
@@ -125,44 +125,5 @@ class TornApiImpl implements TornApi {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    /**
-     * 刷新API KEY数据
-     */
-    private void refreshKeyData() {
-        KEY_QUEUE.clear();
-
-        LocalDate queryDate = LocalTime.now().isAfter(LocalTime.of(8, 0)) ?
-                LocalDate.now() : LocalDate.now().plusDays(-1);
-
-        List<TornApiKeyDO> keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate).list();
-        if (CollectionUtils.isEmpty(keyList)) {
-            keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate.plusDays(-1)).list();
-            List<TornApiKeyDO> newList = keyList.stream().map(TornApiKeyDO::copyNewData).toList();
-            keyDao.saveBatch(newList);
-            keyList = newList;
-        }
-
-        KEY_QUEUE.addAll(keyList);
-        taskService.updateTask("refresh-api", this::refreshKeyData,
-                LocalDate.now().atTime(8, 1, 0).plusDays(1));
-    }
-
-    /**
-     * 获取可用的Api Key
-     *
-     * @return Api Key
-     */
-    private String getEnableKey() {
-        TornApiKeyDO key = KEY_QUEUE.poll();
-        key.setUseCount(key.getUseCount() + 1);
-        KEY_QUEUE.offer(key);
-
-        keyDao.lambdaUpdate()
-                .set(TornApiKeyDO::getUseCount, key.getUseCount())
-                .eq(TornApiKeyDO::getId, key.getId())
-                .update();
-        return key.getApiKey();
     }
 }

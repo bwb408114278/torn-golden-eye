@@ -8,14 +8,12 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -36,10 +34,10 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class TornFactionOcManager {
+    private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
-    private final TornFactionOcUserDAO userDao;
-    private final TornFactionOcSkipDAO skipDao;
+    private final TornFactionOcNoticeDAO noticeDao;
     private final SysSettingDAO settingDao;
 
     /**
@@ -51,11 +49,11 @@ public class TornFactionOcManager {
             return;
         }
 
-        List<TornFactionOcSkipDO> allSkipList = skipDao.list();
+        List<TornFactionOcNoticeDO> skipList = noticeDao.querySkipList();
         List<TornFactionCrimeVO> newDataList = new ArrayList<>();
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
         List<Long> validOcIdList = new ArrayList<>();
-        List<TornFactionOcDO> oldDataList = ocDao.lambdaQuery().in(TornFactionOcDO::getId, ocIdList).list();
+        List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
             if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
                 continue;
@@ -63,26 +61,26 @@ public class TornFactionOcManager {
 
             validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc, checkTodayPlanning(allSkipList, oc));
+                updateOcData(oc, checkTodayPlanning(skipList, oc));
             } else {
                 newDataList.add(oc);
             }
         }
 
-        insertOcData(newDataList, allSkipList);
+        insertOcData(newDataList, skipList);
         completeOcData(validOcIdList);
-        updateUserPassRate(ocList);
+        ocUserManager.updateJoinedUserPassRate(ocList);
     }
 
     /**
      * 插入新OC
      */
-    public void insertOcData(List<TornFactionCrimeVO> ocList, List<TornFactionOcSkipDO> allSkipList) {
+    public void insertOcData(List<TornFactionCrimeVO> ocList, List<TornFactionOcNoticeDO> skipList) {
         if (ocList.isEmpty()) {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkTodayPlanning(allSkipList, oc))).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkTodayPlanning(skipList, oc))).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -154,40 +152,6 @@ public class TornFactionOcManager {
     }
 
     /**
-     * 更新用户成功率
-     */
-    public void updateUserPassRate(List<TornFactionCrimeVO> ocList) {
-        List<TornFactionOcUserDO> allUserList = userDao.list();
-        List<TornFactionOcUserDO> newDataList = new ArrayList<>();
-
-        for (TornFactionCrimeVO oc : ocList) {
-            for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-                if (slot.getUser() == null) {
-                    continue;
-                }
-
-                TornFactionOcUserDO oldData = allUserList.stream().filter(u ->
-                        u.getUserId().equals(slot.getUser().getId()) &&
-                                u.getRank().equals(oc.getDifficulty()) &&
-                                u.getOcName().equals(oc.getName()) &&
-                                u.getPosition().equals(slot.getPosition())).findAny().orElse(null);
-                if (oldData != null && oldData.getPassRate().compareTo(slot.getCheckpointPassRate()) < 0) {
-                    userDao.lambdaUpdate()
-                            .set(TornFactionOcUserDO::getPassRate, slot.getCheckpointPassRate())
-                            .eq(TornFactionOcUserDO::getId, oldData.getId())
-                            .update();
-                } else if (oldData == null) {
-                    newDataList.add(slot.convert2UserDO(oc.getDifficulty(), oc.getName()));
-                }
-            }
-        }
-
-        if (!newDataList.isEmpty()) {
-            userDao.saveBatch(newDataList);
-        }
-    }
-
-    /**
      * 刷新轮转队配置
      *
      * @param planKey        计划队伍配置Key
@@ -238,7 +202,7 @@ public class TornFactionOcManager {
      *
      * @return true为跳过
      */
-    private boolean checkTodayPlanning(List<TornFactionOcSkipDO> skipList, TornFactionCrimeVO oc) {
+    private boolean checkTodayPlanning(List<TornFactionOcNoticeDO> skipList, TornFactionCrimeVO oc) {
         boolean isRotationOc = TornOcUtils.isRotationOc(oc, oc.getSlots(), skipList);
         return isRotationOc && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus());
     }
@@ -252,7 +216,7 @@ public class TornFactionOcManager {
     private List<TornFactionOcDO> buildRotationList(List<TornFactionOcDO> ocList, long planOcId,
                                                     String excludePlanKey, String excludeSettingKey) {
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        List<TornFactionOcSkipDO> skipUserList = skipDao.lambdaQuery().list();
+        List<TornFactionOcNoticeDO> skipList = noticeDao.querySkipList();
 
         List<Long> excludeIdList = new ArrayList<>();
         excludeIdList.add(Long.parseLong(settingDao.querySettingValue(excludePlanKey)));
@@ -263,7 +227,7 @@ public class TornFactionOcManager {
         for (TornFactionOcDO oc : ocList) {
             List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
                     s.getOcId().equals(oc.getId())).toList();
-            boolean isRotationOc = TornOcUtils.isRotationOc(oc, currentSlotList, skipUserList);
+            boolean isRotationOc = TornOcUtils.isRotationOc(oc, currentSlotList, skipList);
             if (!isRotationOc || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
                 continue;
             }

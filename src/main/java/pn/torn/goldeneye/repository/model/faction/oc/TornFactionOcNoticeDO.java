@@ -14,8 +14,8 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
-@TableName(value = "torn_faction_oc_skip", autoResultMap = true)
-public class TornFactionOcSkipDO extends BaseDO {
+@TableName(value = "torn_faction_oc_notice", autoResultMap = true)
+public class TornFactionOcNoticeDO extends BaseDO {
     /**
      * ID
      */
@@ -28,4 +28,12 @@ public class TornFactionOcSkipDO extends BaseDO {
      * 级别
      */
     private Integer rank;
+    /**
+     * 是否提醒
+     */
+    private Boolean hasNotice;
+    /**
+     * 是否咸鱼队
+     */
+    private Boolean hasSkip;
 }

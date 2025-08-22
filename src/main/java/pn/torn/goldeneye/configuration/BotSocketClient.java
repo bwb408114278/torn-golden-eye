@@ -14,10 +14,12 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.msg.receive.GroupRecMsg;
+import pn.torn.goldeneye.msg.receive.QqRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.send.PrivateMsgSocketBuilder;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.io.IOException;
@@ -66,7 +68,9 @@ public class BotSocketClient {
     @Resource
     private ThreadPoolTaskExecutor virtualThreadExecutor;
     @Resource
-    private List<BaseMsgStrategy> msgStrategyList;
+    private List<BaseGroupMsgStrategy> groupMsgStrategyList;
+    @Resource
+    private List<BasePrivateMsgStrategy> privateMsgStrategyList;
 
     @PostConstruct
     public void init() {
@@ -241,11 +245,12 @@ public class BotSocketClient {
     private void processMessage(String rawMessage) {
         // 检查是否为群消息
         boolean isGroupMessage = rawMessage.contains("\"message_type\":\"group\"");
-        if (!isGroupMessage) {
+        boolean isPrivateMessage = rawMessage.contains("\"message_type\":\"private\"");
+        if (!isGroupMessage && !isPrivateMessage) {
             return;
         }
 
-        GroupRecMsg msg = JsonUtils.jsonToObj(rawMessage, GroupRecMsg.class);
+        QqRecMsg msg = JsonUtils.jsonToObj(rawMessage, QqRecMsg.class);
         if (!isCommandMsg(msg)) {
             return;
         }
@@ -255,9 +260,32 @@ public class BotSocketClient {
             return;
         }
 
-        for (BaseMsgStrategy strategy : msgStrategyList) {
+        if (isGroupMessage) {
+            handleGroupMsg(msg, msgArray);
+        } else {
+            handlePrivateMsg(msg, msgArray);
+        }
+    }
+
+    /**
+     * 判断是否为指令消息
+     *
+     * @param msg 群聊消息
+     * @return true为是
+     */
+    private boolean isCommandMsg(QqRecMsg msg) {
+        return msg.getMessage().size() == 1 &&
+                "text".equals(msg.getMessage().get(0).getType()) &&
+                msg.getMessage().get(0).getData().getText().startsWith("g#");
+    }
+
+    /**
+     * 处理群聊消息
+     */
+    private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
+        for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
             if (ArrayUtils.contains(strategy.getGroupId(), msg.getGroupId()) && strategy.getCommand().equals(msgArray[1])) {
-                List<? extends GroupMsgParam<?>> paramList = strategy.handle(msg.getGroupId(),
+                List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),
                         msgArray.length > 2 ? msgArray[2] : "");
                 if (!CollectionUtils.isEmpty(paramList)) {
                     GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
@@ -271,15 +299,22 @@ public class BotSocketClient {
     }
 
     /**
-     * 判断是否为指令消息
-     *
-     * @param msg 群聊消息
-     * @return true为是
+     * 处理私聊消息
      */
-    private boolean isCommandMsg(GroupRecMsg msg) {
-        return msg.getMessage().size() == 1 &&
-                "text".equals(msg.getMessage().get(0).getType()) &&
-                msg.getMessage().get(0).getData().getText().startsWith("g#");
+    private void handlePrivateMsg(QqRecMsg msg, String[] msgArray) {
+        for (BasePrivateMsgStrategy strategy : privateMsgStrategyList) {
+            if (strategy.getCommand().equals(msgArray[1])) {
+                List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(),
+                        msgArray.length > 2 ? msgArray[2] : "");
+                if (!CollectionUtils.isEmpty(paramList)) {
+                    PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
+                    paramList.forEach(builder::addMsg);
+                    BotSocketReqParam param = builder.build();
+                    Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
+                }
+                break;
+            }
+        }
     }
 
     /**

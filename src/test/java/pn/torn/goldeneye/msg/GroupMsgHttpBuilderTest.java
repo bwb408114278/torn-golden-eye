@@ -9,8 +9,8 @@ import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.AtGroupMsg;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.send.param.AtQqMsg;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 
 /**
  * 群聊消息构建器测试
@@ -32,8 +32,8 @@ class GroupMsgHttpBuilderTest extends BaseWithoutSocketTest {
     void buildTest() {
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextGroupMsg("单元测试代码"))
-                .addMsg(new AtGroupMsg(408114278L))
+                .addMsg(new TextQqMsg("单元测试代码"))
+                .addMsg(new AtQqMsg(408114278L))
                 .build();
         bot.sendRequest(param, Void.class);
     }

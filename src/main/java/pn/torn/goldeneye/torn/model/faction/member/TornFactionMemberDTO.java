@@ -29,6 +29,11 @@ public class TornFactionMemberDTO implements TornReqParamV2 {
     }
 
     @Override
+    public boolean needFactionAccess() {
+        return false;
+    }
+
+    @Override
     public MultiValueMap<String, String> buildReqParam() {
         return new LinkedMultiValueMap<>(0);
     }

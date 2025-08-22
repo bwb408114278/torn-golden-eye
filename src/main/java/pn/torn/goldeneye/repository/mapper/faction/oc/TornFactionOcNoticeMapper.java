@@ -2,7 +2,7 @@ package pn.torn.goldeneye.repository.mapper.faction.oc;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 
 /**
  * Torn Oc跳过表数据库访问层
@@ -12,5 +12,5 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
  * @since 2025.07.30
  */
 @Mapper
-public interface TornFactionOcSkipMapper extends BaseMapper<TornFactionOcSkipDO> {
+public interface TornFactionOcNoticeMapper extends BaseMapper<TornFactionOcNoticeDO> {
 }

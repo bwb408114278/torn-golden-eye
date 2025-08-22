@@ -2,7 +2,7 @@ package pn.torn.goldeneye.msg.send;
 
 import lombok.extern.slf4j.Slf4j;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +21,7 @@ public class GroupMsgSocketBuilder {
     /**
      * 请求参数列表
      */
-    private final List<GroupMsgParam<?>> paramList = new ArrayList<>();
+    private final List<QqMsgParam<?>> paramList = new ArrayList<>();
     private long groupId = 0L;
 
     /**
@@ -35,7 +35,7 @@ public class GroupMsgSocketBuilder {
     /**
      * 添加消息
      */
-    public GroupMsgSocketBuilder addMsg(GroupMsgParam<?> param) {
+    public GroupMsgSocketBuilder addMsg(QqMsgParam<?> param) {
         this.paramList.add(param);
         return this;
     }
@@ -43,7 +43,7 @@ public class GroupMsgSocketBuilder {
     /**
      * 添加消息
      */
-    public GroupMsgSocketBuilder addMsg(List<GroupMsgParam<?>> param) {
+    public GroupMsgSocketBuilder addMsg(List<QqMsgParam<?>> param) {
         this.paramList.addAll(param);
         return this;
     }

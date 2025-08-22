@@ -1,10 +1,9 @@
 package pn.torn.goldeneye.msg.strategy;
 
-import jakarta.annotation.Resource;
-import pn.torn.goldeneye.configuration.property.TestProperty;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.send.param.ImageGroupMsg;
-import pn.torn.goldeneye.msg.send.param.TextGroupMsg;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 
 import java.util.List;
 
@@ -16,17 +15,6 @@ import java.util.List;
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
-    @Resource
-    protected TestProperty testProperty;
-
-    /**
-     * 获取群ID
-     *
-     * @return 群ID
-     */
-    public long[] getGroupId() {
-        return new long[]{testProperty.getGroupId()};
-    }
 
     /**
      * 获取指令
@@ -45,19 +33,19 @@ public abstract class BaseMsgStrategy {
     /**
      * 处理消息
      *
-     * @param groupId 群聊ID
+     * @param sender  消息发送人
      * @param msg     消息
      * @return 需要发送的消息，为空则为不发送
      */
-    public abstract List<? extends GroupMsgParam<?>> handle(long groupId, String msg);
+    public abstract List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg);
 
     /**
      * 发送文本消息
      *
      * @param msg 消息内容
      */
-    protected List<TextGroupMsg> buildTextMsg(String msg) {
-        return List.of(new TextGroupMsg(msg));
+    protected List<TextQqMsg> buildTextMsg(String msg) {
+        return List.of(new TextQqMsg(msg));
     }
 
     /**
@@ -65,14 +53,14 @@ public abstract class BaseMsgStrategy {
      *
      * @param base64 图片Base64
      */
-    protected List<ImageGroupMsg> buildImageMsg(String base64) {
-        return List.of(new ImageGroupMsg(base64));
+    protected List<ImageQqMsg> buildImageMsg(String base64) {
+        return List.of(new ImageQqMsg(base64));
     }
 
     /**
      * 发送错误格式的消息
      */
-    protected List<TextGroupMsg> sendErrorFormatMsg() {
+    protected List<TextQqMsg> sendErrorFormatMsg() {
         return buildTextMsg("参数有误");
     }
 }

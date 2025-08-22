@@ -5,8 +5,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.enums.TornOcPositionEnum;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.constants.torn.enums.TornOcPositionAliasEnum;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
@@ -40,25 +41,25 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "获取空闲成员，例g#" + BotCommands.OC_FREE + "#8";
+        return "获取空闲成员，例g#" + BotCommands.OC_FREE + "#8(#肌肉)";
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();
         }
 
-        int rank = Integer.parseInt(msgArray[0]);
         String position = msgArray.length > 1 ? msgArray[1] : null;
-        TornOcPositionEnum positionEnum = TornOcPositionEnum.codeOf(position, rank);
+        TornOcPositionAliasEnum positionEnum = TornOcPositionAliasEnum.codeOf(position);
         if (StringUtils.hasText(position) && positionEnum == null) {
             return super.buildTextMsg("没有这个岗位");
         }
 
+        int rank = Integer.parseInt(msgArray[0]);
         List<TornFactionOcUserDO> ocUserList = userManager.findFreeUser(
-                positionEnum == null ? null : positionEnum.getCode(), rank);
+                positionEnum == null ? null : positionEnum.getKey(), rank);
         if (CollectionUtils.isEmpty(ocUserList)) {
             return super.buildTextMsg("暂时没有可以加入OC的成员");
         }

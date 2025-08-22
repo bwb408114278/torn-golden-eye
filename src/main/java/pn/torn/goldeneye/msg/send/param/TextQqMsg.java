@@ -12,7 +12,7 @@ import pn.torn.goldeneye.msg.send.data.TextMsgData;
  * @since 2025.06.22
  */
 @Data
-public class TextGroupMsg implements GroupMsgParam<TextMsgData> {
+public class TextQqMsg implements QqMsgParam<TextMsgData> {
     /**
      * 类型
      */
@@ -22,7 +22,7 @@ public class TextGroupMsg implements GroupMsgParam<TextMsgData> {
      */
     private final TextMsgData data;
 
-    public TextGroupMsg(String param) {
+    public TextQqMsg(String param) {
         this.data = new TextMsgData(param);
     }
 }

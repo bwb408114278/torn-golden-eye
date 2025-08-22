@@ -6,8 +6,9 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
@@ -26,7 +27,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class MatchMemberStrategyImpl extends BaseMsgStrategy {
+public class MatchMemberStrategyImpl extends BaseGroupMsgStrategy {
     private final TornApi tornApi;
     private final TornUserDAO userDao;
 
@@ -41,7 +42,7 @@ public class MatchMemberStrategyImpl extends BaseMsgStrategy {
     }
 
     @Override
-    public List<? extends GroupMsgParam<?>> handle(long groupId, String msg) {
+    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornFactionMemberDTO param = new TornFactionMemberDTO(TornConstants.FACTION_PN_ID);
         TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
 

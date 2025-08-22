@@ -3,10 +3,10 @@ package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.model.TableDataBO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSkipDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSkipDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -29,7 +29,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class TornFactionOcMsgTableManager {
     private final TornUserDAO userDao;
-    private final TornFactionOcSkipDAO skipDao;
+    private final TornFactionOcNoticeDAO noticeDao;
     private static final Color MEMBER_FULL_COLOR = new Color(122, 167, 56);
     private static final Color MEMBER_EMPTY_COLOR = new Color(230, 119, 0);
     private static final String PRE_TEAM = "9级前置";
@@ -46,8 +46,8 @@ public class TornFactionOcMsgTableManager {
                 .map(TornFactionOcSlotDO::getUserId)
                 .filter(Objects::nonNull)
                 .toList()));
-        List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
-        List<TornFactionOcSkipDO> skipList = skipDao.list();
+        Map<Long, TornUserDO> userMap = userDao.queryUserMap(userIdList);
+        List<TornFactionOcNoticeDO> skipList = noticeDao.querySkipList();
 
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         List<List<String>> tableData = new ArrayList<>();
@@ -78,7 +78,7 @@ public class TornFactionOcMsgTableManager {
             });
 
             tableData.add(buildPositionRow(oc, slotList, skipList, rowIndex, columnCount, tableConfig));
-            tableData.add(buildMemberRow(slotList, userList, rowIndex, columnCount, tableConfig));
+            tableData.add(buildMemberRow(slotList, userMap, rowIndex, columnCount, tableConfig));
 
             List<String> splitLine = new ArrayList<>();
             fillEmptyColumn(splitLine, 0, columnCount + 1);
@@ -97,16 +97,26 @@ public class TornFactionOcMsgTableManager {
     }
 
     /**
+     * 填充空列
+     *
+     * @param startIndex  起始列
+     * @param columnCount 最大列数
+     */
+    public void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount) {
+        fillEmptyColumn(rowList, startIndex, columnCount, null);
+    }
+
+    /**
      * 构建岗位行
      *
      * @param rowIndex    当前行数
      * @param columnCount 最大列数
      */
     private List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                          List<TornFactionOcSkipDO> skipList,
+                                          List<TornFactionOcNoticeDO> noticeList,
                                           int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
-        String teamFlag = getTeamFlag(oc, slotList, skipList);
+        String teamFlag = getTeamFlag(oc, slotList, noticeList);
         resultList.add((teamFlag.isEmpty() ? teamFlag : teamFlag + "   ") + oc.getStatus() +
                 "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
         tableConfig.addMerge(rowIndex, 0, 2, 1);
@@ -148,7 +158,7 @@ public class TornFactionOcMsgTableManager {
      * @param rowIndex    当前行数
      * @param columnCount 最大列数
      */
-    private List<String> buildMemberRow(List<TornFactionOcSlotDO> slotList, List<TornUserDO> userList,
+    private List<String> buildMemberRow(List<TornFactionOcSlotDO> slotList, Map<Long, TornUserDO> userMap,
                                         int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
         resultList.add("");
@@ -156,9 +166,7 @@ public class TornFactionOcMsgTableManager {
         for (int i = 0; i < slotList.size(); i++) {
             TornFactionOcSlotDO slot = slotList.get(i);
             boolean isLack = slot.getUserId() == null;
-            TornUserDO user = isLack ?
-                    null :
-                    userList.stream().filter(u -> u.getId().equals(slot.getUserId())).findAny().orElse(null);
+            TornUserDO user = isLack ? null : userMap.get(slot.getUserId());
             resultList.add(user == null ?
                     "空缺" :
                     user.getNickname() + "[" + user.getId() + "] ");
@@ -179,17 +187,7 @@ public class TornFactionOcMsgTableManager {
      * @param startIndex  起始列
      * @param columnCount 最大列数
      */
-    private void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount) {
-        fillEmptyColumn(rowList, startIndex, columnCount, null);
-    }
-
-    /**
-     * 填充空列
-     *
-     * @param startIndex  起始列
-     * @param columnCount 最大列数
-     */
-    private void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount, FillEmptyColumnCallback callback) {
+    public void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount, FillEmptyColumnCallback callback) {
         if (startIndex < columnCount) {
             for (int i = startIndex; i < columnCount; i++) {
                 rowList.add("");
@@ -207,7 +205,7 @@ public class TornFactionOcMsgTableManager {
      * @return 队伍标识
      */
     private String getTeamFlag(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                               List<TornFactionOcSkipDO> skipList) {
+                               List<TornFactionOcNoticeDO> noticeList) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
         if (notRotationRank) {
             return "";
@@ -222,8 +220,8 @@ public class TornFactionOcMsgTableManager {
                 continue;
             }
 
-            if (skipList.stream().anyMatch(s ->
-                    s.getUserId().equals(slot.getUserId()) && s.getRank().equals(oc.getRank()))) {
+            if (noticeList.stream().anyMatch(notice ->
+                    notice.getUserId().equals(slot.getUserId()) && notice.getRank().equals(oc.getRank()))) {
                 return "咸鱼队";
             }
         }

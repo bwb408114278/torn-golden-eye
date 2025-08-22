@@ -3,7 +3,7 @@ package pn.torn.goldeneye.msg.send;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import pn.torn.goldeneye.msg.send.param.GroupMsgParam;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 
 import java.util.List;
 
@@ -25,5 +25,5 @@ class GroupMsgReqParam {
     /**
      * 消息列表
      */
-    private List<GroupMsgParam<?>> message;
+    private List<QqMsgParam<?>> message;
 }

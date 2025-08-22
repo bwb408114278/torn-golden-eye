@@ -12,7 +12,7 @@ import pn.torn.goldeneye.msg.send.data.AtMsgData;
  * @since 2025.06.22
  */
 @Data
-public class AtGroupMsg implements GroupMsgParam<AtMsgData> {
+public class AtQqMsg implements QqMsgParam<AtMsgData> {
     /**
      * 类型
      */
@@ -22,7 +22,7 @@ public class AtGroupMsg implements GroupMsgParam<AtMsgData> {
      */
     private final AtMsgData data;
 
-    public AtGroupMsg(Long param) {
+    public AtQqMsg(Long param) {
         this.data = new AtMsgData(param);
     }
 }
