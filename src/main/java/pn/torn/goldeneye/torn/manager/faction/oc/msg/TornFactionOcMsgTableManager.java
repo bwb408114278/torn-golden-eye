@@ -207,7 +207,7 @@ public class TornFactionOcMsgTableManager {
     private String getTeamFlag(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
                                List<TornFactionOcNoticeDO> noticeList) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
-        if (notRotationRank) {
+        if (notRotationRank || TornOcUtils.OC_8_NORMAL.equals(oc.getName())) {
             return "";
         }
 

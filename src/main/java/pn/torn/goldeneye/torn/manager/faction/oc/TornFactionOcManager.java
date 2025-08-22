@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -204,7 +205,11 @@ public class TornFactionOcManager {
      */
     private boolean checkTodayPlanning(List<TornFactionOcNoticeDO> skipList, TornFactionCrimeVO oc) {
         boolean isRotationOc = TornOcUtils.isRotationOc(oc, oc.getSlots(), skipList);
-        return isRotationOc && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus());
+        String tempEnableStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
+        boolean isTempEnable = "true".equals(tempEnableStr);
+        String tempIdStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP");
+        boolean isTemp = isTempEnable && StringUtils.hasText(tempIdStr) && oc.getId().equals(Long.parseLong(tempIdStr));
+        return isRotationOc && !isTemp && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus());
     }
 
     /**

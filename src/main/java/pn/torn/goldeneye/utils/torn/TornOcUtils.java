@@ -7,6 +7,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOc;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -19,10 +20,17 @@ import java.util.List;
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class TornOcUtils {
+    public static final String OC_9_PREV = "Stacking the Deck";
+    public static final String OC_8_NORMAL = "Clinical Precision";
     /**
-     * 8级 oc chain名称
+     * 不参加轮转队的OC名称
      */
-    private static final String OC_RANK_8_CHAIN = "Stacking the Deck";
+    private static final List<String> NOT_ROTATION_OC_NAME = new ArrayList<>();
+
+    static {
+        NOT_ROTATION_OC_NAME.add(OC_9_PREV);
+        NOT_ROTATION_OC_NAME.add(OC_8_NORMAL);
+    }
 
     /**
      * 是否轮转队OC
@@ -32,7 +40,7 @@ public class TornOcUtils {
     public static boolean isRotationOc(TornFactionOc oc, List<? extends TornFactionOcSlot> slotList,
                                        List<TornFactionOcNoticeDO> skipList) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
-        if (notRotationRank || isChainOc(oc)) {
+        if (notRotationRank || NOT_ROTATION_OC_NAME.contains(oc.getName())) {
             return false;
         }
 
@@ -53,6 +61,6 @@ public class TornOcUtils {
      * @return true为是
      */
     public static boolean isChainOc(TornFactionOc oc) {
-        return oc.getRank().equals(8) && oc.getName().equals(OC_RANK_8_CHAIN);
+        return oc.getRank().equals(8) && oc.getName().equals(OC_9_PREV);
     }
 }
