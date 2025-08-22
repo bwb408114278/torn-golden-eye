@@ -24,9 +24,4 @@ public class TornApiKeyAccessVO {
      * 是否有帮派权限
      */
     private Boolean faction;
-    /**
-     * 帮派ID
-     */
-    @JsonProperty("faction_id")
-    private Long factionId;
 }

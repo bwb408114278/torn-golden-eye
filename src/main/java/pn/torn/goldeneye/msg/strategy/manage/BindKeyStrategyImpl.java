@@ -47,18 +47,26 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
             return super.buildTextMsg("消息格式不正确");
         }
 
-        TornApiKeyVO key = tornApi.sendRequest(new TornApiKeyDTO(msg), null, TornApiKeyVO.class);
+        TornApiKeyVO key = null;
+        int retryCount = 0;
+        while (key == null && retryCount < 3) {
+            key = tornApi.sendRequest(new TornApiKeyDTO(msg), null, TornApiKeyVO.class);
+            retryCount++;
+        }
+
         if (key == null) {
             return super.buildTextMsg("请求Torn Api失败，请确认Key是否正确");
         }
 
-        if (!key.getInfo().getAccess().getFactionId().equals(TornConstants.FACTION_PN_ID)) {
+        Long factionId = key.getInfo().getUser().getFactionId();
+        if (factionId == null || !factionId.equals(TornConstants.FACTION_PN_ID)) {
             return super.buildTextMsg("你不是PN的人哦，快撤回，我当没看到过");
         }
 
         TornApiKeyDO keyData = new TornApiKeyDO(sender.getUserId(), msg, key.getInfo());
+        TornApiKeyVO finalKey = key;
         TornApiKeyDO oldKey = apiKeyConfig.getEnableKeyList().stream()
-                .filter(s -> s.getUserId().equals(key.getInfo().getUser().getId()))
+                .filter(s -> s.getUserId().equals(finalKey.getInfo().getUser().getId()))
                 .findAny().orElse(null);
         if (oldKey == null) {
             apiKeyConfig.addApiKey(keyData);

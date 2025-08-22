@@ -97,6 +97,16 @@ public class TornFactionOcMsgTableManager {
     }
 
     /**
+     * 填充空列
+     *
+     * @param startIndex  起始列
+     * @param columnCount 最大列数
+     */
+    public void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount) {
+        fillEmptyColumn(rowList, startIndex, columnCount, null);
+    }
+
+    /**
      * 构建岗位行
      *
      * @param rowIndex    当前行数
@@ -177,17 +187,7 @@ public class TornFactionOcMsgTableManager {
      * @param startIndex  起始列
      * @param columnCount 最大列数
      */
-    private void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount) {
-        fillEmptyColumn(rowList, startIndex, columnCount, null);
-    }
-
-    /**
-     * 填充空列
-     *
-     * @param startIndex  起始列
-     * @param columnCount 最大列数
-     */
-    private void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount, FillEmptyColumnCallback callback) {
+    public void fillEmptyColumn(List<String> rowList, int startIndex, int columnCount, FillEmptyColumnCallback callback) {
         if (startIndex < columnCount) {
             for (int i = startIndex; i < columnCount; i++) {
                 rowList.add("");

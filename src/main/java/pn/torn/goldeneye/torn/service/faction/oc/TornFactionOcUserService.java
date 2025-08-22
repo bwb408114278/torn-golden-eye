@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
@@ -76,7 +77,8 @@ public class TornFactionOcUserService {
             ocList.addAll(oc.getCrimes());
         } else {
             TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);
-            if (oc == null) {
+            if (oc == null || oc.getOrganizedCrime() == null ||
+                    CollectionUtils.isEmpty(oc.getOrganizedCrime().getSlots())) {
                 return;
             }
             ocList.add(oc.getOrganizedCrime());

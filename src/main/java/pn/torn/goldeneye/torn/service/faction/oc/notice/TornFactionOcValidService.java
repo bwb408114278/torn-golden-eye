@@ -147,7 +147,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
             Set<Long> userIdSet = ocUserManager.findRotationUser(param.rank());
             int lackCount = param.lackCount();
             int freeCount = param.freeCount();
-            if (param.lackCount() == 0 || lackMap.size() < param.lackCount() || userIdSet.size() != param.freeCount()) {
+            if (param.lackCount() == 0 || lackMap.size() != param.lackCount() || userIdSet.size() != param.freeCount()) {
                 lackCount = lackMap.size();
                 freeCount = userIdSet.size();
 
