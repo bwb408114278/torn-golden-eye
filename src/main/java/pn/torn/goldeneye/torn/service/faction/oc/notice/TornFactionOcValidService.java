@@ -226,10 +226,8 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
 
                 GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
                         .setGroupId(BotConstants.PN_GROUP_ID)
-                        .addMsg(new TextQqMsg("新队进晚啦，"))
-                        .addMsg(atMsgList.get(0))
-                        .addMsg(new TextQqMsg("在" + DateTimeUtils.convertToString(earliestSlot.getJoinTime()) + "加入\n"));
-                for (int i = 1; i < slotList.size(); i++) {
+                        .addMsg(new TextQqMsg("新队进入重复啦\n"));
+                for (int i = 0; i < slotList.size(); i++) {
                     msgBuilder.addMsg(atMsgList.get(i))
                             .addMsg(new TextQqMsg("在" + DateTimeUtils.convertToString(earliestSlot.getJoinTime()) + "加入\n"));
                 }
