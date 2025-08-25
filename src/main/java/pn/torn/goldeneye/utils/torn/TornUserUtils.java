@@ -22,7 +22,7 @@ public class TornUserUtils {
     public static long getUserIdFromSender(QqRecMsgSender sender) {
         String[] card = sender.getCard().split("\\[");
         if (card.length > 1) {
-            String[] userId = card[1].split("]");
+            String[] userId = card[card.length - 1].split("]");
             return NumberUtils.isLong(userId[0]) ? Long.parseLong(userId[0]) : 0L;
         }
 

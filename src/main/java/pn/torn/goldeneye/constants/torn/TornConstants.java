@@ -15,7 +15,7 @@ import java.util.List;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class TornConstants {
-
+    // ====================基础设置相关====================
     /**
      * 基础路径
      */
@@ -24,12 +24,12 @@ public class TornConstants {
      * 基础路径
      */
     public static final String BASE_URL_V2 = "https://api.torn.com/v2";
-
     /**
      * PN帮派ID
      */
     public static final long FACTION_PN_ID = 20465L;
 
+    // ====================OC相关====================
     /**
      * OC轮转级别
      */
@@ -61,6 +61,7 @@ public class TornConstants {
      */
     public static final String TASK_ID_OC_VALID = "oc-valid-";
 
+    // ====================配置相关====================
     /**
      * 配置Key - 物品使用记录读取时间
      */
@@ -78,6 +79,10 @@ public class TornConstants {
      */
     public static final String SETTING_KEY_OC_TEMP_ENABLE = "OC_TEMP_ENABLE";
     /**
+     * 配置Key - 临时队不能加入级别
+     */
+    public static final String SETTING_KEY_OC_TEMP_DISABLE_RANK = "OC_TEMP_BLOCK_RANK";
+    /**
      * 配置Key - OC队伍招募ID
      */
     public static final String SETTING_KEY_OC_REC_ID = "OC_TEAM_REC_ID_";
@@ -86,6 +91,7 @@ public class TornConstants {
      */
     public static final String SETTING_KEY_OC_PLAN_ID = "OC_TEAM_PLAN_ID_";
 
+    // ====================物品相关====================
     /**
      * 物品名称 - 小红
      */

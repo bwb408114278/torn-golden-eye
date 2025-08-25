@@ -13,10 +13,12 @@ import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
+import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
@@ -48,6 +50,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
     private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserManager ocUserManager;
     private final ResourceLoader resourceLoader;
+    private final SysSettingDAO settingDao;
 
     /**
      * 构建提醒
@@ -102,7 +105,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                 List<QqMsgParam<?>> paramList = new ArrayList<>();
                 for (int i = 0; i < falseStartList.size(); i++) {
                     TornFactionOcSlotDO slot = falseStartList.get(i);
-                    paramList.addAll(msgManager.buildSlotMsg(List.of(slot), null));
+                    paramList.addAll(msgManager.buildSlotMsg(List.of(slot)));
                     paramList.add(new TextQqMsg(String.format(" 加入时间为 %s%s",
                             DateTimeUtils.convertToString(slot.getJoinTime()),
                             i + 1 == falseStartList.size() ? "" : "\n")));
@@ -116,6 +119,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          * 检查车位已满
          */
         private void checkPositionFull(List<TornFactionOcDO> recList) {
+            checkNewOc(recList);
             boolean isLackNew = recList.size() < 6;
 
             Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = buildLackMap(recList);
@@ -145,10 +149,11 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          */
         private void sendLackMsg(boolean isLackNew, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap) {
             Set<Long> userIdSet = ocUserManager.findRotationUser(param.rank());
+            int currentLackCount = lackMap.size() + (isLackNew ? 1 : 0);
             int lackCount = param.lackCount();
             int freeCount = param.freeCount();
-            if (param.lackCount() == 0 || lackMap.size() != param.lackCount() || userIdSet.size() != param.freeCount()) {
-                lackCount = lackMap.size();
+            if (param.lackCount() == 0 || currentLackCount != param.lackCount() || userIdSet.size() != param.freeCount()) {
+                lackCount = currentLackCount;
                 freeCount = userIdSet.size();
 
                 String noticeMsg = isLackNew ?
@@ -173,6 +178,60 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                             param.planKey(), param.excludePlanKey(), param.recKey(), param.excludeRecKey(),
                             param.refreshOc(), param.reloadSchedule(), lackCount, freeCount, param.rank())),
                     LocalDateTime.now().plusMinutes(1L));
+        }
+
+        /**
+         * 检测新队是否正常进入
+         */
+        private void checkNewOc(List<TornFactionOcDO> recList) {
+            // 未开启临时队或者本次校验为正常队时(只有1个rank)不用检测
+            String isTempEnable = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
+            if (!"true".equals(isTempEnable) || param.rank().length < 2) {
+                return;
+            }
+            // 之前就有人的队伍不会进错，没有新队的时候直接返回判断
+            String hasUserStr = settingDao.querySettingValue(param.recKey());
+            List<Long> hasUserIdList = Arrays.stream(hasUserStr.split(",")).map(Long::parseLong).toList();
+            List<TornFactionOcDO> newTeamList = recList.stream().filter(o -> !hasUserIdList.contains(o.getId())).toList();
+            if (CollectionUtils.isEmpty(newTeamList)) {
+                return;
+            }
+            // 进入了不能进的级别
+            String blockRankStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_DISABLE_RANK);
+            int blockRank = Integer.parseInt(blockRankStr);
+            List<TornFactionOcDO> blockList = newTeamList.stream().filter(o -> o.getRank().equals(blockRank)).toList();
+            if (!CollectionUtils.isEmpty(blockList)) {
+                recList.removeIf(blockList::contains);
+                List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(blockList);
+                GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
+                        .setGroupId(BotConstants.PN_GROUP_ID)
+                        .addMsg(new TextQqMsg("进错队啦，现在" + blockRank + "级OC不能参加"))
+                        .addMsg(msgManager.buildSlotMsg(slotList));
+                bot.sendRequest(msgBuilder.build(), String.class);
+            }
+            // 一天只能进一个新队，新队大于1个说明进多了
+            if (newTeamList.size() > 1) {
+                List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(newTeamList)
+                        .stream().filter(s -> s.getUserId() != null).toList();
+                TornFactionOcSlotDO earliestSlot = slotList.stream()
+                        .min(Comparator.comparing(TornFactionOcSlotDO::getJoinTime))
+                        .orElse(null);
+                if (earliestSlot == null) {
+                    return;
+                }
+
+                recList.removeIf(o -> newTeamList.contains(o) && !o.getId().equals(earliestSlot.getOcId()));
+                List<QqMsgParam<?>> atMsgList = msgManager.buildSlotMsg(slotList);
+
+                GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
+                        .setGroupId(BotConstants.PN_GROUP_ID)
+                        .addMsg(new TextQqMsg("新队进入重复啦\n"));
+                for (int i = 0; i < slotList.size(); i++) {
+                    msgBuilder.addMsg(atMsgList.get(i))
+                            .addMsg(new TextQqMsg("在" + DateTimeUtils.convertToString(slotList.get(i).getJoinTime()) + "加入\n"));
+                }
+                bot.sendRequest(msgBuilder.build(), String.class);
+            }
         }
     }
 }

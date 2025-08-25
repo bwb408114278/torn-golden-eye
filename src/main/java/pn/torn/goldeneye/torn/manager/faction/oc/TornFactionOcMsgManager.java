@@ -54,6 +54,13 @@ public class TornFactionOcMsgManager {
     /**
      * 构建岗位详细消息
      */
+    public List<QqMsgParam<?>> buildSlotMsg(List<TornFactionOcSlotDO> slotList) {
+        return buildSlotMsg(slotList, null);
+    }
+
+    /**
+     * 构建岗位详细消息
+     */
     public List<QqMsgParam<?>> buildSlotMsg(List<TornFactionOcSlotDO> slotList, SlotMsgCallback callback) {
         List<Long> userIdList = new ArrayList<>();
         slotList.forEach(s -> {

@@ -367,3 +367,17 @@ databaseChangeLog:
               (9,'Ace in the Hole','Imitator#1','Imitator'),
               (9,'Ace in the Hole','Muscle#1','Muscle'),
               (9,'Ace in the Hole','Muscle#2','Muscle');
+
+  - changeSet:
+      id: add_temp_oc_disable_setting
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "OC_TEMP_BLOCK_RANK"
+              - column:
+                  name: setting_value
+                  value: "8"
