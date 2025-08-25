@@ -52,6 +52,8 @@ public class TornFactionOcUserService {
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
             virtualThreadExecutor.execute(() -> spiderOcPassRate(to));
         }
+
+        addScheduleTask(to);
     }
 
     /**

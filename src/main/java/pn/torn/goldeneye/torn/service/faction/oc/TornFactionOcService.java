@@ -5,14 +5,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -49,7 +45,6 @@ public class TornFactionOcService {
     private final TornFactionOcManager ocManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
-    private final TestProperty testProperty;
 
     @PostConstruct
     public void init() {
@@ -60,21 +55,6 @@ public class TornFactionOcService {
         } else {
             updateScheduleTask();
         }
-
-        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
-        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextQqMsg("OC轮转队加载完成"));
-        if (CollectionUtils.isEmpty(ocList)) {
-            builder.addMsg(new TextQqMsg("\n当前没有轮转队"));
-        } else {
-            for (TornFactionOcDO oc : ocList) {
-                builder.addMsg(new TextQqMsg("\n" + oc.getRank() + "级: 抢车位时间为" +
-                        DateTimeUtils.convertToString(oc.getReadyTime())));
-            }
-        }
-
-        bot.sendRequest(builder.build(), String.class);
     }
 
     /**
