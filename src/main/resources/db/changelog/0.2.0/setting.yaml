@@ -1,0 +1,37 @@
+databaseChangeLog:
+  - changeSet:
+      id: split_faction
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "帮派ID"
+        - update:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: faction_id
+                  value: '20465'
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "帮派ID"
+        - update:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: faction_id
+                  value: '20465'

@@ -20,7 +20,7 @@ import pn.torn.goldeneye.utils.JsonUtils;
  * Torn Api请求实现类
  *
  * @author Bai
- * @version 0.1.1
+ * @version 0.2.0
  * @since 2025.07.22
  */
 @Slf4j
@@ -97,8 +97,8 @@ class TornApiImpl implements TornApi {
             if (apiKey != null) {
                 reqSpec = reqSpec.header("Authorization", "ApiKey " + apiKey.getApiKey());
             }
-            ResponseEntity<String> entity = reqSpec.retrieve().toEntity(String.class);
 
+            ResponseEntity<String> entity = sendRequest(reqSpec, 0);
             return handleResponse(entity, responseType);
         } catch (Exception e) {
             log.error("请求Torn Api V2出错", e);
@@ -109,11 +109,28 @@ class TornApiImpl implements TornApi {
     }
 
     /**
+     * 发送请求，失败后会进行3次重试
+     */
+    private ResponseEntity<String> sendRequest(RestClient.RequestBodySpec reqSpec, int retryCount) {
+        try {
+            return reqSpec.retrieve().toEntity(String.class);
+        } catch (Exception e) {
+            retryCount++;
+            log.error("第{}次请求Torn Api V2出错", retryCount, e);
+            if (retryCount > 3) {
+                return null;
+            } else {
+                return sendRequest(reqSpec, retryCount);
+            }
+        }
+    }
+
+    /**
      * 处理响应体
      */
     private <T> T handleResponse(ResponseEntity<String> entity, Class<T> responseType) {
         try {
-            if (entity.getBody() == null || entity.getBody().isEmpty()) {
+            if (entity == null || entity.getBody().isEmpty()) {
                 return null;
             }
 

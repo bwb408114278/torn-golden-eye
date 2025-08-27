@@ -29,7 +29,7 @@ import java.util.List;
  * Torn Oc逻辑层
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.29
  */
 @Service
@@ -75,13 +75,10 @@ public class TornFactionOcService {
      */
     public void refreshOc() {
         TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
-        if (oc == null) {
-            refreshOc();
-        } else {
+        if (oc != null) {
             ocManager.updateOc(oc.getCrimes());
-            settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD,
-                    DateTimeUtils.convertToString(LocalDateTime.now()));
         }
+        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(LocalDateTime.now()));
     }
 
     /**

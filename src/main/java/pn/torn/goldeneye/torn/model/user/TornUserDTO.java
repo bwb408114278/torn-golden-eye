@@ -11,7 +11,7 @@ import java.util.List;
  * Torn用户请求
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.24
  */
 @Data
@@ -20,6 +20,9 @@ public class TornUserDTO implements TornReqParamV2 {
      * 用户ID
      */
     private Long id;
+
+    public TornUserDTO() {
+    }
 
     public TornUserDTO(Long id) {
         this.id = id;
@@ -38,7 +41,10 @@ public class TornUserDTO implements TornReqParamV2 {
     @Override
     public MultiValueMap<String, String> buildReqParam() {
         MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
-        param.put("id", List.of(id.toString()));
+        if (this.id != null) {
+            param.put("id", List.of(id.toString()));
+        }
+
         return param;
     }
 }

@@ -14,7 +14,7 @@ import java.time.LocalDate;
  * Torn Api Key表
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.08.07
  */
 @Data
@@ -30,6 +30,10 @@ public class TornApiKeyDO extends BaseDO {
      * 用户ID
      */
     private Long userId;
+    /**
+     * 帮派ID
+     */
+    private Long factionId;
     /**
      * QQ号
      */
@@ -58,6 +62,7 @@ public class TornApiKeyDO extends BaseDO {
     public TornApiKeyDO copyNewData() {
         TornApiKeyDO key = new TornApiKeyDO();
         key.setUserId(this.userId);
+        key.setFactionId(this.factionId);
         key.setQqId(this.qqId);
         key.setApiKey(this.apiKey);
         key.setKeyLevel(this.keyLevel);
@@ -74,11 +79,12 @@ public class TornApiKeyDO extends BaseDO {
         }
 
         this.userId = keyInfo.getUser().getId();
+        this.factionId = keyInfo.getUser().getFactionId();
         this.qqId = qqId;
         this.apiKey = apiKey;
         this.keyLevel = keyType.getShortCode();
         this.hasFactionAccess = keyInfo.getAccess().getFaction();
-        this.useCount = 1;
+        this.useCount = 3;
         this.useDate = LocalDate.now();
     }
 }
