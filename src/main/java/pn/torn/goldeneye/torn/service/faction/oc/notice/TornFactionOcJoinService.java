@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.model.TableDataBO;
-import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
@@ -32,6 +32,7 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
     private final Bot bot;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcMsgTableManager msgTableManager;
+    private final ProjectProperty projectProperty;
 
     /**
      * 构建提醒
@@ -56,7 +57,7 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
             TableDataBO table = msgTableManager.buildOcTable(rankDesc + "级OC缺人队伍（不包含新队）", lackMap);
 
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
-                    .setGroupId(BotConstants.PN_GROUP_ID)
+                    .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg(rankDesc + "级可以进了\n"))
                     .addMsg(msgManager.buildSlotMsg(param.planId(), param.rank()))
                     .addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)))

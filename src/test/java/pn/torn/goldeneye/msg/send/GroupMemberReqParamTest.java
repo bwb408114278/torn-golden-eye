@@ -8,7 +8,7 @@ import org.springframework.http.ResponseEntity;
 import pn.torn.goldeneye.BaseWithoutSocketTest;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.configuration.property.TestProperty;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 
 /**
  * 获取群聊成员测试
@@ -23,12 +23,12 @@ class GroupMemberReqParamTest extends BaseWithoutSocketTest {
     @Resource
     private Bot bot;
     @Resource
-    private TestProperty testProperty;
+    private ProjectProperty projectProperty;
 
     @Test
     @DisplayName("获取群聊成员测试")
     void buildTest() {
-        BotHttpReqParam param = new GroupMemberReqParam(testProperty.getGroupId());
+        BotHttpReqParam param = new GroupMemberReqParam(projectProperty.getGroupId());
         ResponseEntity<String> str = bot.sendRequest(param, String.class);
         System.out.println(str.getBody());
     }

@@ -5,7 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.model.TableDataBO;
-import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
@@ -42,6 +42,7 @@ public class TornFactionOcMsgManager {
     private final TornFactionOcSlotDAO slotDao;
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
+    private final ProjectProperty projectProperty;
 
     /**
      * 构建岗位详细消息
@@ -83,7 +84,7 @@ public class TornFactionOcMsgManager {
      */
     public List<QqMsgParam<?>> buildAtMsg(Collection<Long> userIdList) {
         ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
-                new GroupMemberReqParam(BotConstants.PN_GROUP_ID), GroupMemberRec.class);
+                new GroupMemberReqParam(projectProperty.getGroupId()), GroupMemberRec.class);
         List<QqMsgParam<?>> resultList = new ArrayList<>();
 
         for (Long userId : userIdList) {

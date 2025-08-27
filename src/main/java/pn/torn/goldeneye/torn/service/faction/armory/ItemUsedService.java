@@ -9,6 +9,8 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
@@ -45,9 +47,14 @@ public class ItemUsedService {
     private final TornFactionItemUsedDAO usedDao;
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
+    private final ProjectProperty projectProperty;
 
     @PostConstruct
     public void init() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
         String value = settingDao.querySettingValue(TornConstants.SETTING_KEY_ITEM_USE_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);

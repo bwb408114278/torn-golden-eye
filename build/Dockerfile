@@ -8,13 +8,23 @@ RUN mvn dependency:go-offline -B
 COPY ./src src
 RUN mvn clean package -DskipTests
 
-#使用轻量级OpenJDK运行环境
-FROM openjdk:21-jdk-slim
+#使用OpenJDK运行环境
+FROM openjdk:21-jdk
+
+# 创建字体目录
+RUN mkdir -p /usr/share/fonts/custom
+# 将宿主机的Fonts目录下的所有字体文件复制到容器的字体目录
+COPY ./build/fonts/msyh.ttc /usr/share/fonts/custom/msyh.ttc
+COPY ./build/fonts/msyhl.ttc /usr/share/fonts/custom/msyhl.ttc
+COPY ./build/fonts/msyhbd.ttc /usr/share/fonts/custom/msyhbd.ttc
+# 刷新字体缓存，确保系统识别新添加的字体
+RUN fc-cache -f -v
+
 WORKDIR /app/golden-eye
 # 从构建阶段复制生成的jar文件
 COPY --from=build /app/golden-eye/target/*.jar app.jar
 # 设置JVM参数
-ENV JAVA_TOOL_OPTIONS="-Xmx512m -Xms256m"
+ENV JAVA_TOOL_OPTIONS="-Xmx1024m -Xms256m"
 # 设置时区（解决容器内时间问题）
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
