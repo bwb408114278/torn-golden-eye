@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -26,6 +26,7 @@ public class TornFactionOcReadyService extends BaseTornFactionOcNoticeService {
     private final Bot bot;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
+    private final ProjectProperty projectProperty;
 
     /**
      * 构建提醒
@@ -46,7 +47,7 @@ public class TornFactionOcReadyService extends BaseTornFactionOcNoticeService {
             TornFactionOcDO oc = ocDao.getById(param.planId());
 
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
-                    .setGroupId(BotConstants.PN_GROUP_ID)
+                    .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg("5分钟后" + buildRankDesc(param) + "级OC准备抢车位" +
                             "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
                     .addMsg(msgManager.buildSlotMsg(param.planId(), param.rank()))

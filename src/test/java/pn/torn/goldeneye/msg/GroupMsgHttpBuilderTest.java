@@ -7,7 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import pn.torn.goldeneye.BaseWithoutSocketTest;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.configuration.property.TestProperty;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.AtQqMsg;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
@@ -25,13 +25,13 @@ class GroupMsgHttpBuilderTest extends BaseWithoutSocketTest {
     @Resource
     private Bot bot;
     @Resource
-    private TestProperty testProperty;
+    private ProjectProperty projectProperty;
 
     @Test
     @DisplayName("构建消息测试")
     void buildTest() {
         BotHttpReqParam param = new GroupMsgHttpBuilder()
-                .setGroupId(testProperty.getGroupId())
+                .setGroupId(projectProperty.getGroupId())
                 .addMsg(new TextQqMsg("单元测试代码"))
                 .addMsg(new AtQqMsg(408114278L))
                 .build();

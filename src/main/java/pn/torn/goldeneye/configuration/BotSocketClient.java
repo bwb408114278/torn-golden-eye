@@ -6,7 +6,6 @@ import jakarta.annotation.Resource;
 import jakarta.websocket.*;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ArrayUtils;
 import org.glassfish.tyrus.client.ClientManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
@@ -14,10 +13,12 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.msg.receive.QqRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.PrivateMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.utils.JsonUtils;
@@ -71,6 +72,8 @@ public class BotSocketClient {
     private List<BaseGroupMsgStrategy> groupMsgStrategyList;
     @Resource
     private List<BasePrivateMsgStrategy> privateMsgStrategyList;
+    @Resource
+    private ProjectProperty projectProperty;
 
     @PostConstruct
     public void init() {
@@ -284,14 +287,19 @@ public class BotSocketClient {
      */
     private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
-            if (ArrayUtils.contains(strategy.getGroupId(), msg.getGroupId()) && strategy.getCommand().equals(msgArray[1])) {
+            if (projectProperty.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
+                if (strategy.isNeedAdmin() && !projectProperty.getAdminId().contains(msg.getUserId())) {
+                    GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId())
+                            .addMsg(new TextQqMsg("没有对应的权限"));
+                    replyMsg(builder.build());
+                }
+
                 List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),
                         msgArray.length > 2 ? msgArray[2] : "");
                 if (!CollectionUtils.isEmpty(paramList)) {
                     GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
                     paramList.forEach(builder::addMsg);
-                    BotSocketReqParam param = builder.build();
-                    Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
+                    replyMsg(builder.build());
                 }
                 break;
             }
@@ -309,12 +317,18 @@ public class BotSocketClient {
                 if (!CollectionUtils.isEmpty(paramList)) {
                     PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
                     paramList.forEach(builder::addMsg);
-                    BotSocketReqParam param = builder.build();
-                    Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
+                    replyMsg(builder.build());
                 }
                 break;
             }
         }
+    }
+
+    /**
+     * 回复消息
+     */
+    private void replyMsg(BotSocketReqParam param) {
+        Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
     }
 
     /**

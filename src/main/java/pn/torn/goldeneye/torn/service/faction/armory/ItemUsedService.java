@@ -6,15 +6,13 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.property.TestProperty;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
-import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -44,16 +42,19 @@ import java.util.stream.Collectors;
 @Order(10002)
 public class ItemUsedService {
     private final DynamicTaskService taskService;
-    private final Bot bot;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final TornFactionItemUsedDAO usedDao;
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
-    private final TestProperty testProperty;
+    private final ProjectProperty projectProperty;
 
     @PostConstruct
     public void init() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
         String value = settingDao.querySettingValue(TornConstants.SETTING_KEY_ITEM_USE_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
@@ -63,11 +64,6 @@ public class ItemUsedService {
         }
 
         addScheduleTask(to);
-        GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextQqMsg("帮派物品使用记录读取完成，读取截止时间" +
-                        DateTimeUtils.convertToString(to.toLocalDate())));
-        bot.sendRequest(builder.build(), String.class);
     }
 
     /**

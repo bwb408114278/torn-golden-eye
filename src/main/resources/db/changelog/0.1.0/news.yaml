@@ -1,0 +1,66 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_item_use_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_item_used
+            columns:
+              - column:
+                  name: id
+                  type: CHAR(20)
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: user_nickname
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "用户昵称"
+              - column:
+                  name: use_type
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "使用类型"
+              - column:
+                  name: item_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "物品名称"
+              - column:
+                  name: use_time
+                  type: DATETIME
+                  remarks: "使用时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

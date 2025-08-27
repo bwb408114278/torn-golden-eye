@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 获取Oc策略实现类
+ * 小红毁灭者策略实现类
  *
  * @author Bai
  * @version 0.1.0
@@ -56,7 +56,7 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
     }
 
     /**
-     * 构建OC列表消息
+     * 构建小红毁灭者排行榜表格
      *
      * @return 消息内容
      */

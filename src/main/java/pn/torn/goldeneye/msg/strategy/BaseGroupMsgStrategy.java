@@ -1,7 +1,5 @@
 package pn.torn.goldeneye.msg.strategy;
 
-import jakarta.annotation.Resource;
-import pn.torn.goldeneye.configuration.property.TestProperty;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 
@@ -15,16 +13,13 @@ import java.util.List;
  * @since 2025.07.24
  */
 public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
-    @Resource
-    protected TestProperty testProperty;
-
     /**
-     * 获取群ID
+     * 是否需要管理员权限
      *
-     * @return 群ID
+     * @return true为需要管理员
      */
-    public long[] getGroupId() {
-        return new long[]{testProperty.getGroupId()};
+    public boolean isNeedAdmin() {
+        return true;
     }
 
     /**

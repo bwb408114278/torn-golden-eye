@@ -17,7 +17,7 @@ services:
     ports:
       - 13131:3100
     volumes:
-      - ./loki/local-config.yaml:/etc/loki/local-config.yaml
+      - ${LOKI_DIR}/local-config.yaml:/etc/loki/local-config.yaml
       - ${LOKI_DIR}/data/chunks:/loki/chunks
       - ${LOKI_DIR}/data/rules:/loki/rules
     command: -config.file=/etc/loki/local-config.yaml
@@ -48,7 +48,7 @@ services:
       - .env
     volumes:
       - ${GRAFANA_DIR}/data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ${GRAFANA_DIR}/provisioning:/etc/grafana/provisioning
     depends_on:
       - loki
     networks:
@@ -68,6 +68,8 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://pgsql:5432/golden-eye
       - BOT_SERVER_ADDR=napcat
       - LOKI_URL=http://loki:3100/loki/api/v1/push
+      - PROJECT_ENV=prod
+      - PROJECT_GROUPID=818347578
 
 networks:
   golden-eye-net:

@@ -5,10 +5,10 @@ databaseChangeLog:
           minVersion: 17.0
 
   - include:
-      file: db/changelog/detail/setting.yaml
+      file: db/changelog/0.1.0/setting.yaml
   - include:
-      file: db/changelog/detail/user.yaml
+      file: db/changelog/0.1.0/user.yaml
   - include:
-      file: db/changelog/detail/oc.yaml
+      file: db/changelog/0.1.0/oc.yaml
   - include:
-      file: db/changelog/detail/news.yaml
+      file: db/changelog/0.1.0/news.yaml

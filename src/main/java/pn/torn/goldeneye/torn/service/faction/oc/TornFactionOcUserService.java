@@ -9,6 +9,8 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
@@ -42,9 +44,14 @@ public class TornFactionOcUserService {
     private final TornApiKeyConfig apiKeyConfig;
     private final TornFactionOcUserManager ocUserManager;
     private final SysSettingDAO settingDao;
+    private final ProjectProperty projectProperty;
 
     @PostConstruct
     public void init() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
         String value = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PASS_RATE_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
@@ -52,6 +59,8 @@ public class TornFactionOcUserService {
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
             virtualThreadExecutor.execute(() -> spiderOcPassRate(to));
         }
+
+        addScheduleTask(to);
     }
 
     /**

@@ -5,6 +5,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
@@ -36,11 +38,12 @@ public class TornFactionOcTempService {
     private final TornFactionOcManager ocManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
+    private final ProjectProperty projectProperty;
     private static final String TEMP_FLAG = "TEMP";
 
     @PostConstruct
     public void init() {
-        if (!ocManager.isCheckEnableTemp()) {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv()) || !ocManager.isCheckEnableTemp()) {
             return;
         }
 

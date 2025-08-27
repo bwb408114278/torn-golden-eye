@@ -6,11 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.base.bot.Bot;
-import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.torn.TornApi;
-import pn.torn.goldeneye.configuration.property.TestProperty;
-import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 
 /**
  * 通用配置类
@@ -29,17 +25,10 @@ public class CommonConfiguration {
     @Value("${bot.server.token}")
     private String serverToken;
     private final TornApiKeyConfig apiKeyConfig;
-    private final TestProperty testProperty;
 
     @Bean
     public Bot buildHttpBot() {
-        BotImpl bot = new BotImpl(serverAddr, serverHttpPort, serverToken);
-        BotHttpReqParam param = new GroupMsgHttpBuilder()
-                .setGroupId(testProperty.getGroupId())
-                .addMsg(new TextQqMsg("金眼重启完成"))
-                .build();
-        bot.sendRequest(param, String.class);
-        return bot;
+        return new BotImpl(serverAddr, serverHttpPort, serverToken);
     }
 
     @Bean

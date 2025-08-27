@@ -9,10 +9,11 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.utils.TableImageUtils;
 
+import java.awt.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -45,16 +46,32 @@ public class CurrentTaskStrategyImpl extends BaseGroupMsgStrategy {
             return buildTextMsg("当前没有待执行的任务");
         }
 
-        List<String> sortedKeys = new ArrayList<>(taskMap.keySet());
-        Collections.sort(sortedKeys);
+        return super.buildImageMsg(buildTaskMsg(taskMap));
+    }
 
-        StringBuilder builder = new StringBuilder();
-        for (String key : sortedKeys) {
-            builder.append("\nID: ")
-                    .append(key)
-                    .append(" 下次执行时间: ")
-                    .append(DateTimeUtils.convertToString(taskMap.get(key)));
+    /**
+     * 构建定时任务表格
+     */
+    private String buildTaskMsg(Map<String, LocalDateTime> taskMap) {
+        List<List<String>> tableData = new ArrayList<>();
+        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
+
+        tableData.add(List.of("当前待执行任务", ""));
+        tableConfig.addMerge(0, 0, 1, 2);
+        tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
+                .setBgColor(Color.WHITE)
+                .setPadding(25)
+                .setFont(new Font("微软雅黑", Font.BOLD, 25)));
+
+        tableData.add(List.of("Task Id ", "下次执行时间"));
+        tableConfig.setSubTitle(1, 2);
+
+        List<Map.Entry<String, LocalDateTime>> taskList = taskMap.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue()).toList();
+        for (Map.Entry<String, LocalDateTime> entry : taskList) {
+            tableData.add(List.of(entry.getKey(), DateTimeUtils.convertToString(entry.getValue())));
         }
-        return super.buildTextMsg(builder.toString().replaceFirst("\n", ""));
+
+        return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 }

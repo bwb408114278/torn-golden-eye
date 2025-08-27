@@ -26,8 +26,8 @@ bot:
       socket: 23001
     token: 1qazXSW@3edc
 
-golden-eye:
-  test:
-    groupId: 782024117
-    adminId:
-      - 408114278
+project:
+  env: dev
+  groupId: 782024117
+  adminId:
+    - 408114278

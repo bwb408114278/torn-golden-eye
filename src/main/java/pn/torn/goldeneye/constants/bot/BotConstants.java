@@ -12,8 +12,5 @@ import lombok.NoArgsConstructor;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class BotConstants {
-    /**
-     * PN群号
-     */
-    public static final long PN_GROUP_ID = 818347578L;
+    public static final String ENV_PROD = "prod";
 }
