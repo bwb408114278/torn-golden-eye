@@ -102,7 +102,8 @@ public class TornFactionOcService {
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::scheduleOcTask, last.plusHours(1));
 
-        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(TornConstants.FACTION_PN_ID,
+                ocManager.isCheckEnableTemp());
         for (TornFactionOcDO oc : ocList) {
             String taskId = TornConstants.TASK_ID_OC_VALID + oc.getRank();
             TornFactionOcNoticeBO noticeParam = new TornFactionOcNoticeBO(oc.getId(), taskId,

@@ -7,6 +7,7 @@ import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
@@ -59,7 +60,7 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
                     .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg(rankDesc + "级可以进了\n"))
-                    .addMsg(msgManager.buildSlotMsg(param.planId(), param.rank()))
+                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.rank()))
                     .addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)))
                     .build();
             bot.sendRequest(botParam, String.class);

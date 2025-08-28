@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -50,7 +51,7 @@ public class TornFactionOcReadyService extends BaseTornFactionOcNoticeService {
                     .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg("5分钟后" + buildRankDesc(param) + "级OC准备抢车位" +
                             "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
-                    .addMsg(msgManager.buildSlotMsg(param.planId(), param.rank()))
+                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.rank()))
                     .build();
             bot.sendRequest(botParam, String.class);
         }
