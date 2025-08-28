@@ -75,7 +75,8 @@ public class ItemUsedService {
         LocalDateTime queryTo = to;
         while (true) {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
-            TornFactionNewsListVO resp = tornApi.sendRequest(param, TornFactionNewsListVO.class);
+            TornFactionNewsListVO resp = tornApi.sendRequest(TornConstants.FACTION_PN_ID,
+                    param, TornFactionNewsListVO.class);
             if (resp == null) {
                 continue;
             }

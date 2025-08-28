@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * Torn OC表
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.29
  */
 @Data
@@ -23,6 +23,10 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      * ID
      */
     private Long id;
+    /**
+     * 帮派ID
+     */
+    private Long factionId;
     /**
      * 名称
      */

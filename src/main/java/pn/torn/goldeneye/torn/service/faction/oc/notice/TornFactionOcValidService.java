@@ -137,8 +137,8 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                     throw new BizException("发送车位已满消息出错", e);
                 }
                 // 车位已满，重载任务时间
-                ocManager.refreshRotationSetting(param.planKey(), param.excludePlanKey(),
-                        param.recKey(), param.excludeRecKey(), param.rank());
+                ocManager.refreshRotationSetting(TornConstants.FACTION_PN_ID, param.planKey(),
+                        param.excludePlanKey(), param.recKey(), param.excludeRecKey(), param.rank());
                 param.reloadSchedule().run();
             } else {
                 sendLackMsg(isLackNew, lackMap);
@@ -149,7 +149,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          * 发送OC队伍缺人的消息
          */
         private void sendLackMsg(boolean isLackNew, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap) {
-            Set<Long> userIdSet = ocUserManager.findRotationUser(param.rank());
+            Set<Long> userIdSet = ocUserManager.findRotationUser(TornConstants.FACTION_PN_ID, param.rank());
             int currentLackCount = lackMap.size() + (isLackNew ? 1 : 0);
             int lackCount = param.lackCount();
             int freeCount = param.freeCount();

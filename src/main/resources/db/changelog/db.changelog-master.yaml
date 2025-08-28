@@ -3,7 +3,7 @@ databaseChangeLog:
       - dbms:
           type: postgresql
           minVersion: 17.0
-
+  #0.1.0
   - include:
       file: db/changelog/0.1.0/setting.yaml
   - include:
@@ -12,3 +12,6 @@ databaseChangeLog:
       file: db/changelog/0.1.0/oc.yaml
   - include:
       file: db/changelog/0.1.0/news.yaml
+  # 0.2.0
+  - include:
+      file: db/changelog/0.2.0/setting.yaml

@@ -7,12 +7,16 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
@@ -29,7 +33,7 @@ import java.util.List;
  * Torn Oc逻辑层
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.29
  */
 @Service
@@ -38,6 +42,7 @@ import java.util.List;
 public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
+    private final TornApiKeyConfig apiKeyConfig;
     private final DynamicTaskService taskService;
     private final TornFactionOcReadyService readyService;
     private final TornFactionOcJoinService joinService;
@@ -45,6 +50,7 @@ public class TornFactionOcService {
     private final TornFactionOcManager ocManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
+    private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
 
     @PostConstruct
@@ -66,21 +72,25 @@ public class TornFactionOcService {
      * 计划OC任务
      */
     public void scheduleOcTask() {
-        refreshOc();
+        List<TornSettingFactionDO> factionList = settingFactionDao.list();
+        for (TornSettingFactionDO faction : factionList) {
+            TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
+            if (key != null) {
+                refreshOc(key.getFactionId());
+            }
+        }
+
         updateScheduleTask();
+        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(LocalDateTime.now()));
     }
 
     /**
      * 刷新OC
      */
-    public void refreshOc() {
-        TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), TornFactionOcVO.class);
-        if (oc == null) {
-            refreshOc();
-        } else {
-            ocManager.updateOc(oc.getCrimes());
-            settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD,
-                    DateTimeUtils.convertToString(LocalDateTime.now()));
+    public void refreshOc(long factionId) {
+        TornFactionOcVO oc = tornApi.sendRequest(factionId, new TornFactionOcDTO(), TornFactionOcVO.class);
+        if (oc != null) {
+            ocManager.updateOc(factionId, oc.getCrimes());
         }
     }
 
@@ -92,7 +102,8 @@ public class TornFactionOcService {
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         taskService.updateTask(TornConstants.TASK_ID_OC_RELOAD, this::scheduleOcTask, last.plusHours(1));
 
-        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(ocManager.isCheckEnableTemp());
+        List<TornFactionOcDO> ocList = ocDao.queryRotationExecList(TornConstants.FACTION_PN_ID,
+                ocManager.isCheckEnableTemp());
         for (TornFactionOcDO oc : ocList) {
             String taskId = TornConstants.TASK_ID_OC_VALID + oc.getRank();
             TornFactionOcNoticeBO noticeParam = new TornFactionOcNoticeBO(oc.getId(), taskId,
@@ -100,7 +111,8 @@ public class TornFactionOcService {
                     TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP",
                     TornConstants.SETTING_KEY_OC_REC_ID + oc.getRank(),
                     TornConstants.SETTING_KEY_OC_REC_ID + "TEMP",
-                    this::refreshOc, this::updateScheduleTask, 0, 0, oc.getRank());
+                    () -> refreshOc(TornConstants.FACTION_PN_ID), this::updateScheduleTask,
+                    0, 0, oc.getRank());
 
             taskService.updateTask(TornConstants.TASK_ID_OC_READY + oc.getRank(),
                     readyService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(-5));

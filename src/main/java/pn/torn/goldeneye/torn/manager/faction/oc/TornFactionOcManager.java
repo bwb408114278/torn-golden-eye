@@ -45,7 +45,7 @@ public class TornFactionOcManager {
      * 更新OC数据
      */
     @Transactional(rollbackFor = Exception.class)
-    public void updateOc(List<TornFactionCrimeVO> ocList) {
+    public void updateOc(long factionId, List<TornFactionCrimeVO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
             return;
         }
@@ -68,7 +68,7 @@ public class TornFactionOcManager {
             }
         }
 
-        insertOcData(newDataList, skipList);
+        insertOcData(factionId, newDataList, skipList);
         completeOcData(validOcIdList);
         ocUserManager.updateJoinedUserPassRate(ocList);
     }
@@ -76,12 +76,13 @@ public class TornFactionOcManager {
     /**
      * 插入新OC
      */
-    public void insertOcData(List<TornFactionCrimeVO> ocList, List<TornFactionOcNoticeDO> skipList) {
+    public void insertOcData(long factionId, List<TornFactionCrimeVO> ocList, List<TornFactionOcNoticeDO> skipList) {
         if (ocList.isEmpty()) {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkTodayPlanning(skipList, oc))).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc ->
+                oc.convert2DO(factionId, checkTodayPlanning(skipList, oc))).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -161,13 +162,13 @@ public class TornFactionOcManager {
      * @param excludeRecKey  排除的招募队伍配置Key
      * @param rank           查询级别
      */
-    public void refreshRotationSetting(String planKey, String excludePlanKey, String recKey, String excludeRecKey,
+    public void refreshRotationSetting(long factionId, String planKey, String excludePlanKey, String recKey, String excludeRecKey,
                                        int... rank) {
-        List<TornFactionOcDO> planList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.PLANNING, rank);
+        List<TornFactionOcDO> planList = ocDao.queryListByStatusAndRank(factionId, TornOcStatusEnum.PLANNING, rank);
         TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey, excludePlanKey).get(0);
         settingDao.updateSetting(planKey, planOc.getId().toString());
 
-        List<TornFactionOcDO> allRecList = ocDao.queryListByStatusAndRank(TornOcStatusEnum.RECRUITING, rank);
+        List<TornFactionOcDO> allRecList = ocDao.queryListByStatusAndRank(factionId, TornOcStatusEnum.RECRUITING, rank);
         List<TornFactionOcDO> recList = buildRotationList(allRecList, planOc.getId(), excludePlanKey, excludeRecKey);
         String recIds = String.join(",", recList.stream().map(s -> s.getId().toString()).toList());
         settingDao.updateSetting(recKey, recIds);
@@ -181,9 +182,10 @@ public class TornFactionOcManager {
      * @param excludeRecKey  排除招募队的设置Key
      * @param rank           包含的级别
      */
-    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, String excludePlanKey, String excludeRecKey,
-                                                          int... rank) {
+    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, long factionId,
+                                                          String excludePlanKey, String excludeRecKey, int... rank) {
         List<TornFactionOcDO> recList = ocDao.lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();

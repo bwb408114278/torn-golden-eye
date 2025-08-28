@@ -1,0 +1,98 @@
+databaseChangeLog:
+  - changeSet:
+      id: split_faction
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "帮派ID"
+        - update:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: faction_id
+                  value: '20465'
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "帮派ID"
+        - update:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: faction_id
+                  value: '20465'
+
+  - changeSet:
+        id: create_table_setting
+        author: Bai
+        changes:
+          - createTable:
+              tableName: torn_setting_faction
+              columns:
+                - column:
+                    name: id
+                    type: BIGINT
+                    constraints:
+                      primaryKey: true
+                      nullable: false
+                    remarks: "ID"
+                - column:
+                    name: faction_name
+                    type: VARCHAR(64)
+                    constraints:
+                      nullable: false
+                    remarks: "帮派名称"
+                - column:
+                    name: faction_short_name
+                    type: VARCHAR(8)
+                    constraints:
+                      nullable: false
+                    remarks: "帮派简称"
+                - column:
+                    name: deleted
+                    type: TINYINT
+                    defaultValueComputed: '0'
+                    constraints:
+                      nullable: false
+                    remarks: "删除标识 1为已删除"
+                - column:
+                    name: create_time
+                    type: TIMESTAMP
+                    defaultValueComputed: CURRENT_TIMESTAMP
+                    constraints:
+                      nullable: false
+                    remarks: "创建时间"
+                - column:
+                    name: update_time
+                    type: TIMESTAMP
+                    defaultValueComputed: CURRENT_TIMESTAMP
+                    constraints:
+                      nullable: false
+                    remarks: "更新时间"
+          - sql:
+              sql: |
+                INSERT INTO torn_setting_faction (id, faction_name, faction_short_name) VALUES
+                (20465, 'Phoenix Nirvana', 'PHN'),
+                (16335, 'November Chopin', 'NOV'),
+                (11796, 'Bright Summit', 'BSU'),
+                (36134, 'Silver Hand', 'SH'),
+                (9356, 'Party Animals', 'PTA'),
+                (27902, 'Concord', 'CCRC'),
+                (14633, 'Hermit Sage', 'HS'),
+                (2095, 'Huang Pu', 'HP'),
+                (10741, 'Trisolary', 'TTT'),
+                (16424, 'HoYoverse', 'MHY');

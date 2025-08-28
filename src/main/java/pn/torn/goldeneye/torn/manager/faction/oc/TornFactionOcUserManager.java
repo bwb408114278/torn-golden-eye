@@ -8,10 +8,12 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeUserVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
@@ -36,6 +38,7 @@ public class TornFactionOcUserManager {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcNoticeDAO noticeDao;
+    private final TornUserDAO userDao;
 
     /**
      * 更新空闲用户成功率
@@ -110,11 +113,13 @@ public class TornFactionOcUserManager {
     /**
      * 查询可参加OC的替补人员
      *
-     * @param rank OC级别
+     * @param factionId 帮派ID
+     * @param rank      OC级别
      * @return 用户ID列表
      */
-    public Set<Long> findRotationUser(int... rank) {
+    public Set<Long> findRotationUser(long factionId, int... rank) {
         List<TornFactionOcUserDO> userList = findFreeUser(null, rank);
+        List<TornUserDO> factionUserList = userDao.lambdaQuery().eq(TornUserDO::getFactionId, factionId).list();
         List<TornFactionOcNoticeDO> skipList = noticeDao.lambdaQuery()
                 .in(TornFactionOcNoticeDO::getRank, Arrays.stream(rank).boxed().toList())
                 .and(wrapper -> wrapper
@@ -124,6 +129,10 @@ public class TornFactionOcUserManager {
                 .list();
 
         userList.removeIf(u -> {
+            if (factionUserList.stream().noneMatch(fu -> fu.getId().equals(u.getUserId()))) {
+                return true;
+            }
+
             if (u.getPassRate().compareTo(60) < 0) {
                 return true;
             }

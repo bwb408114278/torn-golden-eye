@@ -75,12 +75,7 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
         }
 
         if (userId == 0L) {
-            return super.buildTextMsg("金蝶不认识TA哦");
-        }
-
-        TornUserDO user = userDao.getById(userId);
-        if (user == null) {
-            return super.buildTextMsg("未找到该用户");
+            return super.buildTextMsg("金蝶不认识TA哦，看看群名片对不对");
         }
 
         TornApiKeyDO key = keyDao.lambdaQuery()
@@ -101,6 +96,7 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
             return super.buildTextMsg("暂未查询到记录的OC成功率");
         }
 
+        TornUserDO user = userDao.getById(userId);
         return super.buildImageMsg(buildPassRateMsg(user, ocUserList));
     }
 

@@ -36,8 +36,9 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     /**
      * 查询轮转队中的执行队
      */
-    public List<TornFactionOcDO> queryRotationExecList(boolean tempEnable) {
+    public List<TornFactionOcDO> queryRotationExecList(long factionId, boolean tempEnable) {
         return lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, factionId)
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                 .eq(TornFactionOcDO::isHasCurrent, true)
                 .ne(tempEnable, TornFactionOcDO::getRank, 8)
@@ -58,8 +59,9 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     /**
      * 通过状态和级别查询
      */
-    public List<TornFactionOcDO> queryListByStatusAndRank(TornOcStatusEnum ocStatus, int... rank) {
+    public List<TornFactionOcDO> queryListByStatusAndRank(long factionId, TornOcStatusEnum ocStatus, int... rank) {
         return lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
                 .eq(TornFactionOcDO::getStatus, ocStatus.getCode())
                 .list();

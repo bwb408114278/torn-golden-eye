@@ -6,7 +6,6 @@ import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
@@ -14,6 +13,7 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcUserService;
+import pn.torn.goldeneye.torn.service.user.TornUserService;
 
 import java.util.List;
 
@@ -21,7 +21,7 @@ import java.util.List;
  * 绑定Torn Api Key策略实现
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.08.21
  */
 @Component
@@ -29,6 +29,7 @@ import java.util.List;
 public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
+    private final TornUserService userService;
     private final TornFactionOcUserService ocUserService;
 
     @Override
@@ -47,34 +48,24 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
             return super.buildTextMsg("消息格式不正确");
         }
 
-        TornApiKeyVO key = null;
-        int retryCount = 0;
-        while (key == null && retryCount < 3) {
-            key = tornApi.sendRequest(new TornApiKeyDTO(msg), null, TornApiKeyVO.class);
-            retryCount++;
-        }
-
+        TornApiKeyVO key = tornApi.sendRequest(new TornApiKeyDTO(msg), null, TornApiKeyVO.class);
         if (key == null) {
             return super.buildTextMsg("请求Torn Api失败，请确认Key是否正确");
         }
 
-        Long factionId = key.getInfo().getUser().getFactionId();
-        if (factionId == null || !factionId.equals(TornConstants.FACTION_PN_ID)) {
-            return super.buildTextMsg("你不是PN的人哦，快撤回，我当没看到过");
-        }
-
         TornApiKeyDO keyData = new TornApiKeyDO(sender.getUserId(), msg, key.getInfo());
-        TornApiKeyVO finalKey = key;
-        TornApiKeyDO oldKey = apiKeyConfig.getEnableKeyList().stream()
-                .filter(s -> s.getUserId().equals(finalKey.getInfo().getUser().getId()))
+        List<TornApiKeyDO> allKeyList = apiKeyConfig.getAllEnableKeys();
+        TornApiKeyDO oldKey = allKeyList.stream()
+                .filter(s -> s.getUserId().equals(key.getInfo().getUser().getId()))
                 .findAny().orElse(null);
         if (oldKey == null) {
             apiKeyConfig.addApiKey(keyData);
+            userService.updateUserData(keyData);
             ocUserService.updateOcRate(keyData);
             return super.buildTextMsg(keyData.getUserId() + "绑定" + keyData.getKeyLevel() + "级别的Key成功");
         }
 
-        TornApiKeyDO sameKey = apiKeyConfig.getEnableKeyList().stream().filter(s -> s.getApiKey().equals(msg)).findAny().orElse(null);
+        TornApiKeyDO sameKey = allKeyList.stream().filter(s -> s.getApiKey().equals(msg)).findAny().orElse(null);
         if (sameKey != null) {
             return super.buildTextMsg("已存在相同的Key");
         }

@@ -48,9 +48,10 @@ public class TornFactionCrimeVO implements TornFactionOc {
      */
     private List<TornFactionCrimeSlotVO> slots;
 
-    public TornFactionOcDO convert2DO(boolean isCurrent) {
+    public TornFactionOcDO convert2DO(long factionId, boolean isCurrent) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(this.id);
+        oc.setFactionId(factionId);
         oc.setName(this.name);
         oc.setRank(this.difficulty);
         oc.setStatus(this.status);
