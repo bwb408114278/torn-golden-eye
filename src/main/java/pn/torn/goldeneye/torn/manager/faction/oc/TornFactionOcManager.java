@@ -45,7 +45,7 @@ public class TornFactionOcManager {
      * 更新OC数据
      */
     @Transactional(rollbackFor = Exception.class)
-    public void updateOc(List<TornFactionCrimeVO> ocList) {
+    public void updateOc(long factionId, List<TornFactionCrimeVO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
             return;
         }
@@ -68,7 +68,7 @@ public class TornFactionOcManager {
             }
         }
 
-        insertOcData(newDataList, skipList);
+        insertOcData(factionId, newDataList, skipList);
         completeOcData(validOcIdList);
         ocUserManager.updateJoinedUserPassRate(ocList);
     }
@@ -76,12 +76,13 @@ public class TornFactionOcManager {
     /**
      * 插入新OC
      */
-    public void insertOcData(List<TornFactionCrimeVO> ocList, List<TornFactionOcNoticeDO> skipList) {
+    public void insertOcData(long factionId, List<TornFactionCrimeVO> ocList, List<TornFactionOcNoticeDO> skipList) {
         if (ocList.isEmpty()) {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(checkTodayPlanning(skipList, oc))).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc ->
+                oc.convert2DO(factionId, checkTodayPlanning(skipList, oc))).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();

@@ -67,7 +67,7 @@ public class TornFactionOcUserService {
      * 爬取物品使用记录
      */
     public void spiderOcPassRate(LocalDateTime to) {
-        List<TornApiKeyDO> keyList = apiKeyConfig.getEnableKeyList();
+        List<TornApiKeyDO> keyList = apiKeyConfig.getAllEnableKeys();
         for (TornApiKeyDO key : keyList) {
             updateOcRate(key);
         }

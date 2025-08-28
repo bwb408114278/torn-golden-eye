@@ -43,23 +43,25 @@ public class MatchMemberStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        TornFactionMemberDTO param = new TornFactionMemberDTO(TornConstants.FACTION_PN_ID);
-        TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-
-        List<Long> userIdList = memberList.getMembers().stream().map(TornFactionMemberVO::getId).toList();
-        List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
-
-        List<TornUserDO> newUserList = new ArrayList<>();
-        for (TornFactionMemberVO member : memberList.getMembers()) {
-            if (userList.stream().noneMatch(u -> u.getId().equals(member.getId()))) {
-                newUserList.add(member.convert2DO(TornConstants.FACTION_PN_ID));
-            }
-        }
-
-        if (!CollectionUtils.isEmpty(newUserList)) {
-            userDao.saveBatch(newUserList);
-        }
-
-        return super.buildTextMsg("匹配" + TornConstants.FACTION_PN_ID + "成员成功");
+//        TornFactionMemberDTO param = new TornFactionMemberDTO(TornConstants.FACTION_PN_ID);
+//        TornFactionMemberListVO memberList = tornApi.sendRequest(TornConstants.FACTION_PN_ID, param,
+//                TornFactionMemberListVO.class);
+//
+//        List<Long> userIdList = memberList.getMembers().stream().map(TornFactionMemberVO::getId).toList();
+//        List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
+//
+//        List<TornUserDO> newUserList = new ArrayList<>();
+//        for (TornFactionMemberVO member : memberList.getMembers()) {
+//            if (userList.stream().noneMatch(u -> u.getId().equals(member.getId()))) {
+//                newUserList.add(member.convert2DO(TornConstants.FACTION_PN_ID));
+//            }
+//        }
+//
+//        if (!CollectionUtils.isEmpty(newUserList)) {
+//            userDao.saveBatch(newUserList);
+//        }
+//
+//        return super.buildTextMsg("匹配" + TornConstants.FACTION_PN_ID + "成员成功");
+        return super.buildTextMsg("重构中");
     }
 }

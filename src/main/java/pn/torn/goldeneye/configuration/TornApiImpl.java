@@ -52,10 +52,10 @@ class TornApiImpl implements TornApi {
     }
 
     @Override
-    public <T> T sendRequest(String uri, TornReqParam param, Class<T> responseType) {
+    public <T> T sendRequest(String uri, long factionId, TornReqParam param, Class<T> responseType) {
         TornApiKeyDO apiKey = null;
         try {
-            apiKey = apiKeyConfig.getEnableKey(param.needFactionAccess());
+            apiKey = apiKeyConfig.getFactionKey(factionId, param.needFactionAccess());
             String uriWithParam = uri + "/" +
                     (param.getId() == null ? "" : param.getId()) +
                     "?selections=" + param.getSection() +
@@ -72,13 +72,13 @@ class TornApiImpl implements TornApi {
             log.error("请求Torn Api出错", e);
             return null;
         } finally {
-            apiKeyConfig.returnKeyToQueue(apiKey);
+            apiKeyConfig.returnKey(apiKey);
         }
     }
 
     @Override
-    public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
-        return sendRequest(param, apiKeyConfig.getEnableKey(param.needFactionAccess()), responseType);
+    public <T> T sendRequest(long factionId, TornReqParamV2 param, Class<T> responseType) {
+        return sendRequest(param, apiKeyConfig.getFactionKey(factionId, param.needFactionAccess()), responseType);
     }
 
     @Override
@@ -104,7 +104,7 @@ class TornApiImpl implements TornApi {
             log.error("请求Torn Api V2出错", e);
             return null;
         } finally {
-            apiKeyConfig.returnKeyToQueue(apiKey);
+            apiKeyConfig.returnKey(apiKey);
         }
     }
 

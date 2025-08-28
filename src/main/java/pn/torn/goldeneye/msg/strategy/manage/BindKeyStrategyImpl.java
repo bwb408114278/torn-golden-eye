@@ -54,7 +54,8 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
         }
 
         TornApiKeyDO keyData = new TornApiKeyDO(sender.getUserId(), msg, key.getInfo());
-        TornApiKeyDO oldKey = apiKeyConfig.getEnableKeyList().stream()
+        List<TornApiKeyDO> allKeyList = apiKeyConfig.getAllEnableKeys();
+        TornApiKeyDO oldKey = allKeyList.stream()
                 .filter(s -> s.getUserId().equals(key.getInfo().getUser().getId()))
                 .findAny().orElse(null);
         if (oldKey == null) {
@@ -64,7 +65,7 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
             return super.buildTextMsg(keyData.getUserId() + "绑定" + keyData.getKeyLevel() + "级别的Key成功");
         }
 
-        TornApiKeyDO sameKey = apiKeyConfig.getEnableKeyList().stream().filter(s -> s.getApiKey().equals(msg)).findAny().orElse(null);
+        TornApiKeyDO sameKey = allKeyList.stream().filter(s -> s.getApiKey().equals(msg)).findAny().orElse(null);
         if (sameKey != null) {
             return super.buildTextMsg("已存在相同的Key");
         }

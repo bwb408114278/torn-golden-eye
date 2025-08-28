@@ -66,7 +66,8 @@ public class TornFactionOcTempService {
                 TornConstants.SETTING_KEY_OC_PLAN_ID + "7",
                 TornConstants.SETTING_KEY_OC_REC_ID + TEMP_FLAG,
                 TornConstants.SETTING_KEY_OC_REC_ID + "7",
-                ocService::refreshOc, this::updateScheduleTask, 0, 0, 7, 8);
+                () -> ocService.refreshOc(TornConstants.FACTION_PN_ID), this::updateScheduleTask,
+                0, 0, 7, 8);
 
         taskService.updateTask(TornConstants.TASK_ID_OC_READY + TEMP_FLAG,
                 readyService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(-5));
