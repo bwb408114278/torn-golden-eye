@@ -27,13 +27,6 @@ public class SysSettingDAO extends ServiceImpl<SysSettingMapper, SysSettingDO> {
     }
 
     /**
-     * 删除配置
-     */
-    public void deleteSetting(String key) {
-        baseMapper.deleteByKey(key);
-    }
-
-    /**
      * 获取配置的值
      */
     public String querySettingValue(String key) {

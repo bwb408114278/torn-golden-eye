@@ -103,11 +103,11 @@ public class TornFactionOcService {
         taskService.updateTask("oc-reload", this::scheduleOcTask, last.plusHours(1));
 
         for (int rank = 7; rank < 9; rank++) {
-            String planId = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + rank);
+            long planId = Long.parseLong(settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + rank));
             TornFactionOcDO oc = ocDao.getById(planId);
 
             String taskId = "oc-valid-" + rank;
-            TornFactionOcNoticeBO noticeParam = buildNoticeParam(Long.parseLong(planId), rank, taskId);
+            TornFactionOcNoticeBO noticeParam = buildNoticeParam(planId, rank, taskId);
 
             taskService.updateTask("oc-ready-" + rank,
                     readyService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(-5));
