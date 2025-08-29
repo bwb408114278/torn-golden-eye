@@ -47,8 +47,4 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      * 上级OC ID
      */
     private Long previousOcId;
-    /**
-     * 是否当天轮转
-     */
-    private boolean hasCurrent;
 }

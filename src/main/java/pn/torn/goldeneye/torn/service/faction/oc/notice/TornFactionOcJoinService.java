@@ -60,7 +60,7 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
                     .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg(rankDesc + "级可以进了\n"))
-                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.rank()))
+                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.enableRank()))
                     .addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)))
                     .build();
             bot.sendRequest(botParam, String.class);

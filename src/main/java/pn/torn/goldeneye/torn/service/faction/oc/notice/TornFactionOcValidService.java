@@ -37,7 +37,7 @@ import java.util.*;
  * OC完成逻辑
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.08.06
  */
 @Component
@@ -137,8 +137,12 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                     throw new BizException("发送车位已满消息出错", e);
                 }
                 // 车位已满，重载任务时间
-                ocManager.refreshRotationSetting(TornConstants.FACTION_PN_ID, param.planKey(),
-                        param.excludePlanKey(), param.recKey(), param.excludeRecKey(), param.rank());
+                String planKey = TornConstants.SETTING_KEY_OC_PLAN_ID + param.rank();
+                String excludePlanKey = TornConstants.SETTING_KEY_OC_PLAN_ID + param.excludeRank();
+                String recKey = TornConstants.SETTING_KEY_OC_REC_ID + param.rank();
+                String excludeRecKey = TornConstants.SETTING_KEY_OC_REC_ID + param.excludeRank();
+                ocManager.refreshRotationSetting(TornConstants.FACTION_PN_ID, planKey, excludePlanKey,
+                        recKey, excludeRecKey, param.enableRank());
                 param.reloadSchedule().run();
             } else {
                 sendLackMsg(isLackNew, lackMap);
@@ -149,7 +153,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          * 发送OC队伍缺人的消息
          */
         private void sendLackMsg(boolean isLackNew, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap) {
-            Set<Long> userIdSet = ocUserManager.findRotationUser(TornConstants.FACTION_PN_ID, param.rank());
+            Set<Long> userIdSet = ocUserManager.findRotationUser(TornConstants.FACTION_PN_ID, param.enableRank());
             int currentLackCount = lackMap.size() + (isLackNew ? 1 : 0);
             int lackCount = param.lackCount();
             int freeCount = param.freeCount();
@@ -176,8 +180,8 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
 
             taskService.updateTask(param.taskId(),
                     new Notice(new TornFactionOcNoticeBO(param.planId(), param.taskId(),
-                            param.planKey(), param.excludePlanKey(), param.recKey(), param.excludeRecKey(),
-                            param.refreshOc(), param.reloadSchedule(), lackCount, freeCount, param.rank())),
+                            param.rank(), param.excludeRank(), param.refreshOc(), param.reloadSchedule(),
+                            lackCount, freeCount, param.enableRank())),
                     LocalDateTime.now().plusMinutes(1L));
         }
 
@@ -185,20 +189,15 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          * 检测新队是否正常进入
          */
         private void checkNewOc(List<TornFactionOcDO> recList) {
-            // 未开启临时队或者本次校验为正常队时(只有1个rank)不用检测
-            String isTempEnable = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
-            if (!"true".equals(isTempEnable) || param.rank().length < 2) {
-                return;
-            }
             // 之前就有人的队伍不会进错，没有新队的时候直接返回判断
-            String hasUserStr = settingDao.querySettingValue(param.recKey());
+            String hasUserStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_REC_ID + param.rank());
             List<Long> hasUserIdList = Arrays.stream(hasUserStr.split(",")).map(Long::parseLong).toList();
             List<TornFactionOcDO> newTeamList = recList.stream().filter(o -> !hasUserIdList.contains(o.getId())).toList();
             if (CollectionUtils.isEmpty(newTeamList)) {
                 return;
             }
             // 进入了不能进的级别
-            String blockRankStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_DISABLE_RANK);
+            String blockRankStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_BLOCK_RANK + param.rank());
             int blockRank = Integer.parseInt(blockRankStr);
             List<TornFactionOcDO> blockList = newTeamList.stream().filter(o -> o.getRank().equals(blockRank)).toList();
             if (!CollectionUtils.isEmpty(blockList)) {

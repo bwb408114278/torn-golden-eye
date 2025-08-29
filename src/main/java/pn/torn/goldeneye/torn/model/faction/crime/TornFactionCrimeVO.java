@@ -12,7 +12,7 @@ import java.util.List;
  * Torn OC Crime详情响应参数
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.29
  */
 @Data
@@ -48,7 +48,7 @@ public class TornFactionCrimeVO implements TornFactionOc {
      */
     private List<TornFactionCrimeSlotVO> slots;
 
-    public TornFactionOcDO convert2DO(long factionId, boolean isCurrent) {
+    public TornFactionOcDO convert2DO(long factionId) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(this.id);
         oc.setFactionId(factionId);
@@ -56,7 +56,6 @@ public class TornFactionCrimeVO implements TornFactionOc {
         oc.setRank(this.difficulty);
         oc.setStatus(this.status);
         oc.setPreviousOcId(this.previousCrimeId);
-        oc.setHasCurrent(isCurrent);
 
         if (this.readyAt != null) {
             oc.setReadyTime(DateTimeUtils.convertToDateTime(readyAt));

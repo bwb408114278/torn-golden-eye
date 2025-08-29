@@ -96,3 +96,68 @@ databaseChangeLog:
                 (2095, 'Huang Pu', 'HP'),
                 (10741, 'Trisolary', 'TTT'),
                 (16424, 'HoYoverse', 'MHY');
+
+  - changeSet:
+      id: refactor_oc_manage
+      author: Bai
+      changes:
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: OC_TEAM_PLAN_ID_8
+            where: setting_key = 'OC_TEAM_PLAN_ID_TEMP'
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: OC_TEAM_REC_ID_8
+            where: setting_key = 'OC_TEAM_REC_ID_TEMP'
+        - delete:
+            tableName: sys_setting
+            where: setting_key = 'OC_TEMP_ENABLE'
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: OC_BLOCK_RANK_8
+            where: setting_key = 'OC_TEMP_BLOCK_RANK'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '10'
+              - column:
+                  name: setting_key
+                  value: 'OC_BLOCK_RANK_7'
+              - column:
+                  name: setting_value
+                  value: '8'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '11'
+              - column:
+                  name: setting_key
+                  value: 'OC_ENABLE_RANK_7'
+              - column:
+                  name: setting_value
+                  value: '7'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '12'
+              - column:
+                  name: setting_key
+                  value: 'OC_ENABLE_RANK_8'
+              - column:
+                  name: setting_value
+                  value: '8'

@@ -15,7 +15,7 @@ import java.util.List;
  * Torn Oc持久层类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.29
  */
 @Repository
@@ -28,21 +28,8 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     public void updateCompleted(long id) {
         lambdaUpdate()
                 .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
-                .set(TornFactionOcDO::isHasCurrent, false)
                 .eq(TornFactionOcDO::getId, id)
                 .update();
-    }
-
-    /**
-     * 查询轮转队中的执行队
-     */
-    public List<TornFactionOcDO> queryRotationExecList(long factionId, boolean tempEnable) {
-        return lambdaQuery()
-                .eq(TornFactionOcDO::getFactionId, factionId)
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
-                .eq(TornFactionOcDO::isHasCurrent, true)
-                .ne(tempEnable, TornFactionOcDO::getRank, 8)
-                .list();
     }
 
     /**

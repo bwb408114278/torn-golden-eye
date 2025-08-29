@@ -51,7 +51,7 @@ public class TornFactionOcReadyService extends BaseTornFactionOcNoticeService {
                     .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg("5分钟后" + buildRankDesc(param) + "级OC准备抢车位" +
                             "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
-                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.rank()))
+                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.enableRank()))
                     .build();
             bot.sendRequest(botParam, String.class);
         }

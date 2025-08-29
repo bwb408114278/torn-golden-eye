@@ -30,8 +30,10 @@ public abstract class BaseTornFactionOcNoticeService {
      * 获取招募中列表
      */
     protected List<TornFactionOcDO> findRecList(TornFactionOcNoticeBO param) {
+        String excludePlanKey = TornConstants.SETTING_KEY_OC_PLAN_ID + param.excludeRank();
+        String excludeRecKey = TornConstants.SETTING_KEY_OC_REC_ID + param.excludeRank();
         return ocManager.queryRotationRecruitList(param.planId(), TornConstants.FACTION_PN_ID,
-                param.excludePlanKey(), param.excludeRecKey(), param.rank());
+                excludePlanKey, excludeRecKey, param.enableRank());
     }
 
     /**
@@ -53,6 +55,6 @@ public abstract class BaseTornFactionOcNoticeService {
      * 构建级别描述
      */
     protected String buildRankDesc(TornFactionOcNoticeBO param) {
-        return String.join("/", Arrays.stream(param.rank()).boxed().map(Object::toString).toList());
+        return String.join("/", Arrays.stream(param.enableRank()).boxed().map(Object::toString).toList());
     }
 }
