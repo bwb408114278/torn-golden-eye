@@ -27,5 +27,5 @@ public class TornSettingFactionDO extends BaseDO {
     /**
      * 帮派简称
      */
-    private Integer factionShortName;
+    private String factionShortName;
 }

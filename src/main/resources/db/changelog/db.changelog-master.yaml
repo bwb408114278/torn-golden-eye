@@ -15,3 +15,5 @@ databaseChangeLog:
   # 0.2.0
   - include:
       file: db/changelog/0.2.0/setting.yaml
+  - include:
+      file: db/changelog/0.2.0/oc.yaml

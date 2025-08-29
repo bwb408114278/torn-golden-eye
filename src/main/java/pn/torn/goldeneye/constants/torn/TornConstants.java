@@ -10,7 +10,7 @@ import java.util.List;
  * Torn常量
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -40,27 +40,6 @@ public class TornConstants {
         ROTATION_OC_RANK.add(8);
     }
 
-    /**
-     * OC重载任务ID
-     */
-    public static final String TASK_ID_OC_RELOAD = "oc-reload";
-    /**
-     * OC重载任务ID
-     */
-    public static final String TASK_ID_OC_READY = "oc-ready-";
-    /**
-     * OC重载任务ID
-     */
-    public static final String TASK_ID_OC_JOIN = "oc-join-";
-    /**
-     * OC重载任务ID
-     */
-    public static final String TASK_ID_OC_COMPLETE = "oc-completed-";
-    /**
-     * OC校验任务ID
-     */
-    public static final String TASK_ID_OC_VALID = "oc-valid-";
-
     // ====================配置相关====================
     /**
      * 配置Key - 物品使用记录读取时间
@@ -75,13 +54,13 @@ public class TornConstants {
      */
     public static final String SETTING_KEY_OC_LOAD = "OC_LOAD_TIME";
     /**
-     * 配置Key - 是否启用临时OC
+     * 配置Key - 临时队不能加入级别
      */
-    public static final String SETTING_KEY_OC_TEMP_ENABLE = "OC_TEMP_ENABLE";
+    public static final String SETTING_KEY_OC_ENABLE_RANK = "OC_ENABLE_RANK_";
     /**
      * 配置Key - 临时队不能加入级别
      */
-    public static final String SETTING_KEY_OC_TEMP_DISABLE_RANK = "OC_TEMP_BLOCK_RANK";
+    public static final String SETTING_KEY_OC_BLOCK_RANK = "OC_BLOCK_RANK_";
     /**
      * 配置Key - OC队伍招募ID
      */

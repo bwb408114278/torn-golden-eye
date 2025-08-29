@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -29,7 +28,7 @@ import java.util.List;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.08.08
  */
 @Component
@@ -50,7 +49,6 @@ public class TornFactionOcManager {
             return;
         }
 
-        List<TornFactionOcNoticeDO> skipList = noticeDao.querySkipList();
         List<TornFactionCrimeVO> newDataList = new ArrayList<>();
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
         List<Long> validOcIdList = new ArrayList<>();
@@ -62,13 +60,13 @@ public class TornFactionOcManager {
 
             validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc, checkTodayPlanning(skipList, oc));
+                updateOcData(oc);
             } else {
                 newDataList.add(oc);
             }
         }
 
-        insertOcData(factionId, newDataList, skipList);
+        insertOcData(factionId, newDataList);
         completeOcData(validOcIdList);
         ocUserManager.updateJoinedUserPassRate(ocList);
     }
@@ -76,13 +74,12 @@ public class TornFactionOcManager {
     /**
      * 插入新OC
      */
-    public void insertOcData(long factionId, List<TornFactionCrimeVO> ocList, List<TornFactionOcNoticeDO> skipList) {
+    public void insertOcData(long factionId, List<TornFactionCrimeVO> ocList) {
         if (ocList.isEmpty()) {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc ->
-                oc.convert2DO(factionId, checkTodayPlanning(skipList, oc))).toList();
+        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(factionId)).toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -95,12 +92,11 @@ public class TornFactionOcManager {
     /**
      * 更新OC
      */
-    public void updateOcData(TornFactionCrimeVO oc, boolean isCurrent) {
+    public void updateOcData(TornFactionCrimeVO oc) {
         ocDao.lambdaUpdate()
                 .set(oc.getReadyAt() != null, TornFactionOcDO::getReadyTime,
                         DateTimeUtils.convertToDateTime(oc.getReadyAt()))
                 .set(TornFactionOcDO::getStatus, oc.getStatus())
-                .set(TornFactionOcDO::isHasCurrent, isCurrent)
                 .eq(TornFactionOcDO::getId, oc.getId())
                 .update();
 
@@ -190,28 +186,6 @@ public class TornFactionOcManager {
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
                 .list();
         return buildRotationList(recList, planOcId, excludePlanKey, excludeRecKey);
-    }
-
-    /**
-     * 检查是否启用临时轮转
-     */
-    public boolean isCheckEnableTemp() {
-        String tempSetting = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
-        return "true".equals(tempSetting);
-    }
-
-    /**
-     * 检测OC是否需要跳过校准
-     *
-     * @return true为跳过
-     */
-    private boolean checkTodayPlanning(List<TornFactionOcNoticeDO> skipList, TornFactionCrimeVO oc) {
-        boolean isRotationOc = TornOcUtils.isRotationOc(oc, oc.getSlots(), skipList);
-        String tempEnableStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_TEMP_ENABLE);
-        boolean isTempEnable = "true".equals(tempEnableStr);
-        String tempIdStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + "TEMP");
-        boolean isTemp = isTempEnable && StringUtils.hasText(tempIdStr) && oc.getId().equals(Long.parseLong(tempIdStr));
-        return isRotationOc && !isTemp && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus());
     }
 
     /**

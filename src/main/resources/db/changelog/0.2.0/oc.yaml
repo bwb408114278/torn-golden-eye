@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: remove_oc_current_flag
+      author: Bai
+      changes:
+        - dropColumn:
+            tableName: torn_faction_oc
+            columnName: has_current
