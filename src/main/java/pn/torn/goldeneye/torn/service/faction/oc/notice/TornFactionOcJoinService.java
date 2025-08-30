@@ -13,7 +13,7 @@ import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
+import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
@@ -24,7 +24,7 @@ import java.util.Map;
  * OC可加入提示逻辑
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.08.06
  */
 @Component
@@ -60,7 +60,7 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
                     .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg(rankDesc + "级可以进了\n"))
-                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.enableRank()))
+                    .addMsg(msgManager.buildSlotMsg(param.planId(), TornConstants.FACTION_PN_ID, param.enableRank()))
                     .addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)))
                     .build();
             bot.sendRequest(botParam, String.class);
