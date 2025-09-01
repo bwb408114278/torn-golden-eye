@@ -288,19 +288,16 @@ public class BotSocketClient {
     private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
             if (projectProperty.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
+                GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
                 if (strategy.isNeedAdmin() && !projectProperty.getAdminId().contains(msg.getUserId())) {
-                    GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId())
-                            .addMsg(new TextQqMsg("没有对应的权限"));
-                    replyMsg(builder.build());
+                    builder.addMsg(new TextQqMsg("没有对应的权限"));
+                } else {
+                    List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),
+                            msgArray.length > 2 ? msgArray[2] : "");
+                    paramList.forEach(builder::addMsg);
                 }
 
-                List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),
-                        msgArray.length > 2 ? msgArray[2] : "");
-                if (!CollectionUtils.isEmpty(paramList)) {
-                    GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
-                    paramList.forEach(builder::addMsg);
-                    replyMsg(builder.build());
-                }
+                replyMsg(builder.build());
                 break;
             }
         }

@@ -27,7 +27,7 @@ services:
 
   napcat:
     container_name: napcat
-    image: mlikiowa/napcat-docker:v4.8.95
+    image: mlikiowa/napcat-docker:v4.8.103
     networks:
       - golden-eye-net
     ports:
