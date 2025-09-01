@@ -6,7 +6,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.base.exception.BizException;
 
 /**
  * 机器人类
@@ -45,7 +44,7 @@ class BotImpl implements Bot {
             return request.retrieve().toEntity(responseType);
         } catch (Exception e) {
             log.error("发送Http Bot消息出错, 消息内容" + param.toString(), e);
-            throw new BizException("发送Http Bot消息出错");
+            return null;
         }
     }
 }

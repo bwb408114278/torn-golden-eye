@@ -10,7 +10,7 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
+import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;

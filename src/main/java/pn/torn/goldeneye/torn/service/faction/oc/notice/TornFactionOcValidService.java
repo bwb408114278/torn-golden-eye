@@ -21,8 +21,9 @@ import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
+import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcValidManager;
+import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
@@ -34,7 +35,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * OC完成逻辑
+ * OC校验逻辑层
  *
  * @author Bai
  * @version 0.2.0
@@ -46,6 +47,7 @@ import java.util.*;
 public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
     private final Bot bot;
     private final DynamicTaskService taskService;
+    private final TornFactionOcValidManager validManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserManager ocUserManager;
@@ -120,11 +122,11 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          * 检查车位已满
          */
         private void checkPositionFull(List<TornFactionOcDO> recList) {
-            checkNewOc(recList);
-            boolean isLackNew = recList.size() < 6;
+            boolean isNewOcCorrect = checkNewOc(recList);
+            boolean noMoreMember = validManager.validMoreMember(recList);
 
             Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = buildLackMap(recList);
-            if (lackMap.isEmpty() && !isLackNew) {
+            if (lackMap.isEmpty() && isNewOcCorrect && noMoreMember) {
                 Resource resource = resourceLoader.getResource("classpath:/img/ocSlotFull.gif");
                 try (InputStream inputStream = resource.getInputStream()) {
                     byte[] imageBytes = inputStream.readAllBytes();
@@ -145,7 +147,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                         recKey, excludeRecKey, param.enableRank());
                 param.reloadSchedule().run();
             } else {
-                sendLackMsg(isLackNew, lackMap);
+                sendLackMsg(!isNewOcCorrect, lackMap);
             }
         }
 
@@ -188,20 +190,22 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
         /**
          * 检测新队是否正常进入
          */
-        private void checkNewOc(List<TornFactionOcDO> recList) {
+        private boolean checkNewOc(List<TornFactionOcDO> recList) {
             // 之前就有人的队伍不会进错，没有新队的时候直接返回判断
             String hasUserStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_REC_ID + param.rank());
             List<Long> hasUserIdList = Arrays.stream(hasUserStr.split(",")).map(Long::parseLong).toList();
             List<TornFactionOcDO> newTeamList = recList.stream().filter(o -> !hasUserIdList.contains(o.getId())).toList();
             if (CollectionUtils.isEmpty(newTeamList)) {
-                return;
+                return false;
             }
+
+            boolean isNewOcCorrect = true;
             // 进入了不能进的级别
             String blockRankStr = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_BLOCK_RANK + param.rank());
             int blockRank = Integer.parseInt(blockRankStr);
             List<TornFactionOcDO> blockList = newTeamList.stream().filter(o -> o.getRank().equals(blockRank)).toList();
             if (!CollectionUtils.isEmpty(blockList)) {
-                recList.removeIf(blockList::contains);
+                isNewOcCorrect = false;
                 List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(blockList);
                 GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
                         .setGroupId(projectProperty.getGroupId())
@@ -211,16 +215,9 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
             }
             // 一天只能进一个新队，新队大于1个说明进多了
             if (newTeamList.size() > 1) {
+                isNewOcCorrect = false;
                 List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(newTeamList)
                         .stream().filter(s -> s.getUserId() != null).toList();
-                TornFactionOcSlotDO earliestSlot = slotList.stream()
-                        .min(Comparator.comparing(TornFactionOcSlotDO::getJoinTime))
-                        .orElse(null);
-                if (earliestSlot == null) {
-                    return;
-                }
-
-                recList.removeIf(o -> newTeamList.contains(o) && !o.getId().equals(earliestSlot.getOcId()));
                 List<QqMsgParam<?>> atMsgList = msgManager.buildSlotMsg(slotList);
 
                 GroupMsgHttpBuilder msgBuilder = new GroupMsgHttpBuilder()
@@ -232,6 +229,8 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                 }
                 bot.sendRequest(msgBuilder.build(), String.class);
             }
+
+            return isNewOcCorrect;
         }
     }
 }

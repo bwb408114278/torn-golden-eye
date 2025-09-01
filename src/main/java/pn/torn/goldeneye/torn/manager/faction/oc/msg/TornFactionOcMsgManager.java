@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.manager.faction.oc;
+package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +19,7 @@ import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 

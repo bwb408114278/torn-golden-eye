@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
@@ -14,7 +13,6 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.torn.TornOcUtils;
@@ -34,6 +32,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class TornFactionOcManager {
+    private final TornFactionOcSlotManager slotManager;
     private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
@@ -50,6 +49,7 @@ public class TornFactionOcManager {
         }
 
         List<TornFactionCrimeVO> newDataList = new ArrayList<>();
+        List<TornFactionCrimeVO> updateDataList = new ArrayList<>();
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
         List<Long> validOcIdList = new ArrayList<>();
         List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(ocIdList);
@@ -60,13 +60,14 @@ public class TornFactionOcManager {
 
             validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
-                updateOcData(oc);
+                updateDataList.add(oc);
             } else {
                 newDataList.add(oc);
             }
         }
 
         insertOcData(factionId, newDataList);
+        updateOcData(updateDataList);
         completeOcData(validOcIdList);
         ocUserManager.updateJoinedUserPassRate(ocList);
     }
@@ -92,33 +93,26 @@ public class TornFactionOcManager {
     /**
      * 更新OC
      */
-    public void updateOcData(TornFactionCrimeVO oc) {
-        ocDao.lambdaUpdate()
-                .set(oc.getReadyAt() != null, TornFactionOcDO::getReadyTime,
-                        DateTimeUtils.convertToDateTime(oc.getReadyAt()))
-                .set(TornFactionOcDO::getStatus, oc.getStatus())
-                .eq(TornFactionOcDO::getId, oc.getId())
-                .update();
+    public void updateOcData(List<TornFactionCrimeVO> ocList) {
+        if (CollectionUtils.isEmpty(ocList)) {
+            return;
+        }
 
-        for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-            if (slot.getUser() != null) {
-                slotDao.lambdaUpdate()
-                        .set(TornFactionOcSlotDO::getUserId, slot.getUser().getId())
-                        .set(TornFactionOcSlotDO::getJoinTime, DateTimeUtils.convertToDateTime(slot.getUser().getJoinedAt()))
-                        .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
-                        .eq(TornFactionOcSlotDO::getOcId, oc.getId())
-                        .eq(TornFactionOcSlotDO::getPosition, slot.getPosition() + "#" + slot.getPositionNumber())
-                        .update();
-            } else {
-                slotDao.lambdaUpdate()
-                        .set(TornFactionOcSlotDO::getUserId, null)
-                        .set(TornFactionOcSlotDO::getJoinTime, null)
-                        .set(TornFactionOcSlotDO::getPassRate, null)
-                        .eq(TornFactionOcSlotDO::getOcId, oc.getId())
-                        .eq(TornFactionOcSlotDO::getPosition, slot.getPosition() + "#" + slot.getPositionNumber())
+        List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
+        List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(ocIdList);
+        for (TornFactionCrimeVO oc : ocList) {
+            LocalDateTime readyTime = DateTimeUtils.convertToDateTime(oc.getReadyAt());
+            boolean isDiff = oldDataList.stream().noneMatch(old -> old.getId().equals(oc.getId()) &&
+                    old.getStatus().equals(oc.getStatus()) && old.getReadyTime().equals(readyTime));
+            if (isDiff) {
+                ocDao.lambdaUpdate()
+                        .set(TornFactionOcDO::getReadyTime, readyTime)
+                        .set(TornFactionOcDO::getStatus, oc.getStatus())
+                        .eq(TornFactionOcDO::getId, oc.getId())
                         .update();
             }
         }
+        slotManager.updateOcSlot(ocList, oldDataList);
     }
 
     /**

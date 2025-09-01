@@ -11,14 +11,14 @@ import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcMsgManager;
+import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 /**
  * OC准备加入提示逻辑
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.2.0
  * @since 2025.07.24
  */
 @Component
@@ -51,7 +51,7 @@ public class TornFactionOcReadyService extends BaseTornFactionOcNoticeService {
                     .setGroupId(projectProperty.getGroupId())
                     .addMsg(new TextQqMsg("5分钟后" + buildRankDesc(param) + "级OC准备抢车位" +
                             "\n开始加入时间: " + DateTimeUtils.convertToString(oc.getReadyTime()) + "\n"))
-                    .addMsg(msgManager.buildSlotMsg(TornConstants.FACTION_PN_ID, param.planId(), param.enableRank()))
+                    .addMsg(msgManager.buildSlotMsg(param.planId(), TornConstants.FACTION_PN_ID, param.enableRank()))
                     .build();
             bot.sendRequest(botParam, String.class);
         }
