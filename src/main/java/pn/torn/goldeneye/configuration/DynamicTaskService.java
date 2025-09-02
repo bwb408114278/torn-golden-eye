@@ -71,7 +71,7 @@ public class DynamicTaskService {
         wrapper.setFuture(future);
         // 存储到 scheduledTasks
         scheduledTasks.put(taskId, future);
-        log.debug("添加定时任务成功, id: " + taskId + " 执行时间: " + DateTimeUtils.convertToString(execTime));
+        log.info("添加定时任务成功, id: " + taskId + " 执行时间: " + DateTimeUtils.convertToString(execTime));
     }
 
     /**
@@ -85,7 +85,7 @@ public class DynamicTaskService {
         if (future != null) {
             boolean canceled = future.cancel(false);
             scheduledTasks.remove(taskId);
-            log.debug("取消定时任务成功, id: " + taskId);
+            log.info("取消定时任务成功, id: " + taskId);
             return canceled;
         }
         return false;
@@ -150,7 +150,7 @@ public class DynamicTaskService {
                 if (callback != null) {
                     callback.onTaskExecuted(taskId, true);
                 }
-                log.debug("定时任务执行完毕成功, id: " + taskId);
+                log.info("定时任务执行完毕成功, id: " + taskId);
             } finally {
                 ScheduledFuture<?> currentFuture = futureRef.get();
                 if (currentFuture != null) {

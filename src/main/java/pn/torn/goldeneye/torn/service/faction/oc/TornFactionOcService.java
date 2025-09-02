@@ -62,46 +62,26 @@ public class TornFactionOcService {
         String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         if (last.plusHours(1).isBefore(LocalDateTime.now())) {
-            virtualThreadExecutor.execute(this::scheduleOcTask);
+            virtualThreadExecutor.execute(this::refreshOc);
         } else {
-            updateScheduleTask();
+            scheduleOcTask(last);
         }
+
+        scheduleRotationTask();
     }
 
     /**
-     * 计划OC任务
+     * 定时更新OC任务
      */
-    public void scheduleOcTask() {
-        List<TornSettingFactionDO> factionList = settingFactionDao.list();
-        for (TornSettingFactionDO faction : factionList) {
-            TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
-            if (key != null) {
-                refreshOc(key.getFactionId());
-            }
-        }
-
-        updateScheduleTask();
-        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(LocalDateTime.now()));
+    public void scheduleOcTask(LocalDateTime last) {
+        taskService.updateTask("oc-reload", this::refreshOc, last.plusHours(1));
+        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(last));
     }
 
     /**
-     * 刷新OC
+     * 轮转队提醒任务
      */
-    public void refreshOc(long factionId) {
-        TornFactionOcVO oc = tornApi.sendRequest(factionId, new TornFactionOcDTO(), TornFactionOcVO.class);
-        if (oc != null) {
-            ocManager.updateOc(factionId, oc.getCrimes());
-        }
-    }
-
-    /**
-     * 更新定时提醒
-     */
-    public void updateScheduleTask() {
-        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
-        LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
-        taskService.updateTask("oc-reload", this::scheduleOcTask, last.plusHours(1));
-
+    public void scheduleRotationTask() {
         for (int rank = 7; rank < 9; rank++) {
             long planId = Long.parseLong(settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_PLAN_ID + rank));
             TornFactionOcDO oc = ocDao.getById(planId);
@@ -120,6 +100,32 @@ public class TornFactionOcService {
     }
 
     /**
+     * 刷新OC
+     */
+    public void refreshOc() {
+        List<TornSettingFactionDO> factionList = settingFactionDao.list();
+        for (TornSettingFactionDO faction : factionList) {
+            TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
+            if (key != null) {
+                refreshOc(key.getFactionId());
+            }
+        }
+        scheduleOcTask(LocalDateTime.now());
+    }
+
+    /**
+     * 刷新OC
+     *
+     * @param factionId 帮派ID
+     */
+    public void refreshOc(long factionId) {
+        TornFactionOcVO oc = tornApi.sendRequest(factionId, new TornFactionOcDTO(), TornFactionOcVO.class);
+        if (oc != null) {
+            ocManager.updateOc(factionId, oc.getCrimes());
+        }
+    }
+
+    /**
      * 构建提醒参数
      */
     private TornFactionOcNoticeBO buildNoticeParam(long planId, int rank, String taskId) {
@@ -132,7 +138,7 @@ public class TornFactionOcService {
         }
 
         return new TornFactionOcNoticeBO(planId, taskId, rank, excludeRank,
-                () -> refreshOc(TornConstants.FACTION_PN_ID), this::updateScheduleTask,
+                () -> refreshOc(TornConstants.FACTION_PN_ID), this::scheduleRotationTask,
                 0, 0, enableRankArray);
     }
 }
