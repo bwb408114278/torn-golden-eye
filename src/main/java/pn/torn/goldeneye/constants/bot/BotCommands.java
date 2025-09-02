@@ -37,6 +37,10 @@ public class BotCommands {
      * 取消OC提醒
      */
     public static final String CANCEL_OC_NOTICE = "取消OC提醒";
+    /**
+     * 今日轮转
+     */
+    public static final String OC_ROTATION_QUERY = "今日轮转";
 
     // ====================帮派成员相关====================
     /**
