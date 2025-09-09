@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * 测试属性
+ * 项目属性
  *
  * @author Bai
  * @version 0.1.0
@@ -22,7 +22,7 @@ public class ProjectProperty {
      */
     private String env;
     /**
-     * 测试群号
+     * 群号
      */
     private long groupId;
     /**

@@ -26,6 +26,15 @@ bot:
       socket: 23001
     token: 1qazXSW@3edc
 
+lark-suite:
+  app-id: ${LARK_APP_ID}
+  app-secret: ${LARK_APP_SECRET}
+  bit-table:
+    - name: oc_benefit
+      app-token: ${LARK_OC_BENEFIT_APP_TOKEN}
+      table-id: ${LARK_OC_BENEFIT_TABLE_ID}
+      view-id: ${LARK_OC_BENEFIT_VIEW_ID}
+
 project:
   env: dev
   groupId: 782024117

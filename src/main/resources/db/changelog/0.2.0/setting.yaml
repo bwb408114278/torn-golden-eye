@@ -161,3 +161,20 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '8'
+
+  - changeSet:
+      id: add_oc_benefit_setting
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '13'
+              - column:
+                  name: setting_key
+                  value: 'OC_BENEFIT_LOAD_DATE'
+              - column:
+                  name: setting_value
+                  value: '2025-09-07'
