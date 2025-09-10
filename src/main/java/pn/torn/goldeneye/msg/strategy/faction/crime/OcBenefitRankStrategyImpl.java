@@ -69,10 +69,10 @@ public class OcBenefitRankStrategyImpl extends PnMsgStrategy {
 
         for (int i = 0; i < rankingList.size(); i++) {
             TornFactionOcBenefitRankDO ranking = rankingList.get(i);
-            tableConfig.setCellStyle(i + 2, 0, new TableImageUtils.CellStyle().setPadding(5))
-                    .setCellStyle(i + 2, 1, new TableImageUtils.CellStyle().setPadding(20))
-                    .setCellStyle(i + 2, 2, new TableImageUtils.CellStyle().setPadding(20))
-                    .setCellStyle(i + 2, 3, new TableImageUtils.CellStyle().setPadding(20));
+            tableConfig.setCellStyle(i + 2, 0, new TableImageUtils.CellStyle().setHorizontalPadding(5))
+                    .setCellStyle(i + 2, 1, new TableImageUtils.CellStyle().setHorizontalPadding(20))
+                    .setCellStyle(i + 2, 2, new TableImageUtils.CellStyle().setHorizontalPadding(20))
+                    .setCellStyle(i + 2, 3, new TableImageUtils.CellStyle().setHorizontalPadding(20));
 
             tableData.add(List.of(
                     String.valueOf(i + 1),
