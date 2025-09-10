@@ -225,11 +225,10 @@ public class TableImageUtils {
                     // 更新所有跨越行的最小高度
                     for (int i = 0; i < rowSpan; i++) {
                         int rowIndex = r + i;
-                        if (rowIndex < rows) {
-                            if (minHeightPerRow > minRowHeights[rowIndex]) {
+                        if (rowIndex < rows && minHeightPerRow > minRowHeights[rowIndex]) {
                                 minRowHeights[rowIndex] = minHeightPerRow;
                             }
-                        }
+
                     }
                 }
             }
