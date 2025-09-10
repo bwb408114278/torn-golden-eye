@@ -178,3 +178,20 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2025-09-01 00:00:00'
+
+  - changeSet:
+      id: add_member_reload_setting
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '14'
+              - column:
+                  name: setting_key
+                  value: 'FACTION_MEMBER_LOAD_DATE'
+              - column:
+                  name: setting_value
+                  value: '2025-09-09'
