@@ -2,7 +2,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
+import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
@@ -18,9 +18,7 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
-import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
-import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
 import java.awt.*;
 import java.time.LocalDate;
@@ -63,15 +61,10 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         long userId;
-        if (StringUtils.hasText(msg)) {
-            String[] msgArray = msg.split("#");
-            if (msgArray.length < 1 || !NumberUtils.isLong(msgArray[0])) {
-                return super.sendErrorFormatMsg();
-            }
-
-            userId = Long.parseLong(msgArray[0]);
-        } else {
-            userId = TornUserUtils.getUserIdFromSender(sender);
+        try {
+            userId = super.getTornUserId(sender, msg);
+        } catch (BizException e) {
+            return super.buildTextMsg(e.getMsg());
         }
 
         if (userId == 0L) {

@@ -25,7 +25,6 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.larksuite.LarkSuiteUtils;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
@@ -69,15 +68,14 @@ public class TornFactionOcBenefitService {
             return;
         }
 
-        String value = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_BENEFIT_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
-        LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
-
-        if (LocalDateTime.now().minusDays(1).isAfter(from)) {
+        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_BENEFIT_LOAD);
+        LocalDateTime from = DateTimeUtils.convertToDateTime(lastRefreshTime);
+        LocalDateTime to = LocalDateTime.now();
+        if (from.plusHours(1).isBefore(LocalDateTime.now())) {
             virtualThreadExecutor.execute(() -> spiderOcBenefit(from, to));
+        } else {
+            addScheduleTask(from);
         }
-
-        addScheduleTask(to);
     }
 
     /**
@@ -119,7 +117,7 @@ public class TornFactionOcBenefitService {
 
         } while (hasMore);
 
-        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_PASS_RATE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_BENEFIT_LOAD, DateTimeUtils.convertToString(to));
         addScheduleTask(to);
     }
 
@@ -340,9 +338,7 @@ public class TornFactionOcBenefitService {
      * 添加定时任务
      */
     private void addScheduleTask(LocalDateTime to) {
-        taskService.updateTask("oc-benefit-reload",
-                () -> spiderOcBenefit(to.plusSeconds(1), to.plusDays(1)),
-                to.plusDays(1).plusSeconds(1).plusMinutes(12L));
+        taskService.updateTask("oc-benefit-reload", () -> spiderOcBenefit(to, to.plusHours(1)), to.plusHours(1));
     }
 
     private record OcJoinUser(long userId, String position, double chance) {

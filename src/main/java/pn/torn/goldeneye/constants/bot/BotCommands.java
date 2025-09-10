@@ -42,6 +42,10 @@ public class BotCommands {
      */
     public static final String OC_ROTATION_QUERY = "今日轮转";
     /**
+     * OC收益
+     */
+    public static final String OC_BENEFIT = "OC收益";
+    /**
      * OC收益榜
      */
     public static final String OC_BENEFIT_RANK = "OC收益榜";

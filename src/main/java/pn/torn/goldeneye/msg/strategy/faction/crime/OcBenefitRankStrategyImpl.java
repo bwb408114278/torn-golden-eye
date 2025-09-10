@@ -42,10 +42,10 @@ public class OcBenefitRankStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        LocalDateTime toDate = LocalDate.now().atTime(7, 59, 59);
-        LocalDateTime fromDate = toDate.minusDays(LocalDate.now().getDayOfMonth()).plusSeconds(1);
+        LocalDateTime fromDate = LocalDate.now().minusDays(LocalDate.now().getDayOfMonth() - 1L)
+                .atTime(0, 0, 0);
         List<TornFactionOcBenefitRankDO> rankingList = benefitDao.queryBenefitRanking(TornConstants.FACTION_PN_ID,
-                fromDate, toDate);
+                fromDate, LocalDateTime.now());
         return super.buildImageMsg(buildRankingMsg(rankingList));
     }
 
@@ -69,10 +69,14 @@ public class OcBenefitRankStrategyImpl extends PnMsgStrategy {
 
         for (int i = 0; i < rankingList.size(); i++) {
             TornFactionOcBenefitRankDO ranking = rankingList.get(i);
-            tableConfig.setCellStyle(i + 2, 0, new TableImageUtils.CellStyle().setHorizontalPadding(5))
-                    .setCellStyle(i + 2, 1, new TableImageUtils.CellStyle().setHorizontalPadding(20))
-                    .setCellStyle(i + 2, 2, new TableImageUtils.CellStyle().setHorizontalPadding(20))
-                    .setCellStyle(i + 2, 3, new TableImageUtils.CellStyle().setHorizontalPadding(20));
+            tableConfig.setCellStyle(i + 2, 0, new TableImageUtils.CellStyle()
+                            .setVerticalPadding(5).setHorizontalPadding(5))
+                    .setCellStyle(i + 2, 1, new TableImageUtils.CellStyle()
+                            .setVerticalPadding(5).setHorizontalPadding(20))
+                    .setCellStyle(i + 2, 2, new TableImageUtils.CellStyle()
+                            .setVerticalPadding(5).setHorizontalPadding(20))
+                    .setCellStyle(i + 2, 3, new TableImageUtils.CellStyle()
+                            .setVerticalPadding(5).setHorizontalPadding(20));
 
             tableData.add(List.of(
                     String.valueOf(i + 1),
