@@ -46,6 +46,10 @@ public class TornConstants {
 
     // ====================配置相关====================
     /**
+     * 配置Key - 帮派成员读取时间
+     */
+    public static final String SETTING_KEY_FACTION_MEMBER_LOAD = "FACTION_MEMBER_LOAD_DATE";
+    /**
      * 配置Key - 物品使用记录读取时间
      */
     public static final String SETTING_KEY_ITEM_USE_LOAD = "ITEM_USED_LOAD_DATE";

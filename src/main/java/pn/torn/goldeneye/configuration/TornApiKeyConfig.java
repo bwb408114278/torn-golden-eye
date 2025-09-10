@@ -47,6 +47,27 @@ public class TornApiKeyConfig {
     private final Set<Long> inUseKeyIds = ConcurrentHashMap.newKeySet();
 
     /**
+     * 获取Key，返回使用次数最少的
+     */
+    public TornApiKeyDO getEnableKey() {
+        lock.lock();
+        try {
+            Optional<TornApiKeyDO> minKeyOpt = allKeys.values().stream()
+                    .filter(key -> !inUseKeyIds.contains(key.getId()))
+                    .min(Comparator.comparingInt(TornApiKeyDO::getUseCount));
+
+            if (minKeyOpt.isPresent()) {
+                TornApiKeyDO key = minKeyOpt.get();
+                inUseKeyIds.add(key.getId());
+                return key;
+            }
+            return null;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * 获取所有可用的Key列表
      */
     public List<TornApiKeyDO> getAllEnableKeys() {

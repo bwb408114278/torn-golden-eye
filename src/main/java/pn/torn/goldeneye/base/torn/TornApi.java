@@ -23,6 +23,15 @@ public interface TornApi {
     /**
      * 发送Torn Api请求, v2版本api
      *
+     * @param param        请求参数
+     * @param responseType 响应类型
+     * @return 响应数据
+     */
+    <T> T sendRequest(TornReqParamV2 param, Class<T> responseType);
+
+    /**
+     * 发送Torn Api请求, v2版本api
+     *
      * @param factionId    帮派ID
      * @param param        请求参数
      * @param responseType 响应类型

@@ -77,6 +77,11 @@ class TornApiImpl implements TornApi {
     }
 
     @Override
+    public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
+        return sendRequest(param, apiKeyConfig.getEnableKey(), responseType);
+    }
+
+    @Override
     public <T> T sendRequest(long factionId, TornReqParamV2 param, Class<T> responseType) {
         return sendRequest(param, apiKeyConfig.getFactionKey(factionId, param.needFactionAccess()), responseType);
     }
