@@ -18,7 +18,9 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.larksuite.LarkSuiteUtils;
 
@@ -48,6 +50,8 @@ public class TornFactionOcBenefitService {
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
     private final LarkSuiteProperty larkSuiteProperty;
+    private final TornSettingFactionDAO settingFactionDao;
+    private Map<String, TornSettingFactionDO> factionMap;
     // 飞书表格中的字段名常量
     private static final String FIELD_OC_STATUS = "当前状态";
     private static final String FIELD_OC_ID = "OCID";
@@ -60,6 +64,7 @@ public class TornFactionOcBenefitService {
 
     @PostConstruct
     public void init() {
+        factionMap = settingFactionDao.getShortNameMap();
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
         }
@@ -89,7 +94,10 @@ public class TornFactionOcBenefitService {
                 SearchAppTableRecordReq.Builder reqBuilder = SearchAppTableRecordReq.newBuilder()
                         .appToken(bitTable.getAppToken())
                         .tableId(bitTable.getTableId())
-                        .pageSize(100);
+                        .pageSize(100)
+                        .searchAppTableRecordReqBody(SearchAppTableRecordReqBody.newBuilder()
+                                .viewId(bitTable.getViewId())
+                                .build());
                 if (StringUtils.hasText(finalPageToken)) {
                     reqBuilder.pageToken(finalPageToken);
                 }
@@ -155,7 +163,7 @@ public class TornFactionOcBenefitService {
      */
     private List<TornFactionOcBenefitDO> parseSingleRecord(AppTableRecord item) {
         if (item == null || item.getFields() == null) {
-            return Collections.emptyList();
+            return List.of();
         }
         Map<String, Object> fields = item.getFields();
         String ocStatus = LarkSuiteUtils.getTextFieldValue(fields, FIELD_OC_STATUS);
@@ -163,7 +171,7 @@ public class TornFactionOcBenefitService {
 
         // 复杂情况：一个成功的OC，并且它有一个前置OC。奖金合并计算。
         if ("Successful".equals(ocStatus) && previousOcIdNum != null) {
-            return handleSuccessfulCombinedOc(fields, previousOcIdNum.longValue());
+            return handleSuccessChainOc(fields, previousOcIdNum.longValue());
         } else {
             // 标准情况：独立的OC，或失败的OC。
             return handleStandardOc(fields);
@@ -173,46 +181,50 @@ public class TornFactionOcBenefitService {
     /**
      * 处理奖金合并的成功 OC
      */
-    private List<TornFactionOcBenefitDO> handleSuccessfulCombinedOc(Map<String, Object> currentFields, long previousOcId) {
-        // 1. 通过 API 请求获取前置 OC 的记录
+    private List<TornFactionOcBenefitDO> handleSuccessChainOc(Map<String, Object> currentFields, long previousOcId) {
+        // 1. 通过API请求获取前置OC的记录
         AppTableRecord previousRecord = findOcRecordById(previousOcId);
         if (previousRecord == null) {
             return List.of();
         }
 
-        // 2. 分别提取前置和当前 OC 的参与人详情（按 slot 顺序）
+        // 2. 分别提取前置和当前OC的参与人详情（按slot顺序）
         // 创建一个共享的计数器map，确保岗位编号在前后两个OC之间是连续的
-        Map<String, Integer> combinedPositionCounts = new HashMap<>();
-        List<ParticipantDetails> previousParticipants = extractParticipantsFromFields(previousRecord.getFields(), combinedPositionCounts);
-        List<ParticipantDetails> currentParticipants = extractParticipantsFromFields(currentFields, combinedPositionCounts);
+        Map<String, Integer> chainPositionCount = new HashMap<>();
+        List<OcJoinUser> prevUserList = extractUserByFields(previousRecord.getFields(), chainPositionCount);
+        List<OcJoinUser> currentUserList = extractUserByFields(currentFields, chainPositionCount);
 
         // 3. 合并参与人列表
-        List<ParticipantDetails> allParticipants = new ArrayList<>();
-        allParticipants.addAll(previousParticipants);
-        allParticipants.addAll(currentParticipants);
+        List<OcJoinUser> allUserList = new ArrayList<>();
+        allUserList.addAll(prevUserList);
+        allUserList.addAll(currentUserList);
 
-        // 4. 从当前 OC 记录中获取合并后的用户ID和奖金列表
-        String[] combinedUserIds = StringUtils.split(LarkSuiteUtils.getTextFieldValue(currentFields, FIELD_USER_IDS_STRING), ",");
-        String[] combinedBonuses = StringUtils.split(LarkSuiteUtils.getTextFieldValue(currentFields, FIELD_BONUS_STRING), ",");
+        // 4. 从当前OC记录中获取合并后的用户ID和奖金列表
+        String[] userIds = LarkSuiteUtils.getTextFieldValue(currentFields, FIELD_USER_IDS_STRING).split(",");
+        String[] benefits = LarkSuiteUtils.getTextFieldValue(currentFields, FIELD_BONUS_STRING).split(",");
 
-        if (ArrayUtils.isEmpty(combinedUserIds) || allParticipants.size() != combinedUserIds.length) {
+        if (ArrayUtils.isEmpty(userIds) || allUserList.size() != userIds.length) {
             return List.of();
         }
 
-        // 5. 创建 DO 列表，将奖金逐一分配给合并后的参与人列表
-        List<TornFactionOcBenefitDO> benefits = new ArrayList<>();
-        for (int i = 0; i < allParticipants.size(); i++) {
-            ParticipantDetails details = allParticipants.get(i);
-
+        // 5. 创建DO列表，将奖金逐一分配给合并后的参与人列表
+        List<TornFactionOcBenefitDO> benefitList = new ArrayList<>();
+        for (int i = 0; i < allUserList.size(); i++) {
+            OcJoinUser details = allUserList.get(i);
             // 创建基础DO，使用当前OC（后置OC）的信息作为记录主体
-            TornFactionOcBenefitDO benefitDO = createBaseDO(currentFields);
-            benefitDO.setUserId(details.userId());
-            benefitDO.setUserPosition(details.position());
-            benefitDO.setUserPassRate((int) (details.chance() * 100));
-            benefitDO.setBenefitMoney(Long.parseLong(combinedBonuses[i].trim()));
-            benefits.add(benefitDO);
+            TornFactionOcBenefitDO benefit = createBaseDO(currentFields);
+            if (i < prevUserList.size()) {
+                benefit.setOcId(((Number) previousRecord.getFields().get(FIELD_OC_ID)).longValue());
+                benefit.setOcName(previousRecord.getFields().get(FIELD_OC_NAME).toString());
+            }
+
+            benefit.setUserId(details.userId());
+            benefit.setUserPosition(details.position());
+            benefit.setUserPassRate((int) (details.chance() * 100));
+            benefit.setBenefitMoney(Long.parseLong(benefits[i].trim()));
+            benefitList.add(benefit);
         }
-        return benefits;
+        return benefitList;
     }
 
     /**
@@ -220,38 +232,40 @@ public class TornFactionOcBenefitService {
      */
     private List<TornFactionOcBenefitDO> handleStandardOc(Map<String, Object> fields) {
         // 对于标准OC，每次都使用一个新的岗位计数器
-        List<ParticipantDetails> participants = extractParticipantsFromFields(fields, new HashMap<>());
-        if (participants.isEmpty()) {
-            return Collections.emptyList();
+        List<OcJoinUser> userList = extractUserByFields(fields, new HashMap<>());
+        if (userList.isEmpty()) {
+            return List.of();
         }
 
         // 构建 UserId -> Bonus 的映射，以便快速查找
-        String[] userIds = StringUtils.split(LarkSuiteUtils.getTextFieldValue(fields, FIELD_USER_IDS_STRING), ",");
-        String[] bonuses = StringUtils.split(LarkSuiteUtils.getTextFieldValue(fields, FIELD_BONUS_STRING), ",");
-        Map<Long, Long> benefitMap = new HashMap<>();
-        if (ArrayUtils.isNotEmpty(userIds) && userIds.length == bonuses.length) {
-            IntStream.range(0, userIds.length).forEach(i ->
-                    benefitMap.put(Long.parseLong(userIds[i].trim()), Long.parseLong(bonuses[i].trim())));
+        String[] userIds = LarkSuiteUtils.getTextFieldValue(fields, FIELD_USER_IDS_STRING).split(",");
+        String[] benefits = LarkSuiteUtils.getTextFieldValue(fields, FIELD_BONUS_STRING).split(",");
+        if (benefits.length < 2) {
+            return List.of();
         }
 
-        List<TornFactionOcBenefitDO> benefits = new ArrayList<>();
-        for (ParticipantDetails details : participants) {
+        Map<Long, Long> benefitMap = new HashMap<>();
+        IntStream.range(0, userIds.length).forEach(i ->
+                benefitMap.put(Long.parseLong(userIds[i].trim()), Long.parseLong(benefits[i].trim())));
+
+        List<TornFactionOcBenefitDO> benefitList = new ArrayList<>();
+        for (OcJoinUser details : userList) {
             TornFactionOcBenefitDO benefitDO = createBaseDO(fields);
             benefitDO.setUserId(details.userId());
             benefitDO.setUserPosition(details.position());
             benefitDO.setUserPassRate((int) (details.chance() * 100));
             // 从Map中查找该用户的奖金，找不到则默认为0
             benefitDO.setBenefitMoney(benefitMap.getOrDefault(details.userId(), 0L));
-            benefits.add(benefitDO);
+            benefitList.add(benefitDO);
         }
-        return benefits;
+        return benefitList;
     }
 
     /**
-     * 从一条记录的 fields 中，按slot顺序提取所有参与人的信息
+     * 从一条记录的fields中，按slot顺序提取所有参与人的信息
      */
-    private List<ParticipantDetails> extractParticipantsFromFields(Map<String, Object> fields, Map<String, Integer> positionCounts) {
-        List<ParticipantDetails> participants = new ArrayList<>();
+    private List<OcJoinUser> extractUserByFields(Map<String, Object> fields, Map<String, Integer> positionCounts) {
+        List<OcJoinUser> participants = new ArrayList<>();
         for (int i = 1; i <= 6; i++) {
             Number userIdNum = (Number) fields.get(PREFIX_SLOT + i + "_user_id");
             String originalPosition = LarkSuiteUtils.getTextFieldValue(fields, PREFIX_SLOT + i + "_position");
@@ -268,7 +282,7 @@ public class TornFactionOcBenefitService {
             Number chanceNum = (Number) fields.get(PREFIX_SLOT + i + "_chance");
             double chance = (chanceNum != null) ? chanceNum.doubleValue() : 0.0;
 
-            participants.add(new ParticipantDetails(userIdNum.longValue(), formattedPosition, chance));
+            participants.add(new OcJoinUser(userIdNum.longValue(), formattedPosition, chance));
         }
         return participants;
     }
@@ -278,14 +292,9 @@ public class TornFactionOcBenefitService {
      */
     private TornFactionOcBenefitDO createBaseDO(Map<String, Object> fields) {
         TornFactionOcBenefitDO benefit = new TornFactionOcBenefitDO();
-        benefit.setFactionId(TornConstants.FACTION_PN_ID);
-
-        Number ocId = (Number) fields.get(FIELD_OC_ID);
-        if (ocId != null) {
-            benefit.setOcId(ocId.longValue());
-        }
-
-        benefit.setOcName(Objects.toString(fields.get(FIELD_OC_NAME), ""));
+        benefit.setFactionId(factionMap.get(fields.get("帮派").toString()).getId());
+        benefit.setOcId(((Number) fields.get(FIELD_OC_ID)).longValue());
+        benefit.setOcName(fields.get(FIELD_OC_NAME).toString());
         benefit.setOcStatus(LarkSuiteUtils.getTextFieldValue(fields, FIELD_OC_STATUS));
 
         Number finishTimeNum = (Number) fields.get(FIELD_FINISH_TIME);
@@ -306,7 +315,9 @@ public class TornFactionOcBenefitService {
             SearchAppTableRecordReq req = SearchAppTableRecordReq.newBuilder()
                     .appToken(bitTable.getAppToken())
                     .tableId(bitTable.getTableId())
-                    .searchAppTableRecordReqBody(SearchAppTableRecordReqBody.newBuilder().filter(FilterInfo.newBuilder()
+                    .searchAppTableRecordReqBody(SearchAppTableRecordReqBody.newBuilder()
+                            .viewId(bitTable.getViewId())
+                            .filter(FilterInfo.newBuilder()
                                     .conjunction("and")
                                     .conditions(new Condition[]{Condition.newBuilder()
                                             .fieldName(FIELD_OC_ID)
@@ -331,9 +342,9 @@ public class TornFactionOcBenefitService {
     private void addScheduleTask(LocalDateTime to) {
         taskService.updateTask("oc-benefit-reload",
                 () -> spiderOcBenefit(to.plusSeconds(1), to.plusDays(1)),
-                to.plusDays(1).plusSeconds(1).plusMinutes(5L));
+                to.plusDays(1).plusSeconds(1).plusMinutes(12L));
     }
 
-    private record ParticipantDetails(long userId, String position, double chance) {
+    private record OcJoinUser(long userId, String position, double chance) {
     }
 }
