@@ -34,6 +34,10 @@ public class TornConstants {
      * OC轮转级别
      */
     public static final List<Integer> ROTATION_OC_RANK = new ArrayList<>();
+    /**
+     * 飞书多维表 - OC收益
+     */
+    public static final String BIT_TABLE_OC_BENEFIT = "oc_benefit";
 
     static {
         ROTATION_OC_RANK.add(7);
@@ -49,6 +53,10 @@ public class TornConstants {
      * 配置Key - OC成功率读取时间
      */
     public static final String SETTING_KEY_OC_PASS_RATE_LOAD = "OC_PASS_RATE_LOAD_DATE";
+    /**
+     * 配置Key - OC收益读取时间
+     */
+    public static final String SETTING_KEY_OC_BENEFIT_LOAD = "OC_BENEFIT_LOAD_TIME";
     /**
      * 配置Key - OC读取时间
      */

@@ -21,6 +21,7 @@
         <loki.version>2.0.0</loki.version>
         <mybais.version>3.0.3</mybais.version>
         <mp.version>3.5.12</mp.version>
+        <feishu.version>2.4.23</feishu.version>
     </properties>
 
     <dependencies>
@@ -99,6 +100,13 @@
                     <artifactId>mybatis-spring</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <!-- 飞书SDK -->
+        <dependency>
+            <groupId>com.larksuite.oapi</groupId>
+            <artifactId>oapi-sdk</artifactId>
+            <version>${feishu.version}</version>
         </dependency>
     </dependencies>
 

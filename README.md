@@ -64,3 +64,7 @@ docker compose up -d golden-eye
 > 请求Torn Api失败
 
 - 请确认是否在`torn_api_key`表中插入了可用的api key数据，多条数据时会根据当天最少的次数按序请求
+
+> 请求飞书 Api失败
+
+- 请确认是否配置了飞书的环境变量，IDEA启动时需要在项目配置中设置，镜像启动时需要替换`.env`文件中的变量

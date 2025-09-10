@@ -58,7 +58,8 @@ public class TableImageUtils {
         private Color textColor = Color.BLACK;
         private Color bgColor;
         private TextAlignment alignment = TextAlignment.CENTER;
-        private int padding = 10;
+        private int horizontalPadding = 10;
+        private int verticalPadding = 10;
         private int lineSpacing = 20;
 
         public CellStyle setFont(Font font) {
@@ -82,7 +83,18 @@ public class TableImageUtils {
         }
 
         public CellStyle setPadding(int padding) {
-            this.padding = padding;
+            this.horizontalPadding = padding;
+            this.verticalPadding = padding;
+            return this;
+        }
+
+        public CellStyle setHorizontalPadding(int padding) {
+            this.horizontalPadding = padding;
+            return this;
+        }
+
+        public CellStyle setVerticalPadding(int padding) {
+            this.verticalPadding = padding;
             return this;
         }
 
@@ -203,7 +215,7 @@ public class TableImageUtils {
                 int lineCount = countLines(text);
                 int lineHeight = metrics.getHeight();
                 int lineSpacing = (style != null) ? style.lineSpacing : 4;
-                int padding = (style != null) ? style.padding : 10;
+                int padding = (style != null) ? style.verticalPadding : 10;
 
                 // 计算多行文本高度（包括行间距）
                 int textHeight = lineHeight * lineCount + lineSpacing * (lineCount - 1);
@@ -225,11 +237,10 @@ public class TableImageUtils {
                     // 更新所有跨越行的最小高度
                     for (int i = 0; i < rowSpan; i++) {
                         int rowIndex = r + i;
-                        if (rowIndex < rows) {
-                            if (minHeightPerRow > minRowHeights[rowIndex]) {
+                        if (rowIndex < rows && minHeightPerRow > minRowHeights[rowIndex]) {
                                 minRowHeights[rowIndex] = minHeightPerRow;
                             }
-                        }
+
                     }
                 }
             }
@@ -253,7 +264,7 @@ public class TableImageUtils {
 
                 CellStyle style = getCellStyle(config, r, c);
                 Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
-                int padding = (style != null) ? style.padding : 10;
+                int padding = (style != null) ? style.horizontalPadding : 10;
 
                 // 获取实际字体尺寸
                 tempG = tempImage.createGraphics();
@@ -411,7 +422,8 @@ public class TableImageUtils {
 
         Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
         Color textColor = (style != null) ? style.textColor : Color.BLACK;
-        int padding = (style != null) ? style.padding : 10;
+        int horizontalPadding = (style != null) ? style.horizontalPadding : 10;
+        int verticalPadding = (style != null) ? style.verticalPadding : 10;
         int lineSpacing = (style != null) ? style.lineSpacing : 20;
         TextAlignment alignment = (style != null) ? style.alignment : TextAlignment.CENTER;
 
@@ -420,7 +432,7 @@ public class TableImageUtils {
         FontMetrics metrics = g.getFontMetrics();
 
         // 计算可用宽度
-        int maxWidth = cellWidth - 2 * padding;
+        int maxWidth = cellWidth - 2 * horizontalPadding;
 
         // 分割文本行
         String[] lines = text.split("\n");
@@ -430,12 +442,12 @@ public class TableImageUtils {
         int totalTextHeight = lines.length * lineHeight + (lines.length - 1) * lineSpacing;
 
         // 垂直居中计算（考虑padding）
-        int startY = cellY + padding + (cellHeight - 2 * padding - totalTextHeight) / 2 + metrics.getAscent();
+        int startY = cellY + verticalPadding  + (cellHeight - 2 * verticalPadding  - totalTextHeight) / 2 + metrics.getAscent();
 
         // 绘制每一行
         for (String line : lines) {
             int textWidth = metrics.stringWidth(line);
-            int x = cellX + padding;
+            int x = cellX + horizontalPadding;
 
             // 处理文本过长
             if (textWidth > maxWidth) {
@@ -448,10 +460,10 @@ public class TableImageUtils {
                     x = cellX + (cellWidth - textWidth) / 2;
                     break;
                 case RIGHT:
-                    x = cellX + cellWidth - textWidth - padding;
+                    x = cellX + cellWidth - textWidth - horizontalPadding;
                     break;
                 case DISPERSED:
-                    drawDispersedText(g, line, cellX + padding, startY, maxWidth, metrics);
+                    drawDispersedText(g, line, cellX + horizontalPadding, startY, maxWidth, metrics);
                     break;
                 default:
             }

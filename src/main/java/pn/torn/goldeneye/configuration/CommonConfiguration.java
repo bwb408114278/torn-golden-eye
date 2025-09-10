@@ -6,7 +6,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.base.bot.Bot;
+import pn.torn.goldeneye.base.larksuite.LarkSuiteApi;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 
 /**
  * 通用配置类
@@ -25,6 +28,8 @@ public class CommonConfiguration {
     @Value("${bot.server.token}")
     private String serverToken;
     private final TornApiKeyConfig apiKeyConfig;
+    private final ProjectProperty projectProperty;
+    private final LarkSuiteProperty larkSuiteProperty;
 
     @Bean
     public Bot buildHttpBot() {
@@ -35,6 +40,9 @@ public class CommonConfiguration {
     public TornApi buildTornApi() {
         return new TornApiImpl(this.apiKeyConfig);
     }
+
+    @Bean
+    public LarkSuiteApi buildLarkSuiteApi(){return new LarkSuiteApiImpl(projectProperty, larkSuiteProperty);}
 
     @Bean
     public ThreadPoolTaskExecutor virtualThreadExecutor() {
