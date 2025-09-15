@@ -293,6 +293,7 @@ public class TornFactionOcBenefitService {
         benefit.setFactionId(factionMap.get(fields.get("帮派").toString()).getId());
         benefit.setOcId(((Number) fields.get(FIELD_OC_ID)).longValue());
         benefit.setOcName(fields.get(FIELD_OC_NAME).toString());
+        benefit.setOcRank(((Number) fields.get("难度等级")).intValue());
         benefit.setOcStatus(LarkSuiteUtils.getTextFieldValue(fields, FIELD_OC_STATUS));
 
         Number finishTimeNum = (Number) fields.get(FIELD_FINISH_TIME);

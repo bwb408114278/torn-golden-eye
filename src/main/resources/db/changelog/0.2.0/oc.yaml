@@ -101,3 +101,18 @@ databaseChangeLog:
           tableName: torn_faction_oc_benefit
           columnNames: oc_id, user_id
           constraintName: uk_benefit_oc_user
+
+  - changeSet:
+      id: add_oc_benefit_oc_rank
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_benefit
+            columns:
+              - column:
+                  name: oc_rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "OC等级"
