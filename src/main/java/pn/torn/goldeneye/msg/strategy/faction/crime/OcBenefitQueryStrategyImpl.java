@@ -8,10 +8,8 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingOcDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
@@ -22,7 +20,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * OC收益查询实现类
@@ -36,7 +33,6 @@ import java.util.Map;
 public class OcBenefitQueryStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcBenefitDAO benefitDao;
     private final TornUserDAO userDao;
-    private final TornSettingOcDAO settingOcDao;
 
     @Override
     public String getCommand() {
@@ -80,7 +76,6 @@ public class OcBenefitQueryStrategyImpl extends PnMsgStrategy {
      */
     private String buildDetailMsg(long userId, List<TornFactionOcBenefitDO> benefitList) {
         TornUserDO user = userDao.getById(userId);
-        Map<String, TornSettingOcDO> ocMap = settingOcDao.getNameMap();
 
         DecimalFormat formatter = new DecimalFormat("#,###");
         List<List<String>> tableData = new ArrayList<>();
@@ -103,13 +98,22 @@ public class OcBenefitQueryStrategyImpl extends PnMsgStrategy {
             TornFactionOcBenefitDO benefit = benefitList.get(i);
             tableData.add(List.of(
                     benefit.getOcName(),
-                    ocMap.get(benefit.getOcName()).getRank().toString(),
+                    benefit.getOcRank().toString(),
                     benefit.getOcStatus(),
                     DateTimeUtils.convertToString(benefit.getOcFinishTime()),
                     benefit.getUserPosition(),
                     benefit.getUserPassRate().toString(),
                     formatter.format(benefit.getBenefitMoney())));
         }
+
+        Long total = benefitList.stream().map(TornFactionOcBenefitDO::getBenefitMoney).reduce(0L, Long::sum);
+        tableData.add(List.of(LocalDate.now().getMonthValue() + "月OC收益总计:  " + formatter.format(total),
+                "", "", "", "", "", ""));
+        int row = benefitList.size() + 2;
+        tableConfig.addMerge(row, 0, 1, 7)
+                .setCellStyle(row, 0, new TableImageUtils.CellStyle()
+                        .setFont(new Font("微软雅黑", Font.BOLD, 14))
+                        .setAlignment(TableImageUtils.TextAlignment.RIGHT));
 
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }

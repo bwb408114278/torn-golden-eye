@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.faction.oc.notice;
 
 import jakarta.annotation.Resource;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -30,8 +31,8 @@ public abstract class BaseTornFactionOcNoticeService {
      * 获取招募中列表
      */
     protected List<TornFactionOcDO> findRecList(TornFactionOcNoticeBO param) {
-        String excludePlanKey = TornConstants.SETTING_KEY_OC_PLAN_ID + param.excludeRank();
-        String excludeRecKey = TornConstants.SETTING_KEY_OC_REC_ID + param.excludeRank();
+        String excludePlanKey = SettingConstants.SETTING_KEY_OC_PLAN_ID + param.excludeRank();
+        String excludeRecKey = SettingConstants.SETTING_KEY_OC_REC_ID + param.excludeRank();
         return ocManager.queryRotationRecruitList(param.planId(), TornConstants.FACTION_PN_ID,
                 excludePlanKey, excludeRecKey, param.enableRank());
     }

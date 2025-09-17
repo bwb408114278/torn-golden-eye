@@ -35,6 +35,10 @@ public class TornFactionOcBenefitDO extends BaseDO {
      */
     private String ocName;
     /**
+     * OC等级
+     */
+    private Integer ocRank;
+    /**
      * OC状态
      */
     private String ocStatus;

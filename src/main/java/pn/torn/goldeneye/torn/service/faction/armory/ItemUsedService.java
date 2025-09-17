@@ -11,6 +11,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
@@ -55,7 +56,7 @@ public class ItemUsedService {
             return;
         }
 
-        String value = settingDao.querySettingValue(TornConstants.SETTING_KEY_ITEM_USE_LOAD);
+        String value = settingDao.querySettingValue(SettingConstants.SETTING_KEY_ITEM_USE_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
@@ -103,7 +104,7 @@ public class ItemUsedService {
             }
         }
 
-        settingDao.updateSetting(TornConstants.SETTING_KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+        settingDao.updateSetting(SettingConstants.SETTING_KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
     }
 

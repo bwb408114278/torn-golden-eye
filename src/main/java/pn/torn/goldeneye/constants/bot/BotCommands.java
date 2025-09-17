@@ -52,12 +52,6 @@ public class BotCommands {
 
     // ====================帮派成员相关====================
     /**
-     * 同步成员
-     */
-    public static final String MATCH_MEMBER = "同步成员";
-
-    // ====================帮派成员相关====================
-    /**
      * 帮派物品记录
      */
     public static final String ITEM_USED = "帮派物品记录";
@@ -71,6 +65,10 @@ public class BotCommands {
      * 当前任务
      */
     public static final String CURRENT_TASK = "当前任务";
+    /**
+     * 当前任务
+     */
+    public static final String REFRESH_CACHE = "刷新缓存";
     /**
      * 手册
      */
