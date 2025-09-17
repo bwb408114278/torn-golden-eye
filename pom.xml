@@ -68,6 +68,18 @@
             <artifactId>liquibase-core</artifactId>
         </dependency>
 
+        <!-- Spring缓存管理 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
+        <!-- Caffeine缓存 -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- Web Socket -->
         <dependency>
             <groupId>org.glassfish.tyrus.bundles</groupId>

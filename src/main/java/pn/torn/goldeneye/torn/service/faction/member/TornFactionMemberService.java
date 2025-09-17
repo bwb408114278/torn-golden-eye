@@ -10,6 +10,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
@@ -51,7 +52,7 @@ public class TornFactionMemberService {
             return;
         }
 
-        String value = settingDao.querySettingValue(TornConstants.SETTING_KEY_FACTION_MEMBER_LOAD);
+        String value = settingDao.querySettingValue(SettingConstants.SETTING_KEY_FACTION_MEMBER_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
@@ -95,7 +96,7 @@ public class TornFactionMemberService {
         }
         removeFactionMember(allUserIdList);
 
-        settingDao.updateSetting(TornConstants.SETTING_KEY_FACTION_MEMBER_LOAD,
+        settingDao.updateSetting(SettingConstants.SETTING_KEY_FACTION_MEMBER_LOAD,
                 DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
     }

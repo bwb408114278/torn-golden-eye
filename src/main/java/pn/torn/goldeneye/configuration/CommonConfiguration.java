@@ -8,8 +8,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.larksuite.LarkSuiteApi;
 import pn.torn.goldeneye.base.torn.TornApi;
-import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 
 /**
  * 通用配置类
@@ -42,7 +42,9 @@ public class CommonConfiguration {
     }
 
     @Bean
-    public LarkSuiteApi buildLarkSuiteApi(){return new LarkSuiteApiImpl(projectProperty, larkSuiteProperty);}
+    public LarkSuiteApi buildLarkSuiteApi() {
+        return new LarkSuiteApiImpl(projectProperty, larkSuiteProperty);
+    }
 
     @Bean
     public ThreadPoolTaskExecutor virtualThreadExecutor() {

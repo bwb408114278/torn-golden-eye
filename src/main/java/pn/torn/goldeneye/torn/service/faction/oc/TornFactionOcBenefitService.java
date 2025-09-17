@@ -15,6 +15,7 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteBitTableProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
@@ -68,7 +69,7 @@ public class TornFactionOcBenefitService {
             return;
         }
 
-        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_BENEFIT_LOAD);
+        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_BENEFIT_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDateTime(lastRefreshTime);
         LocalDateTime to = LocalDateTime.now();
         if (from.plusHours(1).isBefore(LocalDateTime.now())) {
@@ -117,7 +118,7 @@ public class TornFactionOcBenefitService {
 
         } while (hasMore);
 
-        settingDao.updateSetting(TornConstants.SETTING_KEY_OC_BENEFIT_LOAD, DateTimeUtils.convertToString(to));
+        settingDao.updateSetting(SettingConstants.SETTING_KEY_OC_BENEFIT_LOAD, DateTimeUtils.convertToString(to));
         addScheduleTask(to);
     }
 

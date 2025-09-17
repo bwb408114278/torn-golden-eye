@@ -5,10 +5,6 @@ import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.setting.TornSettingOcMapper;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 /**
  * Torn设置OC持久层类
  *
@@ -18,15 +14,4 @@ import java.util.Map;
  */
 @Repository
 public class TornSettingOcDAO extends ServiceImpl<TornSettingOcMapper, TornSettingOcDO> {
-    /**
-     * 获取OC名称Map
-     *
-     * @return Key为OC名称
-     */
-    public Map<String, TornSettingOcDO> getNameMap() {
-        List<TornSettingOcDO> list = list();
-        Map<String, TornSettingOcDO> resultMap = new HashMap<>();
-        list.forEach(o -> resultMap.put(o.getOcName(), o));
-        return resultMap;
-    }
 }

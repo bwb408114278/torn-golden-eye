@@ -9,8 +9,6 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingOcDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
@@ -18,6 +16,8 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
@@ -40,8 +40,8 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
     private final TornApiKeyDAO keyDao;
     private final TornUserDAO userDao;
     private final TornFactionOcUserDAO ocUserDao;
-    private final TornSettingOcDAO settingOcDao;
-    private final TornSettingOcSlotDAO settingOcSlotDao;
+    private final TornSettingOcManager settingOcManager;
+    private final TornSettingOcSlotManager settingOcSlotManager;
     private static final TableImageUtils.CellStyle TITLE_STYLE =
             new TableImageUtils.CellStyle().setBgColor(new Color(242, 242, 242))
                     .setFont(new Font("微软雅黑", Font.BOLD, 16));
@@ -97,10 +97,11 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
      * 构建成功率消息
      */
     private String buildPassRateMsg(TornUserDO user, List<TornFactionOcUserDO> ocUserList) {
-        List<TornSettingOcDO> ocList = settingOcDao.lambdaQuery()
-                .orderByDesc(TornSettingOcDO::getRank)
-                .orderByAsc(TornSettingOcDO::getOcName).list();
-        List<TornSettingOcSlotDO> allSlotList = settingOcSlotDao.list();
+        List<TornSettingOcDO> ocList = settingOcManager.getList();
+        ocList.sort(Comparator
+                .comparing(TornSettingOcDO::getRank, Comparator.reverseOrder())
+                .thenComparing(TornSettingOcDO::getOcName));
+        List<TornSettingOcSlotDO> allSlotList = settingOcSlotManager.getList();
 
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();

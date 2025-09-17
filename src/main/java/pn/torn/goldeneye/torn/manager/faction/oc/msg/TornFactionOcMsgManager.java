@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
@@ -121,7 +122,7 @@ public class TornFactionOcMsgManager {
 
         TableDataBO table = msgTableManager.buildOcTable(title, ocMap);
 
-        String lastRefreshTime = settingDao.querySettingValue(TornConstants.SETTING_KEY_OC_LOAD);
+        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
                 "", "", "", "", ""));
 
