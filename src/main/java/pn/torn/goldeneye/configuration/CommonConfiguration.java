@@ -10,6 +10,7 @@ import pn.torn.goldeneye.base.larksuite.LarkSuiteApi;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 
 /**
  * 通用配置类
@@ -28,12 +29,13 @@ public class CommonConfiguration {
     @Value("${bot.server.token}")
     private String serverToken;
     private final TornApiKeyConfig apiKeyConfig;
+    private final SysSettingManager settingManager;
     private final ProjectProperty projectProperty;
     private final LarkSuiteProperty larkSuiteProperty;
 
     @Bean
     public Bot buildHttpBot() {
-        return new BotImpl(serverAddr, serverHttpPort, serverToken);
+        return new BotImpl(serverAddr, serverHttpPort, serverToken, settingManager);
     }
 
     @Bean

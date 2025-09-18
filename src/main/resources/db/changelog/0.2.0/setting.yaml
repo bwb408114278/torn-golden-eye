@@ -195,3 +195,32 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2025-09-09'
+
+  - changeSet:
+      id: add_admin_setting
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '15'
+              - column:
+                  name: setting_key
+                  value: 'SYS_ADMIN'
+              - column:
+                  name: setting_value
+                  value: '408114278,2722896589,2246839'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '16'
+              - column:
+                  name: setting_key
+                  value: 'IS_BLOCK_CHAT'
+              - column:
+                  name: setting_value
+                  value: 'false'

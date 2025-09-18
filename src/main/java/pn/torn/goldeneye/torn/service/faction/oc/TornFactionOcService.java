@@ -60,7 +60,7 @@ public class TornFactionOcService {
             return;
         }
 
-        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_LOAD);
+        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         if (last.plusHours(1).isBefore(LocalDateTime.now())) {
             virtualThreadExecutor.execute(this::refreshOc);
@@ -76,7 +76,7 @@ public class TornFactionOcService {
      */
     public void scheduleOcTask(LocalDateTime last) {
         taskService.updateTask("oc-reload", this::refreshOc, last.plusHours(1));
-        settingDao.updateSetting(SettingConstants.SETTING_KEY_OC_LOAD, DateTimeUtils.convertToString(last));
+        settingDao.updateSetting(SettingConstants.KEY_OC_LOAD, DateTimeUtils.convertToString(last));
     }
 
     /**
@@ -84,7 +84,7 @@ public class TornFactionOcService {
      */
     public void scheduleRotationTask() {
         for (int rank = 7; rank < 9; rank++) {
-            long planId = Long.parseLong(settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_PLAN_ID + rank));
+            long planId = Long.parseLong(settingDao.querySettingValue(SettingConstants.KEY_OC_PLAN_ID + rank));
             TornFactionOcDO oc = ocDao.getById(planId);
 
             String taskId = "oc-valid-" + rank;
@@ -131,7 +131,7 @@ public class TornFactionOcService {
      */
     private TornFactionOcNoticeBO buildNoticeParam(long planId, int rank, String taskId) {
         int excludeRank = rank == 7 ? 8 : 7;
-        String enableRanks = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_ENABLE_RANK + rank);
+        String enableRanks = settingDao.querySettingValue(SettingConstants.KEY_OC_ENABLE_RANK + rank);
         String[] enableRankStrArray = enableRanks.split(",");
         int[] enableRankArray = new int[enableRankStrArray.length];
         for (int i = 0; i < enableRankStrArray.length; i++) {

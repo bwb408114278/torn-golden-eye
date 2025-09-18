@@ -56,7 +56,7 @@ public class ItemUsedService {
             return;
         }
 
-        String value = settingDao.querySettingValue(SettingConstants.SETTING_KEY_ITEM_USE_LOAD);
+        String value = settingDao.querySettingValue(SettingConstants.KEY_ITEM_USE_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
@@ -104,7 +104,7 @@ public class ItemUsedService {
             }
         }
 
-        settingDao.updateSetting(SettingConstants.SETTING_KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+        settingDao.updateSetting(SettingConstants.KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
     }
 

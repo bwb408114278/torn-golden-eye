@@ -7,7 +7,6 @@ import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
 import pn.torn.goldeneye.msg.send.GroupMemberReqParam;
@@ -21,7 +20,6 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
-import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
@@ -122,7 +120,7 @@ public class TornFactionOcMsgManager {
 
         TableDataBO table = msgTableManager.buildOcTable(title, ocMap);
 
-        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_LOAD);
+        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
                 "", "", "", "", ""));
 

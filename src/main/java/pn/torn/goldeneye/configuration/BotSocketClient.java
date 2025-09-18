@@ -21,6 +21,7 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.io.IOException;
@@ -74,6 +75,8 @@ public class BotSocketClient {
     private List<BasePrivateMsgStrategy> privateMsgStrategyList;
     @Resource
     private ProjectProperty projectProperty;
+    @Resource
+    private SysSettingManager settingManager;
 
     @PostConstruct
     public void init() {
@@ -129,6 +132,8 @@ public class BotSocketClient {
     public void sendMessage(BotSocketReqParam param) {
         if (!isConnected.get() || session == null) {
             log.error("发送失败: 连接未就绪");
+            return;
+        } else if (settingManager.getIsBlockChat()) {
             return;
         }
 
@@ -289,7 +294,7 @@ public class BotSocketClient {
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
             if (projectProperty.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
                 GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
-                if (strategy.isNeedAdmin() && !projectProperty.getAdminId().contains(msg.getUserId())) {
+                if (strategy.isNeedAdmin() && !settingManager.getSysAdmin().contains(msg.getUserId())) {
                     builder.addMsg(new TextQqMsg("没有对应的权限"));
                 } else {
                     List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),

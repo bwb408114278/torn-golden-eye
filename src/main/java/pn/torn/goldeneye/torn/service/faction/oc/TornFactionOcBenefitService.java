@@ -69,7 +69,7 @@ public class TornFactionOcBenefitService {
             return;
         }
 
-        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_BENEFIT_LOAD);
+        String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_BENEFIT_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDateTime(lastRefreshTime);
         LocalDateTime to = LocalDateTime.now();
         if (from.plusHours(1).isBefore(LocalDateTime.now())) {
@@ -118,7 +118,7 @@ public class TornFactionOcBenefitService {
 
         } while (hasMore);
 
-        settingDao.updateSetting(SettingConstants.SETTING_KEY_OC_BENEFIT_LOAD, DateTimeUtils.convertToString(to));
+        settingDao.updateSetting(SettingConstants.KEY_OC_BENEFIT_LOAD, DateTimeUtils.convertToString(to));
         addScheduleTask(to);
     }
 

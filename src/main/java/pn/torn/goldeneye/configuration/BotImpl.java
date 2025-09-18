@@ -6,6 +6,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+
+import java.util.Optional;
 
 /**
  * 机器人类
@@ -20,18 +23,27 @@ class BotImpl implements Bot {
      * Web请求
      */
     private final RestClient restClient;
+    /**
+     * 系统设置
+     */
+    private final SysSettingManager settingManager;
 
-    public BotImpl(String serverAddr, String serverPort, String serverToken) {
+    public BotImpl(String serverAddr, String serverPort, String serverToken, SysSettingManager settingManager) {
         this.restClient = RestClient.builder()
                 .baseUrl("http://" + serverAddr + ":" + serverPort)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, serverToken)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
+        this.settingManager = settingManager;
     }
 
     @Override
     public <T> ResponseEntity<T> sendRequest(BotHttpReqParam param, Class<T> responseType) {
+        if (settingManager.getIsBlockChat()) {
+            return ResponseEntity.of(Optional.empty());
+        }
+
         try {
             RestClient.RequestBodySpec request = this.restClient
                     .method(param.method())

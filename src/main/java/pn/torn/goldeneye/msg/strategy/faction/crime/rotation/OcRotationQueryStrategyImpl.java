@@ -50,13 +50,13 @@ public class OcRotationQueryStrategyImpl extends PnMsgStrategy {
             return super.buildTextMsg("只支持7/8级轮转队查询");
         }
 
-        String planId = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_PLAN_ID + rank);
+        String planId = settingDao.querySettingValue(SettingConstants.KEY_OC_PLAN_ID + rank);
         TornFactionOcDO planOc = ocDao.getById(Long.parseLong(planId));
 
-        String blockRank = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_BLOCK_RANK + rank);
+        String blockRank = settingDao.querySettingValue(SettingConstants.KEY_OC_BLOCK_RANK + rank);
         Integer newTeamRank = TornConstants.ROTATION_OC_RANK.stream().filter(r -> !r.equals(Integer.parseInt(blockRank))).findAny().orElse(null);
 
-        String enableRank = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_ENABLE_RANK + rank);
+        String enableRank = settingDao.querySettingValue(SettingConstants.KEY_OC_ENABLE_RANK + rank);
 
         return super.buildTextMsg(rank + "级轮转队信息如下: " +
                 "\n可加入时间: " + DateTimeUtils.convertToString(planOc.getReadyTime()) +

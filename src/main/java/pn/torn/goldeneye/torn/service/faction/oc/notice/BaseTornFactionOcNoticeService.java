@@ -31,8 +31,8 @@ public abstract class BaseTornFactionOcNoticeService {
      * 获取招募中列表
      */
     protected List<TornFactionOcDO> findRecList(TornFactionOcNoticeBO param) {
-        String excludePlanKey = SettingConstants.SETTING_KEY_OC_PLAN_ID + param.excludeRank();
-        String excludeRecKey = SettingConstants.SETTING_KEY_OC_REC_ID + param.excludeRank();
+        String excludePlanKey = SettingConstants.KEY_OC_PLAN_ID + param.excludeRank();
+        String excludeRecKey = SettingConstants.KEY_OC_REC_ID + param.excludeRank();
         return ocManager.queryRotationRecruitList(param.planId(), TornConstants.FACTION_PN_ID,
                 excludePlanKey, excludeRecKey, param.enableRank());
     }
