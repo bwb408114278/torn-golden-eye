@@ -74,6 +74,18 @@ public class BotCommands {
      */
     public static final String DOC = "手册";
     /**
+     * 手册
+     */
+    public static final String MANAGE_DOC = "管理手册";
+    /**
+     * 停止聊天
+     */
+    public static final String BLOCK_CHAT = "停止聊天";
+    /**
+     * 开始聊天
+     */
+    public static final String CANCEL_BLOCK_CHAT = "开始聊天";
+    /**
      * 绑Key
      */
     public static final String BIND_KEY = "绑Key";

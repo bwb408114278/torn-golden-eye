@@ -13,9 +13,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class CacheConstants {
     /**
-     * 系统设置Key
+     * 系统管理员Key
      */
     public static final String KEY_SYS_SETTING = "sys:setting";
+
 
     /**
      * OC设置Key

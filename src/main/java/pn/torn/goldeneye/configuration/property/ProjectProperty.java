@@ -4,8 +4,6 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 /**
  * 项目属性
  *
@@ -25,8 +23,4 @@ public class ProjectProperty {
      * 群号
      */
     private long groupId;
-    /**
-     * 管理员ID
-     */
-    private List<Long> adminId;
 }

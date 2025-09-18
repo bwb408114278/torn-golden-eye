@@ -140,10 +140,10 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
                     throw new BizException("发送车位已满消息出错", e);
                 }
                 // 车位已满，重载任务时间
-                String planKey = SettingConstants.SETTING_KEY_OC_PLAN_ID + param.rank();
-                String excludePlanKey = SettingConstants.SETTING_KEY_OC_PLAN_ID + param.excludeRank();
-                String recKey = SettingConstants.SETTING_KEY_OC_REC_ID + param.rank();
-                String excludeRecKey = SettingConstants.SETTING_KEY_OC_REC_ID + param.excludeRank();
+                String planKey = SettingConstants.KEY_OC_PLAN_ID + param.rank();
+                String excludePlanKey = SettingConstants.KEY_OC_PLAN_ID + param.excludeRank();
+                String recKey = SettingConstants.KEY_OC_REC_ID + param.rank();
+                String excludeRecKey = SettingConstants.KEY_OC_REC_ID + param.excludeRank();
                 ocManager.refreshRotationSetting(TornConstants.FACTION_PN_ID, planKey, excludePlanKey,
                         recKey, excludeRecKey, param.enableRank());
                 param.reloadSchedule().run();
@@ -193,7 +193,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
          */
         private boolean checkNewOc(List<TornFactionOcDO> recList) {
             // 之前就有人的队伍不会进错，没有新队的时候直接返回判断
-            String hasUserStr = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_REC_ID + param.rank());
+            String hasUserStr = settingDao.querySettingValue(SettingConstants.KEY_OC_REC_ID + param.rank());
             List<Long> hasUserIdList = Arrays.stream(hasUserStr.split(",")).map(Long::parseLong).toList();
             List<TornFactionOcDO> newTeamList = recList.stream().filter(o -> !hasUserIdList.contains(o.getId())).toList();
             if (CollectionUtils.isEmpty(newTeamList)) {
@@ -202,7 +202,7 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
 
             boolean isNewOcCorrect = true;
             // 进入了不能进的级别
-            String blockRankStr = settingDao.querySettingValue(SettingConstants.SETTING_KEY_OC_BLOCK_RANK + param.rank());
+            String blockRankStr = settingDao.querySettingValue(SettingConstants.KEY_OC_BLOCK_RANK + param.rank());
             int blockRank = Integer.parseInt(blockRankStr);
             List<TornFactionOcDO> blockList = newTeamList.stream().filter(o -> o.getRank().equals(blockRank)).toList();
             if (!CollectionUtils.isEmpty(blockList)) {
