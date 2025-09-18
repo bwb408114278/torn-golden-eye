@@ -85,6 +85,10 @@ public class TornFactionOcMsgManager {
     public List<QqMsgParam<?>> buildAtMsg(Collection<Long> userIdList) {
         ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
                 new GroupMemberReqParam(projectProperty.getGroupId()), GroupMemberRec.class);
+        if (memberList.getBody() == null) {
+            return List.of();
+        }
+
         List<QqMsgParam<?>> resultList = new ArrayList<>();
 
         for (Long userId : userIdList) {
