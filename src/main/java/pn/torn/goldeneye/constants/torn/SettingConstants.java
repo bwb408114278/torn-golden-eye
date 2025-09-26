@@ -20,11 +20,19 @@ public class SettingConstants {
      * 是否屏蔽聊天
      */
     public static final String KEY_BLOCK_CHAT = "IS_BLOCK_CHAT";
+    /**
+     * 银行利率
+     */
+    public static final String KEY_BANK_RATE = "BANK_RATE";
+    /**
+     * PT价值
+     */
+    public static final String KEY_POINT_VALUE = "POINT_VALUE";
 
     /**
-     * 配置Key - 帮派成员读取时间
+     * 配置Key - 基础数据读取时间
      */
-    public static final String KEY_FACTION_MEMBER_LOAD = "FACTION_MEMBER_LOAD_DATE";
+    public static final String KEY_BASE_DATA_LOAD = "BASE_DATA_LOAD_DATE";
     /**
      * 配置Key - 物品使用记录读取时间
      */

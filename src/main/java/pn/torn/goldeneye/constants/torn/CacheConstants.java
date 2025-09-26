@@ -17,6 +17,10 @@ public class CacheConstants {
      */
     public static final String KEY_SYS_SETTING = "sys:setting";
 
+    /**
+     * 物品Key
+     */
+    public static final String KEY_TORN_ITEM = "torn:items";
 
     /**
      * OC设置Key

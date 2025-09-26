@@ -41,6 +41,17 @@ public class SysSettingManager implements DataCacheManager {
     }
 
     /**
+     * 获取配置值
+     *
+     * @param settingKey 配置Key
+     * @return 管理员QQ号列表
+     */
+    @Cacheable(value = CacheConstants.KEY_SYS_SETTING, key = "#settingKey")
+    public String getSettingValue(String settingKey) {
+        return settingDao.querySettingValue(settingKey);
+    }
+
+    /**
      * 获取系统管理员列表
      *
      * @return 管理员QQ号列表
