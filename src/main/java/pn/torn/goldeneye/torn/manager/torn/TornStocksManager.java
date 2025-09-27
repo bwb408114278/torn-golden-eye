@@ -36,16 +36,16 @@ public class TornStocksManager {
     public TornStocksDO convert2DO(TornStocksDetailVO stock) {
         TornStocksBenefitVO benefit = stock.getBenefit();
         long profit = parseBenefitValue(benefit.getDescription(), stock.getAcronym());
-        long dailyProfit = profit / benefit.getFrequency();
+        long yearProfit = profit / benefit.getFrequency() * 365;
         if (STOCK_TCI.equals(stock.getAcronym())) {
-            dailyProfit = profit / 365;
+            yearProfit = profit;
             profit = profit * 90 / 365;
         }
 
         long baseCost = stock.getCurrentPrice()
                 .multiply(BigDecimal.valueOf(stock.getBenefit().getRequirement()))
                 .longValue();
-        return stock.convert2DO(profit, dailyProfit, baseCost);
+        return stock.convert2DO(profit, yearProfit, baseCost);
     }
 
     /**
@@ -63,6 +63,8 @@ public class TornStocksManager {
         } else if ("PTS".equals(acronym)) {
             long pointValue = Long.parseLong(settingManager.getSettingValue(SettingConstants.KEY_POINT_VALUE));
             return pointValue * 100;
+        } else if ("HRG".equals(acronym)) {
+            return 50000000;
         }
 
         // 货币类型处理

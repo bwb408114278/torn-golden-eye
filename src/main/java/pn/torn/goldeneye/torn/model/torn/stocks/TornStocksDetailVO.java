@@ -63,7 +63,7 @@ public class TornStocksDetailVO {
         stocks.setBenefitReq(this.benefit.getRequirement());
         stocks.setBenefitDesc(this.benefit.getDescription());
         stocks.setProfit(profit);
-        stocks.setDailyProfit(dailyProfit);
+        stocks.setYearProfit(dailyProfit);
         stocks.setBaseCost(baseCost);
         return stocks;
     }

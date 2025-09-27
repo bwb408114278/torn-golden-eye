@@ -62,7 +62,7 @@ databaseChangeLog:
                       nullable: false
                     remarks: "利润"
                 - column:
-                    name: daily_profit
+                    name: year_profit
                     type: BIGINT
                     constraints:
                       nullable: false

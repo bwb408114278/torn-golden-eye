@@ -55,9 +55,9 @@ public class TornStocksDO extends BaseDO {
      */
     private Long profit;
     /**
-     * 日利润
+     * 年利润
      */
-    private Long dailyProfit;
+    private Long yearProfit;
     /**
      * 基础分红成本
      */
