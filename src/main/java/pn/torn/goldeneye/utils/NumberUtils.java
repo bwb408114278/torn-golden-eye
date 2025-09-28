@@ -95,4 +95,79 @@ public class NumberUtils {
             default -> number.setScale(0, RoundingMode.HALF_UP).longValueExact();
         };
     }
+
+    /**
+     * 将大数字转换为k/m/b/t格式的字符串
+     *
+     * @param number 输入数字（long类型）
+     * @return 格式化后的字符串（如1.5k, 2.34m, 3.78b, 4.56t）
+     */
+    public static String formatCompactNumber(long number) {
+        // 处理负数
+        if (number < 0) return "-" + formatCompactNumber(-number);
+
+        // 处理0
+        if (number == 0) return "0";
+
+        // 定义单位和阈值
+        final long TRILLION = 1_000_000_000_000L;
+        final long BILLION = 1_000_000_000L;
+        final long MILLION = 1_000_000L;
+        final long THOUSAND = 1_000L;
+
+        BigDecimal bigNum = BigDecimal.valueOf(number);
+
+        if (bigNum.compareTo(BigDecimal.valueOf(TRILLION)) >= 0) {
+            return formatToAbbr(bigNum, TRILLION, "t");
+        } else if (bigNum.compareTo(BigDecimal.valueOf(BILLION)) >= 0) {
+            return formatToAbbr(bigNum, BILLION, "b");
+        } else if (bigNum.compareTo(BigDecimal.valueOf(MILLION)) >= 0) {
+            return formatToAbbr(bigNum, MILLION, "m");
+        } else if (bigNum.compareTo(BigDecimal.valueOf(THOUSAND)) >= 0) {
+            return formatToAbbr(bigNum, THOUSAND, "k");
+        } else {
+            // 小于1000直接返回整数形式
+            return String.valueOf(number);
+        }
+    }
+
+    /**
+     * 格式化为带后缀缩写
+     *
+     * @param number  数字
+     * @param divisor 除数
+     * @param suffix  后缀
+     * @return 带后缀缩写
+     */
+    private static String formatToAbbr(BigDecimal number, long divisor, String suffix) {
+        // 使用BigDecimal进行精确除法运算
+        BigDecimal divided = number.divide(BigDecimal.valueOf(divisor), 4, RoundingMode.HALF_UP);
+
+        // 检查是否需要进位到更高单位
+        if (divided.compareTo(BigDecimal.valueOf(1000)) >= 0) {
+            // 递归调用自身进位到更高单位
+            return formatToAbbr(number, divisor * 1000, getNextSuffix(suffix));
+        }
+
+        // 保留两位小数并去除尾部零
+        divided = divided.setScale(2, RoundingMode.HALF_UP);
+        String result = divided.stripTrailingZeros().toPlainString();
+
+        return result + suffix;
+    }
+
+    /**
+     * 获取下一级数字后缀
+     *
+     * @param suffix 后缀
+     * @return 下一级后缀
+     */
+    private static String getNextSuffix(String suffix) {
+        return switch (suffix) {
+            case "k" -> "m";
+            case "m" -> "b";
+            case "b" -> "t";
+            default -> "t";  // t已是最高单位
+        };
+    }
 }
