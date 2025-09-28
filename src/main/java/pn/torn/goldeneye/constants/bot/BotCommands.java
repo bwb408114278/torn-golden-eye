@@ -62,9 +62,9 @@ public class BotCommands {
 
     // ====================其他功能相关====================
     /**
-     * 股票分红计算
+     * 股票分红购买
      */
-    public static final String STOCK_DIVIDEND_CALC = "股票分红计算";
+    public static final String STOCK_DIVIDEND_CALC = "股票分红购买";
 
     // ====================管理功能相关====================
     /**
