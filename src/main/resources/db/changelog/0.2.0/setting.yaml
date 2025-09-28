@@ -224,3 +224,39 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: 'false'
+
+  - changeSet:
+      id: change_member_to_base_data
+      author: Bai
+      changes:
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: BASE_DATA_LOAD_DATE
+            where: setting_key = 'FACTION_MEMBER_LOAD_DATE'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '17'
+              - column:
+                  name: setting_key
+                  value: 'BANK_RATE'
+              - column:
+                  name: setting_value
+                  value: '0'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '18'
+              - column:
+                  name: setting_key
+                  value: 'POINT_VALUE'
+              - column:
+                  name: setting_value
+                  value: '0'

@@ -17,3 +17,5 @@ databaseChangeLog:
       file: db/changelog/0.2.0/setting.yaml
   - include:
       file: db/changelog/0.2.0/oc.yaml
+  - include:
+      file: db/changelog/0.2.0/stocks.yaml

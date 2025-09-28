@@ -60,6 +60,12 @@ public class BotCommands {
      */
     public static final String SMALL_RED_BROKER = "小红毁灭者";
 
+    // ====================其他功能相关====================
+    /**
+     * 股票分红购买
+     */
+    public static final String STOCK_DIVIDEND_CALC = "股票分红购买";
+
     // ====================管理功能相关====================
     /**
      * 当前任务
