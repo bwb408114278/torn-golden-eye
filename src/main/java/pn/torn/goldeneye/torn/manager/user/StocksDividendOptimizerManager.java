@@ -66,7 +66,7 @@ public class StocksDividendOptimizerManager {
 
         targetPortfolio.stream()
                 .sorted(Comparator.comparing(InvestmentOpportunity::getUniqueId))
-                .forEach(opp -> log.debug(" - 理想: {} (BB #{}), 成本: {}, 年利润: {}, ROI: {}%",
+                .forEach(opp -> log.debug(" - 理想: {} (BB #{}), 成本: {}, 年利润: {}, ROI: {}",
                         opp.stockShortName(), opp.bbLevel(), NumberUtils.formatCompactNumber(opp.cost()),
                         NumberUtils.formatCompactNumber(opp.yearProfit()), String.format("%.2f%%", opp.roi() * 100)));
 
