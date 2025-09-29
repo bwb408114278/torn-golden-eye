@@ -237,7 +237,7 @@ public class StocksDividendOptimizerManager {
                 .filter(opp -> !ownedIds.contains(opp.getUniqueId()))
                 .map(opp -> new OptimalAction(OptimalAction.ActionType.BUY, opp.stockShortName(), opp.bbLevel(),
                         opp.cost(), opp.yearProfit(), opp.roi()))
-                .sorted(Comparator.comparingInt(OptimalAction::bbLevel).reversed()) // 优先买高ROI的
+                .sorted(Comparator.comparingInt(OptimalAction::bbLevel)) // 优先买高ROI的
                 .toList();
 
         log.info("生成 {} 条卖出建议和 {} 条买入建议。", sellActions.size(), buyActions.size());
