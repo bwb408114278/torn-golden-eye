@@ -11,8 +11,10 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.user.StocksDividendOptimizerManager;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksDTO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksVO;
@@ -35,6 +37,7 @@ public class TornStocksDividendStrategyImpl extends PnMsgStrategy {
     private final TornApi tornApi;
     private final StocksDividendOptimizerManager stocksDividendOptimizerManager;
     private final TornStocksDAO stocksDao;
+    private final TornUserDAO userDao;
 
     @Override
     public String getCommand() {
@@ -49,7 +52,7 @@ public class TornStocksDividendStrategyImpl extends PnMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         Long money = NumberUtils.convert(msg);
-        if (money == null || money < 0) {
+        if (money == null) {
             return super.sendErrorFormatMsg();
         }
 
@@ -62,11 +65,13 @@ public class TornStocksDividendStrategyImpl extends PnMsgStrategy {
         List<TornStocksDO> stocksList = stocksDao.lambdaQuery().gt(TornStocksDO::getProfit, 0).list();
         List<StocksDividendOptimizerManager.OptimalAction> result = stocksDividendOptimizerManager
                 .calculate(money, stocksList, userStocks);
+        TornUserDO user = userDao.getById(key.getUserId());
         if (CollectionUtils.isEmpty(result)) {
-            return super.buildTextMsg("当前购买策略已是最佳");
+            return super.buildTextMsg(user.getNickname() + ", 当前购买策略已是最佳");
         }
 
         List<TextQqMsg> msgList = new ArrayList<>();
+        msgList.add(new TextQqMsg(user.getNickname() + ", 推荐以下操作配置分红股: \n"));
         result.forEach(r -> msgList.add(new TextQqMsg(r.toString() + "\n")));
         return msgList;
     }

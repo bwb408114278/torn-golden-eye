@@ -6,6 +6,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
@@ -74,29 +75,33 @@ public class TornBaseDataService {
         }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_BASE_DATA_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
-        LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
+        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 35, 0);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            virtualThreadExecutor.execute(() -> spiderBaseData(to));
+            virtualThreadExecutor.execute(this::spiderBaseData);
+        } else {
+            addScheduleTask(from.plusDays(1));
         }
-
-        addScheduleTask(to);
     }
 
     /**
      * 爬取帮派成员
      */
-    public void spiderBaseData(LocalDateTime to) {
-        spiderFactionMember();
-        spiderBankRate();
-        spiderPointValue();
-        spiderItems();
-        spiderStocks();
+    public void spiderBaseData() {
+        try {
+            spiderFactionMember();
+            spiderBankRate();
+            spiderPointValue();
+            spiderItems();
+            spiderStocks();
 
-        settingDao.updateSetting(SettingConstants.KEY_BASE_DATA_LOAD,
-                DateTimeUtils.convertToString(to.toLocalDate()));
-        addScheduleTask(to);
+            LocalDate to = LocalDate.now();
+            settingDao.updateSetting(SettingConstants.KEY_BASE_DATA_LOAD, DateTimeUtils.convertToString(to));
+            addScheduleTask(to.plusDays(1).atTime(8, 35, 0));
+        } catch (Exception e) {
+            // 失败5分钟后重试
+            addScheduleTask(LocalDateTime.now().plusMinutes(5));
+        }
     }
 
     /**
@@ -124,6 +129,13 @@ public class TornBaseDataService {
                 } else if (!oldData.equals(newData)) {
                     userDao.updateById(newData);
                 }
+            }
+
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BizException("同步帮派人员的等待时间出错", e);
             }
         }
 
@@ -221,9 +233,7 @@ public class TornBaseDataService {
     /**
      * 添加定时任务
      */
-    private void addScheduleTask(LocalDateTime to) {
-        taskService.updateTask("faction-member-reload",
-                () -> spiderBaseData(to.plusDays(1)),
-                to.plusDays(1).plusSeconds(1).plusMinutes(3L));
+    private void addScheduleTask(LocalDateTime execTime) {
+        taskService.updateTask("base-date-reload", this::spiderBaseData, execTime);
     }
 }
