@@ -104,7 +104,7 @@ public class TornFactionOcBenefitService {
                                                 .fieldName(FIELD_FINISH_TIME)
                                                 .operator(ConditionOperatorEnum.OPERATORISGREATER)
                                                 .value(new String[]{"ExactDate",
-                                                        String.valueOf(DateTimeUtils.convertToTimestamp(from.minusSeconds(1)))})
+                                                        String.valueOf(DateTimeUtils.convertToTimestamp(from.minusHours(1)))})
                                                 .build()})
                                         .build())
                                 .build());
