@@ -31,7 +31,7 @@ import java.util.List;
  * Torn Oc用户逻辑层
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.20
  */
 @Service
@@ -93,7 +93,7 @@ public class TornFactionOcUserService {
             ocList.add(oc.getOrganizedCrime());
         }
 
-        ocUserManager.updateEmptyUserPassRate(key.getUserId(), ocList);
+        ocUserManager.updateEmptyUserPassRate(key.getFactionId(), key.getUserId(), ocList);
     }
 
     /**

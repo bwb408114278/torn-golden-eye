@@ -9,7 +9,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  * Torn OC 用户表
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Data
@@ -24,6 +24,10 @@ public class TornFactionOcUserDO extends BaseDO {
      * 用户ID
      */
     private Long userId;
+    /**
+     * 帮派ID
+     */
+    private Long factionId;
     /**
      * 级别
      */

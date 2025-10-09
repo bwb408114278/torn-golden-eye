@@ -19,7 +19,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Torn Api Key配置类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.08.21
  */
 @Slf4j
@@ -294,11 +294,11 @@ public class TornApiKeyConfig {
 
         while (!queue.isEmpty()) {
             TornApiKeyDO key = queue.poll();
+            tempList.add(key);
             if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
                 foundKey = key;
                 break;
             }
-            tempList.add(key);
         }
 
         // 将取出的Key放回队列

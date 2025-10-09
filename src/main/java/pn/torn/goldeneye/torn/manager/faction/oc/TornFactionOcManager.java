@@ -26,7 +26,7 @@ import java.util.List;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.08.08
  */
 @Component
@@ -68,8 +68,8 @@ public class TornFactionOcManager {
 
         insertOcData(factionId, newDataList);
         updateOcData(updateDataList);
-        completeOcData(validOcIdList);
-        ocUserManager.updateJoinedUserPassRate(ocList);
+        completeOcData(factionId, validOcIdList);
+        ocUserManager.updateJoinedUserPassRate(factionId, ocList);
     }
 
     /**
@@ -118,7 +118,7 @@ public class TornFactionOcManager {
     /**
      * 已执行的OC设为完成状态
      */
-    public void completeOcData(List<Long> validOcIdList) {
+    public void completeOcData(long factionId, List<Long> validOcIdList) {
         List<TornFactionOcDO> completedList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
                 .lt(TornFactionOcDO::getReadyTime, LocalDateTime.now())
@@ -129,6 +129,7 @@ public class TornFactionOcManager {
 
         if (!CollectionUtils.isEmpty(validOcIdList)) {
             List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getFactionId, factionId)
                     .notIn(TornFactionOcDO::getId, validOcIdList)
                     .ne(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
                     .list();

@@ -27,7 +27,7 @@ services:
 
   napcat:
     container_name: napcat
-    image: mlikiowa/napcat-docker:v4.8.103
+    image: mlikiowa/napcat-docker:v4.8.119
     networks:
       - golden-eye-net
     ports:
@@ -57,7 +57,7 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:0.2.0
+    image: golden-eye:0.3.0
     ports:
       - 10779:8080
     volumes:
@@ -76,6 +76,8 @@ services:
       - LARK_OC_BENEFIT_APP_TOKEN=${LARK_OC_BENEFIT_APP_TOKEN}
       - LARK_OC_BENEFIT_TABLE_ID=${LARK_OC_BENEFIT_TABLE_ID}
       - LARK_OC_BENEFIT_VIEW_ID=${LARK_OC_BENEFIT_VIEW_ID}
+    depends_on:
+      - napcat
 
 networks:
   golden-eye-net:
