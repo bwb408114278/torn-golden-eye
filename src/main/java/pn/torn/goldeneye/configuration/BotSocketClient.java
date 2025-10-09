@@ -13,6 +13,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
+import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.msg.receive.QqRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
@@ -40,7 +41,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Web Socket客户端机器人
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.09
  */
 @Slf4j
@@ -297,8 +298,7 @@ public class BotSocketClient {
                 if (strategy.isNeedAdmin() && !settingManager.getSysAdmin().contains(msg.getUserId())) {
                     builder.addMsg(new TextQqMsg("没有对应的权限"));
                 } else {
-                    List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getGroupId(), msg.getSender(),
-                            msgArray.length > 2 ? msgArray[2] : "");
+                    List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, strategy);
                     paramList.forEach(builder::addMsg);
                 }
 
@@ -323,6 +323,17 @@ public class BotSocketClient {
                 }
                 break;
             }
+        }
+    }
+
+    /**
+     * 构建机器人回复消息
+     */
+    private List<? extends QqMsgParam<?>> buildReplyMsg(QqRecMsg msg, String[] msgArray, BaseGroupMsgStrategy strategy) {
+        try {
+            return strategy.handle(msg.getGroupId(), msg.getSender(), msgArray.length > 2 ? msgArray[2] : "");
+        } catch (BizException e) {
+            return strategy.buildTextMsg(e.getMsg());
         }
     }
 

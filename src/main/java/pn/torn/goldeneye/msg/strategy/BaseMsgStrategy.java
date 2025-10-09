@@ -11,7 +11,7 @@ import java.util.List;
  * 基础消息策略
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
@@ -44,7 +44,7 @@ public abstract class BaseMsgStrategy {
      *
      * @param msg 消息内容
      */
-    protected List<TextQqMsg> buildTextMsg(String msg) {
+    public List<TextQqMsg> buildTextMsg(String msg) {
         return List.of(new TextQqMsg(msg));
     }
 

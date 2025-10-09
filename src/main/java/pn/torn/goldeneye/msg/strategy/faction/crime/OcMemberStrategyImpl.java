@@ -15,6 +15,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
 import java.awt.*;
 import java.util.List;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
  * 获取Oc策略实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 @Component
@@ -46,6 +47,8 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+        long userId = TornUserUtils.getUserIdFromSender(sender);
+        TornUserDO user = userDao.getById(userId);
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();
@@ -59,7 +62,7 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
 
         int rank = Integer.parseInt(msgArray[0]);
         List<TornFactionOcUserDO> ocUserList = userManager.findFreeUser(
-                positionEnum == null ? null : positionEnum.getKey(), rank);
+                positionEnum == null ? null : positionEnum.getKey(), user.getFactionId(), rank);
         if (CollectionUtils.isEmpty(ocUserList)) {
             return super.buildTextMsg("暂时没有可以加入OC的成员");
         }
