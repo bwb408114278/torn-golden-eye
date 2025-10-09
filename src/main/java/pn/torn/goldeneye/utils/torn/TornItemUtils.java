@@ -18,32 +18,43 @@ import java.util.List;
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class TornItemUtils {
-    private static final List<String> ITEM_NAME_LIST = new ArrayList<>();
+    private static final List<String> FACTION_ITEM_NAME_LIST = new ArrayList<>();
 
     static {
-        ITEM_NAME_LIST.add("Bottle of Beer");
-        ITEM_NAME_LIST.add("Bottle of Moonshine");
+        FACTION_ITEM_NAME_LIST.add("Bottle of Beer");
+        FACTION_ITEM_NAME_LIST.add("Bottle of Moonshine");
 
-        ITEM_NAME_LIST.add("Can of Crocozade");
+        FACTION_ITEM_NAME_LIST.add(TornConstants.ITEM_NAME_SMALL_RED);
+        FACTION_ITEM_NAME_LIST.add("First Aid Kit");
+        FACTION_ITEM_NAME_LIST.add("Morphine");
+        FACTION_ITEM_NAME_LIST.add("Neumune Tablet");
 
-        ITEM_NAME_LIST.add("Bag of Bon Bons");
-        ITEM_NAME_LIST.add("Box of Extra Strong Mints");
+        FACTION_ITEM_NAME_LIST.add("Empty Blood Bag");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : A+");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : A-");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : AB+");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : AB-");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : B+");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : B-");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : O+");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : O-");
+        FACTION_ITEM_NAME_LIST.add("Blood Bag : Irradiated");
 
-        ITEM_NAME_LIST.add(TornConstants.ITEM_NAME_SMALL_RED);
-        ITEM_NAME_LIST.add("First Aid Kit");
-        ITEM_NAME_LIST.add("Morphine");
-        ITEM_NAME_LIST.add("Neumune Tablet");
+        FACTION_ITEM_NAME_LIST.add("Bag of Bon Bons");
+        FACTION_ITEM_NAME_LIST.add("Bag of Chocolate Kisses");
+        FACTION_ITEM_NAME_LIST.add("Box of Bon Bons");
+        FACTION_ITEM_NAME_LIST.add("Box of Sweet Hearts");
+        FACTION_ITEM_NAME_LIST.add("Box of Chocolate Bars");
+        FACTION_ITEM_NAME_LIST.add("Box of Extra Strong Mints");
+        FACTION_ITEM_NAME_LIST.add("Pixie Sticks");
 
-        ITEM_NAME_LIST.add("Empty Blood Bag");
-        ITEM_NAME_LIST.add("Blood Bag : A+");
-        ITEM_NAME_LIST.add("Blood Bag : A-");
-        ITEM_NAME_LIST.add("Blood Bag : AB+");
-        ITEM_NAME_LIST.add("Blood Bag : AB-");
-        ITEM_NAME_LIST.add("Blood Bag : B+");
-        ITEM_NAME_LIST.add("Blood Bag : B-");
-        ITEM_NAME_LIST.add("Blood Bag : O+");
-        ITEM_NAME_LIST.add("Blood Bag : O-");
-        ITEM_NAME_LIST.add("Blood Bag : Irradiated");
+        FACTION_ITEM_NAME_LIST.add("Can of Goose Juice");
+        FACTION_ITEM_NAME_LIST.add("Can of Crocozade");
+        FACTION_ITEM_NAME_LIST.add("Can of Taurine Elite");
+
+        FACTION_ITEM_NAME_LIST.add("Xanax");
+        FACTION_ITEM_NAME_LIST.add("Cannabis");
+        FACTION_ITEM_NAME_LIST.add("Vicodin");
     }
 
     /**
@@ -53,7 +64,7 @@ public class TornItemUtils {
      * @return 物品名称
      */
     public static String getItemName(String text) {
-        for (String item : ITEM_NAME_LIST) {
+        for (String item : FACTION_ITEM_NAME_LIST) {
             if (text.contains(item)) {
                 return item;
             }

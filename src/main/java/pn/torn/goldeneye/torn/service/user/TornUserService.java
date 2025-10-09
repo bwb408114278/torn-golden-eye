@@ -31,7 +31,7 @@ public class TornUserService {
             return;
         }
 
-        TornUserDO userData = user.convert2DO();
+        TornUserDO userData = user.getProfile().convert2DO();
         TornUserDO oldData = userDao.getById(userData.getId());
         if (oldData != null) {
             userDao.updateById(userData);
