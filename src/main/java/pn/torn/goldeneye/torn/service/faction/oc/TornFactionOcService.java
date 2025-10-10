@@ -34,7 +34,7 @@ import java.util.List;
  * Torn Oc逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Service
@@ -95,7 +95,8 @@ public class TornFactionOcService {
             taskService.updateTask("oc-join-" + rank,
                     joinService.buildNotice(noticeParam), oc.getReadyTime());
             taskService.updateTask("oc-completed-" + rank,
-                    () -> ocManager.completeOcData(List.of()), oc.getReadyTime().plusMinutes(2));
+                    () -> ocManager.completeOcData(TornConstants.FACTION_PN_ID, List.of()),
+                    oc.getReadyTime().plusMinutes(2));
             taskService.updateTask(taskId, validService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(1L));
         }
     }

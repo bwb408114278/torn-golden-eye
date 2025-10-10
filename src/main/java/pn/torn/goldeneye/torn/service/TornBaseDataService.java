@@ -16,17 +16,15 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornItemsDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
-import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
-import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.faction.member.TornFactionMemberManager;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.manager.torn.TornStocksManager;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsDTO;
@@ -48,7 +46,7 @@ import java.util.List;
  * Torn基础数据逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.10
  */
 @Service
@@ -59,9 +57,9 @@ public class TornBaseDataService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final SysSettingManager settingManager;
+    private final TornFactionMemberManager factionMemberManager;
     private final TornStocksManager stocksManager;
     private final TornItemsManager itemsManager;
-    private final TornUserDAO userDao;
     private final TornItemsDAO itemsDao;
     private final TornStocksDAO stocksDao;
     private final SysSettingDAO settingDao;
@@ -109,27 +107,10 @@ public class TornBaseDataService {
      */
     public void spiderFactionMember() {
         List<TornSettingFactionDO> factionList = settingFactionDao.list();
-        List<TornUserDO> newUserList = new ArrayList<>();
-        List<Long> allUserIdList = new ArrayList<>();
-
         for (TornSettingFactionDO faction : factionList) {
             TornFactionMemberDTO param = new TornFactionMemberDTO(faction.getId());
             TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-
-            List<Long> userIdList = memberList.getMembers().stream().map(TornFactionMemberVO::getId).toList();
-            allUserIdList.addAll(userIdList);
-            List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
-
-            for (TornFactionMemberVO member : memberList.getMembers()) {
-                TornUserDO oldData = userList.stream().filter(u -> u.getId().equals(member.getId())).findAny().orElse(null);
-                TornUserDO newData = member.convert2DO(faction.getId());
-
-                if (oldData == null) {
-                    newUserList.add(newData);
-                } else if (!oldData.equals(newData)) {
-                    userDao.updateById(newData);
-                }
-            }
+            factionMemberManager.updateFactionMember(faction.getId(), memberList);
 
             try {
                 Thread.sleep(1000L);
@@ -138,11 +119,6 @@ public class TornBaseDataService {
                 throw new BizException("同步帮派人员的等待时间出错", e);
             }
         }
-
-        if (!CollectionUtils.isEmpty(newUserList)) {
-            userDao.saveBatch(newUserList);
-        }
-        removeFactionMember(allUserIdList);
     }
 
     /**
@@ -215,18 +191,6 @@ public class TornBaseDataService {
 
         if (!CollectionUtils.isEmpty(upadteDataList)) {
             stocksDao.updateBatchById(upadteDataList);
-        }
-    }
-
-    /**
-     * 移除不在SMTH的成员
-     */
-    private void removeFactionMember(List<Long> allUserIdList) {
-        List<TornUserDO> allFactionUserList = userDao.list();
-        for (TornUserDO user : allFactionUserList) {
-            if (!allUserIdList.contains(user.getId())) {
-                userDao.lambdaUpdate().set(TornUserDO::getFactionId, 0L).eq(TornUserDO::getId, user.getId()).update();
-            }
         }
     }
 

@@ -2,16 +2,12 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
-import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
-import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
@@ -21,7 +17,6 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -30,15 +25,13 @@ import java.util.List;
  * OC成功率查询实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.20
  */
 @Component
 @RequiredArgsConstructor
 public class OcRateQueryStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcMsgTableManager msgTableManager;
-    private final TornApiKeyDAO keyDao;
-    private final TornUserDAO userDao;
     private final TornFactionOcUserDAO ocUserDao;
     private final TornSettingOcManager settingOcManager;
     private final TornSettingOcSlotManager settingOcSlotManager;
@@ -60,27 +53,9 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        long userId;
-        try {
-            userId = super.getTornUserId(sender, msg);
-        } catch (BizException e) {
-            return super.buildTextMsg(e.getMsg());
-        }
-
-        if (userId == 0L) {
-            return super.buildTextMsg("金蝶不认识TA哦，看看群名片对不对");
-        }
-
-        TornApiKeyDO key = keyDao.lambdaQuery()
-                .eq(TornApiKeyDO::getUserId, userId)
-                .eq(TornApiKeyDO::getUseDate, LocalDate.now())
-                .one();
-        if (key == null) {
-            return super.buildTextMsg("这个人还没有绑定Key哦");
-        }
-
+        TornUserDO user = super.getTornUser(sender, msg);
         List<TornFactionOcUserDO> ocUserList = ocUserDao.lambdaQuery()
-                .eq(TornFactionOcUserDO::getUserId, userId)
+                .eq(TornFactionOcUserDO::getUserId, user.getId())
                 .orderByDesc(TornFactionOcUserDO::getRank)
                 .orderByAsc(TornFactionOcUserDO::getOcName)
                 .orderByAsc(TornFactionOcUserDO::getPosition)
@@ -89,7 +64,6 @@ public class OcRateQueryStrategyImpl extends PnMsgStrategy {
             return super.buildTextMsg("暂未查询到记录的OC成功率");
         }
 
-        TornUserDO user = userDao.getById(userId);
         return super.buildImageMsg(buildPassRateMsg(user, ocUserList));
     }
 

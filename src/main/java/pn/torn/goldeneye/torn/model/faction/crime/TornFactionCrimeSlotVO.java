@@ -11,7 +11,7 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
  * Torn OC Slot详情响应参数
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Data
@@ -52,9 +52,10 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
         return slot;
     }
 
-    public TornFactionOcUserDO convert2UserDO(long userId, int rank, String name) {
+    public TornFactionOcUserDO convert2UserDO(long userId, long factionId, int rank, String name) {
         TornFactionOcUserDO ocUser = new TornFactionOcUserDO();
         ocUser.setUserId(userId);
+        ocUser.setFactionId(factionId);
         ocUser.setRank(rank);
         ocUser.setOcName(name);
         ocUser.setPosition(this.position);

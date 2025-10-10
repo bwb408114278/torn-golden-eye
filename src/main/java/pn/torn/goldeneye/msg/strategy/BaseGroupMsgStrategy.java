@@ -1,9 +1,12 @@
 package pn.torn.goldeneye.msg.strategy;
 
+import jakarta.annotation.Resource;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
@@ -13,10 +16,13 @@ import java.util.List;
  * 基础群消息策略
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
+    @Resource
+    protected TornUserDAO userDao;
+
     /**
      * 是否需要管理员权限
      *
@@ -44,16 +50,28 @@ public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
     /**
      * 根据消息和发送人获取用户ID
      */
-    protected long getTornUserId(QqRecMsgSender sender, String msg) {
+    protected TornUserDO getTornUser(QqRecMsgSender sender, String msg) {
+        long userId;
         if (StringUtils.hasText(msg)) {
             String[] msgArray = msg.split("#");
             if (msgArray.length < 1 || !NumberUtils.isLong(msgArray[0])) {
                 throw new BizException("参数有误");
             }
 
-            return Long.parseLong(msgArray[0]);
+            userId = Long.parseLong(msgArray[0]);
         } else {
-            return TornUserUtils.getUserIdFromSender(sender);
+            userId = TornUserUtils.getUserIdFromSender(sender);
         }
+
+        if (userId == 0L) {
+            throw new BizException("金蝶不认识你哦");
+        }
+
+        TornUserDO user = userDao.getById(userId);
+        if (user == null) {
+            throw new BizException("金蝶不认识你哦");
+        }
+
+        return user;
     }
 }

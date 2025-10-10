@@ -8,12 +8,10 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
-import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
-import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeUserVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
@@ -28,7 +26,7 @@ import java.util.stream.Collectors;
  * OC用户公共逻辑层
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.01
  */
 @Component
@@ -38,14 +36,13 @@ public class TornFactionOcUserManager {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final TornFactionOcNoticeDAO noticeDao;
-    private final TornUserDAO userDao;
 
     /**
      * 更新空闲用户成功率
      */
-    public void updateEmptyUserPassRate(long userId, List<TornFactionCrimeVO> ocList) {
+    public void updateEmptyUserPassRate(long factionId, long userId, List<TornFactionCrimeVO> ocList) {
         List<TornFactionOcUserDO> ocUserList = ocUserDao.lambdaQuery().eq(TornFactionOcUserDO::getUserId, userId).list();
-        updateUserPassRateData(ocList, ocUserList, new UpdatePassRateCallback() {
+        updateUserPassRateData(factionId, ocList, ocUserList, new UpdatePassRateCallback() {
             @Override
             public boolean checkUserCorrect(TornFactionCrimeUserVO user) {
                 return user == null || user.getId().equals(userId);
@@ -61,9 +58,9 @@ public class TornFactionOcUserManager {
     /**
      * 更新已加入用户成功率
      */
-    public void updateJoinedUserPassRate(List<TornFactionCrimeVO> ocList) {
+    public void updateJoinedUserPassRate(long factionId, List<TornFactionCrimeVO> ocList) {
         List<TornFactionOcUserDO> ocUserList = ocUserDao.list();
-        updateUserPassRateData(ocList, ocUserList, new UpdatePassRateCallback() {
+        updateUserPassRateData(factionId, ocList, ocUserList, new UpdatePassRateCallback() {
             @Override
             public boolean checkUserCorrect(TornFactionCrimeUserVO user) {
                 return user != null;
@@ -79,8 +76,8 @@ public class TornFactionOcUserManager {
     /**
      * 更新已加入用户成功率
      */
-    public void updateUserPassRateData(List<TornFactionCrimeVO> ocList, List<TornFactionOcUserDO> allUserList,
-                                       UpdatePassRateCallback callback) {
+    public void updateUserPassRateData(long factionId, List<TornFactionCrimeVO> ocList,
+                                       List<TornFactionOcUserDO> allUserList, UpdatePassRateCallback callback) {
         List<TornFactionOcUserDO> newDataList = new ArrayList<>();
         for (TornFactionCrimeVO oc : ocList) {
             for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
@@ -100,7 +97,7 @@ public class TornFactionOcUserManager {
                             .eq(TornFactionOcUserDO::getId, oldData.getId())
                             .update();
                 } else if (oldData == null) {
-                    fillNewData(oc, slot, newDataList, callback);
+                    fillNewData(factionId, oc, slot, newDataList, callback);
                 }
             }
         }
@@ -118,8 +115,7 @@ public class TornFactionOcUserManager {
      * @return 用户ID列表
      */
     public Set<Long> findRotationUser(long factionId, int... rank) {
-        List<TornFactionOcUserDO> userList = findFreeUser(null, rank);
-        List<TornUserDO> factionUserList = userDao.lambdaQuery().eq(TornUserDO::getFactionId, factionId).list();
+        List<TornFactionOcUserDO> userList = findFreeUser(null, factionId, rank);
         List<TornFactionOcNoticeDO> skipList = noticeDao.lambdaQuery()
                 .in(TornFactionOcNoticeDO::getRank, Arrays.stream(rank).boxed().toList())
                 .and(wrapper -> wrapper
@@ -129,10 +125,6 @@ public class TornFactionOcUserManager {
                 .list();
 
         userList.removeIf(u -> {
-            if (factionUserList.stream().noneMatch(fu -> fu.getId().equals(u.getUserId()))) {
-                return true;
-            }
-
             if (u.getPassRate().compareTo(60) < 0) {
                 return true;
             }
@@ -150,10 +142,11 @@ public class TornFactionOcUserManager {
      *
      * @param rank OC级别
      */
-    public List<TornFactionOcUserDO> findFreeUser(String position, int... rank) {
+    public List<TornFactionOcUserDO> findFreeUser(String position, long factionId, int... rank) {
         List<TornFactionOcUserDO> userList = ocUserDao.lambdaQuery()
                 .in(TornFactionOcUserDO::getRank, Arrays.stream(rank).boxed().toList())
                 .eq(position != null, TornFactionOcUserDO::getPosition, position)
+                .eq(TornFactionOcUserDO::getFactionId, factionId)
                 .orderByDesc(TornFactionOcUserDO::getPassRate)
                 .list();
 
@@ -174,10 +167,10 @@ public class TornFactionOcUserManager {
     /**
      * 填充新数据
      */
-    private void fillNewData(TornFactionCrimeVO oc, TornFactionCrimeSlotVO slot, List<TornFactionOcUserDO> newDataList,
-                             UpdatePassRateCallback callback) {
+    private void fillNewData(long factionId, TornFactionCrimeVO oc, TornFactionCrimeSlotVO slot,
+                             List<TornFactionOcUserDO> newDataList, UpdatePassRateCallback callback) {
         TornFactionOcUserDO newData = slot.convert2UserDO(
-                callback.getUserId(slot.getUser()), oc.getDifficulty(), oc.getName());
+                callback.getUserId(slot.getUser()), factionId, oc.getDifficulty(), oc.getName());
         if (!newDataList.contains(newData)) {
             newDataList.add(newData);
         }
