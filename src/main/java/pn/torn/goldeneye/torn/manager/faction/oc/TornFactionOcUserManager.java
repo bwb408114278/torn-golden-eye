@@ -118,10 +118,7 @@ public class TornFactionOcUserManager {
         List<TornFactionOcUserDO> userList = findFreeUser(null, factionId, rank);
         List<TornFactionOcNoticeDO> skipList = noticeDao.lambdaQuery()
                 .in(TornFactionOcNoticeDO::getRank, Arrays.stream(rank).boxed().toList())
-                .and(wrapper -> wrapper
-                        .eq(TornFactionOcNoticeDO::getHasNotice, false)
-                        .or()
-                        .eq(TornFactionOcNoticeDO::getHasSkip, true))
+                .eq(TornFactionOcNoticeDO::getHasNotice, false)
                 .list();
 
         userList.removeIf(u -> {

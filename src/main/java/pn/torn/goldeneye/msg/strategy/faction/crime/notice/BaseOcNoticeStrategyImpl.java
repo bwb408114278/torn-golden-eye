@@ -22,7 +22,7 @@ import java.util.List;
  * OC通知设置抽象实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.20
  */
 @RequiredArgsConstructor
@@ -69,7 +69,6 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
             notice.setUserId(userId);
             notice.setRank(rank);
             notice.setHasNotice(hasNotice());
-            notice.setHasSkip(false);
             noticeDao.save(notice);
         } else {
             noticeDao.lambdaUpdate()

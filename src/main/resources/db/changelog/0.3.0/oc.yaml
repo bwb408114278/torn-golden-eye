@@ -19,3 +19,23 @@ databaseChangeLog:
               SET faction_id = u.faction_id
               FROM torn_user u 
               WHERE ou.user_id = u.id;
+
+  - changeSet:
+      id: change_oc_skip_flag
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: has_skip_rotation
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  defaultValue: "f"
+                  remarks: "是否跳过轮转"
+        - dropColumn:
+            tableName: torn_faction_oc_notice
+            columns:
+              - column:
+                  name: has_skip

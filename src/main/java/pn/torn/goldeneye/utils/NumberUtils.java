@@ -6,13 +6,15 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
  * 数字工具类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -55,6 +57,17 @@ public class NumberUtils {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    /**
+     * 逗号分隔的字符串拆分为Long列表
+     */
+    public static List<Long> splitToLongList(String str) {
+        if (!StringUtils.hasText(str)) {
+            return List.of();
+        }
+
+        return Arrays.stream(str.split(",")).map(Long::parseLong).toList();
     }
 
     /**

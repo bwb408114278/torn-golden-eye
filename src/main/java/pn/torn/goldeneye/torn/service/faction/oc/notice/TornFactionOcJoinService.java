@@ -7,14 +7,17 @@ import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.util.List;
@@ -24,7 +27,7 @@ import java.util.Map;
  * OC可加入提示逻辑
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.08.06
  */
 @Component
@@ -33,6 +36,7 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
     private final Bot bot;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcMsgTableManager msgTableManager;
+    private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
 
     /**
@@ -55,7 +59,9 @@ public class TornFactionOcJoinService extends BaseTornFactionOcNoticeService {
             Map<TornFactionOcDO, List<TornFactionOcSlotDO>> lackMap = buildLackMap(recList);
 
             String rankDesc = buildRankDesc(param);
-            TableDataBO table = msgTableManager.buildOcTable(rankDesc + "级OC缺人队伍（不包含新队）", lackMap);
+            String recIdList = settingDao.querySettingValue(SettingConstants.KEY_OC_REC_ID + param.rank());
+            TableDataBO table = msgTableManager.buildOcTable(rankDesc + "级OC缺人队伍（不包含新队）",
+                    NumberUtils.splitToLongList(recIdList), lackMap);
 
             BotHttpReqParam botParam = new GroupMsgHttpBuilder()
                     .setGroupId(projectProperty.getGroupId())

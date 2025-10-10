@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * Torn OC表
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Data
@@ -47,4 +47,8 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      * 上级OC ID
      */
     private Long previousOcId;
+    /**
+     * 是否跳过轮转
+     */
+    private Boolean hasSkipRotation;
 }

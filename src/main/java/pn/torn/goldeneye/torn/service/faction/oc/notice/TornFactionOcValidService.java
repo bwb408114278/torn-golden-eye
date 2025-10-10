@@ -27,6 +27,7 @@ import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcValidManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.io.IOException;
@@ -39,7 +40,7 @@ import java.util.*;
  * OC校验逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.08.06
  */
 @Component
@@ -174,7 +175,8 @@ public class TornFactionOcValidService extends BaseTornFactionOcNoticeService {
 
                 if (!lackMap.isEmpty()) {
                     String title = buildRankDesc(param) + (isLackNew ? "级OC缺人队伍（未包含新队）" : "级OC缺人队伍");
-                    TableDataBO table = msgTableManager.buildOcTable(title, lackMap);
+                    String recIdList = settingDao.querySettingValue(SettingConstants.KEY_OC_REC_ID + param.rank());
+                    TableDataBO table = msgTableManager.buildOcTable(title, NumberUtils.splitToLongList(recIdList), lackMap);
                     msgBuilder.addMsg(new ImageQqMsg(TableImageUtils.renderTableToBase64(table)));
                 }
 
