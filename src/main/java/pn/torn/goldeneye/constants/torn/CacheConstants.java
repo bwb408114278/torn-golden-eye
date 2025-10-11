@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -22,6 +22,14 @@ public class CacheConstants {
      */
     public static final String KEY_TORN_ITEM = "torn:items";
 
+    /**
+     * 帮派设置Key
+     */
+    public static final String KEY_TORN_SETTING_FACTION = "torn:setting:faction";
+    /**
+     * 帮派别名设置Key
+     */
+    public static final String KEY_TORN_SETTING_FACTION_ALIAS = "torn:setting:faction:alias";
     /**
      * OC设置Key
      */

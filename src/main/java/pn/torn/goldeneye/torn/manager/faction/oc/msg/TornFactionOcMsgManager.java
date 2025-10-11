@@ -30,7 +30,7 @@ import java.util.*;
  * OC消息公共逻辑
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.06
  */
 @Component
@@ -113,7 +113,7 @@ public class TornFactionOcMsgManager {
      * @param title 标题
      * @return 表格图片的Base64
      */
-    public String buildOcTable(String title, List<TornFactionOcDO> ocList) {
+    public String buildOcTable(String title, List<Long> rotationIdList, List<TornFactionOcDO> ocList) {
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
         Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
         for (TornFactionOcDO oc : ocList) {
@@ -122,7 +122,7 @@ public class TornFactionOcMsgManager {
             ocMap.put(oc, currentSlotList);
         }
 
-        TableDataBO table = msgTableManager.buildOcTable(title, ocMap);
+        TableDataBO table = msgTableManager.buildOcTable(title, rotationIdList, ocMap);
 
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,

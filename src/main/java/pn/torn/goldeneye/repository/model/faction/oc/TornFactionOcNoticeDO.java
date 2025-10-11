@@ -9,7 +9,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  * Torn OC 跳过表
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.30
  */
 @Data
@@ -32,8 +32,4 @@ public class TornFactionOcNoticeDO extends BaseDO {
      * 是否提醒
      */
     private Boolean hasNotice;
-    /**
-     * 是否咸鱼队
-     */
-    private Boolean hasSkip;
 }

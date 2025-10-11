@@ -3,9 +3,8 @@ package pn.torn.goldeneye.utils.torn;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOc;
-import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +13,7 @@ import java.util.List;
  * Torn Oc工具
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.18
  */
 @Slf4j
@@ -37,22 +36,13 @@ public class TornOcUtils {
      *
      * @return true为是
      */
-    public static boolean isRotationOc(TornFactionOc oc, List<? extends TornFactionOcSlot> slotList,
-                                       List<TornFactionOcNoticeDO> skipList) {
+    public static boolean isRotationOc(TornFactionOcDO oc) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
         if (notRotationRank || NOT_ROTATION_OC_NAME.contains(oc.getName())) {
             return false;
         }
 
-        for (TornFactionOcSlot slot : slotList) {
-            boolean isSkip = skipList.stream().anyMatch(p ->
-                    p.getUserId().equals(slot.getUserId()) && p.getRank().equals(oc.getRank()));
-            if (isSkip) {
-                return false;
-            }
-        }
-
-        return true;
+        return !oc.getHasSkipRotation();
     }
 
     /**

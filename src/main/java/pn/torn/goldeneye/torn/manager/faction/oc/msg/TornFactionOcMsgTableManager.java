@@ -3,10 +3,8 @@ package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.model.TableDataBO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -22,14 +20,13 @@ import java.util.*;
  * OC表格消息公共逻辑
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.15
  */
 @Component
 @RequiredArgsConstructor
 public class TornFactionOcMsgTableManager {
     private final TornUserDAO userDao;
-    private final TornFactionOcNoticeDAO noticeDao;
     private static final Color MEMBER_FULL_COLOR = new Color(122, 167, 56);
     private static final Color MEMBER_EMPTY_COLOR = new Color(230, 119, 0);
     private static final String PRE_TEAM = "9级前置";
@@ -40,14 +37,14 @@ public class TornFactionOcMsgTableManager {
      *
      * @return 表格数据，第一层为行，第二层为单元格
      */
-    public TableDataBO buildOcTable(String title, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
+    public TableDataBO buildOcTable(String title, List<Long> rotationIdList,
+                                    Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
         List<Long> userIdList = new ArrayList<>();
         ocMap.values().forEach(v -> userIdList.addAll(v.stream()
                 .map(TornFactionOcSlotDO::getUserId)
                 .filter(Objects::nonNull)
                 .toList()));
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(userIdList);
-        List<TornFactionOcNoticeDO> skipList = noticeDao.querySkipList();
 
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         List<List<String>> tableData = new ArrayList<>();
@@ -77,7 +74,7 @@ public class TornFactionOcMsgTableManager {
                 }
             });
 
-            tableData.add(buildPositionRow(oc, slotList, skipList, rowIndex, columnCount, tableConfig));
+            tableData.add(buildPositionRow(oc, slotList, rotationIdList, rowIndex, columnCount, tableConfig));
             tableData.add(buildMemberRow(slotList, userMap, rowIndex, columnCount, tableConfig));
 
             List<String> splitLine = new ArrayList<>();
@@ -113,10 +110,10 @@ public class TornFactionOcMsgTableManager {
      * @param columnCount 最大列数
      */
     private List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                          List<TornFactionOcNoticeDO> noticeList,
-                                          int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
+                                          List<Long> rotationIdList, int rowIndex, int columnCount,
+                                          TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
-        String teamFlag = getTeamFlag(oc, slotList, noticeList);
+        String teamFlag = getTeamFlag(oc, rotationIdList);
         resultList.add((teamFlag.isEmpty() ? teamFlag : teamFlag + "   ") + oc.getStatus() +
                 "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
         tableConfig.addMerge(rowIndex, 0, 2, 1);
@@ -204,10 +201,8 @@ public class TornFactionOcMsgTableManager {
      *
      * @return 队伍标识
      */
-    private String getTeamFlag(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                               List<TornFactionOcNoticeDO> noticeList) {
-        boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
-        if (notRotationRank || TornOcUtils.OC_8_NORMAL.equals(oc.getName())) {
+    private String getTeamFlag(TornFactionOcDO oc, List<Long> rotationIdList) {
+        if (!rotationIdList.contains(oc.getId())) {
             return "";
         }
 
@@ -215,15 +210,9 @@ public class TornFactionOcMsgTableManager {
             return PRE_TEAM;
         }
 
-        for (TornFactionOcSlotDO slot : slotList) {
-            if (slot.getUserId() == null) {
-                continue;
-            }
 
-            if (noticeList.stream().anyMatch(notice ->
-                    notice.getUserId().equals(slot.getUserId()) && notice.getRank().equals(oc.getRank()))) {
-                return "咸鱼队";
-            }
+        if (oc.getHasSkipRotation()) {
+            return "咸鱼队";
         }
 
         return ROTATION_TEAM;

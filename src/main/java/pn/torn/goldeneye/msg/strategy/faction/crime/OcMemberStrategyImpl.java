@@ -9,13 +9,11 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcPositionAliasEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
-import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
-import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
 import java.awt.*;
 import java.util.List;
@@ -33,7 +31,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OcMemberStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcUserManager userManager;
-    private final TornUserDAO userDao;
 
     @Override
     public String getCommand() {
@@ -47,8 +44,6 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        long userId = TornUserUtils.getUserIdFromSender(sender);
-        TornUserDO user = userDao.getById(userId);
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
             return super.sendErrorFormatMsg();
@@ -61,8 +56,9 @@ public class OcMemberStrategyImpl extends PnMsgStrategy {
         }
 
         int rank = Integer.parseInt(msgArray[0]);
+        long factionId = super.getTornFactionIdBySender(sender);
         List<TornFactionOcUserDO> ocUserList = userManager.findFreeUser(
-                positionEnum == null ? null : positionEnum.getKey(), user.getFactionId(), rank);
+                positionEnum == null ? null : positionEnum.getKey(), factionId, rank);
         if (CollectionUtils.isEmpty(ocUserList)) {
             return super.buildTextMsg("暂时没有可以加入OC的成员");
         }

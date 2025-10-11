@@ -7,14 +7,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.torn.TornOcUtils;
 
 import java.time.LocalDateTime;
@@ -36,7 +35,6 @@ public class TornFactionOcManager {
     private final TornFactionOcUserManager ocUserManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
-    private final TornFactionOcNoticeDAO noticeDao;
     private final SysSettingDAO settingDao;
 
     /**
@@ -191,19 +189,14 @@ public class TornFactionOcManager {
      */
     private List<TornFactionOcDO> buildRotationList(List<TornFactionOcDO> ocList, long planOcId,
                                                     String excludePlanKey, String excludeSettingKey) {
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        List<TornFactionOcNoticeDO> skipList = noticeDao.querySkipList();
-
         List<Long> excludeIdList = new ArrayList<>();
         excludeIdList.add(Long.parseLong(settingDao.querySettingValue(excludePlanKey)));
         String excludeIds = settingDao.querySettingValue(excludeSettingKey);
-        excludeIdList.addAll(Arrays.stream(excludeIds.split(",")).map(Long::parseLong).toList());
+        excludeIdList.addAll(NumberUtils.splitToLongList(excludeIds));
 
         List<TornFactionOcDO> resultList = new ArrayList<>();
         for (TornFactionOcDO oc : ocList) {
-            List<TornFactionOcSlotDO> currentSlotList = slotList.stream().filter(s ->
-                    s.getOcId().equals(oc.getId())).toList();
-            boolean isRotationOc = TornOcUtils.isRotationOc(oc, currentSlotList, skipList);
+            boolean isRotationOc = TornOcUtils.isRotationOc(oc);
             if (!isRotationOc || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
                 continue;
             }
