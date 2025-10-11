@@ -28,4 +28,8 @@ public class TornSettingFactionDO extends BaseDO {
      * 帮派简称
      */
     private String factionShortName;
+    /**
+     * 帮派别名
+     */
+    private String factionAlias;
 }

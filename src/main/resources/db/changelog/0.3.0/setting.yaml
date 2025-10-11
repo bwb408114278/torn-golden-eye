@@ -1,0 +1,37 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_faction_setting_alias
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: faction_alias
+                  type: VARCHAR(128)
+                  constraints:
+                    nullable: false
+                  defaultValue: ""
+                  remarks: "帮派别名"
+        - sql:
+            sql: |
+              UPDATE torn_setting_faction
+              SET faction_alias = faction_short_name;
+              
+              UPDATE torn_setting_faction
+              SET faction_alias = 'PHN,PN',
+                  faction_short_name = 'PHN'
+              WHERE id = 20465;
+              
+              UPDATE torn_setting_faction
+              SET faction_alias = 'CCRC,CC'
+              WHERE id = 27902;
+              
+              UPDATE torn_setting_faction
+              SET faction_alias = 'SVH,SH'
+              WHERE id = 36134;
+              
+              UPDATE torn_setting_faction
+              SET faction_alias = 'NOV,Nov.',
+                  faction_short_name = 'NOV'
+              WHERE id = 16335;

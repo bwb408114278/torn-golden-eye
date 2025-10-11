@@ -24,6 +24,7 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.larksuite.LarkSuiteUtils;
 
@@ -48,11 +49,11 @@ public class TornFactionOcBenefitService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final LarkSuiteApi larkSuiteApi;
+    private final TornSettingFactionManager factionManager;
     private final TornFactionOcBenefitDAO benefitDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
     private final LarkSuiteProperty larkSuiteProperty;
-    private final TornSettingFactionDAO settingFactionDao;
     private Map<String, TornSettingFactionDO> factionMap;
     // 飞书表格中的字段名常量
     private static final String FIELD_OC_STATUS = "当前状态";
@@ -67,7 +68,7 @@ public class TornFactionOcBenefitService {
 
     @PostConstruct
     public void init() {
-        factionMap = settingFactionDao.getShortNameMap();
+        factionMap = factionManager.getAliasMap();
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
         }
