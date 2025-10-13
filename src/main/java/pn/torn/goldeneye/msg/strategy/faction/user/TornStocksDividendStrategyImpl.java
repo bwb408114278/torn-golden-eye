@@ -11,7 +11,6 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
-import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
@@ -37,7 +36,6 @@ public class TornStocksDividendStrategyImpl extends PnMsgStrategy {
     private final TornApi tornApi;
     private final StocksDividendOptimizerManager stocksDividendOptimizerManager;
     private final TornStocksDAO stocksDao;
-    private final TornUserDAO userDao;
 
     @Override
     public String getCommand() {
@@ -61,11 +59,15 @@ public class TornStocksDividendStrategyImpl extends PnMsgStrategy {
             return super.buildTextMsg("这个人还没有绑定Key哦");
         }
 
+        TornUserDO user = userDao.getById(key.getUserId());
+        if (money > 100_000_000_000L) {
+            return super.buildTextMsg(user.getNickname() + ", 这么多钱咱吃点好的吧");
+        }
+
         TornUserStocksVO userStocks = tornApi.sendRequest(new TornUserStocksDTO(), key, TornUserStocksVO.class);
         List<TornStocksDO> stocksList = stocksDao.lambdaQuery().gt(TornStocksDO::getProfit, 0).list();
         List<StocksDividendOptimizerManager.OptimalAction> result = stocksDividendOptimizerManager
                 .calculate(money, stocksList, userStocks);
-        TornUserDO user = userDao.getById(key.getUserId());
         if (CollectionUtils.isEmpty(result)) {
             return super.buildTextMsg(user.getNickname() + ", 当前购买策略已是最佳");
         }
