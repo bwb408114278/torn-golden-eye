@@ -32,7 +32,9 @@ public class TornFactionMemberManager {
         List<TornUserDO> newUserList = new ArrayList<>();
 
         List<Long> userIdList = memberList.getMembers().stream().map(TornFactionMemberVO::getId).toList();
-        List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
+        List<TornUserDO> userList = userDao.lambdaQuery()
+                .eq(TornUserDO::getFactionId, factionId)
+                .in(TornUserDO::getId, userIdList).list();
 
         for (TornFactionMemberVO member : memberList.getMembers()) {
             TornUserDO oldData = userList.stream().filter(u -> u.getId().equals(member.getId())).findAny().orElse(null);
@@ -56,7 +58,7 @@ public class TornFactionMemberManager {
      * 移除不在SMTH的成员
      */
     private void removeFactionMember(long factionId, List<Long> userIdList) {
-        List<TornUserDO> allFactionUserList = userDao.list();
+        List<TornUserDO> allFactionUserList = userDao.lambdaQuery().eq(TornUserDO::getFactionId, factionId).list();
         for (TornUserDO user : allFactionUserList) {
             if (!userIdList.contains(user.getId())) {
                 userDao.lambdaUpdate()

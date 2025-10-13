@@ -12,6 +12,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
@@ -22,6 +23,7 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.manage.DocStrategyImpl;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.utils.JsonUtils;
 
@@ -74,6 +76,8 @@ public class BotSocketClient {
     private List<BaseGroupMsgStrategy> groupMsgStrategyList;
     @Resource
     private List<BasePrivateMsgStrategy> privateMsgStrategyList;
+    @Resource
+    private DocStrategyImpl docStrategy;
     @Resource
     private ProjectProperty projectProperty;
     @Resource
@@ -292,6 +296,14 @@ public class BotSocketClient {
      * 处理群聊消息
      */
     private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
+        if (!StringUtils.hasText(msgArray[1])) {
+            GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
+            List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, docStrategy);
+            paramList.forEach(builder::addMsg);
+            replyMsg(builder.build());
+            return;
+        }
+
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
             if (projectProperty.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
                 GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
