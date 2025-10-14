@@ -3,7 +3,6 @@ package pn.torn.goldeneye.configuration;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
-import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 
@@ -67,25 +66,15 @@ public class TornApiKeyConfig {
      * 获取所有可用的Key列表
      */
     public List<TornApiKeyDO> getAllEnableKeys() {
-        lock.lock();
-        try {
-            return new ArrayList<>(allKeys.values());
-        } finally {
-            lock.unlock();
-        }
+        return new ArrayList<>(allKeys.values());
     }
 
     /**
      * 获取指定帮派的所有Key列表
      */
     public List<TornApiKeyDO> getFactionKeyList(long factionId) {
-        lock.lock();
-        try {
-            PriorityBlockingQueue<TornApiKeyDO> queue = factionKeysMap.get(factionId);
-            return queue != null ? new ArrayList<>(queue) : List.of();
-        } finally {
-            lock.unlock();
-        }
+        PriorityBlockingQueue<TornApiKeyDO> queue = factionKeysMap.get(factionId);
+        return queue != null ? new ArrayList<>(queue) : List.of();
     }
 
     /**
@@ -93,7 +82,6 @@ public class TornApiKeyConfig {
      */
     public void addApiKey(TornApiKeyDO apiKey) {
         keyDao.save(apiKey);
-
         lock.lock();
         try {
             addKeyToMaps(apiKey);
@@ -108,8 +96,8 @@ public class TornApiKeyConfig {
     public void updateApiKey(TornApiKeyDO existingKey, TornApiKeyDO newKey) {
         newKey.setUseCount(existingKey.getUseCount());
         newKey.setId(existingKey.getId());
-
         keyDao.updateById(newKey);
+
         lock.lock();
         try {
             updateKeyInMemory(existingKey, newKey);
@@ -127,10 +115,12 @@ public class TornApiKeyConfig {
             allKeys.clear();
             factionKeysMap.clear();
             qqKeyMap.clear();
-            inUseKeyIds.clear();
+            // 注意：不清除inUseKeyIds，因为可能有线程正在使用key。
+            // 在归还或废弃时，会从中移除。
 
             List<TornApiKeyDO> keyList = keyDao.list();
             keyList.forEach(this::addKeyToMaps);
+            log.info("成功从数据库重新加载了 {} 个API Key到内存", keyList.size());
         } finally {
             lock.unlock();
         }
@@ -150,18 +140,28 @@ public class TornApiKeyConfig {
                 return null;
             }
 
-            TornApiKeyDO key;
-            if (needFactionAccess) {
-                key = findKeyWithAccessInQueue(factionQueue);
-            } else {
-                key = factionQueue.poll();
+            // 从队列中找到一个未被使用的Key
+            List<TornApiKeyDO> tempHolder = new ArrayList<>();
+            TornApiKeyDO selectedKey = null;
+
+            while (!factionQueue.isEmpty()) {
+                TornApiKeyDO key = factionQueue.poll();
+                if (!inUseKeyIds.contains(key.getId())) {
+                    if (!needFactionAccess || Boolean.TRUE.equals(key.getHasFactionAccess())) {
+                        selectedKey = key;
+                        break;
+                    }
+                }
+                tempHolder.add(key);
             }
 
-            if (key != null) {
-                inUseKeyIds.add(key.getId());
+            // 将未选中的key放回队列
+            factionQueue.addAll(tempHolder);
+            if (selectedKey != null) {
+                inUseKeyIds.add(selectedKey.getId());
             }
 
-            return key;
+            return selectedKey;
         } finally {
             lock.unlock();
         }
@@ -173,16 +173,12 @@ public class TornApiKeyConfig {
      * @param qqId QQ号
      */
     public TornApiKeyDO getKeyByQqId(long qqId) {
-        lock.lock();
-        try {
-            TornApiKeyDO key = qqKeyMap.get(qqId);
-            if (key != null) {
-                inUseKeyIds.add(key.getId());
-            }
+        TornApiKeyDO key = qqKeyMap.get(qqId);
+        if (key != null && !inUseKeyIds.contains(key.getId())) {
+            inUseKeyIds.add(key.getId());
             return key;
-        } finally {
-            lock.unlock();
         }
+        return null;
     }
 
     /**
@@ -221,12 +217,10 @@ public class TornApiKeyConfig {
     private void addKeyToMaps(TornApiKeyDO apiKey) {
         allKeys.put(apiKey.getId(), apiKey);
 
-        // 添加到QQ映射
         if (apiKey.getQqId() != null) {
             qqKeyMap.put(apiKey.getQqId(), apiKey);
         }
 
-        // 添加到帮派队列
         addKeyToQueues(apiKey);
     }
 
@@ -239,72 +233,47 @@ public class TornApiKeyConfig {
                 k -> new PriorityBlockingQueue<>(32, Comparator.comparingInt(TornApiKeyDO::getUseCount))
         );
 
-        // 移除已存在的相同Key（如果存在）
+        // 移除已存在的相同Key（如果存在），以防重复
         factionQueue.removeIf(k -> k.getId().equals(apiKey.getId()));
-
         // 添加Key到队列
-        if (!factionQueue.offer(apiKey)) {
-            log.error("添加Key到帮派队列失败, 帮派ID: {}, Key: {}", apiKey.getFactionId(), apiKey);
-            // 重试机制
-            int retryCount = 0;
-            while (retryCount < 3 && !factionQueue.offer(apiKey)) {
-                log.warn("第{}次重试将Key添加到帮派队列{}: {}", retryCount + 1, apiKey.getFactionId(), apiKey);
-                retryCount++;
-                try {
-                    Thread.sleep(1000L);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-
-            if (retryCount >= 3) {
-                throw new BizException("Api Key队列添加失败");
-            }
-        }
+        factionQueue.offer(apiKey);
     }
 
     /**
-     * 在队列中查找具有帮派权限的Key
+     * 移除无效的API Key
      */
-    private TornApiKeyDO findKeyWithAccessInQueue(PriorityBlockingQueue<TornApiKeyDO> queue) {
-        // 由于PriorityBlockingQueue不支持遍历，我们需要临时取出并放回
-        List<TornApiKeyDO> tempList = new ArrayList<>();
-        TornApiKeyDO foundKey = null;
+    public void invalidateKey(TornApiKeyDO invalidKey) {
+        if (invalidKey == null) return;
 
-        while (!queue.isEmpty()) {
-            TornApiKeyDO key = queue.poll();
-            tempList.add(key);
-            if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
-                foundKey = key;
-                break;
-            }
+        lock.lock();
+        try {
+            log.info("开始处理失效的API Key, ID: {}, Key: {}", invalidKey.getId(), invalidKey.getApiKey());
+            // 1. 从数据库中删除
+            keyDao.removeById(invalidKey.getId());
+            log.info("已从数据库中删除失效的Key, ID: {}", invalidKey.getId());
+
+            // 2. 从正在使用的集合中移除（以防万一）
+            inUseKeyIds.remove(invalidKey.getId());
+
+            // 3. 立即刷新内存中的所有Key数据
+            log.info("开始刷新内存中的Key数据...");
+            reloadKeyData();
+            log.info("内存中的Key数据已刷新完毕");
+
+        } finally {
+            lock.unlock();
         }
-
-        // 将取出的Key放回队列
-        for (TornApiKeyDO key : tempList) {
-            queue.offer(key);
-        }
-
-        return foundKey;
     }
 
     /**
      * 更新内存中的Key信息
      */
     private void updateKeyInMemory(TornApiKeyDO oldKey, TornApiKeyDO newKey) {
-        // 更新所有Keys映射
-        TornApiKeyDO existingKey = allKeys.get(oldKey.getId());
-        if (existingKey != null) {
-            existingKey.setHasFactionAccess(newKey.getHasFactionAccess());
-            existingKey.setApiKey(newKey.getApiKey());
-            existingKey.setFactionId(newKey.getFactionId());
-            existingKey.setQqId(newKey.getQqId());
-            existingKey.setUseCount(newKey.getUseCount());
-        }
+        // 更新 allKeys 映射
+        allKeys.put(newKey.getId(), newKey);
 
-        // 更新QQ映射
-        if (oldKey.getQqId() != null) {
+        // 更新 QQ 映射
+        if (oldKey.getQqId() != null && !Objects.equals(oldKey.getQqId(), newKey.getQqId())) {
             qqKeyMap.remove(oldKey.getQqId());
         }
         if (newKey.getQqId() != null) {
@@ -312,21 +281,15 @@ public class TornApiKeyConfig {
         }
 
         // 更新帮派队列
-        PriorityBlockingQueue<TornApiKeyDO> oldFactionQueue = factionKeysMap.get(oldKey.getFactionId());
-        if (oldFactionQueue != null) {
-            oldFactionQueue.removeIf(k -> k.getId().equals(oldKey.getId()));
+        // 从旧帮派队列移除
+        if (oldKey.getFactionId() != null) {
+            PriorityBlockingQueue<TornApiKeyDO> oldFactionQueue = factionKeysMap.get(oldKey.getFactionId());
+            if (oldFactionQueue != null) {
+                oldFactionQueue.removeIf(k -> k.getId().equals(oldKey.getId()));
+            }
         }
 
-        // 如果帮派ID发生变化，需要从旧帮派队列移除，添加到新帮派队列
-        if (!Objects.equals(oldKey.getFactionId(), newKey.getFactionId())) {
-            PriorityBlockingQueue<TornApiKeyDO> newFactionQueue = factionKeysMap.computeIfAbsent(
-                    newKey.getFactionId(),
-                    k -> new PriorityBlockingQueue<>(32, Comparator.comparingInt(TornApiKeyDO::getUseCount))
-            );
-            newFactionQueue.offer(newKey);
-        } else {
-            // 帮派ID未变化，直接添加到原队列
-            addKeyToQueues(newKey);
-        }
+        // 添加到新帮派队列
+        addKeyToQueues(newKey);
     }
 }

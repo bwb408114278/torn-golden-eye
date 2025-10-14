@@ -86,26 +86,13 @@ public class TornUserDataService {
      * 爬取Key
      */
     public void spiderKey() {
-        try {
-            List<TornApiKeyDO> keyList = keyDao.list();
-            for (TornApiKeyDO oldKey : keyList) {
-                TornApiKeyVO resp = tornApi.sendRequest(new TornApiKeyDTO(oldKey.getApiKey()), null, TornApiKeyVO.class);
-                TornApiKeyDO newKey = new TornApiKeyDO(oldKey.getUserId(), oldKey.getApiKey(), resp.getInfo());
-                if (!oldKey.getFactionId().equals(newKey.getFactionId()) ||
-                        !oldKey.getHasFactionAccess().equals(newKey.getHasFactionAccess())) {
-                    newKey.setId(oldKey.getId());
-                    keyDao.updateById(newKey);
-                }
-
-                Thread.sleep(1000L);
-            }
-
-            keyDao.lambdaUpdate().set(TornApiKeyDO::getUseCount, 0).update();
-            apiKeyConfig.reloadKeyData();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BizException("同步帮派人员的等待时间出错", e);
+        List<TornApiKeyDO> keyList = keyDao.list();
+        for (TornApiKeyDO key : keyList) {
+            updateKeyByRequest(key);
         }
+
+        keyDao.lambdaUpdate().set(TornApiKeyDO::getUseCount, 0).update();
+        apiKeyConfig.reloadKeyData();
     }
 
     /**
@@ -127,6 +114,33 @@ public class TornUserDataService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException("同步帮派人员的等待时间出错", e);
+        }
+    }
+
+    /**
+     * 通过请求更新Key
+     */
+    private void updateKeyByRequest(TornApiKeyDO oldKey) {
+        try {
+            TornApiKeyVO resp = tornApi.sendRequest(new TornApiKeyDTO(oldKey.getApiKey()), null, TornApiKeyVO.class);
+            TornApiKeyDO newKey = new TornApiKeyDO(oldKey.getUserId(), oldKey.getApiKey(), resp.getInfo());
+            if (!oldKey.getFactionId().equals(newKey.getFactionId()) ||
+                    !oldKey.getHasFactionAccess().equals(newKey.getHasFactionAccess())) {
+                newKey.setId(oldKey.getId());
+                keyDao.updateById(newKey);
+            }
+
+            Thread.sleep(1000L);
+        } catch (BizException e) {
+            if (e.getCode() == BotConstants.EX_INVALID_KEY) {
+                apiKeyConfig.invalidateKey(oldKey);
+            } else {
+                apiKeyConfig.returnKey(oldKey);
+                throw e;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException("同步Key的等待时间出错", e);
         }
     }
 

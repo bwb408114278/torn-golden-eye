@@ -13,4 +13,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class BotConstants {
     public static final String ENV_PROD = "prod";
+    /**
+     * 异常: 无效的Key
+     */
+    public static final int EX_INVALID_KEY = 1001;
 }

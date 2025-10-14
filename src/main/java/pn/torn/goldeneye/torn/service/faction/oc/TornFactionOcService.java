@@ -7,7 +7,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
@@ -16,7 +15,6 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
@@ -43,7 +41,6 @@ import java.util.List;
 public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
-    private final TornApiKeyConfig apiKeyConfig;
     private final DynamicTaskService taskService;
     private final TornFactionOcReadyService readyService;
     private final TornFactionOcJoinService joinService;
@@ -107,18 +104,13 @@ public class TornFactionOcService {
     public void refreshOc() {
         List<TornSettingFactionDO> factionList = settingFactionDao.list();
         for (TornSettingFactionDO faction : factionList) {
-            TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
-            if (key != null) {
-                refreshOc(key.getFactionId());
-            }
+            refreshOc(faction.getId());
         }
         scheduleOcTask(LocalDateTime.now());
     }
 
     /**
      * 刷新OC
-     *
-     * @param factionId 帮派ID
      */
     public void refreshOc(long factionId) {
         TornFactionOcVO oc = tornApi.sendRequest(factionId, new TornFactionOcDTO(), TornFactionOcVO.class);
