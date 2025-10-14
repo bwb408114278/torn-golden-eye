@@ -39,7 +39,7 @@ import java.util.List;
  */
 @Service
 @RequiredArgsConstructor
-@Order(10001)
+@Order(10002)
 public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;

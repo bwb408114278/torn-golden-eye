@@ -15,7 +15,6 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
-import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -104,7 +103,6 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
         if (userId == 0L) {
             TornApiKeyDO apiKey = apiKeyDao.lambdaQuery()
                     .eq(TornApiKeyDO::getQqId, sender.getUserId())
-                    .eq(TornApiKeyDO::getUseDate, LocalDate.now())
                     .one();
             userId = apiKey == null ? 0L : apiKey.getUserId();
         }

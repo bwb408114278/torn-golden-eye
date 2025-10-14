@@ -7,7 +7,6 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
@@ -21,8 +20,6 @@ import java.util.List;
  * @since 2025.07.24
  */
 public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
-    @Resource
-    protected TornSettingFactionManager settingFactionManager;
     @Resource
     protected TornUserDAO userDao;
 

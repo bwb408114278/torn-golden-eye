@@ -8,8 +8,6 @@ import pn.torn.goldeneye.constants.torn.enums.key.TornKeyTypeEnum;
 import pn.torn.goldeneye.repository.model.BaseDO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyInfoVO;
 
-import java.time.LocalDate;
-
 /**
  * Torn Api Key表
  *
@@ -54,23 +52,6 @@ public class TornApiKeyDO extends BaseDO {
      * 使用次数
      */
     private Integer useCount;
-    /**
-     * 使用日期
-     */
-    private LocalDate useDate;
-
-    public TornApiKeyDO copyNewData() {
-        TornApiKeyDO key = new TornApiKeyDO();
-        key.setUserId(this.userId);
-        key.setFactionId(this.factionId);
-        key.setQqId(this.qqId);
-        key.setApiKey(this.apiKey);
-        key.setKeyLevel(this.keyLevel);
-        key.setHasFactionAccess(this.hasFactionAccess);
-        key.setUseCount(0);
-        key.setUseDate(LocalDate.now());
-        return key;
-    }
 
     public TornApiKeyDO(long qqId, String apiKey, TornApiKeyInfoVO keyInfo) {
         TornKeyTypeEnum keyType = TornKeyTypeEnum.codeOf(keyInfo.getAccess().getType());
@@ -84,7 +65,6 @@ public class TornApiKeyDO extends BaseDO {
         this.apiKey = apiKey;
         this.keyLevel = keyType.getShortCode();
         this.hasFactionAccess = keyInfo.getAccess().getFaction();
-        this.useCount = 3;
-        this.useDate = LocalDate.now();
+        this.useCount = 0;
     }
 }

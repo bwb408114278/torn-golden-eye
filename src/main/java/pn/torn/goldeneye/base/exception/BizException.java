@@ -13,14 +13,21 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public class BizException extends RuntimeException {
+    private final int code;
     private final String msg;
 
     public BizException(String msg) {
+        this(1, msg);
+    }
+
+    public BizException(int code, String msg) {
+        this.code = code;
         this.msg = msg;
     }
 
     public BizException(String msg, Throwable cause) {
         super(cause);
+        this.code = 1;
         this.msg = msg;
     }
 }

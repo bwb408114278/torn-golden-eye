@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  */
 @Component
 @RequiredArgsConstructor
-@Order(10002)
+@Order(10003)
 public class ItemUsedService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;

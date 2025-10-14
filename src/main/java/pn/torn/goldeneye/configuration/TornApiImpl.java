@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.configuration;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
@@ -48,7 +49,7 @@ class TornApiImpl implements TornApi {
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
 
-        apiKeyConfig.refreshKeyData();
+        apiKeyConfig.reloadKeyData();
     }
 
     @Override
@@ -140,10 +141,19 @@ class TornApiImpl implements TornApi {
             }
 
             if (JsonUtils.existsNode(entity.getBody(), "error")) {
-                throw new BizException("Torn Api报错: " + entity.getBody());
+                log.error("Torn Api报错: {}", entity.getBody());
+                JsonNode node = JsonUtils.getNode(entity.getBody(), "error.code");
+                // 无效的Key
+                if (node != null && node.asInt() == 2) {
+                    throw new BizException(1001, "无效的Key");
+                } else {
+                    return null;
+                }
             }
 
             return JsonUtils.jsonToObj(entity.getBody(), responseType);
+        } catch (BizException e) {
+            throw e;
         } catch (Exception e) {
             return null;
         }

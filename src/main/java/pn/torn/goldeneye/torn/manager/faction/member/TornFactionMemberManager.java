@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
@@ -23,6 +24,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TornFactionMemberManager {
     private final TornUserDAO userDao;
+    private final TornApiKeyDAO keyDao;
     private final TornFactionOcUserDAO ocUserDao;
 
     /**
@@ -32,9 +34,7 @@ public class TornFactionMemberManager {
         List<TornUserDO> newUserList = new ArrayList<>();
 
         List<Long> userIdList = memberList.getMembers().stream().map(TornFactionMemberVO::getId).toList();
-        List<TornUserDO> userList = userDao.lambdaQuery()
-                .eq(TornUserDO::getFactionId, factionId)
-                .in(TornUserDO::getId, userIdList).list();
+        List<TornUserDO> userList = userDao.lambdaQuery().in(TornUserDO::getId, userIdList).list();
 
         for (TornFactionMemberVO member : memberList.getMembers()) {
             TornUserDO oldData = userList.stream().filter(u -> u.getId().equals(member.getId())).findAny().orElse(null);
@@ -66,7 +66,7 @@ public class TornFactionMemberManager {
                         .eq(TornUserDO::getId, user.getId())
                         .eq(TornUserDO::getFactionId, factionId)
                         .update();
-                ocUserDao.updateUserFaction(factionId, user.getId());
+                ocUserDao.updateUserFaction(0L, user.getId());
             }
         }
     }

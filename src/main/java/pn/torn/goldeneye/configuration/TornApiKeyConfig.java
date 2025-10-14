@@ -3,13 +3,10 @@ package pn.torn.goldeneye.configuration;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -26,7 +23,6 @@ import java.util.concurrent.locks.ReentrantLock;
 @Configuration
 @RequiredArgsConstructor
 public class TornApiKeyConfig {
-    private final DynamicTaskService taskService;
     private final TornApiKeyDAO keyDao;
     private final ReentrantLock lock = new ReentrantLock();
     /**
@@ -125,7 +121,7 @@ public class TornApiKeyConfig {
     /**
      * 刷新API KEY数据
      */
-    public void refreshKeyData() {
+    public void reloadKeyData() {
         lock.lock();
         try {
             allKeys.clear();
@@ -133,24 +129,8 @@ public class TornApiKeyConfig {
             qqKeyMap.clear();
             inUseKeyIds.clear();
 
-            LocalDate queryDate = LocalTime.now().isAfter(LocalTime.of(8, 0)) ?
-                    LocalDate.now() : LocalDate.now().plusDays(-1);
-
-            List<TornApiKeyDO> keyList = keyDao.queryListByDate(queryDate);
-            if (CollectionUtils.isEmpty(keyList)) {
-                keyList = keyDao.lambdaQuery().eq(TornApiKeyDO::getUseDate, queryDate.plusDays(-1)).list();
-                List<TornApiKeyDO> newList = keyList.stream().map(TornApiKeyDO::copyNewData).toList();
-                keyDao.saveBatch(newList);
-                keyList = newList;
-            }
-
-            // 将所有Key添加到映射中
-            for (TornApiKeyDO key : keyList) {
-                addKeyToMaps(key);
-            }
-
-            taskService.updateTask("refresh-api", this::refreshKeyData,
-                    LocalDate.now().atTime(8, 1, 0).plusDays(1));
+            List<TornApiKeyDO> keyList = keyDao.list();
+            keyList.forEach(this::addKeyToMaps);
         } finally {
             lock.unlock();
         }

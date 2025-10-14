@@ -6,25 +6,19 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornItemsDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
-import pn.torn.goldeneye.torn.manager.faction.member.TornFactionMemberManager;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.manager.torn.TornStocksManager;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsDTO;
@@ -57,13 +51,11 @@ public class TornBaseDataService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final SysSettingManager settingManager;
-    private final TornFactionMemberManager factionMemberManager;
     private final TornStocksManager stocksManager;
     private final TornItemsManager itemsManager;
     private final TornItemsDAO itemsDao;
     private final TornStocksDAO stocksDao;
     private final SysSettingDAO settingDao;
-    private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
 
     @PostConstruct
@@ -87,7 +79,6 @@ public class TornBaseDataService {
      */
     public void spiderBaseData() {
         try {
-            spiderFactionMember();
             spiderBankRate();
             spiderPointValue();
             spiderItems();
@@ -99,25 +90,6 @@ public class TornBaseDataService {
         } catch (Exception e) {
             // 失败5分钟后重试
             addScheduleTask(LocalDateTime.now().plusMinutes(5));
-        }
-    }
-
-    /**
-     * 爬取帮派成员
-     */
-    public void spiderFactionMember() {
-        List<TornSettingFactionDO> factionList = settingFactionDao.list();
-        for (TornSettingFactionDO faction : factionList) {
-            TornFactionMemberDTO param = new TornFactionMemberDTO(faction.getId());
-            TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-            factionMemberManager.updateFactionMember(faction.getId(), memberList);
-
-            try {
-                Thread.sleep(1000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new BizException("同步帮派人员的等待时间出错", e);
-            }
         }
     }
 
