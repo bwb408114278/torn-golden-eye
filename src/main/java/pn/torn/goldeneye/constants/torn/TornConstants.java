@@ -10,16 +10,12 @@ import java.util.List;
  * Torn常量
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class TornConstants {
     // ====================基础设置相关====================
-    /**
-     * 基础路径
-     */
-    public static final String BASE_URL = "https://api.torn.com";
     /**
      * 基础路径
      */

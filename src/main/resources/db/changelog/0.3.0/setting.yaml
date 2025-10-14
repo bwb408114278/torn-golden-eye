@@ -35,3 +35,33 @@ databaseChangeLog:
               SET faction_alias = 'NOV,Nov.',
                   faction_short_name = 'NOV'
               WHERE id = 16335;
+
+  - changeSet:
+      id: remove_key_use_date
+      author: Bai
+      changes:
+        - sql:
+            sql: |
+              UPDATE torn_api_key SET deleted = 1 WHERE use_date < '2025-10-14'
+        - dropColumn:
+            tableName: torn_api_key
+            columns:
+              - column:
+                  name: use_date
+
+  - changeSet:
+      id: split_user_and_base_data
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '19'
+              - column:
+                  name: setting_key
+                  value: 'USER_DATA_LOAD_DATE'
+              - column:
+                  name: setting_value
+                  value: '2025-10-14'

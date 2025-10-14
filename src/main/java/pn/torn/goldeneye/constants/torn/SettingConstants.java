@@ -30,6 +30,10 @@ public class SettingConstants {
     public static final String KEY_POINT_VALUE = "POINT_VALUE";
 
     /**
+     * 配置Key - 用户数据读取时间
+     */
+    public static final String KEY_USER_DATA_LOAD = "USER_DATA_LOAD_DATE";
+    /**
      * 配置Key - 基础数据读取时间
      */
     public static final String KEY_BASE_DATA_LOAD = "BASE_DATA_LOAD_DATE";

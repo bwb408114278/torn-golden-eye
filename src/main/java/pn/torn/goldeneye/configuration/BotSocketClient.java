@@ -305,7 +305,7 @@ public class BotSocketClient {
         }
 
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
-            if (projectProperty.getGroupId() == msg.getGroupId() && strategy.getCommand().equals(msgArray[1])) {
+            if (strategy.getCommand().equals(msgArray[1])) {
                 GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
                 if (strategy.isNeedAdmin() && !settingManager.getSysAdmin().contains(msg.getUserId())) {
                     builder.addMsg(new TextQqMsg("没有对应的权限"));

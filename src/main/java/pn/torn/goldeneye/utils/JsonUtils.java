@@ -94,4 +94,26 @@ public class JsonUtils {
             throw new BizException("Json节点是否存在异常", e);
         }
     }
+
+    /**
+     * 从JSON字符串中获取指定路径的节点
+     *
+     * @param json JSON字符串
+     * @param path 节点路径
+     * @return JsonNode（如果节点不存在返回null）
+     */
+    public static JsonNode getNode(String json, String path) {
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            String[] keys = path.split("\\.");
+            JsonNode node = root;
+            for (String key : keys) {
+                if (node == null || !node.isObject()) break;
+                node = node.get(key);
+            }
+            return node;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }
