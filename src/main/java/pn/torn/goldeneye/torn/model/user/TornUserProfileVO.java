@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.model.user;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
@@ -27,8 +28,7 @@ public class TornUserProfileVO {
     /**
      * 注册日期
      */
-    @JsonProperty("signed_up")
-    private LocalDateTime signedUp;
+    private Long signedUp;
     /**
      * 所在帮派
      */
@@ -40,7 +40,7 @@ public class TornUserProfileVO {
         user.setId(this.id);
         user.setNickname(this.name);
         user.setFactionId(this.factionId == null ? 0 : this.factionId);
-        user.setRegisterTime(DateTimeUtils.convertLocalTime(this.signedUp));
+        user.setRegisterTime(DateTimeUtils.convertToDateTime(this.signedUp));
         return user;
     }
 }
