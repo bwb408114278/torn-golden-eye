@@ -107,10 +107,6 @@ public class TornUserDataService {
                 factionMemberManager.updateFactionMember(faction.getId(), memberList);
                 Thread.sleep(1000L);
             }
-
-            LocalDate to = LocalDate.now();
-            settingDao.updateSetting(SettingConstants.KEY_BASE_DATA_LOAD, DateTimeUtils.convertToString(to));
-            addScheduleTask(to.plusDays(1).atTime(8, 1, 0));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BizException("同步帮派人员的等待时间出错", e);
@@ -123,7 +119,7 @@ public class TornUserDataService {
     private void updateKeyByRequest(TornApiKeyDO oldKey) {
         try {
             TornApiKeyVO resp = tornApi.sendRequest(new TornApiKeyDTO(oldKey.getApiKey()), null, TornApiKeyVO.class);
-            TornApiKeyDO newKey = new TornApiKeyDO(oldKey.getUserId(), oldKey.getApiKey(), resp.getInfo());
+            TornApiKeyDO newKey = new TornApiKeyDO(oldKey.getQqId(), oldKey.getApiKey(), resp.getInfo());
             if (!oldKey.getFactionId().equals(newKey.getFactionId()) ||
                     !oldKey.getHasFactionAccess().equals(newKey.getHasFactionAccess())) {
                 newKey.setId(oldKey.getId());

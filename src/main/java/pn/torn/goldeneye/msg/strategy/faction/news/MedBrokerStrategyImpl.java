@@ -6,7 +6,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.ItemUseRankingDO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
@@ -24,7 +24,7 @@ import java.util.List;
  * 小红毁灭者策略实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 @Component

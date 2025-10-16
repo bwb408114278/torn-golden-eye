@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.strategy;
+package pn.torn.goldeneye.msg.strategy.base;
 
 import jakarta.annotation.Resource;
 import org.springframework.util.StringUtils;
@@ -22,6 +22,15 @@ import java.util.List;
 public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
     @Resource
     protected TornUserDAO userDao;
+
+    /**
+     * 群定制功能的群号
+     *
+     * @return 群号
+     */
+    public long getCustomGroupId() {
+        return 0L;
+    }
 
     /**
      * 是否需要管理员权限

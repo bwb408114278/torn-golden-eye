@@ -8,7 +8,7 @@ import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;

@@ -9,7 +9,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
@@ -31,7 +31,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class TornStocksDividendStrategyImpl extends PnMsgStrategy {
+public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
     private final TornApiKeyConfig apiKeyConfig;
     private final TornApi tornApi;
     private final StocksDividendOptimizerManager stocksDividendOptimizerManager;

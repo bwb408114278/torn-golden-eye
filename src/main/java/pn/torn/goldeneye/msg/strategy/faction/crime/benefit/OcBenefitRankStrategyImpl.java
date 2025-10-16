@@ -1,11 +1,11 @@
-package pn.torn.goldeneye.msg.strategy.faction.crime;
+package pn.torn.goldeneye.msg.strategy.faction.crime.benefit;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
@@ -29,7 +29,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class OcBenefitRankStrategyImpl extends PnMsgStrategy {
+public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcBenefitDAO benefitDao;
     private final TornSettingFactionDAO settingFactionDao;
 

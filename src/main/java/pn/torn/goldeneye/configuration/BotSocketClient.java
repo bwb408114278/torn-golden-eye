@@ -21,8 +21,8 @@ import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.PrivateMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
-import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
-import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.manage.DocStrategyImpl;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.utils.JsonUtils;
@@ -306,6 +306,11 @@ public class BotSocketClient {
 
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
             if (strategy.getCommand().equals(msgArray[1])) {
+                // 不是特定群的功能，直接返回
+                if (strategy.getCustomGroupId() != 0 && strategy.getCustomGroupId() != msg.getGroupId()) {
+                    return;
+                }
+
                 GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
                 if (strategy.isNeedAdmin() && !settingManager.getSysAdmin().contains(msg.getUserId())) {
                     builder.addMsg(new TextQqMsg("没有对应的权限"));

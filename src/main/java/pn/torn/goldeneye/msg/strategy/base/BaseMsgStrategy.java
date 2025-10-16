@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.strategy;
+package pn.torn.goldeneye.msg.strategy.base;
 
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
