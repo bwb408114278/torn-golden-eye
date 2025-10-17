@@ -11,12 +11,12 @@ import java.util.List;
  * 群聊消息请求参数
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.06.22
  */
 @Data
 @AllArgsConstructor
-class GroupMsgReqParam {
+public class GroupMsgReqParam {
     /**
      * 群号
      */

@@ -9,7 +9,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  * Torn设置帮派表
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.08.28
  */
 @Data
@@ -32,4 +32,16 @@ public class TornSettingFactionDO extends BaseDO {
      * 帮派别名
      */
     private String factionAlias;
+    /**
+     * QQ群号
+     */
+    private Long groupId;
+    /**
+     * 群聊管理员ID
+     */
+    private String groupAdminIds;
+    /**
+     * 是否屏蔽消息
+     */
+    private Boolean msgBlock;
 }

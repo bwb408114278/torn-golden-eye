@@ -14,13 +14,18 @@ import java.util.List;
  * 获取Oc策略实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 @Component
 @RequiredArgsConstructor
 public class OcCheckStrategyImpl extends BaseGroupMsgStrategy {
     private final TornFactionOcService ocService;
+
+    @Override
+    public boolean isNeedSa() {
+        return true;
+    }
 
     @Override
     public String getCommand() {

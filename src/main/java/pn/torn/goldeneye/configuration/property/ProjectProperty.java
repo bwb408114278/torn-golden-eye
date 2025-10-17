@@ -4,11 +4,13 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * 项目属性
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.10
  */
 @Data
@@ -23,4 +25,8 @@ public class ProjectProperty {
      * 群号
      */
     private long groupId;
+    /**
+     * 管理员ID
+     */
+    private List<Long> adminId;
 }

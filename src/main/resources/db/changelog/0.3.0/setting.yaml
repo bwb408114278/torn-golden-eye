@@ -65,3 +65,40 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2025-10-14'
+
+  - changeSet:
+      id: split_faction_admin
+      author: Bai
+      changes:
+        - delete:
+            tableName: sys_setting
+            where: id IN (15, 16)
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: group_id
+                  type: BIGINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "QQ群号"
+              - column:
+                  name: group_admin_ids
+                  type: VARCHAR(128)
+                  defaultValue: ""
+                  constraints:
+                    nullable: false
+                  remarks: "群聊管理员ID"
+              - column:
+                  name: msg_block
+                  type: BOOLEAN
+                  defaultValueComputed: 'false'
+                  constraints:
+                    nullable: false
+                  remarks: "是否屏蔽消息"
+        - sql:
+            sql: |
+              UPDATE torn_setting_faction SET group_id = 818347578, group_admin_ids = '2722896589,2246839' WHERE id = 20465;
+              UPDATE torn_setting_faction SET group_id = 966670136, group_admin_ids = '1219769164' WHERE id = 27902;
+              UPDATE torn_setting_faction SET group_id = 798645562, group_admin_ids = '48341572' WHERE id = 11796;

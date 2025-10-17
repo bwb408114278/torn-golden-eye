@@ -14,13 +14,18 @@ import java.util.List;
  * 更新缓存策略实现类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.17
  */
 @Component
 @RequiredArgsConstructor
 public class RefreshCacheStrategyImpl extends BaseGroupMsgStrategy {
     private final List<DataCacheManager> cacheManagerList;
+
+    @Override
+    public boolean isNeedSa() {
+        return true;
+    }
 
     @Override
     public String getCommand() {

@@ -21,13 +21,18 @@ import java.util.Map;
  * 获取当前任务策略实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.06
  */
 @Component
 @RequiredArgsConstructor
 public class CurrentTaskStrategyImpl extends BaseGroupMsgStrategy {
     private final DynamicTaskService taskService;
+
+    @Override
+    public boolean isNeedSa() {
+        return true;
+    }
 
     @Override
     public String getCommand() {

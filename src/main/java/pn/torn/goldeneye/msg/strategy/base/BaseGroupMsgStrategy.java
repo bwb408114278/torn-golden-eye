@@ -42,6 +42,15 @@ public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
     }
 
     /**
+     * 是否需要超管权限
+     *
+     * @return true为需要超管
+     */
+    public boolean isNeedSa() {
+        return false;
+    }
+
+    /**
      * 处理消息
      *
      * @param groupId 群聊ID
