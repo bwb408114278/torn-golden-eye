@@ -297,15 +297,12 @@ public class BotSocketClient {
      */
     private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
         TornSettingFactionDO faction = factionManager.getGroupIdMap().get(msg.getGroupId());
-        if (faction == null || faction.getMsgBlock()) {
-            return;
-        }
 
         if (!StringUtils.hasText(msgArray[1])) {
             GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
             List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, docStrategy);
             paramList.forEach(builder::addMsg);
-            replyMsg(builder.build());
+            replyMsg(faction, builder.build());
             return;
         }
 
@@ -323,8 +320,9 @@ public class BotSocketClient {
                     List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, strategy);
                     paramList.forEach(builder::addMsg);
                 }
-
-                replyMsg(builder.build());
+                // 从缓存中重新取一遍，防止修改禁言状态后取得值不对
+                faction = factionManager.getGroupIdMap().get(msg.getGroupId());
+                replyMsg(faction, builder.build());
                 break;
             }
         }
@@ -341,7 +339,7 @@ public class BotSocketClient {
                 if (!CollectionUtils.isEmpty(paramList)) {
                     PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
                     paramList.forEach(builder::addMsg);
-                    replyMsg(builder.build());
+                    replyMsg(true, builder.build());
                 }
                 break;
             }
@@ -384,8 +382,17 @@ public class BotSocketClient {
     /**
      * 回复消息
      */
-    private void replyMsg(BotSocketReqParam param) {
-        Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
+    private void replyMsg(TornSettingFactionDO faction, BotSocketReqParam param) {
+        replyMsg(faction != null && !faction.getMsgBlock(), param);
+    }
+
+    /**
+     * 回复消息
+     */
+    private void replyMsg(boolean valid, BotSocketReqParam param) {
+        if (valid) {
+            Thread.ofVirtual().name("msg-processor", System.nanoTime()).start(() -> sendMessage(param));
+        }
     }
 
     /**
