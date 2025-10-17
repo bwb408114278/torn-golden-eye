@@ -1,0 +1,11 @@
+apiVersion: 1
+contactPoints:
+    - orgId: 1
+      name: Golden Eye Developer
+      receivers:
+        - uid: ff17i0k8laf40e
+          type: email
+          settings:
+            addresses: 408114278@qq.com
+            singleEmail: false
+          disableResolveMessage: false

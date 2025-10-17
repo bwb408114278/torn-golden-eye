@@ -17,7 +17,7 @@ services:
     ports:
       - 13131:3100
     volumes:
-      - ${LOKI_DIR}/local-config.yaml:/etc/loki/local-config.yaml
+      - ${LOKI_DIR}/config/local-config.yaml:/etc/loki/local-config.yaml
       - ${LOKI_DIR}/data/chunks:/loki/chunks
       - ${LOKI_DIR}/data/rules:/loki/rules
     command: -config.file=/etc/loki/local-config.yaml

@@ -88,7 +88,7 @@ class TornApiImpl implements TornApi {
                     : apiKeyConfig.getFactionKey(factionId, param.needFactionAccess());
 
             if (apiKey == null) {
-                log.error("无法获取可用的API Key (帮派ID: {}), 终止请求。", factionId);
+                log.warn("无法获取可用的API Key (帮派ID: {}), 终止请求。", factionId);
                 return null;
             }
 
