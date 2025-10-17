@@ -27,6 +27,10 @@ public class CacheConstants {
      */
     public static final String KEY_TORN_SETTING_FACTION = "torn:setting:faction";
     /**
+     * 帮派ID设置Key
+     */
+    public static final String KEY_TORN_SETTING_FACTION_GROUP_ID = "torn:setting:faction:group";
+    /**
      * 帮派别名设置Key
      */
     public static final String KEY_TORN_SETTING_FACTION_ALIAS = "torn:setting:faction:alias";

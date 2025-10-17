@@ -7,19 +7,11 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class SettingConstants {
-    /**
-     * 系统管理员Key
-     */
-    public static final String KEY_ADMIN = "SYS_ADMIN";
-    /**
-     * 是否屏蔽聊天
-     */
-    public static final String KEY_BLOCK_CHAT = "IS_BLOCK_CHAT";
     /**
      * 银行利率
      */

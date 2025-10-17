@@ -6,15 +6,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-
-import java.util.Optional;
+import pn.torn.goldeneye.msg.send.GroupMsgReqParam;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 
 /**
  * 机器人类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.06.22
  */
 @Slf4j
@@ -26,25 +26,28 @@ class BotImpl implements Bot {
     /**
      * 系统设置
      */
-    private final SysSettingManager settingManager;
+    private final TornSettingFactionManager factionManager;
 
-    public BotImpl(String serverAddr, String serverPort, String serverToken, SysSettingManager settingManager) {
+    public BotImpl(String serverAddr, String serverPort, String serverToken, TornSettingFactionManager factionManager) {
         this.restClient = RestClient.builder()
                 .baseUrl("http://" + serverAddr + ":" + serverPort)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, serverToken)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
-        this.settingManager = settingManager;
+        this.factionManager = factionManager;
     }
 
     @Override
     public <T> ResponseEntity<T> sendRequest(BotHttpReqParam param, Class<T> responseType) {
-        if (settingManager.getIsBlockChat()) {
-            return ResponseEntity.of(Optional.empty());
-        }
-
         try {
+            if (param.body() instanceof GroupMsgReqParam msg) {
+                TornSettingFactionDO faction = factionManager.getGroupIdMap().get(msg.getGroupId());
+                if (faction == null || faction.getMsgBlock()) {
+                    return null;
+                }
+            }
+
             RestClient.RequestBodySpec request = this.restClient
                     .method(param.method())
                     .uri(param.uri());

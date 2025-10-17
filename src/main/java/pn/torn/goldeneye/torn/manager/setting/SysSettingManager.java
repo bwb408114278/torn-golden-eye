@@ -7,17 +7,13 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
-import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * 系统设置公共逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.17
  */
 @Component
@@ -49,27 +45,5 @@ public class SysSettingManager implements DataCacheManager {
     @Cacheable(value = CacheConstants.KEY_SYS_SETTING, key = "#settingKey")
     public String getSettingValue(String settingKey) {
         return settingDao.querySettingValue(settingKey);
-    }
-
-    /**
-     * 获取系统管理员列表
-     *
-     * @return 管理员QQ号列表
-     */
-    @Cacheable(value = CacheConstants.KEY_SYS_SETTING,
-            key = "T(pn.torn.goldeneye.constants.torn.SettingConstants).KEY_ADMIN")
-    public List<Long> getSysAdmin() {
-        String adminIdStr = settingDao.querySettingValue(SettingConstants.KEY_ADMIN);
-        return Arrays.stream(adminIdStr.split(",")).map(Long::parseLong).toList();
-    }
-
-    /**
-     * 获取是否屏蔽聊天
-     */
-    @Cacheable(value = CacheConstants.KEY_SYS_SETTING,
-            key = "T(pn.torn.goldeneye.constants.torn.SettingConstants).KEY_BLOCK_CHAT")
-    public boolean getIsBlockChat() {
-        String isBlockStr = settingDao.querySettingValue(SettingConstants.KEY_BLOCK_CHAT);
-        return Boolean.parseBoolean(isBlockStr);
     }
 }

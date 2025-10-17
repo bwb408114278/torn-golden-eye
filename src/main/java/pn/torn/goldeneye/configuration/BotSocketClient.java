@@ -24,12 +24,14 @@ import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.manage.DocStrategyImpl;
-import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -79,9 +81,9 @@ public class BotSocketClient {
     @Resource
     private DocStrategyImpl docStrategy;
     @Resource
-    private ProjectProperty projectProperty;
+    private TornSettingFactionManager factionManager;
     @Resource
-    private SysSettingManager settingManager;
+    private ProjectProperty projectProperty;
 
     @PostConstruct
     public void init() {
@@ -137,8 +139,6 @@ public class BotSocketClient {
     public void sendMessage(BotSocketReqParam param) {
         if (!isConnected.get() || session == null) {
             log.error("发送失败: 连接未就绪");
-            return;
-        } else if (settingManager.getIsBlockChat()) {
             return;
         }
 
@@ -268,7 +268,7 @@ public class BotSocketClient {
             return;
         }
 
-        String[] msgArray = msg.getMessage().get(0).getData().getText().split("#", 3);
+        String[] msgArray = msg.getMessage().getFirst().getData().getText().split("#", 3);
         if (msgArray.length < 2) {
             return;
         }
@@ -288,14 +288,19 @@ public class BotSocketClient {
      */
     private boolean isCommandMsg(QqRecMsg msg) {
         return msg.getMessage().size() == 1 &&
-                "text".equals(msg.getMessage().get(0).getType()) &&
-                msg.getMessage().get(0).getData().getText().startsWith("g#");
+                "text".equals(msg.getMessage().getFirst().getType()) &&
+                msg.getMessage().getFirst().getData().getText().startsWith("g#");
     }
 
     /**
      * 处理群聊消息
      */
     private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
+        TornSettingFactionDO faction = factionManager.getGroupIdMap().get(msg.getGroupId());
+        if (faction == null || faction.getMsgBlock()) {
+            return;
+        }
+
         if (!StringUtils.hasText(msgArray[1])) {
             GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
             List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, docStrategy);
@@ -312,7 +317,7 @@ public class BotSocketClient {
                 }
 
                 GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
-                if (strategy.isNeedAdmin() && !settingManager.getSysAdmin().contains(msg.getUserId())) {
+                if (invalidAdmin(msg.getUserId(), strategy, faction)) {
                     builder.addMsg(new TextQqMsg("没有对应的权限"));
                 } else {
                     List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, strategy);
@@ -352,6 +357,28 @@ public class BotSocketClient {
         } catch (BizException e) {
             return strategy.buildTextMsg(e.getMsg());
         }
+    }
+
+    /**
+     * 校验管理员
+     *
+     * @return true为没有管理员权限
+     */
+    private boolean invalidAdmin(long userId, BaseGroupMsgStrategy strategy, TornSettingFactionDO faction) {
+        if (projectProperty.getAdminId().contains(userId)) {
+            return false;
+        } else if (strategy.isNeedSa()) {
+            return true;
+        }
+
+        if (!strategy.isNeedAdmin()) {
+            return false;
+        }
+
+        List<Long> adminIdList = faction != null && faction.getGroupAdminIds() != null ?
+                Arrays.stream(faction.getGroupAdminIds().split(",")).map(Long::parseLong).toList() :
+                List.of();
+        return !adminIdList.contains(userId);
     }
 
     /**
