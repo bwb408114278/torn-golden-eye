@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.strategy;
+package pn.torn.goldeneye.msg.strategy.base;
 
 /**
  * 私聊消息策略

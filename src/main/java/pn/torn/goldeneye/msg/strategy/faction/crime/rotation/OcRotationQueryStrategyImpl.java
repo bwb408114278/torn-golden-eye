@@ -7,7 +7,7 @@ import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -20,7 +20,7 @@ import java.util.List;
  * 获取OC轮转队实现类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.01
  */
 @Component

@@ -8,7 +8,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornOcPositionAliasEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
  */
 @Component
 @RequiredArgsConstructor
-public class OcMemberStrategyImpl extends PnMsgStrategy {
+public class OcMemberStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcUserManager userManager;
 
     @Override

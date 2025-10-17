@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.strategy.manage.block;
+package pn.torn.goldeneye.msg.strategy.faction.crime.block;
 
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -8,7 +8,7 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
-import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.PnManageMsgStrategy;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 
 import java.util.List;
@@ -17,10 +17,10 @@ import java.util.List;
  * 屏蔽聊天设置抽象实现类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.09.18
  */
-public abstract class BaseBlockChatStrategyImpl extends BaseGroupMsgStrategy {
+public abstract class BaseBlockChatStrategyImpl extends PnManageMsgStrategy {
     @Resource
     private SysSettingManager settingManager;
     @Resource

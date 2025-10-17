@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
@@ -30,7 +30,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class OcRateQueryStrategyImpl extends PnMsgStrategy {
+public class OcRateQueryStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcMsgTableManager msgTableManager;
     private final TornFactionOcUserDAO ocUserDao;
     private final TornSettingOcManager settingOcManager;

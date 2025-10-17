@@ -9,7 +9,7 @@ import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -28,7 +28,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class OcQueryStrategyImpl extends PnMsgStrategy {
+public class OcQueryStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;

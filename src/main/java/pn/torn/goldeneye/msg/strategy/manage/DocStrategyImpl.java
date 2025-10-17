@@ -6,10 +6,10 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.BaseGroupMsgStrategy;
-import pn.torn.goldeneye.msg.strategy.BaseMsgStrategy;
-import pn.torn.goldeneye.msg.strategy.BasePrivateMsgStrategy;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.BaseMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 
 import java.util.List;
 
@@ -17,12 +17,12 @@ import java.util.List;
  * 获取指令手册
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.15
  */
 @Component
 @RequiredArgsConstructor
-public class DocStrategyImpl extends PnMsgStrategy {
+public class DocStrategyImpl extends SmthMsgStrategy {
     private final ApplicationContext applicationContext;
 
     @Override
@@ -45,7 +45,8 @@ public class DocStrategyImpl extends PnMsgStrategy {
         List<BaseGroupMsgStrategy> groupStrategyList = applicationContext
                 .getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
-                .filter(strategy -> !(strategy instanceof DocStrategyImpl))
+                .filter(s -> !(s instanceof DocStrategyImpl))
+                .filter(s -> s.getCustomGroupId() == 0L || groupId == s.getCustomGroupId())
                 .toList();
 
         StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");

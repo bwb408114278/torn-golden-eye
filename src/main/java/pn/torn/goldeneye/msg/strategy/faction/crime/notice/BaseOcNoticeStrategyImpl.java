@@ -5,13 +5,14 @@ import lombok.RequiredArgsConstructor;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcNoticeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcNoticeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.torn.TornUserUtils;
 
@@ -49,6 +50,10 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
         long userId = findUserId(sender);
         if (userId == 0L) {
             return super.buildTextMsg("金蝶不认识你哦");
+        }
+        TornUserDO user = userDao.getById(userId);
+        if (user == null || !user.getFactionId().equals(projectProperty.getGroupId())) {
+            return super.buildTextMsg("该功能只支持开放轮转队的帮派成员使用");
         }
 
         if (!checkPassRate(userId, rank)) {
