@@ -22,63 +22,44 @@
   "links": [],
   "panels": [
     {
-      "datasource": {
-        "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 14,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "dedupStrategy": "none",
-        "enableInfiniteScrolling": false,
-        "enableLogDetails": true,
-        "prettifyLogMessage": false,
-        "showCommonLabels": false,
-        "showLabels": false,
-        "showTime": false,
-        "sortOrder": "Descending",
-        "wrapLogMessage": false
-      },
+      "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 10, "gradientMode": "none", "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "red", "value": 80 }] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
       "pluginVersion": "12.0.2",
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
-          },
-          "direction": "backward",
-          "editorMode": "code",
-          "expr": "{app=\"golden-eye\"}",
-          "queryType": "range",
-          "refId": "A"
-        }
-      ],
-      "title": "Golden Eye",
+      "targets": [ { "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" }, "editorMode": "code", "expr": "sum(count_over_time({app=\"golden-eye\"} |= \"ERROR\" [5m]))", "queryType": "range", "refId": "A" } ],
+      "title": "Golden Eye Errors (5m sliding window)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+      "gridPos": { "h": 14, "w": 12, "x": 12, "y": 8 },
+      "id": 1,
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": false, "sortOrder": "Descending", "wrapLogMessage": false },
+      "pluginVersion": "12.0.2",
+      "targets": [ { "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" }, "editorMode": "code", "expr": "{app=\"golden-eye\"}", "queryType": "range", "refId": "A" } ],
+      "title": "Golden Eye - All Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+      "gridPos": { "h": 14, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": false, "sortOrder": "Descending", "wrapLogMessage": false },
+      "pluginVersion": "12.0.2",
+      "targets": [ { "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" }, "editorMode": "code", "expr": "{app=\"golden-eye\"} |= \"ERROR\"", "queryType": "range", "refId": "A" } ],
+      "title": "Golden Eye - Error Logs",
       "type": "logs"
     }
   ],
-  "preload": false,
   "schemaVersion": 41,
   "tags": [],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-6h",
-    "to": "now"
-  },
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Gloden Eye",
+  "title": "Golden Eye",
   "uid": "e6fe41a6-1a88-4ab5-8148-f007fbc79406",
-  "version": 2
+  "version": 4
 }
