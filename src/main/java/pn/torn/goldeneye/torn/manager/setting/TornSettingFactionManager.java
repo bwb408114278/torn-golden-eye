@@ -7,7 +7,9 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 
@@ -27,6 +29,7 @@ import java.util.Map;
 @Slf4j
 public class TornSettingFactionManager implements DataCacheManager {
     private final TornSettingFactionDAO settingFactionDao;
+    private final ProjectProperty projectProperty;
 
     @Override
     @Caching(evict = {
@@ -50,6 +53,12 @@ public class TornSettingFactionManager implements DataCacheManager {
             if (faction.getGroupId() > 0L) {
                 resultMap.put(faction.getGroupId(), faction);
             }
+        }
+
+        // 开发环境专供
+        if (!resultMap.containsKey(projectProperty.getGroupId())) {
+            TornSettingFactionDO pn = settingFactionDao.getById(TornConstants.FACTION_PN_ID);
+            resultMap.put(projectProperty.getGroupId(), pn);
         }
 
         return resultMap;
