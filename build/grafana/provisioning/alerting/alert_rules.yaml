@@ -1,55 +1,32 @@
 apiVersion: 1
 groups:
     - orgId: 1
-      name: 'Golden-Eye '
+      name: Database
       folder: Alert
       interval: 1m
       rules:
-        - uid: ff17jqpe4hhq8a
-          title: Golden Eye Errors
+        - uid: ef1f6a7hjsuf4f
+          title: Database Slow Query
           condition: C
           data:
             - refId: A
               queryType: range
               relativeTimeRange:
-                from: 21600
+                from: 300
                 to: 0
               datasourceUid: P8E80F9AEF21F6940
               model:
-                datasource:
-                    type: loki
-                    uid: P8E80F9AEF21F6940
-                direction: backward
                 editorMode: code
-                expr: sum(count_over_time({app="golden-eye"} |= "ERROR" [5m]))
-                instant: true
-                intervalMs: 1000
-                maxDataPoints: 43200
+                expr: "sum by (query_text) (\n  count_over_time(\n    {container=\"pgsql\"}\n    | regexp `(?s).*duration:\\s+(?<duration_ms>[\\d\\.]+) ms\\s+statement:\\s+(?<query_text>.*)`\n    | __error__=\"\"\n    | duration_ms > 1000\n    [5m]\n  )\n)"
                 queryType: range
-                range: false
                 refId: A
             - refId: B
               datasourceUid: __expr__
               model:
-                conditions:
-                    - evaluator:
-                        params: []
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                            - B
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
                 datasource:
                     type: __expr__
                     uid: __expr__
                 expression: A
-                intervalMs: 1000
-                maxDataPoints: 43200
                 reducer: last
                 refId: B
                 type: reduce
@@ -74,20 +51,71 @@ groups:
                     type: __expr__
                     uid: __expr__
                 expression: B
-                intervalMs: 1000
-                maxDataPoints: 43200
                 refId: C
                 type: threshold
-          dashboardUid: e6fe41a6-1a88-4ab5-8148-f007fbc79406
-          panelId: 2
-          noDataState: NoData
+          noDataState: OK
           execErrState: Error
           for: 1m
           annotations:
-            __dashboardUid__: e6fe41a6-1a88-4ab5-8148-f007fbc79406
-            __panelId__: "2"
-            description: 在过去5分钟内，检测到 {{$values.B}} 条错误日志。
-            summary: Golden Eye出现异常
+            summary: '检测到数据库慢查询'
+            description: '在过去5分钟内检测到慢查询（执行时间>1000ms）。慢查询次数: {{ $values.B.Value }}'
+          isPaused: false
+          notification_settings:
+            receiver: Golden Eye Developer
+            
+    - orgId: 1
+      name: 'Golden-Eye '
+      folder: Alert
+      interval: 1m
+      rules:
+        - uid: ff17jqpe4hhq8a
+          title: Golden Eye Errors
+          condition: C
+          data:
+            - refId: A
+              queryType: range
+              relativeTimeRange:
+                from: 300
+                to: 0
+              datasourceUid: P8E80F9AEF21F6940
+              model:
+                editorMode: code
+                expr: sum(count_over_time({app="golden-eye"} |= "ERROR" [5m]))
+                queryType: range
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                expression: B
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 1m
+          annotations:
+            summary: 'Golden Eye应用出现错误'
+            description: '在过去5分钟内检测到 {{ $values.B.Value }} 条ERROR级别日志'
           isPaused: false
           notification_settings:
             receiver: Golden Eye Developer
