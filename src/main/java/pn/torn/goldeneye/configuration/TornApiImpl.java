@@ -75,6 +75,8 @@ class TornApiImpl implements TornApi {
             if (e.getCode() == BotConstants.EX_INVALID_KEY && apiKey != null) {
                 log.warn("调用者指定的API Key(ID:{}) 已失效，将作废该Key并向上抛出异常。", apiKey.getId());
                 apiKeyConfig.invalidateKey(apiKey);
+            } else {
+                apiKeyConfig.returnKey(apiKey);
             }
             throw e;
         } catch (Exception e) {

@@ -54,7 +54,7 @@ public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
             return super.sendErrorFormatMsg();
         }
 
-        TornApiKeyDO key = apiKeyConfig.getKeyByQqId(63420118);
+        TornApiKeyDO key = apiKeyConfig.getKeyByQqId(sender.getUserId());
         if (key == null) {
             return super.buildTextMsg("这个人还没有绑定Key哦");
         }
