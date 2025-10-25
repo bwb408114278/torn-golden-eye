@@ -38,6 +38,8 @@ public class JsonUtils {
         MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         // 取消默认转换timestamps形式
         MAPPER.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+        // 空数组设置为空对象
+        MAPPER.configure(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT, true);
         // 指定时区
         MAPPER.setTimeZone(TimeZone.getTimeZone("GMT+8:00"));
 

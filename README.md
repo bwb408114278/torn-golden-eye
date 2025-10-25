@@ -6,19 +6,20 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 
 ## 当前技术栈
 
-| 名称           | 版本      | 作用        | 集成状态 | 
-|:-------------|:--------|:----------|------|
-| JDK          | 21      | 语言能力      | 已集成  |
-| SpringBoot   | 3.5.3   | 基础框架      | 已集成  |
-| NapCat       | 4.8.119 | 机器人框架     | 已集成  |
-| Docker       | 28.3.0  | 容器        | 已集成  |
-| Tyrus        | 2.1.5   | Websocket | 已集成  |
-| Logback      | 1.5.18  | 日志框架      | 已集成  |
-| Loki         | 3.5.2   | 日志采集      | 已集成  |
-| Grafana      | 12.0.2  | 监控平台      | 已集成  |
-| PostgreSql   | 17.5    | 数据库       | 已集成  |
-| Liquibase    | 4.31.0  | 数据库迭代     | 已集成  |
-| Mybatis Plus | 3.5.12  | ORM       | 已集成  |
+| 名称            | 版本       | 作用        | 集成状态 | 
+|:--------------|:---------|:----------|------|
+| JDK           | 21       | 语言能力      | 已集成  |
+| SpringBoot    | 3.5.3    | 基础框架      | 已集成  |
+| NapCat        | 4.8.119  | 机器人框架     | 已集成  |
+| Docker        | 28.3.0   | 容器        | 已集成  |
+| Tyrus         | 2.1.5    | Websocket | 已集成  |
+| Logback       | 1.5.18   | 日志框架      | 已集成  |
+| Loki          | 3.5.2    | 日志收集      | 已集成  |
+| Grafana Alloy | v.1.11.2 | 日志采集      | 已集成  |
+| Grafana       | 12.0.2   | 监控平台      | 已集成  |
+| PostgreSql    | 17.5     | 数据库       | 已集成  |
+| Liquibase     | 4.31.0   | 数据库迭代     | 已集成  |
+| Mybatis Plus  | 3.5.12   | ORM       | 已集成  |
 
 ## 启动方式
 
@@ -40,6 +41,7 @@ docker-compose up -d --scale golden-eye=0
 ```
 docker logs napcat
 ```
+
 5. 手动创建数据库`golden-eye`
 
 6. 控制台运行以下命令启动金眼
@@ -60,6 +62,24 @@ docker compose up -d golden-eye
   docker pull maven:3.9.10-amazoncorretto-21
   docker pull openjdk:21-jdk-slim
   ```
+
+> 没有捕获到慢Sql日志
+
+- 需要修改`postgresql.conf`文件，修改日志配置，由于配置过多未附在build文件夹下，以下是需要改动的部分:
+
+```
+log_destination = 'stderr'
+logging_collector = on
+log_directory = '/var/log/postgresql'
+log_filename = 'postgresql-%Y-%m-%d.log'
+log_rotation_age = 1d
+log_rotation_size = 10MB
+log_truncate_on_rotation = on
+log_min_duration_statement = 1000
+log_line_prefix = '%t [%p]: [%l-1] '
+log_statement = 'none'
+log_timezone = 'Asia/Shanghai'
+```
 
 > 请求Torn Api失败
 

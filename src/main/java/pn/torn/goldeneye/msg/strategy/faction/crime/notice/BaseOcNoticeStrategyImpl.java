@@ -52,7 +52,7 @@ public abstract class BaseOcNoticeStrategyImpl extends PnMsgStrategy {
             return super.buildTextMsg("金蝶不认识你哦");
         }
         TornUserDO user = userDao.getById(userId);
-        if (user == null || !user.getFactionId().equals(projectProperty.getGroupId())) {
+        if (user == null || !user.getFactionId().equals(TornConstants.FACTION_PN_ID)) {
             return super.buildTextMsg("该功能只支持开放轮转队的帮派成员使用");
         }
 

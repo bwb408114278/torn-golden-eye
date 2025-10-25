@@ -25,6 +25,20 @@ services:
       - golden-eye-net
     restart: unless-stopped
 
+  alloy:
+    container_name: alloy
+    image: grafana/alloy:v1.11.2
+    volumes:
+      - ${ALLOY_DIR}/config/config.alloy:/etc/alloy/config.alloy
+      - ${PGSQL_DIR}/log:/var/log/postgresql
+      - ${LOKI_DIR}/alloy-data:/data
+    command: "run /etc/alloy/config.alloy --storage.path=/data"
+    depends_on:
+      - loki
+    networks:
+      - golden-eye-net
+    restart: unless-stopped
+
   napcat:
     container_name: napcat
     image: mlikiowa/napcat-docker:v4.8.119

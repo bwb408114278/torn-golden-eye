@@ -1,0 +1,29 @@
+local.file_match "pgsql_logs" {
+    path_targets = [
+        { __path__ = "/var/log/postgresql/*.log" },
+    ]
+}
+
+loki.source.file "read_pgsql_logs" {
+    targets    = local.file_match.pgsql_logs.targets
+    forward_to = [loki.process.parse_pgsql.receiver]
+	tail_from_end = true
+}
+
+loki.process "parse_pgsql" {
+    forward_to = [loki.write.loki.receiver]
+    
+    stage.multiline {
+        firstline     = "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"
+        max_wait_time = "3s"
+    }
+}
+
+loki.write "loki" {
+    endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+    }
+    external_labels = {
+        container = "pgsql",
+    }
+}

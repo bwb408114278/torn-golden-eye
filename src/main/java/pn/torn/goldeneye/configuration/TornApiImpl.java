@@ -68,15 +68,20 @@ class TornApiImpl implements TornApi {
             }
 
             ResponseEntity<String> entity = sendRequest(reqSpec, 0); // 原有的网络层重试
-            return handleResponse(entity, responseType);
+            T response = handleResponse(entity, responseType);
+            apiKeyConfig.returnKey(apiKey);
+            return response;
         } catch (BizException e) {
             if (e.getCode() == BotConstants.EX_INVALID_KEY && apiKey != null) {
                 log.warn("调用者指定的API Key(ID:{}) 已失效，将作废该Key并向上抛出异常。", apiKey.getId());
                 apiKeyConfig.invalidateKey(apiKey);
+            } else {
+                apiKeyConfig.returnKey(apiKey);
             }
             throw e;
         } catch (Exception e) {
             log.error("使用指定Key请求Torn Api V2时出错", e);
+            apiKeyConfig.returnKey(apiKey);
             return null;
         }
     }
