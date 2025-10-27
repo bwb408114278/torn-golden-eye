@@ -36,13 +36,18 @@ public class TornOcUtils {
      *
      * @return true为是
      */
-    public static boolean isRotationOc(TornFactionOcDO oc) {
+    public static boolean isEnableRotation(TornFactionOcDO oc) {
         boolean notRotationRank = !oc.getRank().equals(8) && !oc.getRank().equals(7);
-        if (notRotationRank || NOT_ROTATION_OC_NAME.contains(oc.getName())) {
-            return false;
-        }
+        return !notRotationRank && !NOT_ROTATION_OC_NAME.contains(oc.getName());
+    }
 
-        return !oc.getHasSkipRotation();
+    /**
+     * 是否轮转队OC
+     *
+     * @return true为是
+     */
+    public static boolean isRotationOc(TornFactionOcDO oc) {
+        return isEnableRotation(oc) && !oc.getHasSkipRotation();
     }
 
     /**

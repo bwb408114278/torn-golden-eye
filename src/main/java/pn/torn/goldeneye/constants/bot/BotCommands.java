@@ -103,4 +103,8 @@ public class BotCommands {
      * 8级整编
      */
     public static final String OC_RORATION_WHOLE = "8级整编";
+    /**
+     * 8级混编
+     */
+    public static final String OC_SKIP_TEAM = "OC咸鱼队";
 }

@@ -13,7 +13,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import java.util.List;
 
 /**
- * OC混编设置抽象实现类
+ * OC混编设置实现类
  *
  * @author Bai
  * @version 0.3.0
