@@ -1,0 +1,78 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_user_bs_snapshot
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_user_bs_snapshot
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: record_date
+                  type: DATE
+                  constraints:
+                    nullable: false
+                  remarks: "记录日期"
+              - column:
+                  name: total
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "总BS"
+              - column:
+                  name: strength
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "力量"
+              - column:
+                  name: defense
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "防御"
+              - column:
+                  name: speed
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "速度"
+              - column:
+                  name: dexterity
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "敏捷"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
