@@ -71,6 +71,13 @@ public class NumberUtils {
     }
 
     /**
+     * 添加千位分隔符
+     */
+    public static String addDelimiters(long number) {
+        return String.format("%,d", number);
+    }
+
+    /**
      * 字符串转换为Long
      *
      * @param input 字符串

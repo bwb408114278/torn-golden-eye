@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.msg.strategy.faction.user;
+package pn.torn.goldeneye.msg.strategy.user;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
