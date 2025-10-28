@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
-import pn.torn.goldeneye.base.exception.BizException;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
@@ -13,40 +13,42 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserBsSnapshotDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
-import pn.torn.goldeneye.torn.manager.faction.member.TornFactionMemberManager;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
-import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
-import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;
+import pn.torn.goldeneye.repository.model.user.TornUserBsSnapshotDO;
+import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
+import pn.torn.goldeneye.torn.model.user.bs.TornUserBsDTO;
+import pn.torn.goldeneye.torn.model.user.bs.TornUserBsVO;
+import pn.torn.goldeneye.torn.model.user.oc.TornUserOcDTO;
+import pn.torn.goldeneye.torn.model.user.oc.TornUserOcVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Torn基础数据逻辑层
+ * Torn 用户数据逻辑层
  *
  * @author Bai
  * @version 0.3.0
- * @since 2025.09.10
+ * @since 2025.08.20
  */
 @Service
 @RequiredArgsConstructor
-@Order(10001)
+@Order(10004)
 public class TornUserDataService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
-    private final TornApiKeyConfig apiKeyConfig;
     private final TornApi tornApi;
-    private final TornFactionMemberManager factionMemberManager;
+    private final TornApiKeyConfig apiKeyConfig;
+    private final TornFactionOcUserManager ocUserManager;
+    private final TornUserBsSnapshotDAO bsSnapshotDao;
     private final SysSettingDAO settingDao;
-    private final TornApiKeyDAO keyDao;
-    private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
 
     @PostConstruct
@@ -56,94 +58,73 @@ public class TornUserDataService {
         }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_USER_DATA_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 1, 0);
+        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
+        LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            virtualThreadExecutor.execute(this::spiderUserData);
-        } else {
-            addScheduleTask(from.plusDays(1));
+            virtualThreadExecutor.execute(() -> spiderAllData(to));
         }
+
+        addScheduleTask(to);
     }
 
     /**
-     * 爬取用户数据
+     * 爬取所有用户数据
      */
-    public void spiderUserData() {
-        try {
-            spiderKey();
-            spiderFactionMember();
-
-            LocalDate to = LocalDate.now();
-            settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(to));
-            addScheduleTask(to.plusDays(1).atTime(8, 1, 0));
-        } catch (Exception e) {
-            // 失败2分钟后重试
-            addScheduleTask(LocalDateTime.now().plusMinutes(2));
-        }
-    }
-
-    /**
-     * 爬取Key
-     */
-    public void spiderKey() {
-        List<TornApiKeyDO> keyList = keyDao.list();
+    public void spiderAllData(LocalDateTime to) {
+        List<TornApiKeyDO> keyList = apiKeyConfig.getAllEnableKeys();
         for (TornApiKeyDO key : keyList) {
-            updateKeyByRequest(key);
+            spiderData(key);
         }
 
-        keyDao.lambdaUpdate().set(TornApiKeyDO::getUseCount, 0).update();
-        apiKeyConfig.reloadKeyData();
+        settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+        addScheduleTask(to);
     }
 
     /**
-     * 爬取帮派成员
+     * 爬取单条数据
      */
-    public void spiderFactionMember() {
-        try {
-            List<TornSettingFactionDO> factionList = settingFactionDao.list();
-            for (TornSettingFactionDO faction : factionList) {
-                TornFactionMemberDTO param = new TornFactionMemberDTO(faction.getId());
-                TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-                factionMemberManager.updateFactionMember(faction.getId(), memberList);
-                Thread.sleep(1000L);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BizException("同步帮派人员的等待时间出错", e);
-        }
+    public void spiderData(TornApiKeyDO key) {
+        updateBsSnapshot(key);
+        updateOcRate(key);
     }
 
     /**
-     * 通过请求更新Key
+     * 更新用户BS
      */
-    private void updateKeyByRequest(TornApiKeyDO oldKey) {
-        try {
-            TornApiKeyVO resp = tornApi.sendRequest(new TornApiKeyDTO(oldKey.getApiKey()), null, TornApiKeyVO.class);
-            TornApiKeyDO newKey = new TornApiKeyDO(oldKey.getQqId(), oldKey.getApiKey(), resp.getInfo());
-            if (!oldKey.getFactionId().equals(newKey.getFactionId()) ||
-                    !oldKey.getHasFactionAccess().equals(newKey.getHasFactionAccess())) {
-                newKey.setId(oldKey.getId());
-                keyDao.updateById(newKey);
-            }
+    private void updateBsSnapshot(TornApiKeyDO key) {
+        LocalDate now = LocalDate.now();
+        TornUserBsVO bs = tornApi.sendRequest(new TornUserBsDTO(), key, TornUserBsVO.class);
+        TornUserBsSnapshotDO bsSnapshot = bs.getBattleStats().convert2DO(key.getUserId(), now);
+        bsSnapshotDao.save(bsSnapshot);
+    }
 
-            Thread.sleep(1000L);
-        } catch (BizException e) {
-            if (e.getCode() == BotConstants.EX_INVALID_KEY) {
-                apiKeyConfig.invalidateKey(oldKey);
-            } else {
-                apiKeyConfig.returnKey(oldKey);
-                throw e;
+    /**
+     * 更新OC成功率
+     */
+    private void updateOcRate(TornApiKeyDO key) {
+        List<TornFactionCrimeVO> ocList = new ArrayList<>();
+        if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
+            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(), key, TornFactionOcVO.class);
+            ocList.addAll(oc.getCrimes());
+        } else {
+            TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);
+            if (oc == null || oc.getOrganizedCrime() == null ||
+                    CollectionUtils.isEmpty(oc.getOrganizedCrime().getSlots())) {
+                return;
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BizException("同步Key的等待时间出错", e);
+            ocList.add(oc.getOrganizedCrime());
         }
+
+        ocUserManager.updateEmptyUserPassRate(key.getFactionId(), key.getUserId(), ocList);
     }
 
     /**
      * 添加定时任务
      */
-    private void addScheduleTask(LocalDateTime execTime) {
-        taskService.updateTask("user-data-reload", this::spiderUserData, execTime);
+    private void addScheduleTask(LocalDateTime to) {
+        taskService.updateTask("user-data-reload",
+                () -> spiderAllData(to.plusDays(1)),
+                to.plusDays(1).plusSeconds(1).plusMinutes(5L));
     }
 }

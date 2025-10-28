@@ -102,3 +102,25 @@ databaseChangeLog:
               UPDATE torn_setting_faction SET group_id = 818347578, group_admin_ids = '2722896589,2246839' WHERE id = 20465;
               UPDATE torn_setting_faction SET group_id = 966670136, group_admin_ids = '1219769164' WHERE id = 27902;
               UPDATE torn_setting_faction SET group_id = 798645562, group_admin_ids = '48341572' WHERE id = 11796;
+
+  - changeSet:
+      id: split_user_and_key
+      author: Bai
+      changes:
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: KEY_LOAD_DATE
+            where: id = 19
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: USER_DATA_LOAD_DATE
+              - column:
+                  name: setting_value
+                  value: '2025-10-26'
+            where: id = 8

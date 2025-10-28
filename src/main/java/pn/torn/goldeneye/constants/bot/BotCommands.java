@@ -65,6 +65,10 @@ public class BotCommands {
      * 股票分红购买
      */
     public static final String STOCK_DIVIDEND_CALC = "股票分红购买";
+    /**
+     * 战力提升
+     */
+    public static final String BS_IMPROVE = "战力增长";
 
     // ====================管理功能相关====================
     /**

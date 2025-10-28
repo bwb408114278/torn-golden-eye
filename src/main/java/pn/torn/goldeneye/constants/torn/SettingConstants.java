@@ -24,7 +24,7 @@ public class SettingConstants {
     /**
      * 配置Key - 用户数据读取时间
      */
-    public static final String KEY_USER_DATA_LOAD = "USER_DATA_LOAD_DATE";
+    public static final String KEY_KEY_DATA_LOAD = "KEY_LOAD_DATE";
     /**
      * 配置Key - 基础数据读取时间
      */
@@ -38,7 +38,7 @@ public class SettingConstants {
     /**
      * 配置Key - OC成功率读取时间
      */
-    public static final String KEY_OC_PASS_RATE_LOAD = "OC_PASS_RATE_LOAD_DATE";
+    public static final String KEY_USER_DATA_LOAD = "USER_DATA_LOAD_DATE";
     /**
      * 配置Key - OC收益读取时间
      */
