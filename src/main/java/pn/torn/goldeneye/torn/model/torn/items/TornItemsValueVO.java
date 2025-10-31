@@ -21,7 +21,7 @@ public class TornItemsValueVO {
      * 卖出价
      */
     @JsonProperty("sell_price")
-    private long sellPrice;
+    private Long sellPrice;
     /**
      * 市场价
      */

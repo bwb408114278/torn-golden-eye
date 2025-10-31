@@ -21,6 +21,10 @@ public class CacheConstants {
      * 物品Key
      */
     public static final String KEY_TORN_ITEM = "torn:items";
+    /**
+     * 物品Key
+     */
+    public static final String KEY_TORN_ITEM_MAP = "torn:items:map";
 
     /**
      * 帮派设置Key

@@ -9,12 +9,11 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
-import pn.torn.goldeneye.utils.torn.TornOcUtils;
 
 import java.awt.*;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 
 /**
  * OC表格消息公共逻辑
@@ -29,16 +28,13 @@ public class TornFactionOcMsgTableManager {
     private final TornUserDAO userDao;
     private static final Color MEMBER_FULL_COLOR = new Color(122, 167, 56);
     private static final Color MEMBER_EMPTY_COLOR = new Color(230, 119, 0);
-    private static final String PRE_TEAM = "9级前置";
-    private static final String ROTATION_TEAM = "轮转队";
 
     /**
      * 绘制OC表格
      *
      * @return 表格数据，第一层为行，第二层为单元格
      */
-    public TableDataBO buildOcTable(String title, List<Long> rotationIdList,
-                                    Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
+    public TableDataBO buildOcTable(String title, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
         List<Long> userIdList = new ArrayList<>();
         ocMap.values().forEach(v -> userIdList.addAll(v.stream()
                 .map(TornFactionOcSlotDO::getUserId)
@@ -74,7 +70,7 @@ public class TornFactionOcMsgTableManager {
                 }
             });
 
-            tableData.add(buildPositionRow(oc, slotList, rotationIdList, rowIndex, columnCount, tableConfig));
+            tableData.add(buildPositionRow(oc, slotList, rowIndex, columnCount, tableConfig));
             tableData.add(buildMemberRow(slotList, userMap, rowIndex, columnCount, tableConfig));
 
             List<String> splitLine = new ArrayList<>();
@@ -110,22 +106,16 @@ public class TornFactionOcMsgTableManager {
      * @param columnCount 最大列数
      */
     private List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                          List<Long> rotationIdList, int rowIndex, int columnCount,
+                                          int rowIndex, int columnCount,
                                           TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
-        String teamFlag = getTeamFlag(oc, rotationIdList);
-        resultList.add((teamFlag.isEmpty() ? teamFlag : teamFlag + "   ") + oc.getStatus() +
-                "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
+        resultList.add(oc.getStatus() + "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
         tableConfig.addMerge(rowIndex, 0, 2, 1);
 
         TableImageUtils.CellStyle teamStyle = new TableImageUtils.CellStyle()
                 .setFont(new Font("微软雅黑", Font.BOLD, 14));
         if (LocalDateTime.now().isAfter(oc.getReadyTime())) {
             teamStyle.setBgColor(Color.YELLOW);
-        } else if (PRE_TEAM.equals(teamFlag)) {
-            teamStyle.setBgColor(new Color(201, 119, 221));
-        } else if (ROTATION_TEAM.equals(teamFlag)) {
-            teamStyle.setBgColor(new Color(119, 199, 221));
         } else {
             teamStyle.setBgColor(new Color(14, 133, 49)).setTextColor(Color.WHITE);
         }
@@ -194,28 +184,6 @@ public class TornFactionOcMsgTableManager {
                 }
             }
         }
-    }
-
-    /**
-     * 获取队伍标识
-     *
-     * @return 队伍标识
-     */
-    private String getTeamFlag(TornFactionOcDO oc, List<Long> rotationIdList) {
-        if (!rotationIdList.contains(oc.getId())) {
-            return "";
-        }
-
-        if (TornOcUtils.isChainOc(oc)) {
-            return PRE_TEAM;
-        }
-
-
-        if (oc.getHasSkipRotation()) {
-            return "咸鱼队";
-        }
-
-        return ROTATION_TEAM;
     }
 
     public interface FillEmptyColumnCallback {

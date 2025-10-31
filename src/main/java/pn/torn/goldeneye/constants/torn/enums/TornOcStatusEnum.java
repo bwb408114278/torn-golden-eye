@@ -3,11 +3,13 @@ package pn.torn.goldeneye.constants.torn.enums;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+import java.util.List;
+
 /**
  * OC状态枚举
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @AllArgsConstructor
@@ -22,9 +24,17 @@ public enum TornOcStatusEnum {
      */
     PLANNING("Planning"),
     /**
-     * 已完成
+     * 成功
      */
-    COMPLETED("Completed");
+    SUCCESSFUL("Successful"),
+    /**
+     * 失败
+     */
+    FAILURE("Failure");
 
     private final String code;
+
+    public static List<String> getCompleteStatusList() {
+        return List.of(SUCCESSFUL.getCode(), FAILURE.getCode());
+    }
 }

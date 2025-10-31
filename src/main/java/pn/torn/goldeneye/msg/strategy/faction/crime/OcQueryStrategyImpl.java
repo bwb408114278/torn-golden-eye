@@ -4,8 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
@@ -16,7 +14,6 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -64,16 +61,6 @@ public class OcQueryStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg("未查询到对应OC");
         }
 
-        List<Long> rotationIdList = new ArrayList<>();
-        if (TornConstants.ROTATION_OC_RANK.contains(rank) && TornConstants.FACTION_PN_ID == factionId) {
-            for (Integer rotationRank : TornConstants.ROTATION_OC_RANK) {
-                String planId = settingDao.querySettingValue(SettingConstants.KEY_OC_PLAN_ID + rotationRank);
-                rotationIdList.add(Long.parseLong(planId));
-                String recIds = settingDao.querySettingValue(SettingConstants.KEY_OC_REC_ID + rotationRank);
-                rotationIdList.addAll(NumberUtils.splitToLongList(recIds));
-            }
-        }
-
-        return super.buildImageMsg(msgManager.buildOcTable(rank + "级执行中OC", rotationIdList, ocList));
+        return super.buildImageMsg(msgManager.buildOcTable(rank + "级执行中OC", ocList));
     }
 }

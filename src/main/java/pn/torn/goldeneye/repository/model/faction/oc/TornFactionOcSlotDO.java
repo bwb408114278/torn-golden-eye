@@ -43,4 +43,16 @@ public class TornFactionOcSlotDO extends BaseDO implements TornFactionOcSlot {
      * 加入时间
      */
     private LocalDateTime joinTime;
+    /**
+     * 消耗品ID
+     */
+    private Long outcomeItemId;
+    /**
+     * 消耗品状态
+     */
+    private String outcomeItemStatus;
+    /**
+     * 消耗品价格
+     */
+    private Long outcomeItemValue;
 }

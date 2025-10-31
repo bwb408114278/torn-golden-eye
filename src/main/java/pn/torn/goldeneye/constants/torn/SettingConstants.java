@@ -34,7 +34,6 @@ public class SettingConstants {
      */
     public static final String KEY_ITEM_USE_LOAD = "ITEM_USED_LOAD_DATE";
 
-
     /**
      * 配置Key - OC成功率读取时间
      */
@@ -47,20 +46,4 @@ public class SettingConstants {
      * 配置Key - OC读取时间
      */
     public static final String KEY_OC_LOAD = "OC_LOAD_TIME";
-    /**
-     * 配置Key - 临时队不能加入级别
-     */
-    public static final String KEY_OC_ENABLE_RANK = "OC_ENABLE_RANK_";
-    /**
-     * 配置Key - 临时队不能加入级别
-     */
-    public static final String KEY_OC_BLOCK_RANK = "OC_BLOCK_RANK_";
-    /**
-     * 配置Key - OC队伍招募ID
-     */
-    public static final String KEY_OC_REC_ID = "OC_TEAM_REC_ID_";
-    /**
-     * 配置Key - OC队伍计划ID
-     */
-    public static final String KEY_OC_PLAN_ID = "OC_TEAM_PLAN_ID_";
 }

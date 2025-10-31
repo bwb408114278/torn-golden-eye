@@ -21,26 +21,17 @@ import java.util.List;
 @Repository
 public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFactionOcDO> {
     /**
-     * 更新OC为已完成
-     *
-     * @param id OC ID
-     */
-    public void updateCompleted(long id) {
-        lambdaUpdate()
-                .set(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
-                .eq(TornFactionOcDO::getId, id)
-                .update();
-    }
-
-    /**
      * 通过ID列表查询列表
      */
-    public List<TornFactionOcDO> queryListByIdList(Collection<Long> idList) {
+    public List<TornFactionOcDO> queryListByIdList(long factionId, Collection<Long> idList) {
         if (CollectionUtils.isEmpty(idList)) {
             return List.of();
         }
 
-        return lambdaQuery().in(TornFactionOcDO::getId, idList).list();
+        return lambdaQuery()
+                .in(TornFactionOcDO::getId, idList)
+                .eq(TornFactionOcDO::getFactionId, factionId)
+                .list();
     }
 
     /**

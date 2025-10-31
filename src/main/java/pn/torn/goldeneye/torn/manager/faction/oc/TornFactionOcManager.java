@@ -8,18 +8,18 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
-import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
+import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
-import pn.torn.goldeneye.utils.NumberUtils;
-import pn.torn.goldeneye.utils.torn.TornOcUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * OC公共逻辑层
@@ -33,24 +33,33 @@ import java.util.List;
 public class TornFactionOcManager {
     private final TornFactionOcSlotManager slotManager;
     private final TornFactionOcUserManager ocUserManager;
+    private final TornItemsManager itemsManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
-    private final SysSettingDAO settingDao;
 
     /**
      * 更新OC数据
      */
     @Transactional(rollbackFor = Exception.class)
-    public void updateOc(long factionId, List<TornFactionCrimeVO> ocList) {
+    public void updateOc(long factionId, List<TornFactionCrimeVO> availableList, List<TornFactionCrimeVO> completeList) {
+        List<Long> validOcIdList = updateAvailableOc(factionId, availableList);
+        validOcIdList.addAll(completeOcData(factionId, completeList));
+        deleteOcData(factionId, validOcIdList);
+    }
+
+    /**
+     * 更新可用OC数据
+     */
+    public List<Long> updateAvailableOc(long factionId, List<TornFactionCrimeVO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
-            return;
+            return List.of();
         }
 
         List<TornFactionCrimeVO> newDataList = new ArrayList<>();
         List<TornFactionCrimeVO> updateDataList = new ArrayList<>();
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
         List<Long> validOcIdList = new ArrayList<>();
-        List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(ocIdList);
+        List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(factionId, ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
             if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
                 continue;
@@ -65,9 +74,64 @@ public class TornFactionOcManager {
         }
 
         insertOcData(factionId, newDataList);
-        updateOcData(updateDataList);
-        completeOcData(factionId, validOcIdList);
+        updateAvailableOcData(factionId, updateDataList);
         ocUserManager.updateJoinedUserPassRate(factionId, ocList);
+        return validOcIdList;
+    }
+
+    /**
+     * 更新完成OC数据
+     */
+    public List<Long> completeOcData(long factionId, List<TornFactionCrimeVO> ocList) {
+        if (CollectionUtils.isEmpty(ocList)) {
+            return List.of();
+        }
+
+        List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
+        List<Long> validOcIdList = new ArrayList<>();
+        List<TornFactionOcDO> planOcList = ocDao.lambdaQuery()
+                .in(TornFactionOcDO::getId, ocIdList)
+                .eq(TornFactionOcDO::getFactionId, factionId)
+                .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                .list();
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(planOcList);
+        for (TornFactionCrimeVO oc : ocList) {
+            TornFactionOcDO planOc = planOcList.stream()
+                    .filter(o -> o.getId().equals(oc.getId()))
+                    .findAny().orElse(null);
+            if (planOc == null) {
+                continue;
+            }
+
+            updateCompleteData(oc, slotList);
+            validOcIdList.add(planOc.getId());
+        }
+
+        return validOcIdList;
+    }
+
+    /**
+     * 删除无人参加的OC
+     *
+     * @param factionId     帮派ID
+     * @param validOcIdList 有人的OC ID列表
+     */
+    public void deleteOcData(long factionId, List<Long> validOcIdList) {
+        if (!CollectionUtils.isEmpty(validOcIdList)) {
+            List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getFactionId, factionId)
+                    .notIn(TornFactionOcDO::getId, validOcIdList)
+                    .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                    .list();
+            if (CollectionUtils.isEmpty(ocList)) {
+                return;
+            }
+
+            List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
+            ocDao.deleteByIdList(ocIdList);
+            slotDao.remove(new LambdaQueryWrapper<TornFactionOcSlotDO>()
+                    .in(TornFactionOcSlotDO::getOcId, ocIdList));
+        }
     }
 
     /**
@@ -89,15 +153,15 @@ public class TornFactionOcManager {
     }
 
     /**
-     * 更新OC
+     * 更新可用OC
      */
-    public void updateOcData(List<TornFactionCrimeVO> ocList) {
+    public void updateAvailableOcData(long factionId, List<TornFactionCrimeVO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
             return;
         }
 
         List<Long> ocIdList = ocList.stream().map(TornFactionCrimeVO::getId).toList();
-        List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(ocIdList);
+        List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(factionId, ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
             LocalDateTime readyTime = DateTimeUtils.convertToDateTime(oc.getReadyAt());
             boolean isDiff = oldDataList.stream().noneMatch(old -> old.getId().equals(oc.getId()) &&
@@ -114,96 +178,34 @@ public class TornFactionOcManager {
     }
 
     /**
-     * 已执行的OC设为完成状态
+     * 更新完成OC
      */
-    public void completeOcData(long factionId, List<Long> validOcIdList) {
-        List<TornFactionOcDO> completedList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
-                .lt(TornFactionOcDO::getReadyTime, LocalDateTime.now())
-                .list();
-        for (TornFactionOcDO oc : completedList) {
-            ocDao.updateCompleted(oc.getId());
-        }
+    public void updateCompleteData(TornFactionCrimeVO oc, List<TornFactionOcSlotDO> slotList) {
+        Map<Integer, TornItemsDO> itemMap = itemsManager.getMap();
+        ocDao.lambdaUpdate()
+                .set(TornFactionOcDO::getStatus, oc.getStatus())
+                .set(TornFactionOcDO::getExecutedTime, DateTimeUtils.convertToDateTime(oc.getExecutedAt()))
+                .set(TornFactionOcDO::getRewardMoney, oc.get2RewardMoney())
+                .set(TornFactionOcDO::getRewardItems, oc.getRewardItems())
+                .set(TornFactionOcDO::getRewardItemsValue, oc.getRewardItemsValue(itemMap))
+                .eq(TornFactionOcDO::getId, oc.getId())
+                .update();
 
-        if (!CollectionUtils.isEmpty(validOcIdList)) {
-            List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
-                    .eq(TornFactionOcDO::getFactionId, factionId)
-                    .notIn(TornFactionOcDO::getId, validOcIdList)
-                    .ne(TornFactionOcDO::getStatus, TornOcStatusEnum.COMPLETED.getCode())
-                    .list();
-            if (CollectionUtils.isEmpty(ocList)) {
-                return;
-            }
-
-            List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
-            ocDao.deleteByIdList(ocIdList);
-            slotDao.remove(new LambdaQueryWrapper<TornFactionOcSlotDO>()
-                    .in(TornFactionOcSlotDO::getOcId, ocIdList));
-        }
-    }
-
-    /**
-     * 刷新轮转队配置
-     *
-     * @param planKey        计划队伍配置Key
-     * @param excludePlanKey 排除的计划队伍配置Key
-     * @param recKey         招募队伍配置Key
-     * @param excludeRecKey  排除的招募队伍配置Key
-     * @param rank           查询级别
-     */
-    public void refreshRotationSetting(long factionId, String planKey, String excludePlanKey, String recKey, String excludeRecKey,
-                                       int... rank) {
-        List<TornFactionOcDO> planList = ocDao.queryListByStatusAndRank(factionId, TornOcStatusEnum.PLANNING, rank);
-        TornFactionOcDO planOc = buildRotationList(planList, 0L, excludePlanKey, excludePlanKey).get(0);
-        settingDao.updateSetting(planKey, planOc.getId().toString());
-
-        List<TornFactionOcDO> allRecList = ocDao.queryListByStatusAndRank(factionId, TornOcStatusEnum.RECRUITING, rank);
-        List<TornFactionOcDO> recList = buildRotationList(allRecList, planOc.getId(), excludePlanKey, excludeRecKey);
-        String recIds = String.join(",", recList.stream().map(s -> s.getId().toString()).toList());
-        settingDao.updateSetting(recKey, recIds);
-    }
-
-    /**
-     * 获取轮转队招募中的OC列表
-     *
-     * @param planOcId       计划OC ID
-     * @param excludePlanKey 排除计划队的设置Key
-     * @param excludeRecKey  排除招募队的设置Key
-     * @param rank           包含的级别
-     */
-    public List<TornFactionOcDO> queryRotationRecruitList(long planOcId, long factionId,
-                                                          String excludePlanKey, String excludeRecKey, int... rank) {
-        List<TornFactionOcDO> recList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getFactionId, factionId)
-                .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
-                .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
-                .list();
-        return buildRotationList(recList, planOcId, excludePlanKey, excludeRecKey);
-    }
-
-    /**
-     * 构建轮转队列表
-     *
-     * @param planOcId          计划OC ID
-     * @param excludeSettingKey 排除这些队伍的设置Key
-     */
-    private List<TornFactionOcDO> buildRotationList(List<TornFactionOcDO> ocList, long planOcId,
-                                                    String excludePlanKey, String excludeSettingKey) {
-        List<Long> excludeIdList = new ArrayList<>();
-        excludeIdList.add(Long.parseLong(settingDao.querySettingValue(excludePlanKey)));
-        String excludeIds = settingDao.querySettingValue(excludeSettingKey);
-        excludeIdList.addAll(NumberUtils.splitToLongList(excludeIds));
-
-        List<TornFactionOcDO> resultList = new ArrayList<>();
-        for (TornFactionOcDO oc : ocList) {
-            boolean isRotationOc = TornOcUtils.isRotationOc(oc);
-            if (!isRotationOc || oc.getId().equals(planOcId) || excludeIdList.contains(oc.getId())) {
+        for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
+            TornFactionOcSlotDO execSlot = slotList.stream()
+                    .filter(s -> s.getOcId().equals(oc.getId()))
+                    .filter(s -> s.getUserId().equals(slot.getUserId()))
+                    .findAny().orElse(null);
+            if (execSlot == null) {
                 continue;
             }
 
-            resultList.add(oc);
+            slotDao.lambdaUpdate()
+                    .set(TornFactionOcSlotDO::getOutcomeItemId, slot.getOutcomeItemId())
+                    .set(TornFactionOcSlotDO::getOutcomeItemStatus, slot.getOutcomeItemStatus())
+                    .set(TornFactionOcSlotDO::getOutcomeItemValue, slot.getOutcomeItemValue(itemMap))
+                    .eq(TornFactionOcSlotDO::getId, execSlot.getId())
+                    .update();
         }
-
-        return resultList;
     }
 }

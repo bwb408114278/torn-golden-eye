@@ -36,4 +36,8 @@ public class TornItemsDO extends BaseDO {
      * 市场价
      */
     private Long marketPrice;
+    /**
+     * 卖店价
+     */
+    private Long sellPrice;
 }
