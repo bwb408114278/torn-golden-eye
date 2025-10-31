@@ -39,3 +39,61 @@ databaseChangeLog:
             columns:
               - column:
                   name: has_skip
+
+  - changeSet:
+      id: remove_rotation
+      author: Bai
+      changes:
+        - dropTable:
+            tableName: torn_faction_oc_notice
+        - dropColumn:
+            tableName: torn_faction_oc
+            columnName: has_skip_rotation
+
+  - changeSet:
+      id: save_oc_reward
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: executed_time
+                  type: DATETIME
+                  remarks: "执行时间"
+              - column:
+                  name: reward_money
+                  type: BIGINT
+                  remarks: "奖励金钱"
+              - column:
+                  name: reward_items
+                  type: VARCHAR(256)
+                  remarks: "奖励物品"
+              - column:
+                  name: reward_items_value
+                  type: VARCHAR(256)
+                  remarks: "奖励物品价值"
+        - addColumn:
+            tableName: torn_faction_oc_slot
+            columns:
+              - column:
+                  name: outcome_item_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "消耗品ID"
+              - column:
+                  name: outcome_item_status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  defaultValue: ""
+                  remarks: "消耗品状态"
+              - column:
+                  name: outcome_item_value
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: "0"
+                  remarks: "消耗品价格"

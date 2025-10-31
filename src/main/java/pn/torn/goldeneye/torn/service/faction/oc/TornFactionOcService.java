@@ -10,19 +10,12 @@ import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.constants.torn.TornConstants;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcJoinService;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcNoticeBO;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcReadyService;
-import pn.torn.goldeneye.torn.service.faction.oc.notice.TornFactionOcValidService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
@@ -42,11 +35,7 @@ public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final DynamicTaskService taskService;
-    private final TornFactionOcReadyService readyService;
-    private final TornFactionOcJoinService joinService;
-    private final TornFactionOcValidService validService;
     private final TornFactionOcManager ocManager;
-    private final TornFactionOcDAO ocDao;
     private final SysSettingDAO settingDao;
     private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
@@ -64,8 +53,6 @@ public class TornFactionOcService {
         } else {
             scheduleOcTask(last);
         }
-
-        scheduleRotationTask();
     }
 
     /**
@@ -74,28 +61,6 @@ public class TornFactionOcService {
     public void scheduleOcTask(LocalDateTime last) {
         taskService.updateTask("oc-reload", this::refreshOc, last.plusHours(1));
         settingDao.updateSetting(SettingConstants.KEY_OC_LOAD, DateTimeUtils.convertToString(last));
-    }
-
-    /**
-     * 轮转队提醒任务
-     */
-    public void scheduleRotationTask() {
-        for (int rank = 7; rank < 9; rank++) {
-            long planId = Long.parseLong(settingDao.querySettingValue(SettingConstants.KEY_OC_PLAN_ID + rank));
-            TornFactionOcDO oc = ocDao.getById(planId);
-
-            String taskId = "oc-valid-" + rank;
-            TornFactionOcNoticeBO noticeParam = buildNoticeParam(planId, rank, taskId);
-
-            taskService.updateTask("oc-ready-" + rank,
-                    readyService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(-5));
-            taskService.updateTask("oc-join-" + rank,
-                    joinService.buildNotice(noticeParam), oc.getReadyTime());
-            taskService.updateTask("oc-completed-" + rank,
-                    () -> ocManager.completeOcData(TornConstants.FACTION_PN_ID, List.of()),
-                    oc.getReadyTime().plusMinutes(2));
-            taskService.updateTask(taskId, validService.buildNotice(noticeParam), oc.getReadyTime().plusMinutes(1L));
-        }
     }
 
     /**
@@ -113,26 +78,16 @@ public class TornFactionOcService {
      * 刷新OC
      */
     public void refreshOc(long factionId) {
-        TornFactionOcVO oc = tornApi.sendRequest(factionId, new TornFactionOcDTO(), TornFactionOcVO.class);
-        if (oc != null) {
-            ocManager.updateOc(factionId, oc.getCrimes());
-        }
-    }
+        try {
+            TornFactionOcVO availableOc = tornApi.sendRequest(factionId, new TornFactionOcDTO(false), TornFactionOcVO.class);
+            Thread.sleep(1000L);
+            TornFactionOcVO completeOc = tornApi.sendRequest(factionId, new TornFactionOcDTO(true), TornFactionOcVO.class);
 
-    /**
-     * 构建提醒参数
-     */
-    private TornFactionOcNoticeBO buildNoticeParam(long planId, int rank, String taskId) {
-        int excludeRank = rank == 7 ? 8 : 7;
-        String enableRanks = settingDao.querySettingValue(SettingConstants.KEY_OC_ENABLE_RANK + rank);
-        String[] enableRankStrArray = enableRanks.split(",");
-        int[] enableRankArray = new int[enableRankStrArray.length];
-        for (int i = 0; i < enableRankStrArray.length; i++) {
-            enableRankArray[i] = Integer.parseInt(enableRankStrArray[i]);
+            if (availableOc != null && completeOc != null) {
+                ocManager.updateOc(factionId, availableOc.getCrimes(), completeOc.getCrimes());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-
-        return new TornFactionOcNoticeBO(planId, taskId, rank, excludeRank,
-                () -> refreshOc(TornConstants.FACTION_PN_ID), this::scheduleRotationTask,
-                0, 0, enableRankArray);
     }
 }

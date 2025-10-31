@@ -124,3 +124,23 @@ databaseChangeLog:
                   name: setting_value
                   value: '2025-10-26'
             where: id = 8
+
+  - changeSet:
+      id: remove_rotation_oc_setting
+      author: Bai
+      changes:
+        - delete:
+            tableName: sys_setting
+            where: id IN (4, 5, 6, 7, 9, 10, 11, 12)
+
+  - changeSet:
+      id: add_item_sell_price
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_items
+            columns:
+              - column:
+                  name: sell_price
+                  type: BIGINT
+                  remarks: "卖店价"

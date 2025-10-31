@@ -7,7 +7,7 @@ import lombok.Data;
  * Torn OC User详情响应参数
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Data
@@ -21,4 +21,9 @@ public class TornFactionCrimeUserVO {
      */
     @JsonProperty("joined_at")
     private Long joinedAt;
+    /**
+     * 物品消耗
+     */
+    @JsonProperty("item_outcome")
+    private TornFactionCrimeUserItemVO itemOutcome;
 }

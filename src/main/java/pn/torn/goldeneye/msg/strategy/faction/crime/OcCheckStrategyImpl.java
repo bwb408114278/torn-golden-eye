@@ -40,7 +40,6 @@ public class OcCheckStrategyImpl extends BaseGroupMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         ocService.refreshOc();
-        ocService.scheduleRotationTask();
         return super.buildTextMsg("OC数据校准完成");
     }
 }

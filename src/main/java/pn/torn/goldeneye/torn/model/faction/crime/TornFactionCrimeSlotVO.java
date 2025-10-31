@@ -4,8 +4,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
+import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+
+import java.util.Map;
 
 /**
  * Torn OC Slot详情响应参数
@@ -61,6 +64,18 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
         ocUser.setPosition(this.position);
         ocUser.setPassRate(this.checkpointPassRate);
         return ocUser;
+    }
+
+    public Integer getOutcomeItemId() {
+        return user.getItemOutcome() == null ? 0 : user.getItemOutcome().getItemId();
+    }
+
+    public String getOutcomeItemStatus() {
+        return user.getItemOutcome() == null ? "" : user.getItemOutcome().getOutcome();
+    }
+
+    public Long getOutcomeItemValue(Map<Integer, TornItemsDO> itemMap) {
+        return user.getItemOutcome() == null ? 0L : itemMap.get(user.getItemOutcome().getItemId()).getMarketPrice();
     }
 
     @Override

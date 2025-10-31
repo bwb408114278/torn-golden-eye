@@ -44,11 +44,23 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      */
     private LocalDateTime readyTime;
     /**
+     * 执行时间
+     */
+    private LocalDateTime executedTime;
+    /**
      * 上级OC ID
      */
     private Long previousOcId;
     /**
-     * 是否跳过轮转
+     * 奖励金钱
      */
-    private Boolean hasSkipRotation;
+    private Long rewardMoney;
+    /**
+     * 奖励物品
+     */
+    private String rewardItems;
+    /**
+     * 奖励物品价值
+     */
+    private String rewardItemsValue;
 }

@@ -77,6 +77,7 @@ public class TornItemsVO {
         item.setItemImage(this.image);
         item.setItemType(this.type);
         item.setMarketPrice(this.value.getMarketPrice());
+        item.setSellPrice(this.value.getSellPrice());
         return item;
     }
 }
