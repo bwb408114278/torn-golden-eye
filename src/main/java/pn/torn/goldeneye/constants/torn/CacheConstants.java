@@ -46,4 +46,8 @@ public class CacheConstants {
      * OC岗位设置Key
      */
     public static final String KEY_TORN_SETTING_OC_SLOT = "torn:setting:oc:slot";
+    /**
+     * OC系数设置Key
+     */
+    public static final String KEY_TORN_SETTING_OC_COEFFICIENT = "torn:setting:oc:coefficient";
 }

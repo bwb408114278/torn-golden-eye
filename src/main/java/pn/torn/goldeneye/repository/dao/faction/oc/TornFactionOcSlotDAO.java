@@ -7,14 +7,15 @@ import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcSlotMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
  * Torn Oc Slot持久层类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Repository
@@ -31,25 +32,6 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
     }
 
     /**
-     * 通过OC ID列表查询Map
-     *
-     * @return Key为OC ID
-     */
-    public Map<Long, List<TornFactionOcSlotDO>> queryMapByOc(Collection<TornFactionOcDO> ocList) {
-        if (CollectionUtils.isEmpty(ocList)) {
-            return Map.of();
-        }
-
-        List<TornFactionOcSlotDO> slotList = queryListByOcId(ocList.stream()
-                .map(TornFactionOcDO::getId).collect(Collectors.toSet()));
-
-        Map<Long, List<TornFactionOcSlotDO>> resultMap = HashMap.newHashMap(ocList.size());
-        ocList.forEach(oc -> resultMap.put(oc.getId(),
-                new ArrayList<>(slotList.stream().filter(s -> s.getOcId().equals(oc.getId())).toList())));
-        return resultMap;
-    }
-
-    /**
      * 通过OC ID列表查询列表
      */
     public List<TornFactionOcSlotDO> queryListByOcId(Collection<Long> ocIdList) {
@@ -58,5 +40,25 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
         }
 
         return lambdaQuery().in(TornFactionOcSlotDO::getOcId, ocIdList).list();
+    }
+
+    /**
+     * 查询缺人的岗位列表
+     */
+    public List<TornFactionOcSlotDO> queryEmptySlotList(List<Long> ocIdList) {
+        return lambdaQuery()
+                .in(TornFactionOcSlotDO::getOcId, ocIdList)
+                .isNull(TornFactionOcSlotDO::getUserId)
+                .list();
+    }
+
+    /**
+     * 查询有人的岗位列表
+     */
+    public List<TornFactionOcSlotDO> queryWorkingSlotList(List<Long> ocIdList) {
+        return lambdaQuery()
+                .isNotNull(TornFactionOcSlotDO::getUserId)
+                .in(TornFactionOcSlotDO::getOcId, ocIdList)
+                .list();
     }
 }

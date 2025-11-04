@@ -97,3 +97,210 @@ databaseChangeLog:
                     nullable: false
                   defaultValue: "0"
                   remarks: "消耗品价格"
+
+  - changeSet:
+      id: reassign_oc_income
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_oc_coefficient
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "级别"
+              - column:
+                  name: slot_code
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "岗位Code"
+              - column:
+                  name: pass_rate_min
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "成功率下限"
+              - column:
+                  name: pass_rate_max
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "成功率上限"
+              - column:
+                  name: coefficient
+                  type: DECIMAL(4,2)
+                  constraints:
+                    nullable: false
+                  remarks: "工时系数"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_faction_oc_income
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: oc_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "OC ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: base_working_hours
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "基础工时"
+              - column:
+                  name: coefficient
+                  type: DECIMAL(4,2)
+                  constraints:
+                    nullable: false
+                  remarks: "工时系数"
+              - column:
+                  name: effective_working_hours
+                  type: DECIMAL(4,2)
+                  constraints:
+                    nullable: false
+                  remarks: "有效工时"
+              - column:
+                  name: item_cost
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "道具成本"
+              - column:
+                  name: allocated_income
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "分配收益"
+              - column:
+                  name: final_income
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "最终收益"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: required_members
+                  type: INT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "需要人数"
+              - column:
+                  name: prepare_days
+                  type: INT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "准备天数"
+              - column:
+                  name: expected_reward
+                  type: BIGINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "预期收益"
+        - sql:
+            sql: |
+              UPDATE torn_setting_oc SET required_members = 6, prepare_days = 6, expected_reward = 120000000 WHERE id = 10;
+              UPDATE torn_setting_oc SET required_members = 6, prepare_days = 6, expected_reward = 240000000 WHERE id = 11;
+              UPDATE torn_setting_oc SET required_members = 4, prepare_days = 4, expected_reward = 80000000 WHERE id = 12;
+              UPDATE torn_setting_oc_slot SET pass_rate = 65 WHERE id IN (41, 42, 44, 49, 50, 52, 56);
+              INSERT INTO torn_setting_oc_coefficient (id, oc_name, rank, slot_code, pass_rate_min, pass_rate_max, coefficient) VALUES
+              (1, 'Blast from the Past', 7, 'Bomber#1', 65, 69, 1.00),
+              (2, 'Blast from the Past', 7, 'Bomber#1', 70, 79, 1.15),
+              (3, 'Blast from the Past', 7, 'Bomber#1', 80, 100, 1.25),
+              (4, 'Blast from the Past', 7, 'Engineer#1', 65, 69, 1.00),
+              (5, 'Blast from the Past', 7, 'Engineer#1', 70, 79, 1.15),
+              (6, 'Blast from the Past', 7, 'Engineer#1', 80, 100, 1.25),
+              (7, 'Blast from the Past', 7, 'Hacker#1', 60, 100, 1.00),
+              (8, 'Blast from the Past', 7, 'Muscle#1', 65, 69, 1.00),
+              (9, 'Blast from the Past', 7, 'Muscle#1', 70, 79, 1.15),
+              (10, 'Blast from the Past', 7, 'Muscle#1', 80, 100, 1.25),
+              (11, 'Blast from the Past', 7, 'Picklock#1', 60, 100, 1.00),
+              (12, 'Blast from the Past', 7, 'Picklock#2', 60, 100, 1.00),              
+              (13, 'Break the Bank', 8, 'Muscle#1', 60, 100, 1.25),
+              (14, 'Break the Bank', 8, 'Muscle#2', 60, 100, 1.25),
+              (15, 'Break the Bank', 8, 'Muscle#3', 65, 100, 1.40),
+              (16, 'Break the Bank', 8, 'Robber#1', 65, 100, 1.40),
+              (17, 'Break the Bank', 8, 'Thief#1', 60, 100, 1.25),
+              (18, 'Break the Bank', 8, 'Thief#2', 65, 100, 1.40),
+              (19, 'Clinical Precision', 8, 'Assassin#1', 60, 100, 1.25),
+              (20, 'Clinical Precision', 8, 'Cat Burglar#1', 60, 100, 1.25),
+              (21, 'Clinical Precision', 8, 'Cleaner#1', 60, 100, 1.25),
+              (22, 'Clinical Precision', 8, 'Imitator#1', 65, 100, 1.40);
