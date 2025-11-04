@@ -186,11 +186,41 @@ databaseChangeLog:
                     nullable: false
                   remarks: "OC ID"
               - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "OC级别"
+              - column:
+                  name: oc_executed_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "OC完成时间"
+              - column:
                   name: user_id
                   type: BIGINT
                   constraints:
                     nullable: false
                   remarks: "用户ID"
+              - column:
+                  name: position
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "岗位"
+              - column:
+                  name: pass_rate
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "成功率"
               - column:
                   name: base_working_hours
                   type: INT
@@ -231,6 +261,129 @@ databaseChangeLog:
                   defaultValue: '0'
                   remarks: "最终收益"
               - column:
+                  name: is_success
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  remarks: "是否成功"
+              - column:
+                  name: total_reward
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "总奖金"
+              - column:
+                  name: total_item_cost
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "总道具支出"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_faction_oc_income_summary
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: year_month
+                  type: CHAR(7)
+                  constraints:
+                    nullable: false
+                  remarks: "年月"
+              - column:
+                  name: total_effective_hours
+                  type: DECIMAL(5, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "总有效工时"
+              - column:
+                  name: total_item_cost
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "总道具成本"
+              - column:
+                  name: total_reward
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "总奖励"
+              - column:
+                  name: net_reward
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "净收益"
+              - column:
+                  name: final_income
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "最终收益"
+              - column:
+                  name: oc_count
+                  type: INT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "参与OC数量"
+              - column:
+                  name: success_oc_count
+                  type: INT
+                  constraints:
+                    nullable: false
+                  defaultValue: '0'
+                  remarks: "成功OC数量"
+              - column:
+                  name: is_settled
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  remarks: "是否结算"
+              - column:
+                  name: settled_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "结算时间"
+              - column:
                   name: deleted
                   type: TINYINT
                   defaultValueComputed: '0'
@@ -252,7 +405,7 @@ databaseChangeLog:
                     nullable: false
                   remarks: "更新时间"
         - addColumn:
-            tableName: torn_faction_oc
+            tableName: torn_setting_oc
             columns:
               - column:
                   name: required_members
@@ -281,6 +434,13 @@ databaseChangeLog:
               UPDATE torn_setting_oc SET required_members = 6, prepare_days = 6, expected_reward = 240000000 WHERE id = 11;
               UPDATE torn_setting_oc SET required_members = 4, prepare_days = 4, expected_reward = 80000000 WHERE id = 12;
               UPDATE torn_setting_oc_slot SET pass_rate = 65 WHERE id IN (41, 42, 44, 49, 50, 52, 56);
+
+  - changeSet:
+      id: change_oc_coefficient
+      author: Bai
+      changes:
+        - sql:
+            sql: |
               INSERT INTO torn_setting_oc_coefficient (id, oc_name, rank, slot_code, pass_rate_min, pass_rate_max, coefficient) VALUES
               (1, 'Blast from the Past', 7, 'Bomber#1', 65, 69, 1.00),
               (2, 'Blast from the Past', 7, 'Bomber#1', 70, 79, 1.15),

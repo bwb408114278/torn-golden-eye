@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
@@ -26,6 +27,7 @@ import java.util.List;
 @Slf4j
 public class TornSettingOcCoefficientManager implements DataCacheManager {
     private final TornSettingOcCoefficientDAO settingOcCoefficientDao;
+    @Lazy
     @Resource
     private TornSettingOcCoefficientManager coefficientManager;
 

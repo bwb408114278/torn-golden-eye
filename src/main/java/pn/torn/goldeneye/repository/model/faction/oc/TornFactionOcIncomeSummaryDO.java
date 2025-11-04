@@ -24,10 +24,6 @@ public class TornFactionOcIncomeSummaryDO extends BaseDO {
      */
     private Long id;
     /**
-     * 帮派ID
-     */
-    private Long factionId;
-    /**
      * 用户ID
      */
     private Long userId;

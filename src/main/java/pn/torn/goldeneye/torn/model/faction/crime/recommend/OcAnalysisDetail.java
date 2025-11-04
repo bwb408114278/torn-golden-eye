@@ -1,6 +1,5 @@
 package pn.torn.goldeneye.torn.model.faction.crime.recommend;
 
-import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -17,7 +16,6 @@ import java.util.stream.Collectors;
  * @since 2025.11.03
  */
 @Data
-@Builder
 public class OcAnalysisDetail {
     /**
      * 合格成员总数（能胜任至少一种OC的成员）

@@ -131,11 +131,10 @@ public class TornOcIncomeService {
             }
         }
 
-        // 9. 保存详细记录
+        // 8. 保存详细记录
         saveIncomeRecords(oc, incomeList, isSuccess, oc.getRewardMoney(), totalItemCost);
-        // 10. 更新汇总表
-        updateIncomeSummary(oc.getFactionId(), incomeList, isSuccess,
-                oc.getRewardMoney(), totalItemCost);
+        // 8. 更新汇总表
+        calcMonthlyIncomeSummary(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM")));
 
         log.info("OC收益计算完成: ocId={}, 参与人数={}, 总收益={}, 状态={}",
                 oc.getId(), incomeList.size(),
@@ -149,88 +148,25 @@ public class TornOcIncomeService {
     @Transactional(rollbackFor = Exception.class)
     public void monthlySettlement(String yearMonth) {
         log.info("开始月度结算: yearMonth={}", yearMonth);
-
-        // 1. 查询该月所有详细记录
-        LocalDateTime startTime = LocalDateTime.parse(yearMonth + "-01 00:00:00",
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        LocalDateTime endTime = startTime.plusMonths(1);
-
-        List<TornFactionOcIncomeDO> monthlyRecords = incomeDao.lambdaQuery()
-                .ge(TornFactionOcIncomeDO::getOcExecutedTime, startTime)
-                .lt(TornFactionOcIncomeDO::getOcExecutedTime, endTime)
+        // 重新计算一次确保数据准确
+        calcMonthlyIncomeSummary(yearMonth);
+        // 标记为已结算
+        List<TornFactionOcIncomeSummaryDO> summaries = incomeSummaryDao.lambdaQuery()
+                .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
+                .eq(TornFactionOcIncomeSummaryDO::getIsSettled, false)
                 .list();
-
-        if (CollectionUtils.isEmpty(monthlyRecords)) {
-            log.warn("该月没有OC记录: yearMonth={}", yearMonth);
+        if (CollectionUtils.isEmpty(summaries)) {
+            log.warn("该月没有未结算的汇总记录: yearMonth={}", yearMonth);
             return;
         }
-
-        // 2. 计算该月总收益和总成本
-        long monthlyTotalReward = monthlyRecords.stream()
-                .filter(TornFactionOcIncomeDO::getIsSuccess)
-                .mapToLong(TornFactionOcIncomeDO::getTotalReward)
-                .sum();
-
-        long monthlyTotalItemCost = monthlyRecords.stream()
-                .mapToLong(TornFactionOcIncomeDO::getItemCost)
-                .sum();
-
-        long monthlyNetReward = monthlyTotalReward - monthlyTotalItemCost;
-
-        // 3. 按用户分组，计算每个人的总工时
-        Map<Long, BigDecimal> userTotalHours = monthlyRecords.stream()
-                .collect(Collectors.groupingBy(
-                        TornFactionOcIncomeDO::getUserId,
-                        Collectors.reducing(BigDecimal.ZERO,
-                                TornFactionOcIncomeDO::getEffectiveWorkingHours,
-                                BigDecimal::add)));
-
-        BigDecimal totalHours = userTotalHours.values().stream()
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // 4. 重新计算每个人的收益
-        for (Map.Entry<Long, BigDecimal> entry : userTotalHours.entrySet()) {
-            Long userId = entry.getKey();
-            BigDecimal userHours = entry.getValue();
-
-            // 计算用户工时占比
-            BigDecimal ratio = userHours.divide(totalHours, 6, RoundingMode.HALF_UP);
-
-            // 计算用户净收益
-            long userNetIncome = BigDecimal.valueOf(monthlyNetReward)
-                    .multiply(ratio)
-                    .setScale(0, RoundingMode.HALF_UP)
-                    .longValue();
-
-            // 计算用户道具报销
-            long userItemCost = monthlyRecords.stream()
-                    .filter(r -> r.getUserId().equals(userId))
-                    .mapToLong(TornFactionOcIncomeDO::getItemCost)
-                    .sum();
-
-            // 最终收益 = 净收益分配 + 道具报销
-            long finalIncome = userNetIncome + userItemCost;
-
-            // 更新汇总表
-            TornFactionOcIncomeSummaryDO summary = incomeSummaryDao.lambdaQuery()
-                    .eq(TornFactionOcIncomeSummaryDO::getFactionId, TornConstants.FACTION_PN_ID)
-                    .eq(TornFactionOcIncomeSummaryDO::getUserId, userId)
-                    .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
-                    .one();
-
-            if (summary != null) {
-                summary.setTotalReward(monthlyTotalReward);
-                summary.setNetReward(monthlyNetReward);
-                summary.setFinalIncome(finalIncome);
-                summary.setIsSettled(true);
-                summary.setSettledTime(LocalDateTime.now());
-                incomeSummaryDao.updateById(summary);
-            }
+        LocalDateTime settledTime = LocalDateTime.now();
+        for (TornFactionOcIncomeSummaryDO summary : summaries) {
+            summary.setIsSettled(true);
+            summary.setSettledTime(settledTime);
+            incomeSummaryDao.updateById(summary);
         }
 
-        log.info("月度结算完成: yearMonth={}, 参与人数={}, 总收益={}, 总成本={}, 净收益={}",
-                yearMonth, userTotalHours.size(), monthlyTotalReward,
-                monthlyTotalItemCost, monthlyNetReward);
+        log.info("月度结算完成: yearMonth={}, 结算用户数={}", yearMonth, summaries.size());
     }
 
     /**
@@ -319,47 +255,96 @@ public class TornOcIncomeService {
     }
 
     /**
-     * 更新汇总表（每次OC完成时更新）
+     * 按指定月份重新计算收益汇总（用于月度结算）
      */
-    private void updateIncomeSummary(Long factionId, List<IncomeCalculationDTO> incomeList,
-                                     boolean isSuccess, long totalReward, long totalItemCost) {
-        String yearMonth = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+    private void calcMonthlyIncomeSummary(String yearMonth) {
+        // 1. 查询该月所有已完成的OC记录
+        LocalDateTime startTime = LocalDateTime.parse(yearMonth + "-01 00:00:00",
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        LocalDateTime endTime = startTime.plusMonths(1);
+        List<TornFactionOcIncomeDO> monthlyRecords = incomeDao.lambdaQuery()
+                .ge(TornFactionOcIncomeDO::getOcExecutedTime, startTime)
+                .lt(TornFactionOcIncomeDO::getOcExecutedTime, endTime)
+                .list();
+        if (CollectionUtils.isEmpty(monthlyRecords)) {
+            log.warn("该月没有OC记录: yearMonth={}", yearMonth);
+            return;
+        }
 
-        for (IncomeCalculationDTO income : incomeList) {
+        // 2. 计算该月总收益和总成本
+        long monthlyTotalReward = monthlyRecords.stream()
+                .filter(TornFactionOcIncomeDO::getIsSuccess)
+                .mapToLong(TornFactionOcIncomeDO::getTotalReward)
+                .distinct()  // 去重，因为同一个OC的多个用户记录的totalReward是相同的
+                .sum();
+        long monthlyTotalItemCost = monthlyRecords.stream()
+                .mapToLong(TornFactionOcIncomeDO::getItemCost)
+                .sum();
+        long monthlyNetReward = monthlyTotalReward - monthlyTotalItemCost;
+
+        // 3. 按用户分组，计算每个人的统计数据
+        Map<Long, List<TornFactionOcIncomeDO>> userRecordsMap = monthlyRecords.stream()
+                .collect(Collectors.groupingBy(TornFactionOcIncomeDO::getUserId));
+        // 4. 计算所有用户的总有效工时
+        BigDecimal totalEffectiveHours = monthlyRecords.stream()
+                .map(TornFactionOcIncomeDO::getEffectiveWorkingHours)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 5. 为每个用户计算或更新汇总记录
+        for (Map.Entry<Long, List<TornFactionOcIncomeDO>> entry : userRecordsMap.entrySet()) {
+            Long userId = entry.getKey();
+            List<TornFactionOcIncomeDO> userRecords = entry.getValue();
+
+            // 计算用户的总有效工时
+            BigDecimal userTotalHours = userRecords.stream()
+                    .map(TornFactionOcIncomeDO::getEffectiveWorkingHours)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 计算用户的工时占比
+            BigDecimal ratio = totalEffectiveHours.compareTo(BigDecimal.ZERO) > 0
+                    ? userTotalHours.divide(totalEffectiveHours, 6, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+
+            // 计算用户的净收益分配
+            long userNetIncome = BigDecimal.valueOf(monthlyNetReward)
+                    .multiply(ratio)
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValue();
+
+            // 计算用户的道具成本
+            long userItemCost = userRecords.stream()
+                    .mapToLong(TornFactionOcIncomeDO::getItemCost)
+                    .sum();
+
+            // 计算用户的最终收益 = 净收益分配 + 道具报销
+            long finalIncome = userNetIncome + userItemCost;
+
+            // 计算用户的OC数量和成功OC数量
+            int ocCount = userRecords.size();
+            int successOcCount = (int) userRecords.stream()
+                    .filter(TornFactionOcIncomeDO::getIsSuccess)
+                    .count();
+
             // 查询或创建汇总记录
             TornFactionOcIncomeSummaryDO summary = incomeSummaryDao.lambdaQuery()
-                    .eq(TornFactionOcIncomeSummaryDO::getFactionId, factionId)
-                    .eq(TornFactionOcIncomeSummaryDO::getUserId, income.getUserId())
+                    .eq(TornFactionOcIncomeSummaryDO::getUserId, userId)
                     .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
                     .one();
-
             if (summary == null) {
                 summary = new TornFactionOcIncomeSummaryDO();
-                summary.setFactionId(factionId);
-                summary.setUserId(income.getUserId());
+                summary.setUserId(userId);
                 summary.setYearMonth(yearMonth);
-                summary.setTotalEffectiveHours(BigDecimal.ZERO);
-                summary.setTotalItemCost(0L);
-                summary.setTotalReward(0L);
-                summary.setNetReward(0L);
-                summary.setFinalIncome(0L);
-                summary.setOcCount(0);
-                summary.setSuccessOcCount(0);
                 summary.setIsSettled(false);
             }
 
-            // 累加数据
-            summary.setTotalEffectiveHours(
-                    summary.getTotalEffectiveHours().add(income.getWorkingHours().getEffectiveWorkingHours()));
-            summary.setTotalItemCost(summary.getTotalItemCost() + income.getItemCost());
-            summary.setOcCount(summary.getOcCount() + 1);
-
-            if (isSuccess) {
-                summary.setSuccessOcCount(summary.getSuccessOcCount() + 1);
-            }
-
-            // 暂时累加收益（最终收益需要月底重新结算）
-            summary.setFinalIncome(summary.getFinalIncome() + income.getFinalIncome());
+            // 更新汇总数据
+            summary.setTotalEffectiveHours(userTotalHours);
+            summary.setTotalItemCost(userItemCost);
+            summary.setTotalReward(monthlyTotalReward);
+            summary.setNetReward(monthlyNetReward);
+            summary.setFinalIncome(finalIncome);
+            summary.setOcCount(ocCount);
+            summary.setSuccessOcCount(successOcCount);
 
             if (summary.getId() == null) {
                 incomeSummaryDao.save(summary);
@@ -367,5 +352,9 @@ public class TornOcIncomeService {
                 incomeSummaryDao.updateById(summary);
             }
         }
+
+        log.info("月度汇总重新计算完成: yearMonth={}, 参与人数={}, 总收益={}, 总成本={}, 净收益={}",
+                yearMonth, userRecordsMap.size(), monthlyTotalReward,
+                monthlyTotalItemCost, monthlyNetReward);
     }
 }
