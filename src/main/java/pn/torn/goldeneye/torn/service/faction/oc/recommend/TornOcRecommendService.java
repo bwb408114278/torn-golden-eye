@@ -80,25 +80,30 @@ public class TornOcRecommendService {
             List<TornFactionOcSlotDO> vacantSlots = emptySlotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId())).toList();
             // 尝试匹配每个空闲岗位
-            for (TornFactionOcSlotDO slot : vacantSlots) {
-                // 查找用户在这个OC和岗位的成功率数据
-                TornFactionOcUserDO matchedData = userOcData.stream()
-                        .filter(data -> data.getOcName().equals(oc.getName())
-                                && data.getRank().equals(oc.getRank())
-                                && data.getPosition().equals(slot.getPosition()))
-                        .findFirst().orElse(null);
-                if (matchedData == null) {
-                    continue;
-                }
-
-                // 查询岗位最低成功率要求
+            for (TornFactionOcSlotDO slot : vacantSlots) { // 查询岗位最低成功率要求
                 TornSettingOcSlotDO slotSetting = settingOcSlotManager.getList().stream()
                         .filter(s -> s.getOcName().equals(oc.getName()))
                         .filter(s -> s.getRank().equals(oc.getRank()))
                         .filter(s -> s.getSlotCode().equals(slot.getPosition()))
                         .findAny().orElse(null);
                 // 检查成功率是否达标
-                if (slotSetting == null || matchedData.getPassRate() < slotSetting.getPassRate()) {
+                if (slotSetting == null) {
+                    log.warn("未找到岗位配置: {}-{}-{}", oc.getName(), oc.getRank(), slot.getPosition());
+                    continue;
+                }
+
+                // 查找用户在这个OC和岗位的成功率数据
+                TornFactionOcUserDO matchedData = userOcData.stream()
+                        .filter(data -> data.getOcName().equals(oc.getName()))
+                        .filter(data -> data.getRank().equals(oc.getRank()))
+                        .filter(data -> data.getPosition().equals(slotSetting.getSlotShortCode()))  // 使用短Code
+                        .findFirst().orElse(null);
+                if (matchedData == null) {
+                    continue;
+                }
+
+                // 检查成功率是否达标（用户的短Code成功率 >= 该具体岗位的要求）
+                if (matchedData.getPassRate() < slotSetting.getPassRate()) {
                     continue;
                 }
 

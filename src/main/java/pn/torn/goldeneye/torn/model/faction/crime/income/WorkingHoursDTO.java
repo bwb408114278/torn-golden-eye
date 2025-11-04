@@ -1,7 +1,7 @@
 package pn.torn.goldeneye.torn.model.faction.crime.income;
 
-import lombok.Builder;
 import lombok.Data;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
 import java.math.BigDecimal;
 
@@ -13,16 +13,23 @@ import java.math.BigDecimal;
  * @since 2025.11.03
  */
 @Data
-@Builder
 public class WorkingHoursDTO {
     /**
      * 用户ID
      */
     private Long userId;
     /**
+     * 岗位
+     */
+    private String position;
+    /**
+     * 成功率
+     */
+    private Integer passRate;
+    /**
      * 基础工时
      */
-    private BigDecimal baseWorkingHours;
+    private Integer baseWorkingHours;
     /**
      * 工时系数
      */
@@ -35,4 +42,15 @@ public class WorkingHoursDTO {
      * 加入顺序
      */
     private Integer joinOrder;
+
+    public WorkingHoursDTO(TornFactionOcSlotDO slot, int baseWorkingHours, BigDecimal coefficient,
+                           BigDecimal effectiveWorkingHours, int joinOrder) {
+        this.userId = slot.getUserId();
+        this.position = slot.getPosition();
+        this.passRate = slot.getPassRate();
+        this.baseWorkingHours = baseWorkingHours;
+        this.coefficient = coefficient;
+        this.effectiveWorkingHours = effectiveWorkingHours;
+        this.joinOrder = joinOrder;
+    }
 }

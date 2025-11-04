@@ -31,9 +31,29 @@ public class TornFactionOcIncomeDO extends BaseDO {
      */
     private Long ocId;
     /**
+     * OC名称
+     */
+    private String ocName;
+    /**
+     * OC等级
+     */
+    private Integer rank;
+    /**
+     * OC完成时间
+     */
+    private LocalDateTime ocExecutedTime;
+    /**
      * 用户ID
      */
     private Long userId;
+    /**
+     * 岗位
+     */
+    private String position;
+    /**
+     * 成功率
+     */
+    private Integer passRate;
     /**
      * 基础工时
      */
@@ -62,10 +82,27 @@ public class TornFactionOcIncomeDO extends BaseDO {
      * 最终收益（含道具报销）
      */
     private Long finalIncome;
+    /**
+     * 是否成功
+     */
+    private Boolean isSuccess;
+    /**
+     * 总奖金
+     */
+    private Long totalReward;
+    /**
+     * 总道具支出
+     */
+    private Long totalItemCost;
 
-    public TornFactionOcIncomeDO(long ocId, IncomeCalculationDTO income, LocalDateTime calculatedTime) {
-        this.ocId = ocId;
+    public TornFactionOcIncomeDO(TornFactionOcDO oc, IncomeCalculationDTO income) {
+        this.ocId = oc.getId();
+        this.ocName = oc.getName();
+        this.rank = oc.getRank();
+        this.ocExecutedTime = oc.getExecutedTime();
         this.userId = income.getUserId();
+        this.position = income.getPosition();
+        this.passRate = income.getPassRate();
         this.baseWorkingHours = income.getWorkingHours().getBaseWorkingHours();
         this.coefficient = income.getWorkingHours().getCoefficient();
         this.effectiveWorkingHours = income.getWorkingHours().getEffectiveWorkingHours();
@@ -73,6 +110,5 @@ public class TornFactionOcIncomeDO extends BaseDO {
         this.itemCost = income.getItemCost();
         this.allocatedIncome = income.getAllocatedIncome();
         this.finalIncome = income.getFinalIncome();
-        this.calculatedTime = calculatedTime;
     }
 }

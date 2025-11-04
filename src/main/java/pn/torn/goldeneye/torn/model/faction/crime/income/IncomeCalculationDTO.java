@@ -18,6 +18,14 @@ public class IncomeCalculationDTO {
      */
     private Long userId;
     /**
+     * 岗位
+     */
+    private String position;
+    /**
+     * 成功率
+     */
+    private Integer passRate;
+    /**
      * 工时信息
      */
     private WorkingHoursDTO workingHours;
@@ -41,6 +49,8 @@ public class IncomeCalculationDTO {
     public IncomeCalculationDTO(WorkingHoursDTO workingHours, BigDecimal workingHoursRatio, long itemCost,
                                 long allocatedIncome, long finalIncome) {
         this.userId = workingHours.getUserId();
+        this.position = workingHours.getPosition();
+        this.passRate = workingHours.getPassRate();
         this.workingHours = workingHours;
         this.workingHoursRatio = workingHoursRatio;
         this.itemCost = itemCost;

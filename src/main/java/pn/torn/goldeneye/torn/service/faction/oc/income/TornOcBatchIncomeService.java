@@ -57,7 +57,7 @@ public class TornOcBatchIncomeService {
         int successCount = 0;
         for (TornFactionOcDO oc : uncalculatedOcs) {
             try {
-                incomeService.calculateAndSaveIncome(oc.getId());
+                incomeService.calculateAndSaveIncome(oc);
                 successCount++;
                 log.info("成功计算OC收益: id={}, name={}, status={}",
                         oc.getId(), oc.getName(), oc.getStatus());

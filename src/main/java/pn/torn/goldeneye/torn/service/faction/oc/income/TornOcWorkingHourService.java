@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.WorkingHoursDTO;
@@ -31,10 +32,10 @@ public class TornOcWorkingHourService {
     /**
      * 计算OC所有参与者的工时
      */
-    public List<WorkingHoursDTO> calculateWorkingHours(long ocId, String ocName, int rank) {
+    public List<WorkingHoursDTO> calculateWorkingHours(TornFactionOcDO oc) {
         // 1. 查询所有参与的slot，按加入时间排序
         List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery()
-                .eq(TornFactionOcSlotDO::getOcId, ocId)
+                .eq(TornFactionOcSlotDO::getOcId, oc.getId())
                 .isNotNull(TornFactionOcSlotDO::getUserId)
                 .orderByAsc(TornFactionOcSlotDO::getJoinTime)
                 .list();
@@ -51,23 +52,18 @@ public class TornOcWorkingHourService {
             TornFactionOcSlotDO slot = slots.get(i);
 
             // 2.1 计算基础工时（第一个人工时最多）
-            BigDecimal baseWorkingHours = BigDecimal.valueOf(totalSlots - i);
+            int baseWorkingHours = totalSlots - i;
 
             // 2.2 获取系数
-            BigDecimal coefficient = coefficientManager.getCoefficient(ocName, rank, slot.getPosition(), slot.getPassRate());
+            BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
+                    slot.getPosition(), slot.getPassRate());
 
             // 2.3 计算有效工时
-            BigDecimal effectiveWorkingHours = baseWorkingHours.multiply(coefficient)
+            BigDecimal effectiveWorkingHours = BigDecimal.valueOf(baseWorkingHours)
+                    .multiply(coefficient)
                     .setScale(2, RoundingMode.HALF_UP);
-
-            WorkingHoursDTO workingHours = WorkingHoursDTO.builder()
-                    .userId(slot.getUserId())
-                    .baseWorkingHours(baseWorkingHours)
-                    .coefficient(coefficient)
-                    .effectiveWorkingHours(effectiveWorkingHours)
-                    .joinOrder(i + 1)
-                    .build();
-
+            WorkingHoursDTO workingHours = new WorkingHoursDTO(slot, baseWorkingHours, coefficient,
+                    effectiveWorkingHours, i + 1);
             workingHoursList.add(workingHours);
         }
 

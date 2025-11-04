@@ -124,19 +124,22 @@ public class TornOcManageService {
             Long userId = entry.getKey();
             List<TornFactionOcUserDO> abilities = entry.getValue();
 
-            // 检查是否至少有一个岗位达标
-            boolean isQualified = abilities.stream().anyMatch(ability -> {
-                // 查找对应岗位的最低成功率要求
-                TornSettingOcSlotDO slotSetting = slotSettings.stream()
-                        .filter(s -> s.getSlotCode().equals(ability.getPosition()))
-                        .findFirst()
-                        .orElse(null);
+            // 构建用户的岗位能力映射
+            Map<String, Integer> userPositionPassRate = abilities.stream()
+                    .collect(Collectors.toMap(
+                            TornFactionOcUserDO::getPosition,  // 这里存的就是短Code
+                            TornFactionOcUserDO::getPassRate,
+                            Math::max));
 
-                if (slotSetting == null) {
+            // 检查是否至少有一个具体岗位达标
+            boolean isQualified = slotSettings.stream().anyMatch(slotSetting -> {
+                String shortCode = slotSetting.getSlotShortCode();
+                Integer userPassRate = userPositionPassRate.get(shortCode);
+                if (userPassRate == null) {
                     return false;
                 }
 
-                return ability.getPassRate() >= slotSetting.getPassRate();
+                return userPassRate >= slotSetting.getPassRate();
             });
 
             if (isQualified) {
