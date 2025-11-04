@@ -49,7 +49,7 @@ public class TornFactionOcService {
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         if (last.plusHours(1).isBefore(LocalDateTime.now())) {
-            virtualThreadExecutor.execute(this::refreshOc);
+            virtualThreadExecutor.execute(() -> refreshOc(1));
         } else {
             scheduleOcTask(last);
         }
@@ -59,17 +59,17 @@ public class TornFactionOcService {
      * 定时更新OC任务
      */
     public void scheduleOcTask(LocalDateTime last) {
-        taskService.updateTask("oc-reload", this::refreshOc, last.plusHours(1));
+        taskService.updateTask("oc-reload", () -> refreshOc(1), last.plusHours(1));
         settingDao.updateSetting(SettingConstants.KEY_OC_LOAD, DateTimeUtils.convertToString(last));
     }
 
     /**
      * 刷新OC
      */
-    public void refreshOc() {
+    public void refreshOc(int pageSize) {
         List<TornSettingFactionDO> factionList = settingFactionDao.list();
         for (TornSettingFactionDO faction : factionList) {
-            refreshOc(faction.getId());
+            refreshOc(pageSize, faction.getId());
         }
         scheduleOcTask(LocalDateTime.now());
     }
@@ -77,17 +77,22 @@ public class TornFactionOcService {
     /**
      * 刷新OC
      */
-    public void refreshOc(long factionId) {
-        try {
-            TornFactionOcVO availableOc = tornApi.sendRequest(factionId, new TornFactionOcDTO(false), TornFactionOcVO.class);
-            Thread.sleep(1000L);
-            TornFactionOcVO completeOc = tornApi.sendRequest(factionId, new TornFactionOcDTO(true), TornFactionOcVO.class);
+    public void refreshOc(int pageSize, long factionId) {
+        for (int pageNo = 1; pageNo <= pageSize; pageNo++) {
+            try {
+                Thread.sleep(1000L);
+                TornFactionOcVO availableOc = tornApi.sendRequest(factionId,
+                        new TornFactionOcDTO(pageNo, false), TornFactionOcVO.class);
+                Thread.sleep(1000L);
+                TornFactionOcVO completeOc = tornApi.sendRequest(factionId,
+                        new TornFactionOcDTO(pageNo, true), TornFactionOcVO.class);
 
-            if (availableOc != null && completeOc != null) {
-                ocManager.updateOc(factionId, availableOc.getCrimes(), completeOc.getCrimes());
+                if (availableOc != null && completeOc != null) {
+                    ocManager.updateOc(factionId, availableOc.getCrimes(), completeOc.getCrimes());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }

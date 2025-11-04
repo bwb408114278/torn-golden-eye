@@ -52,7 +52,7 @@ public class TornFactionOcManager {
      */
     public List<Long> updateAvailableOc(long factionId, List<TornFactionCrimeVO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
-            return List.of();
+            return new ArrayList<>();
         }
 
         List<TornFactionCrimeVO> newDataList = new ArrayList<>();
@@ -61,10 +61,6 @@ public class TornFactionOcManager {
         List<Long> validOcIdList = new ArrayList<>();
         List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(factionId, ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
-            if (oc.getSlots().stream().noneMatch(s -> s.getUser() != null)) {
-                continue;
-            }
-
             validOcIdList.add(oc.getId());
             if (oldDataList.stream().anyMatch(r -> r.getId().equals(oc.getId()))) {
                 updateDataList.add(oc);
@@ -92,26 +88,29 @@ public class TornFactionOcManager {
         List<TornFactionOcDO> planOcList = ocDao.lambdaQuery()
                 .in(TornFactionOcDO::getId, ocIdList)
                 .eq(TornFactionOcDO::getFactionId, factionId)
-                .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
                 .list();
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(planOcList);
+        List<TornFactionCrimeVO> lostData = new ArrayList<>();
         for (TornFactionCrimeVO oc : ocList) {
             TornFactionOcDO planOc = planOcList.stream()
                     .filter(o -> o.getId().equals(oc.getId()))
                     .findAny().orElse(null);
             if (planOc == null) {
+                lostData.add(oc);
+            } else if (TornOcStatusEnum.getCompleteStatusList().contains(planOc.getStatus())) {
                 continue;
             }
 
             updateCompleteData(oc, slotList);
-            validOcIdList.add(planOc.getId());
+            validOcIdList.add(oc.getId());
         }
 
+        insertOcData(factionId, lostData);
         return validOcIdList;
     }
 
     /**
-     * 删除无人参加的OC
+     * 删除过期的OC
      *
      * @param factionId     帮派ID
      * @param validOcIdList 有人的OC ID列表
@@ -142,7 +141,10 @@ public class TornFactionOcManager {
             return;
         }
 
-        List<TornFactionOcDO> dataList = ocList.stream().map(oc -> oc.convert2DO(factionId)).toList();
+        Map<Integer, TornItemsDO> itemMap = itemsManager.getMap();
+        List<TornFactionOcDO> dataList = ocList.stream()
+                .map(oc -> oc.convert2DO(factionId, itemMap))
+                .toList();
         ocDao.saveBatch(dataList);
 
         List<TornFactionOcSlotDO> slotList = new ArrayList<>();
@@ -164,8 +166,8 @@ public class TornFactionOcManager {
         List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(factionId, ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
             LocalDateTime readyTime = DateTimeUtils.convertToDateTime(oc.getReadyAt());
-            boolean isDiff = oldDataList.stream().noneMatch(old -> old.getId().equals(oc.getId()) &&
-                    old.getStatus().equals(oc.getStatus()) && old.getReadyTime().equals(readyTime));
+            boolean isDiff = oldDataList.stream().noneMatch(old ->
+                    old.getId().equals(oc.getId()) && readyTime != null && readyTime.equals(old.getReadyTime()));
             if (isDiff) {
                 ocDao.lambdaUpdate()
                         .set(TornFactionOcDO::getReadyTime, readyTime)
@@ -185,7 +187,7 @@ public class TornFactionOcManager {
         ocDao.lambdaUpdate()
                 .set(TornFactionOcDO::getStatus, oc.getStatus())
                 .set(TornFactionOcDO::getExecutedTime, DateTimeUtils.convertToDateTime(oc.getExecutedAt()))
-                .set(TornFactionOcDO::getRewardMoney, oc.get2RewardMoney())
+                .set(TornFactionOcDO::getRewardMoney, oc.getRewardMoney())
                 .set(TornFactionOcDO::getRewardItems, oc.getRewardItems())
                 .set(TornFactionOcDO::getRewardItemsValue, oc.getRewardItemsValue(itemMap))
                 .eq(TornFactionOcDO::getId, oc.getId())
@@ -194,7 +196,7 @@ public class TornFactionOcManager {
         for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
             TornFactionOcSlotDO execSlot = slotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId()))
-                    .filter(s -> s.getUserId().equals(slot.getUserId()))
+                    .filter(s -> slot.getUserId().equals(s.getUserId()))
                     .findAny().orElse(null);
             if (execSlot == null) {
                 continue;

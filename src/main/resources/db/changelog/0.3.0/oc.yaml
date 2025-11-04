@@ -436,6 +436,15 @@ databaseChangeLog:
               UPDATE torn_setting_oc_slot SET pass_rate = 65 WHERE id IN (41, 42, 44, 49, 50, 52, 56);
 
   - changeSet:
+      id: save_no_member_oc
+      author: Bai
+      changes:
+        - modifyDataType:
+            tableName: torn_faction_oc
+            columnName: ready_time
+            newDataType: DATETIME
+
+  - changeSet:
       id: change_oc_coefficient
       author: Bai
       changes:

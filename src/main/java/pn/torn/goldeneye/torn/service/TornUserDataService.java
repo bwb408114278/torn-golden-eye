@@ -105,7 +105,8 @@ public class TornUserDataService {
     private void updateOcRate(TornApiKeyDO key) {
         List<TornFactionCrimeVO> ocList = new ArrayList<>();
         if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
-            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(false), key, TornFactionOcVO.class);
+            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(1, false),
+                    key, TornFactionOcVO.class);
             ocList.addAll(oc.getCrimes());
         } else {
             TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);

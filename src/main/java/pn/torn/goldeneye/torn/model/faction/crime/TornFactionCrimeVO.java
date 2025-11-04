@@ -65,7 +65,7 @@ public class TornFactionCrimeVO implements TornFactionOc {
         return this.difficulty;
     }
 
-    public TornFactionOcDO convert2DO(long factionId) {
+    public TornFactionOcDO convert2DO(long factionId, Map<Integer, TornItemsDO> itemMap) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(this.id);
         oc.setFactionId(factionId);
@@ -73,15 +73,22 @@ public class TornFactionCrimeVO implements TornFactionOc {
         oc.setRank(this.difficulty);
         oc.setStatus(this.status);
         oc.setPreviousOcId(this.previousCrimeId);
+        oc.setRewardMoney(getRewardMoney());
+        oc.setRewardItems(getRewardItems());
+        oc.setRewardItemsValue(getRewardItemsValue(itemMap));
 
         if (this.readyAt != null) {
             oc.setReadyTime(DateTimeUtils.convertToDateTime(readyAt));
         }
 
+        if (this.executedAt != null) {
+            oc.setExecutedTime(DateTimeUtils.convertToDateTime(executedAt));
+        }
+
         return oc;
     }
 
-    public Long get2RewardMoney() {
+    public Long getRewardMoney() {
         if (this.rewards == null) {
             return 0L;
         }

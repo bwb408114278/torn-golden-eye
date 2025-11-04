@@ -2,11 +2,13 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
+import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;
 
@@ -39,7 +41,12 @@ public class OcCheckStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        ocService.refreshOc();
+        if (StringUtils.hasText(msg) && !NumberUtils.isInt(msg)) {
+            return super.sendErrorFormatMsg();
+        }
+
+        int pageSize = StringUtils.hasText(msg) ? Integer.parseInt(msg) : 1;
+        ocService.refreshOc(pageSize);
         return super.buildTextMsg("OC数据校准完成");
     }
 }
