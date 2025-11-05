@@ -109,12 +109,13 @@ public class TornFactionOcMsgTableManager {
                                           int rowIndex, int columnCount,
                                           TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
-        resultList.add(oc.getStatus() + "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
+        resultList.add(oc.getStatus() +
+                (oc.getReadyTime() == null ? "" : "\n" + DateTimeUtils.convertToString(oc.getReadyTime())));
         tableConfig.addMerge(rowIndex, 0, 2, 1);
 
         TableImageUtils.CellStyle teamStyle = new TableImageUtils.CellStyle()
                 .setFont(new Font("微软雅黑", Font.BOLD, 14));
-        if (LocalDateTime.now().isAfter(oc.getReadyTime())) {
+        if (oc.getReadyTime() == null || LocalDateTime.now().isAfter(oc.getReadyTime())) {
             teamStyle.setBgColor(Color.YELLOW);
         } else {
             teamStyle.setBgColor(new Color(14, 133, 49)).setTextColor(Color.WHITE);

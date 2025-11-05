@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.dao.faction.oc;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -54,6 +55,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .in(TornFactionOcDO::getName, TornConstants.REASSIGN_OC_NAME)
                 .le(limitTime != null, TornFactionOcDO::getReadyTime, limitTime)
                 .orderByAsc(TornFactionOcDO::getReadyTime)
                 .list();
@@ -65,6 +67,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     public List<TornFactionOcDO> queryExecutingOc(long factionId) {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
+                .in(TornFactionOcDO::getName, TornConstants.REASSIGN_OC_NAME)
                 .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
                 .list();
     }
