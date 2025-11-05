@@ -61,6 +61,7 @@ public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
 
         TornUserDO user = userDao.getById(key.getUserId());
         if (money > 100_000_000_000L) {
+            apiKeyConfig.returnKey(key);
             return super.buildTextMsg(user.getNickname() + ", 这么多钱咱吃点好的吧");
         }
 
