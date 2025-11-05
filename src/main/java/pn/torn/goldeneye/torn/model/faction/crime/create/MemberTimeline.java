@@ -30,7 +30,9 @@ public class MemberTimeline {
      */
     public Set<Long> getReleasedBy(String ocTypeKey, LocalDateTime time) {
         TreeMap<LocalDateTime, Set<Long>> timeline = releaseEvents.get(ocTypeKey);
-        if (timeline == null) return new HashSet<>();
+        if (timeline == null) {
+            return new HashSet<>();
+        }
 
         Set<Long> released = new HashSet<>();
         timeline.headMap(time, true).values().forEach(released::addAll);

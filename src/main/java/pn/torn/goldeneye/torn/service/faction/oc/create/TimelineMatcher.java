@@ -40,7 +40,7 @@ public class TimelineMatcher {
 
         // 逐个时间点检查
         List<FeasibilityResult.TimeCheck> checks = new ArrayList<>();
-        Set<Long> occupied = new HashSet<>();
+        Set<Long> occupySet = new HashSet<>();
 
         for (Map.Entry<LocalDateTime, Integer> entry : demandAtTime.entrySet()) {
             LocalDateTime time = entry.getKey();
@@ -50,7 +50,7 @@ public class TimelineMatcher {
             Set<Long> available = new HashSet<>(currentIdle);
             available.addAll(timeline.getReleasedBy(ocTypeKey, time));
             available.retainAll(qualifiedIds);
-            available.removeAll(occupied);
+            available.removeAll(occupySet);
 
             checks.add(new FeasibilityResult.TimeCheck(time, needed, available.size()));
 
@@ -62,7 +62,7 @@ public class TimelineMatcher {
             }
 
             // 模拟占用这批人员
-            occupied.addAll(available.stream().limit(needed).toList());
+            occupySet.addAll(available.stream().limit(needed).toList());
         }
 
         return new FeasibilityResult(ocCount, true, String.format("可支持%d个OC", ocCount), checks);

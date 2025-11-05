@@ -63,8 +63,7 @@ public class OcTypeAnalyzer {
         int maxSustainable = 0;
 
         for (int i = 1; i <= 5; i++) {
-            FeasibilityResult test = matcher.checkFeasibility(
-                    i, setting.getRequiredMembers(), currentIdle,
+            FeasibilityResult test = matcher.checkFeasibility(i, setting.getRequiredMembers(), currentIdle,
                     timeline, ocTypeKey, qualified, now);
             tests.add(test);
 
@@ -88,35 +87,35 @@ public class OcTypeAnalyzer {
      * 获取合格用户
      */
     private Set<Long> getQualifiedUsers(TornSettingOcDO setting) {
-        List<TornSettingOcSlotDO> slots = slotManager.getList().stream()
+        List<TornSettingOcSlotDO> slotList = slotManager.getList().stream()
                 .filter(s -> s.getOcName().equals(setting.getOcName()))
                 .filter(s -> s.getRank().equals(setting.getRank()))
                 .toList();
-
-        if (slots.isEmpty()) return new HashSet<>();
-        List<TornFactionOcUserDO> abilities = userDao.lambdaQuery()
+        List<TornFactionOcUserDO> abilityList = userDao.lambdaQuery()
                 .eq(TornFactionOcUserDO::getFactionId, TornConstants.FACTION_PN_ID)
                 .eq(TornFactionOcUserDO::getOcName, setting.getOcName())
                 .eq(TornFactionOcUserDO::getRank, setting.getRank())
                 .list();
 
-        Map<Long, List<TornFactionOcUserDO>> byUser = abilities.stream()
+        Map<Long, List<TornFactionOcUserDO>> userVsRateMap = abilityList.stream()
                 .collect(Collectors.groupingBy(TornFactionOcUserDO::getUserId));
-        Set<Long> qualified = new HashSet<>();
 
-        for (Map.Entry<Long, List<TornFactionOcUserDO>> entry : byUser.entrySet()) {
+        Set<Long> qualified = new HashSet<>();
+        for (Map.Entry<Long, List<TornFactionOcUserDO>> entry : userVsRateMap.entrySet()) {
             Map<String, Integer> userPassRates = entry.getValue().stream()
                     .collect(Collectors.toMap(
                             TornFactionOcUserDO::getPosition,
                             TornFactionOcUserDO::getPassRate,
                             Math::max));
 
-            boolean qualifies = slots.stream().anyMatch(slot -> {
+            boolean qualifies = slotList.stream().anyMatch(slot -> {
                 Integer rate = userPassRates.get(slot.getSlotShortCode());
                 return rate != null && rate >= slot.getPassRate();
             });
 
-            if (qualifies) qualified.add(entry.getKey());
+            if (qualifies) {
+                qualified.add(entry.getKey());
+            }
         }
 
         return qualified;
@@ -125,10 +124,8 @@ public class OcTypeAnalyzer {
     /**
      * 构建时间窗口统计
      */
-    private Map<String, Integer> buildWindowStats(
-            String ocTypeKey, Set<Long> qualified, Set<Long> currentIdle,
-            MemberTimeline timeline, LocalDateTime now) {
-
+    private Map<String, Integer> buildWindowStats(String ocTypeKey, Set<Long> qualified, Set<Long> currentIdle,
+                                                  MemberTimeline timeline, LocalDateTime now) {
         Map<String, Integer> stats = new LinkedHashMap<>();
         int[] windows = {6, 12, 24, 48, 72};
 
