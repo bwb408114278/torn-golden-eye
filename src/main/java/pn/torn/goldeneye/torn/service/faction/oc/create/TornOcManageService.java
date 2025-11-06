@@ -15,10 +15,7 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
 import pn.torn.goldeneye.torn.model.faction.crime.create.MemberTimeline;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -44,20 +41,21 @@ public class TornOcManageService {
     public Recommendation analyze() {
         LocalDateTime now = LocalDateTime.now();
 
-        // 1. 收集数据
+        // 1. 获取所有被占用的用户（包括所有类型的OC）
+        Set<Long> recruitUserList = getOccupyUser();
+
+        // 2. 获取轮转OC的活跃列表（用于统计和时间线）
         List<TornFactionOcDO> activeOcList = ocDao.queryExecutingOc(TornConstants.FACTION_PN_ID);
-        Set<Long> recruitUserList = getOccupyUser(activeOcList);
         List<TornFactionOcDO> planOcList = activeOcList.stream()
                 .filter(oc -> TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus()))
                 .toList();
-        log.debug("活跃OC: 招募中用户={}, 计划中OC={}", recruitUserList.size(), planOcList.size());
 
         // 2. 构建时间线
         MemberTimeline timeline = buildTimeline(planOcList);
 
         // 3. 分析各OC类型
         List<TornSettingOcDO> settingList = settingOcManager.getList().stream()
-                .filter(c -> TornConstants.REASSIGN_OC_NAME.contains(c.getOcName()))
+                .filter(c -> TornConstants.ROTATION_OC_NAME.contains(c.getOcName()))
                 .toList();
         List<OcTypeAnalyzer.Analysis> analyseList = settingList.stream()
                 .map(config -> analyzer.analyze(config, recruitUserList, timeline, now))
@@ -65,31 +63,28 @@ public class TornOcManageService {
 
         // 6. 生成总结
         Recommendation result = new Recommendation();
-        result.setTimestamp(now);
-        result.setActiveOcCount(activeOcList.size());
-        result.setRecruitingUserCount(recruitUserList.size());
-
         // 6.1 获取各类型的Recruiting和即将停转数量
         Map<String, Integer> recruitingByType = countByType(activeOcList,
                 oc -> TornOcStatusEnum.RECRUITING.getCode().equals(oc.getStatus()));
         Map<String, Integer> nearStopByType = countNearStopByType(activeOcList, now);
-
+        Map<String, Integer> nearCompleteByType = countNearCompleteByType(activeOcList, now);
         // 6.2 计算各类型详情
         List<Recommendation.TypeDetail> details = analyseList.stream()
-                .map(a -> buildTypeDetail(a, recruitingByType, nearStopByType))
+                .map(a -> buildTypeDetail(a, recruitingByType, nearStopByType, nearCompleteByType))
                 .toList();
         result.setTypeDetails(details);
-
-        // 6.3 计算保守建议
+        result.setTypeDetails(details);
+        // 6.3 计算全局统计
+        Recommendation.GlobalStats globalStats = calculateGlobalStats(analyseList, timeline, now);
+        result.setGlobalStats(globalStats);
+        // 6.4 计算保守建议
         int conservative = calculateConservativeSuggestion(analyseList,
                 nearStopByType.values().stream().mapToInt(i -> i).sum());
         result.setConservativeSuggestion(conservative);
-
-        // 6.4 计算加权建议
+        // 6.5 计算加权建议
         int weighted = calculateWeightedSuggestion(details);
         result.setWeightedSuggestion(weighted);
-
-        // 6.5 生成最后总结
+        // 6.6 生成最后总结
         result.setSummary(buildDetailedSummary(result));
         return result;
     }
@@ -97,16 +92,20 @@ public class TornOcManageService {
     /**
      * 获取被占用的用户
      */
-    private Set<Long> getOccupyUser(List<TornFactionOcDO> ocList) {
-        List<Long> ocIds = ocList.stream()
-                .filter(oc -> TornOcStatusEnum.RECRUITING.getCode().equals(oc.getStatus()))
+    private Set<Long> getOccupyUser() {
+        List<Long> recruitOcIdList = ocDao.lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, TornConstants.FACTION_PN_ID)
+                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .list()
+                .stream()
                 .map(TornFactionOcDO::getId)
                 .toList();
-
-        if (ocIds.isEmpty()) return new HashSet<>();
+        if (recruitOcIdList.isEmpty()) {
+            return new HashSet<>();
+        }
 
         return slotDao.lambdaQuery()
-                .in(TornFactionOcSlotDO::getOcId, ocIds)
+                .in(TornFactionOcSlotDO::getOcId, recruitOcIdList)
                 .isNotNull(TornFactionOcSlotDO::getUserId)
                 .list()
                 .stream()
@@ -138,19 +137,31 @@ public class TornOcManageService {
      */
     private Recommendation.TypeDetail buildTypeDetail(OcTypeAnalyzer.Analysis analysis,
                                                       Map<String, Integer> recruitingByType,
-                                                      Map<String, Integer> nearStopByType) {
+                                                      Map<String, Integer> nearStopByType,
+                                                      Map<String, Integer> nearCompleteByType) {
         Recommendation.TypeDetail detail = new Recommendation.TypeDetail();
         detail.setOcTypeKey(analysis.getOcTypeKey());
         detail.setOcName(analysis.getOcName());
-
         // 设置OC刷新概率
         detail.setProbability(getHistoricalProbability(analysis.getOcName()));
-
+        detail.setQualifiedCount(analysis.getQualifiedCount());
         detail.setCurrentRecruiting(recruitingByType.getOrDefault(analysis.getOcTypeKey(), 0));
         detail.setNearStopCount(nearStopByType.getOrDefault(analysis.getOcTypeKey(), 0));
+        detail.setNearCompleteCount(nearCompleteByType.getOrDefault(analysis.getOcTypeKey(), 0));
         detail.setIdleCount(analysis.getCurrentIdleCount());
         detail.setMaxSustainable(analysis.getMaxSustainableOcs());
 
+        // 设置释放时间表（从Analysis中获取）
+        detail.setReleaseSchedule(analysis.getWindowStats());
+
+        // 计算新释放人数（增量）
+        Map<String, Integer> newReleaseSchedule = new LinkedHashMap<>();
+        int currentIdle = analysis.getCurrentIdleCount();
+        for (Map.Entry<String, Integer> entry : analysis.getWindowStats().entrySet()) {
+            int newRelease = entry.getValue() - currentIdle;
+            newReleaseSchedule.put(entry.getKey(), Math.max(0, newRelease));
+        }
+        detail.setNewReleaseSchedule(newReleaseSchedule);
         // 评估状态
         int needed = detail.getNearStopCount() * analysis.getRequiredMembers();
         if (detail.getIdleCount() >= needed * 2) {
@@ -160,7 +171,6 @@ public class TornOcManageService {
         } else {
             detail.setStatus("❌ 危险");
         }
-
         // 生成建议
         detail.setRecommendation(generateTypeRecommendation(detail, analysis));
         return detail;
@@ -259,16 +269,75 @@ public class TornOcManageService {
      * 构建总结
      */
     private String buildDetailedSummary(Recommendation rec) {
+        Recommendation.GlobalStats global = rec.getGlobalStats();
         return "【综合建议】\n" +
                 String.format("  🎯 加权建议: 新建 %d 个队伍\n",
                         rec.getWeightedSuggestion()) +
                 String.format("  🛡️ 保守建议: 新建 %d 个队伍\n",
                         rec.getConservativeSuggestion()) +
+                "【全局人员统计】\n" +
+                String.format("  • 合格人员总数: %d 人\n", global.getTotalQualifiedUsers()) +
+                String.format("  • 当前空闲总数: %d 人 (%.1f%%)\n",
+                        global.getTotalIdleUsers(),
+                        global.getTotalIdleUsers() * 100.0 / global.getTotalQualifiedUsers()) +
+                "【即将释放人数】\n" +
+                String.format("  • 6小时内:  +%d 人\n", global.getReleaseSchedule().get("6h")) +
+                String.format("  • 12小时内: +%d 人\n", global.getReleaseSchedule().get("12h")) +
+                String.format("  • 24小时内: +%d 人\n", global.getReleaseSchedule().get("24h")) +
                 "【当前状态】\n" +
-                String.format("  • 活跃OC总数: %d 个\n", rec.getActiveOcCount()) +
-                String.format("  • 招募中用户: %d 人\n", rec.getRecruitingUserCount()) +
+                String.format("  • 24h内完成OC: %d 个\n",
+                        rec.getTypeDetails().stream().mapToInt(Recommendation.TypeDetail::getNearCompleteCount).sum()) +
                 String.format("  • 24h内停转OC: %d 个\n",
                         rec.getTypeDetails().stream().mapToInt(Recommendation.TypeDetail::getNearStopCount).sum());
+    }
+
+    /**
+     * 计算全局统计（去重）
+     */
+    private Recommendation.GlobalStats calculateGlobalStats(List<OcTypeAnalyzer.Analysis> analyseList,
+                                                            MemberTimeline timeline, LocalDateTime now) {
+        Recommendation.GlobalStats stats = new Recommendation.GlobalStats();
+        // 1. 统计所有合格用户（去重）
+        Set<Long> allQualified = new HashSet<>();
+        Set<Long> allCurrentIdle = new HashSet<>();
+
+        for (OcTypeAnalyzer.Analysis analysis : analyseList) {
+            allQualified.addAll(analysis.getQualifiedUsers());
+            allCurrentIdle.addAll(analysis.getCurrentIdleUsers());
+        }
+
+        stats.setTotalQualifiedUsers(allQualified.size());
+        stats.setTotalIdleUsers(allCurrentIdle.size());
+
+        // 2. 统计即将释放的用户（去重）
+        Map<String, Integer> releaseSchedule = new LinkedHashMap<>();
+        int[] windows = {6, 12, 24};
+
+        for (int hours : windows) {
+            LocalDateTime targetTime = now.plusHours(hours);
+            Set<Long> willRelease = new HashSet<>();
+            // 收集所有类型在该时间窗口内会释放的用户
+            for (OcTypeAnalyzer.Analysis analysis : analyseList) {
+                Set<Long> released = timeline.getReleasedBy(analysis.getOcTypeKey(), targetTime);
+                willRelease.addAll(released);
+            }
+
+            // 只保留合格用户
+            willRelease.retainAll(allQualified);
+            // 去除当前已经空闲的用户（只统计新增）
+            willRelease.removeAll(allCurrentIdle);
+            releaseSchedule.put(hours + "h", willRelease.size());
+        }
+
+        stats.setReleaseSchedule(releaseSchedule);
+        log.debug("全局统计: 合格={}, 空闲={}, 6h释放={}, 12h释放={}, 24h释放={}",
+                stats.getTotalQualifiedUsers(),
+                stats.getTotalIdleUsers(),
+                releaseSchedule.get("6h"),
+                releaseSchedule.get("12h"),
+                releaseSchedule.get("24h"));
+
+        return stats;
     }
 
     /**
@@ -296,16 +365,27 @@ public class TornOcManageService {
     }
 
     /**
+     * 分类型统计即将完成的OC数量（Planning状态且24小时内Ready）
+     */
+    private Map<String, Integer> countNearCompleteByType(List<TornFactionOcDO> activeOcs, LocalDateTime now) {
+        LocalDateTime threshold = now.plusHours(24);
+        return activeOcs.stream()
+                .filter(oc -> TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus()))
+                .filter(oc -> oc.getReadyTime() != null && oc.getReadyTime().isBefore(threshold))
+                .collect(Collectors.groupingBy(
+                        oc -> oc.getName() + "_" + oc.getRank(),
+                        Collectors.summingInt(oc -> 1)));
+    }
+
+    /**
      * 推荐结果
      */
     @Data
     public static class Recommendation {
-        private LocalDateTime timestamp;
-        private int activeOcCount;
-        private int recruitingUserCount;
         private int conservativeSuggestion;
         private int weightedSuggestion;
         private List<TypeDetail> typeDetails;
+        private GlobalStats globalStats;
         private String summary;
 
         @Data
@@ -316,10 +396,35 @@ public class TornOcManageService {
             private int qualifiedCount;
             private int currentRecruiting;
             private int nearStopCount;
+            /**
+             * 即将完成的OC数量（Planning -> Complete）
+             */
+            private int nearCompleteCount;
             private int idleCount;
+            /**
+             * 释放时间表：6h/12h/24h -> 累计可用人数
+             */
+            private Map<String, Integer> releaseSchedule;
+            /**
+             * 新释放人数：6h/12h/24h -> 新增人数
+             */
+            private Map<String, Integer> newReleaseSchedule;
             private int maxSustainable;
-            private String status;  // "充足" / "紧张" / "危险"
-            private String recommendation; // 具体建议
+            /**
+             * "充足" / "紧张" / "危险"
+             */
+            private String status;
+            /**
+             * 具体建议
+             */
+            private String recommendation;
+        }
+
+        @Data
+        public static class GlobalStats {
+            private int totalQualifiedUsers;
+            private int totalIdleUsers;
+            private Map<String, Integer> releaseSchedule;
         }
     }
 }

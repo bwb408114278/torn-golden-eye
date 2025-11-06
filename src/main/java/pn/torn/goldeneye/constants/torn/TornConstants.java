@@ -26,16 +26,16 @@ public class TornConstants {
     public static final long FACTION_PN_ID = 20465L;
 
     // ====================OC相关====================
-    public static final List<String> REASSIGN_OC_NAME = new ArrayList<>();
+    public static final List<String> ROTATION_OC_NAME = new ArrayList<>();
     /**
      * 飞书多维表 - OC收益
      */
     public static final String BIT_TABLE_OC_BENEFIT = "oc_benefit";
 
     static {
-        REASSIGN_OC_NAME.add("Blast from the Past");
-        REASSIGN_OC_NAME.add("Break the Bank");
-        REASSIGN_OC_NAME.add("Clinical Precision");
+        ROTATION_OC_NAME.add("Blast from the Past");
+        ROTATION_OC_NAME.add("Break the Bank");
+        ROTATION_OC_NAME.add("Clinical Precision");
     }
 
     // ====================物品相关====================

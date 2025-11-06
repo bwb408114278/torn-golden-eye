@@ -55,7 +55,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
-                .in(TornFactionOcDO::getName, TornConstants.REASSIGN_OC_NAME)
+                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
                 .le(limitTime != null, TornFactionOcDO::getReadyTime, limitTime)
                 .orderByAsc(TornFactionOcDO::getReadyTime)
                 .list();
@@ -67,7 +67,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     public List<TornFactionOcDO> queryExecutingOc(long factionId) {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
-                .in(TornFactionOcDO::getName, TornConstants.REASSIGN_OC_NAME)
+                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
                 .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
                 .list();
     }

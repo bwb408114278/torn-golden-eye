@@ -48,12 +48,14 @@ public class OcTypeAnalyzer {
         // 1. 获取合格用户
         Set<Long> qualified = getQualifiedUsers(setting);
         result.setQualifiedCount(qualified.size());
+        result.setQualifiedUsers(qualified);
 
         // 2. 计算当前空闲
         Set<Long> currentIdle = new HashSet<>(qualified);
         currentIdle.removeAll(recruitingUsers);
         currentIdle.removeAll(timeline.getReleasedBy(ocTypeKey, now.plusYears(10)));
         result.setCurrentIdleCount(currentIdle.size());
+        result.setCurrentIdleUsers(currentIdle);
 
         // 3. 时间窗口统计
         result.setWindowStats(buildWindowStats(ocTypeKey, qualified, currentIdle, timeline, now));
@@ -165,7 +167,9 @@ public class OcTypeAnalyzer {
         private Integer rank;
         private int requiredMembers;
         private int qualifiedCount;
+        private Set<Long> qualifiedUsers;
         private int currentIdleCount;
+        private Set<Long> currentIdleUsers;
         private int maxSustainableOcs;
         private List<FeasibilityResult> feasibilityTests;
         private Map<String, Integer> windowStats;  // 时间窗口 -> 可用人数
