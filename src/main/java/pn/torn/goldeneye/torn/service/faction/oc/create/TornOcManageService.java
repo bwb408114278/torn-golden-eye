@@ -42,7 +42,7 @@ public class TornOcManageService {
         LocalDateTime now = LocalDateTime.now();
 
         // 1. 获取所有被占用的用户（包括所有类型的OC）
-        Set<Long> recruitUserList = getOccupyUser();
+        Set<Long> recruitUserList = getOccupyUser(TornOcStatusEnum.RECRUITING);
 
         // 2. 获取轮转OC的活跃列表（用于统计和时间线）
         List<TornFactionOcDO> activeOcList = ocDao.queryExecutingOc(TornConstants.FACTION_PN_ID);
@@ -92,10 +92,10 @@ public class TornOcManageService {
     /**
      * 获取被占用的用户
      */
-    private Set<Long> getOccupyUser() {
+    private Set<Long> getOccupyUser(TornOcStatusEnum... status) {
         List<Long> recruitOcIdList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, TornConstants.FACTION_PN_ID)
-                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .in(TornFactionOcDO::getStatus, Arrays.stream(status).map(TornOcStatusEnum::getCode).toList())
                 .list()
                 .stream()
                 .map(TornFactionOcDO::getId)
@@ -234,24 +234,18 @@ public class TornOcManageService {
             }
         }
 
-        // 3. 应用80%安全系数
-        int safe = (int) (min * 0.8);
-
-        // 4. 限制最大5个
-        return Math.min(safe, 5);
+        // 3. 限制最大5个
+        return Math.min(min, 5);
     }
 
     /**
      * 加权策略
      */
     private int calculateWeightedSuggestion(List<Recommendation.TypeDetail> details) {
-        // 按概率加权计算期望可持续数
         double expectedSustainable = details.stream()
                 .mapToDouble(d -> d.getProbability() * d.getMaxSustainable())
                 .sum();
-
-        // 应用80%安全系数
-        int weighted = (int) (expectedSustainable * 0.8);
+        int weighted = (int) (expectedSustainable);
 
         // 如果有类型处于危险状态，额外减少
         long dangerCount = details.stream()
@@ -270,16 +264,14 @@ public class TornOcManageService {
      */
     private String buildDetailedSummary(Recommendation rec) {
         Recommendation.GlobalStats global = rec.getGlobalStats();
-        return "【综合建议】\n" +
-                String.format("  🎯 加权建议: 新建 %d 个队伍\n",
+        return "【7/8级刷新综合建议】\n" +
+                String.format("  🎯 激进策略: 新建 %d 个队伍\n",
                         rec.getWeightedSuggestion()) +
-                String.format("  🛡️ 保守建议: 新建 %d 个队伍\n",
+                String.format("  🛡️ 保守策略: 新建 %d 个队伍\n",
                         rec.getConservativeSuggestion()) +
                 "【全局人员统计】\n" +
                 String.format("  • 合格人员总数: %d 人\n", global.getTotalQualifiedUsers()) +
-                String.format("  • 当前空闲总数: %d 人 (%.1f%%)\n",
-                        global.getTotalIdleUsers(),
-                        global.getTotalIdleUsers() * 100.0 / global.getTotalQualifiedUsers()) +
+                String.format("  • 当前空闲总数: %d 人\n", global.getTotalIdleUsers()) +
                 "【即将释放人数】\n" +
                 String.format("  • 6小时内:  +%d 人\n", global.getReleaseSchedule().get("6h")) +
                 String.format("  • 12小时内: +%d 人\n", global.getReleaseSchedule().get("12h")) +
@@ -299,14 +291,15 @@ public class TornOcManageService {
         Recommendation.GlobalStats stats = new Recommendation.GlobalStats();
         // 1. 统计所有合格用户（去重）
         Set<Long> allQualified = new HashSet<>();
-        Set<Long> allCurrentIdle = new HashSet<>();
 
         for (OcTypeAnalyzer.Analysis analysis : analyseList) {
             allQualified.addAll(analysis.getQualifiedUsers());
-            allCurrentIdle.addAll(analysis.getCurrentIdleUsers());
         }
-
         stats.setTotalQualifiedUsers(allQualified.size());
+
+        Set<Long> occupyUserList = getOccupyUser(TornOcStatusEnum.RECRUITING, TornOcStatusEnum.PLANNING);
+        Set<Long> allCurrentIdle = new HashSet<>(allQualified);
+        allCurrentIdle.removeAll(occupyUserList);
         stats.setTotalIdleUsers(allCurrentIdle.size());
 
         // 2. 统计即将释放的用户（去重）
@@ -322,8 +315,6 @@ public class TornOcManageService {
                 willRelease.addAll(released);
             }
 
-            // 只保留合格用户
-            willRelease.retainAll(allQualified);
             // 去除当前已经空闲的用户（只统计新增）
             willRelease.removeAll(allCurrentIdle);
             releaseSchedule.put(hours + "h", willRelease.size());

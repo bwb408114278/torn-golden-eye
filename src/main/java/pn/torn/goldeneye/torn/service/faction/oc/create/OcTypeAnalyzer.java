@@ -55,7 +55,6 @@ public class OcTypeAnalyzer {
         currentIdle.removeAll(recruitingUsers);
         currentIdle.removeAll(timeline.getReleasedBy(ocTypeKey, now.plusYears(10)));
         result.setCurrentIdleCount(currentIdle.size());
-        result.setCurrentIdleUsers(currentIdle);
 
         // 3. 时间窗口统计
         result.setWindowStats(buildWindowStats(ocTypeKey, qualified, currentIdle, timeline, now));
@@ -169,7 +168,6 @@ public class OcTypeAnalyzer {
         private int qualifiedCount;
         private Set<Long> qualifiedUsers;
         private int currentIdleCount;
-        private Set<Long> currentIdleUsers;
         private int maxSustainableOcs;
         private List<FeasibilityResult> feasibilityTests;
         private Map<String, Integer> windowStats;  // 时间窗口 -> 可用人数
