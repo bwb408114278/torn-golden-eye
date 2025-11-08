@@ -2,51 +2,44 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.PnManageMsgStrategy;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
-import pn.torn.goldeneye.utils.NumberUtils;
+import pn.torn.goldeneye.torn.service.faction.oc.create.TornOcManageService;
 
 import java.util.List;
 
 /**
- * 获取Oc策略实现类
+ * 创建OC新队实现类
  *
  * @author Bai
  * @version 0.3.0
- * @since 2025.07.24
+ * @since 2025.11.04
  */
 @Component
 @RequiredArgsConstructor
-public class OcCheckStrategyImpl extends BaseGroupMsgStrategy {
+public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
     private final TornFactionOcService ocService;
-
-    @Override
-    public boolean isNeedSa() {
-        return true;
-    }
+    private final TornOcManageService ocManageService;
 
     @Override
     public String getCommand() {
-        return BotCommands.OC_CHECK;
+        return BotCommands.OC_NEW_TEAM;
     }
 
     @Override
     public String getCommandDescription() {
-        return "强制刷新当前执行中OC";
+        return "获取开OC新队的建议";
     }
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        if (StringUtils.hasText(msg) && !NumberUtils.isInt(msg)) {
-            return super.sendErrorFormatMsg();
-        }
+        ocService.refreshOc(1, TornConstants.FACTION_PN_ID);
 
-        int pageSize = StringUtils.hasText(msg) ? Integer.parseInt(msg) : 1;
-        ocService.refreshOc(pageSize);
-        return super.buildTextMsg("OC数据校准完成");
+        TornOcManageService.Recommendation analyze = ocManageService.analyze();
+        return super.buildTextMsg(analyze.getSummary());
     }
 }

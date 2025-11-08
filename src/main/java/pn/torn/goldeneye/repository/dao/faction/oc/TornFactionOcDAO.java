@@ -3,11 +3,12 @@ package pn.torn.goldeneye.repository.dao.faction.oc;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
-import java.util.Arrays;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -15,11 +16,24 @@ import java.util.List;
  * Torn Oc持久层类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.3.0
  * @since 2025.07.29
  */
 @Repository
 public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFactionOcDO> {
+    /**
+     * 通过ID列表删除
+     *
+     * @param idList ID列表
+     */
+    public void deleteByIdList(List<Long> idList) {
+        if (CollectionUtils.isEmpty(idList)) {
+            return;
+        }
+
+        baseMapper.deleteByIdList(idList);
+    }
+
     /**
      * 通过ID列表查询列表
      */
@@ -35,26 +49,26 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     }
 
     /**
-     * 通过状态和级别查询
+     * 查询招募中的队伍
      */
-    public List<TornFactionOcDO> queryListByStatusAndRank(long factionId, TornOcStatusEnum ocStatus, int... rank) {
+    public List<TornFactionOcDO> queryRecrutingList(long factionId, LocalDateTime limitTime) {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
-                .in(TornFactionOcDO::getRank, Arrays.stream(rank).boxed().toList())
-                .eq(TornFactionOcDO::getStatus, ocStatus.getCode())
+                .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
+                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
+                .le(limitTime != null, TornFactionOcDO::getReadyTime, limitTime)
+                .orderByAsc(TornFactionOcDO::getReadyTime)
                 .list();
     }
 
     /**
-     * 通过ID列表删除
-     *
-     * @param idList ID列表
+     * 查询执行中的队伍
      */
-    public void deleteByIdList(List<Long> idList) {
-        if (CollectionUtils.isEmpty(idList)) {
-            return;
-        }
-
-        baseMapper.deleteByIdList(idList);
+    public List<TornFactionOcDO> queryExecutingOc(long factionId) {
+        return lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, factionId)
+                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
+                .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                .list();
     }
 }

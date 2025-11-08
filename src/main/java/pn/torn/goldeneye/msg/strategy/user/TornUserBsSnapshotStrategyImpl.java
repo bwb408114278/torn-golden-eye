@@ -84,13 +84,13 @@ public class TornUserBsSnapshotStrategyImpl extends SmthMsgStrategy {
         List<List<String>> tableData = new ArrayList<>();
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("MM-dd");
 
-        tableData.add(List.of(user.getNickname() + "近7日bs增幅", "", "", "", ""));
+        tableData.add(List.of(user.getNickname() + "近7日bs增幅", "", "", "", "", ""));
         List<String> headers = List.of("日期", "str", "def", "spd", "dex", "total");
         tableData.add(headers);
 
         TornUserBsSnapshotDO first = snapshots.getFirst();
 
-        tableData.add(List.of(first.getRecordDate().format(dateFormatter),
+        tableData.add(List.of(first.getRecordDate().minusDays(1).format(dateFormatter),
                 NumberUtils.addDelimiters(first.getStrength()),
                 NumberUtils.addDelimiters(first.getDefense()),
                 NumberUtils.addDelimiters(first.getSpeed()),
@@ -102,7 +102,7 @@ public class TornUserBsSnapshotStrategyImpl extends SmthMsgStrategy {
             TornUserBsSnapshotDO previous = snapshots.get(i - 1);
 
             List<String> row = new ArrayList<>();
-            row.add(current.getRecordDate().format(dateFormatter));
+            row.add(current.getRecordDate().minusDays(1).format(dateFormatter));
 
             // 计算每日增幅
             long strGrowth = current.getStrength() - previous.getStrength();
@@ -111,11 +111,11 @@ public class TornUserBsSnapshotStrategyImpl extends SmthMsgStrategy {
             long dexGrowth = current.getDexterity() - previous.getDexterity();
             long totalGrowth = current.getTotal() - previous.getTotal();
 
-            row.add(current.getStrength() + "(+" + NumberUtils.addDelimiters(strGrowth) + ")");
-            row.add(current.getDefense() + "(+" + NumberUtils.addDelimiters(defGrowth) + ")");
-            row.add(current.getSpeed() + "(+" + NumberUtils.addDelimiters(spdGrowth) + ")");
-            row.add(current.getDexterity() + "(+" + NumberUtils.addDelimiters(dexGrowth) + ")");
-            row.add(current.getTotal() + "(+" + NumberUtils.addDelimiters(totalGrowth) + ")");
+            row.add(NumberUtils.addDelimiters(current.getStrength()) + "(+" + NumberUtils.addDelimiters(strGrowth) + ")");
+            row.add(NumberUtils.addDelimiters(current.getDefense()) + "(+" + NumberUtils.addDelimiters(defGrowth) + ")");
+            row.add(NumberUtils.addDelimiters(current.getSpeed()) + "(+" + NumberUtils.addDelimiters(spdGrowth) + ")");
+            row.add(NumberUtils.addDelimiters(current.getDexterity()) + "(+" + NumberUtils.addDelimiters(dexGrowth) + ")");
+            row.add(NumberUtils.addDelimiters(current.getTotal()) + "(+" + NumberUtils.addDelimiters(totalGrowth) + ")");
 
             tableData.add(row);
         }
@@ -135,12 +135,12 @@ public class TornUserBsSnapshotStrategyImpl extends SmthMsgStrategy {
         TornUserBsSnapshotDO last = snapshots.getLast();
 
         List<String> summaryRow = new ArrayList<>();
-        summaryRow.add("累计增幅");
-        summaryRow.add(last.getStrength() + "(+" + NumberUtils.addDelimiters(last.getStrength() - first.getStrength()) + ")");
-        summaryRow.add(last.getDefense() + "(+" + NumberUtils.addDelimiters(last.getDefense() - first.getDefense()) + ")");
-        summaryRow.add(last.getSpeed() + "(+" + NumberUtils.addDelimiters(last.getSpeed() - first.getSpeed()) + ")");
-        summaryRow.add(last.getDexterity() + "(+" + NumberUtils.addDelimiters(last.getDexterity() - first.getDexterity()) + ")");
-        summaryRow.add(last.getTotal() + "(+" + NumberUtils.addDelimiters(last.getTotal() - first.getTotal()) + ")");
+        summaryRow.add("累计增加");
+        summaryRow.add(NumberUtils.addDelimiters(last.getStrength()) + "(+" + NumberUtils.addDelimiters(last.getStrength() - first.getStrength()) + ")");
+        summaryRow.add(NumberUtils.addDelimiters(last.getDefense()) + "(+" + NumberUtils.addDelimiters(last.getDefense() - first.getDefense()) + ")");
+        summaryRow.add(NumberUtils.addDelimiters(last.getSpeed()) + "(+" + NumberUtils.addDelimiters(last.getSpeed() - first.getSpeed()) + ")");
+        summaryRow.add(NumberUtils.addDelimiters(last.getDexterity()) + "(+" + NumberUtils.addDelimiters(last.getDexterity() - first.getDexterity()) + ")");
+        summaryRow.add(NumberUtils.addDelimiters(last.getTotal()) + "(+" + NumberUtils.addDelimiters(last.getTotal() - first.getTotal()) + ")");
         return summaryRow;
     }
 
@@ -160,7 +160,7 @@ public class TornUserBsSnapshotStrategyImpl extends SmthMsgStrategy {
         int rows = tableData.size();
 
         // 标题样式
-        config.addMerge(0, 0, 1, 5);
+        config.addMerge(0, 0, 1, 6);
         config.setCellStyle(0, 0, new TableImageUtils.CellStyle()
                 .setBgColor(Color.WHITE)
                 .setPadding(25)

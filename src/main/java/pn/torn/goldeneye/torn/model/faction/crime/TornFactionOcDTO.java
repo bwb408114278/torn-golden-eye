@@ -17,6 +17,10 @@ import java.util.List;
 @Data
 public class TornFactionOcDTO implements TornReqParamV2 {
     /**
+     * 页码
+     */
+    private int pageNo;
+    /**
      * 是否完成
      */
     private boolean isComplete;
@@ -31,14 +35,15 @@ public class TornFactionOcDTO implements TornReqParamV2 {
         return true;
     }
 
-    public TornFactionOcDTO(boolean isComplete) {
+    public TornFactionOcDTO(int pageNo, boolean isComplete) {
+        this.pageNo = pageNo;
         this.isComplete = isComplete;
     }
 
     @Override
     public MultiValueMap<String, String> buildReqParam() {
-        MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
-
+        MultiValueMap<String, String> param = new LinkedMultiValueMap<>(2);
+        param.put("offset", List.of(String.valueOf((pageNo - 1) * 100)));
         if (isComplete) {
             param.put("cat", List.of("completed"));
         } else {

@@ -5,17 +5,19 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
+import java.math.BigDecimal;
+
 /**
- * Torn设置OC表
+ * OC系数配置表
  *
  * @author Bai
  * @version 0.3.0
- * @since 2025.08.21
+ * @since 2025.11.01
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
-@TableName(value = "torn_setting_oc", autoResultMap = true)
-public class TornSettingOcDO extends BaseDO {
+@TableName(value = "torn_setting_oc_coefficient", autoResultMap = true)
+public class TornSettingOcCoefficientDO extends BaseDO {
     /**
      * ID
      */
@@ -29,15 +31,19 @@ public class TornSettingOcDO extends BaseDO {
      */
     private Integer rank;
     /**
-     * 需要的总人数
+     * 岗位编码
      */
-    private Integer requiredMembers;
+    private String slotCode;
     /**
-     * 准备天数（等于需要的人数）
+     * 成功率下限（包含）
      */
-    private Integer prepareDays;
+    private Integer passRateMin;
     /**
-     * 预期收益（用于估算）
+     * 成功率上限（包含）
      */
-    private Long expectedReward;
+    private Integer passRateMax;
+    /**
+     * 工时系数
+     */
+    private BigDecimal coefficient;
 }

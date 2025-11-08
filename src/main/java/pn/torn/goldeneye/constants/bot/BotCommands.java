@@ -30,18 +30,6 @@ public class BotCommands {
      */
     public static final String OC_PASS_RATE = "OC成功率";
     /**
-     * OC提醒
-     */
-    public static final String OC_NOTICE = "OC提醒";
-    /**
-     * 取消OC提醒
-     */
-    public static final String CANCEL_OC_NOTICE = "取消OC提醒";
-    /**
-     * 今日轮转
-     */
-    public static final String OC_ROTATION_QUERY = "今日轮转";
-    /**
      * OC收益
      */
     public static final String OC_BENEFIT = "OC收益";
@@ -49,6 +37,10 @@ public class BotCommands {
      * OC收益榜
      */
     public static final String OC_BENEFIT_RANK = "OC收益榜";
+    /**
+     * OC新队
+     */
+    public static final String OC_NEW_TEAM = "OC新队";
 
     // ====================帮派成员相关====================
     /**
@@ -99,16 +91,4 @@ public class BotCommands {
      * 绑Key
      */
     public static final String BIND_KEY = "绑Key";
-    /**
-     * 8级混编
-     */
-    public static final String OC_RORATION_MIX = "8级混编";
-    /**
-     * 8级整编
-     */
-    public static final String OC_RORATION_WHOLE = "8级整编";
-    /**
-     * 8级混编
-     */
-    public static final String OC_SKIP_TEAM = "OC咸鱼队";
 }
