@@ -33,10 +33,6 @@ public class OcRecommendationVO {
      */
     private String recommendedPosition;
     /**
-     * 预期收益
-     */
-    private Long expectedIncome;
-    /**
      * 推荐度评分
      */
     private BigDecimal recommendScore;
@@ -49,14 +45,12 @@ public class OcRecommendationVO {
      */
     private String reason;
 
-    public OcRecommendationVO(TornFactionOcDO oc, TornFactionOcSlotDO slot,
-                              long expectedIncome, BigDecimal recommendScore, String reason) {
+    public OcRecommendationVO(TornFactionOcDO oc, TornFactionOcSlotDO slot, BigDecimal recommendScore, String reason) {
         this.ocId = oc.getId();
         this.ocName = oc.getName();
         this.rank = oc.getRank();
         this.recommendedPosition = slot.getPosition();
         this.readyTime = oc.getReadyTime();
-        this.expectedIncome = expectedIncome;
         this.recommendScore = recommendScore;
         this.reason = reason;
     }

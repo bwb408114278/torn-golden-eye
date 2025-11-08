@@ -1,7 +1,9 @@
 package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 
+import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -14,6 +16,7 @@ import java.awt.*;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
+import java.util.Queue;
 
 /**
  * OC表格消息公共逻辑
@@ -34,17 +37,18 @@ public class TornFactionOcMsgTableManager {
      *
      * @return 表格数据，第一层为行，第二层为单元格
      */
-    public TableDataBO buildOcTable(String title, Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
+    public TableDataBO buildOcTable(String title, Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
+                                    Queue<String> splitLineQueue) {
         List<Long> userIdList = new ArrayList<>();
-        ocMap.values().forEach(v -> userIdList.addAll(v.stream()
-                .map(TornFactionOcSlotDO::getUserId)
-                .filter(Objects::nonNull)
-                .toList()));
+        ocMap.values().forEach(v -> userIdList.addAll(v != null ?
+                v.stream().map(TornFactionOcSlotDO::getUserId).filter(Objects::nonNull).toList() : List.of()));
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(userIdList);
 
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         List<List<String>> tableData = new ArrayList<>();
-        int columnCount = ocMap.values().stream().max(Comparator.comparingInt(List::size)).orElse(List.of()).size();
+        int columnCount = ocMap.values().stream().max(
+                        Comparator.comparingInt(s -> s != null ? s.size() : 0))
+                .orElse(List.of()).size();
 
         List<String> titleRow = new ArrayList<>();
         titleRow.add(title);
@@ -56,7 +60,18 @@ public class TornFactionOcMsgTableManager {
         tableData.add(titleRow);
 
         int rowIndex = 1;
-        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
+        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entries()) {
+            List<String> splitLine = new ArrayList<>();
+            String splitLineString = CollectionUtils.isEmpty(splitLineQueue) ? "" : splitLineQueue.poll();
+            splitLine.add(splitLineString);
+            fillEmptyColumn(splitLine, 1, columnCount);
+            tableData.add(splitLine);
+
+            tableConfig.addMerge(rowIndex, 0, 1, columnCount + 1);
+            tableConfig.setCellStyle(rowIndex, 0, new TableImageUtils.CellStyle()
+                    .setBgColor(new Color(242, 242, 242))
+                    .setFont(new Font("微软雅黑", Font.BOLD, 14)));
+
             TornFactionOcDO oc = entry.getKey();
             List<TornFactionOcSlotDO> slotList = entry.getValue();
 
@@ -70,22 +85,12 @@ public class TornFactionOcMsgTableManager {
                 }
             });
 
-            tableData.add(buildPositionRow(oc, slotList, rowIndex, columnCount, tableConfig));
-            tableData.add(buildMemberRow(slotList, userMap, rowIndex, columnCount, tableConfig));
-
-            List<String> splitLine = new ArrayList<>();
-            fillEmptyColumn(splitLine, 0, columnCount + 1);
-            tableData.add(splitLine);
-
-            tableConfig.addMerge(rowIndex + 2, 0, 1, columnCount + 1);
-            tableConfig.setCellStyle(rowIndex + 2, 0,
-                    new TableImageUtils.CellStyle().setBgColor(new Color(242, 242, 242)));
+            tableData.add(buildPositionRow(oc, slotList, rowIndex + 1, columnCount, tableConfig));
+            tableData.add(buildMemberRow(slotList, userMap, rowIndex + 1, columnCount, tableConfig));
 
             rowIndex += 3;
         }
 
-        // 移除最后一行分隔行
-        tableData.remove(rowIndex - 1);
         return new TableDataBO(tableData, tableConfig);
     }
 
@@ -105,9 +110,9 @@ public class TornFactionOcMsgTableManager {
      * @param rowIndex    当前行数
      * @param columnCount 最大列数
      */
-    private List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                          int rowIndex, int columnCount,
-                                          TableImageUtils.TableConfig tableConfig) {
+    public List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
+                                         int rowIndex, int columnCount,
+                                         TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
         resultList.add(oc.getStatus() +
                 (oc.getReadyTime() == null ? "" : "\n" + DateTimeUtils.convertToString(oc.getReadyTime())));
@@ -146,8 +151,8 @@ public class TornFactionOcMsgTableManager {
      * @param rowIndex    当前行数
      * @param columnCount 最大列数
      */
-    private List<String> buildMemberRow(List<TornFactionOcSlotDO> slotList, Map<Long, TornUserDO> userMap,
-                                        int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
+    public List<String> buildMemberRow(List<TornFactionOcSlotDO> slotList, Map<Long, TornUserDO> userMap,
+                                       int rowIndex, int columnCount, TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
         resultList.add("");
 

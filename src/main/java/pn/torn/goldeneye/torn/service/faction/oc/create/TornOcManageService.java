@@ -279,7 +279,7 @@ public class TornOcManageService {
                 "【当前状态】\n" +
                 String.format("  • 24h内完成OC: %d 个\n",
                         rec.getTypeDetails().stream().mapToInt(Recommendation.TypeDetail::getNearCompleteCount).sum()) +
-                String.format("  • 24h内停转OC: %d 个\n",
+                String.format("  • 8h内停转OC: %d 个\n",
                         rec.getTypeDetails().stream().mapToInt(Recommendation.TypeDetail::getNearStopCount).sum());
     }
 
@@ -346,7 +346,7 @@ public class TornOcManageService {
      * 分类型统计停转数量
      */
     private Map<String, Integer> countNearStopByType(List<TornFactionOcDO> activeOcs, LocalDateTime now) {
-        LocalDateTime threshold = now.plusHours(24);
+        LocalDateTime threshold = now.plusHours(8);
         return activeOcs.stream()
                 .filter(oc -> TornOcStatusEnum.RECRUITING.getCode().equals(oc.getStatus()))
                 .filter(oc -> oc.getReadyTime() == null || oc.getReadyTime().isBefore(threshold))

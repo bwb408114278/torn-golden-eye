@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.model.TableDataBO;
@@ -11,10 +13,8 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
 /**
  * OC消息公共逻辑
@@ -45,13 +45,19 @@ public class TornFactionOcMsgManager {
             ocMap.put(oc, currentSlotList);
         }
 
-        TableDataBO table = msgTableManager.buildOcTable(title, ocMap);
+        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> multiMap = ArrayListMultimap.create();
+        LinkedList<String> splitLine = new LinkedList<>();
+        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
+            multiMap.put(entry.getKey(), entry.getValue());
+            splitLine.add(entry.getKey().getName());
+        }
+        TableDataBO table = msgTableManager.buildOcTable(title, multiMap, splitLine);
 
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
                 "", "", "", "", ""));
 
-        int row = ocList.size() * 3;
+        int row = ocList.size() * 3 + 1;
         table.getTableConfig().addMerge(row, 0, 1, 7)
                 .setCellStyle(row, 0, new TableImageUtils.CellStyle()
                         .setFont(new Font("微软雅黑", Font.BOLD, 14))
