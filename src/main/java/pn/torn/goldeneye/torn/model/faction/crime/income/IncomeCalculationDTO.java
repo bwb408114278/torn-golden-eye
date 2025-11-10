@@ -2,8 +2,6 @@ package pn.torn.goldeneye.torn.model.faction.crime.income;
 
 import lombok.Data;
 
-import java.math.BigDecimal;
-
 /**
  * 收益计算结果DTO
  *
@@ -30,31 +28,31 @@ public class IncomeCalculationDTO {
      */
     private WorkingHoursDTO workingHours;
     /**
-     * 工时占比
-     */
-    private BigDecimal workingHoursRatio;
-    /**
      * 道具成本
      */
     private Long itemCost;
     /**
-     * 分配收益
+     * 总道具成本
      */
-    private Long allocatedIncome;
+    private Long totalItemCost;
     /**
-     * 最终收益
+     * 奖励金额
      */
-    private Long finalIncome;
+    private Long rewardMoney;
+    /**
+     * 最终利润
+     */
+    private Long netReward;
 
-    public IncomeCalculationDTO(WorkingHoursDTO workingHours, BigDecimal workingHoursRatio, long itemCost,
-                                long allocatedIncome, long finalIncome) {
+    public IncomeCalculationDTO(WorkingHoursDTO workingHours, long itemCost, long totalItemCost,
+                                long rewardMoney, long netReward) {
         this.userId = workingHours.getUserId();
         this.position = workingHours.getPosition();
         this.passRate = workingHours.getPassRate();
         this.workingHours = workingHours;
-        this.workingHoursRatio = workingHoursRatio;
         this.itemCost = itemCost;
-        this.allocatedIncome = allocatedIncome;
-        this.finalIncome = finalIncome;
+        this.totalItemCost = totalItemCost;
+        this.rewardMoney = rewardMoney;
+        this.netReward = netReward;
     }
 }

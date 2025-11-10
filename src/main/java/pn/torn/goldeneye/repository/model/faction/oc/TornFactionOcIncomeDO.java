@@ -67,17 +67,9 @@ public class TornFactionOcIncomeDO extends BaseDO {
      */
     private BigDecimal effectiveWorkingHours;
     /**
-     * 工时占比
-     */
-    private BigDecimal workingHoursRatio;
-    /**
      * 道具成本
      */
     private Long itemCost;
-    /**
-     * 分配收益（不含道具报销）
-     */
-    private Long allocatedIncome;
     /**
      * 最终收益（含道具报销）
      */
@@ -106,9 +98,9 @@ public class TornFactionOcIncomeDO extends BaseDO {
         this.baseWorkingHours = income.getWorkingHours().getBaseWorkingHours();
         this.coefficient = income.getWorkingHours().getCoefficient();
         this.effectiveWorkingHours = income.getWorkingHours().getEffectiveWorkingHours();
-        this.workingHoursRatio = income.getWorkingHoursRatio();
         this.itemCost = income.getItemCost();
-        this.allocatedIncome = income.getAllocatedIncome();
-        this.finalIncome = income.getFinalIncome();
+        this.totalItemCost = income.getTotalItemCost();
+        this.totalReward = income.getRewardMoney();
+        this.finalIncome = income.getNetReward();
     }
 }

@@ -29,10 +29,6 @@ public class UserIncomeVO {
      */
     private LocalDateTime endTime;
     /**
-     * 总收益
-     */
-    private Long totalIncome;
-    /**
      * 参与OC数量
      */
     private Integer ocCount;
