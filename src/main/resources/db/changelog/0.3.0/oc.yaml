@@ -473,3 +473,15 @@ databaseChangeLog:
               (20, 'Clinical Precision', 8, 'Cat Burglar#1', 60, 100, 1.25),
               (21, 'Clinical Precision', 8, 'Cleaner#1', 60, 100, 1.25),
               (22, 'Clinical Precision', 8, 'Imitator#1', 65, 100, 1.40);
+
+  - changeSet:
+      id: add_oc_income_lack_column
+      author: Bai
+      changes:
+        - dropColumn:
+            tableName: torn_faction_oc_income
+            columnName: allocated_income
+        - dropNotNullConstraint:
+            tableName: torn_faction_oc_income_summary
+            columnName: settled_time
+            columnDataType: DATETIME

@@ -36,7 +36,6 @@ public class TornOcWorkingHourService {
         // 1. 查询所有参与的slot，按加入时间排序
         List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery()
                 .eq(TornFactionOcSlotDO::getOcId, oc.getId())
-                .isNotNull(TornFactionOcSlotDO::getUserId)
                 .orderByAsc(TornFactionOcSlotDO::getJoinTime)
                 .list();
 
