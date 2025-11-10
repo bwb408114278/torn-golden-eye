@@ -203,6 +203,7 @@ public class TornFactionOcManager {
             }
 
             slotDao.lambdaUpdate()
+                    .set(TornFactionOcSlotDO::getProgress, slot.getUser().getProgress())
                     .set(TornFactionOcSlotDO::getOutcomeItemId, slot.getOutcomeItemId())
                     .set(TornFactionOcSlotDO::getOutcomeItemStatus, slot.getOutcomeItemStatus())
                     .set(TornFactionOcSlotDO::getOutcomeItemValue, slot.getOutcomeItemValue(itemMap))

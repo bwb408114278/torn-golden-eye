@@ -485,3 +485,24 @@ databaseChangeLog:
             tableName: torn_faction_oc_income_summary
             columnName: settled_time
             columnDataType: DATETIME
+
+  - changeSet:
+      id: add_oc_slot_progress
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_slot
+            columns:
+              - column:
+                  name: progress
+                  type: DECIMAL(5, 2)
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "准备进度"
+        - sql:
+            sql: |
+              UPDATE torn_faction_oc_slot s
+              SET progress = 100
+              FROM torn_faction_oc o 
+              WHERE o.id = s.oc_id AND o.status IN ('Successful', 'Failure');

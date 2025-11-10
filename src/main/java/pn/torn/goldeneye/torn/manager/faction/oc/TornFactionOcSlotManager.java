@@ -9,6 +9,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -35,7 +36,9 @@ public class TornFactionOcSlotManager {
                 TornFactionOcSlotDO oldSlot = oldSlotList.stream()
                         .filter(old -> old.getOcId().equals(oc.getId()) && old.getPosition().equals(position))
                         .findAny().orElse(null);
-                if (oldSlot == null || Objects.equals(oldSlot.getUserId(), slot.getUserId())) {
+                BigDecimal progress = slot.getUser() == null ? BigDecimal.ZERO : slot.getUser().getProgress();
+                if (oldSlot == null ||
+                        (Objects.equals(oldSlot.getUserId(), slot.getUserId()) && oldSlot.getProgress().equals(progress))) {
                     continue;
                 }
 
@@ -44,6 +47,7 @@ public class TornFactionOcSlotManager {
                             .set(TornFactionOcSlotDO::getUserId, slot.getUser().getId())
                             .set(TornFactionOcSlotDO::getJoinTime, DateTimeUtils.convertToDateTime(slot.getUser().getJoinedAt()))
                             .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
+                            .set(TornFactionOcSlotDO::getProgress, progress)
                             .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
                             .update();
                 } else {
@@ -51,6 +55,7 @@ public class TornFactionOcSlotManager {
                             .set(TornFactionOcSlotDO::getUserId, null)
                             .set(TornFactionOcSlotDO::getJoinTime, null)
                             .set(TornFactionOcSlotDO::getPassRate, null)
+                            .set(TornFactionOcSlotDO::getProgress, BigDecimal.ZERO)
                             .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
                             .update();
                 }
