@@ -41,6 +41,10 @@ public class BotCommands {
      * OC新队
      */
     public static final String OC_NEW_TEAM = "OC新队";
+    /**
+     * OC推荐
+     */
+    public static final String OC_RECOMMEND = "OC推荐";
 
     // ====================帮派成员相关====================
     /**
