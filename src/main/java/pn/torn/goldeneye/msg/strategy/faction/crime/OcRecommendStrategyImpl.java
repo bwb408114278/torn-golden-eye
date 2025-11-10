@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -53,7 +54,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        // ocService.refreshOc(1, TornConstants.FACTION_PN_ID);
+         ocService.refreshOc(1, TornConstants.FACTION_PN_ID);
 
         TornUserDO user = super.getTornUser(sender, "");
         if (user.getFactionId() == null || !user.getFactionId().equals(TornConstants.FACTION_PN_ID)) {
@@ -75,7 +76,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
         List<TornFactionOcDO> ocList = ocDao.queryListByIdList(TornConstants.FACTION_PN_ID,
                 result.stream().map(OcRecommendationVO::getOcId).toList());
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = ArrayListMultimap.create();
+        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedListMultimap.create();
         LinkedList<String> reasonList = new LinkedList<>();
 
         for (OcRecommendationVO recommend : result) {
@@ -89,7 +90,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
             List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId())).toList());
             ocMap.put(oc, currentSlotList);
-            reasonList.add(recommend.getRank() + "级" +
+            reasonList.offer(recommend.getRank() + "级" +
                     "   " + recommend.getOcName() +
                     "   岗位: " + recommend.getRecommendedPosition() +
                     "   评分: " + recommend.getRecommendScore() +

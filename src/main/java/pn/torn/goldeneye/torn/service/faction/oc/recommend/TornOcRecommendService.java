@@ -243,7 +243,7 @@ public class TornOcRecommendService {
      */
     private BigDecimal calculateTimeScore(LocalDateTime readyTime) {
         if (readyTime == null) {
-            return BigDecimal.valueOf(50); // 默认中等分数
+            return BigDecimal.valueOf(100); // 新队, 满分
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -293,11 +293,11 @@ public class TornOcRecommendService {
 
         // 成功率
         if (passRate >= 75) {
+            reasons.add("超高成功率");
+        } else if (passRate >= 70) {
             reasons.add("高成功率");
-        } else if (passRate >= 65) {
-            reasons.add("适中成功率");
         } else {
-            reasons.add("达标成功率");
+            reasons.add("成功率达标");
         }
 
         return String.join("、", reasons);

@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.manager.faction.oc.msg;
 
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -45,7 +46,7 @@ public class TornFactionOcMsgManager {
             ocMap.put(oc, currentSlotList);
         }
 
-        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> multiMap = ArrayListMultimap.create();
+        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> multiMap = LinkedListMultimap.create();
         LinkedList<String> splitLine = new LinkedList<>();
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
             multiMap.put(entry.getKey(), entry.getValue());

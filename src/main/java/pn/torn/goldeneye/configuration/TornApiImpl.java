@@ -32,6 +32,7 @@ class TornApiImpl implements TornApi {
     private static final int MAX_RETRIES = 3;
     // 定义Key无效的错误码
     private static final int INVALID_KEY_ERROR_CODE = 2;
+    private static final int KEY_PAUSED_ERROR_CODE = 18;
 
     public TornApiImpl(TornApiKeyConfig apiKeyConfig) {
         this.apiKeyConfig = apiKeyConfig;
@@ -139,7 +140,7 @@ class TornApiImpl implements TornApi {
             return reqSpec.retrieve().toEntity(String.class);
         } catch (Exception e) {
             retryCount++;
-            log.error("第{}次请求Torn Api V2出错", retryCount, e);
+            log.warn("第{}次请求Torn Api V2出错", retryCount, e);
             if (retryCount > 3) {
                 return null;
             } else {
@@ -161,7 +162,7 @@ class TornApiImpl implements TornApi {
                 log.error("Torn Api报错: {}", entity.getBody());
                 JsonNode node = JsonUtils.getNode(entity.getBody(), "error.code");
                 // 无效的Key
-                if (node != null && node.asInt() == INVALID_KEY_ERROR_CODE) {
+                if (node != null && (node.asInt() == INVALID_KEY_ERROR_CODE || node.asInt() == KEY_PAUSED_ERROR_CODE)) {
                     throw new BizException(BotConstants.EX_INVALID_KEY, "无效的Key");
                 } else {
                     return null;
