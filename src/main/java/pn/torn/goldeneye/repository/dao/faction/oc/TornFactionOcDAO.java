@@ -51,7 +51,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     /**
      * 查询招募中的队伍
      */
-    public List<TornFactionOcDO> queryRecrutingList(long factionId, LocalDateTime limitTime) {
+    public List<TornFactionOcDO> queryRecrutList(long factionId, LocalDateTime limitTime) {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())

@@ -3,6 +3,8 @@ package pn.torn.goldeneye.torn.model.faction.crime;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 /**
  * Torn OC User详情响应参数
  *
@@ -26,4 +28,8 @@ public class TornFactionCrimeUserVO {
      */
     @JsonProperty("item_outcome")
     private TornFactionCrimeUserItemVO itemOutcome;
+    /**
+     * 准备进度
+     */
+    private BigDecimal progress;
 }

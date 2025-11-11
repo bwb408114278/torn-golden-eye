@@ -6,6 +6,7 @@ import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -43,6 +44,10 @@ public class TornFactionOcSlotDO extends BaseDO implements TornFactionOcSlot {
      * 加入时间
      */
     private LocalDateTime joinTime;
+    /**
+     * 准备进度
+     */
+    private BigDecimal progress;
     /**
      * 消耗品ID
      */

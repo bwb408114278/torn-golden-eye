@@ -47,7 +47,8 @@ public class TornOcRecommendService {
      *
      * @param topN 返回Top N个推荐
      */
-    public List<OcRecommendationVO> recommendOcForUser(long userId, int topN) {
+    public List<OcRecommendationVO> recommendOcForUser(long userId, int topN,
+                                                       TornFactionOcDO joinedOc, TornFactionOcSlotDO joinedSlot) {
         // 1. 查询用户的成功率数据
         List<TornFactionOcUserDO> userOcData = ocUserDao.lambdaQuery().eq(TornFactionOcUserDO::getUserId, userId).list();
         if (CollectionUtils.isEmpty(userOcData)) {
@@ -55,14 +56,13 @@ public class TornOcRecommendService {
         }
 
         // 2. 查询所有招募中的OC
-        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutingList(TornConstants.FACTION_PN_ID, null);
+        List<TornFactionOcDO> recruitOcList = findRecrutList(joinedOc);
         if (CollectionUtils.isEmpty(recruitOcList)) {
             return List.of();
         }
 
         // 3. 查询所有未满员的OC
-        List<Long> recrutIdList = recruitOcList.stream().map(TornFactionOcDO::getId).toList();
-        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(recrutIdList);
+        List<TornFactionOcSlotDO> emptySlotList = findEmptySlotList(recruitOcList, joinedSlot);
         if (CollectionUtils.isEmpty(emptySlotList)) {
             return List.of();
         }
@@ -124,7 +124,7 @@ public class TornOcRecommendService {
     public Map<Long, OcRecommendationVO> recommendForIdleUsers() {
         // 1. 查询即将停转的OC（24小时内）
         LocalDateTime threshold = LocalDateTime.now().plusHours(24);
-        List<TornFactionOcDO> urgentOcs = ocDao.queryRecrutingList(TornConstants.FACTION_PN_ID, threshold);
+        List<TornFactionOcDO> urgentOcs = ocDao.queryRecrutList(TornConstants.FACTION_PN_ID, threshold);
         if (CollectionUtils.isEmpty(urgentOcs)) {
             return Map.of();
         }
@@ -216,6 +216,43 @@ public class TornOcRecommendService {
     }
 
     /**
+     * 查找招募中的OC列表
+     */
+    public List<TornFactionOcDO> findRecrutList(TornFactionOcDO joinedOc) {
+        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(TornConstants.FACTION_PN_ID, null);
+        if (joinedOc == null) {
+            return recruitOcList;
+        }
+
+        // 针对于空转进度的，按照进度跑完时间减一天去计算 如果OC已经进入Planning状态, 手动放到recruit列表中
+        TornFactionOcDO calcOc = recruitOcList.stream()
+                .filter(o -> o.getId().equals(joinedOc.getId()))
+                .findAny().orElse(null);
+        if (calcOc != null) {
+            calcOc.setReadyTime(calcOc.getReadyTime().minusDays(-1));
+        } else {
+            joinedOc.setReadyTime(joinedOc.getReadyTime().minusDays(-1));
+            recruitOcList.add(joinedOc);
+        }
+        return recruitOcList;
+    }
+
+    /**
+     * 查找招募中的OC空位
+     */
+    public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList,
+                                                       TornFactionOcSlotDO joinedSlot) {
+        List<Long> recrutIdList = recruitOcList.stream().map(TornFactionOcDO::getId).toList();
+        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(recrutIdList);
+        if (joinedSlot != null) {
+            emptySlotList.add(joinedSlot);
+        }
+
+
+        return emptySlotList;
+    }
+
+    /**
      * 计算推荐度评分
      * 权重：停转时间(50%) > 成功率(30%) > 收益(20%)
      *
@@ -232,7 +269,7 @@ public class TornOcRecommendService {
         BigDecimal passRateScore = BigDecimal.valueOf(userPassRate.getPassRate())
                 .multiply(coefficient);
 
-        // 4. 加权计算
+        // 3. 加权计算
         return timeScore.multiply(BigDecimal.valueOf(0.7))
                 .add(passRateScore.multiply(BigDecimal.valueOf(0.3)))
                 .setScale(2, RoundingMode.HALF_UP);

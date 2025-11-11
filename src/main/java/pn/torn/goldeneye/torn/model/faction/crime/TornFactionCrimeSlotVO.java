@@ -8,6 +8,7 @@ import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOcSlot;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 /**
@@ -46,10 +47,12 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
             slot.setUserId(this.user.getId());
             slot.setPassRate(this.checkpointPassRate);
             slot.setJoinTime(DateTimeUtils.convertToDateTime(this.user.getJoinedAt()));
+            slot.setProgress(this.user.getProgress());
         } else {
             slot.setUserId(null);
             slot.setPassRate(null);
             slot.setJoinTime(null);
+            slot.setProgress(BigDecimal.ZERO);
         }
 
         return slot;
