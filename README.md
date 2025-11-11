@@ -88,3 +88,20 @@ log_timezone = 'Asia/Shanghai'
 > 请求飞书 Api失败
 
 - 请确认是否配置了飞书的环境变量，IDEA启动时需要在项目配置中设置，镜像启动时需要替换`.env`文件中的变量
+
+## 捐赠者名单
+
+感谢大佬们对金眼的大力支持
+
+| ID      | 昵称            | 版本          | 捐赠留言                 |
+|:--------|:--------------|:------------|:---------------------|
+| 3174862 | DarcyYao      | 服务器 × 1     |                      |
+| 3267881 | MeatBigHeader | FHC × 10    | donate for goldeneye |
+| 3234698 | Sweetyla      | DVD × 10    | 赞美作佬                 |
+| 1765272 | funnimo       | FHC × 1     |                      |
+| 3174862 | DarcyYao      | Xan × 10    | 赞美作佬                 |
+| 2945480 | SimonSoooou   | FHC × 5     | 金眼配金卡，Bug它最大         |
+| 2928772 | GoldenIngot   | 100H糖 × 150 | love                 |
+| 3133172 | Kingdee       | 红牛 × 20     | 作佬喝红牛，越喝你越牛          |
+| 2687001 | lixu1020      | 大DP × 1     | To Goldeneye         |
+| 2969766 | iFor          | Xan × 100   | 白总牛逼                 |
