@@ -263,9 +263,11 @@ public class TornOcRecommendService {
         // 1. 停转时间评分（70%权重）
         BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
 
-        // 2. 成功率评分（30%权重）- 直接使用成功率百分比
+        // 2. 成功率评分（30%权重）- 4倍系数的百分比，然后用成功率去乘
         BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
-                slotSetting.getSlotCode(), userPassRate.getPassRate());
+                        slotSetting.getSlotCode(), userPassRate.getPassRate())
+                .multiply(BigDecimal.valueOf(4))
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         BigDecimal passRateScore = BigDecimal.valueOf(userPassRate.getPassRate())
                 .multiply(coefficient);
 

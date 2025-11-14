@@ -21,7 +21,6 @@ import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
@@ -120,7 +119,7 @@ public class TornFactionOcBenefitService {
             }
 
             List<TornFactionOcBenefitDO> benefitList = parseRecords(response.getItems());
-            saveBenefitList(benefitList, from);
+            saveBenefitList(benefitList);
             hasMore = response.getHasMore();
             pageToken = response.getPageToken();
         } while (hasMore);
@@ -132,7 +131,7 @@ public class TornFactionOcBenefitService {
     /**
      * 保存收益列表
      */
-    public void saveBenefitList(List<TornFactionOcBenefitDO> benefitList, LocalDateTime from) {
+    public void saveBenefitList(List<TornFactionOcBenefitDO> benefitList) {
         if (CollectionUtils.isEmpty(benefitList)) {
             return;
         }
@@ -146,7 +145,7 @@ public class TornFactionOcBenefitService {
                 .collect(Collectors.toSet());
 
         List<TornFactionOcBenefitDO> newDataList = benefitList.stream()
-                .filter(b -> !existOcIdSet.contains(b.getOcId()) && !b.getOcFinishTime().isBefore(from))
+                .filter(b -> !existOcIdSet.contains(b.getOcId()))
                 .toList();
         if (!CollectionUtils.isEmpty(newDataList)) {
             benefitDao.saveBatch(newDataList);
