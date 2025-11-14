@@ -298,7 +298,8 @@ public class TornOcRecommendService {
         }
         // 6小时内 - 极高优先级
         if (hoursUntilReady <= 6) {
-            return BigDecimal.valueOf(100);
+            return BigDecimal.valueOf(100 - hoursUntilReady * 2)
+                    .max(BigDecimal.valueOf(95));
         }
         // 24小时内 - 高优先级，加速递减
         if (hoursUntilReady <= 24) {
@@ -335,10 +336,8 @@ public class TornOcRecommendService {
                     Duration.between(now, oc.getReadyTime()).toHours() + 1 : 0;
             if (hours <= 0) {
                 reasons.add("已停转，急需加入");
-            } else if (hours <= 6) {
+            } else {
                 reasons.add(String.format("%d小时内停转", hours));
-            } else if (hours <= 24) {
-                reasons.add("24h内停转");
             }
         } else {
             reasons.add("新队");
