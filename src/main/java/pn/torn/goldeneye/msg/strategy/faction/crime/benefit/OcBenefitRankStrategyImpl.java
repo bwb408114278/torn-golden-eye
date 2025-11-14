@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime.benefit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
@@ -11,6 +12,7 @@ import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
@@ -48,8 +50,11 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
         TornUserDO user = super.getTornUser(sender, msg);
         LocalDateTime fromDate = LocalDate.now().minusDays(LocalDate.now().getDayOfMonth() - 1L)
                 .atTime(0, 0, 0);
-        List<TornFactionOcBenefitRankDO> rankingList = benefitDao.queryBenefitRanking(user.getFactionId(),
-                fromDate, LocalDateTime.now());
+        LocalDateTime toDate = LocalDateTime.now();
+        List<TornFactionOcBenefitRankDO> rankingList = user.getFactionId().equals(TornConstants.FACTION_PN_ID) ?
+                benefitDao.queryIncomeRanking(user.getFactionId(), fromDate, toDate,
+                        TornConstants.ROTATION_OC_NAME, toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER)) :
+                benefitDao.queryBenefitRanking(user.getFactionId(), fromDate, toDate);
         return super.buildImageMsg(buildRankingMsg(user.getFactionId(), rankingList));
     }
 

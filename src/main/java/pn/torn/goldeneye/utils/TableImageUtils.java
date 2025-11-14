@@ -9,8 +9,8 @@ import pn.torn.goldeneye.base.model.TableDataBO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 
 /**
  * 表格图片类
@@ -238,8 +238,8 @@ public class TableImageUtils {
                     for (int i = 0; i < rowSpan; i++) {
                         int rowIndex = r + i;
                         if (rowIndex < rows && minHeightPerRow > minRowHeights[rowIndex]) {
-                                minRowHeights[rowIndex] = minHeightPerRow;
-                            }
+                            minRowHeights[rowIndex] = minHeightPerRow;
+                        }
 
                     }
                 }
@@ -261,16 +261,13 @@ public class TableImageUtils {
                 if (isCellMergedFromLeft(config, r, c) || isCellMergedFromAbove(config, r, c)) {
                     continue;
                 }
-
                 CellStyle style = getCellStyle(config, r, c);
                 Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
                 int padding = (style != null) ? style.horizontalPadding : 10;
-
                 // 获取实际字体尺寸
                 tempG = tempImage.createGraphics();
                 FontMetrics metrics = tempG.getFontMetrics(cellFont);
                 tempG.dispose();
-
                 String text = tableData.get(r).get(c);
                 int maxLineWidth = 0;
                 String[] lines = text.split("\n");
@@ -280,19 +277,35 @@ public class TableImageUtils {
                         maxLineWidth = lineWidth;
                     }
                 }
-
                 int requiredWidth = maxLineWidth + 2 * padding;
-
                 // 获取单元格合并信息
                 CellMerge merge = getCellMerge(config, r, c);
                 if (merge.colSpan > 1) {
-                    // 合并单元格需要分配到多列
-                    requiredWidth /= merge.colSpan;
-                }
+                    // 合并单元格：先计算当前各列的总宽度
+                    int currentTotalWidth = 0;
+                    for (int i = 0; i < merge.colSpan && (c + i) < cols; i++) {
+                        currentTotalWidth += colWidths[c + i];
+                    }
 
-                // 更新列宽（取最大值）
-                if (requiredWidth > colWidths[c]) {
-                    colWidths[c] = requiredWidth;
+                    // 如果当前总宽度不够，则需要扩展
+                    if (requiredWidth > currentTotalWidth) {
+                        int deficit = requiredWidth - currentTotalWidth;
+                        // 将差额平均分配到各列（处理余数）
+                        int extraPerCol = deficit / merge.colSpan;
+                        int remainder = deficit % merge.colSpan;
+
+                        for (int i = 0; i < merge.colSpan && (c + i) < cols; i++) {
+                            colWidths[c + i] += extraPerCol;
+                            if (i < remainder) {
+                                colWidths[c + i] += 1; // 分配余数
+                            }
+                        }
+                    }
+                } else {
+                    // 单列单元格：直接更新列宽
+                    if (requiredWidth > colWidths[c]) {
+                        colWidths[c] = requiredWidth;
+                    }
                 }
             }
         }
@@ -442,7 +455,7 @@ public class TableImageUtils {
         int totalTextHeight = lines.length * lineHeight + (lines.length - 1) * lineSpacing;
 
         // 垂直居中计算（考虑padding）
-        int startY = cellY + verticalPadding  + (cellHeight - 2 * verticalPadding  - totalTextHeight) / 2 + metrics.getAscent();
+        int startY = cellY + verticalPadding + (cellHeight - 2 * verticalPadding - totalTextHeight) / 2 + metrics.getAscent();
 
         // 绘制每一行
         for (String line : lines) {

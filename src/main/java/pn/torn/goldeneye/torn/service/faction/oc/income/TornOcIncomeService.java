@@ -19,6 +19,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCalculationDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeDetailVO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.UserIncomeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.WorkingHoursDTO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -85,7 +86,7 @@ public class TornOcIncomeService {
         // 5. 保存详细记录
         saveIncomeRecords(oc, incomeList, isSuccess, oc.getRewardMoney(), totalItemCost);
         // 6. 更新汇总表
-        calcMonthlyIncomeSummary(oc.getExecutedTime().format(DateTimeFormatter.ofPattern("yyyy-MM")));
+        calcMonthlyIncomeSummary(oc.getExecutedTime().format(DateTimeUtils.YEAR_MONTH_FORMATTER));
     }
 
     /**
