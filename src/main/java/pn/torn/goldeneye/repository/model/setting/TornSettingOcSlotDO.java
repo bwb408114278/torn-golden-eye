@@ -5,6 +5,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
+import java.math.BigDecimal;
+
 /**
  * Torn设置OC岗位表
  *
@@ -40,4 +42,12 @@ public class TornSettingOcSlotDO extends BaseDO {
      * 成功率
      */
     private Integer passRate;
+    /**
+     * 权重占比
+     */
+    private Integer priority;
+    /**
+     * 大成功占比
+     */
+    private BigDecimal bestSuccess;
 }

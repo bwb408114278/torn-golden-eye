@@ -170,6 +170,6 @@ public class TornBaseDataService {
      * 添加定时任务
      */
     private void addScheduleTask(LocalDateTime execTime) {
-        taskService.updateTask("base-date-reload", this::spiderBaseData, execTime);
+        taskService.updateTask("base-data-reload", this::spiderBaseData, execTime);
     }
 }

@@ -2,9 +2,11 @@ package pn.torn.goldeneye.torn.manager.faction.oc;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -14,6 +16,7 @@ import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
+import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcBatchIncomeService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
@@ -31,6 +34,8 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class TornFactionOcManager {
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
+    private final TornOcBatchIncomeService ocBatchIncomeService;
     private final TornFactionOcSlotManager slotManager;
     private final TornFactionOcUserManager ocUserManager;
     private final TornItemsManager itemsManager;
@@ -45,6 +50,10 @@ public class TornFactionOcManager {
         List<Long> validOcIdList = updateAvailableOc(factionId, availableList);
         validOcIdList.addAll(completeOcData(factionId, completeList));
         deleteOcData(factionId, validOcIdList);
+
+        if (TornConstants.FACTION_PN_ID == factionId) {
+            virtualThreadExecutor.execute(ocBatchIncomeService::batchCalculateIncome);
+        }
     }
 
     /**

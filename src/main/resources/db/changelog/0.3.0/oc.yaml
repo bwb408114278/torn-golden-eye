@@ -506,3 +506,211 @@ databaseChangeLog:
               SET progress = 100
               FROM torn_faction_oc o 
               WHERE o.id = s.oc_id AND o.status IN ('Successful', 'Failure');
+
+  - changeSet:
+      id: change_slot_priority
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_oc_slot
+            columns:
+              - column:
+                  name: priority
+                  type: INT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "权重占比"
+              - column:
+                  name: best_success
+                  type: DECIMAL(5,2)
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "大成功占比"
+        - sql:
+            sql: |
+              UPDATE torn_setting_oc_slot SET priority = 34, best_success = 0 WHERE id = 71;
+              UPDATE torn_setting_oc_slot SET priority = 26, best_success = 0 WHERE id = 72;
+              UPDATE torn_setting_oc_slot SET priority = 18, best_success = 0 WHERE id = 73;
+              UPDATE torn_setting_oc_slot SET priority = 23, best_success = 0 WHERE id = 74;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 75;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 76;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 77;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 78;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 79;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 80;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 81;
+              UPDATE torn_setting_oc_slot SET priority = 28, best_success = 0 WHERE id = 82;
+              UPDATE torn_setting_oc_slot SET priority = 50, best_success = 0 WHERE id = 83;
+              UPDATE torn_setting_oc_slot SET priority = 22, best_success = 0 WHERE id = 84;
+              UPDATE torn_setting_oc_slot SET priority = 9 , best_success = 0 WHERE id = 1;
+              UPDATE torn_setting_oc_slot SET priority = 27, best_success = 0 WHERE id = 2;
+              UPDATE torn_setting_oc_slot SET priority = 41, best_success = 0 WHERE id = 3;
+              UPDATE torn_setting_oc_slot SET priority = 10, best_success = 0 WHERE id = 4;
+              UPDATE torn_setting_oc_slot SET priority = 0 , best_success = 0 WHERE id = 5;
+              UPDATE torn_setting_oc_slot SET priority = 13, best_success = 0 WHERE id = 6;
+              UPDATE torn_setting_oc_slot SET priority = 5 , best_success = 0 WHERE id = 69;
+              UPDATE torn_setting_oc_slot SET priority = 29, best_success = 0 WHERE id = 66;
+              UPDATE torn_setting_oc_slot SET priority = 16, best_success = 0 WHERE id = 68;
+              UPDATE torn_setting_oc_slot SET priority = 23, best_success = 0 WHERE id = 70;
+              UPDATE torn_setting_oc_slot SET priority = 27, best_success = 0 WHERE id = 67;
+              UPDATE torn_setting_oc_slot SET priority = 51, best_success = 0 WHERE id = 7;
+              UPDATE torn_setting_oc_slot SET priority = 9 , best_success = 0 WHERE id = 8;
+              UPDATE torn_setting_oc_slot SET priority = 13, best_success = 0 WHERE id = 9;
+              UPDATE torn_setting_oc_slot SET priority = 27, best_success = 0 WHERE id = 10;
+              UPDATE torn_setting_oc_slot SET priority = 48, best_success = 0 WHERE id = 11;
+              UPDATE torn_setting_oc_slot SET priority = 36, best_success = 0 WHERE id = 12;
+              UPDATE torn_setting_oc_slot SET priority = 8 , best_success = 0 WHERE id = 13;
+              UPDATE torn_setting_oc_slot SET priority = 8 , best_success = 0 WHERE id = 14;
+              UPDATE torn_setting_oc_slot SET priority = 16, best_success = 0 WHERE id = 15;
+              UPDATE torn_setting_oc_slot SET priority = 6 , best_success = 0 WHERE id = 16;
+              UPDATE torn_setting_oc_slot SET priority = 20, best_success = 0 WHERE id = 17;
+              UPDATE torn_setting_oc_slot SET priority = 3 , best_success = 0 WHERE id = 18;
+              UPDATE torn_setting_oc_slot SET priority = 9 , best_success = 0 WHERE id = 19;
+              UPDATE torn_setting_oc_slot SET priority = 46, best_success = 0 WHERE id = 20;
+              UPDATE torn_setting_oc_slot SET priority = 28, best_success = 0 WHERE id = 21;
+              UPDATE torn_setting_oc_slot SET priority = 12, best_success = 0 WHERE id = 22;
+              UPDATE torn_setting_oc_slot SET priority = 7 , best_success = 0 WHERE id = 23;
+              UPDATE torn_setting_oc_slot SET priority = 17, best_success = 0 WHERE id = 24;
+              UPDATE torn_setting_oc_slot SET priority = 36, best_success = 0 WHERE id = 25;
+              UPDATE torn_setting_oc_slot SET priority = 37, best_success = 0 WHERE id = 26;
+              UPDATE torn_setting_oc_slot SET priority = 34, best_success = 0 WHERE id = 27;
+              UPDATE torn_setting_oc_slot SET priority = 29, best_success = 0 WHERE id = 28;
+              UPDATE torn_setting_oc_slot SET priority = 31, best_success = 26.38 WHERE id = 29;
+              UPDATE torn_setting_oc_slot SET priority = 31, best_success = 33.23 WHERE id = 30;
+              UPDATE torn_setting_oc_slot SET priority = 38, best_success = 40.39 WHERE id = 31;
+              UPDATE torn_setting_oc_slot SET priority = 8 , best_success = 4.59  WHERE id = 32;
+              UPDATE torn_setting_oc_slot SET priority = 18, best_success = 29.72 WHERE id = 33;
+              UPDATE torn_setting_oc_slot SET priority = 13, best_success = 19.07 WHERE id = 34;
+              UPDATE torn_setting_oc_slot SET priority = 7 , best_success = 3.42  WHERE id = 35;
+              UPDATE torn_setting_oc_slot SET priority = 22, best_success = 3.42  WHERE id = 36;
+              UPDATE torn_setting_oc_slot SET priority = 32, best_success = 39.77 WHERE id = 37;
+              UPDATE torn_setting_oc_slot SET priority = 27, best_success = 47.09 WHERE id = 38;
+              UPDATE torn_setting_oc_slot SET priority = 31, best_success = 26.08 WHERE id = 39;
+              UPDATE torn_setting_oc_slot SET priority = 42, best_success = 26.83 WHERE id = 40;
+              UPDATE torn_setting_oc_slot SET priority = 16, best_success = 20.41 WHERE id = 41;
+              UPDATE torn_setting_oc_slot SET priority = 24, best_success = 11.67 WHERE id = 42;
+              UPDATE torn_setting_oc_slot SET priority = 12, best_success = 24.63 WHERE id = 43;
+              UPDATE torn_setting_oc_slot SET priority = 34, best_success = 16.63 WHERE id = 44;
+              UPDATE torn_setting_oc_slot SET priority = 11, best_success = 11.05 WHERE id = 45;
+              UPDATE torn_setting_oc_slot SET priority = 3 , best_success = 15.61 WHERE id = 46;
+              UPDATE torn_setting_oc_slot SET priority = 14, best_success = 22.89 WHERE id = 47;
+              UPDATE torn_setting_oc_slot SET priority = 10, best_success = 7.43  WHERE id = 48;
+              UPDATE torn_setting_oc_slot SET priority = 32, best_success = 11.53 WHERE id = 49;
+              UPDATE torn_setting_oc_slot SET priority = 13, best_success = 33.42 WHERE id = 50;
+              UPDATE torn_setting_oc_slot SET priority = 3 , best_success = 15.01 WHERE id = 51;
+              UPDATE torn_setting_oc_slot SET priority = 29, best_success = 9.72  WHERE id = 52;
+              UPDATE torn_setting_oc_slot SET priority = 16, best_success = 36.65 WHERE id = 53;
+              UPDATE torn_setting_oc_slot SET priority = 19, best_success = 10.75 WHERE id = 54;
+              UPDATE torn_setting_oc_slot SET priority = 22, best_success = 30.70 WHERE id = 55;
+              UPDATE torn_setting_oc_slot SET priority = 43, best_success = 21.90 WHERE id = 56;
+              UPDATE torn_setting_oc_slot SET priority = 23, best_success = 27.70 WHERE id = 57;
+              UPDATE torn_setting_oc_slot SET priority = 3 , best_success = 11.12 WHERE id = 58;
+              UPDATE torn_setting_oc_slot SET priority = 26, best_success = 38.93 WHERE id = 59;
+              UPDATE torn_setting_oc_slot SET priority = 48, best_success = 22.25 WHERE id = 60;
+              UPDATE torn_setting_oc_slot SET priority = 8 , best_success = 7.42  WHERE id = 61;
+              UPDATE torn_setting_oc_slot SET priority = 28, best_success = 30.76 WHERE id = 62;
+              UPDATE torn_setting_oc_slot SET priority = 21, best_success = 50.92 WHERE id = 63;
+              UPDATE torn_setting_oc_slot SET priority = 18, best_success = 6.06  WHERE id = 64;
+              UPDATE torn_setting_oc_slot SET priority = 25, best_success = 4.84  WHERE id = 65;
+
+  - changeSet:
+      id: change_oc_coefficient_vDaibb
+      author: Bai
+      changes:
+        - modifyDataType:
+            tableName: torn_faction_oc_income
+            columnName: coefficient
+            newDataType: DECIMAL(6, 2)
+        - modifyDataType:
+            tableName: torn_faction_oc_income
+            columnName: effective_working_hours
+            newDataType: DECIMAL(6, 2)
+        - modifyDataType:
+            tableName: torn_faction_oc_income_summary
+            columnName: total_effective_hours
+            newDataType: DECIMAL(7, 2)
+        - sql:
+            sql: |
+              TRUNCATE torn_setting_oc_coefficient;
+              INSERT INTO "torn_setting_oc_coefficient" ("id", "oc_name", "rank", "slot_code", "pass_rate_min", "pass_rate_max", "coefficient", "deleted", "create_time", "update_time") VALUES 
+              (1, 'Blast from the Past', 7, 'Bomber#1', 85, 100, '20.00', 0, '2025-11-13 06:10:11.621699', '2025-11-13 06:10:11.621699'),
+              (2, 'Blast from the Past', 7, 'Bomber#1', 80, 84, '17.00', 0, '2025-11-13 06:10:11.635227', '2025-11-13 06:10:11.635227'),
+              (3, 'Blast from the Past', 7, 'Bomber#1', 75, 79, '14.00', 0, '2025-11-13 06:10:11.638131', '2025-11-13 06:10:11.638131'),
+              (4, 'Blast from the Past', 7, 'Bomber#1', 70, 74, '11.00', 0, '2025-11-13 06:10:11.640465', '2025-11-13 06:10:11.640465'),
+              (5, 'Blast from the Past', 7, 'Bomber#1', 65, 69, '8.00', 0, '2025-11-13 06:10:11.643325', '2025-11-13 06:10:11.643325'),
+              (6, 'Blast from the Past', 7, 'Engineer#1', 83, 100, '20.00', 0, '2025-11-13 06:10:11.647132', '2025-11-13 06:10:11.647132'),
+              (7, 'Blast from the Past', 7, 'Engineer#1', 78, 82, '17.00', 0, '2025-11-13 06:10:11.649938', '2025-11-13 06:10:11.649938'),
+              (8, 'Blast from the Past', 7, 'Engineer#1', 73, 77, '14.00', 0, '2025-11-13 06:10:11.652368', '2025-11-13 06:10:11.652368'),
+              (9, 'Blast from the Past', 7, 'Engineer#1', 68, 72, '11.00', 0, '2025-11-13 06:10:11.654873', '2025-11-13 06:10:11.654873'),
+              (10, 'Blast from the Past', 7, 'Engineer#1', 65, 67, '6.00', 0, '2025-11-13 06:10:11.657168', '2025-11-13 06:10:11.657168'),
+              (11, 'Blast from the Past', 7, 'Hacker#1', 79, 100, '11.00', 0, '2025-11-13 06:10:11.659863', '2025-11-13 06:10:11.659863'),
+              (12, 'Blast from the Past', 7, 'Hacker#1', 74, 78, '10.00', 0, '2025-11-13 06:10:11.662213', '2025-11-13 06:10:11.662213'),
+              (13, 'Blast from the Past', 7, 'Hacker#1', 69, 70, '9.00', 0, '2025-11-13 06:10:11.664278', '2025-11-13 06:10:11.664278'),
+              (14, 'Blast from the Past', 7, 'Hacker#1', 64, 68, '8.00', 0, '2025-11-13 06:10:11.666513', '2025-11-13 06:10:11.666513'),
+              (15, 'Blast from the Past', 7, 'Hacker#1', 55, 63, '7.00', 0, '2025-11-13 06:10:11.668982', '2025-11-13 06:10:11.668982'),
+              (16, 'Blast from the Past', 7, 'Muscle#1', 85, 100, '20.00', 0, '2025-11-13 06:10:11.671224', '2025-11-13 06:10:11.671224'),
+              (17, 'Blast from the Past', 7, 'Muscle#1', 80, 84, '17.00', 0, '2025-11-13 06:10:11.673272', '2025-11-13 06:10:11.673272'),
+              (18, 'Blast from the Past', 7, 'Muscle#1', 75, 79, '14.00', 0, '2025-11-13 06:10:11.678473', '2025-11-13 06:10:11.678473'),
+              (19, 'Blast from the Past', 7, 'Muscle#1', 70, 74, '11.00', 0, '2025-11-13 06:10:11.680884', '2025-11-13 06:10:11.680884'),
+              (20, 'Blast from the Past', 7, 'Muscle#1', 65, 69, '8.00', 0, '2025-11-13 06:10:11.683186', '2025-11-13 06:10:11.683186'),
+              (21, 'Blast from the Past', 7, 'Picklock#1', 80, 100, '11.00', 0, '2025-11-13 06:10:11.685317', '2025-11-13 06:10:11.685317'),
+              (22, 'Blast from the Past', 7, 'Picklock#1', 75, 79, '10.00', 0, '2025-11-13 06:10:11.687218', '2025-11-13 06:10:11.687218'),
+              (23, 'Blast from the Past', 7, 'Picklock#1', 70, 74, '9.00', 0, '2025-11-13 06:10:11.689633', '2025-11-13 06:10:11.689633'),
+              (24, 'Blast from the Past', 7, 'Picklock#1', 65, 69, '8.00', 0, '2025-11-13 06:10:11.691947', '2025-11-13 06:10:11.691947'),
+              (25, 'Blast from the Past', 7, 'Picklock#1', 55, 64, '7.00', 0, '2025-11-13 06:10:11.694262', '2025-11-13 06:10:11.694262'),
+              (26, 'Blast from the Past', 7, 'Picklock#2', 80, 100, '11.00', 0, '2025-11-13 06:10:11.696918', '2025-11-13 06:10:11.696918'),
+              (27, 'Blast from the Past', 7, 'Picklock#2', 75, 79, '10.00', 0, '2025-11-13 06:10:11.698859', '2025-11-13 06:10:11.698859'),
+              (28, 'Blast from the Past', 7, 'Picklock#2', 70, 74, '9.00', 0, '2025-11-13 06:10:11.700559', '2025-11-13 06:10:11.700559'),
+              (29, 'Blast from the Past', 7, 'Picklock#2', 65, 69, '8.00', 0, '2025-11-13 06:10:11.702695', '2025-11-13 06:10:11.702695'),
+              (30, 'Blast from the Past', 7, 'Picklock#2', 55, 64, '7.00', 0, '2025-11-13 06:10:11.706006', '2025-11-13 06:10:11.706006'),
+              (31, 'Break the Bank', 8, 'Muscle#1', 80, 100, '25.00', 0, '2025-11-13 06:10:11.708244', '2025-11-13 06:10:11.708244'),
+              (32, 'Break the Bank', 8, 'Muscle#1', 74, 79, '22.00', 0, '2025-11-13 06:10:11.710113', '2025-11-13 06:10:11.710113'),
+              (33, 'Break the Bank', 8, 'Muscle#1', 69, 73, '20.00', 0, '2025-11-13 06:10:11.714151', '2025-11-13 06:10:11.714151'),
+              (34, 'Break the Bank', 8, 'Muscle#1', 65, 68, '17.00', 0, '2025-11-13 06:10:11.716101', '2025-11-13 06:10:11.716101'),
+              (35, 'Break the Bank', 8, 'Muscle#2', 80, 100, '22.00', 0, '2025-11-13 06:10:11.717812', '2025-11-13 06:10:11.717812'),
+              (36, 'Break the Bank', 8, 'Muscle#2', 74, 79, '21.00', 0, '2025-11-13 06:10:11.719888', '2025-11-13 06:10:11.719888'),
+              (37, 'Break the Bank', 8, 'Muscle#2', 69, 73, '19.00', 0, '2025-11-13 06:10:11.722898', '2025-11-13 06:10:11.722898'),
+              (38, 'Break the Bank', 8, 'Muscle#2', 65, 68, '17.00', 0, '2025-11-13 06:10:11.725136', '2025-11-13 06:10:11.725136'),
+              (39, 'Break the Bank', 8, 'Muscle#2', 60, 64, '12.00', 0, '2025-11-13 06:10:11.726861', '2025-11-13 06:10:11.726861'),
+              (40, 'Break the Bank', 8, 'Muscle#3', 85, 100, '26.00', 0, '2025-11-13 06:10:11.7291', '2025-11-13 06:10:11.7291'),
+              (41, 'Break the Bank', 8, 'Muscle#3', 80, 84, '26.00', 0, '2025-11-13 06:10:11.730911', '2025-11-13 06:10:11.730911'),
+              (42, 'Break the Bank', 8, 'Muscle#3', 74, 79, '25.00', 0, '2025-11-13 06:10:11.732932', '2025-11-13 06:10:11.732932'),
+              (43, 'Break the Bank', 8, 'Muscle#3', 69, 73, '22.50', 0, '2025-11-13 06:10:11.734759', '2025-11-13 06:10:11.734759'),
+              (44, 'Break the Bank', 8, 'Muscle#3', 65, 68, '16.50', 0, '2025-11-13 06:10:11.738052', '2025-11-13 06:10:11.738052'),
+              (45, 'Break the Bank', 8, 'Robber#1', 85, 100, '25.00', 0, '2025-11-13 06:10:11.74111', '2025-11-13 06:10:11.74111'),
+              (46, 'Break the Bank', 8, 'Robber#1', 80, 84, '25.00', 0, '2025-11-13 06:10:11.743111', '2025-11-13 06:10:11.743111'),
+              (47, 'Break the Bank', 8, 'Robber#1', 72, 79, '22.00', 0, '2025-11-13 06:10:11.74507', '2025-11-13 06:10:11.74507'),
+              (48, 'Break the Bank', 8, 'Robber#1', 68, 71, '20.00', 0, '2025-11-13 06:10:11.747048', '2025-11-13 06:10:11.747048'),
+              (49, 'Break the Bank', 8, 'Robber#1', 65, 67, '17.00', 0, '2025-11-13 06:10:11.749044', '2025-11-13 06:10:11.749044'),
+              (50, 'Break the Bank', 8, 'Thief#1', 80, 100, '22.00', 0, '2025-11-13 06:10:11.75099', '2025-11-13 06:10:11.75099'),
+              (51, 'Break the Bank', 8, 'Thief#1', 74, 79, '22.00', 0, '2025-11-13 06:10:11.753305', '2025-11-13 06:10:11.753305'),
+              (52, 'Break the Bank', 8, 'Thief#1', 69, 73, '19.00', 0, '2025-11-13 06:10:11.755233', '2025-11-13 06:10:11.755233'),
+              (53, 'Break the Bank', 8, 'Thief#1', 65, 68, '17.00', 0, '2025-11-13 06:10:11.757334', '2025-11-13 06:10:11.757334'),
+              (54, 'Break the Bank', 8, 'Thief#1', 60, 64, '12.00', 0, '2025-11-13 06:10:11.759255', '2025-11-13 06:10:11.759255'),
+              (55, 'Break the Bank', 8, 'Thief#2', 85, 100, '26.00', 0, '2025-11-13 06:10:11.762166', '2025-11-13 06:10:11.762166'),
+              (56, 'Break the Bank', 8, 'Thief#2', 80, 84, '26.00', 0, '2025-11-13 06:10:11.764877', '2025-11-13 06:10:11.764877'),
+              (57, 'Break the Bank', 8, 'Thief#2', 74, 79, '25.00', 0, '2025-11-13 06:10:11.766979', '2025-11-13 06:10:11.766979'),
+              (58, 'Break the Bank', 8, 'Thief#2', 69, 73, '22.50', 0, '2025-11-13 06:10:11.769341', '2025-11-13 06:10:11.769341'),
+              (59, 'Break the Bank', 8, 'Thief#2', 65, 68, '16.50', 0, '2025-11-13 06:10:11.77159', '2025-11-13 06:10:11.77159'),
+              (60, 'Clinical Precision', 8, 'Assassin#1', 80, 100, '20.00', 0, '2025-11-13 06:10:11.774121', '2025-11-13 06:10:11.774121'),
+              (61, 'Clinical Precision', 8, 'Assassin#1', 75, 89, '19.00', 0, '2025-11-13 06:10:11.77592', '2025-11-13 06:10:11.77592'),
+              (62, 'Clinical Precision', 8, 'Assassin#1', 70, 74, '18.00', 0, '2025-11-13 06:10:11.777995', '2025-11-13 06:10:11.777995'),
+              (63, 'Clinical Precision', 8, 'Assassin#1', 65, 69, '17.00', 0, '2025-11-13 06:10:11.779893', '2025-11-13 06:10:11.779893'),
+              (64, 'Clinical Precision', 8, 'Assassin#1', 60, 64, '16.00', 0, '2025-11-13 06:10:11.781806', '2025-11-13 06:10:11.781806'),
+              (65, 'Clinical Precision', 8, 'Cat Burglar#1', 80, 100, '23.00', 0, '2025-11-13 06:10:11.784654', '2025-11-13 06:10:11.784654'),
+              (66, 'Clinical Precision', 8, 'Cat Burglar#1', 75, 79, '21.00', 0, '2025-11-13 06:10:11.78675', '2025-11-13 06:10:11.78675'),
+              (67, 'Clinical Precision', 8, 'Cat Burglar#1', 70, 74, '18.00', 0, '2025-11-13 06:10:11.789093', '2025-11-13 06:10:11.789093'),
+              (68, 'Clinical Precision', 8, 'Cat Burglar#1', 65, 69, '15.00', 0, '2025-11-13 06:10:11.790878', '2025-11-13 06:10:11.790878'),
+              (69, 'Clinical Precision', 8, 'Cat Burglar#1', 60, 64, '12.00', 0, '2025-11-13 06:10:11.792738', '2025-11-13 06:10:11.792738'),
+              (70, 'Clinical Precision', 8, 'Cleaner#1', 80, 100, '23.00', 0, '2025-11-13 06:10:11.794675', '2025-11-13 06:10:11.794675'),
+              (71, 'Clinical Precision', 8, 'Cleaner#1', 75, 79, '21.00', 0, '2025-11-13 06:10:11.796375', '2025-11-13 06:10:11.796375'),
+              (72, 'Clinical Precision', 8, 'Cleaner#1', 70, 74, '18.00', 0, '2025-11-13 06:10:11.798996', '2025-11-13 06:10:11.798996'),
+              (73, 'Clinical Precision', 8, 'Cleaner#1', 65, 69, '15.00', 0, '2025-11-13 06:10:11.802182', '2025-11-13 06:10:11.802182'),
+              (74, 'Clinical Precision', 8, 'Cleaner#1', 60, 64, '12.00', 0, '2025-11-13 06:10:11.80515', '2025-11-13 06:10:11.80515'),
+              (75, 'Clinical Precision', 8, 'Imitator#1', 85, 100, '26.00', 0, '2025-11-13 06:10:11.807368', '2025-11-13 06:10:11.807368'),
+              (76, 'Clinical Precision', 8, 'Imitator#1', 80, 84, '25.00', 0, '2025-11-13 06:10:11.809469', '2025-11-13 06:10:11.809469'),
+              (77, 'Clinical Precision', 8, 'Imitator#1', 75, 79, '23.00', 0, '2025-11-13 06:10:11.811821', '2025-11-13 06:10:11.811821'),
+              (78, 'Clinical Precision', 8, 'Imitator#1', 70, 74, '19.50', 0, '2025-11-13 06:10:11.816606', '2025-11-13 06:10:11.816606'),
+              (79, 'Clinical Precision', 8, 'Imitator#1', 65, 69, '16.00', 0, '2025-11-13 06:10:11.8189', '2025-11-13 06:10:11.8189');
