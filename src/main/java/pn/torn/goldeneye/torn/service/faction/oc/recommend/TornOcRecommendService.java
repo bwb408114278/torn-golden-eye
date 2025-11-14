@@ -260,25 +260,29 @@ public class TornOcRecommendService {
      */
     private BigDecimal calculateRecommendScore(TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
                                                TornFactionOcUserDO userPassRate) {
-        // 1. 停转时间评分（70%权重）
+        // 1. 停转时间评分（权重提升到80%）
         BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
-
-        // 2. 成功率评分（30%权重）- 4倍系数的百分比，然后用成功率去乘
+        // 2. 成功率评分 - 归一化处理，限制在0-100范围内
         BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
-                        slotSetting.getSlotCode(), userPassRate.getPassRate())
-                .multiply(BigDecimal.valueOf(4))
-                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        BigDecimal passRateScore = BigDecimal.valueOf(userPassRate.getPassRate())
-                .multiply(coefficient);
+                slotSetting.getSlotCode(), userPassRate.getPassRate());
 
-        // 3. 加权计算
-        return timeScore.multiply(BigDecimal.valueOf(0.7))
-                .add(passRateScore.multiply(BigDecimal.valueOf(0.3)))
+        // 计算原始成功率评分：成功率 × 系数/25（归一化到100分制）
+        BigDecimal passRateScore = BigDecimal.valueOf(userPassRate.getPassRate())
+                .multiply(coefficient)
+                .divide(BigDecimal.valueOf(25), 2, RoundingMode.HALF_UP)
+                .min(BigDecimal.valueOf(100));
+
+        // 3. 难度奖励（可选）：鼓励挑战高难度
+        BigDecimal difficultyBonus = BigDecimal.valueOf(oc.getRank().equals(8) ? 100 : 0);
+        // 4. 加权计算：时间80% + 成功率15% + 难度奖励5%
+        return timeScore.multiply(BigDecimal.valueOf(0.80))
+                .add(passRateScore.multiply(BigDecimal.valueOf(0.15)))
+                .add(difficultyBonus.multiply(BigDecimal.valueOf(0.05)))
                 .setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
-     * 计算时间评分（越接近停转时间分数越高）
+     * 计算时间评分
      */
     private BigDecimal calculateTimeScore(LocalDateTime readyTime) {
         if (readyTime == null) {
@@ -286,28 +290,36 @@ public class TornOcRecommendService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        long hoursUntilReady = Duration.between(now, readyTime).toHours();
+        long hoursUntilReady = now.compareTo(readyTime) < 1 ? Duration.between(now, readyTime).toHours() + 1 : 0;
 
         // 已经停转 - 最高优先级
         if (hoursUntilReady <= 0) {
             return BigDecimal.valueOf(100);
         }
-
-        // 24小时内 - 高优先级，线性递减
-        if (hoursUntilReady <= 24) {
-            return BigDecimal.valueOf(100 - hoursUntilReady * 1.5)
-                    .max(BigDecimal.valueOf(60));
+        // 6小时内 - 极高优先级
+        if (hoursUntilReady <= 6) {
+            return BigDecimal.valueOf(100);
         }
-
+        // 24小时内 - 高优先级，加速递减
+        if (hoursUntilReady <= 24) {
+            // 从95分降到65分
+            return BigDecimal.valueOf(95 - (hoursUntilReady - 6) * 1.67)
+                    .max(BigDecimal.valueOf(65));
+        }
         // 48小时内 - 中等优先级
         if (hoursUntilReady <= 48) {
-            return BigDecimal.valueOf(60 - (hoursUntilReady - 24) * 1.0)
-                    .max(BigDecimal.valueOf(40));
+            // 从65分降到35分
+            return BigDecimal.valueOf(65 - (hoursUntilReady - 24) * 1.25)
+                    .max(BigDecimal.valueOf(35));
         }
-
-        // 48小时以上 - 低优先级
-        return BigDecimal.valueOf(40 - (hoursUntilReady - 48) * 0.5)
-                .max(BigDecimal.valueOf(20));
+        // 72小时内 - 低优先级
+        if (hoursUntilReady <= 72) {
+            return BigDecimal.valueOf(35 - (hoursUntilReady - 48) * 0.5)
+                    .max(BigDecimal.valueOf(20));
+        }
+        // 72小时以上 - 极低优先级
+        return BigDecimal.valueOf(20 - (hoursUntilReady - 72) * 0.2)
+                .max(BigDecimal.valueOf(10));
     }
 
     /**
@@ -318,11 +330,13 @@ public class TornOcRecommendService {
 
         // 停转时间
         if (oc.getReadyTime() != null) {
-            long hours = Duration.between(LocalDateTime.now(), oc.getReadyTime()).toHours();
+            LocalDateTime now = LocalDateTime.now();
+            long hours = now.compareTo(oc.getReadyTime()) < 1 ?
+                    Duration.between(now, oc.getReadyTime()).toHours() + 1 : 0;
             if (hours <= 0) {
                 reasons.add("已停转，急需加入");
             } else if (hours <= 6) {
-                reasons.add(String.format("%d小时后停转", hours));
+                reasons.add(String.format("%d小时内停转", hours));
             } else if (hours <= 24) {
                 reasons.add("24h内停转");
             }
