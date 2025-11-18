@@ -9,9 +9,10 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
-import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;
@@ -26,9 +27,9 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class OcQueryStrategyImpl extends SmthMsgStrategy {
+    private final TornSettingFactionManager settingFactionManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
-    private final SysSettingDAO settingDao;
 
     @Override
     public String getCommand() {
@@ -61,6 +62,8 @@ public class OcQueryStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg("未查询到对应OC");
         }
 
-        return super.buildImageMsg(msgManager.buildOcTable(rank + "级执行中OC", ocList));
+        TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
+        return super.buildImageMsg(msgManager.buildOcTable(faction.getFactionShortName() + "  "
+                + rank + "级执行中OC", ocList));
     }
 }

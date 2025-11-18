@@ -46,7 +46,7 @@ public class DocStrategyImpl extends SmthMsgStrategy {
                 .getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
                 .filter(s -> !(s instanceof DocStrategyImpl))
-                .filter(s -> s.getCustomGroupId() == 0L || groupId == s.getCustomGroupId())
+                .filter(s -> s.getCustomGroupId().isEmpty() || s.getCustomGroupId().contains(groupId))
                 .toList();
 
         StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");

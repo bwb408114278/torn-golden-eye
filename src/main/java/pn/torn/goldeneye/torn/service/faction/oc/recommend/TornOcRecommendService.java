@@ -1,8 +1,6 @@
 package pn.torn.goldeneye.torn.service.faction.oc.recommend;
 
 import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
-import lombok.AllArgsConstructor;
-import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,60 +12,53 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * OC队伍推荐逻辑层
+ * OC队伍推荐基础逻辑层
  *
  * @author Bai
  * @version 0.3.0
  * @since 2025.11.01
  */
-@Service
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class TornOcRecommendService {
     private final TornSettingOcSlotManager settingOcSlotManager;
-    private final TornSettingOcCoefficientManager coefficientManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
 
     /**
-     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率 > 收益
+     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率
      *
      * @param topN 返回Top N个推荐
      */
-    public List<OcRecommendationVO> recommendOcForUser(long userId, int topN,
-                                                       TornFactionOcDO joinedOc, TornFactionOcSlotDO joinedSlot) {
-        // 1. 查询用户的成功率数据
-        List<TornFactionOcUserDO> userOcData = ocUserDao.lambdaQuery().eq(TornFactionOcUserDO::getUserId, userId).list();
-        if (CollectionUtils.isEmpty(userOcData)) {
-            return List.of();
-        }
-
-        // 2. 查询所有招募中的OC
-        List<TornFactionOcDO> recruitOcList = findRecrutList(joinedOc);
+    public List<OcRecommendationVO> recommendOcForUser(TornUserDO user, int topN, OcSlotDictBO joinedOc,
+                                                       List<TornFactionOcUserDO> userOcData) {
+        // 1. 查询所有招募中的OC
+        List<TornFactionOcDO> recruitOcList = findRecrutList(user.getFactionId(), joinedOc);
         if (CollectionUtils.isEmpty(recruitOcList)) {
             return List.of();
         }
 
-        // 3. 查询所有未满员的OC
-        List<TornFactionOcSlotDO> emptySlotList = findEmptySlotList(recruitOcList, joinedSlot);
+        // 2. 查询所有未满员的OC
+        List<TornFactionOcSlotDO> emptySlotList = findEmptySlotList(recruitOcList, joinedOc);
         if (CollectionUtils.isEmpty(emptySlotList)) {
             return List.of();
         }
 
-        // 4. 为每个OC的每个空闲岗位计算推荐度
+        // 3. 为每个OC的每个空闲岗位计算推荐度
         List<OcRecommendationVO> recommendations = new ArrayList<>();
         for (TornFactionOcDO oc : recruitOcList) {
             // 查询当前OC下所有空闲岗位
@@ -82,33 +73,28 @@ public class TornOcRecommendService {
                         .findAny().orElse(null);
                 // 检查成功率是否达标
                 if (slotSetting == null) {
-                    log.warn("未找到岗位配置: {}-{}-{}", oc.getName(), oc.getRank(), slot.getPosition());
+                    log.error("未找到岗位配置: {}-{}-{}", oc.getName(), oc.getRank(), slot.getPosition());
                     continue;
                 }
 
-                // 查找用户在这个OC和岗位的成功率数据
+                // 查找用户在这个OC和岗位的成功率数据, 检查成功率是否达标
                 TornFactionOcUserDO matchedData = userOcData.stream()
                         .filter(data -> data.getOcName().equals(oc.getName()))
                         .filter(data -> data.getRank().equals(oc.getRank()))
                         .filter(data -> data.getPosition().equals(slotSetting.getSlotShortCode()))  // 使用短Code
                         .findFirst().orElse(null);
-                if (matchedData == null) {
+                if (matchedData == null || matchedData.getPassRate() < slotSetting.getPassRate()) {
                     continue;
                 }
 
-                // 检查成功率是否达标（用户的短Code成功率 >= 该具体岗位的要求）
-                if (matchedData.getPassRate() < slotSetting.getPassRate()) {
-                    continue;
-                }
-
-                // 计算推荐度评分（停转时间 > 成功率）
+                // 计算推荐度评分
                 BigDecimal recommendScore = calculateRecommendScore(oc, slotSetting, matchedData);
                 String recommentReason = buildRecommendReason(oc, matchedData.getPassRate());
                 recommendations.add(new OcRecommendationVO(oc, slot, recommendScore, recommentReason));
             }
         }
 
-        // 5. 按推荐度排序，返回Top N
+        // 4. 按推荐度排序，返回Top N
         return recommendations.stream()
                 .sorted(Comparator.comparing(OcRecommendationVO::getRecommendScore).reversed())
                 .limit(topN)
@@ -132,13 +118,13 @@ public class TornOcRecommendService {
         // 2. 收集所有空闲岗位
         List<Long> urgentOcIdList = urgentOcs.stream().map(TornFactionOcDO::getId).toList();
         List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(urgentOcIdList);
-        List<VacantSlotInfo> vacantSlots = new ArrayList<>();
+        List<OcSlotDictBO> vacantSlots = new ArrayList<>();
         for (TornFactionOcDO oc : urgentOcs) {
             List<TornFactionOcSlotDO> slots = emptySlotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId()))
                     .toList();
             for (TornFactionOcSlotDO slot : slots) {
-                vacantSlots.add(new VacantSlotInfo(oc, slot));
+                vacantSlots.add(new OcSlotDictBO(oc, slot));
             }
         }
 
@@ -173,7 +159,7 @@ public class TornOcRecommendService {
             BigDecimal bestScore = BigDecimal.ZERO;
 
             // 遍历所有空闲岗位，找到最佳匹配
-            for (VacantSlotInfo vacantSlot : vacantSlots) {
+            for (OcSlotDictBO vacantSlot : vacantSlots) {
                 // 检查用户是否有这个OC和岗位的数据
                 TornFactionOcUserDO matchedData = userOcData.stream()
                         .filter(data -> data.getOcName().equals(vacantSlot.getOc().getName())
@@ -218,13 +204,14 @@ public class TornOcRecommendService {
     /**
      * 查找招募中的OC列表
      */
-    public List<TornFactionOcDO> findRecrutList(TornFactionOcDO joinedOc) {
-        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(TornConstants.FACTION_PN_ID, null);
-        if (joinedOc == null) {
+    public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot) {
+        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(factionId, null);
+        if (joinedOcSlot == null) {
             return recruitOcList;
         }
 
         // 针对于空转进度的，按照进度跑完时间减一天去计算 如果OC已经进入Planning状态, 手动放到recruit列表中
+        TornFactionOcDO joinedOc = joinedOcSlot.getOc();
         TornFactionOcDO calcOc = recruitOcList.stream()
                 .filter(o -> o.getId().equals(joinedOc.getId()))
                 .findAny().orElse(null);
@@ -241,11 +228,11 @@ public class TornOcRecommendService {
      * 查找招募中的OC空位
      */
     public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList,
-                                                       TornFactionOcSlotDO joinedSlot) {
+                                                       OcSlotDictBO joinedOcSlot) {
         List<Long> recrutIdList = recruitOcList.stream().map(TornFactionOcDO::getId).toList();
         List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(recrutIdList);
-        if (joinedSlot != null) {
-            emptySlotList.add(joinedSlot);
+        if (joinedOcSlot != null) {
+            emptySlotList.add(joinedOcSlot.getSlot());
         }
 
 
@@ -254,60 +241,92 @@ public class TornOcRecommendService {
 
     /**
      * 计算推荐度评分
-     * 权重：停转时间(50%) > 成功率(30%) > 收益(20%)
-     *
-     * @return 推荐度评分（0-100）
      */
-    private BigDecimal calculateRecommendScore(TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
-                                               TornFactionOcUserDO userPassRate) {
-        // 1. 停转时间评分（70%权重）
-        BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
+    protected BigDecimal calculateRecommendScore(TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
+                                                 TornFactionOcUserDO userPassRate) {
+        BigDecimal passRateScore = calcPassRateScore(slotSetting, userPassRate);
+        BigDecimal priorityScore = calcPriorityScore(slotSetting);
+        BigDecimal rankScore = BigDecimal.valueOf(10).multiply(BigDecimal.valueOf(oc.getRank()));
+        BigDecimal positionScore = passRateScore.multiply(priorityScore)
+                .multiply(BigDecimal.valueOf(0.1))
+                .add(rankScore);
 
-        // 2. 成功率评分（30%权重）- 4倍系数的百分比，然后用成功率去乘
-        BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
-                        slotSetting.getSlotCode(), userPassRate.getPassRate())
-                .multiply(BigDecimal.valueOf(4))
-                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        BigDecimal passRateScore = BigDecimal.valueOf(userPassRate.getPassRate())
-                .multiply(coefficient);
-
-        // 3. 加权计算
-        return timeScore.multiply(BigDecimal.valueOf(0.7))
-                .add(passRateScore.multiply(BigDecimal.valueOf(0.3)))
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal timeScore = calculateTimeScore(LocalDateTime.now());
+        return positionScore.multiply(BigDecimal.valueOf(0.8))
+                .add(timeScore.multiply(BigDecimal.valueOf(0.2)));
     }
 
     /**
-     * 计算时间评分（越接近停转时间分数越高）
+     * 计算时间评分
      */
-    private BigDecimal calculateTimeScore(LocalDateTime readyTime) {
+    protected BigDecimal calculateTimeScore(LocalDateTime readyTime) {
         if (readyTime == null) {
             return BigDecimal.valueOf(100); // 新队, 满分
         }
 
         LocalDateTime now = LocalDateTime.now();
-        long hoursUntilReady = Duration.between(now, readyTime).toHours();
+        long hoursUntilReady = now.compareTo(readyTime) < 1 ? Duration.between(now, readyTime).toHours() + 1 : 0;
 
         // 已经停转 - 最高优先级
         if (hoursUntilReady <= 0) {
             return BigDecimal.valueOf(100);
         }
-
-        // 24小时内 - 高优先级，线性递减
-        if (hoursUntilReady <= 24) {
-            return BigDecimal.valueOf(100 - hoursUntilReady * 1.5)
-                    .max(BigDecimal.valueOf(60));
+        // 6小时内 - 极高优先级
+        if (hoursUntilReady <= 6) {
+            return BigDecimal.valueOf(100 - hoursUntilReady * 2)
+                    .max(BigDecimal.valueOf(95));
         }
-
+        // 24小时内 - 高优先级，加速递减
+        if (hoursUntilReady <= 24) {
+            // 从95分降到65分
+            return BigDecimal.valueOf(95 - (hoursUntilReady - 6) * 1.67)
+                    .max(BigDecimal.valueOf(65));
+        }
         // 48小时内 - 中等优先级
         if (hoursUntilReady <= 48) {
-            return BigDecimal.valueOf(60 - (hoursUntilReady - 24) * 1.0)
-                    .max(BigDecimal.valueOf(40));
+            // 从65分降到35分
+            return BigDecimal.valueOf(65 - (hoursUntilReady - 24) * 1.25)
+                    .max(BigDecimal.valueOf(35));
         }
+        // 72小时内 - 低优先级
+        if (hoursUntilReady <= 72) {
+            return BigDecimal.valueOf(35 - (hoursUntilReady - 48) * 0.5)
+                    .max(BigDecimal.valueOf(20));
+        }
+        // 72小时以上 - 极低优先级
+        return BigDecimal.valueOf(20 - (hoursUntilReady - 72) * 0.2)
+                .max(BigDecimal.valueOf(10));
+    }
 
-        // 48小时以上 - 低优先级
-        return BigDecimal.valueOf(40 - (hoursUntilReady - 48) * 0.5)
-                .max(BigDecimal.valueOf(20));
+    /**
+     * 计算成功率得分
+     */
+    private BigDecimal calcPassRateScore(TornSettingOcSlotDO slotSetting, TornFactionOcUserDO userPassRate) {
+        int ability = userPassRate.getPassRate() - slotSetting.getPassRate();
+        if (ability >= 10) {
+            return BigDecimal.valueOf(10);
+        } else if (ability >= 5) {
+            return BigDecimal.valueOf(8);
+        } else {
+            return BigDecimal.ONE;
+        }
+    }
+
+    /**
+     * 计算权重得分
+     */
+    private BigDecimal calcPriorityScore(TornSettingOcSlotDO slotSetting) {
+        if (slotSetting.getPriority() >= 25) {
+            return BigDecimal.valueOf(5);
+        } else if (slotSetting.getPriority() >= 20) {
+            return BigDecimal.valueOf(4);
+        } else if (slotSetting.getPriority() >= 15) {
+            return BigDecimal.valueOf(3);
+        } else if (slotSetting.getPriority() >= 10) {
+            return BigDecimal.valueOf(2);
+        } else {
+            return BigDecimal.ONE;
+        }
     }
 
     /**
@@ -318,13 +337,13 @@ public class TornOcRecommendService {
 
         // 停转时间
         if (oc.getReadyTime() != null) {
-            long hours = Duration.between(LocalDateTime.now(), oc.getReadyTime()).toHours();
+            LocalDateTime now = LocalDateTime.now();
+            long hours = now.compareTo(oc.getReadyTime()) < 1 ?
+                    Duration.between(now, oc.getReadyTime()).toHours() + 1 : 0;
             if (hours <= 0) {
                 reasons.add("已停转，急需加入");
-            } else if (hours <= 6) {
-                reasons.add(String.format("%d小时后停转", hours));
-            } else if (hours <= 24) {
-                reasons.add("24h内停转");
+            } else {
+                reasons.add(String.format("%d小时内停转", hours));
             }
         } else {
             reasons.add("新队");
@@ -340,15 +359,5 @@ public class TornOcRecommendService {
         }
 
         return String.join("、", reasons);
-    }
-
-    /**
-     * 空闲岗位信息
-     */
-    @Data
-    @AllArgsConstructor
-    private static class VacantSlotInfo {
-        private TornFactionOcDO oc;
-        private TornFactionOcSlotDO slot;
     }
 }

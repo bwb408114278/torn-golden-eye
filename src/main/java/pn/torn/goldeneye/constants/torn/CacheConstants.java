@@ -33,6 +33,10 @@ public class CacheConstants {
     /**
      * 帮派ID设置Key
      */
+    public static final String KEY_TORN_SETTING_FACTION_ID = "torn:setting:faction:id";
+    /**
+     * 帮派ID设置Key
+     */
     public static final String KEY_TORN_SETTING_FACTION_GROUP_ID = "torn:setting:faction:group";
     /**
      * 帮派别名设置Key

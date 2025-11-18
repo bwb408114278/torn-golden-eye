@@ -15,12 +15,14 @@ import java.time.format.DateTimeFormatter;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class DateTimeUtils {
+    public static final DateTimeFormatter YEAR_MONTH_FORMATTER;
     private static final DateTimeFormatter DATE_FORMATTER;
     private static final DateTimeFormatter DATE_TIME_FORMATTER;
 
     static {
         DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        YEAR_MONTH_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
     }
 
     /**

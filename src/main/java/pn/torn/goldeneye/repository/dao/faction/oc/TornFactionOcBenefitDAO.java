@@ -30,4 +30,20 @@ public class TornFactionOcBenefitDAO extends ServiceImpl<TornFactionOcBenefitMap
                                                                 LocalDateTime fromDate, LocalDateTime toDate) {
         return baseMapper.queryBenefitRanking(factionId, fromDate, toDate);
     }
+
+    /**
+     * 查询OC大锅饭收益排行榜
+     *
+     * @param factionId    帮派ID
+     * @param fromDate     开始时间
+     * @param toDate       结束时间
+     * @param reassignList 大锅饭OC名称列表
+     * @param yearMonth    年月
+     * @return 排行榜列表
+     */
+    public List<TornFactionOcBenefitRankDO> queryIncomeRanking(long factionId,
+                                                               LocalDateTime fromDate, LocalDateTime toDate,
+                                                               List<String> reassignList, String yearMonth) {
+        return baseMapper.queryIncomeRanking(factionId, fromDate, toDate, reassignList, yearMonth);
+    }
 }

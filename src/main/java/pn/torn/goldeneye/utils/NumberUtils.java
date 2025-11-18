@@ -6,6 +6,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.DecimalFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -19,6 +20,7 @@ import java.util.regex.Pattern;
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class NumberUtils {
+    public static final DecimalFormat THOUSAND_DELIMITER = new DecimalFormat("#,###");
     private static final Pattern VALID_PATTERN = Pattern.compile("^[-+]?\\d*\\.?\\d+\\s*[kmbtKMBT]?$");
 
     /**

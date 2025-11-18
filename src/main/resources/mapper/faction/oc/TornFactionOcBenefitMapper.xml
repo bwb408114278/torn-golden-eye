@@ -11,4 +11,28 @@
         ORDER BY benefit DESC
         LIMIT 30;
     </select>
+
+    <!-- 查询OC大锅饭收益排行榜 -->
+    <select id="queryIncomeRanking"  resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
+        SELECT t.user_id, u.nickname, SUM(benefit_money) AS benefit
+        FROM (
+            SELECT b.user_id, b.benefit_money
+            FROM torn_faction_oc_benefit b
+            WHERE b.deleted = 0 AND b.faction_id = #{factionId} AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate}
+              AND b.oc_name NOT IN
+              <foreach collection="reassignList" item="item" open="(" close=")" separator=",">
+                  #{item}
+              </foreach>
+
+            UNION ALL
+
+            SELECT s.user_id, s.final_income AS benefit_money
+            FROM torn_faction_oc_income_summary s
+            WHERE s.deleted = 0 AND s.year_month = #{yearMonth}
+        ) t
+        LEFT JOIN torn_user u ON u.deleted = 0 AND t.user_id = u.id
+        GROUP BY t.user_id, u.nickname
+        ORDER BY benefit DESC
+        LIMIT 30;
+    </select>
 </mapper>

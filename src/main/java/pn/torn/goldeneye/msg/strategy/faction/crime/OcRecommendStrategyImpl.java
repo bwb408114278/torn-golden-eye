@@ -2,7 +2,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
@@ -14,12 +14,18 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcReassignRecommendService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
@@ -27,7 +33,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * OC推荐策略实现类
@@ -37,13 +42,36 @@ import java.util.Map;
  * @since 2025.11.07
  */
 @Component
-@RequiredArgsConstructor
 public class OcRecommendStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcService ocService;
     private final TornOcRecommendService recommendService;
+    private final TornOcReassignRecommendService reassignRecommendService;
+    private final TornSettingOcSlotManager settingOcSlotManager;
     private final TornFactionOcMsgTableManager tableManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
+    private final TornFactionOcUserDAO ocUserDao;
+
+    public OcRecommendStrategyImpl(TornFactionOcService ocService,
+                                   @Qualifier("tornOcRecommendService") TornOcRecommendService recommendService,
+                                   @Qualifier("tornOcReassignRecommendService") TornOcReassignRecommendService reassignRecommendService,
+                                   TornSettingOcSlotManager settingOcSlotManager, TornFactionOcMsgTableManager tableManager,
+                                   TornFactionOcDAO ocDao, TornFactionOcSlotDAO slotDao,
+                                   TornFactionOcUserDAO ocUserDao) {
+        this.ocService = ocService;
+        this.recommendService = recommendService;
+        this.reassignRecommendService = reassignRecommendService;
+        this.settingOcSlotManager = settingOcSlotManager;
+        this.tableManager = tableManager;
+        this.ocDao = ocDao;
+        this.slotDao = slotDao;
+        this.ocUserDao = ocUserDao;
+    }
+
+    @Override
+    public List<Long> getCustomGroupId() {
+        return List.of(projectProperty.getGroupId(), TornConstants.FACTION_HP_ID);
+    }
 
     @Override
     public String getCommand() {
@@ -57,25 +85,28 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        ocService.refreshOc(1, TornConstants.FACTION_PN_ID);
-
         TornUserDO user = super.getTornUser(sender, "");
-        if (user.getFactionId() == null || !user.getFactionId().equals(TornConstants.FACTION_PN_ID)) {
-            return super.buildTextMsg("该功能内测中, 稍后开放");
-        }
+        ocService.refreshOc(1, user.getFactionId());
 
-        Map.Entry<TornFactionOcDO, TornFactionOcSlotDO> ocKeyValuePair = getJoinedOc(user.getId());
-        if (ocKeyValuePair != null && BigDecimal.ZERO.compareTo(ocKeyValuePair.getValue().getProgress()) < 0) {
+        OcSlotDictBO ocSlotDict = getJoinedOc(user);
+        if (ocSlotDict != null && BigDecimal.ZERO.compareTo(ocSlotDict.getSlot().getProgress()) < 0) {
             return super.buildTextMsg(user.getNickname() + ", 跑了进度换队要被打的");
         }
 
-        TornFactionOcDO joinedOc = ocKeyValuePair == null ? null : ocKeyValuePair.getKey();
-        TornFactionOcSlotDO joinedSlot = ocKeyValuePair == null ? null : ocKeyValuePair.getValue();
-        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user.getId(), 3, joinedOc, joinedSlot);
+        List<TornFactionOcUserDO> userOcData = ocUserDao.queryByUserId(user.getId());
+        if (CollectionUtils.isEmpty(userOcData)) {
+            return super.buildTextMsg(user.getNickname() + ", 未查询到记录的OC成功率数据, 推荐失败");
+        }
+
+        boolean isReassign = checkIsReassignRecommended(user, userOcData);
+        List<OcRecommendationVO> result = isReassign ?
+                reassignRecommendService.recommendOcForUser(user, 3, ocSlotDict, userOcData) :
+                recommendService.recommendOcForUser(user, 3, ocSlotDict, userOcData);
         if (CollectionUtils.isEmpty(result)) {
             return super.buildTextMsg(user.getNickname() + ", 暂时没有合适加入的OC");
         }
 
+        TornFactionOcSlotDO joinedSlot = ocSlotDict == null ? null : ocSlotDict.getSlot();
         if (joinedSlot != null &&
                 result.getFirst().getOcId().equals(joinedSlot.getOcId()) &&
                 result.getFirst().getRecommendedPosition().equals(joinedSlot.getPosition())) {
@@ -86,13 +117,43 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
     }
 
     /**
+     * 检测是否大锅饭推荐
+     * return true为推荐大锅饭
+     */
+    private boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
+        if (!user.getFactionId().equals(TornConstants.FACTION_PN_ID) &&
+                !user.getFactionId().equals(TornConstants.FACTION_HP_ID)) {
+            return false;
+        }
+
+        List<TornSettingOcSlotDO> reassignSlotList = settingOcSlotManager.getList().stream()
+                .filter(s -> TornConstants.ROTATION_OC_NAME.contains(s.getOcName()))
+                .toList();
+
+        boolean isMatch = false;
+        for (TornSettingOcSlotDO setting : reassignSlotList) {
+            TornFactionOcUserDO matchData = userOcData.stream()
+                    .filter(u -> u.getOcName().equals(setting.getOcName()))
+                    .filter(u -> u.getPosition().equals(setting.getSlotShortCode()))
+                    .filter(u -> u.getPassRate().compareTo(setting.getPassRate()) > -1)
+                    .findAny().orElse(null);
+            if (matchData != null) {
+                isMatch = true;
+                break;
+            }
+        }
+
+        return isMatch;
+    }
+
+    /**
      * 获取用户已参加的OC
      */
-    private Map.Entry<TornFactionOcDO, TornFactionOcSlotDO> getJoinedOc(long userId) {
-        List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(TornConstants.FACTION_PN_ID);
+    private OcSlotDictBO getJoinedOc(TornUserDO user) {
+        List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(user.getFactionId());
         List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
         TornFactionOcSlotDO slot = slotDao.lambdaQuery()
-                .eq(TornFactionOcSlotDO::getUserId, userId)
+                .eq(TornFactionOcSlotDO::getUserId, user.getId())
                 .in(TornFactionOcSlotDO::getOcId, ocIdList)
                 .one();
         if (slot == null) {
@@ -102,7 +163,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
         TornFactionOcDO oc = ocList.stream()
                 .filter(o -> o.getId().equals(slot.getOcId()))
                 .findAny().orElseThrow(() -> new BizException("OC数据异常"));
-        return Map.entry(oc, slot);
+        return new OcSlotDictBO(oc, slot);
     }
 
     /**
@@ -111,7 +172,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
     private List<ImageQqMsg> buildRecommendTable(TornUserDO user, List<OcRecommendationVO> result) {
         String title = user.getNickname() + ", 推荐加入以下队伍";
 
-        List<TornFactionOcDO> ocList = ocDao.queryListByIdList(TornConstants.FACTION_PN_ID,
+        List<TornFactionOcDO> ocList = ocDao.queryListByIdList(user.getFactionId(),
                 result.stream().map(OcRecommendationVO::getOcId).toList());
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
         Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedListMultimap.create();

@@ -43,7 +43,7 @@ public class ManageDocStrategyImpl extends BaseGroupMsgStrategy {
                 .getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
                 .filter(s -> !(s instanceof ManageDocStrategyImpl))
-                .filter(s -> s.getCustomGroupId() == 0L || groupId == s.getCustomGroupId())
+                .filter(s -> s.getCustomGroupId().isEmpty() || s.getCustomGroupId().contains(groupId))
                 .filter(s -> !s.isNeedSa() || isSa)
                 .toList();
 

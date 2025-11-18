@@ -3,6 +3,8 @@ package pn.torn.goldeneye.msg.strategy.base;
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 
+import java.util.List;
+
 /**
  * Pn群管理消息策略
  *
@@ -15,7 +17,7 @@ public abstract class PnManageMsgStrategy extends BaseGroupMsgStrategy {
     protected ProjectProperty projectProperty;
 
     @Override
-    public long getCustomGroupId() {
-        return projectProperty.getGroupId();
+    public List<Long> getCustomGroupId() {
+        return List.of(projectProperty.getGroupId());
     }
 }
