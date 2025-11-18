@@ -17,4 +17,9 @@ public class BotConstants {
      * 异常: 无效的Key
      */
     public static final int EX_INVALID_KEY = 1001;
+
+    /**
+     * HP群号
+     */
+    public static final long GROUP_HP_ID = 1065981525L;
 }

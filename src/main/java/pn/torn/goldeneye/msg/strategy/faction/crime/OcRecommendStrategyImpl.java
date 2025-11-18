@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
@@ -70,7 +71,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), TornConstants.FACTION_HP_ID);
+        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_HP_ID);
     }
 
     @Override

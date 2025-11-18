@@ -24,6 +24,9 @@ public class TornConstants {
      * PN帮派ID
      */
     public static final long FACTION_PN_ID = 20465L;
+    /**
+     * HP帮派ID
+     */
     public static final long FACTION_HP_ID = 2095L;
 
     // ====================OC相关====================
