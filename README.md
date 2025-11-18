@@ -107,3 +107,6 @@ log_timezone = 'Asia/Shanghai'
 | 2969766 | iFor          | Xan × 100         | 白总牛逼                 |
 | 3359579 | xxxzzz        | FHC × 5, DVD × 10 | 捐赠                   |
 | 3050040 | Jontion       | 20e × 20          | 我最喜欢的欧金金眼！           |
+| 3135348 | mogami        | FHC × 1           | 科技改变生活啊 大佬加油         |
+| 2848822 | Asteriea      | Drug Pack × 5     | 给金眼补补身子              |
+| 2965491 | Ex0dus_67373  | 饮料箱 × 2           | 赞助金眼                 |
