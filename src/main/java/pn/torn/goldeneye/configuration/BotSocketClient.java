@@ -309,7 +309,7 @@ public class BotSocketClient {
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
             if (strategy.getCommand().equals(msgArray[1])) {
                 // 不是特定群的功能，直接返回
-                if (strategy.getCustomGroupId() != 0 && strategy.getCustomGroupId() != msg.getGroupId()) {
+                if (!strategy.getCustomGroupId().isEmpty() && !strategy.getCustomGroupId().contains(msg.getGroupId())) {
                     return;
                 }
 

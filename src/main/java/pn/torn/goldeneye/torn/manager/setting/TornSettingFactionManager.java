@@ -34,6 +34,7 @@ public class TornSettingFactionManager implements DataCacheManager {
     @Override
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_ID, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_GROUP_ID, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_ALIAS, allEntries = true)})
     public void refreshCache() {
@@ -43,6 +44,17 @@ public class TornSettingFactionManager implements DataCacheManager {
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION)
     public List<TornSettingFactionDO> getList() {
         return settingFactionDao.list();
+    }
+
+    @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_ID)
+    public Map<Long, TornSettingFactionDO> getIdMap() {
+        List<TornSettingFactionDO> list = settingFactionDao.list();
+        Map<Long, TornSettingFactionDO> resultMap = new HashMap<>();
+        for (TornSettingFactionDO faction : list) {
+            resultMap.put(faction.getId(), faction);
+        }
+
+        return resultMap;
     }
 
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_GROUP_ID)

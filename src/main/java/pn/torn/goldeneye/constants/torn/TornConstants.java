@@ -24,6 +24,7 @@ public class TornConstants {
      * PN帮派ID
      */
     public static final long FACTION_PN_ID = 20465L;
+    public static final long FACTION_HP_ID = 2095L;
 
     // ====================OC相关====================
     public static final List<String> ROTATION_OC_NAME = new ArrayList<>();

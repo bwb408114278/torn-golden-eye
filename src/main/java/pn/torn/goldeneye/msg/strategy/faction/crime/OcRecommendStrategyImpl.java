@@ -69,6 +69,11 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
+    public List<Long> getCustomGroupId() {
+        return List.of(projectProperty.getGroupId(), TornConstants.FACTION_HP_ID);
+    }
+
+    @Override
     public String getCommand() {
         return BotCommands.OC_RECOMMEND;
     }
@@ -116,7 +121,8 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
      * return true为推荐大锅饭
      */
     private boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
-        if (!user.getFactionId().equals(TornConstants.FACTION_PN_ID)) {
+        if (!user.getFactionId().equals(TornConstants.FACTION_PN_ID) &&
+                !user.getFactionId().equals(TornConstants.FACTION_HP_ID)) {
             return false;
         }
 
