@@ -64,7 +64,7 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
             apiKeyConfig.addApiKey(keyData);
             virtualThreadExecutor.execute(() -> {
                 userService.updateUserData(keyData);
-                userDataService.spiderData(keyData);
+                userDataService.spiderData(keyData, List.of());
             });
             return super.buildTextMsg(keyData.getUserId() + "绑定" + keyData.getKeyLevel() + "级别的Key成功");
         }

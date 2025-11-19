@@ -30,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Torn 用户数据逻辑层
@@ -62,7 +63,7 @@ public class TornUserDataService {
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            virtualThreadExecutor.execute(() -> spiderAllData(to));
+            spiderAllData(to);
         }
 
         addScheduleTask(to);
@@ -73,10 +74,16 @@ public class TornUserDataService {
      */
     public void spiderAllData(LocalDateTime to) {
         List<TornApiKeyDO> keyList = apiKeyConfig.getAllEnableKeys();
+        List<TornUserBsSnapshotDO> existsList = bsSnapshotDao.lambdaQuery()
+                .eq(TornUserBsSnapshotDO::getRecordDate, to.toLocalDate())
+                .list();
+
+        List<CompletableFuture<Void>> futureList = new ArrayList<>();
         for (TornApiKeyDO key : keyList) {
-            spiderData(key);
+            futureList.add(CompletableFuture.runAsync(() -> spiderData(key, existsList), virtualThreadExecutor));
         }
 
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
         settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
     }
@@ -84,16 +91,22 @@ public class TornUserDataService {
     /**
      * 爬取单条数据
      */
-    public void spiderData(TornApiKeyDO key) {
-        updateBsSnapshot(key);
+    public void spiderData(TornApiKeyDO key, List<TornUserBsSnapshotDO> snapshotList) {
+        updateBsSnapshot(key, snapshotList);
         updateOcRate(key);
     }
 
     /**
      * 更新用户BS
      */
-    private void updateBsSnapshot(TornApiKeyDO key) {
+    private void updateBsSnapshot(TornApiKeyDO key, List<TornUserBsSnapshotDO> snapshotList) {
         LocalDate now = LocalDate.now();
+        boolean isExists = snapshotList.stream().anyMatch(s ->
+                s.getUserId().equals(key.getUserId()) && s.getRecordDate().equals(now));
+        if (isExists) {
+            return;
+        }
+
         TornUserBsVO bs = tornApi.sendRequest(new TornUserBsDTO(), key, TornUserBsVO.class);
         TornUserBsSnapshotDO bsSnapshot = bs.getBattleStats().convert2DO(key.getUserId(), now);
         bsSnapshotDao.save(bsSnapshot);

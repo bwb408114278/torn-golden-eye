@@ -5,7 +5,8 @@
     <select id="queryItemUseRanking" resultType="pn.torn.goldeneye.repository.model.faction.armory.ItemUseRankingDO">
         SELECT user_id, user_nickname, COUNT(*) AS total
         FROM torn_faction_item_used
-        WHERE deleted = 0 AND item_name = #{itemName} AND use_time BETWEEN #{fromDate} AND #{toDate}
+        WHERE deleted = 0 AND faction_id = #{factionId} AND item_name = #{itemName}
+          AND use_time BETWEEN #{fromDate} AND #{toDate}
         GROUP BY user_id, user_nickname
         ORDER BY total DESC
         LIMIT 20;

@@ -9,15 +9,18 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
+import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsDTO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsListVO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsVO;
@@ -29,13 +32,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
  * 获取Oc策略实现类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.07.24
  */
 @Component
@@ -44,7 +48,9 @@ import java.util.stream.Collectors;
 public class ItemUsedService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
+    private final TornApiKeyConfig apiKeyConfig;
     private final TornApi tornApi;
+    private final TornSettingFactionManager settingFactionManager;
     private final TornFactionItemUsedDAO usedDao;
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
@@ -61,7 +67,7 @@ public class ItemUsedService {
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            virtualThreadExecutor.execute(() -> spiderItemUseData(from, to));
+            spiderItemUseData(from, to);
         }
 
         addScheduleTask(to);
@@ -71,13 +77,36 @@ public class ItemUsedService {
      * 爬取物品使用记录
      */
     public void spiderItemUseData(LocalDateTime from, LocalDateTime to) {
+        List<TornSettingFactionDO> factionList = settingFactionManager.getList();
+        List<CompletableFuture<Void>> futureList = new ArrayList<>();
+        for (TornSettingFactionDO faction : factionList) {
+            futureList.add(CompletableFuture.runAsync(() -> {
+                        TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
+                        if (key == null) {
+                            return;
+                        }
+
+                        apiKeyConfig.returnKey(key);
+                        spiderItemUseData(faction.getId(), from, to);
+                    },
+                    virtualThreadExecutor));
+        }
+
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+        settingDao.updateSetting(SettingConstants.KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+        addScheduleTask(to);
+    }
+
+    /**
+     * 爬取物品使用记录
+     */
+    public void spiderItemUseData(long factionId, LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionNewsDTO param;
         LocalDateTime queryTo = to;
         while (true) {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
-            TornFactionNewsListVO resp = tornApi.sendRequest(TornConstants.FACTION_PN_ID,
-                    param, TornFactionNewsListVO.class);
+            TornFactionNewsListVO resp = tornApi.sendRequest(factionId, param, TornFactionNewsListVO.class);
             if (resp == null) {
                 continue;
             }
@@ -87,7 +116,10 @@ public class ItemUsedService {
             if (!CollectionUtils.isEmpty(dataList)) {
                 Set<String> nicknameSet = dataList.stream().map(TornFactionItemUsedDO::getUserNickname).collect(Collectors.toSet());
                 Map<String, Long> nicknameMap = userDao.queryNicknameMap(nicknameSet);
-                dataList.forEach(n -> n.setUserId(nicknameMap.get(n.getUserNickname())));
+                dataList.forEach(n -> {
+                    n.setFactionId(factionId);
+                    n.setUserId(nicknameMap.get(n.getUserNickname()));
+                });
                 usedDao.saveBatch(dataList);
             }
 
@@ -103,9 +135,6 @@ public class ItemUsedService {
                 }
             }
         }
-
-        settingDao.updateSetting(SettingConstants.KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
-        addScheduleTask(to);
     }
 
     /**

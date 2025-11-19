@@ -21,12 +21,14 @@ public interface TornFactionItemUsedMapper extends BaseMapper<TornFactionItemUse
     /**
      * 查询物品使用排行榜
      *
-     * @param itemName 物品名称
-     * @param fromDate 开始时间
-     * @param toDate   结束时间
+     * @param factionId 帮派ID
+     * @param itemName  物品名称
+     * @param fromDate  开始时间
+     * @param toDate    结束时间
      * @return 排行榜列表
      */
-    List<ItemUseRankingDO> queryItemUseRanking(@Param("itemName") String itemName,
+    List<ItemUseRankingDO> queryItemUseRanking(@Param("factionId") long factionId,
+                                               @Param("itemName") String itemName,
                                                @Param("fromDate") LocalDateTime fromDate,
                                                @Param("toDate") LocalDateTime toDate);
 }

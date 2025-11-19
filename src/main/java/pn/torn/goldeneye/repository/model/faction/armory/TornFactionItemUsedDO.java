@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 帮派物品使用记录表
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.3.0
  * @since 2025.08.07
  */
 @Data
@@ -22,6 +22,10 @@ public class TornFactionItemUsedDO extends BaseDO {
      * ID
      */
     private String id;
+    /**
+     * 帮派ID
+     */
+    private Long factionId;
     /**
      * 用户ID
      */

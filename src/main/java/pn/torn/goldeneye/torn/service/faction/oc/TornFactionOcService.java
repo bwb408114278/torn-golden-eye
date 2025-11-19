@@ -11,15 +11,17 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Torn Oc逻辑层
@@ -36,8 +38,8 @@ public class TornFactionOcService {
     private final TornApi tornApi;
     private final DynamicTaskService taskService;
     private final TornFactionOcManager ocManager;
+    private final TornSettingFactionManager settingFactionManager;
     private final SysSettingDAO settingDao;
-    private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
 
     @PostConstruct
@@ -49,7 +51,7 @@ public class TornFactionOcService {
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         LocalDateTime last = DateTimeUtils.convertToDateTime(lastRefreshTime);
         if (last.plusHours(1).isBefore(LocalDateTime.now())) {
-            virtualThreadExecutor.execute(() -> refreshOc(1));
+            refreshOc(1);
         } else {
             scheduleOcTask(last);
         }
@@ -67,10 +69,14 @@ public class TornFactionOcService {
      * 刷新OC
      */
     public void refreshOc(int pageSize) {
-        List<TornSettingFactionDO> factionList = settingFactionDao.list();
+        List<TornSettingFactionDO> factionList = settingFactionManager.getList();
+        List<CompletableFuture<Void>> futureList = new ArrayList<>();
         for (TornSettingFactionDO faction : factionList) {
-            refreshOc(pageSize, faction.getId());
+            futureList.add(CompletableFuture.runAsync(() ->
+                    refreshOc(pageSize, faction.getId()), virtualThreadExecutor));
         }
+
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
         scheduleOcTask(LocalDateTime.now());
     }
 

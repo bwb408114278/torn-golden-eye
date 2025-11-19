@@ -21,12 +21,14 @@ public class TornFactionItemUsedDAO extends ServiceImpl<TornFactionItemUsedMappe
     /**
      * 查询物品使用排行榜
      *
+     * @param factionId 帮派ID
      * @param itemName 物品名称
      * @param fromDate 开始时间
      * @param toDate   结束时间
      * @return 排行榜列表
      */
-    public List<ItemUseRankingDO> queryItemUseRanking(String itemName, LocalDateTime fromDate, LocalDateTime toDate) {
-        return baseMapper.queryItemUseRanking(itemName, fromDate, toDate);
+    public List<ItemUseRankingDO> queryItemUseRanking(long factionId, String itemName,
+                                                      LocalDateTime fromDate, LocalDateTime toDate) {
+        return baseMapper.queryItemUseRanking(factionId, itemName, fromDate, toDate);
     }
 }

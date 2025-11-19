@@ -10,6 +10,8 @@ import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.ItemUseRankingDO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
@@ -30,6 +32,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class MedBrokerStrategyImpl extends PnMsgStrategy {
+    private final TornSettingFactionManager settingFactionManager;
     private final TornFactionItemUsedDAO itemUsedDao;
 
     @Override
@@ -44,15 +47,17 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+        long factionId = super.getTornFactionId(sender, msg);
         LocalDateTime toDate = LocalDate.now().atTime(7, 59, 59);
         LocalDateTime fromDate = toDate.minusDays(30).plusSeconds(1);
-        List<ItemUseRankingDO> rankingList = itemUsedDao.queryItemUseRanking(TornConstants.ITEM_NAME_SMALL_RED,
-                fromDate, toDate);
+        List<ItemUseRankingDO> rankingList = itemUsedDao.queryItemUseRanking(factionId,
+                TornConstants.ITEM_NAME_SMALL_RED, fromDate, toDate);
         long totalCount = itemUsedDao.lambdaQuery()
+                .eq(TornFactionItemUsedDO::getFactionId, factionId)
                 .eq(TornFactionItemUsedDO::getItemName, TornConstants.ITEM_NAME_SMALL_RED)
                 .between(TornFactionItemUsedDO::getUseTime, fromDate, toDate)
                 .count();
-        return super.buildImageMsg(buildRankingMsg(rankingList, totalCount));
+        return super.buildImageMsg(buildRankingMsg(factionId, rankingList, totalCount));
     }
 
     /**
@@ -60,11 +65,12 @@ public class MedBrokerStrategyImpl extends PnMsgStrategy {
      *
      * @return 消息内容
      */
-    private String buildRankingMsg(List<ItemUseRankingDO> rankingList, long totalCount) {
+    private String buildRankingMsg(long factionId, List<ItemUseRankingDO> rankingList, long totalCount) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
-        tableData.add(List.of("PHN近30日小红毁灭者", "", "", "", ""));
+        TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
+        tableData.add(List.of(faction.getFactionShortName() + "近30日小红毁灭者", "", "", "", ""));
         tableConfig.addMerge(0, 0, 1, 5);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
                 .setBgColor(Color.WHITE)
