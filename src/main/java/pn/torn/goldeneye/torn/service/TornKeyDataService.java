@@ -26,7 +26,10 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 /**
  * Torn基础数据逻辑层
@@ -59,7 +62,7 @@ public class TornKeyDataService {
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 1, 0);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            virtualThreadExecutor.execute(this::spiderUserData);
+            spiderUserData();
         } else {
             addScheduleTask(from.plusDays(1));
         }
@@ -86,13 +89,19 @@ public class TornKeyDataService {
      * 爬取Key
      */
     public void spiderKey() {
-        List<TornApiKeyDO> keyList = keyDao.list();
-        for (TornApiKeyDO key : keyList) {
-            updateKeyByRequest(key);
-        }
+        try {
+            List<TornApiKeyDO> keyList = keyDao.list();
+            List<CompletableFuture<Void>> futureList = new ArrayList<>();
+            for (TornApiKeyDO key : keyList) {
+                futureList.add(CompletableFuture.runAsync(() -> updateKeyByRequest(key), virtualThreadExecutor));
+            }
 
-        keyDao.lambdaUpdate().set(TornApiKeyDO::getUseCount, 0).update();
-        apiKeyConfig.reloadKeyData();
+            CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+            keyDao.lambdaUpdate().set(TornApiKeyDO::getUseCount, 0).update();
+            apiKeyConfig.reloadKeyData();
+        } catch (CompletionException e) {
+            throw new BizException("同步Key时出错", e.getCause());
+        }
     }
 
     /**
@@ -101,15 +110,23 @@ public class TornKeyDataService {
     public void spiderFactionMember() {
         try {
             List<TornSettingFactionDO> factionList = settingFactionDao.list();
+            List<CompletableFuture<Void>> futureList = new ArrayList<>();
             for (TornSettingFactionDO faction : factionList) {
-                TornFactionMemberDTO param = new TornFactionMemberDTO(faction.getId());
-                TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-                factionMemberManager.updateFactionMember(faction.getId(), memberList);
-                Thread.sleep(1000L);
+                futureList.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        TornFactionMemberDTO param = new TornFactionMemberDTO(faction.getId());
+                        TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
+                        factionMemberManager.updateFactionMember(faction.getId(), memberList);
+                        Thread.sleep(1000L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }, virtualThreadExecutor));
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new BizException("同步帮派人员的等待时间出错", e);
+
+            CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+        } catch (CompletionException e) {
+            throw new BizException("同步帮派人员时出错", e.getCause());
         }
     }
 
