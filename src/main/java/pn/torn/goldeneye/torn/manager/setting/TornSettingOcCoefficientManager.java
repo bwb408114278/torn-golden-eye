@@ -32,6 +32,11 @@ public class TornSettingOcCoefficientManager implements DataCacheManager {
     private TornSettingOcCoefficientManager coefficientManager;
 
     @Override
+    public void warmUpCache() {
+        coefficientManager.getList();
+    }
+
+    @Override
     @CacheEvict(value = CacheConstants.KEY_TORN_SETTING_OC_COEFFICIENT, allEntries = true)
     public void refreshCache() {
         log.info("OC系数设置缓存已重置");

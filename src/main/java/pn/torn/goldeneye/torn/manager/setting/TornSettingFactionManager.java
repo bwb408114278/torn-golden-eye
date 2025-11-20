@@ -43,7 +43,16 @@ public class TornSettingFactionManager implements DataCacheManager {
 
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION)
     public List<TornSettingFactionDO> getList() {
-        return settingFactionDao.list();
+        List<TornSettingFactionDO> resultList = settingFactionDao.list();
+
+        // 开发环境专供
+        TornSettingFactionDO devGroup = resultList.stream()
+                .filter(f -> f.getId().equals(TornConstants.FACTION_PN_ID))
+                .findAny().orElse(null);
+        if (devGroup != null && !devGroup.getGroupId().equals(projectProperty.getGroupId())) {
+            devGroup.setGroupId(projectProperty.getGroupId());
+        }
+        return resultList;
     }
 
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_ID)

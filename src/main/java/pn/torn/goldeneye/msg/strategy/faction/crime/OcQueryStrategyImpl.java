@@ -45,7 +45,7 @@ public class OcQueryStrategyImpl extends SmthMsgStrategy {
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
-            return super.sendErrorFormatMsg();
+            return super.buildTextMsg("需要输入正确的OC级别, 例如g#" + BotCommands.OC_QUERY + "#8");
         }
 
         int rank = Integer.parseInt(msgArray[0]);

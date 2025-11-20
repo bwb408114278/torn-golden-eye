@@ -16,7 +16,6 @@ public class CacheConstants {
      * 系统管理员Key
      */
     public static final String KEY_SYS_SETTING = "sys:setting";
-
     /**
      * 物品Key
      */
@@ -25,6 +24,14 @@ public class CacheConstants {
      * 物品Key
      */
     public static final String KEY_TORN_ITEM_MAP = "torn:items:map";
+    /**
+     * 物品Key, 名称Map
+     */
+    public static final String KEY_TORN_ITEM_NAME_MAP = "torn:items:name:map";
+    /**
+     * 物品Key, 名称排序List
+     */
+    public static final String KEY_TORN_ITEM_NAME_SORT_LIST = "torn:items:name:sort:list";
 
     /**
      * 帮派设置Key
