@@ -54,7 +54,7 @@ public class BotCommands {
     /**
      * 小红毁灭者
      */
-    public static final String SMALL_RED_BROKER = "小红毁灭者";
+    public static final String FACTION_ITEM_USED = "物资毁灭者";
 
     // ====================其他功能相关====================
     /**
