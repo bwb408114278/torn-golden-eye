@@ -16,6 +16,7 @@ import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.PrivateMsgSocketBuilder;
@@ -50,7 +51,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Slf4j
 @Component
-@Order(1)
+@Order(InitOrderConstants.BOT)
 public class BotSocketClient {
     // 连接配置
     @Value("${bot.server.addr}")

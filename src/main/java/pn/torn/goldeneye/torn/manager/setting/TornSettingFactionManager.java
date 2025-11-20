@@ -1,10 +1,12 @@
 package pn.torn.goldeneye.torn.manager.setting;
 
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
@@ -30,6 +32,17 @@ import java.util.Map;
 public class TornSettingFactionManager implements DataCacheManager {
     private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
+    @Lazy
+    @Resource
+    private TornSettingFactionManager factionManager;
+
+    @Override
+    public void warmUpCache() {
+        factionManager.getList();
+        factionManager.getIdMap();
+        factionManager.getGroupIdMap();
+        factionManager.getAliasMap();
+    }
 
     @Override
     @Caching(evict = {

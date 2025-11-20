@@ -15,6 +15,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
@@ -50,7 +51,7 @@ import java.util.stream.Collectors;
  */
 @Component
 @RequiredArgsConstructor
-@Order(10003)
+@Order(InitOrderConstants.TORN_ITEM_USED)
 @Slf4j
 public class ItemUsedService {
     private final DynamicTaskService taskService;
@@ -67,9 +68,9 @@ public class ItemUsedService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
-//        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
-//            return;
-//        }
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_ITEM_USE_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
@@ -205,19 +206,29 @@ public class ItemUsedService {
             return;
         }
 
-        Map<String, Integer> userItemVsNumberMap = HashMap.newHashMap(misuseList.size());
+        Map<String, List<TornFactionItemUsedDO>> userVsItemMap = HashMap.newHashMap(misuseList.size());
         for (TornFactionItemUsedDO item : misuseList) {
             String key = item.getUserId() + "#" + item.getUserNickname() + "#" + item.getItemName();
-            userItemVsNumberMap.merge(key, 1, Integer::sum);
+            List<TornFactionItemUsedDO> useList = userVsItemMap.get(key);
+            if (CollectionUtils.isEmpty(useList)) {
+                useList = new ArrayList<>();
+                useList.add(item);
+                userVsItemMap.put(key, useList);
+            } else {
+                useList.add(item);
+            }
         }
 
         StringBuilder builder = new StringBuilder();
         builder.append("\n昨天有人吃了帮派里的糖酒饮料, 请确认是否消耗了OC战利品: ");
-        for (Map.Entry<String, Integer> entry : userItemVsNumberMap.entrySet()) {
+        for (Map.Entry<String, List<TornFactionItemUsedDO>> entry : userVsItemMap.entrySet()) {
             String[] key = entry.getKey().split("#");
+            String timeRangeDesc = buildTimeRangeDesc(entry);
+
             builder.append("\n").append(key[1])
                     .append(" [").append(key[0]).append("]")
-                    .append(" 使用了").append(entry.getValue()).append("个").append(key[2]);
+                    .append(timeRangeDesc)
+                    .append(", 使用了").append(entry.getValue().size()).append("个").append(key[2]);
         }
 
         String[] adminIds = faction.getGroupAdminIds().split(",");
@@ -229,5 +240,27 @@ public class ItemUsedService {
                 .addMsg(new TextQqMsg(builder.toString()))
                 .build();
         bot.sendRequest(param, String.class);
+    }
+
+    /**
+     * 构建时间范围描述
+     */
+    private String buildTimeRangeDesc(Map.Entry<String, List<TornFactionItemUsedDO>> entry) {
+        TornFactionItemUsedDO earliest = entry.getValue().stream()
+                .min(Comparator.comparing(TornFactionItemUsedDO::getUseTime))
+                .orElse(null);
+        TornFactionItemUsedDO latest = entry.getValue().stream()
+                .max(Comparator.comparing(TornFactionItemUsedDO::getUseTime))
+                .orElse(null);
+        if (earliest == null || latest == null) {
+            return "";
+        }
+
+        if (earliest.equals(latest)) {
+            return " 在" + DateTimeUtils.convertToString(earliest.getUseTime()) + "时";
+        } else {
+            return " 从" + DateTimeUtils.convertToString(earliest.getUseTime()) +
+                    "到" + DateTimeUtils.convertToString(latest.getUseTime()) + "期间";
+        }
     }
 }
