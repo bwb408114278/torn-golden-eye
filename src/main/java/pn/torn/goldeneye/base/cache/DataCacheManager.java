@@ -9,6 +9,12 @@ package pn.torn.goldeneye.base.cache;
  */
 public interface DataCacheManager {
     /**
+     * 预热缓存
+     * 在应用启动时调用，提前加载常用数据到缓存
+     */
+    void warmUpCache();
+
+    /**
      * 强制刷新缓存（清除并重新加载）
      */
     void refreshCache();

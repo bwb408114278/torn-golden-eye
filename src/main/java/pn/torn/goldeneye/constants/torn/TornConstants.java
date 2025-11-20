@@ -41,10 +41,4 @@ public class TornConstants {
         ROTATION_OC_NAME.add("Break the Bank");
         ROTATION_OC_NAME.add("Clinical Precision");
     }
-
-    // ====================物品相关====================
-    /**
-     * 物品名称 - 小红
-     */
-    public static final String ITEM_NAME_SMALL_RED = "Small First Aid Kit";
 }

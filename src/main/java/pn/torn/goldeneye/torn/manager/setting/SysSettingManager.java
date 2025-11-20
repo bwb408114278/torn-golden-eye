@@ -23,6 +23,11 @@ public class SysSettingManager implements DataCacheManager {
     private final SysSettingDAO settingDao;
 
     @Override
+    public void warmUpCache() {
+        // 配置只能用的时候再加载
+    }
+
+    @Override
     @CacheEvict(value = CacheConstants.KEY_SYS_SETTING, allEntries = true)
     public void refreshCache() {
         log.info("系统设置缓存已重置");

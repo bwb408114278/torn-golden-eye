@@ -43,7 +43,7 @@ public class GroupMsgHttpBuilder {
     /**
      * 添加消息
      */
-    public GroupMsgHttpBuilder addMsg(Collection<QqMsgParam<?>> param) {
+    public GroupMsgHttpBuilder addMsg(Collection<? extends QqMsgParam<?>> param) {
         this.paramList.addAll(param);
         return this;
     }

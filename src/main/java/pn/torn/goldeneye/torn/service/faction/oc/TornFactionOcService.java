@@ -1,13 +1,15 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
@@ -32,7 +34,7 @@ import java.util.concurrent.CompletableFuture;
  */
 @Service
 @RequiredArgsConstructor
-@Order(10002)
+@Order(InitOrderConstants.TORN_OC)
 public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
@@ -42,7 +44,7 @@ public class TornFactionOcService {
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void init() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;

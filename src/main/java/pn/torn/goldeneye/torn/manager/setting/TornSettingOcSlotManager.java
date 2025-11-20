@@ -1,9 +1,11 @@
 package pn.torn.goldeneye.torn.manager.setting;
 
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
@@ -24,6 +26,14 @@ import java.util.List;
 @Slf4j
 public class TornSettingOcSlotManager implements DataCacheManager {
     private final TornSettingOcSlotDAO settingOcSlotDao;
+    @Lazy
+    @Resource
+    private TornSettingOcSlotManager slotManager;
+
+    @Override
+    public void warmUpCache() {
+        slotManager.getList();
+    }
 
     @Override
     @CacheEvict(value = CacheConstants.KEY_TORN_SETTING_OC_SLOT, allEntries = true)

@@ -3,9 +3,10 @@ package pn.torn.goldeneye.torn.service.faction.oc;
 import com.lark.oapi.service.bitable.v1.enums.ConditionOperatorEnum;
 import com.lark.oapi.service.bitable.v1.enums.FilterInfoConjunctionEnum;
 import com.lark.oapi.service.bitable.v1.model.*;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.ArrayUtils;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteBitTableProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
+import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
@@ -43,7 +45,7 @@ import java.util.stream.IntStream;
  */
 @Service
 @RequiredArgsConstructor
-@Order(10005)
+@Order(InitOrderConstants.TORN_OC_BENEFIT)
 public class TornFactionOcBenefitService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
@@ -65,7 +67,7 @@ public class TornFactionOcBenefitService {
     private static final String FIELD_OC_RANK = "难度等级";
     private static final String PREFIX_SLOT = "slot_";
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void init() {
         factionMap = factionManager.getAliasMap();
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
