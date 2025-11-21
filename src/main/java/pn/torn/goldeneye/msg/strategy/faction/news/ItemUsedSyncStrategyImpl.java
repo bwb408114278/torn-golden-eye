@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.news;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
@@ -28,6 +29,11 @@ public class ItemUsedSyncStrategyImpl extends BaseGroupMsgStrategy {
     @Override
     public boolean isNeedSa() {
         return true;
+    }
+
+    @Override
+    public TornFactionRoleTypeEnum getRoleType() {
+        return null;
     }
 
     @Override

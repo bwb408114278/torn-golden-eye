@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.PnManageMsgStrategy;
@@ -33,6 +34,11 @@ public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
     @Override
     public String getCommandDescription() {
         return "获取开OC新队的建议";
+    }
+
+    @Override
+    public TornFactionRoleTypeEnum getRoleType() {
+        return TornFactionRoleTypeEnum.OC_COMMANDER;
     }
 
     @Override

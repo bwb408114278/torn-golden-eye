@@ -17,6 +17,7 @@ import pn.torn.goldeneye.base.bot.BotSocketReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsg;
 import pn.torn.goldeneye.msg.send.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.msg.send.PrivateMsgSocketBuilder;
@@ -28,11 +29,11 @@ import pn.torn.goldeneye.msg.strategy.manage.DocStrategyImpl;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.JsonUtils;
+import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -370,14 +371,22 @@ public class BotSocketClient {
             return true;
         }
 
-        if (!strategy.isNeedAdmin()) {
+        if (strategy.getRoleType() == null) {
             return false;
         }
+        // 如果是Leader, 默认有权限
+        List<Long> leaderList = faction != null ? NumberUtils.splitToLongList(faction.getGroupAdminIds()) : List.of();
+        if (leaderList.contains(userId)) {
+            return false;
+        }
+        // OC指挥官
+        if (TornFactionRoleTypeEnum.OC_COMMANDER.equals(strategy.getRoleType())) {
+            List<Long> ocCommanderList = faction != null ?
+                    NumberUtils.splitToLongList(faction.getOcCommanderIds()) : List.of();
+            return !ocCommanderList.contains(userId);
+        }
 
-        List<Long> adminIdList = faction != null && faction.getGroupAdminIds() != null ?
-                Arrays.stream(faction.getGroupAdminIds().split(",")).map(Long::parseLong).toList() :
-                List.of();
-        return !adminIdList.contains(userId);
+        return true;
     }
 
     /**

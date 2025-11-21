@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.msg.strategy.base;
 
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
+
 /**
  * Pn群消息策略
  *
@@ -9,7 +11,7 @@ package pn.torn.goldeneye.msg.strategy.base;
  */
 public abstract class SmthMsgStrategy extends BaseGroupMsgStrategy {
     @Override
-    public boolean isNeedAdmin() {
-        return false;
+    public TornFactionRoleTypeEnum getRoleType() {
+        return null;
     }
 }

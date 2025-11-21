@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.msg.strategy.base;
 
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 
@@ -23,15 +24,6 @@ public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
     }
 
     /**
-     * 是否需要管理员权限
-     *
-     * @return true为需要管理员
-     */
-    public boolean isNeedAdmin() {
-        return true;
-    }
-
-    /**
      * 是否需要超管权限
      *
      * @return true为需要超管
@@ -39,6 +31,13 @@ public abstract class BaseGroupMsgStrategy extends BaseMsgStrategy {
     public boolean isNeedSa() {
         return false;
     }
+
+    /**
+     * 管理功能的需要身份类型
+     *
+     * @return null为不需要管理员
+     */
+    public abstract TornFactionRoleTypeEnum getRoleType();
 
     /**
      * 处理消息
