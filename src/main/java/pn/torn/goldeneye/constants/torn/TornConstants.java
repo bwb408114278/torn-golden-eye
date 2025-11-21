@@ -31,6 +31,7 @@ public class TornConstants {
 
     // ====================OC相关====================
     public static final List<String> ROTATION_OC_NAME = new ArrayList<>();
+    public static final List<Long> REASSIGN_OC_FACTION = new ArrayList<>();
     /**
      * 飞书多维表 - OC收益
      */
@@ -40,5 +41,8 @@ public class TornConstants {
         ROTATION_OC_NAME.add("Blast from the Past");
         ROTATION_OC_NAME.add("Break the Bank");
         ROTATION_OC_NAME.add("Clinical Precision");
+
+        REASSIGN_OC_FACTION.add(FACTION_PN_ID);
+        REASSIGN_OC_FACTION.add(FACTION_HP_ID);
     }
 }

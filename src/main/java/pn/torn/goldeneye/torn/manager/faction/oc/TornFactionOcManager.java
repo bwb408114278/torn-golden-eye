@@ -51,8 +51,8 @@ public class TornFactionOcManager {
         validOcIdList.addAll(completeOcData(factionId, completeList));
         deleteOcData(factionId, validOcIdList);
 
-        if (TornConstants.FACTION_PN_ID == factionId) {
-            virtualThreadExecutor.execute(ocBatchIncomeService::batchCalculateIncome);
+        if (TornConstants.REASSIGN_OC_FACTION.contains(factionId)) {
+            virtualThreadExecutor.execute(() -> ocBatchIncomeService.batchCalculateIncome(factionId));
         }
     }
 

@@ -28,6 +28,10 @@ public class TornFactionOcIncomeSummaryDO extends BaseDO {
      */
     private Long userId;
     /**
+     * 帮派ID
+     */
+    private Long factionId;
+    /**
      * 年月
      */
     private String yearMonth;

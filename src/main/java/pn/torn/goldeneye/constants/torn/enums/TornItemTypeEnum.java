@@ -3,8 +3,6 @@ package pn.torn.goldeneye.constants.torn.enums;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.util.List;
-
 /**
  * 物品类型枚举
  *
@@ -29,8 +27,4 @@ public enum TornItemTypeEnum {
     CANDY("Candy");
 
     private final String code;
-
-    public static List<String> getMisuseCodeList() {
-        return List.of(ENERGY_DRINK.getCode(), ALCOHOL.getCode(), CANDY.getCode());
-    }
 }

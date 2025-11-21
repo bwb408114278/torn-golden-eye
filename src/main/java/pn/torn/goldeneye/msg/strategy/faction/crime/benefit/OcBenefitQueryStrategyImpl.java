@@ -53,7 +53,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornUserDO user = super.getTornUser(sender, msg);
-        boolean calcReassign = user.getFactionId().equals(TornConstants.FACTION_PN_ID);
+        boolean calcReassign = TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId());
         LocalDateTime fromDate = LocalDate.now().minusDays(LocalDate.now().getDayOfMonth() - 1L)
                 .atTime(0, 0, 0);
         LocalDateTime toDate = LocalDateTime.now();

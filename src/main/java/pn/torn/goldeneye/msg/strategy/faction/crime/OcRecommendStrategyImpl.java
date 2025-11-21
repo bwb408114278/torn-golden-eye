@@ -122,8 +122,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
      * return true为推荐大锅饭
      */
     private boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
-        if (!user.getFactionId().equals(TornConstants.FACTION_PN_ID) &&
-                !user.getFactionId().equals(TornConstants.FACTION_HP_ID)) {
+        if (!TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId())) {
             return false;
         }
 

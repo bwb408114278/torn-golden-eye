@@ -5,9 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -16,8 +14,6 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCalculationDTO;
-import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeDetailVO;
-import pn.torn.goldeneye.torn.model.faction.crime.income.UserIncomeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.WorkingHoursDTO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -25,8 +21,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.function.Function;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -41,7 +38,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TornOcIncomeService {
     private final TornOcWorkingHourService workingHourService;
-    private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcIncomeDAO incomeDao;
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
@@ -59,10 +55,7 @@ public class TornOcIncomeService {
         }
 
         // 2. 查询所有slot获取道具成本
-        List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery()
-                .eq(TornFactionOcSlotDO::getOcId, oc.getId())
-                .isNotNull(TornFactionOcSlotDO::getUserId)
-                .list();
+        List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, oc.getId()).list();
         Map<Long, Long> userItemCostMap = slots.stream()
                 .collect(Collectors.toMap(TornFactionOcSlotDO::getUserId,
                         TornFactionOcSlotDO::getOutcomeItemValue, Long::sum));
@@ -86,78 +79,7 @@ public class TornOcIncomeService {
         // 5. 保存详细记录
         saveIncomeRecords(oc, incomeList, isSuccess, oc.getRewardMoney(), totalItemCost);
         // 6. 更新汇总表
-        calcMonthlyIncomeSummary(oc.getExecutedTime().format(DateTimeUtils.YEAR_MONTH_FORMATTER));
-    }
-
-    /**
-     * 月度结算（重新计算收益分配）
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void monthlySettlement(String yearMonth) {
-        log.info("开始月度结算: yearMonth={}", yearMonth);
-        // 重新计算一次确保数据准确
-        calcMonthlyIncomeSummary(yearMonth);
-        // 标记为已结算
-        List<TornFactionOcIncomeSummaryDO> summaries = incomeSummaryDao.lambdaQuery()
-                .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
-                .eq(TornFactionOcIncomeSummaryDO::getIsSettled, false)
-                .list();
-        if (CollectionUtils.isEmpty(summaries)) {
-            log.warn("该月没有未结算的汇总记录: yearMonth={}", yearMonth);
-            return;
-        }
-        LocalDateTime settledTime = LocalDateTime.now();
-        for (TornFactionOcIncomeSummaryDO summary : summaries) {
-            summary.setIsSettled(true);
-            summary.setSettledTime(settledTime);
-            incomeSummaryDao.updateById(summary);
-        }
-
-        log.info("月度结算完成: yearMonth={}, 结算用户数={}", yearMonth, summaries.size());
-    }
-
-    /**
-     * 查询用户在时间范围内的收益
-     */
-    public UserIncomeVO queryUserIncome(long userId, LocalDateTime startTime, LocalDateTime endTime) {
-        // 1. 查询收益记录
-        List<TornFactionOcIncomeDO> incomeRecords = incomeDao.lambdaQuery()
-                .eq(TornFactionOcIncomeDO::getUserId, userId)
-                .ge(TornFactionOcIncomeDO::getOcExecutedTime, startTime)
-                .le(TornFactionOcIncomeDO::getOcExecutedTime, endTime)
-                .list();
-        if (CollectionUtils.isEmpty(incomeRecords)) {
-            return new UserIncomeVO(userId, startTime, endTime, 0, List.of());
-        }
-
-        // 3. 查询OC详情
-        Set<Long> ocIds = incomeRecords.stream()
-                .map(TornFactionOcIncomeDO::getOcId)
-                .collect(Collectors.toSet());
-
-        List<TornFactionOcDO> ocList = ocDao.queryListByIdList(TornConstants.FACTION_PN_ID, ocIds);
-        Map<Long, TornFactionOcDO> ocMap = ocList.stream()
-                .collect(Collectors.toMap(TornFactionOcDO::getId, Function.identity()));
-
-        // 4. 查询slot信息获取岗位
-        List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery()
-                .in(TornFactionOcSlotDO::getOcId, ocIds)
-                .eq(TornFactionOcSlotDO::getUserId, userId)
-                .list();
-        Map<Long, String> ocPositionMap = slots.stream()
-                .collect(Collectors.toMap(
-                        TornFactionOcSlotDO::getOcId,
-                        TornFactionOcSlotDO::getPosition,
-                        (a, b) -> a));
-
-        // 5. 构建明细
-        List<IncomeDetailVO> details = incomeRecords.stream()
-                .map(data -> new IncomeDetailVO(data, ocMap.get(data.getOcId()), ocPositionMap))
-                .sorted(Comparator.comparing(IncomeDetailVO::getExecutedTime,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
-
-        return new UserIncomeVO(userId, startTime, endTime, incomeRecords.size(), details);
+        calcMonthlyIncomeSummary(oc.getFactionId(), oc.getExecutedTime().format(DateTimeUtils.YEAR_MONTH_FORMATTER));
     }
 
     /**
@@ -180,12 +102,13 @@ public class TornOcIncomeService {
     /**
      * 按指定月份重新计算收益汇总（用于月度结算）
      */
-    public void calcMonthlyIncomeSummary(String yearMonth) {
+    public void calcMonthlyIncomeSummary(long factionId, String yearMonth) {
         // 1. 查询该月所有已完成的OC记录
         LocalDateTime startTime = LocalDateTime.parse(yearMonth + "-01 00:00:00",
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         LocalDateTime endTime = startTime.plusMonths(1);
         List<TornFactionOcIncomeDO> monthlyRecords = incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getFactionId, factionId)
                 .ge(TornFactionOcIncomeDO::getOcExecutedTime, startTime)
                 .lt(TornFactionOcIncomeDO::getOcExecutedTime, endTime)
                 .list();
@@ -256,6 +179,7 @@ public class TornOcIncomeService {
             if (summary == null) {
                 summary = new TornFactionOcIncomeSummaryDO();
                 summary.setUserId(userId);
+                summary.setFactionId(factionId);
                 summary.setYearMonth(yearMonth);
                 summary.setIsSettled(false);
             }
