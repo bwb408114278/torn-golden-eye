@@ -6,10 +6,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
@@ -27,8 +30,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TornFactionOcMsgManager {
     private final TornFactionOcMsgTableManager msgTableManager;
+    private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final SysSettingDAO settingDao;
+    private static final Color RECOMMEND_COLOR = new Color(64, 224, 205);
 
     /**
      * 构建OC表格
@@ -63,5 +68,53 @@ public class TornFactionOcMsgManager {
                         .setFont(new Font("微软雅黑", Font.BOLD, 14))
                         .setAlignment(TableImageUtils.TextAlignment.LEFT));
         return TableImageUtils.renderTableToBase64(table);
+    }
+
+    /**
+     * 构建建议表格
+     */
+    public String buildRecommendTable(String title, long factionId, List<OcRecommendTableBO> recommendList) {
+        List<TornFactionOcDO> ocList = ocDao.queryListByIdList(factionId,
+                recommendList.stream().map(r -> r.recommend().getOcId()).toList());
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
+        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedListMultimap.create();
+        LinkedList<String> reasonList = new LinkedList<>();
+
+        for (OcRecommendTableBO entry : recommendList) {
+            OcRecommendationVO recommend = entry.recommend();
+            TornFactionOcDO oc = ocList.stream()
+                    .filter(o -> o.getId().equals(recommend.getOcId()))
+                    .findAny().orElse(null);
+            if (oc == null) {
+                continue;
+            }
+
+            List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
+                    .filter(s -> s.getOcId().equals(oc.getId())).toList());
+            ocMap.put(oc, currentSlotList);
+            reasonList.offer(entry.buildReasonText());
+        }
+
+        // 高亮推荐岗位
+        TableDataBO tableData = msgTableManager.buildOcTable(title, ocMap, reasonList);
+        TableImageUtils.TableConfig config = tableData.getTableConfig();
+        for (int i = 0; i < recommendList.size(); i++) {
+            // 标题一行，加上每个分隔行
+            int startIndex = 1 + i * 2 + 1;
+            List<String> positionRow = tableData.getTableData().get(i + startIndex);
+            int column = positionRow.indexOf(recommendList.get(i).recommend().getRecommendedPosition());
+            if (column < 0) {
+                continue;
+            }
+
+            config.setCellStyle(i + startIndex, column, new TableImageUtils.CellStyle()
+                    .setAlignment(TableImageUtils.TextAlignment.LEFT)
+                    .setBgColor(RECOMMEND_COLOR));
+            config.setCellStyle(i + startIndex + 1, column, new TableImageUtils.CellStyle()
+                    .setAlignment(TableImageUtils.TextAlignment.LEFT)
+                    .setBgColor(RECOMMEND_COLOR));
+        }
+
+        return TableImageUtils.renderTableToBase64(tableData);
     }
 }

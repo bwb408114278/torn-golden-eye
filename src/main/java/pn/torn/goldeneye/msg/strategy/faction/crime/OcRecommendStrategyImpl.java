@@ -1,7 +1,5 @@
 package pn.torn.goldeneye.msg.strategy.faction.crime;
 
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -17,16 +15,14 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
-import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -41,7 +37,7 @@ import java.util.List;
 public class OcRecommendStrategyImpl extends PnMsgStrategy {
     private final TornFactionOcService ocService;
     private final TornOcRecommendService recommendService;
-    private final TornFactionOcMsgTableManager tableManager;
+    private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
 
@@ -110,32 +106,8 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
      */
     private List<ImageQqMsg> buildRecommendTable(TornUserDO user, List<OcRecommendationVO> result) {
         String title = user.getNickname() + ", 推荐加入以下队伍";
-
-        List<TornFactionOcDO> ocList = ocDao.queryListByIdList(user.getFactionId(),
-                result.stream().map(OcRecommendationVO::getOcId).toList());
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedListMultimap.create();
-        LinkedList<String> reasonList = new LinkedList<>();
-
-        for (OcRecommendationVO recommend : result) {
-            TornFactionOcDO oc = ocList.stream()
-                    .filter(o -> o.getId().equals(recommend.getOcId()))
-                    .findAny().orElse(null);
-            if (oc == null) {
-                continue;
-            }
-
-            List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
-                    .filter(s -> s.getOcId().equals(oc.getId())).toList());
-            ocMap.put(oc, currentSlotList);
-            reasonList.offer(recommend.getRank() + "级" +
-                    "   " + recommend.getOcName() +
-                    "   岗位: " + recommend.getRecommendedPosition() +
-                    "   评分: " + recommend.getRecommendScore() +
-                    "   推荐理由: " + recommend.getReason());
-        }
-
-        String tableData = TableImageUtils.renderTableToBase64(tableManager.buildOcTable(title, ocMap, reasonList));
-        return super.buildImageMsg(tableData);
+        String table = msgManager.buildRecommendTable(title, user.getFactionId(),
+                result.stream().map(r -> new OcRecommendTableBO(null, r)).toList());
+        return super.buildImageMsg(table);
     }
 }

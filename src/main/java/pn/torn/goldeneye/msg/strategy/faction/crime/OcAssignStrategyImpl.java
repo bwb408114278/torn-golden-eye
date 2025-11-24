@@ -1,31 +1,22 @@
 package pn.torn.goldeneye.msg.strategy.faction.crime;
 
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.ImageQqMsg;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
-import pn.torn.goldeneye.utils.TableImageUtils;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -38,18 +29,11 @@ import java.util.Map;
  */
 @Component
 @RequiredArgsConstructor
-public class OcAssignStrategyImpl extends PnMsgStrategy {
+public class OcAssignStrategyImpl extends BaseGroupMsgStrategy {
     private final TornFactionOcService ocService;
     private final TornOcAssignService ocAssignService;
-    private final TornFactionOcMsgTableManager tableManager;
+    private final TornFactionOcMsgManager msgManager;
     private final TornSettingFactionManager settingFactionManager;
-    private final TornFactionOcDAO ocDao;
-    private final TornFactionOcSlotDAO slotDao;
-
-    @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_HP_ID);
-    }
 
     @Override
     public String getCommand() {
@@ -81,34 +65,10 @@ public class OcAssignStrategyImpl extends PnMsgStrategy {
     private List<ImageQqMsg> buildRecommendTable(TornUserDO user, Map<TornUserDO, OcRecommendationVO> map) {
         TornSettingFactionDO faction = settingFactionManager.getIdMap().get(user.getFactionId());
         String title = faction.getFactionShortName() + "   OC队伍分配建议";
-
-        List<TornFactionOcDO> ocList = ocDao.queryListByIdList(user.getFactionId(),
-                map.values().stream().map(OcRecommendationVO::getOcId).toList());
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedListMultimap.create();
-        LinkedList<String> reasonList = new LinkedList<>();
-
-        for (Map.Entry<TornUserDO, OcRecommendationVO> entry : map.entrySet()) {
-            OcRecommendationVO recommend = entry.getValue();
-            TornFactionOcDO oc = ocList.stream()
-                    .filter(o -> o.getId().equals(recommend.getOcId()))
-                    .findAny().orElse(null);
-            if (oc == null) {
-                continue;
-            }
-
-            List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
-                    .filter(s -> s.getOcId().equals(oc.getId())).toList());
-            ocMap.put(oc, currentSlotList);
-            reasonList.offer(entry.getKey().getNickname() + " [" + entry.getKey().getId() + "]" +
-                    "   " + recommend.getRank() + "级" +
-                    "   " + recommend.getOcName() +
-                    "   岗位: " + recommend.getRecommendedPosition() +
-                    "   评分: " + recommend.getRecommendScore() +
-                    "   推荐理由: " + recommend.getReason());
-        }
-
-        String tableData = TableImageUtils.renderTableToBase64(tableManager.buildOcTable(title, ocMap, reasonList));
-        return super.buildImageMsg(tableData);
+        String table = msgManager.buildRecommendTable(title, user.getFactionId(),
+                map.entrySet().stream().map(entry ->
+                                new OcRecommendTableBO(entry.getKey(), entry.getValue()))
+                        .toList());
+        return super.buildImageMsg(table);
     }
 }
