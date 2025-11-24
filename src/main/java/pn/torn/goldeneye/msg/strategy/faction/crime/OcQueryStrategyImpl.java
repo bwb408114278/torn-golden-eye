@@ -11,7 +11,7 @@ import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 

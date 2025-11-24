@@ -45,6 +45,10 @@ public class BotCommands {
      * OC推荐
      */
     public static final String OC_RECOMMEND = "OC推荐";
+    /**
+     * OC分配
+     */
+    public static final String OC_ASSIGN = "OC分配";
 
     // ====================帮派成员相关====================
     /**

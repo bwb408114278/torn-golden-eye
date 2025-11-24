@@ -14,7 +14,7 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;

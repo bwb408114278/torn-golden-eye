@@ -1,6 +1,5 @@
-package pn.torn.goldeneye.torn.manager.faction.oc.msg;
+package pn.torn.goldeneye.torn.manager.faction.crime.msg;
 
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import lombok.RequiredArgsConstructor;

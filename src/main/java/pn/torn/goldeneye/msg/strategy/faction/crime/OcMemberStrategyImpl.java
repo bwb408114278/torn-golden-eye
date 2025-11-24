@@ -11,7 +11,7 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcUserManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 

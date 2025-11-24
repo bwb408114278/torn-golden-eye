@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.manager.faction.oc;
+package pn.torn.goldeneye.torn.manager.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
