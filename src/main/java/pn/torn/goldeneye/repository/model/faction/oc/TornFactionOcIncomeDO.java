@@ -31,6 +31,10 @@ public class TornFactionOcIncomeDO extends BaseDO {
      */
     private Long ocId;
     /**
+     * 帮派ID
+     */
+    private Long factionId;
+    /**
      * OC名称
      */
     private String ocName;
@@ -93,6 +97,7 @@ public class TornFactionOcIncomeDO extends BaseDO {
         this.rank = oc.getRank();
         this.ocExecutedTime = oc.getExecutedTime();
         this.userId = income.getUserId();
+        this.factionId = oc.getFactionId();
         this.position = income.getPosition();
         this.passRate = income.getPassRate();
         this.baseWorkingHours = income.getWorkingHours().getBaseWorkingHours();

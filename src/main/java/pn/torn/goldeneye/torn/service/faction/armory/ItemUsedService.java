@@ -65,9 +65,13 @@ public class ItemUsedService {
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
+    private static final List<String> MISUSE_ITEM_LIST = new ArrayList<>();
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
+        MISUSE_ITEM_LIST.add("Pixie Sticks");
+        MISUSE_ITEM_LIST.add("Bottle of Moonshine");
+
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
         }
@@ -194,8 +198,8 @@ public class ItemUsedService {
      */
     private boolean checkIsMisuse(TornFactionItemUsedDO usedItem) {
         TornItemsDO item = itemsManager.getNameMap().get(usedItem.getItemName());
-        List<String> misuseCodeList = TornItemTypeEnum.getMisuseCodeList();
-        return misuseCodeList.contains(item.getItemType()) && !item.getItemName().equals("Bottle of Beer");
+        return TornItemTypeEnum.ENERGY_DRINK.getCode().equals(item.getItemType()) ||
+                MISUSE_ITEM_LIST.contains(item.getItemName());
     }
 
     /**
@@ -220,7 +224,7 @@ public class ItemUsedService {
         }
 
         StringBuilder builder = new StringBuilder();
-        builder.append("\n昨天有人吃了帮派里的糖酒饮料, 请确认是否消耗了OC战利品: ");
+        builder.append("\n昨天有人吃了帮派里的糖酒饮料, 请确认是否消耗了OC战利品或矿产: ");
         for (Map.Entry<String, List<TornFactionItemUsedDO>> entry : userVsItemMap.entrySet()) {
             String[] key = entry.getKey().split("#");
             String timeRangeDesc = buildTimeRangeDesc(entry);

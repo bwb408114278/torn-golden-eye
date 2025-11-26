@@ -51,7 +51,7 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
         LocalDateTime fromDate = LocalDate.now().minusDays(LocalDate.now().getDayOfMonth() - 1L)
                 .atTime(0, 0, 0);
         LocalDateTime toDate = LocalDateTime.now();
-        List<TornFactionOcBenefitRankDO> rankingList = user.getFactionId().equals(TornConstants.FACTION_PN_ID) ?
+        List<TornFactionOcBenefitRankDO> rankingList = TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId()) ?
                 benefitDao.queryIncomeRanking(user.getFactionId(), fromDate, toDate,
                         TornConstants.ROTATION_OC_NAME, toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER)) :
                 benefitDao.queryBenefitRanking(user.getFactionId(), fromDate, toDate);

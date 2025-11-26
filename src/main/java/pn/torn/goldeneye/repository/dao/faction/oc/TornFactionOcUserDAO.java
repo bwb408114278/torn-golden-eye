@@ -2,6 +2,7 @@ package pn.torn.goldeneye.repository.dao.faction.oc;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcUserMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 
@@ -36,5 +37,25 @@ public class TornFactionOcUserDAO extends ServiceImpl<TornFactionOcUserMapper, T
      */
     public List<TornFactionOcUserDO> queryByUserId(long userId) {
         return lambdaQuery().eq(TornFactionOcUserDO::getUserId, userId).list();
+    }
+
+    /**
+     * 通过用户ID查询
+     */
+    public List<TornFactionOcUserDO> queryByUserId(List<Long> userIdList) {
+        if (CollectionUtils.isEmpty(userIdList)) {
+            return List.of();
+        }
+
+        return lambdaQuery().in(TornFactionOcUserDO::getUserId, userIdList).list();
+    }
+
+    /**
+     * 通过帮派ID查询
+     *
+     * @param factionId 帮派ID
+     */
+    public List<TornFactionOcUserDO> queryByFactionId(long factionId) {
+        return lambdaQuery().eq(TornFactionOcUserDO::getFactionId, factionId).list();
     }
 }

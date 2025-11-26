@@ -2,6 +2,7 @@ package pn.torn.goldeneye.msg.strategy.base;
 
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 
 import java.util.List;
 
@@ -22,7 +23,7 @@ public abstract class PnMsgStrategy extends BaseGroupMsgStrategy {
     }
 
     @Override
-    public boolean isNeedAdmin() {
-        return false;
+    public TornFactionRoleTypeEnum getRoleType() {
+        return null;
     }
 }

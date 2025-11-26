@@ -28,7 +28,7 @@
 
             SELECT s.user_id, s.final_income AS benefit_money
             FROM torn_faction_oc_income_summary s
-            WHERE s.deleted = 0 AND s.year_month = #{yearMonth}
+            WHERE s.deleted = 0 AND s.faction_id = #{factionId} AND s.year_month = #{yearMonth}
         ) t
         LEFT JOIN torn_user u ON u.deleted = 0 AND t.user_id = u.id
         GROUP BY t.user_id, u.nickname

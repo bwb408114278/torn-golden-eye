@@ -714,3 +714,51 @@ databaseChangeLog:
               (77, 'Clinical Precision', 8, 'Imitator#1', 75, 79, '23.00', 0, '2025-11-13 06:10:11.811821', '2025-11-13 06:10:11.811821'),
               (78, 'Clinical Precision', 8, 'Imitator#1', 70, 74, '19.50', 0, '2025-11-13 06:10:11.816606', '2025-11-13 06:10:11.816606'),
               (79, 'Clinical Precision', 8, 'Imitator#1', 65, 69, '16.00', 0, '2025-11-13 06:10:11.8189', '2025-11-13 06:10:11.8189');
+
+  - changeSet:
+      id: add_reassign_faction
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_income
+            columns:
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+        - addColumn:
+            tableName: torn_faction_oc_income_summary
+            columns:
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+        - sql:
+            sql: |
+              UPDATE torn_faction_oc_income SET faction_id = 20465;
+              UPDATE torn_faction_oc_income_summary SET faction_id = 20465;
+
+  - changeSet:
+      id: split_faction_admin
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: oc_commander_ids
+                  type: VARCHAR(128)
+                  defaultValue: ""
+                  constraints:
+                    nullable: false
+                  remarks: "OC指挥官ID"
+        - sql:
+            sql: |
+              UPDATE torn_setting_faction SET oc_commander_ids = group_admin_ids;
+              UPDATE torn_setting_faction SET oc_commander_ids = '2246839,676832731' WHERE id = 20465;

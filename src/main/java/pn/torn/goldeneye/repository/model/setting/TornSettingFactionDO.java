@@ -41,6 +41,10 @@ public class TornSettingFactionDO extends BaseDO {
      */
     private String groupAdminIds;
     /**
+     * OC指挥官ID
+     */
+    private String ocCommanderIds;
+    /**
      * 是否屏蔽消息
      */
     private Boolean msgBlock;

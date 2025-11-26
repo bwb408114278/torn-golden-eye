@@ -1,7 +1,10 @@
 package pn.torn.goldeneye.msg.strategy.faction.news;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
@@ -39,17 +42,26 @@ public class FactionItemUsedStrategyImpl extends PnMsgStrategy {
     private final TornSettingFactionManager settingFactionManager;
     private final TornItemsManager itemsManager;
     private final TornFactionItemUsedDAO itemUsedDao;
-    private static final Map<String, String> ITEM_ALAIS_MAP = new LinkedHashMap<>() {{
-        put("小红", "Small First Aid Kit");
-        put("小蓝", "First Aid Kit");
-        put("吗啡", "Morphine");
-        put("吐根", "Ipecac Syrup");
-        put("空血包", "Empty Blood Bag");
-        put("辐射药", "Neumune Tablet");
-        put("Xan", "Xanax");
-        put("xan", "Xanax");
-        put("啤酒", "Bottle of Beer");
-    }};
+    private static final Map<String, String> ITEM_ALAIS_MAP = new LinkedHashMap<>();
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void init() {
+        ITEM_ALAIS_MAP.put("小红", "Small First Aid Kit");
+        ITEM_ALAIS_MAP.put("小蓝", "First Aid Kit");
+        ITEM_ALAIS_MAP.put("吗啡", "Morphine");
+        ITEM_ALAIS_MAP.put("吐根", "Ipecac Syrup");
+        ITEM_ALAIS_MAP.put("空血包", "Empty Blood Bag");
+        ITEM_ALAIS_MAP.put("A+血", "Blood Bag : A+");
+        ITEM_ALAIS_MAP.put("A-血", "Blood Bag : A-");
+        ITEM_ALAIS_MAP.put("B+血", "Blood Bag : B+");
+        ITEM_ALAIS_MAP.put("B-血", "Blood Bag : B-");
+        ITEM_ALAIS_MAP.put("AB+血", "Blood Bag : AB+");
+        ITEM_ALAIS_MAP.put("AB-血", "Blood Bag : AB-");
+        ITEM_ALAIS_MAP.put("O+血", "Blood Bag : O+");
+        ITEM_ALAIS_MAP.put("O-血", "Blood Bag : O-");
+        ITEM_ALAIS_MAP.put("XAN", "Xanax");
+        ITEM_ALAIS_MAP.put("啤酒", "Bottle of Beer");
+    }
 
     @Override
     public String getCommand() {
@@ -64,11 +76,14 @@ public class FactionItemUsedStrategyImpl extends PnMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         if (!StringUtils.hasText(msg)) {
+            StringBuilder builder = new StringBuilder();
+            ITEM_ALAIS_MAP.keySet().forEach(i -> builder.append(", ").append(i));
             return super.buildTextMsg("请输入物品名称或别名, 例如\ng#" + BotCommands.FACTION_ITEM_USED + "#小红" +
-                    "\ng#" + BotCommands.FACTION_ITEM_USED + "#Empty Blood Bag");
+                    "\ng#" + BotCommands.FACTION_ITEM_USED + "#Empty Blood Bag" +
+                    "\n\n支持的别名如下: \n" + builder.toString().replaceFirst(", ", ""));
         }
 
-        String itemName = ITEM_ALAIS_MAP.get(msg);
+        String itemName = ITEM_ALAIS_MAP.get(msg.toUpperCase());
         if (!StringUtils.hasText(itemName)) {
             TornItemsDO item = itemsManager.getNameMap().get(msg);
             itemName = item == null ? "" : item.getItemName();
@@ -82,6 +97,10 @@ public class FactionItemUsedStrategyImpl extends PnMsgStrategy {
         LocalDateTime toDate = LocalDate.now().atTime(7, 59, 59);
         LocalDateTime fromDate = toDate.minusDays(30).plusSeconds(1);
         List<ItemUseRankingDO> rankingList = itemUsedDao.queryItemUseRanking(factionId, itemName, fromDate, toDate);
+        if (CollectionUtils.isEmpty(rankingList)) {
+            return super.buildTextMsg("未找到物品使用记录");
+        }
+
         long totalCount = itemUsedDao.lambdaQuery()
                 .eq(TornFactionItemUsedDO::getFactionId, factionId)
                 .eq(TornFactionItemUsedDO::getItemName, itemName)

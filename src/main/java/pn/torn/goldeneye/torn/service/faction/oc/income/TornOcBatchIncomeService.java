@@ -31,10 +31,10 @@ public class TornOcBatchIncomeService {
      * 供定时任务调用
      */
     @Transactional(rollbackFor = Exception.class)
-    public void batchCalculateIncome() {
+    public void batchCalculateIncome(long factionId) {
         // 1. 查询所有已完成但未计算收益的OC
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getFactionId, TornConstants.FACTION_PN_ID)
+                .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
                 .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
                 .isNotNull(TornFactionOcDO::getExecutedTime)

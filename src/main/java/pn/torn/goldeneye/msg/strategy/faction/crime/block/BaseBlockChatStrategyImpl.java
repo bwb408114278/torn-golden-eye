@@ -3,6 +3,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime.block;
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
+import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
@@ -28,6 +29,11 @@ public abstract class BaseBlockChatStrategyImpl extends BaseGroupMsgStrategy {
     private TornSettingFactionDAO factionDao;
     @Resource
     private Bot bot;
+
+    @Override
+    public TornFactionRoleTypeEnum getRoleType() {
+        return TornFactionRoleTypeEnum.LEADER;
+    }
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {

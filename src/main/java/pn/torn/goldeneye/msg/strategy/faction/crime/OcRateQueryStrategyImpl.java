@@ -11,7 +11,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.utils.TableImageUtils;

@@ -18,7 +18,7 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserBsSnapshotDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.user.TornUserBsSnapshotDO;
-import pn.torn.goldeneye.torn.manager.faction.oc.TornFactionOcUserManager;
+import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcUserManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;

@@ -45,8 +45,10 @@ public class DocStrategyImpl extends SmthMsgStrategy {
         List<BaseGroupMsgStrategy> groupStrategyList = applicationContext
                 .getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
-                .filter(s -> !(s instanceof DocStrategyImpl))
+                .filter(s -> !(s instanceof DocStrategyImpl) &&
+                        !(s instanceof ManageDocStrategyImpl) && !s.isNeedSa())
                 .filter(s -> s.getCustomGroupId().isEmpty() || s.getCustomGroupId().contains(groupId))
+                .filter(strategy -> strategy.getRoleType() == null)
                 .toList();
 
         StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
@@ -54,10 +56,7 @@ public class DocStrategyImpl extends SmthMsgStrategy {
             appendCommandDesc(strategy, helpText);
         }
 
-        groupStrategyList.stream()
-                .filter(strategy -> !strategy.isNeedAdmin())
-                .forEach(strategy -> appendCommandDesc(strategy, helpText));
-
+        groupStrategyList.forEach(strategy -> appendCommandDesc(strategy, helpText));
         return buildTextMsg(helpText.toString());
     }
 

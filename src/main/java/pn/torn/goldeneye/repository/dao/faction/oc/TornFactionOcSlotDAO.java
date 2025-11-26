@@ -23,6 +23,13 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
     /**
      * 通过OC ID列表查询列表
      */
+    public List<TornFactionOcSlotDO> queryListByOc(long ocId) {
+        return lambdaQuery().eq(TornFactionOcSlotDO::getOcId, ocId).list();
+    }
+
+    /**
+     * 通过OC ID列表查询列表
+     */
     public List<TornFactionOcSlotDO> queryListByOc(Collection<TornFactionOcDO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
             return List.of();
@@ -49,16 +56,6 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
         return lambdaQuery()
                 .in(TornFactionOcSlotDO::getOcId, ocIdList)
                 .isNull(TornFactionOcSlotDO::getUserId)
-                .list();
-    }
-
-    /**
-     * 查询有人的岗位列表
-     */
-    public List<TornFactionOcSlotDO> queryWorkingSlotList(List<Long> ocIdList) {
-        return lambdaQuery()
-                .isNotNull(TornFactionOcSlotDO::getUserId)
-                .in(TornFactionOcSlotDO::getOcId, ocIdList)
                 .list();
     }
 }

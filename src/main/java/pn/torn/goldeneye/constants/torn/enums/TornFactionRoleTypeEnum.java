@@ -4,27 +4,23 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
- * 物品类型枚举
+ * 帮派新闻类型枚举
  *
  * @author Bai
- * @version 0.3.0
- * @since 2025.11.20
+ * @version 0.1.0
+ * @since 2025.08.07
  */
 @AllArgsConstructor
 @Getter
-public enum TornItemTypeEnum {
+public enum TornFactionRoleTypeEnum {
     /**
-     * 饮料
+     * 帮主
      */
-    ENERGY_DRINK("Energy Drink"),
+    LEADER("leader"),
     /**
-     * 酒
+     * OC指挥官
      */
-    ALCOHOL("Alcohol"),
-    /**
-     * 糖
-     */
-    CANDY("Candy");
+    OC_COMMANDER("oc_commander");
 
     private final String code;
 }
