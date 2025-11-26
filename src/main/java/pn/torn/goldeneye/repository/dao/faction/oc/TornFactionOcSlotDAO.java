@@ -7,6 +7,7 @@ import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcSlotMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -49,16 +50,6 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
         return lambdaQuery()
                 .in(TornFactionOcSlotDO::getOcId, ocIdList)
                 .isNull(TornFactionOcSlotDO::getUserId)
-                .list();
-    }
-
-    /**
-     * 查询有人的岗位列表
-     */
-    public List<TornFactionOcSlotDO> queryWorkingSlotList(List<Long> ocIdList) {
-        return lambdaQuery()
-                .isNotNull(TornFactionOcSlotDO::getUserId)
-                .in(TornFactionOcSlotDO::getOcId, ocIdList)
                 .list();
     }
 }

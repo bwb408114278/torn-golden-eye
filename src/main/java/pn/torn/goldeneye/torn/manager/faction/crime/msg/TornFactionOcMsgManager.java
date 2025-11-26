@@ -102,7 +102,8 @@ public class TornFactionOcMsgManager {
             // 标题一行，加上每个分隔行
             int startIndex = 1 + i * 2 + 1;
             List<String> positionRow = tableData.getTableData().get(i + startIndex);
-            int column = positionRow.indexOf(recommendList.get(i).recommend().getRecommendedPosition());
+            int column = positionRow.indexOf(recommendList.get(i).recommend()
+                    .getRecommendedPosition().replace(" ", ""));
             if (column < 0) {
                 continue;
             }

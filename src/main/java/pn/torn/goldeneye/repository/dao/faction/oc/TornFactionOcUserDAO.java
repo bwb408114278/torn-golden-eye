@@ -37,4 +37,13 @@ public class TornFactionOcUserDAO extends ServiceImpl<TornFactionOcUserMapper, T
     public List<TornFactionOcUserDO> queryByUserId(long userId) {
         return lambdaQuery().eq(TornFactionOcUserDO::getUserId, userId).list();
     }
+
+    /**
+     * 通过帮派ID查询
+     *
+     * @param factionId 帮派ID
+     */
+    public List<TornFactionOcUserDO> queryByFactionId(long factionId) {
+        return lambdaQuery().eq(TornFactionOcUserDO::getFactionId, factionId).list();
+    }
 }

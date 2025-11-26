@@ -95,24 +95,20 @@ public class TornOcRecommendManager {
      */
     private BigDecimal calcReassignRecommendScore(TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
                                                   TornFactionOcUserDO userPassRate) {
-        // 1. 停转时间评分（权重80%）
+        // 1. 停转时间评分
         BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
-        // 2. 成功率评分 - 归一化处理，限制在0-100范围内
+        // 2. 岗位评分, 根据系数、成功率和岗位权重
         BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
                 slotSetting.getSlotCode(), userPassRate.getPassRate());
+        BigDecimal passRateScore = calcPassRateScore(slotSetting, userPassRate);
+        BigDecimal priorityScore = calcPriorityScore(slotSetting);
+        BigDecimal positionScore = coefficient.multiply(BigDecimal.valueOf(4))
+                .add(passRateScore.multiply(priorityScore).multiply(BigDecimal.valueOf(0.1)))
+                .add(BigDecimal.valueOf(oc.getRank()));
 
-        // 计算原始成功率评分：成功率 × 系数/25（归一化到100分制）
-        BigDecimal passRateScore = BigDecimal.valueOf(userPassRate.getPassRate())
-                .multiply(coefficient)
-                .divide(BigDecimal.valueOf(25), 2, RoundingMode.HALF_UP)
-                .min(BigDecimal.valueOf(100));
-
-        // 3. 难度奖励
-        BigDecimal difficultyBonus = BigDecimal.valueOf(oc.getRank().equals(8) ? 100 : 0);
-        // 4. 加权计算：时间80% + 成功率15% + 难度奖励5%
-        return timeScore.multiply(BigDecimal.valueOf(0.80))
-                .add(passRateScore.multiply(BigDecimal.valueOf(0.15)))
-                .add(difficultyBonus.multiply(BigDecimal.valueOf(0.05)))
+        // 3. 加权计算：时间80% + 成功率20%
+        return timeScore.multiply(BigDecimal.valueOf(0.8))
+                .add(positionScore.multiply(BigDecimal.valueOf(0.2)))
                 .setScale(2, RoundingMode.HALF_UP);
     }
 

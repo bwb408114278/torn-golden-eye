@@ -44,20 +44,21 @@ public class TornOcAssignService {
      * @return Key为用户ID, Value为对应推荐OC和岗位
      */
     public Map<TornUserDO, OcRecommendationVO> assignUserList(long factionId) {
-        // 1. 查询所有正在参与OC的用户ID
-        List<Long> ocIdList = ocDao.queryExecutingOc(factionId).stream().map(TornFactionOcDO::getId).toList();
-        List<Long> busyUserIds = ocSlotDao.queryWorkingSlotList(ocIdList).stream()
-                .map(TornFactionOcSlotDO::getUserId)
-                .distinct().toList();
+        // 1. 查询所有正在参与OC的岗位
+        List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(factionId);
+        List<TornFactionOcSlotDO> slotList = ocSlotDao.queryListByOc(ocList);
 
-        // 2. 查询所有帮派成员的OC能力数据
-        List<TornFactionOcUserDO> allUsers = ocUserDao.lambdaQuery()
-                .eq(TornFactionOcUserDO::getFactionId, factionId)
-                .list();
+        // 2. 如果2天内不能开始准备的, 视为空转, 不算忙碌人员
+        List<TornFactionOcSlotDO> waitSlotList = new ArrayList<>();
+        List<Long> busyUserIdList = new ArrayList<>();
+        for (TornFactionOcDO oc : ocList) {
+            fillBusyAndWaitMember(oc, slotList, busyUserIdList, waitSlotList);
+        }
 
-        // 3. 筛选空闲用户
+        // 3. 筛选帮派空闲用户
+        List<TornFactionOcUserDO> allUsers = ocUserDao.queryByFactionId(factionId);
         Map<Long, List<TornFactionOcUserDO>> idleUsersMap = allUsers.stream()
-                .filter(user -> !busyUserIds.contains(user.getUserId()))
+                .filter(user -> !busyUserIdList.contains(user.getUserId()))
                 .collect(Collectors.groupingBy(TornFactionOcUserDO::getUserId));
         if (CollectionUtils.isEmpty(idleUsersMap)) {
             return Map.of();
@@ -65,10 +66,22 @@ public class TornOcAssignService {
 
         // 4. 组装参数
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(idleUsersMap.keySet());
-        Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = HashMap.newHashMap(idleUsersMap.size());
+        Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = new TreeMap<>(Comparator.comparing(TornUserDO::getId));
         idleUsersMap.forEach((k, v) -> paramMap.put(userMap.get(k), v));
 
-        return assignUserList(factionId, paramMap);
+        // 5. 获取推荐结果, 如果已经加入的坑位已经是最佳选择, 从推荐列表里去掉
+        Map<TornUserDO, OcRecommendationVO> recommendMap = assignUserList(factionId, paramMap);
+        for (TornFactionOcSlotDO slot : waitSlotList) {
+            TornUserDO user = userMap.get(slot.getUserId());
+            OcRecommendationVO recommend = recommendMap.get(user);
+            if (recommend != null &&
+                    recommend.getOcId().equals(slot.getOcId()) &&
+                    recommend.getRecommendedPosition().equals(slot.getPosition())) {
+                recommendMap.remove(user);
+            }
+        }
+
+        return recommendMap;
     }
 
     /**
@@ -86,8 +99,8 @@ public class TornOcAssignService {
             return Map.of();
         }
 
-        // 2. 构建岗位候选池（带权重信息）
-        List<OcSlotWithPriority> vacantSlots = buildVacantSlotList(urgentOcs);
+        // 2. 构建岗位候选池
+        TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots = buildVacantSlotMap(urgentOcs);
         if (vacantSlots.isEmpty()) {
             return Map.of();
         }
@@ -97,112 +110,124 @@ public class TornOcAssignService {
     }
 
     /**
+     * 填充忙碌人员和空转人员
+     */
+    private void fillBusyAndWaitMember(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
+                                       List<Long> busyUserIds, List<TornFactionOcSlotDO> waitSlotList) {
+        if (oc.getReadyTime() == null) {
+            return;
+        }
+
+        List<TornFactionOcSlotDO> currentSlotList = slotList.stream()
+                .filter(s -> s.getOcId().equals(oc.getId())).toList();
+        if (oc.getReadyTime().isBefore(LocalDateTime.now().plusDays(2))) {
+            busyUserIds.addAll(currentSlotList.stream().map(TornFactionOcSlotDO::getUserId).toList());
+            return;
+        }
+
+        for (TornFactionOcSlotDO slot : currentSlotList) {
+            if (BigDecimal.ZERO.compareTo(slot.getProgress()) < 0) {
+                busyUserIds.add(slot.getUserId());
+            } else if (slot.getUserId() != null) {
+                waitSlotList.add(slot);
+            }
+        }
+    }
+
+    /**
      * 构建空闲岗位列表
      */
-    private List<OcSlotWithPriority> buildVacantSlotList(List<TornFactionOcDO> urgentOcList) {
+    private TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> buildVacantSlotMap(List<TornFactionOcDO> urgentOcList) {
         List<Long> urgentOcIdList = urgentOcList.stream().map(TornFactionOcDO::getId).toList();
         List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(urgentOcIdList);
 
-        List<OcSlotWithPriority> vacantSlots = new ArrayList<>();
+        TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> resultMap = new TreeMap<>(
+                (o1, o2) -> o2.getReadyTime().compareTo(o1.getReadyTime()));
         for (TornFactionOcDO oc : urgentOcList) {
             List<TornFactionOcSlotDO> slots = emptySlotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId()))
                     .toList();
-
-            for (TornFactionOcSlotDO slot : slots) {
-                TornSettingOcSlotDO slotSetting = ocRecommendManager.findSlotSetting(oc, slot);
-                if (slotSetting != null) {
-                    vacantSlots.add(new OcSlotWithPriority(oc, slot, slotSetting));
-                }
-            }
+            resultMap.put(oc, slots);
         }
 
-        return vacantSlots;
+        return resultMap;
     }
 
     /**
      * 全局分配算法：先保证不停转，再保证人选合适
      */
-    private Map<TornUserDO, OcRecommendationVO> allocateGlobally(List<OcSlotWithPriority> vacantSlots,
-                                                                 Map<TornUserDO, List<TornFactionOcUserDO>> userOcMap) {
+    private Map<TornUserDO, OcRecommendationVO> allocateGlobally(
+            TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots,
+            Map<TornUserDO, List<TornFactionOcUserDO>> userOcMap) {
         Map<TornUserDO, OcRecommendationVO> result = new HashMap<>();
-        Set<Long> allocatedUsers = new HashSet<>();
-        Set<String> allocatedSlots = new HashSet<>(); // 使用 ocId + slotId 作为key
+        Set<Long> allocatedSlot = new HashSet<>();
+        Map<Long, LocalDateTime> ocReadyMap = HashMap.newHashMap(vacantSlots.size());
 
-        // 按OC停转时间排序（越早停转越优先）
-        List<OcSlotWithPriority> sortedSlots = vacantSlots.stream()
-                .sorted(Comparator
-                        .comparing((OcSlotWithPriority s) -> s.oc().getReadyTime() != null ?
-                                s.oc().getReadyTime() : LocalDateTime.MAX)
-                        .thenComparing((OcSlotWithPriority s) -> s.setting().getPriority(),
-                                Comparator.reverseOrder()))
-                .toList();
-
-        // 为每个岗位分配最合适的用户
-        for (OcSlotWithPriority slotInfo : sortedSlots) {
-            String slotKey = slotInfo.oc().getId() + "_" + slotInfo.slot().getId();
-            List<UserMatchScore> candidates = findCandidatesForSlot(slotInfo, userOcMap, allocatedUsers);
-            if (allocatedSlots.contains(slotKey) || candidates.isEmpty()) {
+        for (Map.Entry<TornUserDO, List<TornFactionOcUserDO>> entry : userOcMap.entrySet()) {
+            List<UserMatchScore> candidates = findCandidatesForUser(entry.getKey(), entry.getValue(),
+                    vacantSlots, allocatedSlot);
+            if (candidates.isEmpty()) {
                 continue;
             }
 
-            // 选择最佳候选人（成功率最高）
             UserMatchScore bestMatch = candidates.stream()
-                    .max(Comparator.comparing(UserMatchScore::passRate)
-                            .thenComparing(UserMatchScore::score))
+                    .max(Comparator.comparing(UserMatchScore::score))
                     .orElse(null);
+            // 加入过的人要推迟24小时计算, 同时记录状态, 计算完成后恢复原准备时间
+            if (!ocReadyMap.containsKey(bestMatch.oc().getId())) {
+                ocReadyMap.put(bestMatch.oc().getId(), bestMatch.oc().getReadyTime());
+            }
 
-            // 分配该岗位
-            BigDecimal score = ocRecommendManager.calcRecommendScore(
-                    bestMatch.user(), bestMatch.userOcData(), slotInfo.oc(), slotInfo.setting(), bestMatch.matchData());
-            String reason = ocRecommendManager.buildRecommendReason(slotInfo.oc(), bestMatch.matchData().getPassRate());
+            LocalDateTime originTime = ocReadyMap.get(bestMatch.oc().getId());
+            LocalDateTime afterJoinTime = (bestMatch.oc().getReadyTime() == null ||
+                    bestMatch.oc().getReadyTime().isBefore(LocalDateTime.now()) ?
+                    LocalDateTime.now() : bestMatch.oc().getReadyTime()).plusDays(1);
+            bestMatch.oc().setReadyTime(originTime);
 
-            result.put(bestMatch.user(), new OcRecommendationVO(slotInfo.oc(), slotInfo.slot(), score, reason));
+            BigDecimal score = bestMatch.score();
+            String reason = ocRecommendManager.buildRecommendReason(bestMatch.oc(), bestMatch.matchData().getPassRate());
+            result.put(bestMatch.user(), new OcRecommendationVO(bestMatch.oc(), bestMatch.slot(), score, reason));
 
-            allocatedUsers.add(bestMatch.user().getId());
-            allocatedSlots.add(slotKey);
+            allocatedSlot.add(bestMatch.slot().getId());
+            bestMatch.oc().setReadyTime(afterJoinTime);
         }
 
-        log.info("为{}个空闲用户生成了推荐，共分配{}个岗位", result.size(), allocatedSlots.size());
+        for (TornFactionOcDO oc : vacantSlots.keySet()) {
+            if (ocReadyMap.containsKey(oc.getId())) {
+                oc.setReadyTime(ocReadyMap.get(oc.getId()));
+            }
+        }
+
         return result;
     }
 
     /**
-     * 为指定岗位找到所有合格的候选用户
+     * 为指定用户找到所有合格的候选岗位
      */
-    private List<UserMatchScore> findCandidatesForSlot(OcSlotWithPriority slotInfo,
-                                                       Map<TornUserDO, List<TornFactionOcUserDO>> idleUsersMap,
-                                                       Set<Long> allocatedUsers) {
+    private List<UserMatchScore> findCandidatesForUser(TornUserDO user, List<TornFactionOcUserDO> userOcData,
+                                                       Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
+                                                       Set<Long> allocatedPosition) {
         List<UserMatchScore> candidates = new ArrayList<>();
-        for (Map.Entry<TornUserDO, List<TornFactionOcUserDO>> entry : idleUsersMap.entrySet()) {
-            TornUserDO user = entry.getKey();
-            List<TornFactionOcUserDO> userOcData = entry.getValue();
-            TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(
-                    userOcData, slotInfo.oc(), slotInfo.setting());
+        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
+            TornFactionOcDO oc = entry.getKey();
+            for (TornFactionOcSlotDO slot : entry.getValue()) {
+                TornSettingOcSlotDO setting = ocRecommendManager.findSlotSetting(oc, slot);
+                TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, setting);
 
-            // 跳过已分配的用户, 检查是否满足最低成功率要求
-            if (allocatedUsers.contains(user.getId()) ||
-                    matchedData == null ||
-                    matchedData.getPassRate() < slotInfo.setting().getPassRate()) {
-                continue;
+                // 跳过已分配的岗位, 检查是否满足最低成功率要求
+                if (allocatedPosition.contains(slot.getId()) ||
+                        matchedData == null ||
+                        matchedData.getPassRate() < setting.getPassRate()) {
+                    continue;
+                }
+
+                // 计算综合评分
+                BigDecimal score = ocRecommendManager.calcRecommendScore(user, userOcData, oc, setting, matchedData);
+                candidates.add(new UserMatchScore(user, userOcData, matchedData, oc, slot, score));
             }
-
-            // 计算综合评分
-            BigDecimal score = ocRecommendManager.calcRecommendScore(
-                    user, entry.getValue(), slotInfo.oc(), slotInfo.setting(), matchedData);
-            candidates.add(new UserMatchScore(user, entry.getValue(), matchedData, score, matchedData.getPassRate()));
         }
 
         return candidates;
-    }
-
-    /**
-     * 岗位信息
-     */
-    private record OcSlotWithPriority(
-            TornFactionOcDO oc,
-            TornFactionOcSlotDO slot,
-            TornSettingOcSlotDO setting) {
     }
 
     /**
@@ -212,7 +237,8 @@ public class TornOcAssignService {
             TornUserDO user,
             List<TornFactionOcUserDO> userOcData,
             TornFactionOcUserDO matchData,
-            BigDecimal score,
-            int passRate) {
+            TornFactionOcDO oc,
+            TornFactionOcSlotDO slot,
+            BigDecimal score) {
     }
 }
