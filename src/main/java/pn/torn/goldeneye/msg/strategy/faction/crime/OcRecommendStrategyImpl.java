@@ -15,11 +15,11 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
-import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
 import java.math.BigDecimal;
@@ -35,7 +35,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class OcRecommendStrategyImpl extends PnMsgStrategy {
-    private final TornFactionOcService ocService;
+    private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornOcRecommendService recommendService;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
@@ -59,7 +59,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornUserDO user = super.getTornUser(sender, "");
-        ocService.refreshOc(1, user.getFactionId());
+        ocRefreshManager.refreshOc(1, user.getFactionId());
 
         OcSlotDictBO ocSlotDict = getJoinedOc(user);
         if (ocSlotDict != null && BigDecimal.ZERO.compareTo(ocSlotDict.getSlot().getProgress()) < 0) {

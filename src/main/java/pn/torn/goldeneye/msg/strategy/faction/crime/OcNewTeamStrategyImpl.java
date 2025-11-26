@@ -8,7 +8,7 @@ import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.PnManageMsgStrategy;
-import pn.torn.goldeneye.torn.service.faction.oc.TornFactionOcService;
+import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.service.faction.oc.create.TornOcManageService;
 
 import java.util.List;
@@ -23,7 +23,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
-    private final TornFactionOcService ocService;
+    private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornOcManageService ocManageService;
 
     @Override
@@ -43,7 +43,7 @@ public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        ocService.refreshOc(1, TornConstants.FACTION_PN_ID);
+        ocRefreshManager.refreshOc(1, TornConstants.FACTION_PN_ID);
 
         TornOcManageService.Recommendation analyze = ocManageService.analyze();
         return super.buildTextMsg(analyze.getSummary());

@@ -7,7 +7,6 @@ import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcSlotMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
-import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -21,6 +20,13 @@ import java.util.stream.Collectors;
  */
 @Repository
 public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, TornFactionOcSlotDO> {
+    /**
+     * 通过OC ID列表查询列表
+     */
+    public List<TornFactionOcSlotDO> queryListByOc(long ocId) {
+        return lambdaQuery().eq(TornFactionOcSlotDO::getOcId, ocId).list();
+    }
+
     /**
      * 通过OC ID列表查询列表
      */

@@ -76,6 +76,12 @@ public class TornSettingFactionManager implements DataCacheManager {
             resultMap.put(faction.getId(), faction);
         }
 
+        // 开发环境专供
+        TornSettingFactionDO pn = resultMap.get(TornConstants.FACTION_PN_ID);
+        if (!pn.getGroupId().equals(projectProperty.getGroupId())) {
+            pn.setGroupId(projectProperty.getGroupId());
+        }
+
         return resultMap;
     }
 
