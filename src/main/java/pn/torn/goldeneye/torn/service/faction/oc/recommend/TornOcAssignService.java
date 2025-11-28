@@ -48,12 +48,8 @@ public class TornOcAssignService {
         List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(factionId);
         List<TornFactionOcSlotDO> slotList = ocSlotDao.queryListByOc(ocList);
 
-        // 2. 如果2天内不能开始准备的, 视为空转, 不算忙碌人员
-        List<TornFactionOcSlotDO> waitSlotList = new ArrayList<>();
-        List<Long> busyUserIdList = new ArrayList<>();
-        for (TornFactionOcDO oc : ocList) {
-            fillBusyAndWaitMember(oc, slotList, busyUserIdList, waitSlotList);
-        }
+        // 2. 筛选已入队的人, 不再调整
+        List<Long> busyUserIdList = fillBusyAndWaitMember(slotList);
 
         // 3. 筛选帮派空闲用户
         List<TornFactionOcUserDO> allUsers = ocUserDao.queryByFactionId(factionId);
@@ -69,19 +65,8 @@ public class TornOcAssignService {
         Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = new TreeMap<>(Comparator.comparing(TornUserDO::getId));
         idleUsersMap.forEach((k, v) -> paramMap.put(userMap.get(k), v));
 
-        // 5. 获取推荐结果, 如果已经加入的坑位已经是最佳选择, 从推荐列表里去掉
-        Map<TornUserDO, OcRecommendationVO> recommendMap = assignUserList(factionId, paramMap);
-        for (TornFactionOcSlotDO slot : waitSlotList) {
-            TornUserDO user = userMap.get(slot.getUserId());
-            OcRecommendationVO recommend = recommendMap.get(user);
-            if (recommend != null &&
-                    recommend.getOcId().equals(slot.getOcId()) &&
-                    recommend.getRecommendedPosition().equals(slot.getPosition())) {
-                recommendMap.remove(user);
-            }
-        }
-
-        return recommendMap;
+        // 5. 获取推荐结果
+        return assignUserList(factionId, paramMap);
     }
 
     /**
@@ -112,26 +97,14 @@ public class TornOcAssignService {
     /**
      * 填充忙碌人员和空转人员
      */
-    private void fillBusyAndWaitMember(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
-                                       List<Long> busyUserIds, List<TornFactionOcSlotDO> waitSlotList) {
-        if (oc.getReadyTime() == null) {
-            return;
-        }
-
-        List<TornFactionOcSlotDO> currentSlotList = slotList.stream()
-                .filter(s -> s.getOcId().equals(oc.getId())).toList();
-        if (oc.getReadyTime().isBefore(LocalDateTime.now().plusDays(2))) {
-            busyUserIds.addAll(currentSlotList.stream().map(TornFactionOcSlotDO::getUserId).toList());
-            return;
-        }
-
-        for (TornFactionOcSlotDO slot : currentSlotList) {
-            if (BigDecimal.ZERO.compareTo(slot.getProgress()) < 0) {
-                busyUserIds.add(slot.getUserId());
-            } else if (slot.getUserId() != null) {
-                waitSlotList.add(slot);
+    private List<Long> fillBusyAndWaitMember(List<TornFactionOcSlotDO> slotList) {
+        List<Long> busyUserIdList = new ArrayList<>();
+        for (TornFactionOcSlotDO slot : slotList) {
+            if (slot.getUserId() != null) {
+                busyUserIdList.add(slot.getUserId());
             }
         }
+        return busyUserIdList;
     }
 
     /**
@@ -167,6 +140,7 @@ public class TornOcAssignService {
             List<UserMatchScore> candidates = findCandidatesForUser(entry.getKey(), entry.getValue(),
                     vacantSlots, allocatedSlot);
             if (candidates.isEmpty()) {
+                result.put(entry.getKey(), null);
                 continue;
             }
 

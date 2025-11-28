@@ -43,7 +43,9 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_HP_ID);
+        return List.of(projectProperty.getGroupId(),
+                BotConstants.GROUP_HP_ID,
+                BotConstants.GROUP_CCRC_ID);
     }
 
     @Override

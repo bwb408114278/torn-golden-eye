@@ -113,10 +113,14 @@ public class TornOcCompleteNoticeService {
         List<QqMsgParam<?>> msgList = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
         msgList.add(new TextQqMsg("\n即将有OC结束, 请注意是否需要生成新的OC\n\n"));
         msgList.addAll(msgManager.buildAtMsg(userIdList, faction.getGroupId()));
-        msgList.add(new TextQqMsg("\nOC还有3分钟结束, 推荐按以下岗位加入\n"));
 
-        String title = faction.getFactionShortName() + " OC队伍分配建议";
-        msgList.add(new ImageQqMsg(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
+        if (!CollectionUtils.isEmpty(recommendMap)) {
+            msgList.add(new TextQqMsg("\nOC还有3分钟结束, 推荐按以下岗位加入\n没有及时加入记得用g#OC推荐~\n"));
+            String title = faction.getFactionShortName() + " OC队伍分配建议";
+            msgList.add(new ImageQqMsg(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
+        } else {
+            msgList.add(new TextQqMsg("暂未适合加入的OC, 联系OC指挥官生成"));
+        }
 
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(faction.getGroupId())

@@ -22,4 +22,8 @@ public class BotConstants {
      * HP群号
      */
     public static final long GROUP_HP_ID = 1065981525L;
+    /**
+     * CCRC群号
+     */
+    public static final long GROUP_CCRC_ID = 966670136L;
 }
