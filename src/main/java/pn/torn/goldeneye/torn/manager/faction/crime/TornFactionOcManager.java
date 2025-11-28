@@ -199,6 +199,7 @@ public class TornFactionOcManager {
                 .set(TornFactionOcDO::getRewardMoney, oc.getRewardMoney())
                 .set(TornFactionOcDO::getRewardItems, oc.getRewardItems())
                 .set(TornFactionOcDO::getRewardItemsValue, oc.getRewardItemsValue(itemMap))
+                .set(TornFactionOcDO::getHasNoticed, true)
                 .eq(TornFactionOcDO::getId, oc.getId())
                 .update();
 

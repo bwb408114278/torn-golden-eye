@@ -52,6 +52,8 @@ public class TornOcCompleteNoticeService {
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
     private final TornUserDAO userDao;
+    // 时间窗口: 3分钟内完成的OC合并通知
+    private static final int TIME_WINDOW_MINUTES = 3;
 
     public void init() {
         for (long factionId : TornConstants.REASSIGN_OC_FACTION) {
@@ -59,43 +61,51 @@ public class TornOcCompleteNoticeService {
             if (!faction.getId().equals(TornConstants.FACTION_PN_ID) || faction.getGroupId().equals(0L)) {
                 continue;
             }
-
-            scheduleOcTask(faction, 0L);
+            scheduleOcTask(faction);
         }
     }
 
     /**
      * 定时更新OC任务
      */
-    private void scheduleOcTask(TornSettingFactionDO faction, long execOcId) {
+    private void scheduleOcTask(TornSettingFactionDO faction) {
         List<TornFactionOcDO> planningList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, faction.getId())
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.PLANNING.getCode())
-                .ne(execOcId != 0L, TornFactionOcDO::getId, execOcId)
+                .eq(TornFactionOcDO::getHasNoticed, false)
                 .orderByAsc(TornFactionOcDO::getReadyTime)
                 .list();
+
         if (CollectionUtils.isEmpty(planningList)) {
             taskService.updateTask(faction.getFactionShortName() + "-oc-complete",
-                    () -> noticeCompleteUser(faction, 0L), LocalDateTime.now().plusHours(1));
+                    () -> noticeCompleteUsers(faction, List.of()), LocalDateTime.now().plusHours(1));
         } else {
-            TornFactionOcDO oc = planningList.getFirst();
+            TornFactionOcDO firstOc = planningList.getFirst();
+            LocalDateTime noticeTime = firstOc.getReadyTime().minusMinutes(3);
+
+            LocalDateTime windowEnd = firstOc.getReadyTime().plusMinutes(TIME_WINDOW_MINUTES);
+            List<TornFactionOcDO> ocList = planningList.stream()
+                    .filter(oc -> !oc.getReadyTime().isAfter(windowEnd))
+                    .toList();
             taskService.updateTask(faction.getFactionShortName() + "-oc-complete",
-                    () -> noticeCompleteUser(faction, oc.getId()), oc.getReadyTime().minusMinutes(3));
+                    () -> noticeCompleteUsers(faction, ocList), noticeTime);
         }
     }
 
     /**
-     * 通知完成的用户
+     * 批量通知完成的用户
+     *
+     * @param ocList 即将完成的OC列表（时间窗口内的所有OC）
      */
-    private void noticeCompleteUser(TornSettingFactionDO faction, long ocId) {
-        if (ocId == 0L) {
-            scheduleOcTask(faction, 0L);
+    private void noticeCompleteUsers(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
+        if (CollectionUtils.isEmpty(ocList)) {
+            scheduleOcTask(faction);
             return;
         }
 
-        // 1. 刷新现有数据, 查询OC马上要释放的用户
+        // 1. 刷新现有数据, 查询所有即将释放的用户
         ocRefreshManager.refreshOc(1, faction.getId());
-        List<TornFactionOcSlotDO> slotList = ocSlotDao.queryListByOc(ocId);
+        List<TornFactionOcSlotDO> slotList = ocSlotDao.queryListByOc(ocList);
 
         // 2. 查询这些用户的成功率数据
         List<Long> userIdList = slotList.stream().map(TornFactionOcSlotDO::getUserId).toList();
@@ -111,15 +121,17 @@ public class TornOcCompleteNoticeService {
         // 4. 获取推荐结果并发送消息
         Map<TornUserDO, OcRecommendationVO> recommendMap = assignService.assignUserList(faction.getId(), paramMap);
         List<QqMsgParam<?>> msgList = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
-        msgList.add(new TextQqMsg("\n即将有OC结束, 请注意是否需要生成新的OC\n\n"));
+
+        String ocCountText = String.format("即将有%d个OC结束", ocList.size());
+        msgList.add(new TextQqMsg("\n" + ocCountText + ", 请注意是否需要生成新的OC\n\n"));
         msgList.addAll(msgManager.buildAtMsg(userIdList, faction.getGroupId()));
 
-        if (!CollectionUtils.isEmpty(recommendMap)) {
+        if (CollectionUtils.isEmpty(recommendMap) || recommendMap.values().stream().noneMatch(Objects::nonNull)) {
+            msgList.add(new TextQqMsg("暂未适合加入的OC, 联系OC指挥官生成"));
+        } else {
             msgList.add(new TextQqMsg("\nOC还有3分钟结束, 推荐按以下岗位加入\n没有及时加入记得用g#OC推荐~\n"));
             String title = faction.getFactionShortName() + " OC队伍分配建议";
             msgList.add(new ImageQqMsg(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
-        } else {
-            msgList.add(new TextQqMsg("暂未适合加入的OC, 联系OC指挥官生成"));
         }
 
         BotHttpReqParam param = new GroupMsgHttpBuilder()
@@ -127,7 +139,11 @@ public class TornOcCompleteNoticeService {
                 .addMsg(msgList)
                 .build();
         bot.sendRequest(param, String.class);
-        scheduleOcTask(faction, ocId);
+
+        // 4. 调度下一批任务, 排除已处理的OC
+        Set<Long> ocIdSet = ocList.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
+        ocDao.lambdaUpdate().set(TornFactionOcDO::getHasNoticed, true).in(TornFactionOcDO::getId, ocIdSet).update();
+        scheduleOcTask(faction);
     }
 
     /**

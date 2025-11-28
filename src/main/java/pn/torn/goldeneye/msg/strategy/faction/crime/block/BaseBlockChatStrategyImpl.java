@@ -32,7 +32,7 @@ public abstract class BaseBlockChatStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public TornFactionRoleTypeEnum getRoleType() {
-        return TornFactionRoleTypeEnum.LEADER;
+        return TornFactionRoleTypeEnum.OC_COMMANDER;
     }
 
     @Override

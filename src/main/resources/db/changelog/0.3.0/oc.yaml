@@ -762,3 +762,21 @@ databaseChangeLog:
             sql: |
               UPDATE torn_setting_faction SET oc_commander_ids = group_admin_ids;
               UPDATE torn_setting_faction SET oc_commander_ids = '2246839,676832731' WHERE id = 20465;
+
+  - changeSet:
+      id: add_oc_complete_notice
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: has_noticed
+                  type: BOOL
+                  defaultValue: "f"
+                  constraints:
+                    nullable: false
+                  remarks: "是否已通知"
+        - sql:
+            sql: |
+              UPDATE torn_faction_oc SET has_noticed = true WHERE status IN ('Successful', 'Failure');

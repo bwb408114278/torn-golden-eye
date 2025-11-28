@@ -83,6 +83,9 @@ public class TornFactionCrimeVO implements TornFactionOc {
 
         if (this.executedAt != null) {
             oc.setExecutedTime(DateTimeUtils.convertToDateTime(executedAt));
+            oc.setHasNoticed(true);
+        } else {
+            oc.setHasNoticed(false);
         }
 
         return oc;
