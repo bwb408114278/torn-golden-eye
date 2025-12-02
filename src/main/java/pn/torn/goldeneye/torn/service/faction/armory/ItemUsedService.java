@@ -118,14 +118,14 @@ public class ItemUsedService {
         int limit = 100;
         TornFactionNewsDTO param;
         LocalDateTime queryTo = to;
-        List<TornFactionItemUsedDO> newsList = new ArrayList<>();
+        List<TornFactionItemUsedDO> newsList;
         List<TornFactionItemUsedDO> misuseList = new ArrayList<>();
 
         do {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
             TornFactionNewsListVO resp = tornApi.sendRequest(faction.getId(), param, TornFactionNewsListVO.class);
-            if (resp == null) {
-                continue;
+            if (resp == null || CollectionUtils.isEmpty(resp.getNews())) {
+                break;
             }
 
             newsList = resp.getNews().stream()

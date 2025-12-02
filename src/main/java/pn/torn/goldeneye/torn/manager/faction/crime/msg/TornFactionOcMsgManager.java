@@ -86,8 +86,10 @@ public class TornFactionOcMsgManager {
      * 构建建议表格
      */
     public String buildRecommendTable(String title, long factionId, Map<TornUserDO, OcRecommendationVO> map) {
-        return buildRecommendTable(title, factionId, map.entrySet().stream().map(entry ->
-                new OcRecommendTableBO(entry.getKey(), entry.getValue())).toList());
+        return buildRecommendTable(title, factionId, map.entrySet().stream()
+                .filter(entry -> entry.getValue() != null)
+                .map(entry ->
+                        new OcRecommendTableBO(entry.getKey(), entry.getValue())).toList());
     }
 
     /**

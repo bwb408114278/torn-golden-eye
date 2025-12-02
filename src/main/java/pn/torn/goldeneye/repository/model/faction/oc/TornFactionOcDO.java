@@ -63,4 +63,8 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      * 奖励物品价值
      */
     private String rewardItemsValue;
+    /**
+     * 是否已通知
+     */
+    private Boolean hasNoticed;
 }

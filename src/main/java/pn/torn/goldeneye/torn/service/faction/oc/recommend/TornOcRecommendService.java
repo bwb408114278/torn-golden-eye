@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
@@ -62,8 +63,14 @@ public class TornOcRecommendService {
         }
 
         // 4. 为每个OC的每个空闲岗位计算推荐度
+        boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
         List<OcRecommendationVO> recommendations = new ArrayList<>();
         for (TornFactionOcDO oc : recruitOcList) {
+            // 大锅饭制度的, 只要成功率够了就只判断大锅饭
+            if (isReassign && !TornConstants.ROTATION_OC_NAME.contains(oc.getName())) {
+                continue;
+            }
+
             // 查询当前OC下所有空闲岗位
             List<TornFactionOcSlotDO> vacantSlots = emptySlotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId())).toList();
@@ -77,8 +84,7 @@ public class TornOcRecommendService {
                 }
 
                 // 计算推荐度评分
-                BigDecimal recommendScore = ocRecommendManager.calcRecommendScore(
-                        user, userOcData, oc, slotSetting, matchedData);
+                BigDecimal recommendScore = ocRecommendManager.calcRecommendScore(isReassign, oc, slotSetting, matchedData);
                 String recommentReason = ocRecommendManager.buildRecommendReason(oc, matchedData.getPassRate());
                 recommendations.add(new OcRecommendationVO(oc, slot, recommendScore, recommentReason));
             }
@@ -95,7 +101,12 @@ public class TornOcRecommendService {
      * 查找招募中的OC列表
      */
     public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot) {
-        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(factionId, null);
+        // 跑了进度的, 只能判断当前队, 可以换位置
+        if (joinedOcSlot != null && BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0) {
+            return List.of(joinedOcSlot.getOc());
+        }
+
+        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(factionId);
         if (joinedOcSlot == null) {
             return recruitOcList;
         }

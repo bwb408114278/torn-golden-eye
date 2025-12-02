@@ -2,6 +2,7 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
@@ -18,6 +19,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * OC分配策略实现类
@@ -55,6 +57,18 @@ public class OcAssignStrategyImpl extends BaseGroupMsgStrategy {
         ocRefreshManager.refreshOc(1, user.getFactionId());
 
         Map<TornUserDO, OcRecommendationVO> map = ocAssignService.assignUserList(user.getFactionId());
+        if (CollectionUtils.isEmpty(map)) {
+            return super.buildTextMsg("没有空闲的成员");
+        } else if (map.values().stream().noneMatch(Objects::nonNull)) {
+            StringBuilder builder = new StringBuilder();
+            for (TornUserDO member : map.keySet()) {
+                builder.append(", ").append(member.getNickname()).append(" [").append(member.getId()).append("]");
+            }
+
+            return super.buildTextMsg("以下玩家没有合适的队伍, 是否应该生成新队?\n" +
+                    builder.toString().replaceFirst(", ", ""));
+        }
+
         return buildRecommendTable(user, map);
     }
 

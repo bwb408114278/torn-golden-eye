@@ -22,7 +22,6 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -43,7 +42,10 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_HP_ID);
+        return List.of(projectProperty.getGroupId(),
+                BotConstants.GROUP_HP_ID,
+                BotConstants.GROUP_CCRC_ID,
+                BotConstants.GROUP_SH_ID);
     }
 
     @Override
@@ -61,17 +63,13 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
         TornUserDO user = super.getTornUser(sender, "");
         ocRefreshManager.refreshOc(1, user.getFactionId());
 
-        OcSlotDictBO ocSlotDict = getJoinedOc(user);
-        if (ocSlotDict != null && BigDecimal.ZERO.compareTo(ocSlotDict.getSlot().getProgress()) < 0) {
-            return super.buildTextMsg(user.getNickname() + ", 跑了进度换队要被打的");
-        }
-
-        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, ocSlotDict);
+        OcSlotDictBO joinedOc = getJoinedOc(user);
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
         if (CollectionUtils.isEmpty(result)) {
             return super.buildTextMsg(user.getNickname() + ", 暂时没有合适加入的OC");
         }
 
-        TornFactionOcSlotDO joinedSlot = ocSlotDict == null ? null : ocSlotDict.getSlot();
+        TornFactionOcSlotDO joinedSlot = joinedOc == null ? null : joinedOc.getSlot();
         if (joinedSlot != null &&
                 result.getFirst().getOcId().equals(joinedSlot.getOcId()) &&
                 result.getFirst().getRecommendedPosition().equals(joinedSlot.getPosition())) {
