@@ -26,4 +26,8 @@ public class BotConstants {
      * CCRC群号
      */
     public static final long GROUP_CCRC_ID = 966670136L;
+    /**
+     * SH群号
+     */
+    public static final long GROUP_SH_ID = 1015570409L;
 }

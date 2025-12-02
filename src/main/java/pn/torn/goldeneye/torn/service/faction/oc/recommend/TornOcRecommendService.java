@@ -101,6 +101,11 @@ public class TornOcRecommendService {
      * 查找招募中的OC列表
      */
     public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot) {
+        // 跑了进度的, 只能判断当前队, 可以换位置
+        if (joinedOcSlot != null && BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0) {
+            return List.of(joinedOcSlot.getOc());
+        }
+
         List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(factionId);
         if (joinedOcSlot == null) {
             return recruitOcList;
