@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
@@ -191,8 +192,14 @@ public class TornOcAssignService {
                                                        Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
                                                        Set<Long> allocatedPosition) {
         List<UserMatchScore> candidates = new ArrayList<>();
+        boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
             TornFactionOcDO oc = entry.getKey();
+            // 大锅饭制度的, 只要成功率够了就只判断大锅饭
+            if (isReassign && !TornConstants.ROTATION_OC_NAME.contains(oc.getName())) {
+                continue;
+            }
+
             for (TornFactionOcSlotDO slot : entry.getValue()) {
                 TornSettingOcSlotDO setting = ocRecommendManager.findSlotSetting(oc, slot);
                 TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, setting);
@@ -205,7 +212,7 @@ public class TornOcAssignService {
                 }
 
                 // 计算综合评分
-                BigDecimal score = ocRecommendManager.calcRecommendScore(user, userOcData, oc, setting, matchedData);
+                BigDecimal score = ocRecommendManager.calcRecommendScore(isReassign, oc, setting, matchedData);
                 candidates.add(new UserMatchScore(user, userOcData, matchedData, oc, slot, score));
             }
         }

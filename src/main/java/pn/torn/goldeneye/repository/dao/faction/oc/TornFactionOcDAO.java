@@ -54,7 +54,7 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
-                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
+//                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
                 .orderByAsc(TornFactionOcDO::getReadyTime)
                 .list();
     }

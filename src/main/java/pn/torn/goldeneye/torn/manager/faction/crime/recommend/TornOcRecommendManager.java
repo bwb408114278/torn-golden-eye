@@ -61,12 +61,41 @@ public class TornOcRecommendManager {
     }
 
     /**
+     * 检测是否大锅饭推荐
+     *
+     * @return true为推荐大锅饭
+     */
+    public boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
+        if (!TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId())) {
+            return false;
+        }
+
+        List<TornSettingOcSlotDO> reassignSlotList = settingOcSlotManager.getList().stream()
+                .filter(s -> TornConstants.ROTATION_OC_NAME.contains(s.getOcName()))
+                .toList();
+
+        boolean isMatch = false;
+        for (TornSettingOcSlotDO setting : reassignSlotList) {
+            TornFactionOcUserDO matchData = userOcData.stream()
+                    .filter(u -> u.getOcName().equals(setting.getOcName()))
+                    .filter(u -> u.getPosition().equals(setting.getSlotShortCode()))
+                    .filter(u -> u.getPassRate().compareTo(setting.getPassRate()) > -1)
+                    .findAny().orElse(null);
+            if (matchData != null) {
+                isMatch = true;
+                break;
+            }
+        }
+
+        return isMatch;
+    }
+
+    /**
      * 计算推荐度评分
      */
-    public BigDecimal calcRecommendScore(TornUserDO user, List<TornFactionOcUserDO> userOcData,
-                                         TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
+    public BigDecimal calcRecommendScore(boolean isReassign, TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
                                          TornFactionOcUserDO userPassRate) {
-        if (checkIsReassignRecommended(user, userOcData)) {
+        if (isReassign) {
             return calcReassignRecommendScore(oc, slotSetting, userPassRate);
         } else {
             return calcRecommendScore(oc, slotSetting, userPassRate);
@@ -142,35 +171,6 @@ public class TornOcRecommendManager {
         }
 
         return String.join("、", reasons);
-    }
-
-    /**
-     * 检测是否大锅饭推荐
-     * return true为推荐大锅饭
-     */
-    private boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
-        if (!TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId())) {
-            return false;
-        }
-
-        List<TornSettingOcSlotDO> reassignSlotList = settingOcSlotManager.getList().stream()
-                .filter(s -> TornConstants.ROTATION_OC_NAME.contains(s.getOcName()))
-                .toList();
-
-        boolean isMatch = false;
-        for (TornSettingOcSlotDO setting : reassignSlotList) {
-            TornFactionOcUserDO matchData = userOcData.stream()
-                    .filter(u -> u.getOcName().equals(setting.getOcName()))
-                    .filter(u -> u.getPosition().equals(setting.getSlotShortCode()))
-                    .filter(u -> u.getPassRate().compareTo(setting.getPassRate()) > -1)
-                    .findAny().orElse(null);
-            if (matchData != null) {
-                isMatch = true;
-                break;
-            }
-        }
-
-        return isMatch;
     }
 
     /**
