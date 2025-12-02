@@ -111,3 +111,4 @@ log_timezone = 'Asia/Shanghai'
 | 2848822 | Asteriea      | Drug Pack × 5     | 给金眼补补身子              |
 | 2965491 | Ex0dus_67373  | 饮料箱 × 2           | 赞助金眼                 |
 | 2945480 | SimonSoooou   | DVD × 5           | 金眼学习资料               |
+| 2450323 | Cestbon       | FHC × 10          | 奖励一下                 |

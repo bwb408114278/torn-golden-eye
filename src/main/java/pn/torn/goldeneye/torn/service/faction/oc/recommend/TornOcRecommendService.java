@@ -95,7 +95,7 @@ public class TornOcRecommendService {
      * 查找招募中的OC列表
      */
     public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot) {
-        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(factionId, null);
+        List<TornFactionOcDO> recruitOcList = ocDao.queryRecrutList(factionId);
         if (joinedOcSlot == null) {
             return recruitOcList;
         }

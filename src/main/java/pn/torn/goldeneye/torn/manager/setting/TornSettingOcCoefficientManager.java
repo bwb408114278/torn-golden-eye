@@ -56,7 +56,7 @@ public class TornSettingOcCoefficientManager implements DataCacheManager {
                 .filter(s -> s.getRank().equals(rank))
                 .filter(s -> s.getSlotCode().equals(position))
                 .filter(s -> s.getPassRateMin() <= passRate)
-                .filter(s -> s.getPassRateMax() >= passRate)
+                .filter(s -> s.getPassRateMax() > passRate)
                 .findAny().orElse(null);
         return coefficient != null ? coefficient.getCoefficient() : BigDecimal.ZERO;
     }

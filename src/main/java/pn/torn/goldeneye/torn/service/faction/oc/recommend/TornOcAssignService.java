@@ -77,15 +77,14 @@ public class TornOcAssignService {
      */
     public Map<TornUserDO, OcRecommendationVO> assignUserList(long factionId,
                                                               Map<TornUserDO, List<TornFactionOcUserDO>> userOcMap) {
-        // 1. 查询即将停转的OC（24小时内）
-        LocalDateTime threshold = LocalDateTime.now().plusHours(24);
-        List<TornFactionOcDO> urgentOcs = ocDao.queryRecrutList(factionId, threshold);
-        if (CollectionUtils.isEmpty(urgentOcs)) {
+        // 1. 查询招募中的OC
+        List<TornFactionOcDO> recruitList = ocDao.queryRecrutList(factionId);
+        if (CollectionUtils.isEmpty(recruitList)) {
             return Map.of();
         }
 
         // 2. 构建岗位候选池
-        TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots = buildVacantSlotMap(urgentOcs);
+        TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots = buildVacantSlotMap(recruitList);
         if (vacantSlots.isEmpty()) {
             return Map.of();
         }
@@ -115,7 +114,17 @@ public class TornOcAssignService {
         List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(urgentOcIdList);
 
         TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> resultMap = new TreeMap<>(
-                (o1, o2) -> o2.getReadyTime().compareTo(o1.getReadyTime()));
+                (o1, o2) -> {
+                    if (o1.getReadyTime() == null) {
+                        return -1;
+                    }
+
+                    if (o2.getReadyTime() == null) {
+                        return 1;
+                    }
+
+                    return o2.getReadyTime().compareTo(o1.getReadyTime());
+                });
         for (TornFactionOcDO oc : urgentOcList) {
             List<TornFactionOcSlotDO> slots = emptySlotList.stream()
                     .filter(s -> s.getOcId().equals(oc.getId()))

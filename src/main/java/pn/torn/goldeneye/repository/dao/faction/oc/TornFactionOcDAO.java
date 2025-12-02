@@ -8,7 +8,6 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -51,12 +50,11 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
     /**
      * 查询招募中的队伍
      */
-    public List<TornFactionOcDO> queryRecrutList(long factionId, LocalDateTime limitTime) {
+    public List<TornFactionOcDO> queryRecrutList(long factionId) {
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .eq(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode())
                 .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
-                .le(limitTime != null, TornFactionOcDO::getReadyTime, limitTime)
                 .orderByAsc(TornFactionOcDO::getReadyTime)
                 .list();
     }
