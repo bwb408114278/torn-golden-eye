@@ -9,7 +9,7 @@ import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
-import pn.torn.goldeneye.msg.strategy.base.PnMsgStrategy;
+import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.ItemUseRankingDO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
@@ -33,12 +33,12 @@ import java.util.Map;
  * 小红毁灭者策略实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.07.24
  */
 @Component
 @RequiredArgsConstructor
-public class FactionItemUsedStrategyImpl extends PnMsgStrategy {
+public class FactionItemUsedStrategyImpl extends SmthMsgStrategy {
     private final TornSettingFactionManager settingFactionManager;
     private final TornItemsManager itemsManager;
     private final TornFactionItemUsedDAO itemUsedDao;

@@ -14,7 +14,7 @@ import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;
-import pn.torn.goldeneye.torn.service.TornUserDataService;
+import pn.torn.goldeneye.torn.service.data.TornUserDataService;
 import pn.torn.goldeneye.torn.service.user.TornUserService;
 
 import java.util.List;

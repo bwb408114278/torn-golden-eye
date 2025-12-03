@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -29,6 +29,10 @@ public class SettingConstants {
      * 配置Key - 基础数据读取时间
      */
     public static final String KEY_BASE_DATA_LOAD = "BASE_DATA_LOAD_DATE";
+    /**
+     * 配置Key - 帮派数据读取时间
+     */
+    public static final String KEY_FACTION_DATA_LOAD = "FACTION_DATA_LOAD_DATE";
     /**
      * 配置Key - 物品使用记录读取时间
      */

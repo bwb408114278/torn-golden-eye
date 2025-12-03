@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service;
+package pn.torn.goldeneye.torn.service.data;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
