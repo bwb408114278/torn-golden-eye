@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.11.26
  */
 @Service
@@ -124,7 +124,7 @@ public class TornOcCompleteNoticeService {
 
         String ocCountText = String.format("即将有%d个OC结束", ocList.size());
         msgList.add(new TextQqMsg("\n" + ocCountText + ", 请注意是否需要生成新的OC\n\n"));
-        msgList.addAll(msgManager.buildAtMsg(userIdList, faction.getGroupId()));
+        msgList.addAll(msgManager.buildAtMsg(userIdList));
 
         if (CollectionUtils.isEmpty(recommendMap) || recommendMap.values().stream().noneMatch(Objects::nonNull)) {
             msgList.add(new TextQqMsg("暂未适合加入的OC, 联系OC指挥官生成"));

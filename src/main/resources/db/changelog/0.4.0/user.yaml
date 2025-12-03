@@ -32,3 +32,9 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2025-12-02'
+        - sql:
+            sql: |
+              UPDATE torn_user u
+              SET qq_id = k.qq_id
+              FROM torn_api_key k 
+              WHERE u.id = k.user_id;

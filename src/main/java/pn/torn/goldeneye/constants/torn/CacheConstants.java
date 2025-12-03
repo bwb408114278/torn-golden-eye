@@ -7,11 +7,24 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class CacheConstants {
+    /**
+     * 用户Key
+     */
+    public static final String KEY_TORN_USER = "torn:user";
+    /**
+     * 用户QQKey
+     */
+    public static final String KEY_TORN_USER_QQ = "torn:user:qq";
+    /**
+     * 用户Map Key
+     */
+    public static final String KEY_TORN_USER_MAP = "torn:user:map";
+
     /**
      * 系统管理员Key
      */

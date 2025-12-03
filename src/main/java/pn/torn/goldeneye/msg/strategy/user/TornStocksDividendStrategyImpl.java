@@ -26,7 +26,7 @@ import java.util.List;
  * 股票分红计算实现类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.4.0
  * @since 2025.09.27
  */
 @Component
@@ -59,7 +59,7 @@ public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg("这个人还没有绑定Key哦");
         }
 
-        TornUserDO user = userDao.getById(key.getUserId());
+        TornUserDO user = userManager.getUserById(key.getId());
         if (money > 100_000_000_000L) {
             apiKeyConfig.returnKey(key);
             return super.buildTextMsg(user.getNickname() + ", 这么多钱咱吃点好的吧");

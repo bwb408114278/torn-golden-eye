@@ -4,9 +4,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
@@ -14,11 +16,17 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.msg.receive.member.GroupMemberRec;
+import pn.torn.goldeneye.msg.send.GroupMemberReqParam;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserBsSnapshotDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserBsSnapshotDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcUserManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
@@ -38,7 +46,7 @@ import java.util.concurrent.CompletableFuture;
  * Torn 用户数据逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.08.20
  */
 @Service
@@ -47,9 +55,12 @@ import java.util.concurrent.CompletableFuture;
 public class TornUserDataService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
+    private final Bot bot;
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
+    private final TornSettingFactionManager settingFactionManager;
     private final TornFactionOcUserManager ocUserManager;
+    private final TornUserDAO userDao;
     private final TornUserBsSnapshotDAO bsSnapshotDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
@@ -81,6 +92,7 @@ public class TornUserDataService {
                 .list();
 
         List<CompletableFuture<Void>> futureList = new ArrayList<>();
+        futureList.add(CompletableFuture.runAsync(this::bindUserAndQq, virtualThreadExecutor));
         for (TornApiKeyDO key : keyList) {
             futureList.add(CompletableFuture.runAsync(() -> spiderData(key, existsList), virtualThreadExecutor));
         }
@@ -96,6 +108,32 @@ public class TornUserDataService {
     public void spiderData(TornApiKeyDO key, List<TornUserBsSnapshotDO> snapshotList) {
         updateBsSnapshot(key, snapshotList);
         updateOcRate(key);
+    }
+
+    /**
+     * 绑定用户和QQ
+     */
+    public void bindUserAndQq() {
+        for (TornSettingFactionDO faction : settingFactionManager.getList()) {
+            if (faction.getGroupId().equals(0L)) {
+                continue;
+            }
+
+            ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
+                    new GroupMemberReqParam(faction.getGroupId()), GroupMemberRec.class);
+            List<TornUserDO> userList = userDao.lambdaQuery().eq(TornUserDO::getQqId, 0L).list();
+            for (TornUserDO user : userList) {
+                String card = "[" + user.getId() + "]";
+                memberList.getBody().getData().stream()
+                        .filter(m -> m.getCard().contains(card))
+                        .findAny()
+                        .ifPresent(member ->
+                                userDao.lambdaUpdate()
+                                        .set(TornUserDO::getQqId, member.getUserId())
+                                        .eq(TornUserDO::getId, user.getId())
+                                        .update());
+            }
+        }
     }
 
     /**

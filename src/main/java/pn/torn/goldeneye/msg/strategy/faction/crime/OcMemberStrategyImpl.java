@@ -9,6 +9,7 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcPositionAliasEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcUserManager;
@@ -16,21 +17,22 @@ import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
  * 获取Oc策略实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.07.24
  */
 @Component
 @RequiredArgsConstructor
 public class OcMemberStrategyImpl extends SmthMsgStrategy {
-    private final TornFactionOcUserManager userManager;
+    private final TornFactionOcUserManager ocUserManager;
+    private final TornUserDAO userDao;
 
     @Override
     public String getCommand() {
@@ -57,7 +59,7 @@ public class OcMemberStrategyImpl extends SmthMsgStrategy {
 
         int rank = Integer.parseInt(msgArray[0]);
         long factionId = super.getTornFactionIdBySender(sender);
-        List<TornFactionOcUserDO> ocUserList = userManager.findFreeUser(
+        List<TornFactionOcUserDO> ocUserList = ocUserManager.findFreeUser(
                 positionEnum == null ? null : positionEnum.getKey(), factionId, rank);
         if (CollectionUtils.isEmpty(ocUserList)) {
             return super.buildTextMsg("暂时没有可以加入OC的成员");
