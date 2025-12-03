@@ -26,7 +26,7 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 1. 进入项目所在的文件夹,运行以下代码打包镜像
 
 ```
-docker build -f ./build/Dockerfile -t golden-eye:0.3.0 .
+docker build -f ./build/Dockerfile -t golden-eye:0.4.0 .
 ```
 
 2. 进入build文件夹,修改.env文件

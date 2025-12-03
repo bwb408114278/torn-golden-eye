@@ -7,13 +7,14 @@ import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.torn.enums.key.TornKeyTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;
-import pn.torn.goldeneye.torn.service.TornUserDataService;
+import pn.torn.goldeneye.torn.service.data.TornUserDataService;
 import pn.torn.goldeneye.torn.service.user.TornUserService;
 
 import java.util.List;
@@ -22,7 +23,7 @@ import java.util.List;
  * 绑定Torn Api Key策略实现
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.08.21
  */
 @Component
@@ -55,7 +56,12 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
             return super.buildTextMsg("请求Torn Api失败，请确认Key是否正确");
         }
 
-        TornApiKeyDO keyData = new TornApiKeyDO(sender.getUserId(), msg, key.getInfo());
+        TornKeyTypeEnum keyType = TornKeyTypeEnum.codeOf(key.getInfo().getAccess().getType());
+        if (keyType == null || (!TornKeyTypeEnum.LIMIT.equals(keyType) && !TornKeyTypeEnum.FULL.equals(keyType))) {
+            return super.buildTextMsg("需要Limited级别的Key才能支持金眼使用");
+        }
+
+        TornApiKeyDO keyData = new TornApiKeyDO(sender.getUserId(), msg, key.getInfo(), keyType);
         List<TornApiKeyDO> allKeyList = apiKeyConfig.getAllEnableKeys();
         TornApiKeyDO oldKey = allKeyList.stream()
                 .filter(s -> s.getUserId().equals(key.getInfo().getUser().getId()))

@@ -12,7 +12,7 @@ import pn.torn.goldeneye.torn.model.key.TornApiKeyInfoVO;
  * Torn Api Key表
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.4.0
  * @since 2025.08.07
  */
 @Data
@@ -54,7 +54,10 @@ public class TornApiKeyDO extends BaseDO {
     private Integer useCount;
 
     public TornApiKeyDO(long qqId, String apiKey, TornApiKeyInfoVO keyInfo) {
-        TornKeyTypeEnum keyType = TornKeyTypeEnum.codeOf(keyInfo.getAccess().getType());
+        this(qqId, apiKey, keyInfo, TornKeyTypeEnum.codeOf(keyInfo.getAccess().getType()));
+    }
+
+    public TornApiKeyDO(long qqId, String apiKey, TornApiKeyInfoVO keyInfo, TornKeyTypeEnum keyType) {
         if (keyType == null) {
             return;
         }

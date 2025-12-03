@@ -63,7 +63,8 @@ public class TornOcAssignService {
 
         // 4. 组装参数
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(idleUsersMap.keySet());
-        Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = new TreeMap<>(Comparator.comparing(TornUserDO::getId));
+        Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = new TreeMap<>(
+                Comparator.comparing(TornUserDO::getCrimeExpRank));
         idleUsersMap.forEach((k, v) -> paramMap.put(userMap.get(k), v));
 
         // 5. 获取推荐结果

@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * Torn用户表
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.4.0
  * @since 2025.07.24
  */
 @Data
@@ -34,4 +34,12 @@ public class TornUserDO extends BaseDO {
      * 注册日期
      */
     private LocalDateTime registerTime;
+    /**
+     * QQ号
+     */
+    private Long qqId;
+    /**
+     * CE排名
+     */
+    private Integer crimeExpRank;
 }

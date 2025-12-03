@@ -158,15 +158,6 @@ public class ItemUsedService {
     }
 
     /**
-     * 添加定时任务
-     */
-    private void addScheduleTask(LocalDateTime to) {
-        taskService.updateTask("item-use-reload",
-                () -> spiderItemUseData(to.plusSeconds(1), to.plusDays(1)),
-                to.plusDays(1).plusSeconds(1).plusMinutes(10L));
-    }
-
-    /**
      * 构建可以插入的数据列表
      */
     private List<TornFactionItemUsedDO> buildDataList(List<TornFactionItemUsedDO> newsList) {
@@ -266,5 +257,14 @@ public class ItemUsedService {
             return " 从" + DateTimeUtils.convertToString(earliest.getUseTime()) +
                     "到" + DateTimeUtils.convertToString(latest.getUseTime()) + "期间";
         }
+    }
+
+    /**
+     * 添加定时任务
+     */
+    private void addScheduleTask(LocalDateTime to) {
+        taskService.updateTask("item-use-reload",
+                () -> spiderItemUseData(to.plusSeconds(1), to.plusDays(1)),
+                to.plusDays(1).plusSeconds(1).plusMinutes(15));
     }
 }

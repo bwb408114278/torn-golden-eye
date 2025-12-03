@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service;
+package pn.torn.goldeneye.torn.service.data;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -16,12 +16,7 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
-import pn.torn.goldeneye.torn.manager.faction.member.TornFactionMemberManager;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyDTO;
 import pn.torn.goldeneye.torn.model.key.TornApiKeyVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -37,7 +32,7 @@ import java.util.concurrent.CompletionException;
  * Torn基础数据逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.09.10
  */
 @Service
@@ -48,10 +43,8 @@ public class TornKeyDataService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApiKeyConfig apiKeyConfig;
     private final TornApi tornApi;
-    private final TornFactionMemberManager factionMemberManager;
     private final SysSettingDAO settingDao;
     private final TornApiKeyDAO keyDao;
-    private final TornSettingFactionDAO settingFactionDao;
     private final ProjectProperty projectProperty;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -61,7 +54,7 @@ public class TornKeyDataService {
         }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_KEY_DATA_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 1, 0);
+        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
             spiderUserData();
@@ -76,7 +69,6 @@ public class TornKeyDataService {
     public void spiderUserData() {
         try {
             spiderKey();
-            spiderFactionMember();
 
             LocalDate to = LocalDate.now();
             settingDao.updateSetting(SettingConstants.KEY_KEY_DATA_LOAD, DateTimeUtils.convertToString(to));
@@ -103,32 +95,6 @@ public class TornKeyDataService {
             apiKeyConfig.reloadKeyData();
         } catch (CompletionException e) {
             throw new BizException("同步Key时出错", e.getCause());
-        }
-    }
-
-    /**
-     * 爬取帮派成员
-     */
-    public void spiderFactionMember() {
-        try {
-            List<TornSettingFactionDO> factionList = settingFactionDao.list();
-            List<CompletableFuture<Void>> futureList = new ArrayList<>();
-            for (TornSettingFactionDO faction : factionList) {
-                futureList.add(CompletableFuture.runAsync(() -> {
-                    try {
-                        TornFactionMemberDTO param = new TornFactionMemberDTO(faction.getId());
-                        TornFactionMemberListVO memberList = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-                        factionMemberManager.updateFactionMember(faction.getId(), memberList);
-                        Thread.sleep(1000L);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }, virtualThreadExecutor));
-            }
-
-            CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        } catch (CompletionException e) {
-            throw new BizException("同步帮派人员时出错", e.getCause());
         }
     }
 
