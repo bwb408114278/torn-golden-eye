@@ -2,7 +2,6 @@ package pn.torn.goldeneye.configuration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.MapUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -17,11 +16,13 @@ import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.utils.JsonUtils;
 
+import java.util.List;
+
 /**
  * Torn Api请求实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.07.22
  */
 @Slf4j
@@ -59,9 +60,8 @@ class TornApiImpl implements TornApi {
         try {
             UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
             MultiValueMap<String, String> paramMap = param.buildReqParam();
-            if (!MapUtils.isEmpty(paramMap)) {
-                uriBuilder.queryParams(paramMap);
-            }
+            paramMap.put("comment", List.of("golden-eye"));
+            uriBuilder.queryParams(paramMap);
 
             String finalUri = uriBuilder.encode().build().toUriString();
             RestClient.RequestBodySpec reqSpec = this.restClientV2.method(HttpMethod.GET).uri(finalUri);
@@ -69,7 +69,7 @@ class TornApiImpl implements TornApi {
                 reqSpec = reqSpec.header("Authorization", "ApiKey " + apiKey.getApiKey());
             }
 
-            ResponseEntity<String> entity = sendRequest(reqSpec, 0); // 原有的网络层重试
+            ResponseEntity<String> entity = sendRequest(reqSpec, 0);
             T response = handleResponse(entity, responseType);
             apiKeyConfig.returnKey(apiKey);
             return response;
@@ -102,9 +102,9 @@ class TornApiImpl implements TornApi {
             try {
                 UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
                 MultiValueMap<String, String> paramMap = param.buildReqParam();
-                if (!MapUtils.isEmpty(paramMap)) {
-                    uriBuilder.queryParams(paramMap);
-                }
+                paramMap.put("comment", List.of("golden-eye"));
+                uriBuilder.queryParams(paramMap);
+
                 String finalUri = uriBuilder.encode().build().toUriString();
                 RestClient.RequestBodySpec reqSpec = this.restClientV2.method(HttpMethod.GET).uri(finalUri)
                         .header("Authorization", "ApiKey " + apiKey.getApiKey());
