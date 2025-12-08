@@ -144,14 +144,14 @@ public class TornOcRecommendManager {
     /**
      * 构建推荐理由
      */
-    public String buildRecommendReason(TornFactionOcDO oc, int passRate) {
+    public String buildRecommendReason(LocalDateTime dateTime, int passRate) {
         List<String> reasons = new ArrayList<>();
 
         // 停转时间
-        if (oc.getReadyTime() != null) {
+        if (dateTime != null) {
             LocalDateTime now = LocalDateTime.now();
-            long hours = now.compareTo(oc.getReadyTime()) < 1 ?
-                    Duration.between(now, oc.getReadyTime()).toHours() + 1 : 0;
+            long hours = now.compareTo(dateTime) < 1 ?
+                    Duration.between(now, dateTime).toHours() + 1 : 0;
             if (hours <= 0) {
                 reasons.add("已停转，急需加入");
             } else {

@@ -85,7 +85,7 @@ public class TornOcRecommendService {
 
                 // 计算推荐度评分
                 BigDecimal recommendScore = ocRecommendManager.calcRecommendScore(isReassign, oc, slotSetting, matchedData);
-                String recommentReason = ocRecommendManager.buildRecommendReason(oc, matchedData.getPassRate());
+                String recommentReason = ocRecommendManager.buildRecommendReason(oc.getReadyTime(), matchedData.getPassRate());
                 recommendations.add(new OcRecommendationVO(oc, slot, recommendScore, recommentReason));
             }
         }
