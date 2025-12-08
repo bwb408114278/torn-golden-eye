@@ -59,7 +59,7 @@ public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg("这个人还没有绑定Key哦");
         }
 
-        TornUserDO user = userManager.getUserById(key.getId());
+        TornUserDO user = userManager.getUserById(key.getUserId());
         if (money > 100_000_000_000L) {
             apiKeyConfig.returnKey(key);
             return super.buildTextMsg(user.getNickname() + ", 这么多钱咱吃点好的吧");

@@ -98,7 +98,7 @@ public class TornFactionDataService {
         CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
 
         LocalDate to = LocalDate.now();
-        settingDao.updateSetting(SettingConstants.KEY_KEY_DATA_LOAD, DateTimeUtils.convertToString(to));
+        settingDao.updateSetting(SettingConstants.KEY_FACTION_DATA_LOAD, DateTimeUtils.convertToString(to));
         addScheduleTask(to.plusDays(1).atTime(8, 10, 0));
     }
 
