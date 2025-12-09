@@ -3,20 +3,19 @@
 <mapper namespace="pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcBenefitMapper">
     <!-- 查询OC收益排行榜 -->
     <select id="queryBenefitRanking" resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
-        SELECT b.user_id, u.nickname, SUM(benefit_money) AS benefit
+        SELECT b.user_id, b.faction_id, SUM(benefit_money) AS benefit
         FROM torn_faction_oc_benefit b
-        LEFT JOIN torn_user u ON u.deleted = 0 AND b.user_id = u.id
         WHERE b.deleted = 0 AND b.faction_id = #{factionId} AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate}
-        GROUP BY b.user_id, u.nickname
+        GROUP BY b.user_id, b.faction_id
         ORDER BY benefit DESC
         LIMIT 30;
     </select>
 
     <!-- 查询OC大锅饭收益排行榜 -->
     <select id="queryIncomeRanking"  resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
-        SELECT t.user_id, u.nickname, SUM(benefit_money) AS benefit
+        SELECT t.user_id, t.faction_id, SUM(benefit_money) AS benefit
         FROM (
-            SELECT b.user_id, b.benefit_money
+            SELECT b.user_id, b.faction_id, b.benefit_money
             FROM torn_faction_oc_benefit b
             WHERE b.deleted = 0 AND b.faction_id = #{factionId} AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate}
               AND b.oc_name NOT IN
@@ -26,13 +25,51 @@
 
             UNION ALL
 
-            SELECT s.user_id, s.final_income AS benefit_money
+            SELECT s.user_id, s.faction_id, s.final_income AS benefit_money
             FROM torn_faction_oc_income_summary s
             WHERE s.deleted = 0 AND s.faction_id = #{factionId} AND s.year_month = #{yearMonth}
         ) t
-        LEFT JOIN torn_user u ON u.deleted = 0 AND t.user_id = u.id
-        GROUP BY t.user_id, u.nickname
+        GROUP BY t.user_id, t.faction_id
         ORDER BY benefit DESC
         LIMIT 30;
+    </select>
+
+    <!-- 查询全帮派OC收益排行榜 -->
+    <select id="queryAllBenefitRanking" resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
+        SELECT t.user_id, t.faction_id, SUM(benefit_money) AS benefit
+        FROM (
+            -- 大锅饭帮派的非大锅饭OC
+            SELECT b.user_id, b.faction_id, b.benefit_money
+            FROM torn_faction_oc_benefit b
+            WHERE b.deleted = 0 AND b.faction_id IN
+            <foreach collection="reassignFactionList" item="item" open="(" close=")" separator=",">
+                #{item}
+            </foreach>
+            AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate}
+            AND b.oc_name NOT IN
+            <foreach collection="reassignList" item="item" open="(" close=")" separator=",">
+                #{item}
+            </foreach>
+
+            UNION ALL
+            -- 非大锅饭帮派的OC
+            SELECT b.user_id, b.faction_id, b.benefit_money
+            FROM torn_faction_oc_benefit b
+            WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate} AND b.faction_id NOT IN
+            <foreach collection="reassignFactionList" item="item" open="(" close=")" separator=",">
+                #{item}
+            </foreach>
+
+            UNION ALL
+            -- 大锅饭帮派的大锅饭OC
+            SELECT s.user_id, s.faction_id, s.final_income AS benefit_money
+            FROM torn_faction_oc_income_summary s
+            WHERE s.deleted = 0 AND s.year_month = #{yearMonth} AND s.faction_id IN
+            <foreach collection="reassignFactionList" item="item" open="(" close=")" separator=",">
+                #{item}
+            </foreach>) t
+        GROUP BY t.user_id, t.faction_id
+        ORDER BY benefit DESC
+        LIMIT 50
     </select>
 </mapper>

@@ -13,7 +13,7 @@ import java.util.List;
  * OC收益数据库访问层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.4.0
  * @since 2025.09.10
  */
 @Mapper
@@ -45,4 +45,20 @@ public interface TornFactionOcBenefitMapper extends BaseMapper<TornFactionOcBene
                                                         @Param("toDate") LocalDateTime toDate,
                                                         @Param("reassignList") List<String> reassignList,
                                                         @Param("yearMonth") String yearMonth);
+
+    /**
+     * 查询全帮派OC收益排行榜
+     *
+     * @param yearMonth           年月
+     * @param fromDate            开始时间
+     * @param toDate              结束时间
+     * @param reassignFactionList 大锅饭帮派列表
+     * @param reassignList        大锅饭OC名称列表
+     * @return 排行榜列表
+     */
+    List<TornFactionOcBenefitRankDO> queryAllBenefitRanking(@Param("yearMonth") String yearMonth,
+                                                            @Param("fromDate") LocalDateTime fromDate,
+                                                            @Param("toDate") LocalDateTime toDate,
+                                                            @Param("reassignFactionList") List<Long> reassignFactionList,
+                                                            @Param("reassignList") List<String> reassignList);
 }

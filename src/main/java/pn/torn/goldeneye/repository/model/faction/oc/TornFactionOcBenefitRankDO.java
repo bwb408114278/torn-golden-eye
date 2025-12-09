@@ -6,7 +6,7 @@ import lombok.Data;
  * OC收益榜查询结果
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.4.0
  * @since 2025.09.10
  */
 @Data
@@ -16,9 +16,9 @@ public class TornFactionOcBenefitRankDO {
      */
     private Long userId;
     /**
-     * 用户昵称
+     * 帮派ID
      */
-    private String nickname;
+    private Long factionId;
     /**
      * 总数
      */

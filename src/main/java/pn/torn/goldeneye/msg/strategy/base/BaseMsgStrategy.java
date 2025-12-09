@@ -99,7 +99,7 @@ public abstract class BaseMsgStrategy {
     /**
      * 根据消息和发送人获取帮派ID
      */
-    protected long getTornFactionId(QqRecMsgSender sender, String msg) {
+    protected long getTornFactionId(String msg) {
         long factionId;
         if (StringUtils.hasText(msg)) {
             String[] msgArray = msg.split("#");
@@ -109,11 +109,7 @@ public abstract class BaseMsgStrategy {
 
             factionId = Long.parseLong(msgArray[0]);
         } else {
-            factionId = getTornFactionIdBySender(sender);
-        }
-
-        if (factionId == 0L) {
-            throw new BizException("群名片有误，中括号加了吗");
+            factionId = 0L;
         }
 
         return factionId;
