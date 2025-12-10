@@ -1,25 +1,27 @@
 package pn.torn.goldeneye.msg.strategy.faction.crime.benefit;
 
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
-import pn.torn.goldeneye.torn.manager.user.TornUserManager;
-import pn.torn.goldeneye.utils.DateTimeUtils;
+import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,7 +37,9 @@ import java.util.List;
 public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
     private final TornSettingFactionManager settingFactionManager;
     private final TornFactionOcBenefitDAO benefitDao;
-    private final TornSettingFactionDAO settingFactionDao;
+    @Lazy
+    @Resource
+    private OcBenefitRankStrategyImpl ocBenefitRankStrategy;
 
     @Override
     public String getCommand() {
@@ -49,6 +53,7 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+        TornUserDO user = super.getTornUser(sender, "");
         long factionId = super.getTornFactionId(msg);
         if (factionId != 0L) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
@@ -58,30 +63,40 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
         }
 
         LocalDate baseMonth = LocalDate.now();
-        LocalDateTime fromDate = baseMonth.withDayOfMonth(1).atTime(0, 0, 0);
-        LocalDateTime toDate = baseMonth.withDayOfMonth(baseMonth.lengthOfMonth())
-                .atTime(23, 59, 59);
+        List<QqMsgParam<?>> resultList = new ArrayList<>(super.buildTextMsg(buildUserRankingMsg(user, baseMonth)));
+        resultList.addAll(super.buildImageMsg(ocBenefitRankStrategy.buildRankingMsg(factionId, baseMonth)));
+        return resultList;
+    }
 
-        String yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
-        List<TornFactionOcBenefitRankDO> rankingList;
-        if (factionId == 0L) {
-            rankingList = benefitDao.queryAllBenefitRanking(yearMonth, fromDate, toDate,
-                    TornConstants.REASSIGN_OC_FACTION, TornConstants.ROTATION_OC_NAME);
-        } else if (TornConstants.REASSIGN_OC_FACTION.contains(factionId)) {
-            rankingList = benefitDao.queryIncomeRanking(factionId, fromDate, toDate,
-                    TornConstants.ROTATION_OC_NAME, yearMonth);
-        } else {
-            rankingList = benefitDao.queryBenefitRanking(factionId, fromDate, toDate);
-        }
+    /**
+     * 构建用户排名信息
+     */
+    public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
+        TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
 
-        return super.buildImageMsg(buildRankingMsg(factionId, baseMonth, rankingList));
+        TornUserDO prevUser = ranking.getPrevUserId() == null ?
+                null : userManager.getUserMap().get(ranking.getPrevUserId());
+        return user.getNickname() + "在" + date.getMonthValue() + "月的OC中赚了"
+                + NumberUtils.addDelimiters(ranking.getBenefit()) +
+                "\n在本帮中排名第" + ranking.getFactionRank() +
+                ", 在同期" + ranking.getCohortUsers() + "人中排名第" + ranking.getCohortRank() +
+                ", 在SMTH中排名第" + ranking.getOverallRank() +
+                (prevUser == null ?
+                        "\n恭喜你豪取家族第一名, 大家请认准欧皇入队! " :
+                        "\n距离上一名" + prevUser.getNickname() + "[" + prevUser.getId() + "] 还差" +
+                                NumberUtils.addDelimiters(ranking.getPrevBenefit() - ranking.getBenefit()));
     }
 
     /**
      * 构建OC收益排行榜表格
      */
-    private String buildRankingMsg(long factionId, LocalDate date, List<TornFactionOcBenefitRankDO> rankingList) {
-        String factionName = factionId == 0L ? "SMTH" : settingFactionDao.getById(factionId).getFactionShortName();
+    @Cacheable(value = CacheConstants.KEY_TORN_OC_BENEFIT_RANKING_FACTION, key = "#factionId")
+    public String buildRankingMsg(long factionId, LocalDate date) {
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, date);
+        List<TornFactionOcBenefitRankDO> rankingList = benefitDao.queryBenefitRanking(query);
+        String factionName = factionId == 0L ?
+                "SMTH" : settingFactionManager.getIdMap().get(factionId).getFactionShortName();
 
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();

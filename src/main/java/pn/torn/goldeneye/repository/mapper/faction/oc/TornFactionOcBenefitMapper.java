@@ -5,8 +5,9 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
+import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -21,44 +22,16 @@ public interface TornFactionOcBenefitMapper extends BaseMapper<TornFactionOcBene
     /**
      * 查询OC收益排行榜
      *
-     * @param factionId 帮派ID
-     * @param fromDate  开始时间
-     * @param toDate    结束时间
+     * @param query 过滤条件
      * @return 排行榜列表
      */
-    List<TornFactionOcBenefitRankDO> queryBenefitRanking(@Param("factionId") long factionId,
-                                                         @Param("fromDate") LocalDateTime fromDate,
-                                                         @Param("toDate") LocalDateTime toDate);
+    List<TornFactionOcBenefitRankDO> queryBenefitRanking(@Param("query") OcBenefitRankingQuery query);
 
     /**
-     * 查询OC大锅饭收益排行榜
+     * 查询用户OC收益排行榜
      *
-     * @param factionId    帮派ID
-     * @param fromDate     开始时间
-     * @param toDate       结束时间
-     * @param reassignList 大锅饭OC名称列表
-     * @param yearMonth    年月
+     * @param query 过滤条件
      * @return 排行榜列表
      */
-    List<TornFactionOcBenefitRankDO> queryIncomeRanking(@Param("factionId") long factionId,
-                                                        @Param("fromDate") LocalDateTime fromDate,
-                                                        @Param("toDate") LocalDateTime toDate,
-                                                        @Param("reassignList") List<String> reassignList,
-                                                        @Param("yearMonth") String yearMonth);
-
-    /**
-     * 查询全帮派OC收益排行榜
-     *
-     * @param yearMonth           年月
-     * @param fromDate            开始时间
-     * @param toDate              结束时间
-     * @param reassignFactionList 大锅饭帮派列表
-     * @param reassignList        大锅饭OC名称列表
-     * @return 排行榜列表
-     */
-    List<TornFactionOcBenefitRankDO> queryAllBenefitRanking(@Param("yearMonth") String yearMonth,
-                                                            @Param("fromDate") LocalDateTime fromDate,
-                                                            @Param("toDate") LocalDateTime toDate,
-                                                            @Param("reassignFactionList") List<Long> reassignFactionList,
-                                                            @Param("reassignList") List<String> reassignList);
+    TornFactionOcBenefitUserRankDO queryBenefitUserRanking(@Param("query") OcBenefitRankingQuery query);
 }
