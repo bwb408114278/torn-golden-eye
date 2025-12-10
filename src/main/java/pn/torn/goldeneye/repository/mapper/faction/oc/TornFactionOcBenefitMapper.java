@@ -5,15 +5,16 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
+import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * OC收益数据库访问层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.4.0
  * @since 2025.09.10
  */
 @Mapper
@@ -21,28 +22,16 @@ public interface TornFactionOcBenefitMapper extends BaseMapper<TornFactionOcBene
     /**
      * 查询OC收益排行榜
      *
-     * @param factionId 帮派ID
-     * @param fromDate  开始时间
-     * @param toDate    结束时间
+     * @param query 过滤条件
      * @return 排行榜列表
      */
-    List<TornFactionOcBenefitRankDO> queryBenefitRanking(@Param("factionId") long factionId,
-                                                         @Param("fromDate") LocalDateTime fromDate,
-                                                         @Param("toDate") LocalDateTime toDate);
+    List<TornFactionOcBenefitRankDO> queryBenefitRanking(@Param("query") OcBenefitRankingQuery query);
 
     /**
-     * 查询OC大锅饭收益排行榜
+     * 查询用户OC收益排行榜
      *
-     * @param factionId    帮派ID
-     * @param fromDate     开始时间
-     * @param toDate       结束时间
-     * @param reassignList 大锅饭OC名称列表
-     * @param yearMonth    年月
+     * @param query 过滤条件
      * @return 排行榜列表
      */
-    List<TornFactionOcBenefitRankDO> queryIncomeRanking(@Param("factionId") long factionId,
-                                                        @Param("fromDate") LocalDateTime fromDate,
-                                                        @Param("toDate") LocalDateTime toDate,
-                                                        @Param("reassignList") List<String> reassignList,
-                                                        @Param("yearMonth") String yearMonth);
+    TornFactionOcBenefitUserRankDO queryBenefitUserRanking(@Param("query") OcBenefitRankingQuery query);
 }

@@ -27,6 +27,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserBsSnapshotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcUserManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
@@ -59,6 +60,7 @@ public class TornUserDataService {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
     private final TornSettingFactionManager settingFactionManager;
+    private final TornUserManager userManager;
     private final TornFactionOcUserManager ocUserManager;
     private final TornUserDAO userDao;
     private final TornUserBsSnapshotDAO bsSnapshotDao;
@@ -98,6 +100,8 @@ public class TornUserDataService {
         }
 
         CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+        userManager.refreshCache();
+
         settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
     }

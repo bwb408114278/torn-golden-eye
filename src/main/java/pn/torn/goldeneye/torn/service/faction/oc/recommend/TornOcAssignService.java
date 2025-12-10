@@ -18,6 +18,7 @@ import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendMan
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -145,7 +146,7 @@ public class TornOcAssignService {
             Map<TornUserDO, List<TornFactionOcUserDO>> userOcMap) {
         Map<TornUserDO, OcRecommendationVO> result = new HashMap<>();
         Set<Long> allocatedSlot = new HashSet<>();
-        Map<Long, LocalDateTime> ocReadyMap = HashMap.newHashMap(vacantSlots.size());
+        Map<Long, LocalDateTime> ocReadyMap = buildOriginTimeMap(vacantSlots);
 
         for (Map.Entry<TornUserDO, List<TornFactionOcUserDO>> entry : userOcMap.entrySet()) {
             List<UserMatchScore> candidates = findCandidatesForUser(entry.getKey(), entry.getValue(),
@@ -158,23 +159,15 @@ public class TornOcAssignService {
             UserMatchScore bestMatch = candidates.stream()
                     .max(Comparator.comparing(UserMatchScore::score))
                     .orElse(null);
-            // 加入过的人要推迟24小时计算, 同时记录状态, 计算完成后恢复原准备时间
-            if (!ocReadyMap.containsKey(bestMatch.oc().getId())) {
-                ocReadyMap.put(bestMatch.oc().getId(), bestMatch.oc().getReadyTime());
-            }
-
-            LocalDateTime originTime = ocReadyMap.get(bestMatch.oc().getId());
-            LocalDateTime afterJoinTime = (bestMatch.oc().getReadyTime() == null ||
-                    bestMatch.oc().getReadyTime().isBefore(LocalDateTime.now()) ?
-                    LocalDateTime.now() : bestMatch.oc().getReadyTime()).plusDays(1);
-            bestMatch.oc().setReadyTime(originTime);
 
             BigDecimal score = bestMatch.score();
-            String reason = ocRecommendManager.buildRecommendReason(bestMatch.oc(), bestMatch.matchData().getPassRate());
+
+            LocalDateTime originTime = ocReadyMap.get(bestMatch.oc().getId());
+            String reason = ocRecommendManager.buildRecommendReason(originTime, bestMatch.matchData().getPassRate());
             result.put(bestMatch.user(), new OcRecommendationVO(bestMatch.oc(), bestMatch.slot(), score, reason));
 
             allocatedSlot.add(bestMatch.slot().getId());
-            bestMatch.oc().setReadyTime(afterJoinTime);
+            bestMatch.oc().setReadyTime(bestMatch.oc().getReadyTime().plusDays(1));
         }
 
         for (TornFactionOcDO oc : vacantSlots.keySet()) {
@@ -219,6 +212,29 @@ public class TornOcAssignService {
         }
 
         return candidates;
+    }
+
+    /**
+     * 构建原本时间的Map，因为每次分配是多个人，假设能全部进队的话，同天内的OC应该以岗位优先考虑
+     *
+     * @return Key为OC ID, Value为原本的准备时间
+     */
+    private Map<Long, LocalDateTime> buildOriginTimeMap(TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots) {
+        if (CollectionUtils.isEmpty(vacantSlots)) {
+            return Map.of();
+        }
+
+        Map<Long, LocalDateTime> resultMap = HashMap.newHashMap(vacantSlots.size());
+        for (TornFactionOcDO oc : vacantSlots.keySet()) {
+            resultMap.put(oc.getId(), oc.getReadyTime());
+
+            LocalDateTime originTime = oc.getReadyTime() == null ? LocalDateTime.now() : oc.getReadyTime();
+            long readyHours = Duration.between(LocalDateTime.now(), originTime ).toHours();
+            LocalDateTime targetTime = readyHours < 8 ? LocalDateTime.now() : oc.getReadyTime();
+            oc.setReadyTime(targetTime);
+        }
+
+        return resultMap;
     }
 
     /**

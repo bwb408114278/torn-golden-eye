@@ -1,38 +1,104 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcBenefitMapper">
-    <!-- 查询OC收益排行榜 -->
-    <select id="queryBenefitRanking" resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
-        SELECT b.user_id, u.nickname, SUM(benefit_money) AS benefit
+    <!-- 普通OC收益数据源 -->
+    <sql id="normalBenefitDataSource">
+        SELECT b.user_id, b.faction_id, b.benefit_money
         FROM torn_faction_oc_benefit b
-        LEFT JOIN torn_user u ON u.deleted = 0 AND b.user_id = u.id
-        WHERE b.deleted = 0 AND b.faction_id = #{factionId} AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate}
-        GROUP BY b.user_id, u.nickname
+        WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate}
+        <choose>
+            <when test="query.factionId > 0">
+                AND b.faction_id = #{query.factionId}
+            </when>
+            <otherwise>
+                AND b.faction_id NOT IN
+                <foreach collection="query.reassignFactionList" item="item" open="(" close=")" separator=",">
+                    #{item}
+                </foreach>
+            </otherwise>
+        </choose>
+    </sql>
+
+    <!-- 大锅饭收益数据源 -->
+    <sql id="reassignBenefitDataSource">
+        SELECT s.user_id, s.faction_id, s.final_income AS benefit_money
+        FROM torn_faction_oc_income_summary s
+        WHERE s.deleted = 0 AND s.year_month = #{query.yearMonth}
+        <if test="query.factionId > 0">
+            AND s.faction_id = #{query.factionId}
+        </if>
+
+        UNION ALL
+
+        SELECT b.user_id, b.faction_id, b.benefit_money
+        FROM torn_faction_oc_benefit b
+        WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate} AND b.oc_name NOT IN
+        <foreach collection="query.reassignOcList" item="item" open="(" close=")" separator=",">
+            #{item}
+        </foreach>
+        <choose>
+            <when test="query.factionId > 0">
+                AND b.faction_id = #{query.factionId}
+            </when>
+            <otherwise>
+                AND b.faction_id IN
+                <foreach collection="query.reassignFactionList" item="item" open="(" close=")" separator=",">
+                    #{item}
+                </foreach>
+            </otherwise>
+        </choose>
+    </sql>
+
+    <!-- 查询OC收益排行榜 -->
+    <select id="queryBenefitRanking"
+            resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
+        WITH base_benefit AS (
+        SELECT t.user_id, t.faction_id, SUM(t.benefit_money) AS benefit
+        FROM (
+            <if test="query.includeNormalBenefit == true">
+                <include refid="normalBenefitDataSource"/>
+            </if>
+
+            <if test="query.includeReassignBenefit == true">
+                <if test="query.includeNormalBenefit == true">
+                    UNION ALL
+                </if>
+                <include refid="reassignBenefitDataSource"/>
+            </if>) t
+        GROUP BY t.user_id, t.faction_id)
+
+        SELECT * FROM base_benefit
         ORDER BY benefit DESC
-        LIMIT 30;
+        LIMIT #{query.limit}
     </select>
 
-    <!-- 查询OC大锅饭收益排行榜 -->
-    <select id="queryIncomeRanking"  resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
-        SELECT t.user_id, u.nickname, SUM(benefit_money) AS benefit
+    <!-- 查询用户OC收益 -->
+    <select id="queryBenefitUserRanking"
+            resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO">
+        WITH base_benefit AS (
+        SELECT t.user_id, t.faction_id, SUM(t.benefit_money) AS benefit
         FROM (
-            SELECT b.user_id, b.benefit_money
-            FROM torn_faction_oc_benefit b
-            WHERE b.deleted = 0 AND b.faction_id = #{factionId} AND b.oc_finish_time BETWEEN #{fromDate} AND #{toDate}
-              AND b.oc_name NOT IN
-              <foreach collection="reassignList" item="item" open="(" close=")" separator=",">
-                  #{item}
-              </foreach>
-
+            <include refid="normalBenefitDataSource"/>
             UNION ALL
+            <include refid="reassignBenefitDataSource"/>) t
+        GROUP BY t.user_id, t.faction_id),
 
-            SELECT s.user_id, s.final_income AS benefit_money
-            FROM torn_faction_oc_income_summary s
-            WHERE s.deleted = 0 AND s.faction_id = #{factionId} AND s.year_month = #{yearMonth}
-        ) t
-        LEFT JOIN torn_user u ON u.deleted = 0 AND t.user_id = u.id
-        GROUP BY t.user_id, u.nickname
-        ORDER BY benefit DESC
-        LIMIT 30;
+        ranked_data AS (
+            SELECT user_id, faction_id, benefit,
+                SUBSTRING(LPAD(user_id::TEXT, 3, '0'), 1, 3) AS cohort,
+                ROW_NUMBER() OVER (ORDER BY benefit DESC) AS overall_rank,
+                ROW_NUMBER() OVER (PARTITION BY faction_id ORDER BY benefit DESC) AS faction_rank,
+                ROW_NUMBER() OVER (
+                PARTITION BY SUBSTRING(LPAD(user_id::TEXT, 3, '0'), 1, 3)
+                ORDER BY benefit DESC) AS cohort_rank,
+                LAG(user_id) OVER (ORDER BY benefit DESC) AS prev_user_id,
+                LAG(benefit) OVER (ORDER BY benefit DESC) AS prev_benefit,
+                COUNT(*) OVER (PARTITION BY SUBSTRING(LPAD(user_id::TEXT, 3, '0'), 1, 3)) AS cohort_users
+            FROM base_benefit)
+
+        SELECT * FROM ranked_data
+        WHERE user_id = #{query.userId}
+        ORDER BY overall_rank
+        LIMIT 1
     </select>
 </mapper>

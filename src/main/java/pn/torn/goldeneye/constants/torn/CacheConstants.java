@@ -74,4 +74,9 @@ public class CacheConstants {
      * OC系数设置Key
      */
     public static final String KEY_TORN_SETTING_OC_COEFFICIENT = "torn:setting:oc:coefficient";
+
+    /**
+     * OC帮派排行榜 Key
+     */
+    public static final String KEY_TORN_OC_BENEFIT_RANKING_FACTION = "torn:oc:benefit:ranking:faction";
 }

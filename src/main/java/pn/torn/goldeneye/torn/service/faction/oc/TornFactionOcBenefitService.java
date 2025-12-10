@@ -6,6 +6,7 @@ import com.lark.oapi.service.bitable.v1.model.*;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -19,6 +20,7 @@ import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteBitTablePrope
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
@@ -87,6 +89,7 @@ public class TornFactionOcBenefitService {
     /**
      * 爬取OC收益
      */
+    @CacheEvict(value = CacheConstants.KEY_TORN_OC_BENEFIT_RANKING_FACTION, allEntries = true)
     public void spiderOcBenefit(LocalDateTime from, LocalDateTime to) {
         LarkSuiteBitTableProperty bitTable = larkSuiteProperty.findBitTable(TornConstants.BIT_TABLE_OC_BENEFIT);
         String pageToken = null;
