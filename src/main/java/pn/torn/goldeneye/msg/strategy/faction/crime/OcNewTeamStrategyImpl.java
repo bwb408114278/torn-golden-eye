@@ -3,7 +3,6 @@ package pn.torn.goldeneye.msg.strategy.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
@@ -43,9 +42,10 @@ public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        ocRefreshManager.refreshOc(1, TornConstants.FACTION_PN_ID);
+        long factionId = super.getTornFactionIdBySender(sender);
 
-        TornOcManageService.Recommendation analyze = ocManageService.analyze();
+        ocRefreshManager.refreshOc(1, factionId);
+        TornOcManageService.Recommendation analyze = ocManageService.analyze(factionId);
         return super.buildTextMsg(analyze.getSummary());
     }
 }

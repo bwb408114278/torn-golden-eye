@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
  * OC管理服务
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.11.03
  */
 @Slf4j
@@ -38,14 +38,14 @@ public class TornOcManageService {
     /**
      * 分析并推荐
      */
-    public Recommendation analyze() {
+    public Recommendation analyze(long factionId) {
         LocalDateTime now = LocalDateTime.now();
 
         // 1. 获取所有被占用的用户（包括所有类型的OC）
-        Set<Long> recruitUserList = getOccupyUser(TornOcStatusEnum.RECRUITING);
+        Set<Long> recruitUserList = getOccupyUser(factionId, TornOcStatusEnum.RECRUITING);
 
         // 2. 获取轮转OC的活跃列表（用于统计和时间线）
-        List<TornFactionOcDO> activeOcList = ocDao.queryExecutingOc(TornConstants.FACTION_PN_ID);
+        List<TornFactionOcDO> activeOcList = ocDao.queryExecutingOc(factionId);
         List<TornFactionOcDO> planOcList = activeOcList.stream()
                 .filter(oc -> TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus()))
                 .toList();
@@ -57,9 +57,8 @@ public class TornOcManageService {
         List<TornSettingOcDO> settingList = settingOcManager.getList().stream()
                 .filter(c -> TornConstants.ROTATION_OC_NAME.contains(c.getOcName()))
                 .toList();
-        List<OcTypeAnalyzer.Analysis> analyseList = settingList.stream()
-                .map(config -> analyzer.analyze(config, recruitUserList, timeline, now))
-                .toList();
+        List<OcTypeAnalyzer.Analysis> analyseList = analyzer.analyze(factionId, settingList,
+                recruitUserList, timeline, now);
 
         // 6. 生成总结
         Recommendation result = new Recommendation();
@@ -73,9 +72,8 @@ public class TornOcManageService {
                 .map(a -> buildTypeDetail(a, recruitingByType, nearStopByType, nearCompleteByType))
                 .toList();
         result.setTypeDetails(details);
-        result.setTypeDetails(details);
         // 6.3 计算全局统计
-        Recommendation.GlobalStats globalStats = calculateGlobalStats(analyseList, timeline, now);
+        Recommendation.GlobalStats globalStats = calculateGlobalStats(factionId, analyseList, timeline, now);
         result.setGlobalStats(globalStats);
         // 6.4 计算保守建议
         int conservative = calculateConservativeSuggestion(analyseList,
@@ -92,9 +90,9 @@ public class TornOcManageService {
     /**
      * 获取被占用的用户
      */
-    private Set<Long> getOccupyUser(TornOcStatusEnum... status) {
+    private Set<Long> getOccupyUser(long factionId, TornOcStatusEnum... status) {
         List<Long> recruitOcIdList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getFactionId, TornConstants.FACTION_PN_ID)
+                .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getStatus, Arrays.stream(status).map(TornOcStatusEnum::getCode).toList())
                 .list()
                 .stream()
@@ -279,14 +277,14 @@ public class TornOcManageService {
                 "【当前状态】\n" +
                 String.format("  • 24h内完成OC: %d 个\n",
                         rec.getTypeDetails().stream().mapToInt(Recommendation.TypeDetail::getNearCompleteCount).sum()) +
-                String.format("  • 8h内停转OC: %d 个\n",
+                String.format("  • 6h内停转OC: %d 个\n",
                         rec.getTypeDetails().stream().mapToInt(Recommendation.TypeDetail::getNearStopCount).sum());
     }
 
     /**
-     * 计算全局统计（去重）
+     * 计算全局统计
      */
-    private Recommendation.GlobalStats calculateGlobalStats(List<OcTypeAnalyzer.Analysis> analyseList,
+    private Recommendation.GlobalStats calculateGlobalStats(long factionId, List<OcTypeAnalyzer.Analysis> analyseList,
                                                             MemberTimeline timeline, LocalDateTime now) {
         Recommendation.GlobalStats stats = new Recommendation.GlobalStats();
         // 1. 统计所有合格用户（去重）
@@ -297,7 +295,7 @@ public class TornOcManageService {
         }
         stats.setTotalQualifiedUsers(allQualified.size());
 
-        Set<Long> occupyUserList = getOccupyUser(TornOcStatusEnum.RECRUITING, TornOcStatusEnum.PLANNING);
+        Set<Long> occupyUserList = getOccupyUser(factionId, TornOcStatusEnum.RECRUITING, TornOcStatusEnum.PLANNING);
         Set<Long> allCurrentIdle = new HashSet<>(allQualified);
         allCurrentIdle.removeAll(occupyUserList);
         stats.setTotalIdleUsers(allCurrentIdle.size());
@@ -346,7 +344,7 @@ public class TornOcManageService {
      * 分类型统计停转数量
      */
     private Map<String, Integer> countNearStopByType(List<TornFactionOcDO> activeOcs, LocalDateTime now) {
-        LocalDateTime threshold = now.plusHours(8);
+        LocalDateTime threshold = now.plusHours(6);
         return activeOcs.stream()
                 .filter(oc -> TornOcStatusEnum.RECRUITING.getCode().equals(oc.getStatus()))
                 .filter(oc -> oc.getReadyTime() == null || oc.getReadyTime().isBefore(threshold))
@@ -356,10 +354,10 @@ public class TornOcManageService {
     }
 
     /**
-     * 分类型统计即将完成的OC数量（Planning状态且24小时内Ready）
+     * 分类型统计即将完成的OC数量（Planning状态且8小时内Ready）
      */
     private Map<String, Integer> countNearCompleteByType(List<TornFactionOcDO> activeOcs, LocalDateTime now) {
-        LocalDateTime threshold = now.plusHours(24);
+        LocalDateTime threshold = now.plusHours(6);
         return activeOcs.stream()
                 .filter(oc -> TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus()))
                 .filter(oc -> oc.getReadyTime() != null && oc.getReadyTime().isBefore(threshold))

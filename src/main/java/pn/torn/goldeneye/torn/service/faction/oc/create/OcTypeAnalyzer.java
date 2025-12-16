@@ -4,7 +4,6 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
@@ -21,7 +20,7 @@ import java.util.stream.Collectors;
  * OC类型分析器
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.11.05
  */
 @Slf4j
@@ -35,70 +34,76 @@ public class OcTypeAnalyzer {
     /**
      * 分析OC类型可行性
      */
-    public Analysis analyze(TornSettingOcDO setting, Set<Long> recruitingUsers,
-                            MemberTimeline timeline, LocalDateTime now) {
-        String ocTypeKey = setting.getOcName() + "_" + setting.getRank();
+    public List<Analysis> analyze(long factionId, List<TornSettingOcDO> settingList, Set<Long> recruitingUsers,
+                                  MemberTimeline timeline, LocalDateTime now) {
+        Set<String> ocNameSet = settingList.stream().map(TornSettingOcDO::getOcName).collect(Collectors.toSet());
+        List<TornFactionOcUserDO> abilityList = userDao.lambdaQuery()
+                .eq(TornFactionOcUserDO::getFactionId, factionId)
+                .in(TornFactionOcUserDO::getOcName, ocNameSet)
+                .list();
 
-        Analysis result = new Analysis();
-        result.setOcTypeKey(ocTypeKey);
-        result.setOcName(setting.getOcName());
-        result.setRank(setting.getRank());
-        result.setRequiredMembers(setting.getRequiredMembers());
+        List<Analysis> resultList = new ArrayList<>();
+        for (TornSettingOcDO setting : settingList) {
+            String ocTypeKey = setting.getOcName() + "_" + setting.getRank();
 
-        // 1. 获取合格用户
-        Set<Long> qualified = getQualifiedUsers(setting);
-        result.setQualifiedCount(qualified.size());
-        result.setQualifiedUsers(qualified);
+            Analysis result = new Analysis();
+            result.setOcTypeKey(ocTypeKey);
+            result.setOcName(setting.getOcName());
+            result.setRank(setting.getRank());
+            result.setRequiredMembers(setting.getRequiredMembers());
 
-        // 2. 计算当前空闲
-        Set<Long> currentIdle = new HashSet<>(qualified);
-        currentIdle.removeAll(recruitingUsers);
-        currentIdle.removeAll(timeline.getReleasedBy(ocTypeKey, now.plusYears(10)));
-        result.setCurrentIdleCount(currentIdle.size());
+            // 1. 获取合格用户
+            Set<Long> qualified = getQualifiedUsers(setting, abilityList);
+            result.setQualifiedCount(qualified.size());
+            result.setQualifiedUsers(qualified);
 
-        // 3. 时间窗口统计
-        result.setWindowStats(buildWindowStats(ocTypeKey, qualified, currentIdle, timeline, now));
+            // 2. 计算当前空闲
+            Set<Long> currentIdle = new HashSet<>(qualified);
+            currentIdle.removeAll(recruitingUsers);
+            currentIdle.removeAll(timeline.getReleasedBy(ocTypeKey, now.plusYears(10)));
+            result.setCurrentIdleCount(currentIdle.size());
 
-        // 4. 测试可行性（1-5个OC）
-        List<FeasibilityResult> tests = new ArrayList<>();
-        int maxSustainable = 0;
+            // 3. 时间窗口统计
+            result.setWindowStats(buildWindowStats(ocTypeKey, qualified, currentIdle, timeline, now));
 
-        for (int i = 1; i <= 5; i++) {
-            FeasibilityResult test = matcher.checkFeasibility(i, setting.getRequiredMembers(), currentIdle,
-                    timeline, ocTypeKey, qualified, now);
-            tests.add(test);
+            // 4. 测试可行性（1-5个OC）
+            List<FeasibilityResult> tests = new ArrayList<>();
+            int maxSustainable = 0;
 
-            if (test.isFeasible()) {
-                maxSustainable = i;
-            } else {
-                break;
+            for (int i = 1; i <= 5; i++) {
+                FeasibilityResult test = matcher.checkFeasibility(i, setting.getRequiredMembers(), currentIdle,
+                        timeline, ocTypeKey, qualified, now);
+                tests.add(test);
+
+                if (test.isFeasible()) {
+                    maxSustainable = i;
+                } else {
+                    break;
+                }
             }
+
+            result.setMaxSustainableOcs(maxSustainable);
+            result.setFeasibilityTests(tests);
+            result.setRiskLevel(assessRisk(currentIdle.size(), setting.getRequiredMembers(), maxSustainable));
+            resultList.add(result);
         }
 
-        result.setMaxSustainableOcs(maxSustainable);
-        result.setFeasibilityTests(tests);
-        result.setRiskLevel(assessRisk(currentIdle.size(), setting.getRequiredMembers(), maxSustainable));
-        log.info("{}: 合格={}, 空闲={}, 最大可持续={}",
-                ocTypeKey, qualified.size(), currentIdle.size(), maxSustainable);
-
-        return result;
+        return resultList;
     }
 
     /**
      * 获取合格用户
      */
-    private Set<Long> getQualifiedUsers(TornSettingOcDO setting) {
+    private Set<Long> getQualifiedUsers(TornSettingOcDO setting, List<TornFactionOcUserDO> abilityList) {
         List<TornSettingOcSlotDO> slotList = slotManager.getList().stream()
                 .filter(s -> s.getOcName().equals(setting.getOcName()))
                 .filter(s -> s.getRank().equals(setting.getRank()))
                 .toList();
-        List<TornFactionOcUserDO> abilityList = userDao.lambdaQuery()
-                .eq(TornFactionOcUserDO::getFactionId, TornConstants.FACTION_PN_ID)
-                .eq(TornFactionOcUserDO::getOcName, setting.getOcName())
-                .eq(TornFactionOcUserDO::getRank, setting.getRank())
-                .list();
+        List<TornFactionOcUserDO> matchUserList = abilityList.stream()
+                .filter(o -> o.getOcName().equals(setting.getOcName()))
+                .toList();
 
-        Map<Long, List<TornFactionOcUserDO>> userVsRateMap = abilityList.stream()
+        Map<Long, List<TornFactionOcUserDO>> userVsRateMap = matchUserList.stream()
                 .collect(Collectors.groupingBy(TornFactionOcUserDO::getUserId));
 
         Set<Long> qualified = new HashSet<>();
