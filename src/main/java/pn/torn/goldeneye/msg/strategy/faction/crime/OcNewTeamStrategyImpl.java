@@ -45,7 +45,7 @@ public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
         long factionId = super.getTornFactionIdBySender(sender);
 
         ocRefreshManager.refreshOc(1, factionId);
-        TornOcManageService.Recommendation analyze = ocManageService.analyze(factionId);
+        TornOcManageService.TimeBasedRecommendation analyze = ocManageService.analyze(factionId);
         return super.buildTextMsg(analyze.getSummary());
     }
 }
