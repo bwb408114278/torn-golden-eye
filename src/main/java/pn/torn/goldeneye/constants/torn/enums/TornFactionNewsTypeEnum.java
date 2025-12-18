@@ -14,6 +14,10 @@ import lombok.Getter;
 @Getter
 public enum TornFactionNewsTypeEnum {
     /**
+     * 攻击
+     */
+    ATTACK("attack"),
+    /**
      * 仓库操作
      */
     ARMORY_ACTION("armoryAction");
