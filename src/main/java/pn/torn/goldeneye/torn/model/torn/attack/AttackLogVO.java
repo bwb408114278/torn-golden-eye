@@ -48,10 +48,17 @@ public class AttackLogVO {
         log.setLogIcon(this.icon);
         log.setAttackerId(this.attacker.getId());
         log.setAttackerName(this.attacker.getName(userManager));
-        log.setAttackerItemId(this.attacker.getItem().getId());
-        log.setAttackerItemName(this.attacker.getItem().getName());
         log.setDefenderId(this.defender.getId());
         log.setDefenderName(this.defender.getName(userManager));
+
+        if (this.attacker.getItem() != null) {
+            log.setAttackerItemId(this.attacker.getItem().getId());
+            log.setAttackerItemName(this.attacker.getItem().getName());
+        } else {
+            log.setAttackerItemId(0L);
+            log.setAttackerItemName("");
+        }
+
         return log;
     }
 }

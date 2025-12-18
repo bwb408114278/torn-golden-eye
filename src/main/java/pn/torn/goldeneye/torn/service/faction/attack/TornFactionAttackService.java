@@ -17,13 +17,19 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsDTO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsListVO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsVO;
+import pn.torn.goldeneye.torn.model.user.TornUserDTO;
+import pn.torn.goldeneye.torn.model.user.TornUserProfileVO;
+import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.torn.service.data.TornAttackLogService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,7 +50,7 @@ public class TornFactionAttackService {
     private final TornFactionAttackDAO attackDao;
     private static final Pattern USER_ID_PATTERN = Pattern.compile("XID=(\\d+)");
     private static final Pattern RESPECT_PATTERN = Pattern.compile("\\(([+-]?\\d+\\.\\d+)\\)");
-    private static final Pattern ATTACK_LOG_ID_PATTERN = Pattern.compile("ID=([a-f0-9]+)");
+    private static final Pattern ATTACK_LOG_ID_PATTERN = Pattern.compile("attackLog&ID=([a-f0-9]+)");
 
     /**
      * 爬取攻击记录
@@ -54,6 +60,7 @@ public class TornFactionAttackService {
         TornFactionNewsDTO param;
         LocalDateTime queryTo = to;
         List<TornFactionAttackDO> newsList;
+        Map<Long, TornUserProfileVO> userMap = new HashMap<>();
 
         do {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ATTACK, from, queryTo, limit);
@@ -62,7 +69,7 @@ public class TornFactionAttackService {
                 break;
             }
 
-            newsList = parseNewsList(resp, faction.getId());
+            newsList = parseNewsList(resp, userMap);
             if (!CollectionUtils.isEmpty(newsList)) {
                 attackDao.saveBatch(newsList);
                 for (TornFactionAttackDO attack : newsList) {
@@ -83,7 +90,7 @@ public class TornFactionAttackService {
     /**
      * 解析新闻列表为攻击记录
      */
-    public List<TornFactionAttackDO> parseNewsList(TornFactionNewsListVO resp, long factionId) {
+    public List<TornFactionAttackDO> parseNewsList(TornFactionNewsListVO resp, Map<Long, TornUserProfileVO> userFactionMap) {
         if (resp == null || resp.getNews() == null) {
             return new ArrayList<>();
         }
@@ -92,33 +99,37 @@ public class TornFactionAttackService {
         List<TornFactionAttackDO> recordList = attackDao.lambdaQuery().in(TornFactionAttackDO::getId, idList).list();
 
         List<TornFactionAttackDO> attackList = new ArrayList<>();
+        List<CompletableFuture<Void>> futureList = new ArrayList<>();
         for (TornFactionNewsVO news : resp.getNews()) {
-            try {
-                TornFactionAttackDO attack = parseNews(news, factionId);
-                boolean isExists = recordList.stream().anyMatch(r -> r.getId().equals(news.getId()));
-
-                if (attack != null && !isExists) {
-                    attackList.add(attack);
-                }
-            } catch (Exception e) {
-                log.error("解析新闻失败, id: {}, text: {}", news.getId(), news.getText(), e);
-            }
+            futureList.add(CompletableFuture.runAsync(() -> {
+                        try {
+                            TornFactionAttackDO attack = parseNews(news, userFactionMap);
+                            boolean isExists = recordList.stream()
+                                    .anyMatch(r -> r.getId().equals(news.getId()));
+                            if (attack != null && !isExists) {
+                                attackList.add(attack);
+                            }
+                        } catch (Exception e) {
+                            log.error("解析新闻失败, id: {}, text: {}", news.getId(), news.getText(), e);
+                        }
+                    },
+                    virtualThreadExecutor));
         }
 
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
         return attackList;
     }
 
     /**
      * 解析单条新闻为攻击记录
      */
-    public TornFactionAttackDO parseNews(TornFactionNewsVO news, long factionId) {
+    public TornFactionAttackDO parseNews(TornFactionNewsVO news, Map<Long, TornUserProfileVO> userMap) {
         if (news == null || news.getText() == null) {
             return null;
         }
 
         TornFactionAttackDO attack = new TornFactionAttackDO();
         attack.setId(news.getId());
-        attack.setFactionId(factionId);
         attack.setAttackTime(DateTimeUtils.convertToDateTime(news.getTimestamp()));
 
         // 解析HTML文本
@@ -131,17 +142,23 @@ public class TornFactionAttackService {
         int defendIndex = 0;
         if (isAnonymous) {
             attack.setAttackUserId(0L);
+            attack.setAttackFactionId(0L);
             attack.setAttackUserNickname("Someone");
         } else {
             Element attackLink = links.getFirst();
             attack.setAttackUserId(extractUserId(attackLink.attr("href")));
+            attack.setAttackFactionId(extractFactionId(attack.getAttackUserId(), userMap));
             attack.setAttackUserNickname(attackLink.text());
             defendIndex = 1;
         }
 
         Element defendLink = links.get(defendIndex);
         attack.setDefendUserId(extractUserId(defendLink.attr("href")));
+        attack.setDefendFactionId(extractFactionId(attack.getDefendUserId(), userMap));
         attack.setDefendUserNickname(defendLink.text());
+
+        TornUserProfileVO profile = userMap.get(attack.getDefendUserId());
+        attack.setDefendUserOnlineStatus(profile == null ? "" : profile.getStatus().getColor());
 
         attack.setAttackResult(parseAttackResult(plainText));
         attack.setRespectChange(extractRespectChange(plainText));
@@ -160,6 +177,29 @@ public class TornFactionAttackService {
         }
 
         return 0L;
+    }
+
+    /**
+     * 提取帮派ID
+     */
+    private Long extractFactionId(long userId, Map<Long, TornUserProfileVO> userMap) {
+        if (userId == 0L) {
+            return null;
+        }
+
+        TornUserProfileVO user = userMap.get(userId);
+        if (user != null) {
+            return user.getFactionId();
+        }
+
+        TornUserVO resp = tornApi.sendRequest(new TornUserDTO(userId), TornUserVO.class);
+        if (resp != null && resp.getProfile() != null) {
+            user = resp.getProfile();
+            userMap.put(userId, user);
+            return user.getFactionId();
+        }
+
+        return null;
     }
 
     /**

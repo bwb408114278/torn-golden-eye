@@ -59,7 +59,6 @@ public class TornAttackLogDO extends BaseDO {
      */
     private String attackerItemName;
     /**
-     *
      * 防守方ID
      */
     private Long defenderId;

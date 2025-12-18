@@ -24,13 +24,13 @@ public class TornFactionAttackDO extends BaseDO {
      */
     private String id;
     /**
-     * 帮派ID
-     */
-    private Long factionId;
-    /**
      * 攻方用户ID
      */
     private Long attackUserId;
+    /**
+     * 攻方帮派ID
+     */
+    private Long attackFactionId;
     /**
      * 攻方用户昵称
      */
@@ -40,9 +40,17 @@ public class TornFactionAttackDO extends BaseDO {
      */
     private Long defendUserId;
     /**
+     * 守方帮派ID
+     */
+    private Long defendFactionId;
+    /**
      * 守方用户昵称
      */
     private String defendUserNickname;
+    /**
+     * 守方在线状态
+     */
+    private String defendUserOnlineStatus;
     /**
      * 攻击时间
      */
