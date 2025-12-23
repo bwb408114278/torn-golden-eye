@@ -66,4 +66,32 @@ public class TornAttackLogDO extends BaseDO {
      * 防守方昵称
      */
     private String defenderName;
+    /**
+     * 伤害
+     */
+    private Integer damage;
+    /**
+     * 是否失手
+     */
+    private Boolean isMiss;
+    /**
+     * 是否暴击
+     */
+    private Boolean isCritical;
+    /**
+     * 命中部位
+     */
+    private String hitLocation;
+    /**
+     * 子弹类型
+     */
+    private String ammoType;
+    /**
+     * 伤害类型
+     */
+    private String damageType;
+    /**
+     * 打针类型
+     */
+    private String syringeType;
 }

@@ -1,10 +1,17 @@
 package pn.torn.goldeneye.torn.model.torn.attack;
 
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
+import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
+import pn.torn.goldeneye.torn.manager.torn.AttackLogParser;
+import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.Map;
+
+import static pn.torn.goldeneye.constants.torn.TornConstants.*;
 
 /**
  * 战斗Log响应参数
@@ -13,6 +20,7 @@ import java.util.Map;
  * @version 0.4.0
  * @since 2025.12.17
  */
+@Slf4j
 @Data
 public class AttackLogVO {
     /**
@@ -48,17 +56,23 @@ public class AttackLogVO {
         log.setLogAction(this.action);
         log.setLogIcon(this.icon);
 
-        String someone = "Someone";
+        extractAttacker(userNameMap, log);
+        extractDefender(userNameMap, log);
+        extractDamage(log);
+        return log;
+    }
+
+    private void extractAttacker(Map<Long, String> userNameMap, TornAttackLogDO log) {
         if (this.attacker == null) {
             log.setAttackerId(0L);
-            log.setAttackerName(someone);
+            log.setAttackerName(SOMEONE);
             log.setAttackerItemId(0L);
             log.setAttackerItemName("");
         } else {
             log.setAttackerId(this.attacker.getId());
             log.setAttackerName(this.attacker.getName(userNameMap));
-            if (log.getLogText().startsWith(someone)) {
-                log.setLogText(log.getLogText().replaceFirst(someone, log.getAttackerName()));
+            if (log.getLogText().startsWith(SOMEONE) && !checkIsDefenderType()) {
+                log.setLogText(log.getLogText().replaceFirst(SOMEONE, log.getAttackerName()));
             }
 
             if (this.attacker.getItem() != null && !this.attacker.getItem().getId().equals(999L)) {
@@ -69,19 +83,21 @@ public class AttackLogVO {
                 log.setAttackerItemName("");
             }
         }
+    }
 
+    private void extractDefender(Map<Long, String> userNameMap, TornAttackLogDO log) {
         if (this.defender == null) {
             log.setDefenderId(0L);
-            log.setDefenderName(someone);
+            log.setDefenderName(SOMEONE);
         } else {
             log.setDefenderId(this.defender.getId());
             log.setDefenderName(this.defender.getName(userNameMap));
 
-            if (log.getLogText().contains(someone)) {
-                if (!log.getLogText().startsWith(someone)) {
-                    log.setLogText(log.getLogText().replaceFirst(someone, log.getDefenderName()));
+            if (log.getLogText().contains(SOMEONE)) {
+                if (!log.getLogText().startsWith(SOMEONE) || checkIsDefenderType()) {
+                    log.setLogText(log.getLogText().replaceFirst(SOMEONE, log.getDefenderName()));
                 } else {
-                    int secondIndex = log.getLogText().indexOf(someone, 7);
+                    int secondIndex = log.getLogText().indexOf(SOMEONE, 7);
                     if (secondIndex != -1) {
                         String result = log.getLogText().substring(0, secondIndex)
                                 + log.getDefenderName()
@@ -91,7 +107,41 @@ public class AttackLogVO {
                 }
             }
         }
+    }
 
-        return log;
+    private void extractDamage(TornAttackLogDO log) {
+        String syringe = checkIsSyringe();
+        if (StringUtils.hasText(syringe)) {
+            log.setSyringeType(syringe);
+            return;
+        }
+
+        AttackLogParser.CombatLog result = AttackLogParser.LogParser.parse(log.getLogText());
+        log.setDamage(result.getDamage());
+        log.setIsMiss(result.getIsMiss());
+        log.setIsCritical(result.isCritical());
+        log.setHitLocation(result.getHitLocation());
+        log.setAmmoType(result.getAmmoType());
+        log.setDamageType(result.getDamageType());
+    }
+
+    private boolean checkIsDefenderType() {
+        for (String typeText : DEFENDER_ATTACK_TYPE) {
+            if (this.text.contains(typeText)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private String checkIsSyringe() {
+        for (String typeText : SYRINGE) {
+            if (this.text.contains(typeText)) {
+                return typeText;
+            }
+        }
+
+        return "";
     }
 }

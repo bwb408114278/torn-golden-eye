@@ -72,6 +72,10 @@ public class TornFactionAttackDO extends BaseDO {
      */
     private String attackResult;
     /**
+     * 攻击LogId
+     */
+    private String attackLogId;
+    /**
      * 面子收入
      */
     private BigDecimal respectGain;

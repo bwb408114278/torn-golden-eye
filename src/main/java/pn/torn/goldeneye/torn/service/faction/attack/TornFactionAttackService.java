@@ -15,13 +15,11 @@ import pn.torn.goldeneye.torn.model.faction.attack.TornFactionAttackVO;
 import pn.torn.goldeneye.torn.model.user.TornUserDTO;
 import pn.torn.goldeneye.torn.model.user.TornUserProfileVO;
 import pn.torn.goldeneye.torn.model.user.TornUserVO;
+import pn.torn.goldeneye.torn.service.data.TornAttackLogService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -37,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
 public class TornFactionAttackService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
-    private final TornFactionAttackNewsService attackNewsService;
+    private final TornAttackLogService attackLogService;
     private final TornFactionAttackDAO attackDao;
 
     /**
@@ -50,6 +48,7 @@ public class TornFactionAttackService {
         TornFactionAttackRespVO resp;
         List<TornFactionAttackDO> attackList;
         Map<Long, TornUserProfileVO> userMap = new HashMap<>();
+        Set<String> logIdSet = new HashSet<>();
         Map<Long, String> userNameMap = new HashMap<>();
 
         do {
@@ -59,7 +58,7 @@ public class TornFactionAttackService {
                 break;
             }
 
-            attackList = parseNewsList(resp, userMap, userNameMap);
+            attackList = parseNewsList(resp, userMap, logIdSet, userNameMap);
             if (!CollectionUtils.isEmpty(attackList)) {
                 attackDao.saveBatch(attackList);
             }
@@ -72,14 +71,14 @@ public class TornFactionAttackService {
             }
         } while (resp.getAttacks().size() >= limit);
 
-        attackNewsService.spiderAttackData(faction, from, to, userNameMap);
+        attackLogService.saveAttackLog(faction.getId(), logIdSet, userNameMap);
     }
 
     /**
      * 解析新闻列表为攻击记录
      */
     public List<TornFactionAttackDO> parseNewsList(TornFactionAttackRespVO resp, Map<Long, TornUserProfileVO> userMap,
-                                                   Map<Long, String> userNameMap) {
+                                                   Set<String> logIdSet, Map<Long, String> userNameMap) {
         if (resp == null || CollectionUtils.isEmpty(resp.getAttacks())) {
             return new ArrayList<>();
         }
@@ -96,7 +95,11 @@ public class TornFactionAttackService {
                     return;
                 }
 
-                attackList.add(parseNews(attack, userMap, userNameMap));
+                TornFactionAttackDO data = parseNews(attack, userMap);
+                attackList.add(data);
+                logIdSet.add(data.getAttackLogId());
+                userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
+                userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
             }, virtualThreadExecutor));
         }
 
@@ -107,8 +110,7 @@ public class TornFactionAttackService {
     /**
      * 解析单条新闻为攻击记录
      */
-    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornUserProfileVO> userMap,
-                                         Map<Long, String> userNameMap) {
+    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornUserProfileVO> userMap) {
         TornFactionAttackDO data = new TornFactionAttackDO();
         data.setId(attack.getId());
         data.setDefendUserId(attack.getDefender().getId());
@@ -117,6 +119,7 @@ public class TornFactionAttackService {
         data.setAttackStartTime(DateTimeUtils.convertToDateTime(attack.getStarted()));
         data.setAttackEndTime(DateTimeUtils.convertToDateTime(attack.getEnded()));
         data.setAttackResult(attack.getResult());
+        data.setAttackLogId(attack.getCode());
         data.setRespectGain(attack.getRespectGain());
         data.setRespectLoss(attack.getRespectLoss());
         data.setChain(attack.getChain());
@@ -151,9 +154,6 @@ public class TornFactionAttackService {
             data.setDefendFactionId(attack.getDefender().getFaction().getId());
             data.setDefendFactionName(attack.getDefender().getFaction().getName());
         }
-
-        userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
-        userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
 
         return data;
     }

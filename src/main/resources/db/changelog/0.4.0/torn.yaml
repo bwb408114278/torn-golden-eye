@@ -80,73 +80,33 @@ databaseChangeLog:
                     nullable: false
                   remarks: "守方昵称"
               - column:
-                  name: deleted
-                  type: TINYINT
-                  defaultValueComputed: '0'
-                  constraints:
-                    nullable: false
-                  remarks: "删除标识 1为已删除"
-              - column:
-                  name: create_time
-                  type: TIMESTAMP
-                  defaultValueComputed: CURRENT_TIMESTAMP
-                  constraints:
-                    nullable: false
-                  remarks: "创建时间"
-              - column:
-                  name: update_time
-                  type: TIMESTAMP
-                  defaultValueComputed: CURRENT_TIMESTAMP
-                  constraints:
-                    nullable: false
-                  remarks: "更新时间"
-        - createTable:
-            tableName: torn_attack_log_summary
-            columns:
-              - column:
-                  name: id
-                  type: BIGINT
-                  autoIncrement: true
-                  constraints:
-                    primaryKey: true
-                    nullable: false
-                  remarks: "ID"
-              - column:
-                  name: log_id
-                  type: VARCHAR(64)
-                  constraints:
-                    nullable: false
-                  remarks: "日志ID"
-              - column:
-                  name: user_id
-                  type: BIGINT
-                  constraints:
-                    nullable: false
-                  remarks: "用户ID"
-              - column:
-                  name: nickname
-                  type: VARCHAR(32)
-                  constraints:
-                    nullable: false
-                  remarks: "用户昵称"
-              - column:
-                  name: hits
-                  type: INTEGER
-                  constraints:
-                    nullable: false
-                  remarks: "击中数"
-              - column:
-                  name: misses
-                  type: INTEGER
-                  constraints:
-                    nullable: false
-                  remarks: "失手数"
-              - column:
                   name: damage
-                  type: BIGINT
-                  constraints:
-                    nullable: false
-                  remarks: "造成伤害"
+                  type: INT
+                  remarks: "伤害"
+              - column:
+                  name: is_miss
+                  type: BOOL
+                  remarks: "是否失手"
+              - column:
+                  name: is_critical
+                  type: BOOL
+                  remarks: "是否暴击"
+              - column:
+                  name: hit_location
+                  type: VARCHAR(16)
+                  remarks: "命中部位"
+              - column:
+                  name: ammo_type
+                  type: VARCHAR(16)
+                  remarks: "子弹类型"
+              - column:
+                  name: damage_type
+                  type: VARCHAR(16)
+                  remarks: "伤害类型"
+              - column:
+                  name: syringe_type
+                  type: VARCHAR(16)
+                  remarks: "打针类型"
               - column:
                   name: deleted
                   type: TINYINT

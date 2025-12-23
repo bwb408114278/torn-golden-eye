@@ -12,14 +12,11 @@ import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogSummaryDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
-import pn.torn.goldeneye.repository.model.torn.TornAttackLogSummaryDO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDTO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogRespVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -43,46 +40,45 @@ public class TornAttackLogService {
      * 保存攻击日志
      */
     @Transactional(rollbackFor = Exception.class)
-    public void saveAttackLog(long factionId, List<String> logIdList, Map<Long, String> userNameMap) {
-        if (CollectionUtils.isEmpty(logIdList)) {
+    public void saveAttackLog(long factionId, Set<String> logIdSet, Map<Long, String> userNameMap) {
+        if (CollectionUtils.isEmpty(logIdSet)) {
             return;
         }
 
         List<TornAttackLogDO> recordList = attackLogDao.lambdaQuery()
-                .in(TornAttackLogDO::getLogId, logIdList)
+                .in(TornAttackLogDO::getLogId, logIdSet)
                 .list();
-        Map<List<TornAttackLogDO>, List<TornAttackLogSummaryDO>> logMap = HashMap.newHashMap(logIdList.size());
+        List<List<TornAttackLogDO>> allLogList = new ArrayList<>();
         List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        for (String logId : logIdList) {
+        for (String logId : logIdSet) {
             futureList.add(CompletableFuture.runAsync(() ->
-                            logMap.putAll(parseLog(factionId, logId, userNameMap, recordList)),
+                            allLogList.addAll(parseLog(factionId, logId, userNameMap, recordList)),
                     virtualThreadExecutor));
         }
 
         CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        saveLogData(logMap);
+        Collection<List<TornAttackLogDO>> logList = filterRepeatLog(allLogList);
+        saveLogData(logList);
     }
 
     /**
      * 转换Log数据
      */
-    private Map<List<TornAttackLogDO>, List<TornAttackLogSummaryDO>> parseLog(long factionId, String logId,
-                                                                              Map<Long, String> userNameMap,
-                                                                              List<TornAttackLogDO> recordList) {
+    private List<List<TornAttackLogDO>> parseLog(long factionId, String logId, Map<Long, String> userNameMap,
+                                                 List<TornAttackLogDO> recordList) {
         boolean isExists = recordList.stream().anyMatch(l -> l.getLogId().equals(logId));
         if (isExists) {
-            return Map.of();
+            return List.of();
         }
 
         int pageNo = 0;
         int limit = 100;
         AttackLogDTO param;
-        List<TornAttackLogDO> logList = new ArrayList<>();
-        List<TornAttackLogSummaryDO> summaryList = new ArrayList<>();
+        AttackLogRespVO resp;
+        List<List<TornAttackLogDO>> resutList = new ArrayList<>();
 
         do {
             param = new AttackLogDTO(logId, pageNo * limit);
-            AttackLogRespVO resp;
             TornApiKeyDO key = apiKeyConfig.getFactionKey(factionId, false);
             if (key != null) {
                 resp = tornApi.sendRequest(param, key, AttackLogRespVO.class);
@@ -94,10 +90,7 @@ public class TornAttackLogService {
                 break;
             }
 
-            logList.addAll(resp.getAttackLog().getLog().stream()
-                    .map(n -> n.convert2DO(logId, userNameMap))
-                    .toList());
-            summaryList.addAll(resp.getAttackLog().getSummary().stream()
+            resutList.add(resp.getAttackLog().getLog().stream()
                     .map(n -> n.convert2DO(logId, userNameMap))
                     .toList());
             pageNo++;
@@ -106,27 +99,47 @@ public class TornAttackLogService {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        } while (logList.size() >= limit);
+        } while (resp.getAttackLog().getLog().size() >= limit);
 
-        return Map.of(logList, summaryList);
+        return resutList;
     }
 
     /**
      * 保存日志和统计数据
      */
-    public void saveLogData(Map<List<TornAttackLogDO>, List<TornAttackLogSummaryDO>> logMap) {
-        if (CollectionUtils.isEmpty(logMap)) {
+    public void saveLogData(Collection<List<TornAttackLogDO>> allLogList) {
+        if (CollectionUtils.isEmpty(allLogList)) {
             return;
         }
 
         List<TornAttackLogDO> logList = new ArrayList<>();
-        List<TornAttackLogSummaryDO> summaryList = new ArrayList<>();
-        logMap.forEach((k, v) -> {
-            logList.addAll(k);
-            summaryList.addAll(v);
-        });
-
+        allLogList.forEach(logList::addAll);
         attackLogDao.saveBatch(logList);
-        summaryDao.saveBatch(summaryList);
+    }
+
+    /**
+     * 过滤重复日志
+     */
+    private Collection<List<TornAttackLogDO>> filterRepeatLog(List<List<TornAttackLogDO>> allLogList) {
+        if (CollectionUtils.isEmpty(allLogList)) {
+            return List.of();
+        }
+
+        Map<String, List<TornAttackLogDO>> logMap = new HashMap<>();
+        for (List<TornAttackLogDO> logList : allLogList) {
+            TornAttackLogDO initAttackLog = logList.stream()
+                    .filter(l -> l.getLogText().contains("initiated an attack against"))
+                    .findAny().orElse(null);
+            if (initAttackLog == null) {
+                continue;
+            }
+
+            String key = initAttackLog.getAttackerId() + "#" +
+                    initAttackLog.getDefenderId() + "#" +
+                    DateTimeUtils.convertToString(initAttackLog.getLogTime());
+            logMap.putIfAbsent(key, logList);
+        }
+
+        return logMap.values();
     }
 }

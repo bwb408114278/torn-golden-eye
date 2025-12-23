@@ -37,6 +37,10 @@ public class TornConstants {
      */
     public static final String BIT_TABLE_OC_BENEFIT = "oc_benefit";
 
+    public static final String SOMEONE = "Someone";
+    public static final List<String> DEFENDER_ATTACK_TYPE = new ArrayList<>();
+    public static final List<String> SYRINGE = new ArrayList<>();
+
     static {
         ROTATION_OC_NAME.add("Blast from the Past");
         ROTATION_OC_NAME.add("Break the Bank");
@@ -44,5 +48,19 @@ public class TornConstants {
 
         REASSIGN_OC_FACTION.add(FACTION_PN_ID);
         REASSIGN_OC_FACTION.add(FACTION_HP_ID);
+
+        DEFENDER_ATTACK_TYPE.add("lost to");
+        DEFENDER_ATTACK_TYPE.add("began bleeding");
+        DEFENDER_ATTACK_TYPE.add("is poisoned");
+        DEFENDER_ATTACK_TYPE.add("is eviscerated");
+        DEFENDER_ATTACK_TYPE.add("is weakened");
+        DEFENDER_ATTACK_TYPE.add("is shocked");
+        DEFENDER_ATTACK_TYPE.add("is withered");
+        DEFENDER_ATTACK_TYPE.add("is crippled");
+
+        SYRINGE.add("Serotonin");
+        SYRINGE.add("Tyrosine");
+        SYRINGE.add("Melatonin");
+        SYRINGE.add("Epinephrine");
     }
 }
