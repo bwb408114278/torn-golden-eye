@@ -34,7 +34,8 @@ public class TornUserProfileVO {
     /**
      * 状态
      */
-    private TornUserStatusVO status;
+    @JsonProperty("last_action")
+    private TornUserLastActionVO lastAction;
 
     public TornUserDO convert2DO() {
         TornUserDO user = new TornUserDO();

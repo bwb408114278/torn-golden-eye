@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  *
  * @author Bai
  * @version 0.4.0
- * @since 2025.12.17
+ * @since 2025.12.18
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -22,49 +22,109 @@ public class TornFactionAttackDO extends BaseDO {
     /**
      * ID
      */
-    private String id;
+    private Long id;
     /**
      * 攻方用户ID
      */
     private Long attackUserId;
     /**
+     * 攻方用户昵称
+     */
+    private String attackUserNickname;
+    /**
      * 攻方帮派ID
      */
     private Long attackFactionId;
     /**
-     * 攻方用户昵称
+     * 攻方帮派名称
      */
-    private String attackUserNickname;
+    private String attackFactionName;
     /**
      * 守方用户ID
      */
     private Long defendUserId;
     /**
+     * 守方用户昵称
+     */
+    private String defendUserNickname;
+    /**
      * 守方帮派ID
      */
     private Long defendFactionId;
     /**
-     * 守方用户昵称
+     * 守方帮派名称
      */
-    private String defendUserNickname;
+    private String defendFactionName;
     /**
      * 守方在线状态
      */
     private String defendUserOnlineStatus;
     /**
-     * 攻击时间
+     * 攻击开始时间
      */
-    private LocalDateTime attackTime;
+    private LocalDateTime attackStartTime;
+    /**
+     * 攻击结束时间
+     */
+    private LocalDateTime attackEndTime;
     /**
      * 攻击结果
      */
     private String attackResult;
     /**
-     * 攻击日志ID
+     * 面子收入
      */
-    private String attackLogId;
+    private BigDecimal respectGain;
     /**
-     * 面子变动
+     * 面子损失
      */
-    private BigDecimal respectChange;
+    private BigDecimal respectLoss;
+    /**
+     * 当前chain数
+     */
+    private Integer chain;
+    /**
+     * 是否被拦截
+     */
+    private Boolean isInterrupted;
+    /**
+     * 是否匿名
+     */
+    private Boolean isStealth;
+    /**
+     * 是否Raid
+     */
+    private Boolean isRaid;
+    /**
+     * 是否rw
+     */
+    private Boolean isRankedWar;
+    /**
+     * 公平战斗
+     */
+    private BigDecimal modifierFairFight;
+    /**
+     * 战争模式
+     */
+    private BigDecimal modifierWar;
+    /**
+     * 复仇
+     */
+    private BigDecimal modifierRetaliation;
+    /**
+     * 组队
+     */
+    private BigDecimal modifierGroup;
+    /**
+     * 海外
+     */
+    private BigDecimal modifierOversea;
+    /**
+     * Chain加成
+     */
+    private BigDecimal modifierChain;
+    /**
+     * Warlord
+     */
+    private BigDecimal modifierWarlord;
 }

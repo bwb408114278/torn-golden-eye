@@ -10,17 +10,17 @@ import lombok.Data;
  * @since 2025.12.18
  */
 @Data
-public class TornUserStatusVO {
-    /**
-     * 状态描述
-     */
-    private String description;
-    /**
-     * 状态
-     */
-    private String state;
+public class TornUserLastActionVO {
     /**
      * 在线颜色
      */
-    private String color;
+    private String status;
+    /**
+     * 状态
+     */
+    private Long timestamp;
+    /**
+     * 状态描述
+     */
+    private String relative;
 }

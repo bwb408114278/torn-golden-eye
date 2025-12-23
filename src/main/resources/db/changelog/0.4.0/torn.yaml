@@ -1,0 +1,170 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_attack_log_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_attack_log
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: log_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "日志ID"
+              - column:
+                  name: log_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "日志时间"
+              - column:
+                  name: log_text
+                  type: VARCHAR(256)
+                  constraints:
+                    nullable: false
+                  remarks: "日志文本"
+              - column:
+                  name: log_action
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "发生动作"
+              - column:
+                  name: log_icon
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "图标"
+              - column:
+                  name: attacker_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "攻方ID"
+              - column:
+                  name: attacker_name
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "攻方昵称"
+              - column:
+                  name: attacker_item_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "攻方物品ID"
+              - column:
+                  name: attacker_item_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "攻方物品名称"
+              - column:
+                  name: defender_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "守方ID"
+              - column:
+                  name: defender_name
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "守方昵称"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_attack_log_summary
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: log_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "日志ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: nickname
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "用户昵称"
+              - column:
+                  name: hits
+                  type: INTEGER
+                  constraints:
+                    nullable: false
+                  remarks: "击中数"
+              - column:
+                  name: misses
+                  type: INTEGER
+                  constraints:
+                    nullable: false
+                  remarks: "失手数"
+              - column:
+                  name: damage
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "造成伤害"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Torn Api Key配置类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.08.21
  */
 @Slf4j
@@ -33,9 +33,9 @@ public class TornApiKeyConfig {
      */
     private final ConcurrentHashMap<Long, PriorityBlockingQueue<TornApiKeyDO>> factionKeysMap = new ConcurrentHashMap<>();
     /**
-     * QQ到API Key的映射
+     * 用户到API Key的映射
      */
-    private final ConcurrentHashMap<Long, TornApiKeyDO> qqKeyMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, TornApiKeyDO> userKeyMap = new ConcurrentHashMap<>();
     /**
      * 正在使用的Key ID集合
      */
@@ -114,7 +114,7 @@ public class TornApiKeyConfig {
         try {
             allKeys.clear();
             factionKeysMap.clear();
-            qqKeyMap.clear();
+            userKeyMap.clear();
             // 注意：不清除inUseKeyIds，因为可能有线程正在使用key。
             // 在归还或废弃时，会从中移除。
 
@@ -168,12 +168,10 @@ public class TornApiKeyConfig {
     }
 
     /**
-     * 获取QQ对应的Api Key
-     *
-     * @param qqId QQ号
+     * 获取用户对应的Api Key
      */
-    public TornApiKeyDO getKeyByQqId(long qqId) {
-        TornApiKeyDO key = qqKeyMap.get(qqId);
+    public TornApiKeyDO getKeyByUserId(long userId) {
+        TornApiKeyDO key = userKeyMap.get(userId);
         if (key != null && !inUseKeyIds.contains(key.getId())) {
             inUseKeyIds.add(key.getId());
             return key;
@@ -216,11 +214,7 @@ public class TornApiKeyConfig {
      */
     private void addKeyToMaps(TornApiKeyDO apiKey) {
         allKeys.put(apiKey.getId(), apiKey);
-
-        if (apiKey.getQqId() != null) {
-            qqKeyMap.put(apiKey.getQqId(), apiKey);
-        }
-
+        userKeyMap.put(apiKey.getUserId(), apiKey);
         addKeyToQueues(apiKey);
     }
 
@@ -271,14 +265,8 @@ public class TornApiKeyConfig {
     private void updateKeyInMemory(TornApiKeyDO oldKey, TornApiKeyDO newKey) {
         // 更新 allKeys 映射
         allKeys.put(newKey.getId(), newKey);
-
-        // 更新 QQ 映射
-        if (oldKey.getQqId() != null && !Objects.equals(oldKey.getQqId(), newKey.getQqId())) {
-            qqKeyMap.remove(oldKey.getQqId());
-        }
-        if (newKey.getQqId() != null) {
-            qqKeyMap.put(newKey.getQqId(), newKey);
-        }
+        userKeyMap.remove(oldKey.getUserId());
+        userKeyMap.put(newKey.getUserId(), newKey);
 
         // 更新帮派队列
         // 从旧帮派队列移除

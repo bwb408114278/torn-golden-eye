@@ -2,8 +2,8 @@ package pn.torn.goldeneye.torn.model.torn.attack;
 
 import lombok.Data;
 import org.springframework.util.StringUtils;
-import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.user.TornUserManager;
+
+import java.util.Map;
 
 /**
  * 战斗Log攻击方响应参数
@@ -31,12 +31,12 @@ public class AttackLogAttackerVO {
         return this.id == null ? 0L : this.id;
     }
 
-    public String getName(TornUserManager userManager) {
-        if (StringUtils.hasText(this.name)) {
+    public String getName(Map<Long, String> userNameMap) {
+        if (StringUtils.hasText(this.name) && !"Someone".equals(this.name)) {
             return this.name;
         }
 
-        TornUserDO user = userManager.getUserMap().get(getId());
-        return user == null ? "Someone" : user.getNickname();
+        String userName = userNameMap.get(getId());
+        return userName == null ? "Someone" : userName;
     }
 }

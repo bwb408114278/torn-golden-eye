@@ -1,0 +1,269 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_faction_attack_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_attack
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: attack_user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "攻方用户ID"
+              - column:
+                  name: attack_user_nickname
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "攻方用户昵称"
+              - column:
+                  name: attack_faction_id
+                  type: BIGINT
+                  remarks: "攻方帮派ID"
+              - column:
+                  name: attack_faction_name
+                  type: VARCHAR(64)
+                  remarks: "攻方帮派名称"
+              - column:
+                  name: defend_user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "守方ID"
+              - column:
+                  name: defend_user_nickname
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "守方用户昵称"
+              - column:
+                  name: defend_faction_id
+                  type: BIGINT
+                  remarks: "守方帮派ID"
+              - column:
+                  name: defend_faction_name
+                  type: VARCHAR(64)
+                  remarks: "守方帮派名称"
+              - column:
+                  name: defend_user_online_status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "守方在线状态"
+              - column:
+                  name: attack_start_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "攻击开始时间"
+              - column:
+                  name: attack_end_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "攻击结束时间"
+              - column:
+                  name: attack_result
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "攻击结果"
+              - column:
+                  name: respect_gain
+                  type: DECIMAL(7, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "面子收入"
+              - column:
+                  name: respect_loss
+                  type: DECIMAL(7, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "面子损失"
+              - column:
+                  name: chain
+                  type: INTEGER
+                  constraints:
+                    nullable: false
+                  remarks: "当前chain数"
+              - column:
+                  name: is_interrupted
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否被拦截"
+              - column:
+                  name: is_stealth
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否匿名"
+              - column:
+                  name: is_raid
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否Raid"
+              - column:
+                  name: is_ranked_war
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否rw"
+              - column:
+                  name: modifier_fair_fight
+                  type: DECIMAL(4, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "公平战斗"
+              - column:
+                  name: modifier_war
+                  type: DECIMAL(4, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "战争模式"
+              - column:
+                  name: modifier_retaliation
+                  type: DECIMAL(4, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "复仇"
+              - column:
+                  name: modifier_group
+                  type: DECIMAL(4, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "组队"
+              - column:
+                  name: modifier_oversea
+                  type: DECIMAL(4, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "海外"
+              - column:
+                  name: modifier_chain
+                  type: DECIMAL(7, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "Chain加成"
+              - column:
+                  name: modifier_warlord
+                  type: DECIMAL(4, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "Warlord"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_faction_attack_news
+            columns:
+              - column:
+                  name: id
+                  type: VARCHAR(64)
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+              - column:
+                  name: attack_user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "攻方用户ID"
+              - column:
+                  name: attack_user_nickname
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "攻方用户昵称"
+              - column:
+                  name: defend_user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "守方ID"
+              - column:
+                  name: defend_user_nickname
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "守方用户昵称"
+              - column:
+                  name: attack_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "攻击开始时间"
+              - column:
+                  name: attack_result
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "攻击结果"
+              - column:
+                  name: attack_log_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "攻击日志ID"
+              - column:
+                  name: respect_change
+                  type: DECIMAL(5, 2)
+                  constraints:
+                    nullable: false
+                  remarks: "面子收入"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

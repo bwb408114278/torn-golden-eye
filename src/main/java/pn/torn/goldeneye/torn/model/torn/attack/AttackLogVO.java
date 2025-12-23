@@ -2,8 +2,9 @@ package pn.torn.goldeneye.torn.model.torn.attack;
 
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
-import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
+
+import java.util.Map;
 
 /**
  * 战斗Log响应参数
@@ -39,24 +40,56 @@ public class AttackLogVO {
      */
     private AttackLogDefenderVO defender;
 
-    public TornAttackLogDO convert2DO(String logId, TornUserManager userManager) {
+    public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap) {
         TornAttackLogDO log = new TornAttackLogDO();
         log.setLogId(logId);
         log.setLogTime(DateTimeUtils.convertToDateTime(this.timestamp));
         log.setLogText(this.text);
         log.setLogAction(this.action);
         log.setLogIcon(this.icon);
-        log.setAttackerId(this.attacker.getId());
-        log.setAttackerName(this.attacker.getName(userManager));
-        log.setDefenderId(this.defender.getId());
-        log.setDefenderName(this.defender.getName(userManager));
 
-        if (this.attacker.getItem() != null) {
-            log.setAttackerItemId(this.attacker.getItem().getId());
-            log.setAttackerItemName(this.attacker.getItem().getName());
-        } else {
+        String someone = "Someone";
+        if (this.attacker == null) {
+            log.setAttackerId(0L);
+            log.setAttackerName(someone);
             log.setAttackerItemId(0L);
             log.setAttackerItemName("");
+        } else {
+            log.setAttackerId(this.attacker.getId());
+            log.setAttackerName(this.attacker.getName(userNameMap));
+            if (log.getLogText().startsWith(someone)) {
+                log.setLogText(log.getLogText().replaceFirst(someone, log.getAttackerName()));
+            }
+
+            if (this.attacker.getItem() != null && !this.attacker.getItem().getId().equals(999L)) {
+                log.setAttackerItemId(this.attacker.getItem().getId());
+                log.setAttackerItemName(this.attacker.getItem().getName());
+            } else {
+                log.setAttackerItemId(0L);
+                log.setAttackerItemName("");
+            }
+        }
+
+        if (this.defender == null) {
+            log.setDefenderId(0L);
+            log.setDefenderName(someone);
+        } else {
+            log.setDefenderId(this.defender.getId());
+            log.setDefenderName(this.defender.getName(userNameMap));
+
+            if (log.getLogText().contains(someone)) {
+                if (!log.getLogText().startsWith(someone)) {
+                    log.setLogText(log.getLogText().replaceFirst(someone, log.getDefenderName()));
+                } else {
+                    int secondIndex = log.getLogText().indexOf(someone, 7);
+                    if (secondIndex != -1) {
+                        String result = log.getLogText().substring(0, secondIndex)
+                                + log.getDefenderName()
+                                + log.getLogText().substring(secondIndex + 7);
+                        log.setLogText(result);
+                    }
+                }
+            }
         }
 
         return log;
