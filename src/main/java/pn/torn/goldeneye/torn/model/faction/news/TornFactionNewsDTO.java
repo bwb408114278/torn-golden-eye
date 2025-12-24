@@ -56,7 +56,7 @@ public class TornFactionNewsDTO implements TornReqParamV2 {
         resultMap.put("to", List.of(DateTimeUtils.convertToShortTimestamp(this.to).toString()));
         resultMap.put("limit", List.of(this.limit.toString()));
         resultMap.put("sort", List.of("DESC"));
-        resultMap.put("striptags", List.of("false"));
+        resultMap.put("striptags", List.of("true"));
         return resultMap;
     }
 }

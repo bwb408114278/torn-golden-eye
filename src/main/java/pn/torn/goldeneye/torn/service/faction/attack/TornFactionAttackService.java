@@ -21,6 +21,8 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * 帮派攻击记录逻辑类
@@ -47,7 +49,7 @@ public class TornFactionAttackService {
         LocalDateTime queryFrom = from;
         TornFactionAttackRespVO resp;
         List<TornFactionAttackDO> attackList;
-        Map<Long, TornUserProfileVO> userMap = new HashMap<>();
+        Map<Long, TornUserProfileVO> userMap = new ConcurrentHashMap<>();
         Set<String> logIdSet = new HashSet<>();
         Map<Long, String> userNameMap = new HashMap<>();
 
@@ -84,26 +86,25 @@ public class TornFactionAttackService {
         }
 
         List<Long> idList = resp.getAttacks().stream().map(TornFactionAttackVO::getId).toList();
-        List<TornFactionAttackDO> recordList = attackDao.lambdaQuery().in(TornFactionAttackDO::getId, idList).list();
+        Set<Long> existingIds = attackDao.lambdaQuery().in(TornFactionAttackDO::getId, idList).list().stream()
+                .map(TornFactionAttackDO::getId).collect(Collectors.toSet());
 
-        List<TornFactionAttackDO> attackList = new ArrayList<>();
-        List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        for (TornFactionAttackVO attack : resp.getAttacks()) {
-            futureList.add(CompletableFuture.runAsync(() -> {
-                boolean isExists = recordList.stream().anyMatch(r -> r.getId().equals(attack.getId()));
-                if (isExists) {
-                    return;
-                }
+        List<CompletableFuture<TornFactionAttackDO>> futureList = resp.getAttacks().stream()
+                .filter(attack -> !existingIds.contains(attack.getId()))
+                .distinct()
+                .map(attack ->
+                        CompletableFuture.supplyAsync(() ->
+                                parseNews(attack, userMap), virtualThreadExecutor))
+                .toList();
 
-                TornFactionAttackDO data = parseNews(attack, userMap);
-                attackList.add(data);
-                logIdSet.add(data.getAttackLogId());
-                userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
-                userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
-            }, virtualThreadExecutor));
-        }
-
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+        List<TornFactionAttackDO> attackList = futureList.stream()
+                .map(CompletableFuture::join)
+                .toList();
+        attackList.forEach(data -> {
+            logIdSet.add(data.getAttackLogId());
+            userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
+            userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
+        });
         return attackList;
     }
 

@@ -4,9 +4,7 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
-import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.manager.torn.AttackLogParser;
-import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.Map;
@@ -47,6 +45,10 @@ public class AttackLogVO {
      * 防守方
      */
     private AttackLogDefenderVO defender;
+
+    public void setText(String text) {
+        this.text = text.replace("  ", " ");
+    }
 
     public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap) {
         TornAttackLogDO log = new TornAttackLogDO();

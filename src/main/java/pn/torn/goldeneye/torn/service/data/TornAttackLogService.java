@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
@@ -39,7 +38,6 @@ public class TornAttackLogService {
     /**
      * 保存攻击日志
      */
-    @Transactional(rollbackFor = Exception.class)
     public void saveAttackLog(long factionId, Set<String> logIdSet, Map<Long, String> userNameMap) {
         if (CollectionUtils.isEmpty(logIdSet)) {
             return;
@@ -48,15 +46,15 @@ public class TornAttackLogService {
         List<TornAttackLogDO> recordList = attackLogDao.lambdaQuery()
                 .in(TornAttackLogDO::getLogId, logIdSet)
                 .list();
-        List<List<TornAttackLogDO>> allLogList = new ArrayList<>();
-        List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        for (String logId : logIdSet) {
-            futureList.add(CompletableFuture.runAsync(() ->
-                            allLogList.addAll(parseLog(factionId, logId, userNameMap, recordList)),
-                    virtualThreadExecutor));
-        }
-
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+        List<CompletableFuture<List<List<TornAttackLogDO>>>> futureList = logIdSet.stream()
+                .map(logId -> CompletableFuture.supplyAsync(
+                        () -> parseLog(factionId, logId, userNameMap, recordList),
+                        virtualThreadExecutor))
+                .toList();
+        List<List<TornAttackLogDO>> allLogList = futureList.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .toList();
         Collection<List<TornAttackLogDO>> logList = filterRepeatLog(allLogList);
         saveLogData(logList);
     }
@@ -75,7 +73,7 @@ public class TornAttackLogService {
         int limit = 100;
         AttackLogDTO param;
         AttackLogRespVO resp;
-        List<List<TornAttackLogDO>> resutList = new ArrayList<>();
+        List<List<TornAttackLogDO>> resultList = new ArrayList<>();
 
         do {
             param = new AttackLogDTO(logId, pageNo * limit);
@@ -90,7 +88,7 @@ public class TornAttackLogService {
                 break;
             }
 
-            resutList.add(resp.getAttackLog().getLog().stream()
+            resultList.add(resp.getAttackLog().getLog().stream()
                     .map(n -> n.convert2DO(logId, userNameMap))
                     .toList());
             pageNo++;
@@ -101,7 +99,7 @@ public class TornAttackLogService {
             }
         } while (resp.getAttackLog().getLog().size() >= limit);
 
-        return resutList;
+        return resultList;
     }
 
     /**
