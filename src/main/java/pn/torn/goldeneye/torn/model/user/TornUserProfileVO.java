@@ -1,12 +1,9 @@
 package pn.torn.goldeneye.torn.model.user;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
-
-import java.time.LocalDateTime;
 
 /**
  * Torn用户详情响应参数
@@ -34,6 +31,11 @@ public class TornUserProfileVO {
      */
     @JsonProperty("faction_id")
     private Long factionId;
+    /**
+     * 状态
+     */
+    @JsonProperty("last_action")
+    private TornUserLastActionVO lastAction;
 
     public TornUserDO convert2DO() {
         TornUserDO user = new TornUserDO();

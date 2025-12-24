@@ -43,7 +43,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
- * 获取Oc策略实现类
+ * 帮派物品使用记录逻辑类
  *
  * @author Bai
  * @version 0.3.0

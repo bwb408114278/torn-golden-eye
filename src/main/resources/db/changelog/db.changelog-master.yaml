@@ -31,3 +31,7 @@ databaseChangeLog:
   # 0.4.0
   - include:
       file: db/changelog/0.4.0/user.yaml
+  - include:
+      file: db/changelog/0.4.0/faction.yaml
+  - include:
+      file: db/changelog/0.4.0/torn.yaml

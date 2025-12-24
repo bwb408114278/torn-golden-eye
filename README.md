@@ -93,22 +93,24 @@ log_timezone = 'Asia/Shanghai'
 
 感谢大佬们对金眼的大力支持
 
-| ID      | 昵称            | 版本                | 捐赠留言                 |
-|:--------|:--------------|:------------------|:---------------------|
-| 3174862 | DarcyYao      | 服务器 × 1           |                      |
-| 3267881 | MeatBigHeader | FHC × 10          | donate for goldeneye |
-| 3234698 | Sweetyla      | DVD × 10          | 赞美作佬                 |
-| 1765272 | funnimo       | FHC × 1           |                      |
-| 3174862 | DarcyYao      | Xan × 10          | 赞美作佬                 |
-| 2945480 | SimonSoooou   | FHC × 5           | 金眼配金卡，Bug它最大         |
-| 2928772 | GoldenIngot   | 100H糖 × 150       | love                 |
-| 3133172 | Kingdee       | 红牛 × 20           | 作佬喝红牛，越喝你越牛          |
-| 2687001 | lixu1020      | 大DP × 1           | To Goldeneye         |
-| 2969766 | iFor          | Xan × 100         | 白总牛逼                 |
-| 3359579 | xxxzzz        | FHC × 5, DVD × 10 | 捐赠                   |
-| 3050040 | Jontion       | 20e × 20          | 我最喜欢的欧金金眼！           |
-| 3135348 | mogami        | FHC × 1           | 科技改变生活啊 大佬加油         |
-| 2848822 | Asteriea      | Drug Pack × 5     | 给金眼补补身子              |
-| 2965491 | Ex0dus_67373  | 饮料箱 × 2           | 赞助金眼                 |
-| 2945480 | SimonSoooou   | DVD × 5           | 金眼学习资料               |
-| 2450323 | Cestbon       | FHC × 10          | 奖励一下                 |
+| ID      | 昵称            | 版本                | 捐赠留言                                                  |
+|:--------|:--------------|:------------------|:------------------------------------------------------|
+| 3174862 | DarcyYao      | 服务器 × 1           |                                                       |
+| 3267881 | MeatBigHeader | FHC × 10          | donate for goldeneye                                  |
+| 3234698 | Sweetyla      | DVD × 10          | 赞美作佬                                                  |
+| 1765272 | funnimo       | FHC × 1           |                                                       |
+| 3174862 | DarcyYao      | Xan × 10          | 赞美作佬                                                  |
+| 2945480 | SimonSoooou   | FHC × 5           | 金眼配金卡，Bug它最大                                          |
+| 2928772 | GoldenIngot   | 100H糖 × 150       | love                                                  |
+| 3133172 | Kingdee       | 红牛 × 20           | 作佬喝红牛，越喝你越牛                                           |
+| 2687001 | lixu1020      | 大DP × 1           | To Goldeneye                                          |
+| 2969766 | iFor          | Xan × 100         | 白总牛逼                                                  |
+| 3359579 | xxxzzz        | FHC × 5, DVD × 10 | 捐赠                                                    |
+| 3050040 | Jontion       | 20e × 20          | 我最喜欢的欧金金眼！                                            |
+| 3135348 | mogami        | FHC × 1           | 科技改变生活啊 大佬加油                                          |
+| 2848822 | Asteriea      | Drug Pack × 5     | 给金眼补补身子                                               |
+| 2965491 | Ex0dus_67373  | 饮料箱 × 2           | 赞助金眼                                                  |
+| 2945480 | SimonSoooou   | DVD × 5           | 金眼学习资料                                                |
+| 2450323 | Cestbon       | FHC × 10          | 奖励一下                                                  |
+| 2633225 | Cousinggg     | 10m               | Show some love and ty for contribution of golden eye! |
+| 1864837 | Cinderine     | 双特效橙SIG           | 赠礼，感谢作佬帮忙开发rw伤害贡献统计相关功能！                              |

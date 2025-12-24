@@ -1,0 +1,130 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_attack_log_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_attack_log
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: log_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "日志ID"
+              - column:
+                  name: log_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "日志时间"
+              - column:
+                  name: log_text
+                  type: VARCHAR(256)
+                  constraints:
+                    nullable: false
+                  remarks: "日志文本"
+              - column:
+                  name: log_action
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "发生动作"
+              - column:
+                  name: log_icon
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "图标"
+              - column:
+                  name: attacker_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "攻方ID"
+              - column:
+                  name: attacker_name
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "攻方昵称"
+              - column:
+                  name: attacker_item_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "攻方物品ID"
+              - column:
+                  name: attacker_item_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "攻方物品名称"
+              - column:
+                  name: defender_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "守方ID"
+              - column:
+                  name: defender_name
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "守方昵称"
+              - column:
+                  name: damage
+                  type: INT
+                  remarks: "伤害"
+              - column:
+                  name: is_miss
+                  type: BOOL
+                  remarks: "是否失手"
+              - column:
+                  name: is_critical
+                  type: BOOL
+                  remarks: "是否暴击"
+              - column:
+                  name: hit_location
+                  type: VARCHAR(16)
+                  remarks: "命中部位"
+              - column:
+                  name: ammo_type
+                  type: VARCHAR(16)
+                  remarks: "子弹类型"
+              - column:
+                  name: damage_type
+                  type: VARCHAR(16)
+                  remarks: "伤害类型"
+              - column:
+                  name: syringe_type
+                  type: VARCHAR(16)
+                  remarks: "打针类型"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
