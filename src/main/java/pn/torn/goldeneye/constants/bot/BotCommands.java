@@ -70,6 +70,10 @@ public class BotCommands {
      */
     public static final String BS_IMPROVE = "战力增长";
     /**
+     * RW真赛
+     */
+    public static final String RW_SPIDER = "RW真赛";
+    /**
      * RW战神
      */
     public static final String RW_GOD = "RW战神";

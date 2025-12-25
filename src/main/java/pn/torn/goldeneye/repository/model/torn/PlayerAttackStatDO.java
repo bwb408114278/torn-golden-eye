@@ -8,7 +8,7 @@ import java.math.BigDecimal;
  * 个人攻击统计数据
  *
  * @author Bai
- * @version 1.0
+ * @version 0.4.0
  * @since 2025.12.25
  */
 @Data
