@@ -46,13 +46,17 @@ public class TornFactionRwVO {
         rw.setId(this.id);
         rw.setFactionId(factionId);
 
+        TornFactionRwFactionVO faction = factions.stream()
+                .filter(f -> f.getId() == factionId)
+                .findAny().orElse(null);
         TornFactionRwFactionVO opponentFaction = factions.stream()
                 .filter(f -> f.getId() != factionId)
                 .findAny().orElse(null);
-        if (opponentFaction == null) {
+        if (faction == null || opponentFaction == null) {
             throw new BizException("RW帮派解析错误");
         }
 
+        rw.setFactionName(faction.getName());
         rw.setOpponentFactionId(opponentFaction.getId());
         rw.setOpponentFactionName(opponentFaction.getName());
         rw.setStartTime(DateTimeUtils.convertToDateTime(this.start));

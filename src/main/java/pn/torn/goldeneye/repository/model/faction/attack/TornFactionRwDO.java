@@ -27,6 +27,10 @@ public class TornFactionRwDO extends BaseDO {
      */
     private Long factionId;
     /**
+     * 帮派名称
+     */
+    private String factionName;
+    /**
      * 对手帮派ID
      */
     private Long opponentFactionId;

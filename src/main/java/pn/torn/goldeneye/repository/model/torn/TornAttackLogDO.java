@@ -94,4 +94,12 @@ public class TornAttackLogDO extends BaseDO {
      * 打针类型
      */
     private String syringeType;
+    /**
+     * 进攻方ELO
+     */
+    private Integer attackerElo;
+    /**
+     * 防守方ELO
+     */
+    private Integer defenderElo;
 }

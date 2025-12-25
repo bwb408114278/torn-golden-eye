@@ -11,10 +11,12 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.PnManageMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwDTO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwRespVO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwVO;
+import pn.torn.goldeneye.torn.service.data.TornRwDataService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.List;
@@ -30,6 +32,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class FactionRwStrategyImpl extends PnManageMsgStrategy {
     private final TornApi tornApi;
+    private final TornRwDataService rwDataService;
     private final TornSettingFactionManager settingFactionManager;
     private final TornFactionRwDAO rwDao;
 
@@ -67,8 +70,10 @@ public class FactionRwStrategyImpl extends PnManageMsgStrategy {
             rwDao.save(data);
         }
 
+        TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
+        rwDataService.spiderRwData(currentRw, faction, data.getStartTime());
         return super.buildTextMsg("本场真赛:\n" +
-                settingFactionManager.getIdMap().get(factionId).getFactionName() + " VS " + data.getOpponentFactionName() +
+                data.getFactionName() + " VS " + data.getOpponentFactionName() +
                 "\n开始时间: " + DateTimeUtils.convertToString(data.getStartTime()) +
                 "\n金眼将实时抓取对冲数据并登记到战神榜" +
                 "\n祝君武运昌隆!");

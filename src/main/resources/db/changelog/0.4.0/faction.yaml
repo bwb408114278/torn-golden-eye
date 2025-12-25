@@ -84,6 +84,16 @@ databaseChangeLog:
                     nullable: false
                   remarks: "攻击日志ID"
               - column:
+                  name: attacker_elo
+                  type: INT
+                  defaultValueComputed: '0'
+                  remarks: "攻击方ELO"
+              - column:
+                  name: defender_elo
+                  type: INT
+                  defaultValueComputed: '0'
+                  remarks: "防守方ELO"
+              - column:
                   name: respect_gain
                   type: DECIMAL(7, 2)
                   constraints:

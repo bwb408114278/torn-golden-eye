@@ -22,4 +22,5 @@ public class InitOrderConstants {
     public static final int TORN_ITEM_USED = 10005;
     public static final int TORN_OC = 10006;
     public static final int TORN_OC_BENEFIT = 10007;
+    public static final int TORN_RW = 10008;
 }

@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: split_user_and_base_data
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '21'
+              - column:
+                  name: setting_key
+                  value: 'PHN_RW_LOAD_TIME'
+              - column:
+                  name: setting_value
+                  value: '2025-12-25 00:00:00'
