@@ -8,7 +8,6 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
-import pn.torn.goldeneye.repository.dao.torn.TornAttackLogSummaryDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDTO;
@@ -33,7 +32,6 @@ public class TornAttackLogService {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
     private final TornAttackLogDAO attackLogDao;
-    private final TornAttackLogSummaryDAO summaryDao;
 
     /**
      * 保存攻击日志

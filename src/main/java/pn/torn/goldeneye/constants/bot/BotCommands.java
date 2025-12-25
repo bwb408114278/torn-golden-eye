@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.4.0
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -50,7 +50,7 @@ public class BotCommands {
      */
     public static final String OC_ASSIGN = "OC分配";
 
-    // ====================帮派成员相关====================
+    // ====================帮派物资相关====================
     /**
      * 帮派物品记录
      */
@@ -69,6 +69,10 @@ public class BotCommands {
      * 战力提升
      */
     public static final String BS_IMPROVE = "战力增长";
+    /**
+     * RW战神
+     */
+    public static final String RW_GOD = "RW战神";
 
     // ====================管理功能相关====================
     /**
