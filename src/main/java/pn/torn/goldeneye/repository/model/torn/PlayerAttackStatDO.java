@@ -54,6 +54,10 @@ public class PlayerAttackStatDO {
      */
     private Long damageTaken;
     /**
+     * 伤害评分
+     */
+    private BigDecimal damageScore;
+    /**
      * 打针次数
      */
     private Integer syringeUsed;

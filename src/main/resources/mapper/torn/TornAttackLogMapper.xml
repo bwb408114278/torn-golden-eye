@@ -25,7 +25,8 @@
                      fa.attack_log_id,
                      fa.attack_start_time,
                      fa.attack_end_time,
-                     EXTRACT(EPOCH FROM (fa.attack_end_time - fa.attack_start_time))::INTEGER AS combat_duration
+                     EXTRACT(EPOCH FROM (fa.attack_end_time - fa.attack_start_time))::INTEGER AS combat_duration,
+                     qw.window_start
                  FROM torn_faction_attack fa
                  INNER JOIN qualified_windows qw ON
                      date_bin(
@@ -55,20 +56,45 @@
              ),
              log_stats AS (
                  SELECT
-                     qa.attack_user_id,
-                     COUNT(CASE WHEN al.attacker_id = qa.attack_user_id
-                                  AND al.log_action IN ('busy', 'critical hit', 'hit', 'missed', 'onItemUseEff', 'reload', 'specialTemp', 'specialTempI', 'won')
+                     al.attacker_id AS attack_user_id,
+                     COUNT(CASE WHEN al.log_action IN ('busy', 'critical hit', 'hit', 'missed', 'onItemUseEff', 'reload', 'specialTemp', 'specialTempI', 'won')
                                 THEN al.id
-                         END) AS total_rounds,
-                     COALESCE(SUM(CASE WHEN al.attacker_id = qa.attack_user_id THEN al.damage END), 0) AS damage_dealt,
-                     COALESCE(SUM(CASE WHEN al.defender_id = qa.attack_user_id THEN al.damage END), 0) AS damage_taken,
-                     COUNT(CASE WHEN al.attacker_id = qa.attack_user_id AND al.syringe_type IS NOT NULL THEN 1 END) AS syringe_used,
-                     COUNT(CASE WHEN al.attacker_id = qa.attack_user_id AND al.ammo_type IS NOT NULL THEN al.log_id
-                           END) AS special_ammo_rounds,
-                     COUNT(CASE WHEN al.attacker_id = qa.attack_user_id AND al.attacker_item_name IN ('Smoke Grenade', 'Flash Grenade', 'Tear Gas', 'Pepper Spray') THEN 1 END) AS debuff_temp_count
-                 FROM qualified_attacks qa
-                 LEFT JOIN torn_attack_log al ON qa.attack_log_id = al.log_id AND al.deleted = 0
-                 GROUP BY qa.attack_user_id
+                           END) AS total_rounds,
+                     COALESCE(SUM(al.damage), 0) AS damage_dealt,
+                     COALESCE(SUM(CASE WHEN al.defender_elo IS NOT NULL AND al.defender_elo > 0
+                                  THEN ((al.defender_elo - 1000) / 1000.0) * al.damage
+                                  ELSE 0
+                                  END), 0) AS damage_score,
+                     COUNT(CASE WHEN al.syringe_type IS NOT NULL THEN 1 END) AS syringe_used,
+                     COUNT(DISTINCT CASE WHEN al.ammo_type IS NOT NULL THEN al.log_id END) AS special_ammo_rounds,
+                     COUNT(CASE WHEN al.attacker_item_name IN ('Smoke Grenade', 'Flash Grenade', 'Tear Gas', 'Pepper Spray')
+                                THEN 1
+                           END) AS debuff_temp_count
+                 FROM torn_attack_log al
+                 INNER JOIN qualified_windows qw ON
+                     date_bin(
+                         (#{windowMinutes} || ' minutes')::INTERVAL,
+                         al.log_time,
+                         TIMESTAMP '2000-01-01 00:00:00'
+                     ) = qw.window_start
+                 WHERE al.deleted = 0 AND al.attacker_id IN (SELECT DISTINCT attack_user_id FROM qualified_attacks)
+                     AND al.log_time BETWEEN #{startTime} AND #{endTime}
+                 GROUP BY al.attacker_id
+             ),
+             defender_stats AS (
+                 SELECT
+                     al.defender_id AS attack_user_id,
+                     COALESCE(SUM(al.damage), 0) AS damage_taken
+                 FROM torn_attack_log al
+                 INNER JOIN qualified_windows qw ON
+                 date_bin(
+                     (#{windowMinutes} || ' minutes')::INTERVAL,
+                     al.log_time,
+                     TIMESTAMP '2000-01-01 00:00:00'
+                 ) = qw.window_start
+             WHERE al.deleted = 0 AND al.defender_id IN (SELECT DISTINCT attack_user_id FROM qualified_attacks)
+                 AND al.log_time BETWEEN #{startTime} AND #{endTime}
+             GROUP BY al.defender_id
              )
         SELECT
             pas.attack_user_id AS user_id,
@@ -84,12 +110,14 @@
             pas.avg_opponent_elo,
             COALESCE(ls.total_rounds, 0) AS total_rounds,
             COALESCE(ls.damage_dealt, 0) AS damage_dealt,
-            COALESCE(ls.damage_taken, 0) AS damage_taken,
+            COALESCE(ds.damage_taken, 0) AS damage_taken,
+            COALESCE(ls.damage_score, 0) AS damage_score,
             COALESCE(ls.syringe_used, 0) AS syringe_used,
             COALESCE(ls.special_ammo_rounds, 0) AS special_ammo_rounds,
             COALESCE(ls.debuff_temp_count, 0) AS debuff_temp_count
         FROM player_attack_stats pas
         LEFT JOIN log_stats ls ON pas.attack_user_id = ls.attack_user_id
-        ORDER BY pas.total_attacks DESC
+        LEFT JOIN defender_stats ds ON pas.attack_user_id = ds.attack_user_id
+        ORDER BY COALESCE(ls.damage_score, 0) DESC
     </select>
 </mapper>

@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
@@ -61,8 +62,8 @@ public class FactionAttackStrategyImpl extends PnMsgStrategy {
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
         TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
-        tableData.add(List.of(faction.getFactionName() + "VS" + opponentFactionName + "对冲战斗数据统计",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
+        tableData.add(List.of(faction.getFactionName() + " VS " + opponentFactionName + "对冲战斗数据统计",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
         tableConfig.addMerge(0, 0, 1, 17);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
                 .setBgColor(Color.WHITE)
@@ -70,8 +71,8 @@ public class FactionAttackStrategyImpl extends PnMsgStrategy {
                 .setFont(new Font("微软雅黑", Font.BOLD, 30)));
 
         tableData.add(List.of("ID", "昵称 ", "攻击次数", "Hosp", "Leave", "Assist", "Lost",
-                "战斗耗时(秒)", "平均耗时(秒)", "对手在线", "对手平均ELO",
-                "总回合数", "输出伤害", "承受伤害", "打针数", "特殊子弹次数", "烟/闪/泪/椒"));
+                "战斗耗时(秒)", "平均耗时(秒)", "攻击在线数", "对手平均ELO",
+                "总回合数", "输出伤害", "承受伤害", "打针数", "特殊子弹回合", "烟/闪/泪/椒"));
         tableConfig.setSubTitle(1, 17);
 
         for (PlayerAttackStatDO attack : attackList) {
@@ -88,18 +89,20 @@ public class FactionAttackStrategyImpl extends PnMsgStrategy {
                     attack.getOnlineOpponentCount().toString(),
                     attack.getAvgOpponentElo().toString(),
                     attack.getTotalRounds().toString(),
-                    attack.getDamageDealt().toString(),
-                    attack.getDamageTaken().toString(),
+                    NumberUtils.addDelimiters(attack.getDamageScore()),
+                    NumberUtils.addDelimiters(attack.getDamageDealt()),
+                    NumberUtils.addDelimiters(attack.getDamageTaken()),
                     attack.getSyringeUsed().toString(),
                     attack.getSpecialAmmoRounds().toString(),
                     attack.getDebuffTempCount().toString()));
         }
 
         tableData.add(List.of("采样范围为3分钟内双方行动超过100次的战斗",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
         tableConfig.addMerge(attackList.size() + 2, 0, 1, 17);
         tableConfig.setCellStyle(attackList.size() + 2, 0, new TableImageUtils.CellStyle()
-                .setAlignment(TableImageUtils.TextAlignment.RIGHT));
+                .setAlignment(TableImageUtils.TextAlignment.RIGHT)
+                .setFont(new Font("微软雅黑", Font.BOLD, 14)));
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 }

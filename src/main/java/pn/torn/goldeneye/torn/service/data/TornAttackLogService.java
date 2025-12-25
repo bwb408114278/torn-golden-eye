@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
@@ -95,7 +96,7 @@ public class TornAttackLogService {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        } while (resp.getAttackLog().getLog().size() >= limit);
+        } while (StringUtils.hasText(resp.getMetaData().getLinks().getNext()));
 
         return resultList;
     }
