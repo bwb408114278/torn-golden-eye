@@ -91,6 +91,11 @@ public class ManageDocStrategyImpl extends BaseGroupMsgStrategy {
             return TornFactionRoleTypeEnum.OC_COMMANDER;
         }
 
+        List<Long> warCommanderList = NumberUtils.splitToLongList(faction.getWarCommanderIds());
+        if (warCommanderList.contains(userId)) {
+            return TornFactionRoleTypeEnum.WAR_COMMANDER;
+        }
+
         return null;
     }
 

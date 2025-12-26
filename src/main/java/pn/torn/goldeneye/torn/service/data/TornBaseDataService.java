@@ -42,7 +42,7 @@ import java.util.List;
  * Torn基础数据逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.09.10
  */
 @Service
@@ -67,7 +67,7 @@ public class TornBaseDataService {
         }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_BASE_DATA_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 35, 0);
+        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 40, 0);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
             virtualThreadExecutor.execute(this::spiderBaseData);
@@ -88,7 +88,7 @@ public class TornBaseDataService {
 
             LocalDate to = LocalDate.now();
             settingDao.updateSetting(SettingConstants.KEY_BASE_DATA_LOAD, DateTimeUtils.convertToString(to));
-            addScheduleTask(to.plusDays(1).atTime(8, 35, 0));
+            addScheduleTask(to.plusDays(1).atTime(8, 40, 0));
         } catch (Exception e) {
             // 失败5分钟后重试
             addScheduleTask(LocalDateTime.now().plusMinutes(5));

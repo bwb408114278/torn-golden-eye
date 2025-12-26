@@ -7,8 +7,10 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -77,6 +79,15 @@ public class NumberUtils {
      */
     public static String addDelimiters(long number) {
         return String.format("%,d", number);
+    }
+
+    /**
+     * 添加千位分隔符
+     */
+    public static String addDelimiters(BigDecimal number) {
+        DecimalFormat formatter = new DecimalFormat("#,##0.##");
+        formatter.setDecimalFormatSymbols(DecimalFormatSymbols.getInstance(Locale.CHINA));
+        return formatter.format(number);
     }
 
     /**

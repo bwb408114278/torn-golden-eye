@@ -5,14 +5,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
-import pn.torn.goldeneye.repository.dao.torn.TornAttackLogSummaryDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDTO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogRespVO;
+import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.*;
@@ -33,12 +34,12 @@ public class TornAttackLogService {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
     private final TornAttackLogDAO attackLogDao;
-    private final TornAttackLogSummaryDAO summaryDao;
 
     /**
      * 保存攻击日志
      */
-    public void saveAttackLog(long factionId, Set<String> logIdSet, Map<Long, String> userNameMap) {
+    public void saveAttackLog(long factionId, Set<String> logIdSet, Map<Long, String> userNameMap,
+                              Map<Long, TornUserStatsVO> eloMap) {
         if (CollectionUtils.isEmpty(logIdSet)) {
             return;
         }
@@ -48,7 +49,7 @@ public class TornAttackLogService {
                 .list();
         List<CompletableFuture<List<List<TornAttackLogDO>>>> futureList = logIdSet.stream()
                 .map(logId -> CompletableFuture.supplyAsync(
-                        () -> parseLog(factionId, logId, userNameMap, recordList),
+                        () -> parseLog(factionId, logId, userNameMap, eloMap, recordList),
                         virtualThreadExecutor))
                 .toList();
         List<List<TornAttackLogDO>> allLogList = futureList.stream()
@@ -63,7 +64,7 @@ public class TornAttackLogService {
      * 转换Log数据
      */
     private List<List<TornAttackLogDO>> parseLog(long factionId, String logId, Map<Long, String> userNameMap,
-                                                 List<TornAttackLogDO> recordList) {
+                                                 Map<Long, TornUserStatsVO> eloMap, List<TornAttackLogDO> recordList) {
         boolean isExists = recordList.stream().anyMatch(l -> l.getLogId().equals(logId));
         if (isExists) {
             return List.of();
@@ -89,7 +90,7 @@ public class TornAttackLogService {
             }
 
             resultList.add(resp.getAttackLog().getLog().stream()
-                    .map(n -> n.convert2DO(logId, userNameMap))
+                    .map(n -> n.convert2DO(logId, userNameMap, eloMap))
                     .toList());
             pageNo++;
             try {
@@ -97,7 +98,7 @@ public class TornAttackLogService {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        } while (resp.getAttackLog().getLog().size() >= limit);
+        } while (StringUtils.hasText(resp.getMetaData().getLinks().getNext()));
 
         return resultList;
     }

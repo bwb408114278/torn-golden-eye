@@ -1,10 +1,6 @@
 package pn.torn.goldeneye.torn.model.torn.attack;
 
 import lombok.Data;
-import org.springframework.util.StringUtils;
-import pn.torn.goldeneye.repository.model.torn.TornAttackLogSummaryDO;
-
-import java.util.Map;
 
 /**
  * 战斗Log统计响应参数
@@ -35,22 +31,4 @@ public class AttackSummaryVO {
      * 造成伤害
      */
     private long damage;
-
-    public TornAttackLogSummaryDO convert2DO(String logId, Map<Long, String> userNameMap) {
-        TornAttackLogSummaryDO summary = new TornAttackLogSummaryDO();
-        summary.setLogId(logId);
-        summary.setUserId(this.id == null ? 0L : this.id);
-        summary.setHits(this.hits);
-        summary.setMisses(this.misses);
-        summary.setDamage(this.damage);
-
-        if (StringUtils.hasText(this.name) && !"Someone".equals(this.name)) {
-            summary.setNickname(this.name);
-        } else {
-            String userName = userNameMap.get(summary.getUserId());
-            summary.setNickname(userName == null ? "Someone" : userName);
-        }
-
-        return summary;
-    }
 }

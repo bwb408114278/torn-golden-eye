@@ -50,4 +50,8 @@ public class SettingConstants {
      * 配置Key - OC读取时间
      */
     public static final String KEY_OC_LOAD = "OC_LOAD_TIME";
+    /**
+     * 配置Key - RW读取时间
+     */
+    public static final String KEY_RW_LOAD = "RW_LOAD_TIME";
 }

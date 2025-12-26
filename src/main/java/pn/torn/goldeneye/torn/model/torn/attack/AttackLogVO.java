@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 import pn.torn.goldeneye.torn.manager.torn.AttackLogParser;
+import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.Map;
@@ -50,7 +51,7 @@ public class AttackLogVO {
         this.text = text.replace("  ", " ");
     }
 
-    public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap) {
+    public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap, Map<Long, TornUserStatsVO> eloMap) {
         TornAttackLogDO log = new TornAttackLogDO();
         log.setLogId(logId);
         log.setLogTime(DateTimeUtils.convertToDateTime(this.timestamp));
@@ -58,13 +59,13 @@ public class AttackLogVO {
         log.setLogAction(this.action);
         log.setLogIcon(this.icon);
 
-        extractAttacker(userNameMap, log);
-        extractDefender(userNameMap, log);
+        extractAttacker(userNameMap, log, eloMap);
+        extractDefender(userNameMap, log, eloMap);
         extractDamage(log);
         return log;
     }
 
-    private void extractAttacker(Map<Long, String> userNameMap, TornAttackLogDO log) {
+    private void extractAttacker(Map<Long, String> userNameMap, TornAttackLogDO log, Map<Long, TornUserStatsVO> eloMap) {
         if (this.attacker == null) {
             log.setAttackerId(0L);
             log.setAttackerName(SOMEONE);
@@ -73,6 +74,7 @@ public class AttackLogVO {
         } else {
             log.setAttackerId(this.attacker.getId());
             log.setAttackerName(this.attacker.getName(userNameMap));
+            log.setAttackerElo(getElo(log.getAttackerId(), eloMap));
             if (log.getLogText().startsWith(SOMEONE) && !checkIsDefenderType()) {
                 log.setLogText(log.getLogText().replaceFirst(SOMEONE, log.getAttackerName()));
             }
@@ -87,13 +89,14 @@ public class AttackLogVO {
         }
     }
 
-    private void extractDefender(Map<Long, String> userNameMap, TornAttackLogDO log) {
+    private void extractDefender(Map<Long, String> userNameMap, TornAttackLogDO log, Map<Long, TornUserStatsVO> eloMap) {
         if (this.defender == null) {
             log.setDefenderId(0L);
             log.setDefenderName(SOMEONE);
         } else {
             log.setDefenderId(this.defender.getId());
             log.setDefenderName(this.defender.getName(userNameMap));
+            log.setDefenderElo(getElo(log.getDefenderId(), eloMap));
 
             if (log.getLogText().contains(SOMEONE)) {
                 if (!log.getLogText().startsWith(SOMEONE) || checkIsDefenderType()) {
@@ -145,5 +148,14 @@ public class AttackLogVO {
         }
 
         return "";
+    }
+
+    private Integer getElo(long userId, Map<Long, TornUserStatsVO> eloMap) {
+        if (userId == 0L) {
+            return 0;
+        }
+
+        TornUserStatsVO stats = eloMap.get(userId);
+        return stats == null ? 0 : stats.getValue();
     }
 }
