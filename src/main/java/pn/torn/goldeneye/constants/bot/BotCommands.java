@@ -76,7 +76,7 @@ public class BotCommands {
     /**
      * RW真赛
      */
-    public static final String RW_SPIDER = "RW真赛";
+    public static final String RW_SIGN = "RW真赛登记";
     /**
      * RW战神
      */

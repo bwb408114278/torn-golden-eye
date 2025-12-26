@@ -38,7 +38,7 @@ public class FactionRwStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public String getCommand() {
-        return BotCommands.RW_SPIDER;
+        return BotCommands.RW_SIGN;
     }
 
     @Override
@@ -48,7 +48,7 @@ public class FactionRwStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public TornFactionRoleTypeEnum getRoleType() {
-        return TornFactionRoleTypeEnum.LEADER;
+        return TornFactionRoleTypeEnum.WAR_COMMANDER;
     }
 
     @Override

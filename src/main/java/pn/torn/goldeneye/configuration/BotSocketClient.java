@@ -385,6 +385,12 @@ public class BotSocketClient {
                     NumberUtils.splitToLongList(faction.getOcCommanderIds()) : List.of();
             return !ocCommanderList.contains(userId);
         }
+        // 战争指挥官
+        if (TornFactionRoleTypeEnum.WAR_COMMANDER.equals(strategy.getRoleType())) {
+            List<Long> warCommanderList = faction != null ?
+                    NumberUtils.splitToLongList(faction.getWarCommanderIds()) : List.of();
+            return !warCommanderList.contains(userId);
+        }
 
         return true;
     }

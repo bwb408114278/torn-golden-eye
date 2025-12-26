@@ -9,7 +9,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  * Torn设置帮派表
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.08.28
  */
 @Data
@@ -44,6 +44,10 @@ public class TornSettingFactionDO extends BaseDO {
      * OC指挥官ID
      */
     private String ocCommanderIds;
+    /**
+     * 战斗指挥官ID
+     */
+    private String warCommanderIds;
     /**
      * 是否屏蔽消息
      */

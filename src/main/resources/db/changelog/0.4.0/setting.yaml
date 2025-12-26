@@ -15,3 +15,22 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2025-12-25 00:00:00'
+
+  - changeSet:
+      id: add_faction_war_commander
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: war_commander_ids
+                  type: VARCHAR(128)
+                  defaultValue: ""
+                  constraints:
+                    nullable: false
+                  remarks: "战争指挥官ID"
+        - sql:
+            sql: |
+              UPDATE torn_setting_faction SET war_commander_ids = group_admin_ids;
+              UPDATE torn_setting_faction SET war_commander_ids = '1577318514' WHERE id = 20465;
