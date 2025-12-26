@@ -1,6 +1,6 @@
 databaseChangeLog:
   - changeSet:
-      id: split_user_and_base_data
+      id: add_phn_rw_setting
       author: Bai
       changes:
         - insert:

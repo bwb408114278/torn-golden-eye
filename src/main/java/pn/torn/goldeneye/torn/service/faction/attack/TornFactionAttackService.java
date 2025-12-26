@@ -77,7 +77,7 @@ public class TornFactionAttackService {
             }
         } while (resp.getAttacks().size() >= limit);
 
-        attackLogService.saveAttackLog(faction.getId(), logIdSet, userNameMap);
+        attackLogService.saveAttackLog(faction.getId(), logIdSet, userNameMap, eloMap);
     }
 
     /**

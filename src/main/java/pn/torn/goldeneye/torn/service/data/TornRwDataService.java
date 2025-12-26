@@ -96,6 +96,7 @@ public class TornRwDataService {
      * 爬取RW数据
      */
     public void spiderRwData(TornFactionRwVO currentRw, TornSettingFactionDO faction, LocalDateTime from) {
+        LocalDateTime now = LocalDateTime.now();
         LocalDateTime start = DateTimeUtils.convertToDateTime(currentRw.getStart());
         LocalDateTime to;
         if (currentRw.getEnd() != 0L) {
@@ -105,17 +106,13 @@ public class TornRwDataService {
                     .eq(TornFactionRwDO::getId, currentRw.getId())
                     .update();
         } else {
-            LocalDateTime now = LocalDateTime.now();
-            long intervalMinutes = getIntervalMinutes(now);
-            to = now.isAfter(start) ? start.plusMinutes(intervalMinutes) : now;
-
-            settingDao.updateSetting(faction.getFactionShortName() + "-" + SettingConstants.KEY_RW_LOAD,
-                    DateTimeUtils.convertToString(to));
+            to = start.isAfter(now) ? start : now;
             addScheduleTask(faction, to);
         }
 
-//        attackService.spiderAttackData(faction, from, to);
-        log.info("抓取时间: {} - {}", DateTimeUtils.convertToString(from), DateTimeUtils.convertToString(to));
+        if (now.isAfter(start)) {
+            attackService.spiderAttackData(faction, from, to);
+        }
     }
 
     /**
@@ -124,7 +121,9 @@ public class TornRwDataService {
     public void addScheduleTask(TornSettingFactionDO faction, LocalDateTime from) {
         LocalDateTime nextExecutionTime = calculateNextExecutionTime(from);
 
-        taskService.updateTask(faction.getFactionShortName() + "_" + "rw-data-reload",
+        settingDao.updateSetting(faction.getFactionShortName() + "_" + SettingConstants.KEY_RW_LOAD,
+                DateTimeUtils.convertToString(from));
+        taskService.updateTask(faction.getFactionShortName() + "-" + "rw-data-reload",
                 () -> this.spiderRwData(faction, from),
                 nextExecutionTime);
     }
