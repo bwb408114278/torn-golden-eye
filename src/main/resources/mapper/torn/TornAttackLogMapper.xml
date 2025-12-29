@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornAttackLogMapper">
+    <!-- 统计指定时间窗口的玩家数据 -->
     <select id="queryPlayerAttackStat" resultType="pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO">
         WITH qualified_windows AS (
             SELECT
@@ -119,5 +120,15 @@
         LEFT JOIN log_stats ls ON pas.attack_user_id = ls.attack_user_id
         LEFT JOIN defender_stats ds ON pas.attack_user_id = ds.attack_user_id
         ORDER BY COALESCE(ls.damage_score, 0) DESC
+    </select>
+
+    <!-- 统计指定时间的物品数据 -->
+    <select id="queryPlayerAttackItem" resultType="pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO">
+        SELECT al.attacker_item_name, COUNT(*) AS num
+        FROM torn_attack_log al
+        INNER JOIN torn_user u ON al.attacker_id = u.id AND u.faction_id = #{factionId}
+        WHERE al.log_time BETWEEN #{startTime} AND #{endTime}
+            AND attacker_item_name IN ('Epinephrine', 'Melatonin', 'Serotonin', 'Tyrosine')
+        GROUP BY al.attacker_item_name;
     </select>
 </mapper>

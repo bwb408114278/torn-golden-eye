@@ -49,6 +49,10 @@ public class TornSettingFactionDO extends BaseDO {
      */
     private String warCommanderIds;
     /**
+     * 军需官ID
+     */
+    private String quartermasterIds;
+    /**
      * 是否屏蔽消息
      */
     private Boolean msgBlock;

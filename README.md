@@ -114,3 +114,4 @@ log_timezone = 'Asia/Shanghai'
 | 2450323 | Cestbon       | FHC × 10          | 奖励一下                                                  |
 | 2633225 | Cousinggg     | 10m               | Show some love and ty for contribution of golden eye! |
 | 1864837 | Cinderine     | 双特效橙SIG           | 赠礼，感谢作佬帮忙开发rw伤害贡献统计相关功能！                              |
+| 3133172 | Kingdee       | FHC               | 祝金眼越来越强                                               |

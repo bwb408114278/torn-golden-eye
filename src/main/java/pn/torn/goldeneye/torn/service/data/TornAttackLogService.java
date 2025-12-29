@@ -47,15 +47,27 @@ public class TornAttackLogService {
         List<TornAttackLogDO> recordList = attackLogDao.lambdaQuery()
                 .in(TornAttackLogDO::getLogId, logIdSet)
                 .list();
-        List<CompletableFuture<List<List<TornAttackLogDO>>>> futureList = logIdSet.stream()
-                .map(logId -> CompletableFuture.supplyAsync(
-                        () -> parseLog(factionId, logId, userNameMap, eloMap, recordList),
-                        virtualThreadExecutor))
-                .toList();
-        List<List<TornAttackLogDO>> allLogList = futureList.stream()
-                .map(CompletableFuture::join)
-                .flatMap(List::stream)
-                .toList();
+
+        int batchSize = 100;
+        List<String> logIds = new ArrayList<>(logIdSet);
+        List<List<TornAttackLogDO>> allLogList = new ArrayList<>();
+        for (int i = 0; i < logIds.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, logIds.size());
+            List<String> batch = logIds.subList(i, end);
+
+            List<CompletableFuture<List<List<TornAttackLogDO>>>> futureList = batch.stream()
+                    .map(logId -> CompletableFuture.supplyAsync(
+                            () -> parseLog(factionId, logId, userNameMap, eloMap, recordList),
+                            virtualThreadExecutor))
+                    .toList();
+            List<List<TornAttackLogDO>> batchResult = futureList.stream()
+                    .map(CompletableFuture::join)
+                    .flatMap(List::stream)
+                    .toList();
+
+            allLogList.addAll(batchResult);
+        }
+
         Collection<List<TornAttackLogDO>> logList = filterRepeatLog(allLogList);
         saveLogData(logList);
     }

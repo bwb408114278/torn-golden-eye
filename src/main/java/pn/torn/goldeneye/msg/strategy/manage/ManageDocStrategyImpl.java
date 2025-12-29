@@ -96,6 +96,11 @@ public class ManageDocStrategyImpl extends BaseGroupMsgStrategy {
             return TornFactionRoleTypeEnum.WAR_COMMANDER;
         }
 
+        List<Long> getQuartermasterList = NumberUtils.splitToLongList(faction.getQuartermasterIds());
+        if (getQuartermasterList.contains(userId)) {
+            return TornFactionRoleTypeEnum.QUARTERMASTER;
+        }
+
         return null;
     }
 

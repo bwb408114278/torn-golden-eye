@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.dao.torn;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.TornAttackLogMapper;
+import pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 
@@ -30,5 +31,16 @@ public class TornAttackLogDAO extends ServiceImpl<TornAttackLogMapper, TornAttac
     public List<PlayerAttackStatDO> queryPlayerAttackStat(long factionId, int windowMinutes, int minBattleCount,
                                                           LocalDateTime startTime, LocalDateTime endTime) {
         return baseMapper.queryPlayerAttackStat(factionId, windowMinutes, minBattleCount, startTime, endTime);
+    }
+
+    /**
+     * 统计指定时间的物品数据
+     *
+     * @param factionId 帮派ID
+     * @param startTime 开始时间
+     * @param endTime   结束时间
+     */
+    public List<PlayerAttackItemDO> queryPlayerAttackItem(long factionId, LocalDateTime startTime, LocalDateTime endTime) {
+        return baseMapper.queryPlayerAttackItem(factionId, startTime, endTime);
     }
 }

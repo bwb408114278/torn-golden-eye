@@ -34,3 +34,22 @@ databaseChangeLog:
             sql: |
               UPDATE torn_setting_faction SET war_commander_ids = group_admin_ids;
               UPDATE torn_setting_faction SET war_commander_ids = '1577318514' WHERE id = 20465;
+
+  - changeSet:
+      id: add_faction_quartermaster
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: quartermaster_ids
+                  type: VARCHAR(128)
+                  defaultValue: ""
+                  constraints:
+                    nullable: false
+                  remarks: "军需官ID"
+        - sql:
+            sql: |
+              UPDATE torn_setting_faction SET quartermaster_ids = group_admin_ids;
+              UPDATE torn_setting_faction SET quartermaster_ids = '724507540' WHERE id = 20465;
