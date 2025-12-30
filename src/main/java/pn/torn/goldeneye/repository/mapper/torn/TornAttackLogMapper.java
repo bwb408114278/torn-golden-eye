@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.mapper.torn;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 
@@ -30,6 +31,17 @@ public interface TornAttackLogMapper extends BaseMapper<TornAttackLogDO> {
     List<PlayerAttackStatDO> queryPlayerAttackStat(@Param("factionId") long factionId,
                                                    @Param("windowMinutes") int windowMinutes,
                                                    @Param("minBattleCount") int minBattleCount,
+                                                   @Param("startTime") LocalDateTime startTime,
+                                                   @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 统计指定时间的物品数据
+     *
+     * @param factionId 帮派ID
+     * @param startTime 开始时间
+     * @param endTime   结束时间
+     */
+    List<PlayerAttackItemDO> queryPlayerAttackItem(@Param("factionId") long factionId,
                                                    @Param("startTime") LocalDateTime startTime,
                                                    @Param("endTime") LocalDateTime endTime);
 }

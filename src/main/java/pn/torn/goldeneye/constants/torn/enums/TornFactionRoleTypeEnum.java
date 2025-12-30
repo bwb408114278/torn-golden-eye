@@ -24,7 +24,11 @@ public enum TornFactionRoleTypeEnum {
     /**
      * 战争指挥官
      */
-    WAR_COMMANDER("war_commander");
+    WAR_COMMANDER("war_commander"),
+    /**
+     * 军需官
+     */
+    QUARTERMASTER("quartermaster");
 
     private final String code;
 }

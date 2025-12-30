@@ -34,3 +34,102 @@ databaseChangeLog:
             sql: |
               UPDATE torn_setting_faction SET war_commander_ids = group_admin_ids;
               UPDATE torn_setting_faction SET war_commander_ids = '1577318514' WHERE id = 20465;
+
+  - changeSet:
+      id: add_faction_quartermaster
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: quartermaster_ids
+                  type: VARCHAR(128)
+                  defaultValue: ""
+                  constraints:
+                    nullable: false
+                  remarks: "军需官ID"
+        - sql:
+            sql: |
+              UPDATE torn_setting_faction SET quartermaster_ids = group_admin_ids;
+              UPDATE torn_setting_faction SET quartermaster_ids = '724507540' WHERE id = 20465;
+
+  - changeSet:
+      id: create_faction_armory_warning
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_armory_warning
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+              - column:
+                  name: item_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "物品ID"
+              - column:
+                  name: item_nickname
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "物品昵称"
+              - column:
+                  name: warning_qty
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "告警数量"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: |
+              INSERT INTO torn_faction_armory_warning(id, faction_id, item_id, item_nickname, warning_qty) VALUES
+              (1, 20465, 180, '啤酒', '1000'),
+              (2, 20465, 731, '空血包', '500'),
+              (3, 20465, 732, 'A+血', '500'),
+              (4, 20465, 733, 'A-血', '500'),
+              (5, 20465, 734, 'B+血', '500'),
+              (6, 20465, 735, 'B-血', '500'),
+              (7, 20465, 736, 'AB+血', '500'),
+              (8, 20465, 737, 'AB+血', '500'),
+              (9, 20465, 738, 'O+血', '500'),
+              (10, 20465, 739, 'O-血', '500'),
+              (11, 20465, 66, '吗啡', '500'),
+              (12, 20465, 67, '小蓝', '500'),
+              (13, 20465, 68, '小红', '1000'),
+              (14, 20465, 222, '闪光弹', '500'),
+              (15, 20465, 242, 'HEG', '500'),
+              (16, 20465, 226, '烟雾弹', '500'),
+              (17, 20465, 256, '催泪弹', '500');

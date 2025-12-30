@@ -117,13 +117,14 @@ public class ItemUsedService {
     public void spiderItemUseData(TornSettingFactionDO faction, LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionNewsDTO param;
+        TornFactionNewsListVO resp;
         LocalDateTime queryTo = to;
         List<TornFactionItemUsedDO> newsList;
         List<TornFactionItemUsedDO> misuseList = new ArrayList<>();
 
         do {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
-            TornFactionNewsListVO resp = tornApi.sendRequest(faction.getId(), param, TornFactionNewsListVO.class);
+            resp = tornApi.sendRequest(faction.getId(), param, TornFactionNewsListVO.class);
             if (resp == null || CollectionUtils.isEmpty(resp.getNews())) {
                 break;
             }
@@ -152,7 +153,7 @@ public class ItemUsedService {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        } while (newsList.size() >= limit);
+        } while (resp.getNews().size() >= limit);
 
         sendWarningMsg(faction, misuseList);
     }

@@ -81,6 +81,10 @@ public class BotCommands {
      * RW战神
      */
     public static final String RW_GOD = "RW战神";
+    /**
+     * RW消耗
+     */
+    public static final String RW_EXPEND = "RW消耗";
 
     // ====================管理功能相关====================
     /**
