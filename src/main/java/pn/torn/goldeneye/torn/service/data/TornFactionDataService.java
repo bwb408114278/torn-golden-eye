@@ -169,11 +169,13 @@ public class TornFactionDataService {
         itemList.addAll(resp.getMedical());
         itemList.addAll(resp.getTemporary());
         for (TornFactionArmoryWarningDO warning : warningList) {
-            itemList.stream()
-                    .filter(i -> i.getItemId().equals(warning.getItemId()) &&
-                            i.getAvailableQty().compareTo(warning.getWarningQty()) < 0)
+            TornFactionUsageItem item = itemList.stream()
+                    .filter(i -> i.getItemId().equals(warning.getItemId()))
                     .findAny()
-                    .ifPresent(item -> msgMap.put(warning, item.getAvailableQty()));
+                    .orElse(null);
+            if (item == null || item.getAvailableQty().compareTo(warning.getWarningQty()) < 0) {
+                msgMap.put(warning, item == null ? 0 : item.getAvailableQty());
+            }
         }
 
         if (CollectionUtils.isEmpty(msgMap)) {

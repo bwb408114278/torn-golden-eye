@@ -78,6 +78,10 @@ public class BotCommands {
      */
     public static final String RW_SIGN = "RW真赛登记";
     /**
+     * RW攻击频率
+     */
+    public static final String RW_ATTACK_PERIOD = "RW攻击频率";
+    /**
      * RW战神
      */
     public static final String RW_GOD = "RW战神";
