@@ -70,7 +70,7 @@ class TornApiImpl implements TornApi {
             }
 
             ResponseEntity<String> entity = sendRequest(reqSpec, 0);
-            T response = handleResponse(entity, responseType);
+            T response = handleResponse(param, entity, responseType);
             apiKeyConfig.returnKey(apiKey);
             return response;
         } catch (BizException e) {
@@ -110,7 +110,7 @@ class TornApiImpl implements TornApi {
                         .header("Authorization", "ApiKey " + apiKey.getApiKey());
 
                 ResponseEntity<String> entity = sendRequest(reqSpec, 0);
-                T result = handleResponse(entity, responseType);
+                T result = handleResponse(param, entity, responseType);
 
                 apiKeyConfig.returnKey(apiKey);
                 return result;
@@ -153,14 +153,14 @@ class TornApiImpl implements TornApi {
     /**
      * 处理响应体
      */
-    private <T> T handleResponse(ResponseEntity<String> entity, Class<T> responseType) {
+    private <T> T handleResponse(TornReqParamV2 param, ResponseEntity<String> entity, Class<T> responseType) {
         try {
             if (entity == null || entity.getBody() == null || entity.getBody().isEmpty()) {
                 return null;
             }
 
             if (JsonUtils.existsNode(entity.getBody(), "error")) {
-                log.error("Torn Api报错: {}", entity.getBody());
+                log.error("Torn Api报错, uri: {}, response: {}", param.uri(), entity.getBody());
                 JsonNode node = JsonUtils.getNode(entity.getBody(), "error.code");
                 // 无效的Key
                 if (node != null && (node.asInt() == INVALID_KEY_ERROR_CODE ||

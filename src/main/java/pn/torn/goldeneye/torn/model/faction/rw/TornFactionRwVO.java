@@ -41,6 +41,17 @@ public class TornFactionRwVO {
      */
     private List<TornFactionRwFactionVO> factions;
 
+    public TornFactionRwFactionVO getOpponentFaction(long factionId) {
+        TornFactionRwFactionVO opponentFaction = factions.stream()
+                .filter(f -> f.getId() != factionId)
+                .findAny().orElse(null);
+        if (opponentFaction == null) {
+            throw new BizException("RW帮派解析错误");
+        }
+
+        return opponentFaction;
+    }
+
     public TornFactionRwDO convert2DO(long factionId) {
         TornFactionRwDO rw = new TornFactionRwDO();
         rw.setId(this.id);
@@ -49,10 +60,8 @@ public class TornFactionRwVO {
         TornFactionRwFactionVO faction = factions.stream()
                 .filter(f -> f.getId() == factionId)
                 .findAny().orElse(null);
-        TornFactionRwFactionVO opponentFaction = factions.stream()
-                .filter(f -> f.getId() != factionId)
-                .findAny().orElse(null);
-        if (faction == null || opponentFaction == null) {
+        TornFactionRwFactionVO opponentFaction = getOpponentFaction(factionId);
+        if (faction == null) {
             throw new BizException("RW帮派解析错误");
         }
 

@@ -1,13 +1,15 @@
 package pn.torn.goldeneye.torn.model.faction.member;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.model.user.TornUserLastActionVO;
 
 /**
  * Torn帮派成员响应参数
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.4.0
  * @since 2025.08.04
  */
 @Data
@@ -20,6 +22,11 @@ public class TornFactionMemberVO {
      * 名称
      */
     private String name;
+    /**
+     * 状态
+     */
+    @JsonProperty("last_action")
+    private TornUserLastActionVO lastAction;
 
     public TornUserDO convert2DO(long factionId) {
         TornUserDO user = new TornUserDO();

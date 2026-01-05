@@ -12,19 +12,20 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.model.faction.attack.TornFactionAttackDTO;
 import pn.torn.goldeneye.torn.model.faction.attack.TornFactionAttackRespVO;
 import pn.torn.goldeneye.torn.model.faction.attack.TornFactionAttackVO;
-import pn.torn.goldeneye.torn.model.user.TornUserDTO;
-import pn.torn.goldeneye.torn.model.user.TornUserProfileVO;
-import pn.torn.goldeneye.torn.model.user.TornUserVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.torn.model.user.TornUserLastActionVO;
 import pn.torn.goldeneye.torn.model.user.elo.TornUserEloDTO;
 import pn.torn.goldeneye.torn.model.user.elo.TornUserEloVO;
 import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
 import pn.torn.goldeneye.torn.service.data.TornAttackLogService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -46,16 +47,17 @@ public class TornFactionAttackService {
     /**
      * 爬取攻击记录
      */
-    public void spiderAttackData(TornSettingFactionDO faction, LocalDateTime from, LocalDateTime to) {
+    public void spiderAttackData(TornSettingFactionDO faction, long opponentFactionId,
+                                 LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionAttackDTO param;
         LocalDateTime queryFrom = from;
         TornFactionAttackRespVO resp;
         List<TornFactionAttackDO> attackList;
-        Map<Long, TornUserProfileVO> userMap = new ConcurrentHashMap<>();
-        Map<Long, TornUserStatsVO> eloMap = new ConcurrentHashMap<>();
         Set<String> logIdSet = new HashSet<>();
         Map<Long, String> userNameMap = new HashMap<>();
+        Map<Long, TornUserLastActionVO> userMap = extractOnlineStatus(faction.getId(), opponentFactionId);
+        Map<Long, TornUserStatsVO> eloMap = new HashMap<>();
 
         do {
             param = new TornFactionAttackDTO(queryFrom, to, limit);
@@ -64,6 +66,7 @@ public class TornFactionAttackService {
                 break;
             }
 
+            extractElo(resp, eloMap);
             attackList = parseNewsList(resp, userMap, logIdSet, userNameMap, eloMap);
             if (!CollectionUtils.isEmpty(attackList)) {
                 attackDao.saveBatch(attackList);
@@ -83,7 +86,7 @@ public class TornFactionAttackService {
     /**
      * 解析新闻列表为攻击记录
      */
-    public List<TornFactionAttackDO> parseNewsList(TornFactionAttackRespVO resp, Map<Long, TornUserProfileVO> userMap,
+    public List<TornFactionAttackDO> parseNewsList(TornFactionAttackRespVO resp, Map<Long, TornUserLastActionVO> userMap,
                                                    Set<String> logIdSet, Map<Long, String> userNameMap,
                                                    Map<Long, TornUserStatsVO> eloMap) {
         if (resp == null || CollectionUtils.isEmpty(resp.getAttacks())) {
@@ -94,35 +97,33 @@ public class TornFactionAttackService {
         Set<Long> existingIds = attackDao.lambdaQuery().in(TornFactionAttackDO::getId, idList).list().stream()
                 .map(TornFactionAttackDO::getId).collect(Collectors.toSet());
 
-        List<CompletableFuture<TornFactionAttackDO>> futureList = resp.getAttacks().stream()
-                .filter(attack -> !existingIds.contains(attack.getId()))
-                .distinct()
-                .map(attack ->
-                        CompletableFuture.supplyAsync(() ->
-                                parseNews(attack, userMap, eloMap), virtualThreadExecutor))
-                .toList();
+        List<TornFactionAttackDO> attackList = new ArrayList<>();
+        for (TornFactionAttackVO attack : resp.getAttacks()) {
+            if (existingIds.contains(attack.getId())) {
+                continue;
+            }
 
-        List<TornFactionAttackDO> attackList = futureList.stream()
-                .map(CompletableFuture::join)
-                .toList();
-        attackList.forEach(data -> {
+            TornFactionAttackDO data = parseNews(attack, userMap, eloMap);
+            attackList.add(data);
+
+            existingIds.add(data.getId());
             logIdSet.add(data.getAttackLogId());
             userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
             userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
-        });
+        }
+
         return attackList;
     }
 
     /**
      * 解析单条新闻为攻击记录
      */
-    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornUserProfileVO> userMap,
+    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornUserLastActionVO> userMap,
                                          Map<Long, TornUserStatsVO> eloMap) {
         TornFactionAttackDO data = new TornFactionAttackDO();
         data.setId(attack.getId());
         data.setDefendUserId(attack.getDefender().getId());
         data.setDefendUserNickname(attack.getDefender().getName());
-        data.setDefendUserOnlineStatus(extractOnlineStatus(data.getDefendUserId(), userMap));
         data.setAttackStartTime(DateTimeUtils.convertToDateTime(attack.getStarted()));
         data.setAttackEndTime(DateTimeUtils.convertToDateTime(attack.getEnded()));
         data.setAttackResult(attack.getResult());
@@ -162,8 +163,13 @@ public class TornFactionAttackService {
             data.setDefendFactionName(attack.getDefender().getFaction().getName());
         }
 
-        data.setAttackerElo(extractElo(data.getAttackUserId(), data.getAttackEndTime(), eloMap));
-        data.setDefenderElo(extractElo(data.getDefendUserId(), data.getAttackEndTime(), eloMap));
+        TornUserLastActionVO la = userMap.get(data.getDefendUserId());
+        data.setDefendUserOnlineStatus(la == null ? "Offline" : la.getStatus());
+
+        TornUserStatsVO attackerStats = eloMap.get(data.getAttackUserId());
+        TornUserStatsVO defenderStats = eloMap.get(data.getDefendUserId());
+        data.setAttackerElo(attackerStats == null ? null : attackerStats.getValue());
+        data.setDefenderElo(defenderStats == null ? null : defenderStats.getValue());
 
         return data;
     }
@@ -171,50 +177,61 @@ public class TornFactionAttackService {
     /**
      * 提取在线状态
      */
-    private String extractOnlineStatus(long userId, Map<Long, TornUserProfileVO> userMap) {
-        if (userId == 0L) {
-            return "";
+    private Map<Long, TornUserLastActionVO> extractOnlineStatus(long... factionIds) {
+        if (factionIds == null) {
+            return Map.of();
         }
 
-        TornUserProfileVO user = userMap.get(userId);
-        if (user != null) {
-            return user.getLastAction().getStatus();
+        Map<Long, TornUserLastActionVO> resultMap = new LinkedHashMap<>();
+        for (long factionId : factionIds) {
+            TornFactionMemberDTO param = new TornFactionMemberDTO(factionId);
+            TornFactionMemberListVO resp = tornApi.sendRequest(param, TornFactionMemberListVO.class);
+
+            if (resp == null || CollectionUtils.isEmpty(resp.getMembers())) {
+                continue;
+            }
+
+            for (TornFactionMemberVO member : resp.getMembers()) {
+                resultMap.put(member.getId(), member.getLastAction());
+            }
         }
 
-        TornUserVO resp = tornApi.sendRequest(new TornUserDTO(userId), TornUserVO.class);
-        if (resp != null && resp.getProfile() != null) {
-            user = resp.getProfile();
-            userMap.put(userId, user);
-            return user.getLastAction().getStatus();
-        }
-
-        return null;
+        return resultMap;
     }
 
     /**
      * 提取Elo
      */
-    private Integer extractElo(long userId, LocalDateTime time, Map<Long, TornUserStatsVO> eloMap) {
-        if (userId == 0L) {
-            return null;
-        }
+    private void extractElo(TornFactionAttackRespVO attackResp, Map<Long, TornUserStatsVO> eloMap) {
+        Set<String> userIdSet = new HashSet<>();
+        for (TornFactionAttackVO attack : attackResp.getAttacks()) {
+            LocalDate localDate = DateTimeUtils.convertToDateTime(attack.getEnded()).toLocalDate();
+            String key = DateTimeUtils.convertToString(localDate);
 
-        TornUserStatsVO elo = eloMap.get(userId);
-        if (elo != null) {
-            return elo.getValue();
+            userIdSet.add(attack.getAttacker() == null ? "" : attack.getAttacker().getId() + "#" + key);
+            userIdSet.add(attack.getDefender() == null ? "" : attack.getDefender().getId() + "#" + key);
         }
+        userIdSet.removeIf(String::isEmpty);
 
-        TornUserEloVO resp = tornApi.sendRequest(new TornUserEloDTO(userId, time), TornUserEloVO.class);
-        if (resp != null && !CollectionUtils.isEmpty(resp.getPersonalstats())) {
-            TornUserStatsVO stats = resp.getPersonalstats().stream()
-                    .filter(p -> p.getName().equals("elo")).findAny()
-                    .orElse(null);
-            if (stats != null) {
-                eloMap.put(userId, stats);
-                return stats.getValue();
+        List<CompletableFuture<Void>> futureList = new ArrayList<>();
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+        for (String key : userIdSet) {
+            String[] keys = key.split("#");
+            long userId = Long.parseLong(keys[0]);
+            LocalDateTime time = DateTimeUtils.convertToDate(keys[1]).atTime(10, 0, 0);
+            if (eloMap.containsKey(userId)) {
+                continue;
             }
-        }
 
-        return null;
+            futureList.add(CompletableFuture.runAsync(() -> {
+                TornUserEloVO resp = tornApi.sendRequest(new TornUserEloDTO(userId, time), TornUserEloVO.class);
+                if (resp != null && !CollectionUtils.isEmpty(resp.getPersonalstats())) {
+                    resp.getPersonalstats().stream()
+                            .filter(p -> p.getName().equals("elo"))
+                            .findAny()
+                            .ifPresent(stats -> eloMap.put(userId, stats));
+                }
+            }, virtualThreadExecutor));
+        }
     }
 }
