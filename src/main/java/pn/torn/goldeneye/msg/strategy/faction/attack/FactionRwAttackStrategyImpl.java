@@ -68,7 +68,7 @@ public class FactionRwAttackStrategyImpl extends PnMsgStrategy {
         TornFactionRwDO rw = rwList.getRecords().getFirst();
         LocalDateTime startTime = rw.getStartTime();
         LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
-        List<PlayerAttackStatDO> attackList = attackLogDao.queryPlayerAttackStat(factionId,
+        List<PlayerAttackStatDO> attackList = attackLogDao.queryPlayerAttackStat(factionId, rw.getOpponentFactionId(),
                 windowMinutes, minBattleCount, startTime, endTime);
         if (CollectionUtils.isEmpty(attackList)) {
             return super.buildTextMsg("未查询到战斗记录");

@@ -8,6 +8,8 @@ import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
+import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
+import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.service.faction.attack.TornFactionAttackService;
@@ -29,6 +31,7 @@ public class AttackSyncStrategyImpl extends BaseGroupMsgStrategy {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornFactionAttackService attackService;
     private final TornSettingFactionManager settingFactionManager;
+    private final TornFactionRwDAO rwDao;
 
     @Override
     public boolean isNeedSa() {
@@ -55,9 +58,10 @@ public class AttackSyncStrategyImpl extends BaseGroupMsgStrategy {
         String[] msgArray = msg.split("#");
 
         TornSettingFactionDO faction = settingFactionManager.getIdMap().get(Long.parseLong(msgArray[0]));
-        LocalDateTime from = DateTimeUtils.convertToDateTime(Long.parseLong(msgArray[1]));
-        LocalDateTime to = DateTimeUtils.convertToDateTime(Long.parseLong(msgArray[2]));
-        virtualThreadExecutor.execute(() -> attackService.spiderAttackData(faction, from, to));
+        TornFactionRwDO rw = rwDao.getById(Long.parseLong(msgArray[1]));
+        LocalDateTime from = DateTimeUtils.convertToDateTime(Long.parseLong(msgArray[2]));
+        LocalDateTime to = DateTimeUtils.convertToDateTime(Long.parseLong(msgArray[3]));
+        virtualThreadExecutor.execute(() -> attackService.spiderAttackData(faction, rw.getOpponentFactionId(), from, to));
         return super.buildTextMsg("同步攻击记录中, 请注意查看日志和数据");
     }
 }

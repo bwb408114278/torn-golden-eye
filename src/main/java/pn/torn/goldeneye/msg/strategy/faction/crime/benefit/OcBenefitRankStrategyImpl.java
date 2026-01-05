@@ -74,6 +74,9 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
     public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
         OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
+        if (ranking == null) {
+            return user.getNickname() + "在" + date.getMonthValue() + "月还没有OC收益";
+        }
 
         TornUserDO prevUser = ranking.getPrevUserId() == null ?
                 null : userManager.getUserMap().get(ranking.getPrevUserId());

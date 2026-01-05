@@ -37,6 +37,7 @@
                      ) = qw.window_start
                  WHERE fa.deleted = 0
                    AND fa.attack_faction_id = #{factionId}
+                   AND fa.defend_faction_id = #{opponentFactionId}
                    AND fa.attack_end_time BETWEEN #{startTime} AND #{endTime}
              ),
              player_attack_stats AS (

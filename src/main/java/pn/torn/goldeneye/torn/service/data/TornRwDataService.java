@@ -111,7 +111,7 @@ public class TornRwDataService {
         }
 
         if (now.isAfter(start)) {
-            attackService.spiderAttackData(faction, from, to);
+            attackService.spiderAttackData(faction, currentRw.getOpponentFaction(faction.getId()).getId(), from, to);
         }
     }
 
