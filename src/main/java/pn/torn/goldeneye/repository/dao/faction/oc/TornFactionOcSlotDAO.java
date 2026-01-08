@@ -9,13 +9,14 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Torn Oc Slot持久层类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.07.29
  */
 @Repository
@@ -52,9 +53,14 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
     /**
      * 查询缺人的岗位列表
      */
-    public List<TornFactionOcSlotDO> queryEmptySlotList(List<Long> ocIdList) {
+    public List<TornFactionOcSlotDO> queryEmptySlotList(Collection<TornFactionOcDO> ocList) {
+        if (CollectionUtils.isEmpty(ocList)) {
+            return List.of();
+        }
+
+        Set<Long> ocIdSet = ocList.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
         return lambdaQuery()
-                .in(TornFactionOcSlotDO::getOcId, ocIdList)
+                .in(TornFactionOcSlotDO::getOcId, ocIdSet)
                 .isNull(TornFactionOcSlotDO::getUserId)
                 .list();
     }

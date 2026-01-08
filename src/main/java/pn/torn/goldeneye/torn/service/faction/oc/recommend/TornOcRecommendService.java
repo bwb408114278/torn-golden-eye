@@ -26,7 +26,7 @@ import java.util.List;
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.11.01
  */
 @Slf4j
@@ -130,12 +130,10 @@ public class TornOcRecommendService {
      */
     public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList,
                                                        OcSlotDictBO joinedOcSlot) {
-        List<Long> recrutIdList = recruitOcList.stream().map(TornFactionOcDO::getId).toList();
-        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(recrutIdList);
+        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(recruitOcList);
         if (joinedOcSlot != null) {
             emptySlotList.add(joinedOcSlot.getSlot());
         }
-
 
         return emptySlotList;
     }
