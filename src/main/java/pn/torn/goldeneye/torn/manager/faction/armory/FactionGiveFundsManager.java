@@ -53,7 +53,9 @@ public class FactionGiveFundsManager {
                 break;
             }
 
-            newsList = resp.getNews().stream().map(n -> convert2DO(faction.getId(), n)).toList();
+            newsList = resp.getNews().stream().map(n -> convert2DO(faction.getId(), n))
+                    .filter(n -> n.getUserId() != null)
+                    .toList();
             List<TornFactionGiveFundsDO> dataList = buildDataList(newsList);
             if (!CollectionUtils.isEmpty(dataList)) {
                 giveFundsDao.saveBatch(dataList);
@@ -78,6 +80,7 @@ public class FactionGiveFundsManager {
         funds.setWithdrawTime(DateTimeUtils.convertToDateTime(news.getTimestamp()));
 
         Matcher matcher = PATTERN.matcher(news.getText());
+        // 取Point不会匹配到
         if (matcher.find()) {
             funds.setUserId(Long.parseLong(matcher.group(1)));
             funds.setHandleUserId(Long.parseLong(matcher.group(4)));
