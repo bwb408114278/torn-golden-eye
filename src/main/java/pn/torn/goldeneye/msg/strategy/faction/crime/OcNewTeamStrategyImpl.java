@@ -45,7 +45,7 @@ public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "获取开OC新队的建议";
+        return "分析现有人员和OC, g#" + BotCommands.OC_NEW_TEAM + "#小时";
     }
 
     @Override
@@ -87,8 +87,8 @@ public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
                 + "\n将24小时内停转队伍按照权重-成功率-由低到高分配"
                 + "\n" + hour + "小时后释放的人可分配" + team.getMatchSuccessUserCount() + "人入队"
                 + "\n" + team.getFailMatchCount() + "队没有合适的人加入"
-                + "\n剩余人中有" + team.getOnlyLowLevelUserCount() + "人只能做7级, "
-                + "有" + (team.getFreeUserCount() - team.getMatchSuccessUserCount() - team.getOnlyLowLevelUserCount()) +
-                "人可以同时做7/8级";
+                + "\n剩余人中有" + team.getHighAbilityUserCount() + "人可以同时做7/8级, "
+                + "有" + (team.getFreeUserCount() - team.getMatchSuccessUserCount() - team.getHighAbilityUserCount()) +
+                "人只能做7级";
     }
 }

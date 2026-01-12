@@ -55,9 +55,9 @@ public class OcNewTeamBO {
      */
     private int failMatchCount;
     /**
-     * 只能做7级人员数量
+     * 7/8级都能做人员数量
      */
-    private int onlyLowLevelUserCount;
+    private int highAbilityUserCount;
 
     public OcNewTeamBO(List<TornFactionOcDO> ocList, Set<Long> availableUser, List<TornFactionOcUserDO> freeUserList,
                        List<TornFactionOcDO> stopList, List<TornFactionOcDO> finishList) {
@@ -78,7 +78,7 @@ public class OcNewTeamBO {
         this.failMatchCount = failMatchList.size();
     }
 
-    public void setOnlyLowLevel(List<TornFactionOcUserDO> onlyLowLevelUserList) {
-        this.onlyLowLevelUserCount = onlyLowLevelUserList.size();
+    public void setHighAbility(Set<Long> highAbilityUserSet) {
+        this.highAbilityUserCount = highAbilityUserSet.size();
     }
 }

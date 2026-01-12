@@ -114,9 +114,7 @@ public class TornOcManageService {
             matchUserSet.addAll(matchUserList.stream().map(TornFactionOcUserDO::getUserId).toList());
         }
 
-        List<TornFactionOcUserDO> onlyLowLevelUserList = userList.stream()
-                .filter(u -> !matchUserSet.contains(u.getUserId())).toList();
-        result.setOnlyLowLevel(onlyLowLevelUserList);
+        result.setHighAbility(matchUserSet);
     }
 
     /**
