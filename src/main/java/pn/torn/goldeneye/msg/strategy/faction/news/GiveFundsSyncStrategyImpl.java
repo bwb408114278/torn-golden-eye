@@ -8,7 +8,7 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
-import pn.torn.goldeneye.torn.manager.faction.armory.FactionItemUsedManager;
+import pn.torn.goldeneye.torn.manager.faction.armory.FactionGiveFundsManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -16,17 +16,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 同步物品使用记录实现类
+ * 同步取钱记录实现类
  *
  * @author Bai
  * @version 0.4.0
- * @since 2025.07.24
+ * @since 2026.01.12
  */
 @Component
 @RequiredArgsConstructor
-public class ItemUsedSyncStrategyImpl extends BaseGroupMsgStrategy {
+public class GiveFundsSyncStrategyImpl extends BaseGroupMsgStrategy {
     private final TornSettingFactionManager factionManager;
-    private final FactionItemUsedManager itemUsedManager;
+    private final FactionGiveFundsManager giveFundsManager;
 
     @Override
     public boolean isNeedSa() {
@@ -40,12 +40,12 @@ public class ItemUsedSyncStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommand() {
-        return BotCommands.ITEM_USED;
+        return BotCommands.GIVE_FUNDS;
     }
 
     @Override
     public String getCommandDescription() {
-        return "强制刷新帮派物品使用记录，慎用（格式不告诉你）";
+        return "强制刷新帮派取钱记录，慎用（格式不告诉你）";
     }
 
     @Override
@@ -62,11 +62,11 @@ public class ItemUsedSyncStrategyImpl extends BaseGroupMsgStrategy {
             return super.sendErrorFormatMsg();
         }
 
-        itemUsedManager.spiderItemUseData(faction, from, to);
+        giveFundsManager.spiderGiveFundsData(faction, from, to);
         return super.buildTextMsg("同步" + faction.getFactionShortName() + " " +
                 DateTimeUtils.convertToString(from) +
                 "到" +
                 DateTimeUtils.convertToString(to) +
-                "的帮派物品使用记录完成");
+                "的帮派取钱记录完成");
     }
 }

@@ -34,9 +34,9 @@ public class SettingConstants {
      */
     public static final String KEY_FACTION_DATA_LOAD = "FACTION_DATA_LOAD_DATE";
     /**
-     * 配置Key - 物品使用记录读取时间
+     * 配置Key - 新闻记录读取时间
      */
-    public static final String KEY_ITEM_USE_LOAD = "ITEM_USED_LOAD_DATE";
+    public static final String KEY_NEWS_LOAD = "NEWS_LOAD_DATE";
 
     /**
      * 配置Key - OC成功率读取时间

@@ -56,6 +56,10 @@ public class BotCommands {
      */
     public static final String ITEM_USED = "帮派物品记录";
     /**
+     * 帮派取钱记录
+     */
+    public static final String GIVE_FUNDS = "帮派取钱记录";
+    /**
      * 帮派战斗记录
      */
     public static final String FACTION_ATTACK = "帮派战斗记录";
@@ -63,6 +67,10 @@ public class BotCommands {
      * 小红毁灭者
      */
     public static final String FACTION_ITEM_USED = "物资毁灭者";
+    /**
+     * 牛马取钱榜
+     */
+    public static final String FACTION_GIVE_FUNDS = "牛马取钱榜";
 
     // ====================其他功能相关====================
     /**

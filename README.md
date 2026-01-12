@@ -118,3 +118,5 @@ log_timezone = 'Asia/Shanghai'
 | 2562154 | Oorrzz        | 教育书 × 3                 | zanzhu                                                |
 | 3484501 | Yunyun123     | Xan × 5                 | 支持技术员 ^ ^ 未来越做越好~                                     |
 | 2774191 | SAO           | Drug Pack × 10, 啤酒桶 × 1 |                                                       |
+| 2945480 | SimonSoooou   | FHC                     | OC系数已阅                                                |
+| 3174862 | DarcyYao      | Xan × 10                | 助力金眼健康成长                                              |

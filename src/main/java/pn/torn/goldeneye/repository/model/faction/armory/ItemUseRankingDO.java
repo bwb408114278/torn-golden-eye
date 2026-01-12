@@ -3,10 +3,10 @@ package pn.torn.goldeneye.repository.model.faction.armory;
 import lombok.Data;
 
 /**
- * 小红毁灭者查询结果
+ * 物资毁灭者查询结果
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.4.0
  * @since 2025.08.08
  */
 @Data
@@ -18,7 +18,7 @@ public class ItemUseRankingDO {
     /**
      * 用户昵称
      */
-    private String userNickname;
+    private String nickname;
     /**
      * 总数
      */

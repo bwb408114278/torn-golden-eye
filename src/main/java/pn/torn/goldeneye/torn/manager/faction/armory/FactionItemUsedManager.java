@@ -1,114 +1,60 @@
-package pn.torn.goldeneye.torn.service.faction.armory;
+package pn.torn.goldeneye.torn.manager.faction.armory;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.core.annotation.Order;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.torn.TornApi;
-import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.TornApiKeyConfig;
-import pn.torn.goldeneye.configuration.property.ProjectProperty;
-import pn.torn.goldeneye.constants.InitOrderConstants;
-import pn.torn.goldeneye.constants.bot.BotConstants;
-import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionNewsTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.TornItemTypeEnum;
 import pn.torn.goldeneye.msg.send.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.msg.send.param.AtQqMsg;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.armory.TornFactionItemUsedDAO;
-import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.armory.TornFactionItemUsedDO;
-import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
+import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsDTO;
 import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsListVO;
+import pn.torn.goldeneye.torn.model.faction.news.TornFactionNewsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * 帮派物品使用记录逻辑类
+ * 帮派物品使用记录公共逻辑类
  *
  * @author Bai
- * @version 0.3.0
- * @since 2025.07.24
+ * @version 0.4.0
+ * @since 2026.01.12
  */
 @Component
 @RequiredArgsConstructor
-@Order(InitOrderConstants.TORN_ITEM_USED)
 @Slf4j
-public class ItemUsedService {
-    private final DynamicTaskService taskService;
-    private final ThreadPoolTaskExecutor virtualThreadExecutor;
+public class FactionItemUsedManager {
     private final Bot bot;
-    private final TornApiKeyConfig apiKeyConfig;
     private final TornApi tornApi;
-    private final TornSettingFactionManager settingFactionManager;
     private final TornItemsManager itemsManager;
+    private final TornUserManager userManager;
     private final TornFactionItemUsedDAO usedDao;
-    private final TornUserDAO userDao;
-    private final SysSettingDAO settingDao;
-    private final ProjectProperty projectProperty;
     private static final List<String> MISUSE_ITEM_LIST = new ArrayList<>();
+    private static final Pattern USER_LINK_PATTERN = Pattern.compile(
+            "<a href\\s*=\\s*\"http://www\\.torn\\.com/profiles\\.php\\?XID=(\\d+)\">([^<]+)</a>");
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
         MISUSE_ITEM_LIST.add("Pixie Sticks");
         MISUSE_ITEM_LIST.add("Bottle of Moonshine");
-
-        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
-            return;
-        }
-
-        String value = settingDao.querySettingValue(SettingConstants.KEY_ITEM_USE_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
-        LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
-
-        if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            spiderItemUseData(from, to);
-        }
-
-        addScheduleTask(to);
-    }
-
-    /**
-     * 爬取物品使用记录
-     */
-    public void spiderItemUseData(LocalDateTime from, LocalDateTime to) {
-        List<TornSettingFactionDO> factionList = settingFactionManager.getList();
-        List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        for (TornSettingFactionDO faction : factionList) {
-            futureList.add(CompletableFuture.runAsync(() -> {
-                        TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
-                        if (key == null) {
-                            return;
-                        }
-
-                        apiKeyConfig.returnKey(key);
-                        spiderItemUseData(faction, from, to);
-                    },
-                    virtualThreadExecutor));
-        }
-
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        settingDao.updateSetting(SettingConstants.KEY_ITEM_USE_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
-        addScheduleTask(to);
     }
 
     /**
@@ -130,15 +76,11 @@ public class ItemUsedService {
             }
 
             newsList = resp.getNews().stream()
-                    .map(n -> n.convert2DO(itemsManager))
+                    .map(n -> convert2DO(faction.getId(), n))
                     .toList();
             List<TornFactionItemUsedDO> dataList = buildDataList(newsList);
             if (!CollectionUtils.isEmpty(dataList)) {
-                Set<String> nicknameSet = dataList.stream().map(TornFactionItemUsedDO::getUserNickname).collect(Collectors.toSet());
-                Map<String, Long> nicknameMap = userDao.queryNicknameMap(nicknameSet);
                 for (TornFactionItemUsedDO data : dataList) {
-                    data.setFactionId(faction.getId());
-                    data.setUserId(nicknameMap.get(data.getUserNickname()));
                     if (checkIsMisuse(data)) {
                         misuseList.add(data);
                     }
@@ -156,6 +98,35 @@ public class ItemUsedService {
         } while (resp.getNews().size() >= limit);
 
         sendWarningMsg(faction, misuseList);
+    }
+
+    /**
+     * 解析HTML文本，提取物品使用信息
+     */
+    private TornFactionItemUsedDO convert2DO(long factionId, TornFactionNewsVO news) {
+        TornFactionItemUsedDO use = new TornFactionItemUsedDO();
+        use.setId(news.getId());
+        use.setFactionId(factionId);
+        use.setUseTime(DateTimeUtils.convertToDateTime(news.getTimestamp()));
+
+        Matcher linkMatcher = USER_LINK_PATTERN.matcher(news.getText());
+        if (linkMatcher.find()) {
+            use.setUserId(Long.parseLong(linkMatcher.group(1)));
+            String remainingText = news.getText().substring(linkMatcher.end()).trim();
+            String[] parts = remainingText.split("\\s+", 2);
+
+            if (parts.length >= 2) {
+                use.setUseType(parts[0]);
+                for (String itemName : itemsManager.getSortItemNameList()) {
+                    if (parts[1].contains(itemName)) {
+                        use.setItemName(itemName);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return use;
     }
 
     /**
@@ -204,7 +175,8 @@ public class ItemUsedService {
 
         Map<String, List<TornFactionItemUsedDO>> userVsItemMap = HashMap.newHashMap(misuseList.size());
         for (TornFactionItemUsedDO item : misuseList) {
-            String key = item.getUserId() + "#" + item.getUserNickname() + "#" + item.getItemName();
+            String nickname = userManager.getUserMap().get(item.getUserId()).getNickname();
+            String key = item.getUserId() + "#" + nickname + "#" + item.getItemName();
             List<TornFactionItemUsedDO> useList = userVsItemMap.get(key);
             if (CollectionUtils.isEmpty(useList)) {
                 useList = new ArrayList<>();
@@ -258,14 +230,5 @@ public class ItemUsedService {
             return " 从" + DateTimeUtils.convertToString(earliest.getUseTime()) +
                     "到" + DateTimeUtils.convertToString(latest.getUseTime()) + "期间";
         }
-    }
-
-    /**
-     * 添加定时任务
-     */
-    private void addScheduleTask(LocalDateTime to) {
-        taskService.updateTask("item-use-reload",
-                () -> spiderItemUseData(to.plusSeconds(1), to.plusDays(1)),
-                to.plusDays(1).plusSeconds(1).plusMinutes(15));
     }
 }

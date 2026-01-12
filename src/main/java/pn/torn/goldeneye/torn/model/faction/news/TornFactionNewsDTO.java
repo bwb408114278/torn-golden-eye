@@ -15,7 +15,7 @@ import java.util.List;
  * Torn帮派新闻请求
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.4.0
  * @since 2025.08.07
  */
 @Data
@@ -56,7 +56,7 @@ public class TornFactionNewsDTO implements TornReqParamV2 {
         resultMap.put("to", List.of(DateTimeUtils.convertToShortTimestamp(this.to).toString()));
         resultMap.put("limit", List.of(this.limit.toString()));
         resultMap.put("sort", List.of("DESC"));
-        resultMap.put("striptags", List.of("true"));
+        resultMap.put("striptags", List.of("false"));
         return resultMap;
     }
 }

@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  * OC队伍分配基础逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.4.0
  * @since 2025.11.24
  */
 @Slf4j
@@ -113,9 +113,7 @@ public class TornOcAssignService {
      * 构建空闲岗位列表
      */
     private TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> buildVacantSlotMap(List<TornFactionOcDO> urgentOcList) {
-        List<Long> urgentOcIdList = urgentOcList.stream().map(TornFactionOcDO::getId).toList();
-        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(urgentOcIdList);
-
+        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(urgentOcList);
         TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> resultMap = new TreeMap<>(
                 (o1, o2) -> {
                     if (o1.getReadyTime() == null) {
@@ -229,7 +227,7 @@ public class TornOcAssignService {
             resultMap.put(oc.getId(), oc.getReadyTime());
 
             LocalDateTime originTime = oc.getReadyTime() == null ? LocalDateTime.now() : oc.getReadyTime();
-            long readyHours = Duration.between(LocalDateTime.now(), originTime ).toHours();
+            long readyHours = Duration.between(LocalDateTime.now(), originTime).toHours();
             LocalDateTime targetTime = readyHours < 8 ? LocalDateTime.now() : oc.getReadyTime();
             oc.setReadyTime(targetTime);
         }
