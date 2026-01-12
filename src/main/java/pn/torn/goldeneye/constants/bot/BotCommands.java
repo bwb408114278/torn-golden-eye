@@ -67,6 +67,10 @@ public class BotCommands {
      * 小红毁灭者
      */
     public static final String FACTION_ITEM_USED = "物资毁灭者";
+    /**
+     * 牛马取钱榜
+     */
+    public static final String FACTION_GIVE_FUNDS = "牛马取钱榜";
 
     // ====================其他功能相关====================
     /**

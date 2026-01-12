@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 小红毁灭者策略实现类
+ * 物资毁灭者策略实现类
  *
  * @author Bai
  * @version 0.4.0
@@ -119,9 +119,7 @@ public class FactionItemUsedStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 构建小红毁灭者排行榜表格
-     *
-     * @return 消息内容
+     * 构建物资毁灭者排行榜表格
      */
     private String buildRankingMsg(long factionId, String itemName, List<ItemUseRankingDO> rankingList, long totalCount) {
         List<List<String>> tableData = new ArrayList<>();
@@ -143,7 +141,7 @@ public class FactionItemUsedStrategyImpl extends SmthMsgStrategy {
             tableData.add(List.of(
                     String.valueOf(i + 1),
                     ranking.getUserId().toString(),
-                    ranking.getUserNickname(),
+                    ranking.getNickname(),
                     ranking.getTotal().toString(),
                     BigDecimal.valueOf(ranking.getTotal())
                             .multiply(BigDecimal.valueOf(100))
