@@ -56,6 +56,10 @@ public class BotCommands {
      */
     public static final String ITEM_USED = "帮派物品记录";
     /**
+     * 帮派取钱记录
+     */
+    public static final String GIVE_FUNDS = "帮派取钱记录";
+    /**
      * 帮派战斗记录
      */
     public static final String FACTION_ATTACK = "帮派战斗记录";

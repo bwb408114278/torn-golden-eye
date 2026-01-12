@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.repository.model.faction.armory;
+package pn.torn.goldeneye.repository.model.faction.funds;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -8,16 +8,16 @@ import pn.torn.goldeneye.repository.model.BaseDO;
 import java.time.LocalDateTime;
 
 /**
- * 帮派物品使用记录表
+ * 帮派取钱记录表
  *
  * @author Bai
  * @version 0.4.0
- * @since 2025.08.07
+ * @since 2026.01.12
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
-@TableName(value = "torn_faction_item_used", autoResultMap = true)
-public class TornFactionItemUsedDO extends BaseDO {
+@TableName(value = "torn_faction_give_funds", autoResultMap = true)
+public class TornFactionGiveFundsDO extends BaseDO {
     /**
      * ID
      */
@@ -27,19 +27,19 @@ public class TornFactionItemUsedDO extends BaseDO {
      */
     private Long factionId;
     /**
-     * 用户ID
+     * 取款用户ID
      */
     private Long userId;
     /**
-     * 使用类型
+     * 执行用户ID
      */
-    private String useType;
+    private Long handleUserId;
     /**
-     * 物品名称
+     * 金额
      */
-    private String itemName;
+    private Long amount;
     /**
-     * 使用时间
+     * 取款时间
      */
-    private LocalDateTime useTime;
+    private LocalDateTime withdrawTime;
 }
