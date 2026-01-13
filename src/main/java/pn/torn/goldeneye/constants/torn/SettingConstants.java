@@ -40,7 +40,11 @@ public class SettingConstants {
     /**
      * 配置Key - 新闻记录读取时间
      */
-    public static final String KEY_NEWS_LOAD = "NEWS_LOAD_DATE";
+    public static final String KEY_FACTION_NEWS_LOAD = "NEWS_LOAD_DATE";
+    /**
+     * 配置Key - 拍卖记录读取时间
+     */
+    public static final String KEY_AUCTION_LOAD = "AUCTION_LOAD_DATE";
 
     /**
      * 配置Key - OC成功率读取时间

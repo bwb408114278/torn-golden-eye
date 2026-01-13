@@ -54,7 +54,7 @@ public class FactionNewsService {
             return;
         }
 
-        String value = settingDao.querySettingValue(SettingConstants.KEY_NEWS_LOAD);
+        String value = settingDao.querySettingValue(SettingConstants.KEY_FACTION_NEWS_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
@@ -86,7 +86,7 @@ public class FactionNewsService {
         }
 
         CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        settingDao.updateSetting(SettingConstants.KEY_NEWS_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+        settingDao.updateSetting(SettingConstants.KEY_FACTION_NEWS_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
         addScheduleTask(to);
     }
 
