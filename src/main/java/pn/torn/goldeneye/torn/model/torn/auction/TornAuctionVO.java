@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.model.torn.auction;
 
 import lombok.Data;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -59,11 +60,17 @@ public class TornAuctionVO {
         auction.setItemUid(this.item.getUid());
         auction.setItemType(this.item.getType());
         auction.setItemSubType(this.item.getSubType());
-        auction.setItemRarity(this.item.getRarity());
-        auction.setItemDamage(this.item.getStats().getDamage());
-        auction.setItemAccuracy(this.item.getStats().getAccuracy());
-        auction.setItemArmor(this.item.getStats().getArmor());
-        auction.setItemQuality(this.item.getStats().getQuality());
+
+        auction.setItemRarity(StringUtils.hasText(this.item.getRarity()) ?
+                Character.toUpperCase(this.item.getRarity().charAt(0)) + this.item.getRarity().substring(1)
+                : "None");
+
+        if (this.item.getStats() != null) {
+            auction.setItemDamage(this.item.getStats().getDamage());
+            auction.setItemAccuracy(this.item.getStats().getAccuracy());
+            auction.setItemArmor(this.item.getStats().getArmor());
+            auction.setItemQuality(this.item.getStats().getQuality());
+        }
 
         if (!CollectionUtils.isEmpty(this.item.getBonuses())) {
             String bonuses = this.item.getBonuses().getFirst().getTitle();

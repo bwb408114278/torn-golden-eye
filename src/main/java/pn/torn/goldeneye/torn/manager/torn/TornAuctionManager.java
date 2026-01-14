@@ -56,6 +56,7 @@ public class TornAuctionManager {
         TornItemsDO item = itemsManager.getMap().get(auction.getItemId());
 
         HashMap<String, Object> param = new HashMap<>();
+        param.put("拍卖ID", auction.getId());
         param.put("名称", auction.getItemName());
         param.put("序列号", auction.getItemUid());
         param.put("稀有度", auction.getItemRarity());
@@ -64,7 +65,7 @@ public class TornAuctionManager {
         param.put("买方ID", auction.getBuyerId());
         param.put("卖方", auction.getSellerName());
         param.put("卖方ID", auction.getSellerId());
-        param.put("成交时间", DateTimeUtils.convertToShortTimestamp(auction.getFinishTime()));
+        param.put("成交时间", DateTimeUtils.convertToTimestamp(auction.getFinishTime()));
         param.put("成交金额", auction.getPrice());
         param.put("竞价次数", auction.getBids());
         param.put("装备图片", item.getItemImage());

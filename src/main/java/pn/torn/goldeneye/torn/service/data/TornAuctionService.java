@@ -124,8 +124,9 @@ public class TornAuctionService {
 
         List<TornAuctionDO> resultList = new ArrayList<>();
         for (TornAuctionDO auction : auctionList) {
+            boolean isNotRwEquip = "None".equals(auction.getItemRarity());
             boolean isOldData = oldIdList.contains(auction.getId());
-            if (isOldData) {
+            if (isNotRwEquip || isOldData) {
                 continue;
             }
 

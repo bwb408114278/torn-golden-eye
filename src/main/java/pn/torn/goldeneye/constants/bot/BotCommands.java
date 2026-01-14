@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -123,6 +123,10 @@ public class BotCommands {
      * 开始聊天
      */
     public static final String CANCEL_BLOCK_CHAT = "开始聊天";
+    /**
+     * 拍卖记录
+     */
+    public static final String AUCTION_SYNC = "拍卖记录同步";
     /**
      * 绑Key
      */

@@ -34,6 +34,9 @@ lark-suite:
       app-token: ${LARK_OC_BENEFIT_APP_TOKEN}
       table-id: ${LARK_OC_BENEFIT_TABLE_ID}
       view-id: ${LARK_OC_BENEFIT_VIEW_ID}
+    - name: auction
+      app-token: ${LARK_AUCTION_APP_TOKEN}
+      table-id: ${LARK_AUCTION_TABLE_ID}
 
 project:
   env: dev

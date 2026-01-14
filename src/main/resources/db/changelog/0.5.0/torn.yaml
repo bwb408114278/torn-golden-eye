@@ -1,10 +1,10 @@
 databaseChangeLog:
   - changeSet:
-      id: create_auction_table
+      id: create_auction_func
       author: Bai
       changes:
         - createTable:
-            tableName: torn_attack_log
+            tableName: torn_auction
             columns:
               - column:
                   name: id
@@ -82,8 +82,6 @@ databaseChangeLog:
               - column:
                   name: item_sub_type
                   type: VARCHAR(16)
-                  constraints:
-                    nullable: false
                   remarks: "物品子类型"
               - column:
                   name: item_rarity
@@ -112,36 +110,36 @@ databaseChangeLog:
                   type: VARCHAR(32)
                   remarks: "所有加成，逗号分隔"
               - column:
-                  name: bonus_1_id
+                  name: bonus1_id
                   type: INT
                   remarks: "加成1ID"
               - column:
-                  name: bonus_1_title
+                  name: bonus1_title
                   type: VARCHAR(16)
                   remarks: "加成1名称"
               - column:
-                  name: bonus_1_value
+                  name: bonus1_value
                   type: INT
                   remarks: "加成1值"
               - column:
-                  name: bonus_1_desc
-                  type: VARCHAR(64)
+                  name: bonus1_desc
+                  type: VARCHAR(128)
                   remarks: "加成1描述"
               - column:
-                  name: bonus_2_id
+                  name: bonus2_id
                   type: INT
                   remarks: "加成2ID"
               - column:
-                  name: bonus_2_title
+                  name: bonus2_title
                   type: VARCHAR(16)
                   remarks: "加成2名称"
               - column:
-                  name: bonus_2_value
+                  name: bonus2_value
                   type: INT
                   remarks: "加成2值"
               - column:
-                  name: bonus_2_desc
-                  type: VARCHAR(64)
+                  name: bonus2_desc
+                  type: VARCHAR(128)
                   remarks: "加成2描述"
               - column:
                   name: deleted
@@ -175,7 +173,7 @@ databaseChangeLog:
                   value: 'AUCTION_LOAD_DATE'
               - column:
                   name: setting_value
-                  value: '2026-01-13'
+                  value: '2026-01-14'
         - addColumn:
             tableName: torn_items
             columns:
