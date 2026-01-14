@@ -58,7 +58,7 @@ public class AuctionSyncStrategyImpl extends BaseGroupMsgStrategy {
             return super.sendErrorFormatMsg();
         }
 
-        auctionService.spiderAuctionData(from, to);
+        auctionService.spiderAuctionData(from, to, false);
         return super.buildTextMsg("同步" +
                 DateTimeUtils.convertToString(from) +
                 "到" +

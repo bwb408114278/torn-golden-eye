@@ -15,3 +15,32 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2026-01-14'
+
+  - changeSet:
+      id: auction_lark_table_dynamic
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '24'
+              - column:
+                  name: setting_key
+                  value: 'LARK_AUCTION_TABLE_ID'
+              - column:
+                  name: setting_value
+                  value: 'tblb6iXCwwS6kI4Y'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '25'
+              - column:
+                  name: setting_key
+                  value: 'LARK_AUCTION_TABLE_ROWS_COUNT'
+              - column:
+                  name: setting_value
+                  value: '0'

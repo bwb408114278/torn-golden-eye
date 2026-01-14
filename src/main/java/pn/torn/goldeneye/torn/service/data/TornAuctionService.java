@@ -60,7 +60,7 @@ public class TornAuctionService {
         LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
 
         if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            spiderAuctionData(from, to);
+            spiderAuctionData(from, to, true);
         }
 
         addScheduleTask(to);
@@ -69,12 +69,15 @@ public class TornAuctionService {
     /**
      * 爬取拍卖记录
      */
-    public void spiderAuctionData(LocalDateTime from, LocalDateTime to) {
+    public void spiderAuctionData(LocalDateTime from, LocalDateTime to, boolean refreshTask) {
         List<CompletableFuture<Void>> futureList = new ArrayList<>();
         futureList.add(CompletableFuture.runAsync(() -> handleSpiderTask(from, to), virtualThreadExecutor));
         CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        settingDao.updateSetting(SettingConstants.KEY_AUCTION_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
-        addScheduleTask(to);
+
+        if (refreshTask) {
+            settingDao.updateSetting(SettingConstants.KEY_AUCTION_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+            addScheduleTask(to);
+        }
     }
 
     /**
@@ -141,7 +144,7 @@ public class TornAuctionService {
      */
     private void addScheduleTask(LocalDateTime to) {
         taskService.updateTask("auction-reload",
-                () -> spiderAuctionData(to.plusSeconds(1), to.plusDays(1)),
+                () -> spiderAuctionData(to.plusSeconds(1), to.plusDays(1), true),
                 to.plusDays(1).plusSeconds(1).plusMinutes(20));
     }
 }
