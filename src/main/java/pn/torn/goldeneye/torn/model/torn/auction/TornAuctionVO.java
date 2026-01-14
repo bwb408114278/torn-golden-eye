@@ -66,6 +66,8 @@ public class TornAuctionVO {
         auction.setItemQuality(this.item.getStats().getQuality());
 
         if (!CollectionUtils.isEmpty(this.item.getBonuses())) {
+            String bonuses = this.item.getBonuses().getFirst().getTitle();
+
             auction.setBonus1Id(this.item.getBonuses().getFirst().getId());
             auction.setBonus1Title(this.item.getBonuses().getFirst().getTitle());
             auction.setBonus1Value(this.item.getBonuses().getFirst().getValue());
@@ -73,12 +75,16 @@ public class TornAuctionVO {
 
             if (this.item.getBonuses().size() > 2) {
                 throw new BizException("ID为" + this.id + "的拍卖，加成超过2个!");
-            } else  if (this.item.getBonuses().size() == 2) {
+            } else if (this.item.getBonuses().size() == 2) {
+                bonuses = this.item.getBonuses().getFirst().getTitle() + "," + this.item.getBonuses().getLast().getTitle();
+
                 auction.setBonus2Id(this.item.getBonuses().getLast().getId());
                 auction.setBonus2Title(this.item.getBonuses().getLast().getTitle());
                 auction.setBonus2Value(this.item.getBonuses().getLast().getValue());
                 auction.setBonus2Desc(this.item.getBonuses().getLast().getDescription());
             }
+
+            auction.setBonuses(bonuses);
         }
 
         return auction;

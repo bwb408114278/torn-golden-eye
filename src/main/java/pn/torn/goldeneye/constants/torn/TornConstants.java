@@ -10,7 +10,7 @@ import java.util.List;
  * Torn常量
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -40,10 +40,19 @@ public class TornConstants {
     // ====================OC相关====================
     public static final List<String> ROTATION_OC_NAME = new ArrayList<>();
     public static final List<Long> REASSIGN_OC_FACTION = new ArrayList<>();
+
+    // ====================物品相关====================
+    public static final String ITEM_TYPE_WEAPON = "Weapon";
+
+    // ====================飞书相关====================
     /**
      * 飞书多维表 - OC收益
      */
     public static final String BIT_TABLE_OC_BENEFIT = "oc_benefit";
+    /**
+     * 飞书多维表 - 拍卖行
+     */
+    public static final String BIT_TABLE_AUCTION = "auction";
 
     public static final String SOMEONE = "Someone";
     public static final List<String> DEFENDER_ATTACK_TYPE = new ArrayList<>();

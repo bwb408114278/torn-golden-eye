@@ -108,6 +108,10 @@ databaseChangeLog:
                   type: DECIMAL(5, 2)
                   remarks: "品质"
               - column:
+                  name: bonuses
+                  type: VARCHAR(32)
+                  remarks: "所有加成，逗号分隔"
+              - column:
                   name: bonus_1_id
                   type: INT
                   remarks: "加成1ID"
@@ -172,3 +176,14 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '2026-01-13'
+        - addColumn:
+            tableName: torn_items
+            columns:
+              - column:
+                  name: item_sub_type
+                  type: VARCHAR(16)
+                  remarks: "物品子类型"
+              - column:
+                  name: weapon_category
+                  type: VARCHAR(16)
+                  remarks: "武器类型"

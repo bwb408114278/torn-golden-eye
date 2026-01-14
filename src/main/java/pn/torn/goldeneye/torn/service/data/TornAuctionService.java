@@ -17,6 +17,7 @@ import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornAuctionDAO;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
+import pn.torn.goldeneye.torn.manager.torn.TornAuctionManager;
 import pn.torn.goldeneye.torn.model.torn.auction.TornAuctionDTO;
 import pn.torn.goldeneye.torn.model.torn.auction.TornAuctionListVO;
 import pn.torn.goldeneye.torn.model.torn.auction.TornAuctionVO;
@@ -43,6 +44,7 @@ public class TornAuctionService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
+    private final TornAuctionManager auctionManager;
     private final TornAuctionDAO auctionDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
@@ -96,6 +98,7 @@ public class TornAuctionService {
             List<TornAuctionDO> dataList = buildDataList(auctionList);
             if (!CollectionUtils.isEmpty(dataList)) {
                 auctionDao.saveBatch(dataList);
+                auctionManager.uploadAuction(dataList);
             }
 
             queryTo = DateTimeUtils.convertToDateTime(resp.getAuctionList().getLast().getTimestamp());

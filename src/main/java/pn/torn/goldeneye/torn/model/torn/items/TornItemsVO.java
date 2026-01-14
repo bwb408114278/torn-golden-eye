@@ -2,13 +2,14 @@ package pn.torn.goldeneye.torn.model.torn.items;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 
 /**
  * Torn物品响应参数
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.5.0
  * @since 2025.09.26
  */
 @Data
@@ -69,6 +70,10 @@ public class TornItemsVO {
      * 物品价值
      */
     private TornItemsValueVO value;
+    /**
+     * 物品详情
+     */
+    private TornItemsDetailVO details;
 
     public TornItemsDO convert2DO() {
         TornItemsDO item = new TornItemsDO();
@@ -76,8 +81,13 @@ public class TornItemsVO {
         item.setItemName(this.name);
         item.setItemImage(this.image);
         item.setItemType(this.type);
+        item.setItemSubType(this.subType);
         item.setMarketPrice(this.value.getMarketPrice());
         item.setSellPrice(this.value.getSellPrice());
+
+        if (TornConstants.ITEM_TYPE_WEAPON.equals(this.type)) {
+            item.setWeaponCategory(this.details.getCategory());
+        }
         return item;
     }
 }

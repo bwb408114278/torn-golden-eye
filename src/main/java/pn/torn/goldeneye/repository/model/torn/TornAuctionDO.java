@@ -100,6 +100,10 @@ public class TornAuctionDO extends BaseDO {
      */
     private String bonus1Title;
     /**
+     * 所有加成，逗号分隔
+     */
+    private String bonuses;
+    /**
      * 加成1值
      */
     private Integer bonus1Value;
