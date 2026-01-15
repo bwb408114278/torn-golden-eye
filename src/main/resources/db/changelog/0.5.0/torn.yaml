@@ -115,7 +115,7 @@ databaseChangeLog:
                   remarks: "加成1ID"
               - column:
                   name: bonus1_title
-                  type: VARCHAR(16)
+                  type: VARCHAR(32)
                   remarks: "加成1名称"
               - column:
                   name: bonus1_value
@@ -131,7 +131,7 @@ databaseChangeLog:
                   remarks: "加成2ID"
               - column:
                   name: bonus2_title
-                  type: VARCHAR(16)
+                  type: VARCHAR(32)
                   remarks: "加成2名称"
               - column:
                   name: bonus2_value

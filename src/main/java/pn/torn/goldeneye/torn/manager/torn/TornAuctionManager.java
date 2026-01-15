@@ -74,11 +74,6 @@ public class TornAuctionManager {
 
             // 如果表已满且还有剩余数据，需要创建新表
             if (newCount >= 20000 && currentIndex < auctionList.size()) {
-                // 获取当前表的时间范围
-                String startTime = settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_START_TIME);
-                String endTime = DateTimeUtils.convertToString(batchData.getLast().getFinishTime());
-                // 重命名当前表
-                renameTableWithTimeRange(appToken, currentTableId, startTime, endTime);
                 // 创建新表
                 createNewTable(appToken, auctionList.get(currentIndex));
             }
@@ -109,12 +104,15 @@ public class TornAuctionManager {
      * 创建新的数据表
      */
     public void createNewTable(String appToken, TornAuctionDO auction) {
+        String tableName = "拍卖记录 - " + auction.getFinishTime().getYear() + "年" +
+                auction.getFinishTime().getMonthValue() + "月" +
+                auction.getFinishTime().getDayOfMonth() + "日起";
         CreateAppTableRespBody resp = larkSuiteApi.sendRequest(client -> {
             CreateAppTableReq req = CreateAppTableReq.newBuilder()
                     .appToken(appToken)
                     .createAppTableReqBody(CreateAppTableReqBody.newBuilder()
                             .table(ReqTable.newBuilder()
-                                    .name("拍卖记录 - " + DateTimeUtils.convertToString(auction.getFinishTime()))
+                                    .name(tableName)
                                     .defaultViewName("拍卖记录总览")
                                     .fields(buildTableHeader())
                                     .build())
@@ -137,23 +135,6 @@ public class TornAuctionManager {
         updateFormulaColumn(appToken, fieldResp.getItems(), tableId, WEAPON_BONUS_FORMULA, "武器特效2描述", WEAPON_2_BONUS_NAME, WEAPON_2_BONUS_VALUE);
         settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_ID, tableId);
         settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT, String.valueOf(0));
-    }
-
-    /**
-     * 重命名表格（使用时间范围）
-     */
-    private void renameTableWithTimeRange(String appToken, String tableId, String startTime, String endTime) {
-        larkSuiteApi.sendRequest(client -> {
-            PatchAppTableReq req = PatchAppTableReq.newBuilder()
-                    .appToken(appToken)
-                    .tableId(tableId)
-                    .patchAppTableReqBody(PatchAppTableReqBody.newBuilder()
-                            .name("拍卖记录 - " + startTime + " 至 " + endTime)
-                            .build())
-                    .build();
-
-            return client.bitable().v1().appTable().patch(req);
-        });
     }
 
     /**
