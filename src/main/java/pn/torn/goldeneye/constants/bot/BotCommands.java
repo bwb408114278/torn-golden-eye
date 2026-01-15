@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -97,6 +97,10 @@ public class BotCommands {
      * RW消耗
      */
     public static final String RW_EXPEND = "RW消耗";
+    /**
+     * 拍卖历史
+     */
+    public static final String AUCTION_HISTORY = "拍卖历史";
 
     // ====================管理功能相关====================
     /**
@@ -123,6 +127,10 @@ public class BotCommands {
      * 开始聊天
      */
     public static final String CANCEL_BLOCK_CHAT = "开始聊天";
+    /**
+     * 拍卖记录
+     */
+    public static final String AUCTION_SYNC = "拍卖记录同步";
     /**
      * 绑Key
      */

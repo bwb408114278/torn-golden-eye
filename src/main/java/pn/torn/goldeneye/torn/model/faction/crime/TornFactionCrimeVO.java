@@ -1,8 +1,8 @@
 package pn.torn.goldeneye.torn.model.faction.crime;
 
-import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOc;

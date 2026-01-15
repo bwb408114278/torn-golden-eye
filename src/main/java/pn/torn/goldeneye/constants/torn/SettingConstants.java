@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -20,6 +20,18 @@ public class SettingConstants {
      * PT价值
      */
     public static final String KEY_POINT_VALUE = "POINT_VALUE";
+    /**
+     * 飞书当前拍卖表格ID
+     */
+    public static final String LARK_AUCTION_TABLE_ID = "LARK_AUCTION_TABLE_ID";
+    /**
+     * 飞书当前拍卖表格行数
+     */
+    public static final String LARK_AUCTION_TABLE_ROWS_COUNT = "LARK_AUCTION_TABLE_ROWS_COUNT";
+    /**
+     * 飞书当前拍卖表格起始时间
+     */
+    public static final String LARK_AUCTION_TABLE_START_TIME = "LARK_AUCTION_TABLE_START_TIME";
 
     /**
      * 配置Key - 用户数据读取时间
@@ -34,9 +46,17 @@ public class SettingConstants {
      */
     public static final String KEY_FACTION_DATA_LOAD = "FACTION_DATA_LOAD_DATE";
     /**
+     * 配置Key - 帮派物资读取时间
+     */
+    public static final String KEY_FACTION_ARMORY_LOAD = "FACTION_ARMORY_LOAD_DATE";
+    /**
      * 配置Key - 新闻记录读取时间
      */
-    public static final String KEY_NEWS_LOAD = "NEWS_LOAD_DATE";
+    public static final String KEY_FACTION_NEWS_LOAD = "NEWS_LOAD_DATE";
+    /**
+     * 配置Key - 拍卖记录读取时间
+     */
+    public static final String KEY_AUCTION_LOAD = "AUCTION_LOAD_DATE";
 
     /**
      * 配置Key - OC成功率读取时间

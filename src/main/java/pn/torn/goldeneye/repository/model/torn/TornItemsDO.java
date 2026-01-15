@@ -9,7 +9,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  * Torn物品表
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.09.26
  */
 @Data
@@ -32,6 +32,14 @@ public class TornItemsDO extends BaseDO {
      * 类型
      */
     private String itemType;
+    /**
+     * 物品子类型
+     */
+    private String itemSubType;
+    /**
+     * 武器类型
+     */
+    private String weaponCategory;
     /**
      * 市场价
      */

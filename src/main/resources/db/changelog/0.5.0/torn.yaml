@@ -1,0 +1,205 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_auction_func
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_auction
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: buyer_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "买方ID"
+              - column:
+                  name: buyer_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "买方名称"
+              - column:
+                  name: seller_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "卖方ID"
+              - column:
+                  name: seller_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "卖方名称"
+              - column:
+                  name: finish_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "成交时间"
+              - column:
+                  name: price
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "成交价格"
+              - column:
+                  name: bids
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "竞价次数"
+              - column:
+                  name: item_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "物品ID"
+              - column:
+                  name: item_uid
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "物品UID"
+              - column:
+                  name: item_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "物品名称"
+              - column:
+                  name: item_type
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "物品类型"
+              - column:
+                  name: item_sub_type
+                  type: VARCHAR(16)
+                  remarks: "物品子类型"
+              - column:
+                  name: item_rarity
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "物品稀有度"
+              - column:
+                  name: item_damage
+                  type: DECIMAL(5, 2)
+                  remarks: "伤害"
+              - column:
+                  name: item_accuracy
+                  type: DECIMAL(5, 2)
+                  remarks: "命中"
+              - column:
+                  name: item_armor
+                  type: DECIMAL(5, 2)
+                  remarks: "护甲"
+              - column:
+                  name: item_quality
+                  type: DECIMAL(5, 2)
+                  remarks: "品质"
+              - column:
+                  name: bonuses
+                  type: VARCHAR(32)
+                  remarks: "所有加成，逗号分隔"
+              - column:
+                  name: bonus1_id
+                  type: INT
+                  remarks: "加成1ID"
+              - column:
+                  name: bonus1_title
+                  type: VARCHAR(32)
+                  remarks: "加成1名称"
+              - column:
+                  name: bonus1_value
+                  type: INT
+                  remarks: "加成1值"
+              - column:
+                  name: bonus1_desc
+                  type: VARCHAR(128)
+                  remarks: "加成1描述"
+              - column:
+                  name: bonus2_id
+                  type: INT
+                  remarks: "加成2ID"
+              - column:
+                  name: bonus2_title
+                  type: VARCHAR(32)
+                  remarks: "加成2名称"
+              - column:
+                  name: bonus2_value
+                  type: INT
+                  remarks: "加成2值"
+              - column:
+                  name: bonus2_desc
+                  type: VARCHAR(128)
+                  remarks: "加成2描述"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '23'
+              - column:
+                  name: setting_key
+                  value: 'AUCTION_LOAD_DATE'
+              - column:
+                  name: setting_value
+                  value: '2026-01-15'
+        - addColumn:
+            tableName: torn_items
+            columns:
+              - column:
+                  name: item_sub_type
+                  type: VARCHAR(16)
+                  remarks: "物品子类型"
+              - column:
+                  name: weapon_category
+                  type: VARCHAR(16)
+                  remarks: "武器类型"
+
+  - changeSet:
+      id: add_auction_weapon_type
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_auction
+            columns:
+              - column:
+                  name: weapon_category
+                  type: VARCHAR(16)
+                  remarks: "武器类型"
+        - sql:
+            sql: |
+              UPDATE torn_auction a
+              SET weapon_category = i.weapon_category
+              FROM torn_items i 
+              WHERE a.item_id = i.id;

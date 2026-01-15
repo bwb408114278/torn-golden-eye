@@ -11,7 +11,7 @@
 
     <groupId>pn.torn</groupId>
     <artifactId>golden-eye</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
     <name>golden-eye</name>
     <description>金蝶独家官方认证</description>
 
@@ -120,6 +120,13 @@
                     <artifactId>mybatis-spring</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <!-- Mybatis Plus 部分插件 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>${mp.version}</version>
         </dependency>
 
         <!-- 飞书SDK -->

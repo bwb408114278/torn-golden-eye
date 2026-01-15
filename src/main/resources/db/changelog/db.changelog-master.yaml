@@ -39,3 +39,8 @@ databaseChangeLog:
       file: db/changelog/0.4.0/setting.yaml
   - include:
       file: db/changelog/0.4.0/news.yaml
+  # 0.5.0
+  - include:
+      file: db/changelog/0.5.0/setting.yaml
+  - include:
+      file: db/changelog/0.5.0/torn.yaml
