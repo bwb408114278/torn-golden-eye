@@ -122,6 +122,13 @@
             </exclusions>
         </dependency>
 
+        <!-- Mybatis Plus 部分插件 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>${mp.version}</version>
+        </dependency>
+
         <!-- 飞书SDK -->
         <dependency>
             <groupId>com.larksuite.oapi</groupId>

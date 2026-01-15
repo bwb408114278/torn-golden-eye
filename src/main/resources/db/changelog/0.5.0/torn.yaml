@@ -185,3 +185,21 @@ databaseChangeLog:
                   name: weapon_category
                   type: VARCHAR(16)
                   remarks: "武器类型"
+
+  - changeSet:
+      id: add_auction_weapon_type
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_auction
+            columns:
+              - column:
+                  name: weapon_category
+                  type: VARCHAR(16)
+                  remarks: "武器类型"
+        - sql:
+            sql: |
+              UPDATE torn_auction a
+              SET weapon_category = i.weapon_category
+              FROM torn_items i 
+              WHERE a.item_id = i.id;

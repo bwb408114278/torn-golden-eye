@@ -202,7 +202,7 @@ public class TornAuctionManager {
         param.put("装备图片", item.getItemImage());
 
         if (TornConstants.ITEM_TYPE_WEAPON.equals(auction.getItemType())) {
-            param.put("装备位置", item.getWeaponCategory());
+            param.put("装备位置", auction.getWeaponCategory());
             param.put("武器类型", auction.getItemSubType());
             param.put("武器伤害", auction.getItemDamage());
             param.put("武器命中", auction.getItemAccuracy());

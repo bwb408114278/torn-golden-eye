@@ -97,6 +97,10 @@ public class BotCommands {
      * RW消耗
      */
     public static final String RW_EXPEND = "RW消耗";
+    /**
+     * 拍卖历史
+     */
+    public static final String AUCTION_HISTORY = "拍卖历史";
 
     // ====================管理功能相关====================
     /**

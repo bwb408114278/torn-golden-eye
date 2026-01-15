@@ -76,6 +76,10 @@ public class TornAuctionDO extends BaseDO {
      */
     private String itemRarity;
     /**
+     * 武器类型
+     */
+    private String weaponCategory;
+    /**
      * 伤害
      */
     private BigDecimal itemDamage;

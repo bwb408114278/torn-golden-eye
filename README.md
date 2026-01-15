@@ -26,7 +26,7 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 1. 进入项目所在的文件夹,运行以下代码打包镜像
 
 ```
-docker build -f ./build/Dockerfile -t golden-eye:0.4.0 .
+docker build -f ./build/Dockerfile -t golden-eye:0.5.0 .
 ```
 
 2. 进入build文件夹,修改.env文件
@@ -120,3 +120,4 @@ log_timezone = 'Asia/Shanghai'
 | 2774191 | SAO           | Drug Pack × 10, 啤酒桶 × 1 |                                                       |
 | 2945480 | SimonSoooou   | FHC                     | OC系数已阅                                                |
 | 3174862 | DarcyYao      | Xan × 10                | 助力金眼健康成长                                              |
+| 2965491 | Ex0dus_67373  | 饮料箱                     | 赞美金眼                                                  |

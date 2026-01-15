@@ -4,7 +4,9 @@ import lombok.Data;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.exception.BizException;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
+import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 /**
@@ -45,7 +47,7 @@ public class TornAuctionVO {
      */
     private TornAuctionItemVO item;
 
-    public TornAuctionDO convert2DO() {
+    public TornAuctionDO convert2DO(TornItemsManager itemsManager) {
         TornAuctionDO auction = new TornAuctionDO();
         auction.setId(this.id);
         auction.setBuyerId(this.buyer.getId());
@@ -60,6 +62,8 @@ public class TornAuctionVO {
         auction.setItemUid(this.item.getUid());
         auction.setItemType(this.item.getType());
         auction.setItemSubType(this.item.getSubType());
+        auction.setWeaponCategory(TornConstants.ITEM_TYPE_WEAPON.equals(this.item.getType()) ?
+                itemsManager.getMap().get(auction.getItemId()).getWeaponCategory() : null);
 
         auction.setItemRarity(StringUtils.hasText(this.item.getRarity()) ?
                 Character.toUpperCase(this.item.getRarity().charAt(0)) + this.item.getRarity().substring(1)
