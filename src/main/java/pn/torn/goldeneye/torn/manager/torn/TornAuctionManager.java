@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 
@@ -45,25 +46,63 @@ public class TornAuctionManager {
      */
     public void uploadAuction(List<TornAuctionDO> auctionList) {
         LarkSuiteBitTableProperty bitTable = larkSuiteProperty.findBitTable(TornConstants.BIT_TABLE_AUCTION);
+        String appToken = bitTable.getAppToken();
+        int currentIndex = 0;
+        auctionList.sort(Comparator.comparing(TornAuctionDO::getFinishTime));
+
+        while (currentIndex < auctionList.size()) {
+            String currentTableId = settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_ID);
+            String rowsCountStr = settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT);
+            int currentRowsCount = Integer.parseInt(rowsCountStr);
+
+            // 如果是新表的第一次写入，记录开始时间
+            if (currentRowsCount == 0) {
+                String startTime = DateTimeUtils.convertToString(auctionList.get(currentIndex).getFinishTime());
+                settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_START_TIME, startTime);
+            }
+            // 计算当前表还能写入多少条
+            int remainingCapacity = 20000 - currentRowsCount;
+            int batchSize = Math.min(remainingCapacity, auctionList.size() - currentIndex);
+            // 获取本批次数据
+            List<TornAuctionDO> batchData = auctionList.subList(currentIndex, currentIndex + batchSize);
+            // 批量写入数据
+            batchInsertToTable(appToken, currentTableId, batchData);
+            // 更新行数
+            int newCount = currentRowsCount + batchSize;
+            settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT, String.valueOf(newCount));
+            currentIndex += batchSize;
+
+            // 如果表已满且还有剩余数据，需要创建新表
+            if (newCount >= 20000 && currentIndex < auctionList.size()) {
+                // 获取当前表的时间范围
+                String startTime = settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_START_TIME);
+                String endTime = DateTimeUtils.convertToString(batchData.getLast().getFinishTime());
+                // 重命名当前表
+                renameTableWithTimeRange(appToken, currentTableId, startTime, endTime);
+                // 创建新表
+                createNewTable(appToken, auctionList.get(currentIndex));
+            }
+        }
+    }
+
+    /**
+     * 批量插入数据到指定表格
+     */
+    private void batchInsertToTable(String appToken, String tableId, List<TornAuctionDO> dataList) {
         larkSuiteApi.sendRequest(client -> {
-            AppTableRecord[] param = new AppTableRecord[auctionList.size()];
-            for (int i = 0; i < auctionList.size(); i++) {
-                param[i] = parseDataParam(auctionList.get(i));
+            AppTableRecord[] param = new AppTableRecord[dataList.size()];
+            for (int i = 0; i < dataList.size(); i++) {
+                param[i] = parseDataParam(dataList.get(i));
             }
 
             BatchCreateAppTableRecordReq req = BatchCreateAppTableRecordReq.newBuilder()
-                    .appToken(bitTable.getAppToken())
-                    .tableId(settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_ID))
+                    .appToken(appToken)
+                    .tableId(tableId)
                     .batchCreateAppTableRecordReqBody(BatchCreateAppTableRecordReqBody.newBuilder()
                             .records(param).build())
                     .build();
-
             return client.bitable().v1().appTableRecord().batchCreate(req);
         });
-
-        String rowsCount = settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT);
-        int newCount = Integer.parseInt(rowsCount) + auctionList.size();
-        settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT, String.valueOf(newCount));
     }
 
     /**
@@ -98,6 +137,23 @@ public class TornAuctionManager {
         updateFormulaColumn(appToken, fieldResp.getItems(), tableId, WEAPON_BONUS_FORMULA, "武器特效2描述", WEAPON_2_BONUS_NAME, WEAPON_2_BONUS_VALUE);
         settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_ID, tableId);
         settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT, String.valueOf(0));
+    }
+
+    /**
+     * 重命名表格（使用时间范围）
+     */
+    private void renameTableWithTimeRange(String appToken, String tableId, String startTime, String endTime) {
+        larkSuiteApi.sendRequest(client -> {
+            PatchAppTableReq req = PatchAppTableReq.newBuilder()
+                    .appToken(appToken)
+                    .tableId(tableId)
+                    .patchAppTableReqBody(PatchAppTableReqBody.newBuilder()
+                            .name("拍卖记录 - " + startTime + " 至 " + endTime)
+                            .build())
+                    .build();
+
+            return client.bitable().v1().appTable().patch(req);
+        });
     }
 
     /**

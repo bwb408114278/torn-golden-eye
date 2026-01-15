@@ -49,7 +49,7 @@ public class TornAuctionDTO implements TornReqParamV2 {
         resultMap.put("from", List.of(DateTimeUtils.convertToShortTimestamp(this.from).toString()));
         resultMap.put("to", List.of(DateTimeUtils.convertToShortTimestamp(this.to).toString()));
         resultMap.put("limit", List.of(this.limit.toString()));
-        resultMap.put("sort", List.of("DESC"));
+        resultMap.put("sort", List.of("ASC"));
         return resultMap;
     }
 }

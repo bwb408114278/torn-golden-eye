@@ -28,6 +28,10 @@ public class SettingConstants {
      * 飞书当前拍卖表格行数
      */
     public static final String LARK_AUCTION_TABLE_ROWS_COUNT = "LARK_AUCTION_TABLE_ROWS_COUNT";
+    /**
+     * 飞书当前拍卖表格起始时间
+     */
+    public static final String LARK_AUCTION_TABLE_START_TIME = "LARK_AUCTION_TABLE_START_TIME";
 
     /**
      * 配置Key - 用户数据读取时间

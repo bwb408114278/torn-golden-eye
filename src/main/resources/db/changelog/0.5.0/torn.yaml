@@ -173,7 +173,7 @@ databaseChangeLog:
                   value: 'AUCTION_LOAD_DATE'
               - column:
                   name: setting_value
-                  value: '2026-01-14'
+                  value: '2026-01-15'
         - addColumn:
             tableName: torn_items
             columns:

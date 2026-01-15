@@ -87,11 +87,11 @@ public class TornAuctionService {
         int limit = 100;
         TornAuctionDTO param;
         TornAuctionListVO resp;
-        LocalDateTime queryTo = to;
+        LocalDateTime queryFrom = from;
         List<TornAuctionDO> auctionList;
 
         do {
-            param = new TornAuctionDTO(from, queryTo, limit);
+            param = new TornAuctionDTO(queryFrom, to, limit);
             resp = tornApi.sendRequest(param, TornAuctionListVO.class);
             if (resp == null || CollectionUtils.isEmpty(resp.getAuctionList())) {
                 break;
@@ -104,7 +104,7 @@ public class TornAuctionService {
                 auctionManager.uploadAuction(dataList);
             }
 
-            queryTo = DateTimeUtils.convertToDateTime(resp.getAuctionList().getLast().getTimestamp());
+            queryFrom = DateTimeUtils.convertToDateTime(resp.getAuctionList().getLast().getTimestamp());
             try {
                 Thread.sleep(1000L);
             } catch (InterruptedException e) {

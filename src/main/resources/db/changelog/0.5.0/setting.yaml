@@ -14,7 +14,7 @@ databaseChangeLog:
                   value: 'FACTION_ARMORY_LOAD_DATE'
               - column:
                   name: setting_value
-                  value: '2026-01-14'
+                  value: '2026-01-15'
 
   - changeSet:
       id: auction_lark_table_dynamic
@@ -44,3 +44,15 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: '0'
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '26'
+              - column:
+                  name: setting_key
+                  value: 'LARK_AUCTION_TABLE_START_TIME'
+              - column:
+                  name: setting_value
+                  value: '2026-01-15'
