@@ -80,10 +80,7 @@ public class StocksDividendOptimizerManager {
     private List<InvestmentOpportunity> generateAllIndividualOpportunities(List<TornStocksDO> allStocks) {
         List<InvestmentOpportunity> opportunities = new ArrayList<>();
         for (TornStocksDO stock : allStocks) {
-            // TCI股票特殊处理，只能购买1BB
-            int maxLevel = "TCI".equalsIgnoreCase(stock.getStocksShortname()) ? 1 : MAX_BB_LEVEL_TO_CONSIDER;
-
-            for (int level = 1; level <= maxLevel; level++) {
+            for (int level = 1; level <= MAX_BB_LEVEL_TO_CONSIDER; level++) {
                 // 成本计算：baseCost * 2^(level - 1)
                 long cost = stock.getBaseCost() * (1L << (level - 1));
                 // 防止溢出
@@ -144,9 +141,7 @@ public class StocksDividendOptimizerManager {
 
             // 添加“不购买此股票”的选项
             stockOptions.add(new CumulativeOpportunity(stock.getId(), 0, 0, 0));
-
-            int maxLevel = "TCI".equalsIgnoreCase(stock.getStocksShortname()) ? 1 : MAX_BB_LEVEL_TO_CONSIDER;
-            for (int level = 1; level <= maxLevel; level++) {
+            for (int level = 1; level <= MAX_BB_LEVEL_TO_CONSIDER; level++) {
                 long levelCost = stock.getBaseCost() * (1L << (level - 1));
                 if (levelCost < 0 || (stock.getBaseCost() > 0 && levelCost <= 0)) break; // 溢出检查
 
