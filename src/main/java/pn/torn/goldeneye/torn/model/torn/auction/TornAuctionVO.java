@@ -7,6 +7,7 @@ import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
+import pn.torn.goldeneye.utils.CharacterUtils;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 /**
@@ -66,7 +67,7 @@ public class TornAuctionVO {
                 itemsManager.getMap().get(auction.getItemId()).getWeaponCategory() : null);
 
         auction.setItemRarity(StringUtils.hasText(this.item.getRarity()) ?
-                Character.toUpperCase(this.item.getRarity().charAt(0)) + this.item.getRarity().substring(1)
+                CharacterUtils.capitalFirstLetter(this.item.getRarity())
                 : "None");
 
         if (this.item.getStats() != null) {

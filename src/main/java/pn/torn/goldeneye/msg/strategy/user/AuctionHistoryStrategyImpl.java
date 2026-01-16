@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.dao.torn.TornAuctionDAO;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
+import pn.torn.goldeneye.utils.CharacterUtils;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
@@ -80,13 +81,13 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
 
         List<String> bonus = buildBonusCondition(bonusArray[0]);
         List<String> item = msgArray.length > 2 ? buildItemCondition(msgArray[2]) : List.of();
-        String category = msgArray.length > 2 ? buildCategoryCondition(msgArray[2]) : null;
+        String category = msgArray.length > 2 ? buildCategoryCondition(msgArray[2]) : "";
         if (CollectionUtils.isEmpty(bonus) && CollectionUtils.isEmpty(item) && !StringUtils.hasText(category)) {
             return super.buildTextMsg("特效和物品至少要有一个");
         }
 
         int bonusValue = checkBonusValue(bonusArray);
-        String rarity = msgArray.length > 1 ? buildRarityCondition(msgArray[1]) : null;
+        String rarity = msgArray.length > 1 ? buildRarityCondition(msgArray[1]) : "";
 
         Page<TornAuctionDO> auctionPage = auctionDao.lambdaQuery()
                 .and(!bonus.isEmpty() || bonusValue > 0, wrapper -> wrapper.or(
@@ -105,48 +106,55 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg("未找到拍卖历史记录");
         }
 
-        return super.buildImageMsg(buildTableMsg(auctionPage.getRecords()));
+        return super.buildImageMsg(buildTableMsg(auctionPage.getRecords(),
+                new TableTitleConfig(bonus, bonusValue, item, rarity, category)));
     }
 
     /**
      * 构建表格消息
      */
-    private String buildTableMsg(List<TornAuctionDO> auctionList) {
+    private String buildTableMsg(List<TornAuctionDO> auctionList, TableTitleConfig titleConfig) {
         TornAuctionDO sample = auctionList.getFirst();
         boolean isWeapon = TornConstants.ITEM_TYPE_WEAPON.equals(sample.getItemType());
 
-        List<ColumnConfig> columns = new ArrayList<>();
-        columns.add(new ColumnConfig("名称", TornAuctionDO::getItemName));
-        columns.add(new ColumnConfig("成交价格", a -> NumberUtils.addDelimiters(a.getPrice())));
-        columns.add(new ColumnConfig("成交时间", a -> DateTimeUtils.convertToString(a.getFinishTime())));
-        columns.add(new ColumnConfig("品质", a -> a.getItemQuality().toString()));
-        columns.add(new ColumnConfig("稀有度", TornAuctionDO::getItemRarity));
+        List<TableColumnConfig> columns = new ArrayList<>();
+        columns.add(new TableColumnConfig("名称", TornAuctionDO::getItemName));
+        columns.add(new TableColumnConfig("成交价格", a -> NumberUtils.addDelimiters(a.getPrice())));
+        columns.add(new TableColumnConfig("成交时间", a -> DateTimeUtils.convertToString(a.getFinishTime())));
+        columns.add(new TableColumnConfig("品质", a -> a.getItemQuality().toString()));
+        columns.add(new TableColumnConfig("稀有度", TornAuctionDO::getItemRarity));
 
         if (isWeapon) {
-            columns.add(new ColumnConfig("伤害", a -> a.getItemDamage().toString()));
-            columns.add(new ColumnConfig("命中", a -> a.getItemAccuracy().toString()));
+            columns.add(new TableColumnConfig("伤害", a -> a.getItemDamage().toString()));
+            columns.add(new TableColumnConfig("命中", a -> a.getItemAccuracy().toString()));
         } else {
-            columns.add(new ColumnConfig("护甲", a -> a.getItemArmor().toString()));
+            columns.add(new TableColumnConfig("护甲", a -> a.getItemArmor().toString()));
         }
 
-        columns.add(new ColumnConfig("特效", a ->
+        columns.add(new TableColumnConfig("特效", a ->
                 a.getBonus1Value() + "% " + a.getBonus1Title() +
                         (StringUtils.hasText(a.getBonus2Title()) ?
                                 ", " + a.getBonus2Value() + "% " + a.getBonus2Title() : "")));
 
-        return buildTable(auctionList, columns);
+        return buildTable(auctionList, titleConfig, columns);
     }
 
     /**
      * 构建表格消息
      */
-    private String buildTable(List<TornAuctionDO> auctionList, List<ColumnConfig> columns) {
+    private String buildTable(List<TornAuctionDO> auctionList,
+                              TableTitleConfig titleConfig, List<TableColumnConfig> columns) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         // 标题行
         int columnCount = columns.size();
         List<String> titleRow = new ArrayList<>(Collections.nCopies(columnCount, ""));
-        titleRow.set(0, "近30日拍卖记录");
+        String title = (titleConfig.rarity().isEmpty() ? "" : titleConfig.rarity()) +
+                (titleConfig.bonus().isEmpty() ? "" : (String.join("/", titleConfig.bonus()))) +
+                (titleConfig.bonusValue() < 1 ? "" : "(" + titleConfig.bonusValue() + "以上)") +
+                (titleConfig.itemName().isEmpty() ? "" : " " + String.join("/", titleConfig.itemName())) +
+                (titleConfig.category().isEmpty() ? "" : titleConfig.category());
+        titleRow.set(0, "最近" + title + "的拍卖成交记录");
         tableData.add(titleRow);
 
         tableConfig.addMerge(0, 0, 1, columnCount);
@@ -156,7 +164,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
                 .setFont(new Font("微软雅黑", Font.BOLD, 30)));
         // 表头行
         List<String> headerRow = columns.stream()
-                .map(ColumnConfig::header)
+                .map(TableColumnConfig::header)
                 .toList();
         tableData.add(headerRow);
         tableConfig.setSubTitle(1, columnCount);
@@ -187,11 +195,11 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
                 "\ng#" + BotCommands.AUCTION_HISTORY + "#回E:15, 查询15以上回E武器" +
                 "\ng#" + BotCommands.AUCTION_HISTORY + "#回E#橙, 查询所有橙色回E武器" +
                 "\ng#" + BotCommands.AUCTION_HISTORY + "#回E##副手, 查询所有回E副手" +
-                "\ng#" + BotCommands.AUCTION_HISTORY + "#回E##MP9, 查询所有回E BT MP9" +
+                "\ng#" + BotCommands.AUCTION_HISTORY + "#emp##kod, 查询所有Empower的Kodachi" +
                 "\ng#" + BotCommands.AUCTION_HISTORY + "###EOD头, 查询所有EOD头" +
                 "\ng#" + BotCommands.AUCTION_HISTORY + "#:22##EOD头, 查询特效在22以上的EOD头" +
                 "\n\n支持的特效别名如下: \n" + bonusBuilder.toString().replaceFirst(", ", "") + ", 穿甲, 破甲" +
-                "\n支持的物品别名如下: \n" + itemBuilder.toString().replaceFirst(", ", "") + ", 日本刀";
+                "\n支持的物品别名如下, 全名时左起字母匹配可模糊查询: \n" + itemBuilder.toString().replaceFirst(", ", "") + ", 日本刀";
     }
 
     /**
@@ -217,9 +225,9 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
             return List.of();
         }
 
-        String bonusParam = msg.toUpperCase().replace(" ","");
+        String bonusParam = msg.toUpperCase().replace(" ", "");
         for (Map.Entry<String, String> entry : BONUS_ALAIS_MAP.entrySet()) {
-            if (entry.getKey().toUpperCase().replace(" ","").equals(bonusParam)) {
+            if (entry.getKey().toUpperCase().replace(" ", "").equals(bonusParam)) {
                 return List.of(entry.getValue());
             }
         }
@@ -229,8 +237,8 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         }
 
         String bonusRealName = BONUS_LIST.stream()
-                .filter(b -> b.toUpperCase().replace(" ","").equals(bonusParam))
-                .findAny() .orElse(null);
+                .filter(b -> b.toUpperCase().replace(" ", "").equals(bonusParam))
+                .findAny().orElse(null);
         if (StringUtils.hasText(bonusRealName)) {
             return List.of(bonusRealName);
         }
@@ -246,9 +254,9 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
             return List.of();
         }
 
-        String itemParam = msg.toUpperCase().replace(" ","");
+        String itemParam = msg.toUpperCase().replace(" ", "");
         for (Map.Entry<String, String> entry : ITEM_ALAIS_MAP.entrySet()) {
-            if (entry.getKey().toUpperCase().replace(" ","").equals(itemParam)) {
+            if (entry.getKey().toUpperCase().replace(" ", "").equals(itemParam)) {
                 return List.of(entry.getValue());
             }
         }
@@ -258,7 +266,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         }
 
         for (Map.Entry<String, TornItemsDO> entry : itemsManager.getNameMap().entrySet()) {
-            if (entry.getKey().toUpperCase().replace(" ","").equals(itemParam)) {
+            if (entry.getKey().toUpperCase().replace(" ", "").startsWith(itemParam)) {
                 return List.of(entry.getValue().getItemName());
             }
         }
@@ -280,7 +288,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
 
         String categoryParam = msg.toUpperCase();
         if ("PRIMARY".equals(categoryParam) || "SECONDARY".equals(categoryParam) || "MELEE".equals(categoryParam)) {
-            return Character.toUpperCase(msg.charAt(0)) + msg.substring(1).toLowerCase();
+            return CharacterUtils.capitalFirstLetter(msg);
         }
 
         return "";
@@ -300,7 +308,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
 
         String rarityParam = msg.toUpperCase();
         if ("RED".equals(rarityParam) || "ORANGE".equals(rarityParam) || "YELLOW".equals(rarityParam)) {
-            return Character.toUpperCase(msg.charAt(0)) + msg.substring(1).toLowerCase();
+            return CharacterUtils.capitalFirstLetter(msg);
         }
 
         throw new BizException("未识别的稀有度");
@@ -491,9 +499,24 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
     /**
      * 列配置
      */
-    private record ColumnConfig(String header, Function<TornAuctionDO, String> extractor) {
+    private record TableColumnConfig(String header, Function<TornAuctionDO, String> extractor) {
         public String getValue(TornAuctionDO auction) {
             return extractor.apply(auction);
+        }
+    }
+
+    /**
+     * 表头配置
+     */
+    private record TableTitleConfig(List<String> bonus, int bonusValue, List<String> itemName,
+                                    String rarity, String category) {
+        public String rarity() {
+            return switch (rarity) {
+                case "Red" -> "红";
+                case "Orange" -> "橙";
+                case "Yellow" -> "黄";
+                default -> "";
+            };
         }
     }
 }
