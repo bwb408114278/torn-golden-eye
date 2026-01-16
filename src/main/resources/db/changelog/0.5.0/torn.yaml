@@ -203,3 +203,18 @@ databaseChangeLog:
               SET weapon_category = i.weapon_category
               FROM torn_items i 
               WHERE a.item_id = i.id;
+
+  - changeSet:
+      id: remove_tci_profit
+      author: Bai
+      changes:
+        - update:
+            tableName: torn_stocks
+            columns:
+              - column:
+                  name: profit
+                  value: '0'
+              - column:
+                  name: year_profit
+                  value: '0'
+            where: id = 2
