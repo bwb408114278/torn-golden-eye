@@ -36,6 +36,10 @@ public class TornConstants {
      * SH帮派ID
      */
     public static final long FACTION_SH_ID = 36134L;
+    /**
+     * Nov帮派ID
+     */
+    public static final long FACTION_NOV_ID = 16335;
 
     // ====================OC相关====================
     public static final List<String> ROTATION_OC_NAME = new ArrayList<>();
@@ -67,6 +71,7 @@ public class TornConstants {
         REASSIGN_OC_FACTION.add(FACTION_HP_ID);
         REASSIGN_OC_FACTION.add(FACTION_CCRC_ID);
         REASSIGN_OC_FACTION.add(FACTION_SH_ID);
+        REASSIGN_OC_FACTION.add(FACTION_NOV_ID);
 
         DEFENDER_ATTACK_TYPE.add("lost to");
         DEFENDER_ATTACK_TYPE.add("began bleeding");

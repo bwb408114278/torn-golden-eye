@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
  * 缓存配置类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.11.20
  */
 @Configuration
@@ -55,7 +55,7 @@ public class CacheConfig {
 
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(1000)
-                .expireAfterWrite(24, TimeUnit.HOURS));
+                .expireAfterWrite(1, TimeUnit.HOURS));
         return cacheManager;
     }
 

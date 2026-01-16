@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
@@ -19,7 +20,7 @@ import java.util.List;
  * OC工时计算服务
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.11.03
  */
 @Service
@@ -54,8 +55,9 @@ public class TornOcWorkingHourService {
             int baseWorkingHours = totalSlots - i;
 
             // 2.2 获取系数
-            BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
-                    slot.getPosition(), slot.getPassRate());
+            BigDecimal coefficient = oc.getFactionId().equals(TornConstants.FACTION_NOV_ID) ?
+                    BigDecimal.ONE :
+                    coefficientManager.getCoefficient(oc.getName(), oc.getRank(), slot.getPosition(), slot.getPassRate());
 
             // 2.3 计算有效工时
             BigDecimal effectiveWorkingHours = BigDecimal.valueOf(baseWorkingHours)
