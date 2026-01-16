@@ -309,7 +309,7 @@ public class BotSocketClient {
         }
 
         for (BaseGroupMsgStrategy strategy : groupMsgStrategyList) {
-            if (strategy.getCommand().equals(msgArray[1])) {
+            if (strategy.getCommand().equalsIgnoreCase(msgArray[1])) {
                 // 不是特定群的功能，直接返回
                 if (!strategy.getCustomGroupId().isEmpty() && !strategy.getCustomGroupId().contains(msg.getGroupId())) {
                     return;
@@ -335,7 +335,7 @@ public class BotSocketClient {
      */
     private void handlePrivateMsg(QqRecMsg msg, String[] msgArray) {
         for (BasePrivateMsgStrategy strategy : privateMsgStrategyList) {
-            if (strategy.getCommand().equals(msgArray[1])) {
+            if (strategy.getCommand().equalsIgnoreCase(msgArray[1])) {
                 List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(),
                         msgArray.length > 2 ? msgArray[2] : "");
                 if (!CollectionUtils.isEmpty(paramList)) {
