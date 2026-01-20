@@ -205,7 +205,7 @@ public class TornFactionAttackService {
     private void extractElo(TornFactionAttackRespVO attackResp, Map<Long, TornUserStatsVO> eloMap) {
         Set<String> userIdSet = new HashSet<>();
         for (TornFactionAttackVO attack : attackResp.getAttacks()) {
-            LocalDate localDate = DateTimeUtils.convertToDateTime(attack.getEnded()).toLocalDate();
+            LocalDate localDate = DateTimeUtils.convertToDateTime(attack.getStarted()).toLocalDate();
             String key = DateTimeUtils.convertToString(localDate);
 
             userIdSet.add(attack.getAttacker() == null ? "" : attack.getAttacker().getId() + "#" + key);
@@ -214,7 +214,6 @@ public class TornFactionAttackService {
         userIdSet.removeIf(String::isEmpty);
 
         List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
         for (String key : userIdSet) {
             String[] keys = key.split("#");
             long userId = Long.parseLong(keys[0]);
@@ -233,5 +232,7 @@ public class TornFactionAttackService {
                 }
             }, virtualThreadExecutor));
         }
+
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
     }
 }
