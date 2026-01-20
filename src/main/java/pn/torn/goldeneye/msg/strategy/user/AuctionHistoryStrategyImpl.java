@@ -13,7 +13,6 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornAuctionDAO;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
-import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.utils.CharacterUtils;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -38,7 +37,6 @@ import static pn.torn.goldeneye.constants.torn.TornAuctionConstants.*;
 @Component
 @RequiredArgsConstructor
 public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
-    private final TornItemsManager itemsManager;
     private final TornAuctionDAO auctionDao;
 
     @Override
@@ -64,7 +62,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         List<String> item = msgArray.length > 2 ? buildItemCondition(msgArray[2]) : List.of();
         String category = msgArray.length > 2 ? buildCategoryCondition(msgArray[2]) : "";
         if (CollectionUtils.isEmpty(bonus) && CollectionUtils.isEmpty(item) && !StringUtils.hasText(category)) {
-            return super.buildTextMsg("特效和物品至少要有一个");
+            return super.buildTextMsg("特效和物品至少要有一个(物品缩写至少3个字母)");
         }
 
         int bonusValue = checkBonusValue(bonusArray);
@@ -234,7 +232,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
      * 构建物品条件列表
      */
     private List<String> buildItemCondition(String msg) {
-        if (!StringUtils.hasText(msg)) {
+        if (!StringUtils.hasText(msg) || msg.length() < 3) {
             return List.of();
         }
 
