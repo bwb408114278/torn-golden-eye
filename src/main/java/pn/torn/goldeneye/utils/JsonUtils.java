@@ -1,10 +1,7 @@
 package pn.torn.goldeneye.utils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
@@ -15,13 +12,14 @@ import pn.torn.goldeneye.base.exception.BizException;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.TimeZone;
 
 /**
  * Json工具类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.5.0
  * @since 2025.07.24
  */
 @Slf4j
@@ -63,6 +61,19 @@ public class JsonUtils {
         } catch (JsonProcessingException e) {
             log.error("Json转对象异常，字符串为: " + str);
             throw new BizException("Json转对象异常", e);
+        }
+    }
+
+    /**
+     * Json字符串转列表
+     */
+    public static <T> List<T> jsonToList(String str, Class<T> clazz) {
+        try {
+            JavaType javaType = MAPPER.getTypeFactory().constructCollectionType(List.class, clazz);
+            return MAPPER.readValue(str, javaType);
+        } catch (Exception e) {
+            log.error("Json转列表异常，字符串为: " + str);
+            throw new BizException("Json转列表异常", e);
         }
     }
 

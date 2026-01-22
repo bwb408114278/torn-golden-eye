@@ -63,8 +63,6 @@ public class TornFactionRwUserStatusDO extends BaseDO {
         this(member);
         this.factionId = factionId;
         this.rwId = rwId;
-        this.userId = member.getId();
-        this.nickname = member.getName();
     }
 
     public TornFactionRwUserStatusDO(long id, TornFactionMemberVO member) {
@@ -73,10 +71,12 @@ public class TornFactionRwUserStatusDO extends BaseDO {
     }
 
     private TornFactionRwUserStatusDO(TornFactionMemberVO member) {
+        this.userId = member.getId();
+        this.nickname = member.getName();
         this.state = member.getStatus().getState();
         if ("Traveling".equals(this.state) || "Abroad".equals(this.state)) {
             TornTravelTargetEnum taget = TornTravelTargetEnum.textContain(member.getStatus().getDescription());
-            TornTravelStatusEnum travelStatus = TornTravelStatusEnum.textStart(member.getStatus().getState());
+            TornTravelStatusEnum travelStatus = TornTravelStatusEnum.textStart(member.getStatus().getDescription());
             this.travelTarget = taget == null ? "" : taget.getCode();
             this.travelType = travelStatus == null ? "" : travelStatus.getCode();
             this.planeType = TornPlaneTypeEnum.imageOfCode(member.getStatus().getPlaneImageType());

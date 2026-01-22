@@ -18,7 +18,9 @@ import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.faction.attack.TornRwWarningManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwDTO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwRespVO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwVO;
@@ -27,13 +29,14 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Collection;
 import java.util.List;
 
 /**
  * TornRw数据逻辑层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.12.25
  */
 @Slf4j
@@ -44,6 +47,7 @@ public class TornRwDataService {
     private final DynamicTaskService taskService;
     private final TornApi tornApi;
     private final TornFactionAttackService attackService;
+    private final TornRwWarningManager rwWarningManager;
     private final TornSettingFactionManager settingFactionManager;
     private final SysSettingDAO settingDao;
     private final TornFactionRwDAO rwDao;
@@ -111,7 +115,12 @@ public class TornRwDataService {
         }
 
         if (now.isAfter(start)) {
-            attackService.spiderAttackData(faction, currentRw.getOpponentFaction(faction.getId()).getId(), from, to);
+            Collection<TornFactionMemberVO> memberList = attackService.spiderAttackData(faction,
+                    currentRw.getOpponentFaction(faction.getId()).getId(), from, to);
+            if (!isLowFrequencyPeriod(now)) {
+                TornFactionRwDO rw = rwDao.getById(currentRw.getId());
+                rwWarningManager.sendWarning(rw, now, memberList);
+            }
         }
     }
 

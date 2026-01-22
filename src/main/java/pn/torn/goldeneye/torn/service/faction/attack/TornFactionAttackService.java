@@ -47,8 +47,9 @@ public class TornFactionAttackService {
     /**
      * 爬取攻击记录
      */
-    public void spiderAttackData(TornSettingFactionDO faction, long opponentFactionId,
-                                 LocalDateTime from, LocalDateTime to) {
+    public Collection<TornFactionMemberVO> spiderAttackData(TornSettingFactionDO faction,
+                                                            long opponentFactionId,
+                                                            LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionAttackDTO param;
         LocalDateTime queryFrom = from;
@@ -81,6 +82,7 @@ public class TornFactionAttackService {
         } while (resp.getAttacks().size() >= limit);
 
         attackLogService.saveAttackLog(faction.getId(), logIdSet, userNameMap, eloMap);
+        return userMap.values();
     }
 
     /**

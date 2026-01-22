@@ -55,11 +55,6 @@ public class TornAuctionManager {
             String rowsCountStr = settingDao.querySettingValue(SettingConstants.LARK_AUCTION_TABLE_ROWS_COUNT);
             int currentRowsCount = Integer.parseInt(rowsCountStr);
 
-            // 如果是新表的第一次写入，记录开始时间
-            if (currentRowsCount == 0) {
-                String startTime = DateTimeUtils.convertToString(auctionList.get(currentIndex).getFinishTime());
-                settingDao.updateSetting(SettingConstants.LARK_AUCTION_TABLE_START_TIME, startTime);
-            }
             // 计算当前表还能写入多少条
             int remainingCapacity = 20000 - currentRowsCount;
             int batchSize = Math.min(remainingCapacity, auctionList.size() - currentIndex);

@@ -17,21 +17,22 @@ public enum TornPlaneTypeEnum {
     /**
      * 标准
      */
-    STANDARD("Standard", ""),
+    STANDARD("Standard", "小飞机", ""),
     /**
      * PI
      */
-    AIRSTRIP("Airstrip", "light_aircraft"),
+    AIRSTRIP("Airstrip", "PI飞机", "light_aircraft"),
     /**
      * WLT
      */
-    PRIVATE("Private", "private_jet"),
+    PRIVATE("Private", "WLT", "private_jet"),
     /**
      * 机票
      */
-    BUSINESS("Business", "airliner");
+    BUSINESS("Business", "机票", "airliner");
 
     private final String code;
+    private final String name;
     private final String imageType;
 
     public static TornPlaneTypeEnum codeOf(String code) {
@@ -47,7 +48,7 @@ public enum TornPlaneTypeEnum {
     public static String imageOfCode(String imageType) {
         for (TornPlaneTypeEnum value : values()) {
             if (value.getImageType().equals(imageType)) {
-                return imageType;
+                return value.getCode();
             }
         }
 

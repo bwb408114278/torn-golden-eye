@@ -2,7 +2,6 @@ package pn.torn.goldeneye.constants.torn.enums.user;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import pn.torn.goldeneye.base.exception.BizException;
 
 /**
  * 旅行目的地枚举
@@ -65,19 +64,9 @@ public enum TornTravelTargetEnum {
     private final long privateMinutes;
     private final long businessMinutes;
 
-    public static TornTravelTargetEnum codeOf(String code) {
-        for (TornTravelTargetEnum value : values()) {
-            if (value.getCode().equals(code)) {
-                return value;
-            }
-        }
-
-        throw new BizException("飞行目的地未识别Code: " + code);
-    }
-
     public static TornTravelTargetEnum textContain(String text) {
         for (TornTravelTargetEnum value : values()) {
-            if (value.getCode().contains(text)) {
+            if (text.contains(value.getCode())) {
                 return value;
             }
         }

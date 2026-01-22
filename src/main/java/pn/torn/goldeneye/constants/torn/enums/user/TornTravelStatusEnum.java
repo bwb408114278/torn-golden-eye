@@ -42,7 +42,7 @@ public enum TornTravelStatusEnum {
 
     public static TornTravelStatusEnum textStart(String text) {
         for (TornTravelStatusEnum value : values()) {
-            if (value.getCode().startsWith(text)) {
+            if (text.startsWith(value.getCode())) {
                 return value;
             }
         }
