@@ -54,7 +54,6 @@ public class TornRwDataService {
     private final ProjectProperty projectProperty;
 
     private static final LocalTime LOW_FREQUENCY_START = LocalTime.of(0, 0);
-    private static final LocalTime LOW_FREQUENCY_END = LocalTime.of(8, 0);
     private static final long NORMAL_INTERVAL_MINUTES = 3;
     private static final long LOW_FREQUENCY_INTERVAL_MINUTES = 60;
 
@@ -73,12 +72,12 @@ public class TornRwDataService {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(rw.getFactionId());
             String value = settingDao.querySettingValue(faction.getFactionShortName() + "_" + SettingConstants.KEY_RW_LOAD);
             LocalDateTime from = DateTimeUtils.convertToDateTime(value);
-            long intervalMinutes = getIntervalMinutes(LocalDateTime.now());
+            long intervalMinutes = getIntervalMinutes(LocalDateTime.now(), rw);
 
             if (LocalDateTime.now().minusMinutes(intervalMinutes).isAfter(from)) {
                 spiderRwData(faction, from);
             } else {
-                addScheduleTask(faction, from);
+                addScheduleTask(faction, from, rw);
             }
         }
     }
@@ -103,22 +102,22 @@ public class TornRwDataService {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime start = DateTimeUtils.convertToDateTime(currentRw.getStart());
         LocalDateTime to;
+        TornFactionRwDO rw = rwDao.getById(currentRw.getId());
         if (currentRw.getEnd() != 0L) {
             to = DateTimeUtils.convertToDateTime(currentRw.getEnd());
             rwDao.lambdaUpdate()
                     .set(TornFactionRwDO::getEndTime, to)
-                    .eq(TornFactionRwDO::getId, currentRw.getId())
+                    .eq(TornFactionRwDO::getId, rw.getId())
                     .update();
         } else {
             to = start.isAfter(now) ? start : now;
-            addScheduleTask(faction, to);
+            addScheduleTask(faction, to, rw);
         }
 
         if (now.isAfter(start)) {
             Collection<TornFactionMemberVO> memberList = attackService.spiderAttackData(faction,
                     currentRw.getOpponentFaction(faction.getId()).getId(), from, to);
-            if (!isLowFrequencyPeriod(now)) {
-                TornFactionRwDO rw = rwDao.getById(currentRw.getId());
+            if (!isLowFrequencyPeriod(now, rw)) {
                 rwWarningManager.sendWarning(rw, now, memberList);
             }
         }
@@ -127,8 +126,8 @@ public class TornRwDataService {
     /**
      * 添加定时任务
      */
-    public void addScheduleTask(TornSettingFactionDO faction, LocalDateTime from) {
-        LocalDateTime nextExecutionTime = calculateNextExecutionTime(from);
+    public void addScheduleTask(TornSettingFactionDO faction, LocalDateTime from, TornFactionRwDO rw) {
+        LocalDateTime nextExecutionTime = calculateNextExecutionTime(from, rw);
 
         settingDao.updateSetting(faction.getFactionShortName() + "_" + SettingConstants.KEY_RW_LOAD,
                 DateTimeUtils.convertToString(from));
@@ -140,27 +139,27 @@ public class TornRwDataService {
     /**
      * 判断是否在低频时段（0点到8点）
      */
-    private boolean isLowFrequencyPeriod(LocalDateTime dateTime) {
+    private boolean isLowFrequencyPeriod(LocalDateTime dateTime, TornFactionRwDO rw) {
         LocalTime time = dateTime.toLocalTime();
-        return !time.isBefore(LOW_FREQUENCY_START) && time.isBefore(LOW_FREQUENCY_END);
+        return !time.isBefore(LOW_FREQUENCY_START) && time.isBefore(rw.getGatheringTime());
     }
 
     /**
      * 根据当前时间获取抓取间隔
      */
-    private long getIntervalMinutes(LocalDateTime dateTime) {
-        return isLowFrequencyPeriod(dateTime) ? LOW_FREQUENCY_INTERVAL_MINUTES : NORMAL_INTERVAL_MINUTES;
+    private long getIntervalMinutes(LocalDateTime dateTime, TornFactionRwDO rw) {
+        return isLowFrequencyPeriod(dateTime, rw) ? LOW_FREQUENCY_INTERVAL_MINUTES : NORMAL_INTERVAL_MINUTES;
     }
 
     /**
      * 计算下次执行时间
      */
-    private LocalDateTime calculateNextExecutionTime(LocalDateTime currentTime) {
-        long intervalMinutes = getIntervalMinutes(currentTime);
+    private LocalDateTime calculateNextExecutionTime(LocalDateTime currentTime, TornFactionRwDO rw) {
+        long intervalMinutes = getIntervalMinutes(currentTime, rw);
         LocalDateTime nextTime = currentTime.plusMinutes(intervalMinutes);
 
         // 如果当前是正常频率时段，但下次执行会进入低频时段
-        if (!isLowFrequencyPeriod(currentTime) && isLowFrequencyPeriod(nextTime)) {
+        if (!isLowFrequencyPeriod(currentTime, rw) && isLowFrequencyPeriod(nextTime, rw)) {
             // 检查是否需要调整到低频时段的整点
             LocalDateTime nextHour = nextTime.withMinute(0).withSecond(0).withNano(0);
             if (nextHour.isAfter(currentTime)) {

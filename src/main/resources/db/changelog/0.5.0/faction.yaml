@@ -74,3 +74,18 @@ databaseChangeLog:
                   constraints:
                     nullable: false
                   remarks: "更新时间"
+
+  - changeSet:
+      id: add_rw_gathering_time
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_rw
+            columns:
+              - column:
+                  name: gathering_time
+                  type: TIME
+                  constraints:
+                    nullable: false
+                  defaultValue: "08:00:00"
+                  remarks: "集合时间"

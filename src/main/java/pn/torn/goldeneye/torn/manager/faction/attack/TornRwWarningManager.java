@@ -86,7 +86,7 @@ public class TornRwWarningManager {
 
         log.info("RW在线检测: 时间: {}, 我方绿灯{}人, 对方{}人",
                 DateTimeUtils.convertToString(LocalDateTime.now()), factionOnlineCount, opponentOnlineCount);
-        if (opponentOnlineCount > factionOnlineCount && opponentOkayCount >= 10) {
+        if (opponentOnlineCount > factionOnlineCount && opponentOnlineCount >= 10 && opponentOkayCount <= 10) {
             TornSettingFactionDO faction = factionManager.getIdMap().get(rw.getFactionId());
             List<QqMsgParam<?>> msgList = new ArrayList<>(buildCommanderAtMsgList(faction));
             msgList.add(new TextQqMsg("\n注意! 检测到RW对方绿灯" + opponentOnlineCount + "人, 我方仅" + factionOnlineCount + "人"));
