@@ -1,0 +1,91 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_rw_user_status_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_rw_user_status
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+              - column:
+                  name: rw_id
+                  type: BIGINT
+                  remarks: "RW ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: nickname
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "用户昵称"
+              - column:
+                  name: state
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "用户状态"
+              - column:
+                  name: travel_target
+                  type: VARCHAR(16)
+                  remarks: "旅行目标"
+              - column:
+                  name: travel_type
+                  type: VARCHAR(16)
+                  remarks: "旅行状态"
+              - column:
+                  name: plane_type
+                  type: VARCHAR(16)
+                  remarks: "飞机类型"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+
+  - changeSet:
+      id: add_rw_gathering_time
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_rw
+            columns:
+              - column:
+                  name: gathering_time
+                  type: TIME
+                  constraints:
+                    nullable: false
+                  defaultValue: "08:00:00"
+                  remarks: "集合时间"

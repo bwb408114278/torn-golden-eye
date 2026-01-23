@@ -44,3 +44,5 @@ databaseChangeLog:
       file: db/changelog/0.5.0/setting.yaml
   - include:
       file: db/changelog/0.5.0/torn.yaml
+  - include:
+      file: db/changelog/0.5.0/faction.yaml

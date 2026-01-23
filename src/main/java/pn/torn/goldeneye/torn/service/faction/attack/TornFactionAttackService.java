@@ -3,9 +3,10 @@ package pn.torn.goldeneye.torn.service.faction.attack;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionAttackDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionAttackDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
@@ -15,7 +16,6 @@ import pn.torn.goldeneye.torn.model.faction.attack.TornFactionAttackVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
-import pn.torn.goldeneye.torn.model.user.TornUserLastActionVO;
 import pn.torn.goldeneye.torn.model.user.elo.TornUserEloDTO;
 import pn.torn.goldeneye.torn.model.user.elo.TornUserEloVO;
 import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
@@ -32,11 +32,11 @@ import java.util.stream.Collectors;
  * 帮派攻击记录逻辑类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.12.18
  */
 @Slf4j
-@Component
+@Service
 @RequiredArgsConstructor
 public class TornFactionAttackService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
@@ -47,8 +47,9 @@ public class TornFactionAttackService {
     /**
      * 爬取攻击记录
      */
-    public void spiderAttackData(TornSettingFactionDO faction, long opponentFactionId,
-                                 LocalDateTime from, LocalDateTime to) {
+    public Collection<TornFactionMemberVO> spiderAttackData(TornSettingFactionDO faction,
+                                                            long opponentFactionId,
+                                                            LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionAttackDTO param;
         LocalDateTime queryFrom = from;
@@ -56,7 +57,7 @@ public class TornFactionAttackService {
         List<TornFactionAttackDO> attackList;
         Set<String> logIdSet = new HashSet<>();
         Map<Long, String> userNameMap = new HashMap<>();
-        Map<Long, TornUserLastActionVO> userMap = extractOnlineStatus(faction.getId(), opponentFactionId);
+        Map<Long, TornFactionMemberVO> userMap = extractOnlineStatus(faction.getId(), opponentFactionId);
         Map<Long, TornUserStatsVO> eloMap = new HashMap<>();
 
         do {
@@ -81,12 +82,13 @@ public class TornFactionAttackService {
         } while (resp.getAttacks().size() >= limit);
 
         attackLogService.saveAttackLog(faction.getId(), logIdSet, userNameMap, eloMap);
+        return userMap.values();
     }
 
     /**
      * 解析新闻列表为攻击记录
      */
-    public List<TornFactionAttackDO> parseNewsList(TornFactionAttackRespVO resp, Map<Long, TornUserLastActionVO> userMap,
+    public List<TornFactionAttackDO> parseNewsList(TornFactionAttackRespVO resp, Map<Long, TornFactionMemberVO> userMap,
                                                    Set<String> logIdSet, Map<Long, String> userNameMap,
                                                    Map<Long, TornUserStatsVO> eloMap) {
         if (resp == null || CollectionUtils.isEmpty(resp.getAttacks())) {
@@ -118,7 +120,7 @@ public class TornFactionAttackService {
     /**
      * 解析单条新闻为攻击记录
      */
-    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornUserLastActionVO> userMap,
+    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornFactionMemberVO> userMap,
                                          Map<Long, TornUserStatsVO> eloMap) {
         TornFactionAttackDO data = new TornFactionAttackDO();
         data.setId(attack.getId());
@@ -163,8 +165,8 @@ public class TornFactionAttackService {
             data.setDefendFactionName(attack.getDefender().getFaction().getName());
         }
 
-        TornUserLastActionVO la = userMap.get(data.getDefendUserId());
-        data.setDefendUserOnlineStatus(la == null ? "Offline" : la.getStatus());
+        TornFactionMemberVO la = userMap.get(data.getDefendUserId());
+        data.setDefendUserOnlineStatus(la == null ? TornConstants.USER_STATUS_OFFLINE : la.getLastAction().getStatus());
 
         TornUserStatsVO attackerStats = eloMap.get(data.getAttackUserId());
         TornUserStatsVO defenderStats = eloMap.get(data.getDefendUserId());
@@ -177,12 +179,12 @@ public class TornFactionAttackService {
     /**
      * 提取在线状态
      */
-    private Map<Long, TornUserLastActionVO> extractOnlineStatus(long... factionIds) {
+    private Map<Long, TornFactionMemberVO> extractOnlineStatus(long... factionIds) {
         if (factionIds == null) {
             return Map.of();
         }
 
-        Map<Long, TornUserLastActionVO> resultMap = new LinkedHashMap<>();
+        Map<Long, TornFactionMemberVO> resultMap = new LinkedHashMap<>();
         for (long factionId : factionIds) {
             TornFactionMemberDTO param = new TornFactionMemberDTO(factionId);
             TornFactionMemberListVO resp = tornApi.sendRequest(param, TornFactionMemberListVO.class);
@@ -192,7 +194,7 @@ public class TornFactionAttackService {
             }
 
             for (TornFactionMemberVO member : resp.getMembers()) {
-                resultMap.put(member.getId(), member.getLastAction());
+                resultMap.put(member.getId(), member);
             }
         }
 
@@ -205,7 +207,7 @@ public class TornFactionAttackService {
     private void extractElo(TornFactionAttackRespVO attackResp, Map<Long, TornUserStatsVO> eloMap) {
         Set<String> userIdSet = new HashSet<>();
         for (TornFactionAttackVO attack : attackResp.getAttacks()) {
-            LocalDate localDate = DateTimeUtils.convertToDateTime(attack.getEnded()).toLocalDate();
+            LocalDate localDate = DateTimeUtils.convertToDateTime(attack.getStarted()).toLocalDate();
             String key = DateTimeUtils.convertToString(localDate);
 
             userIdSet.add(attack.getAttacker() == null ? "" : attack.getAttacker().getId() + "#" + key);
@@ -214,7 +216,6 @@ public class TornFactionAttackService {
         userIdSet.removeIf(String::isEmpty);
 
         List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
         for (String key : userIdSet) {
             String[] keys = key.split("#");
             long userId = Long.parseLong(keys[0]);
@@ -233,5 +234,7 @@ public class TornFactionAttackService {
                 }
             }, virtualThreadExecutor));
         }
+
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
     }
 }

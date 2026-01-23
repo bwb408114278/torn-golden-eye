@@ -6,12 +6,13 @@ import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 /**
  * 帮派Rw表
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.12.25
  */
 @Data
@@ -46,4 +47,8 @@ public class TornFactionRwDO extends BaseDO {
      * 结束时间
      */
     private LocalDateTime endTime;
+    /**
+     * 集合时间
+     */
+    private LocalTime gatheringTime;
 }

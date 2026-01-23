@@ -5,6 +5,7 @@ import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.time.LocalTime;
 import java.util.List;
 
 /**
@@ -70,6 +71,7 @@ public class TornFactionRwVO {
         rw.setOpponentFactionName(opponentFaction.getName());
         rw.setStartTime(DateTimeUtils.convertToDateTime(this.start));
         rw.setEndTime(this.end == null || this.end == 0L ? null : DateTimeUtils.convertToDateTime(this.end));
+        rw.setGatheringTime(LocalTime.of(8, 0, 0));
         return rw;
     }
 }

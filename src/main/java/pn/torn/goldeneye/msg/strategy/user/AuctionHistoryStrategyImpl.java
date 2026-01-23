@@ -2,8 +2,6 @@ package pn.torn.goldeneye.msg.strategy.user;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -15,17 +13,19 @@ import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornAuctionDAO;
 import pn.torn.goldeneye.repository.model.torn.TornAuctionDO;
-import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
-import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.utils.CharacterUtils;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
 
 import java.awt.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
+
+import static pn.torn.goldeneye.constants.torn.TornAuctionConstants.*;
 
 /**
  * 拍卖行历史策略实现类
@@ -37,28 +37,7 @@ import java.util.function.Function;
 @Component
 @RequiredArgsConstructor
 public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
-    private final TornItemsManager itemsManager;
     private final TornAuctionDAO auctionDao;
-    private static final Map<String, String> BONUS_ALAIS_MAP = new LinkedHashMap<>();
-    private static final Map<String, String> ITEM_ALAIS_MAP = new LinkedHashMap<>();
-    private static final Map<String, String> RARITYT_ALAIS_MAP = new HashMap<>();
-    private static final Map<String, String> CATEGORY_ALAIS_MAP = new HashMap<>();
-    private static final List<String> BONUS_LIST = new ArrayList<>();
-    private static final String BONUS_STRICKEN = "Stricken";
-    private static final String BONUS_POWERFUL = "Powerful";
-    private static final String BONUS_EXPOSE = "Expose";
-    private static final String BONUS_DEADEYE = "Deadeye";
-    private static final String BONUS_PUNCTURE = "Puncture";
-    private static final String BONUS_PENETRATE = "Penetrate";
-
-    @EventListener(ApplicationReadyEvent.class)
-    public void init() {
-        buildBonusAliasMap();
-        buildItemAliasMap();
-        buildRarityAliasMap();
-        buildCategoryAliasMap();
-        buildBonusList();
-    }
 
     @Override
     public String getCommand() {
@@ -83,7 +62,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         List<String> item = msgArray.length > 2 ? buildItemCondition(msgArray[2]) : List.of();
         String category = msgArray.length > 2 ? buildCategoryCondition(msgArray[2]) : "";
         if (CollectionUtils.isEmpty(bonus) && CollectionUtils.isEmpty(item) && !StringUtils.hasText(category)) {
-            return super.buildTextMsg("特效和物品至少要有一个");
+            return super.buildTextMsg("特效和物品至少要有一个(物品缩写至少3个字母)");
         }
 
         int bonusValue = checkBonusValue(bonusArray);
@@ -236,21 +215,24 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
             return List.of(BONUS_PUNCTURE, BONUS_PENETRATE);
         }
 
-        String bonusRealName = BONUS_LIST.stream()
-                .filter(b -> b.toUpperCase().replace(" ", "").equals(bonusParam))
-                .findAny().orElse(null);
-        if (StringUtils.hasText(bonusRealName)) {
-            return List.of(bonusRealName);
+        List<String> resultList = new ArrayList<>();
+        for (String bonus : BONUS_LIST) {
+            if (bonus.toUpperCase().replace(" ", "").startsWith(bonusParam)) {
+                resultList.add(bonus);
+            }
         }
 
-        throw new BizException("未识别的特效");
+        if (resultList.isEmpty()) {
+            throw new BizException("未识别的特效");
+        }
+        return resultList;
     }
 
     /**
      * 构建物品条件列表
      */
     private List<String> buildItemCondition(String msg) {
-        if (!StringUtils.hasText(msg)) {
+        if (!StringUtils.hasText(msg) || msg.length() < 3) {
             return List.of();
         }
 
@@ -265,13 +247,14 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
             return List.of("Kodachi", "Katana", "Yasukuni Sword", "Samurai Sword");
         }
 
-        for (Map.Entry<String, TornItemsDO> entry : itemsManager.getNameMap().entrySet()) {
-            if (entry.getKey().toUpperCase().replace(" ", "").startsWith(itemParam)) {
-                return List.of(entry.getValue().getItemName());
+        List<String> resultList = new ArrayList<>();
+        for (String itemName : ITEM_LIST) {
+            if (itemName.toUpperCase().replace(" ", "").startsWith(itemParam)) {
+                resultList.add(itemName);
             }
         }
 
-        return List.of();
+        return resultList;
     }
 
     /**
@@ -312,188 +295,6 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         }
 
         throw new BizException("未识别的稀有度");
-    }
-
-    /**
-     * 构建特效别名Map
-     */
-    private void buildBonusAliasMap() {
-        BONUS_ALAIS_MAP.put("流血", "Bleed");
-        BONUS_ALAIS_MAP.put("节弹", "Conserve");
-        BONUS_ALAIS_MAP.put("死眼", BONUS_DEADEYE);
-        BONUS_ALAIS_MAP.put("爆伤", BONUS_DEADEYE);
-        BONUS_ALAIS_MAP.put("暴伤", BONUS_DEADEYE);
-        BONUS_ALAIS_MAP.put("缴械", "Disarm");
-        BONUS_ALAIS_MAP.put("Emp", "Empower");
-        BONUS_ALAIS_MAP.put("斩杀", "Execute");
-        BONUS_ALAIS_MAP.put("暴击", BONUS_EXPOSE);
-        BONUS_ALAIS_MAP.put("爆击", BONUS_EXPOSE);
-        BONUS_ALAIS_MAP.put("经验", "Proficience");
-        BONUS_ALAIS_MAP.put("格挡", "Parry");
-        BONUS_ALAIS_MAP.put("Pen", BONUS_PENETRATE);
-        BONUS_ALAIS_MAP.put("Mug", "Plunder");
-        BONUS_ALAIS_MAP.put("Power", BONUS_POWERFUL);
-        BONUS_ALAIS_MAP.put("力量", BONUS_POWERFUL);
-        BONUS_ALAIS_MAP.put("Pun", BONUS_PUNCTURE);
-        BONUS_ALAIS_MAP.put("回E", "Revitalize");
-        BONUS_ALAIS_MAP.put("Spec", "Specialist");
-        BONUS_ALAIS_MAP.put("Hos", BONUS_STRICKEN);
-        BONUS_ALAIS_MAP.put("Hosp", BONUS_STRICKEN);
-        BONUS_ALAIS_MAP.put("面子", "Warlord");
-    }
-
-    /**
-     * 构建物品别名Map
-     */
-    private void buildItemAliasMap() {
-        ITEM_ALAIS_MAP.put("Uzi", "9mm Uzi");
-        ITEM_ALAIS_MAP.put("Arma", "ArmaLite M-15A4");
-        ITEM_ALAIS_MAP.put("阿玛", "ArmaLite M-15A4");
-        ITEM_ALAIS_MAP.put("MP9", "BT MP9");
-        ITEM_ALAIS_MAP.put("中国湖", "China Lake");
-        ITEM_ALAIS_MAP.put("Cobra", "Cobra Derringer");
-        ITEM_ALAIS_MAP.put("钻石刀", "Diamond Bladed Knife");
-        ITEM_ALAIS_MAP.put("DBK", "Diamond Bladed Knife");
-        ITEM_ALAIS_MAP.put("SA", "Enfield SA-80");
-        ITEM_ALAIS_MAP.put("气锤", "Jackhammer");
-        ITEM_ALAIS_MAP.put("RPG", "RPG Launcher");
-        ITEM_ALAIS_MAP.put("火箭炮", "RPG Launcher");
-        ITEM_ALAIS_MAP.put("SIG", "SIG 552");
-        ITEM_ALAIS_MAP.put("TAR", "Tavor TAR-21");
-        ITEM_ALAIS_MAP.put("海军刀", "Naval Cutlass");
-        ITEM_ALAIS_MAP.put("双节棍", "Metal Nunchaku");
-        ITEM_ALAIS_MAP.put("双截棍", "Metal Nunchaku");
-        ITEM_ALAIS_MAP.put("R头", "Riot Helmet");
-        ITEM_ALAIS_MAP.put("R身", "Riot Body");
-        ITEM_ALAIS_MAP.put("R手", "Riot Gloves");
-        ITEM_ALAIS_MAP.put("R腿", "Riot Pants");
-        ITEM_ALAIS_MAP.put("R脚", "Riot Boots");
-        ITEM_ALAIS_MAP.put("A头", "Assault Helmet");
-        ITEM_ALAIS_MAP.put("A身", "Assault Body");
-        ITEM_ALAIS_MAP.put("A手", "Assault Gloves");
-        ITEM_ALAIS_MAP.put("A腿", "Assault Pants");
-        ITEM_ALAIS_MAP.put("A脚", "Assault Boots");
-        ITEM_ALAIS_MAP.put("V头", "Vanguard Respirator");
-        ITEM_ALAIS_MAP.put("V身", "Vanguard Body");
-        ITEM_ALAIS_MAP.put("V手", "Vanguard Gloves");
-        ITEM_ALAIS_MAP.put("V腿", "Vanguard Pants");
-        ITEM_ALAIS_MAP.put("V脚", "Vanguard Boots");
-        ITEM_ALAIS_MAP.put("先锋头", "Vanguard Respirator");
-        ITEM_ALAIS_MAP.put("先锋身", "Vanguard Body");
-        ITEM_ALAIS_MAP.put("先锋手", "Vanguard Gloves");
-        ITEM_ALAIS_MAP.put("先锋腿", "Vanguard Pants");
-        ITEM_ALAIS_MAP.put("先锋脚", "Vanguard Boots");
-        ITEM_ALAIS_MAP.put("血牛头", "Marauder Face Mask");
-        ITEM_ALAIS_MAP.put("血牛身", "Marauder Body");
-        ITEM_ALAIS_MAP.put("血牛手", "Marauder Gloves");
-        ITEM_ALAIS_MAP.put("血牛腿", "Marauder Pants");
-        ITEM_ALAIS_MAP.put("血牛脚", "Marauder Boots");
-        ITEM_ALAIS_MAP.put("哨兵头", "Sentinel Helmet");
-        ITEM_ALAIS_MAP.put("哨兵身", "Sentinel Apron");
-        ITEM_ALAIS_MAP.put("哨兵手", "Sentinel Gloves");
-        ITEM_ALAIS_MAP.put("哨兵腿", "Sentinel Pants");
-        ITEM_ALAIS_MAP.put("哨兵脚", "Sentinel Boots");
-        ITEM_ALAIS_MAP.put("EOD头", "EOD Helmet");
-        ITEM_ALAIS_MAP.put("EOD身", "EOD Apron");
-        ITEM_ALAIS_MAP.put("EOD手", "EOD Gloves");
-        ITEM_ALAIS_MAP.put("EOD腿", "EOD Pants");
-        ITEM_ALAIS_MAP.put("EOD脚", "EOD Boots");
-    }
-
-    /**
-     * 构建稀有度别名Map
-     */
-    private void buildRarityAliasMap() {
-        RARITYT_ALAIS_MAP.put("红", "Red");
-        RARITYT_ALAIS_MAP.put("橙", "Orange");
-        RARITYT_ALAIS_MAP.put("黄", "Yellow");
-    }
-
-    /**
-     * 构建武器类型别名Map
-     */
-    private void buildCategoryAliasMap() {
-        CATEGORY_ALAIS_MAP.put("主手", "Primary");
-        CATEGORY_ALAIS_MAP.put("副手", "Secondary");
-        CATEGORY_ALAIS_MAP.put("近战", "Melee");
-        CATEGORY_ALAIS_MAP.put("肉搏", "Melee");
-    }
-
-    /**
-     * 构建特效列表
-     */
-    private void buildBonusList() {
-        BONUS_LIST.add("Achilles");
-        BONUS_LIST.add("Assassinate");
-        BONUS_LIST.add("Backstab");
-        BONUS_LIST.add("Berserk");
-        BONUS_LIST.add("Bleed");
-        BONUS_LIST.add("Blindfire");
-        BONUS_LIST.add("Blindside");
-        BONUS_LIST.add("Bloodlust");
-        BONUS_LIST.add("Comeback");
-        BONUS_LIST.add("Conserve");
-        BONUS_LIST.add("Cripple");
-        BONUS_LIST.add("Crusher");
-        BONUS_LIST.add("Cupid");
-        BONUS_LIST.add(BONUS_DEADEYE);
-        BONUS_LIST.add("Deadly");
-        BONUS_LIST.add("Demoralize");
-        BONUS_LIST.add("Disarm");
-        BONUS_LIST.add("Double-edged");
-        BONUS_LIST.add("Double Tap");
-        BONUS_LIST.add("Empower");
-        BONUS_LIST.add("Eviscerate");
-        BONUS_LIST.add("Execute");
-        BONUS_LIST.add(BONUS_EXPOSE);
-        BONUS_LIST.add("Finale");
-        BONUS_LIST.add("Focus");
-        BONUS_LIST.add("Freeze");
-        BONUS_LIST.add("Frenzy");
-        BONUS_LIST.add("Fury");
-        BONUS_LIST.add("Grace");
-        BONUS_LIST.add("Hazardous");
-        BONUS_LIST.add("Home run");
-        BONUS_LIST.add("Immutable");
-        BONUS_LIST.add("Impassable");
-        BONUS_LIST.add("Impenetrable");
-        BONUS_LIST.add("Imperviable");
-        BONUS_LIST.add("Impregnable");
-        BONUS_LIST.add("Insurmountable");
-        BONUS_LIST.add("Invulnerable");
-        BONUS_LIST.add("Irradiate");
-        BONUS_LIST.add("Irrepressible");
-        BONUS_LIST.add("Kinetokinesis");
-        BONUS_LIST.add("Lacerate");
-        BONUS_LIST.add("Motivation");
-        BONUS_LIST.add("Paralyze");
-        BONUS_LIST.add("Parry");
-        BONUS_LIST.add(BONUS_PENETRATE);
-        BONUS_LIST.add("Plunder");
-        BONUS_LIST.add(BONUS_POWERFUL);
-        BONUS_LIST.add("Proficience");
-        BONUS_LIST.add(BONUS_PUNCTURE);
-        BONUS_LIST.add("Quicken");
-        BONUS_LIST.add("Radiation Protection");
-        BONUS_LIST.add("Rage");
-        BONUS_LIST.add("Revitalize");
-        BONUS_LIST.add("Roshambo");
-        BONUS_LIST.add("Slow");
-        BONUS_LIST.add("Smash");
-        BONUS_LIST.add("Smurf");
-        BONUS_LIST.add("Specialist");
-        BONUS_LIST.add("Spray");
-        BONUS_LIST.add("Storage");
-        BONUS_LIST.add(BONUS_STRICKEN);
-        BONUS_LIST.add("Stun");
-        BONUS_LIST.add("Suppress");
-        BONUS_LIST.add("Sure Shot");
-        BONUS_LIST.add("Throttle");
-        BONUS_LIST.add("Toxin");
-        BONUS_LIST.add("Warlord");
-        BONUS_LIST.add("Weaken");
-        BONUS_LIST.add("Wind-up");
-        BONUS_LIST.add("Wither");
     }
 
     /**

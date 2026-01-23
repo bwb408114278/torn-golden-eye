@@ -41,7 +41,7 @@ databaseChangeLog:
                   remarks: "守方ID"
               - column:
                   name: defend_user_nickname
-                  type: VARCHAR(16)
+                  type: VARCHAR(32)
                   constraints:
                     nullable: false
                   remarks: "守方用户昵称"

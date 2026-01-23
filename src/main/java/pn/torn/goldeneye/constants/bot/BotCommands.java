@@ -90,6 +90,10 @@ public class BotCommands {
      */
     public static final String RW_ATTACK_PERIOD = "RW攻击频率";
     /**
+     * RW真赛
+     */
+    public static final String RW_GATHERING_TIME = "RW集合时间";
+    /**
      * RW战神
      */
     public static final String RW_GOD = "RW战神";

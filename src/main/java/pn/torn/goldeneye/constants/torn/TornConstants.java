@@ -58,7 +58,17 @@ public class TornConstants {
      */
     public static final String BIT_TABLE_AUCTION = "auction";
 
+    /**
+     * 用户状态 - 离线
+     */
+    public static final String USER_STATUS_OFFLINE = "Offline";
+    /**
+     * 用户名称 - 匿名
+     */
     public static final String SOMEONE = "Someone";
+
+
+
     public static final List<String> DEFENDER_ATTACK_TYPE = new ArrayList<>();
     public static final List<String> SYRINGE = new ArrayList<>();
 
