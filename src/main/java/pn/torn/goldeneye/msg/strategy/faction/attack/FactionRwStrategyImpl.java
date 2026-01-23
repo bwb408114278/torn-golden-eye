@@ -77,6 +77,6 @@ public class FactionRwStrategyImpl extends PnManageMsgStrategy {
                 "\n开始时间: " + DateTimeUtils.convertToString(data.getStartTime()) +
                 "\n金眼将实时抓取对冲数据并登记到战神榜" +
                 "\n祝君武运昌隆!" +
-                "\n(默认第二天集合时间8点, 如需修改指挥官可使用g#" + BotCommands.RW_GATHERING_TIME + "#时间修改)");
+                "\n(第二天集合时间8点, 指挥官可使用g#" + BotCommands.RW_GATHERING_TIME + "#时间 口令修改)");
     }
 }

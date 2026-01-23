@@ -44,8 +44,8 @@ public class FactionRwGatheringStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        if (NumberUtils.isInt(msg)) {
-            return super.sendErrorFormatMsg();
+        if (!NumberUtils.isInt(msg)) {
+            return super.buildTextMsg("正确格式为g#" + BotCommands.RW_GATHERING_TIME + "#几点");
         }
 
         int hour = Integer.parseInt(msg);
