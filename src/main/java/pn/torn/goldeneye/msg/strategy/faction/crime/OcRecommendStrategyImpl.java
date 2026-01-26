@@ -60,7 +60,7 @@ public class OcRecommendStrategyImpl extends PnMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        TornUserDO user = super.getTornUser(sender, "");
+        TornUserDO user = super.getTornUser(sender, msg);
         ocRefreshManager.refreshOc(1, user.getFactionId());
 
         OcSlotDictBO joinedOc = getJoinedOc(user);
