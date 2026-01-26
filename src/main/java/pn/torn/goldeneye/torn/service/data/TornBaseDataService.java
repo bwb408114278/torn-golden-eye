@@ -19,6 +19,7 @@ import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.manager.torn.TornItemHistoryManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.manager.torn.TornStocksManager;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
@@ -42,7 +43,7 @@ import java.util.List;
  * Torn基础数据逻辑层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.09.10
  */
 @Service
@@ -55,6 +56,7 @@ public class TornBaseDataService {
     private final SysSettingManager settingManager;
     private final TornStocksManager stocksManager;
     private final TornItemsManager itemsManager;
+    private final TornItemHistoryManager itemHistoryManager;
     private final TornItemsDAO itemsDao;
     private final TornStocksDAO stocksDao;
     private final SysSettingDAO settingDao;
@@ -117,8 +119,8 @@ public class TornBaseDataService {
      * 爬取物品
      */
     public void spiderItems() {
-        TornItemsListVO items = tornApi.sendRequest(new TornItemsDTO(), TornItemsListVO.class);
-        List<TornItemsDO> itemList = items.getItems().stream().map(TornItemsVO::convert2DO).toList();
+        TornItemsListVO resp = tornApi.sendRequest(new TornItemsDTO(), TornItemsListVO.class);
+        List<TornItemsDO> itemList = resp.getItems().stream().map(TornItemsVO::convert2DO).toList();
         List<TornItemsDO> oldDataList = itemsDao.list();
 
         List<TornItemsDO> newDataList = new ArrayList<>();
@@ -138,6 +140,8 @@ public class TornBaseDataService {
         if (!CollectionUtils.isEmpty(upadteDataList)) {
             itemsDao.updateBatchById(upadteDataList);
         }
+
+        itemHistoryManager.saveItemHistory(resp);
         itemsManager.refreshCache();
     }
 
