@@ -1,15 +1,28 @@
 package pn.torn.goldeneye.torn.manager.torn;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
+import pn.torn.goldeneye.repository.dao.torn.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBenefitVO;
+import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
+import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,22 +30,57 @@ import java.util.regex.Pattern;
  * Torn股票公共逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.5.0
  * @since 2025.09.26
  */
 @Component
 @RequiredArgsConstructor
 public class TornStocksManager {
+    private final TornApi tornApi;
     private final SysSettingManager settingManager;
     private final TornItemsManager itemsManager;
+    private final TornStocksDAO stocksDao;
+    private final TornStocksHistoryDAO stocksHistoryDao;
+    private final ProjectProperty projectProperty;
 
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("\\$(\\d{1,3}(?:,\\d{3})*)");
     private static final Pattern ITEM_PATTERN = Pattern.compile("1x (.+)");
 
+    @Scheduled(cron = "0 5,10,15,20,25,30,35,40,45,50,55,0 * * * ?")
+    public void spiderStockData() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
+        TornStocksVO resp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
+        List<TornStocksDO> stocksList = resp.getStocks().values().stream().map(this::convert2DO).toList();
+        List<TornStocksDO> oldDataList = stocksDao.list();
+
+        List<TornStocksDO> newDataList = new ArrayList<>();
+        List<TornStocksDO> upadteDataList = new ArrayList<>();
+        for (TornStocksDO stocks : stocksList) {
+            if (oldDataList.stream().anyMatch(i -> i.getId().equals(stocks.getId()))) {
+                upadteDataList.add(stocks);
+            } else {
+                newDataList.add(stocks);
+            }
+        }
+
+        if (!CollectionUtils.isEmpty(newDataList)) {
+            stocksDao.saveBatch(newDataList);
+        }
+
+        if (!CollectionUtils.isEmpty(upadteDataList)) {
+            stocksDao.updateBatchById(upadteDataList);
+        }
+
+        saveStocksHistory(resp);
+    }
+
     /**
      * 计算日利润
      */
-    public TornStocksDO convert2DO(TornStocksDetailVO stock) {
+    private TornStocksDO convert2DO(TornStocksDetailVO stock) {
         TornStocksBenefitVO benefit = stock.getBenefit();
         long profit = parseBenefitValue(benefit.getDescription(), stock.getAcronym());
         long yearProfit = profit / benefit.getFrequency() * 365;
@@ -72,5 +120,15 @@ public class TornStocksManager {
 
         // 特殊股票处理
         return 0L;
+    }
+
+    /**
+     * 保存股票历史
+     */
+    private void saveStocksHistory(TornStocksVO resp) {
+        LocalDateTime regDateTime = LocalDateTime.now();
+        List<TornStocksHistoryDO> historyList = resp.getStocks().values().stream()
+                .map(i -> i.convert2HistoryDO(regDateTime)).toList();
+        stocksHistoryDao.saveBatch(historyList);
     }
 }

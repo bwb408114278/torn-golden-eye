@@ -15,13 +15,10 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornItemsDAO;
-import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
-import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemHistoryManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
-import pn.torn.goldeneye.torn.manager.torn.TornStocksManager;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsDTO;
@@ -29,8 +26,6 @@ import pn.torn.goldeneye.torn.model.torn.items.TornItemsListVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsVO;
 import pn.torn.goldeneye.torn.model.torn.stats.TornStatsDTO;
 import pn.torn.goldeneye.torn.model.torn.stats.TornStatsVO;
-import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
-import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
@@ -54,11 +49,9 @@ public class TornBaseDataService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final SysSettingManager settingManager;
-    private final TornStocksManager stocksManager;
     private final TornItemsManager itemsManager;
     private final TornItemHistoryManager itemHistoryManager;
     private final TornItemsDAO itemsDao;
-    private final TornStocksDAO stocksDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
 
@@ -86,7 +79,6 @@ public class TornBaseDataService {
             spiderBankRate();
             spiderPointValue();
             spiderItems();
-            spiderStocks();
 
             LocalDate to = LocalDate.now();
             settingDao.updateSetting(SettingConstants.KEY_BASE_DATA_LOAD, DateTimeUtils.convertToString(to));
@@ -143,33 +135,6 @@ public class TornBaseDataService {
 
         itemHistoryManager.saveItemHistory(resp);
         itemsManager.refreshCache();
-    }
-
-    /**
-     * 爬取物品
-     */
-    public void spiderStocks() {
-        TornStocksVO stocksResp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
-        List<TornStocksDO> stocksList = stocksResp.getStocks().values().stream().map(stocksManager::convert2DO).toList();
-        List<TornStocksDO> oldDataList = stocksDao.list();
-
-        List<TornStocksDO> newDataList = new ArrayList<>();
-        List<TornStocksDO> upadteDataList = new ArrayList<>();
-        for (TornStocksDO stocks : stocksList) {
-            if (oldDataList.stream().anyMatch(i -> i.getId().equals(stocks.getId()))) {
-                upadteDataList.add(stocks);
-            } else {
-                newDataList.add(stocks);
-            }
-        }
-
-        if (!CollectionUtils.isEmpty(newDataList)) {
-            stocksDao.saveBatch(newDataList);
-        }
-
-        if (!CollectionUtils.isEmpty(upadteDataList)) {
-            stocksDao.updateBatchById(upadteDataList);
-        }
     }
 
     /**
