@@ -3,14 +3,16 @@ package pn.torn.goldeneye.torn.model.torn.stocks;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * Torn股票详情响应参数
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.5.0
  * @since 2025.09.26
  */
 @Data
@@ -66,5 +68,18 @@ public class TornStocksDetailVO {
         stocks.setYearProfit(dailyProfit);
         stocks.setBaseCost(baseCost);
         return stocks;
+    }
+
+    public TornStocksHistoryDO convert2HistoryDO(LocalDateTime regDatetime) {
+        TornStocksHistoryDO history = new TornStocksHistoryDO();
+        history.setStocksId(this.stockId);
+        history.setStocksName(this.name);
+        history.setStocksShortname(this.acronym);
+        history.setCurrentPrice(this.currentPrice);
+        history.setMarketCap(this.marketCap);
+        history.setTotalShares(this.totalShares);
+        history.setInvestors(this.investors);
+        history.setRegDateTime(regDatetime);
+        return history;
     }
 }
