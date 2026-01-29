@@ -2,6 +2,7 @@ package pn.torn.goldeneye.msg.strategy.base;
 
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.send.param.TextQqMsg;
@@ -24,8 +25,9 @@ public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
     public List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
         TornUserDO user = super.getTornUser(sender, "");
         if (!isVip(user)) {
-            return List.of(new TextQqMsg("未订阅VIP或已过期, 发送2Xan到3312605, 并备注golden-eye subscribe即可. " +
-                    "支持一次订阅多月\n如是加群功能申请QQ群" + projectProperty.getVipGroupId() + ", 金眼会自动通过入群申请"));
+            return List.of(new TextQqMsg("未订阅VIP或已过期, 发送2Xan到3312605, 并备注"
+                    + TornConstants.REMARK_SUBSCRIBE + "支持一次订阅多月" +
+                    "\n如是加群功能申请QQ群" + projectProperty.getVipGroupId() + ", 金眼会自动通过入群申请"));
         }
 
         return handle(user, msg);

@@ -70,8 +70,14 @@ public class TornConstants {
      * 用户名称 - 匿名
      */
     public static final String SOMEONE = "Someone";
-
-
+    /**
+     * 订阅备注
+     */
+    public static final String REMARK_SUBSCRIBE = "golden-eye subscribe";
+    /**
+     * 订阅校验
+     */
+    public static final String VALID_SUBSCRIBE = "goldeneyesubscribe";
 
     public static final List<String> DEFENDER_ATTACK_TYPE = new ArrayList<>();
     public static final List<String> SYRINGE = new ArrayList<>();
