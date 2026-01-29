@@ -232,7 +232,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
      * 构建物品条件列表
      */
     private List<String> buildItemCondition(String msg) {
-        if (!StringUtils.hasText(msg) || msg.length() < 3) {
+        if (!StringUtils.hasText(msg)) {
             return List.of();
         }
 
@@ -245,6 +245,10 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
 
         if ("日本刀".equals(msg)) {
             return List.of("Kodachi", "Katana", "Yasukuni Sword", "Samurai Sword");
+        }
+
+        if (msg.length() < 3) {
+            return List.of();
         }
 
         List<String> resultList = new ArrayList<>();

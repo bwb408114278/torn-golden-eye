@@ -10,6 +10,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
@@ -28,6 +29,13 @@ import java.util.List;
 @Slf4j
 class TornApiImpl implements TornApi {
     private final TornApiKeyConfig apiKeyConfig;
+    /**
+     * Web请求
+     */
+    private final RestClient restClient;
+    /**
+     * Web请求, api v2版本
+     */
     private final RestClient restClientV2;
     // 定义最大重试次数
     private static final int MAX_RETRIES = 3;
@@ -38,11 +46,47 @@ class TornApiImpl implements TornApi {
 
     public TornApiImpl(TornApiKeyConfig apiKeyConfig) {
         this.apiKeyConfig = apiKeyConfig;
+        this.restClient = RestClient.builder()
+                .baseUrl(TornConstants.BASE_URL)
+                .defaultHeader(HttpHeaders.ACCEPT, "application/json")
+                .build();
         this.restClientV2 = RestClient.builder()
                 .baseUrl(TornConstants.BASE_URL_V2)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
         apiKeyConfig.reloadKeyData();
+    }
+
+
+    @Override
+    public <T> T sendRequest(TornReqParam param, TornApiKeyDO apiKey, Class<T> responseType) {
+        try {
+            String uriWithParam = param.uri() + "/" +
+                    (param.getId() == null ? "" : param.getId()) +
+                    "?selections=" + param.getSection() +
+                    "&key=" + apiKey.getApiKey();
+
+            ResponseEntity<String> entity = this.restClient
+                    .method(HttpMethod.GET)
+                    .uri(uriWithParam)
+                    .retrieve()
+                    .toEntity(String.class);
+
+            apiKeyConfig.returnKey(apiKey);
+            return handleResponse(param.uri(), entity, responseType);
+        } catch (BizException e) {
+            if (e.getCode() == BotConstants.EX_INVALID_KEY && apiKey != null) {
+                log.warn("调用者指定的API Key(ID:{}) 已失效，将作废该Key并向上抛出异常。", apiKey.getId());
+                apiKeyConfig.invalidateKey(apiKey);
+            } else {
+                apiKeyConfig.returnKey(apiKey);
+            }
+            throw e;
+        } catch (Exception e) {
+            log.error("使用指定Key请求Torn Api时出错", e);
+            apiKeyConfig.returnKey(apiKey);
+            return null;
+        }
     }
 
     @Override
@@ -70,7 +114,7 @@ class TornApiImpl implements TornApi {
             }
 
             ResponseEntity<String> entity = sendRequest(reqSpec, 0);
-            T response = handleResponse(param, entity, responseType);
+            T response = handleResponse(param.uri(), entity, responseType);
             apiKeyConfig.returnKey(apiKey);
             return response;
         } catch (BizException e) {
@@ -110,7 +154,7 @@ class TornApiImpl implements TornApi {
                         .header("Authorization", "ApiKey " + apiKey.getApiKey());
 
                 ResponseEntity<String> entity = sendRequest(reqSpec, 0);
-                T result = handleResponse(param, entity, responseType);
+                T result = handleResponse(param.uri(), entity, responseType);
 
                 apiKeyConfig.returnKey(apiKey);
                 return result;
@@ -153,14 +197,14 @@ class TornApiImpl implements TornApi {
     /**
      * 处理响应体
      */
-    private <T> T handleResponse(TornReqParamV2 param, ResponseEntity<String> entity, Class<T> responseType) {
+    private <T> T handleResponse(String uri, ResponseEntity<String> entity, Class<T> responseType) {
         try {
             if (entity == null || entity.getBody() == null || entity.getBody().isEmpty()) {
                 return null;
             }
 
             if (JsonUtils.existsNode(entity.getBody(), "error")) {
-                log.error("Torn Api报错, uri: {}, response: {}", param.uri(), entity.getBody());
+                log.error("Torn Api报错, uri: {}, response: {}", uri, entity.getBody());
                 JsonNode node = JsonUtils.getNode(entity.getBody(), "error.code");
                 // 无效的Key
                 if (node != null && (node.asInt() == INVALID_KEY_ERROR_CODE ||

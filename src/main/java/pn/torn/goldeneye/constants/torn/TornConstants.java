@@ -19,6 +19,10 @@ public class TornConstants {
     /**
      * 基础路径
      */
+    public static final String BASE_URL = "https://api.torn.com";
+    /**
+     * 基础路径
+     */
     public static final String BASE_URL_V2 = "https://api.torn.com/v2";
     /**
      * PN帮派ID
