@@ -1,0 +1,62 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_vip_subscribe_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: vip_subscribe
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: qq_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "QQ号"
+              - column:
+                  name: subscribe_length
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "订阅时长"
+              - column:
+                  name: start_date
+                  type: DATE
+                  remarks: "起始日期"
+              - column:
+                  name: end_date
+                  type: DATE
+                  remarks: "起始日期"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

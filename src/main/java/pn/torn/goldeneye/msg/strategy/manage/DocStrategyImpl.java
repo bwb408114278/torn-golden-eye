@@ -8,7 +8,6 @@ import pn.torn.goldeneye.msg.receive.QqRecMsgSender;
 import pn.torn.goldeneye.msg.send.param.QqMsgParam;
 import pn.torn.goldeneye.msg.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.base.BaseMsgStrategy;
-import pn.torn.goldeneye.msg.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.msg.strategy.base.SmthMsgStrategy;
 
 import java.util.List;
@@ -17,7 +16,7 @@ import java.util.List;
  * 获取指令手册
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.08.15
  */
 @Component
@@ -37,11 +36,6 @@ public class DocStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        List<BasePrivateMsgStrategy> privateStrategyList = applicationContext
-                .getBeansOfType(BasePrivateMsgStrategy.class)
-                .values().stream()
-                .toList();
-
         List<BaseGroupMsgStrategy> groupStrategyList = applicationContext
                 .getBeansOfType(BaseGroupMsgStrategy.class)
                 .values().stream()
@@ -52,9 +46,7 @@ public class DocStrategyImpl extends SmthMsgStrategy {
                 .toList();
 
         StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
-        for (BasePrivateMsgStrategy strategy : privateStrategyList) {
-            appendCommandDesc(strategy, helpText);
-        }
+        appendCommandDesc(applicationContext.getBean(BindKeyStrategyImpl.class), helpText);
 
         groupStrategyList.forEach(strategy -> appendCommandDesc(strategy, helpText));
         return buildTextMsg(helpText.toString());
