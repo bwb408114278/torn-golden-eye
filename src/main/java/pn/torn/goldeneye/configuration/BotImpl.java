@@ -7,7 +7,7 @@ import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
-import pn.torn.goldeneye.msg.send.GroupMsgReqParam;
+import pn.torn.goldeneye.napcat.send.msg.GroupMsgReqParam;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 

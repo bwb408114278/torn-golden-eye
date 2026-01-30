@@ -1,0 +1,29 @@
+package pn.torn.goldeneye.napcat.send.msg;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
+
+import java.util.List;
+
+/**
+ * 群聊消息请求参数
+ *
+ * @author Bai
+ * @version 0.3.0
+ * @since 2025.06.22
+ */
+@Data
+@AllArgsConstructor
+public class GroupMsgReqParam {
+    /**
+     * 群号
+     */
+    @JsonProperty("group_id")
+    private long groupId;
+    /**
+     * 消息列表
+     */
+    private List<QqMsgParam<?>> message;
+}

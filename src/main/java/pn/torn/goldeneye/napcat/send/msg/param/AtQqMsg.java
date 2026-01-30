@@ -1,0 +1,28 @@
+package pn.torn.goldeneye.napcat.send.msg.param;
+
+import lombok.Data;
+import pn.torn.goldeneye.constants.bot.enums.GroupMsgTypeEnum;
+import pn.torn.goldeneye.napcat.send.msg.data.AtMsgData;
+
+/**
+ * At群聊消息
+ *
+ * @author Bai
+ * @version 0.1.0
+ * @since 2025.06.22
+ */
+@Data
+public class AtQqMsg implements QqMsgParam<AtMsgData> {
+    /**
+     * 类型
+     */
+    private final String type = GroupMsgTypeEnum.AT.getCode();
+    /**
+     * 消息
+     */
+    private final AtMsgData data;
+
+    public AtQqMsg(Long param) {
+        this.data = new AtMsgData(param);
+    }
+}
