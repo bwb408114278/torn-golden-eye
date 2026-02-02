@@ -42,7 +42,7 @@ public class BindKeyStrategyImpl extends BasePrivateMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "私聊金眼g#" + BotCommands.BIND_KEY + "#Key，成功金眼会回复消息";
+        return "私聊金眼g#" + BotCommands.BIND_KEY + "#你的Key，成功金眼会回复消息";
     }
 
     @Override

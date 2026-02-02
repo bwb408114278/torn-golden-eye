@@ -26,6 +26,7 @@ import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.manage.DocStrategyImpl;
+import pn.torn.goldeneye.napcat.strategy.manage.PrivateDocStrategyImpl;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.JsonUtils;
@@ -47,7 +48,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Web Socket客户端机器人
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.07.09
  */
 @Slf4j
@@ -82,6 +83,8 @@ public class BotSocketClient {
     private List<BasePrivateMsgStrategy> privateMsgStrategyList;
     @Resource
     private DocStrategyImpl docStrategy;
+    @Resource
+    private PrivateDocStrategyImpl privateDocStrategy;
     @Resource
     private TornSettingFactionManager factionManager;
     @Resource
@@ -334,6 +337,14 @@ public class BotSocketClient {
      * 处理私聊消息
      */
     private void handlePrivateMsg(QqRecMsg msg, String[] msgArray) {
+        if (!StringUtils.hasText(msgArray[1])) {
+            PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
+            List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, privateDocStrategy);
+            paramList.forEach(builder::addMsg);
+            replyMsg(true, builder.build());
+            return;
+        }
+
         for (BasePrivateMsgStrategy strategy : privateMsgStrategyList) {
             if (strategy.getCommand().equalsIgnoreCase(msgArray[1])) {
                 List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(),

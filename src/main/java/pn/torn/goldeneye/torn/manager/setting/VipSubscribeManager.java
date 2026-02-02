@@ -137,7 +137,7 @@ public class VipSubscribeManager {
 
             resp.getLog().stream()
                     .filter(l -> TornConstants.VALID_SUBSCRIBE.equalsIgnoreCase(
-                            l.getData().getMessage().replace(" ", "")))
+                            l.getData().getMessage().replace("-", "").replace(" ", "")))
                     .forEach(l -> payList.addAll(l.convert2DO(userManager)));
             List<VipPayRecordDO> dataLit = buildDataList(payList);
             if (!CollectionUtils.isEmpty(dataLit)) {
@@ -294,21 +294,20 @@ public class VipSubscribeManager {
         }
 
         List<VipSubscribeDO> subscribeList = subscribeDao.lambdaQuery()
-                .in(VipSubscribeDO::getUserId, userVipDaysMap)
+                .in(VipSubscribeDO::getUserId, userVipDaysMap.keySet())
                 .list();
         List<VipSubscribeDO> newDataList = new ArrayList<>();
         for (Map.Entry<Long, Integer> entry : userVipDaysMap.entrySet()) {
             VipSubscribeDO subscribe = subscribeList.stream()
                     .filter(s -> s.getUserId().equals(entry.getKey())).findAny().orElse(null);
             if (subscribe != null) {
-                subscribeDao.lambdaUpdate()
-                        .set(VipSubscribeDO::getSubscribeLength, subscribe.getSubscribeLength() + entry.getValue())
-                        .set(subscribe.getEndDate() != null,
-                                VipSubscribeDO::getEndDate, subscribe.getEndDate().plusDays(entry.getValue()))
-                        .eq(VipSubscribeDO::getId, subscribe.getId())
-                        .update();
+                subscribe.setSubscribeLength(subscribe.getSubscribeLength() + entry.getValue());
+                if (subscribe.getEndDate() != null) {
+                    subscribe.setEndDate(subscribe.getEndDate().plusDays(subscribe.getSubscribeLength()));
+                }
+                subscribeDao.updateById(subscribe);
             } else {
-                TornUserDO user = userManager.getUserById(userVipDaysMap.get(entry.getKey()));
+                TornUserDO user = userManager.getUserById(entry.getKey());
                 newDataList.add(new VipSubscribeDO(user, entry.getValue()));
             }
         }
