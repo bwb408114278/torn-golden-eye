@@ -54,6 +54,10 @@ public class SettingConstants {
      * 配置Key - 拍卖记录读取时间
      */
     public static final String KEY_AUCTION_LOAD = "AUCTION_LOAD_DATE";
+    /**
+     * 配置Key - 收取物品读取时间
+     */
+    public static final String KEY_ITEM_RECEIVE_LOG_LOAD = "ITEM_RECEIVE_LOG_LOAD";
 
     /**
      * 配置Key - OC成功率读取时间

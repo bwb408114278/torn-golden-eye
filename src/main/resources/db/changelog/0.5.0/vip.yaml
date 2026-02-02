@@ -22,8 +22,6 @@ databaseChangeLog:
               - column:
                   name: qq_id
                   type: BIGINT
-                  constraints:
-                    nullable: false
                   remarks: "QQ号"
               - column:
                   name: subscribe_length
@@ -60,3 +58,87 @@ databaseChangeLog:
                   constraints:
                     nullable: false
                   remarks: "更新时间"
+
+  - changeSet:
+      id: create_vip_pay_record_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: vip_pay_record
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: log_id
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "日志ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: qq_id
+                  type: BIGINT
+                  remarks: "QQ号"
+              - column:
+                  name: item_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "物品ID"
+              - column:
+                  name: item_qty
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "物品数量"
+              - column:
+                  name: remain_qty
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "剩余可兑换数量"
+              - column:
+                  name: log_time
+                  type: DATETIME
+                  remarks: "日志时间"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - update:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: 'ITEM_RECEIVE_LOG_LOAD'
+              - column:
+                  name: setting_value
+                  value: '2026-02-02 11:15:00'
+            where: id = 26

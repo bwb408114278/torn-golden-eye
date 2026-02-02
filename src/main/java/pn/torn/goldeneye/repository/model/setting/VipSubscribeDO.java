@@ -3,7 +3,9 @@ package pn.torn.goldeneye.repository.model.setting;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.repository.model.BaseDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 
 import java.time.LocalDate;
 
@@ -17,6 +19,7 @@ import java.time.LocalDate;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @TableName(value = "vip_subscribe", autoResultMap = true)
+@NoArgsConstructor
 public class VipSubscribeDO extends BaseDO {
     /**
      * ID
@@ -42,4 +45,10 @@ public class VipSubscribeDO extends BaseDO {
      * 结束日期
      */
     private LocalDate endDate;
+
+    public VipSubscribeDO(TornUserDO user, int length) {
+        this.userId = user.getId();
+        this.qqId = user.getQqId();
+        this.subscribeLength = length;
+    }
 }

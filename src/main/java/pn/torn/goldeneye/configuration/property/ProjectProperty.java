@@ -30,6 +30,10 @@ public class ProjectProperty {
      */
     private long vipGroupId;
     /**
+     * 扫描的Token
+     */
+    private String scanVipToken;
+    /**
      * 管理员ID
      */
     private List<Long> adminId;
