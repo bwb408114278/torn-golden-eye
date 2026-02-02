@@ -40,5 +40,8 @@ lark-suite:
 project:
   env: dev
   groupId: 782024117
+  vipGroupId: 909796613
+  scanVipToken: ${SCAN_VIP_TOKEN}
   adminId:
     - 408114278
+    - 446488775

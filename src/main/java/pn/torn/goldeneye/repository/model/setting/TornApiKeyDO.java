@@ -53,6 +53,11 @@ public class TornApiKeyDO extends BaseDO {
      */
     private Integer useCount;
 
+    public TornApiKeyDO(long id, String apiKey) {
+        this.id = id;
+        this.apiKey = apiKey;
+    }
+
     public TornApiKeyDO(long qqId, String apiKey, TornApiKeyInfoVO keyInfo) {
         this(qqId, apiKey, keyInfo, TornKeyTypeEnum.codeOf(keyInfo.getAccess().getType()));
     }

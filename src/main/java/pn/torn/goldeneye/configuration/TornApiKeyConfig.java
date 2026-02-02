@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Torn Api Key配置类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.08.21
  */
 @Slf4j
@@ -183,7 +183,7 @@ public class TornApiKeyConfig {
      * 将Key标记为不再使用并更新使用计数
      */
     public void returnKey(TornApiKeyDO key) {
-        if (key == null) return;
+        if (key == null || key.getId().equals(0L)) return;
 
         lock.lock();
         try {

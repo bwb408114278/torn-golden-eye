@@ -16,7 +16,7 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
  * 通用配置类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.07.10
  */
 @Configuration
@@ -35,7 +35,7 @@ public class CommonConfiguration {
 
     @Bean
     public Bot buildHttpBot() {
-        return new BotImpl(serverAddr, serverHttpPort, serverToken, factionManager);
+        return new BotImpl(serverAddr, serverHttpPort, serverToken, factionManager, projectProperty);
     }
 
     @Bean
