@@ -64,9 +64,9 @@ public class VipSubscribeManager {
      */
     @Scheduled(cron = "0 */5 * * * ?")
     public void vipLengthAppend() {
-//        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
-//            return;
-//        }
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_ITEM_RECEIVE_LOG_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDateTime(value);

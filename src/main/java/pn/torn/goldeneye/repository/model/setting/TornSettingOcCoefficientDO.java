@@ -11,7 +11,7 @@ import java.math.BigDecimal;
  * OC系数配置表
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.11.01
  */
 @Data
@@ -22,6 +22,10 @@ public class TornSettingOcCoefficientDO extends BaseDO {
      * ID
      */
     private Long id;
+    /**
+     * 帮派ID
+     */
+    private Long factionId;
     /**
      * OC名称
      */

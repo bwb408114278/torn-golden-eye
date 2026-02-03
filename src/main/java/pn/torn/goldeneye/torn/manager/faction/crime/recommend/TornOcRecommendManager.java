@@ -22,7 +22,7 @@ import java.util.List;
  * OC队伍推荐公共逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.11.24
  */
 @Component
@@ -127,8 +127,7 @@ public class TornOcRecommendManager {
         // 1. 停转时间评分
         BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
         // 2. 岗位评分, 根据系数、成功率和岗位权重
-        BigDecimal coefficient = coefficientManager.getCoefficient(oc.getName(), oc.getRank(),
-                slotSetting.getSlotCode(), userPassRate.getPassRate());
+        BigDecimal coefficient = coefficientManager.getCoefficient(oc, slotSetting.getSlotCode(), userPassRate.getPassRate());
         BigDecimal passRateScore = calcPassRateScore(slotSetting, userPassRate);
         BigDecimal priorityScore = calcPriorityScore(slotSetting);
         BigDecimal positionScore = coefficient.multiply(BigDecimal.valueOf(4))

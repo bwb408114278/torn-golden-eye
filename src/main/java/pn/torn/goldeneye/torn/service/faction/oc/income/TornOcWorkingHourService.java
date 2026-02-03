@@ -57,7 +57,7 @@ public class TornOcWorkingHourService {
             // 2.2 获取系数
             BigDecimal coefficient = oc.getFactionId().equals(TornConstants.FACTION_NOV_ID) ?
                     BigDecimal.ONE :
-                    coefficientManager.getCoefficient(oc.getName(), oc.getRank(), slot.getPosition(), slot.getPassRate());
+                    coefficientManager.getCoefficient(oc, slot.getPosition(), slot.getPassRate());
 
             // 2.3 计算有效工时
             BigDecimal effectiveWorkingHours = BigDecimal.valueOf(baseWorkingHours)
