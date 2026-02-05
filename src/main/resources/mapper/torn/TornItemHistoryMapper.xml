@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornItemHistoryMapper">
+    <select id="queryItemComparison" resultType="pn.torn.goldeneye.repository.model.torn.ItemHistoryNoticeDO">
+        WITH date_params AS (
+            SELECT
+                #{targetDate}::date AS today,
+                (#{targetDate}::date - INTERVAL '7 days')::date AS last_week,
+                (#{targetDate}::date - INTERVAL '30 days')::date AS last_month,
+                (#{targetDate}::date - INTERVAL '365 days')::date AS last_year,
+                (#{targetDate}::date - INTERVAL '358 days')::date AS last_year_next_week),
+        today_data AS (
+            SELECT DISTINCT ON (item_id)
+                item_id,
+                item_name,
+                market_price,
+                circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT today FROM date_params)
+            ORDER BY item_id, reg_date DESC),
+        last_week_data AS (
+            SELECT DISTINCT ON (item_id)
+            item_id,
+            market_price,
+            circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT last_week FROM date_params)
+            ORDER BY item_id, reg_date DESC),
+        last_month_data AS (
+            SELECT DISTINCT ON (item_id)
+            item_id,
+            market_price,
+            circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT last_month FROM date_params)
+            ORDER BY item_id, reg_date DESC),
+        last_year_data AS (
+            SELECT DISTINCT ON (item_id)
+                item_id,
+                market_price,
+                circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT last_year FROM date_params)
+            ORDER BY item_id, reg_date DESC),
+        last_year_next_week_data AS (
+            SELECT DISTINCT ON (item_id)
+                item_id,
+                market_price,
+                circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT last_year_next_week FROM date_params)
+            ORDER BY item_id, reg_date DESC)
+
+        SELECT
+        t.item_id,
+        t.item_name,
+
+        -- 今日数据
+        t.market_price AS today_price,
+        t.circulation AS today_circulation,
+
+        -- 上周数据
+        lw.market_price AS last_week_price,
+        lw.circulation AS last_week_circulation,
+        ROUND(((t.market_price - lw.market_price)::numeric / lw.market_price * 100), 2) AS last_week_price_change,
+        ROUND(((t.circulation - lw.circulation)::numeric / lw.circulation * 100), 2) AS last_week_circulation_change,
+
+        -- 上月数据
+        lm.market_price AS last_month_price,
+        lm.circulation AS last_month_circulation,
+        ROUND(((t.market_price - lm.market_price)::numeric / lm.market_price * 100), 2) AS last_month_price_change,
+        ROUND(((t.circulation - lm.circulation)::numeric / lm.circulation * 100), 2) AS last_month_circulation_change,
+
+        -- 上年数据
+        ly.market_price AS last_year_price,
+        ly.circulation AS last_year_circulation,
+        ROUND(((t.market_price - ly.market_price)::numeric / ly.market_price * 100), 2) AS last_year_price_change,
+        ROUND(((t.circulation - ly.circulation)::numeric / ly.circulation * 100), 2) AS last_year_circulation_change,
+
+        -- 上年一周后数据
+        lynw.market_price AS last_year_next_week_price,
+        lynw.circulation AS last_year_next_week_circulation,
+        ROUND(((ly.market_price - lynw.market_price)::numeric / lynw.market_price * 100), 2) AS last_year_next_week_price_change,
+        ROUND(((ly.circulation - lynw.circulation)::numeric / lynw.circulation * 100), 2) AS last_year_next_week_circulation_change
+
+        FROM today_data t
+        LEFT JOIN last_week_data lw ON t.item_id = lw.item_id
+        LEFT JOIN last_month_data lm ON t.item_id = lm.item_id
+        LEFT JOIN last_year_data ly ON t.item_id = ly.item_id
+        LEFT JOIN last_year_next_week_data lynw ON t.item_id = lynw.item_id
+        ORDER BY t.item_name
+    </select>
+</mapper>
