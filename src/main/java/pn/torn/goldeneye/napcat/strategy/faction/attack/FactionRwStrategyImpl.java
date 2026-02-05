@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
@@ -49,6 +50,11 @@ public class FactionRwStrategyImpl extends PnManageMsgStrategy {
     @Override
     public TornFactionRoleTypeEnum getRoleType() {
         return TornFactionRoleTypeEnum.WAR_COMMANDER;
+    }
+
+    @Override
+    public List<Long> getCustomGroupId() {
+        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID);
     }
 
     @Override

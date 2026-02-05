@@ -177,7 +177,7 @@ public class TornOcRecommendManager {
      */
     private BigDecimal calculateTimeScore(LocalDateTime readyTime) {
         if (readyTime == null) {
-            return BigDecimal.valueOf(99); // 新队99分, 优先级仅次于停转队
+            return BigDecimal.valueOf(95); // 新队99分, 优先级次于2小时后停转队
         }
 
         LocalDateTime now = LocalDateTime.now();
