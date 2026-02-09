@@ -4,12 +4,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.bot.Bot;
+import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
+import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksHistoryDAO;
+import pn.torn.goldeneye.repository.model.torn.StocksChangeDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
@@ -18,6 +24,7 @@ import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBenefitVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
+import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -36,17 +43,19 @@ import java.util.regex.Pattern;
 @Component
 @RequiredArgsConstructor
 public class TornStocksManager {
+    private final Bot bot;
     private final TornApi tornApi;
     private final SysSettingManager settingManager;
     private final TornItemsManager itemsManager;
     private final TornStocksDAO stocksDao;
     private final TornStocksHistoryDAO stocksHistoryDao;
     private final ProjectProperty projectProperty;
+    private static final Long NOTICE_THRESHOLD = 100_000_000_000L;
 
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("\\$(\\d{1,3}(?:,\\d{3})*)");
     private static final Pattern ITEM_PATTERN = Pattern.compile("1x (.+)");
 
-    @Scheduled(cron = "0 5,10,15,20,25,30,35,40,45,50,55,0 * * * ?")
+    @Scheduled(cron = "0 */5 * * * ?")
     public void spiderStockData() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
@@ -75,6 +84,7 @@ public class TornStocksManager {
         }
 
         saveStocksHistory(resp);
+        sendGreatTradeChangeMsg();
     }
 
     /**
@@ -118,7 +128,6 @@ public class TornStocksManager {
             return item == null ? 0L : item.getMarketPrice();
         }
 
-        // 特殊股票处理
         return 0L;
     }
 
@@ -130,5 +139,37 @@ public class TornStocksManager {
         List<TornStocksHistoryDO> historyList = resp.getStocks().values().stream()
                 .map(i -> i.convert2HistoryDO(regDateTime)).toList();
         stocksHistoryDao.saveBatch(historyList);
+    }
+
+    /**
+     * 发送巨额交易信息
+     */
+    public void sendGreatTradeChangeMsg() {
+        List<LocalDateTime> recordTimes = stocksHistoryDao.getLatestTwoRecordTimes();
+        LocalDateTime latestTime = recordTimes.get(0);
+        LocalDateTime previousTime = recordTimes.get(1);
+
+        List<StocksChangeDO> changeList = stocksHistoryDao.getGreatTradeChangeList(latestTime, previousTime,
+                NOTICE_THRESHOLD);
+        if (CollectionUtils.isEmpty(changeList)) {
+            return;
+        }
+
+        List<QqMsgParam<?>> msgList = new ArrayList<>();
+        msgList.add(new TextQqMsg("过去5分钟内, 检测到股票大额交易 "));
+        for (StocksChangeDO change : changeList) {
+            change.calculateNetTrade();
+            msgList.add(new TextQqMsg("\n" + change.getStocksShortname() + ": "
+                    + (change.isBuy() ? "买入" : "卖出")
+                    + NumberUtils.formatCompactNumber(Math.abs(change.getSharesDelta())) + "股, "
+                    + "市值变化: " + (change.isBuy() ? "+" : "")
+                    + NumberUtils.formatCompactNumber(change.getNetTradeValue())));
+        }
+
+        BotHttpReqParam param = new GroupMsgHttpBuilder()
+                .setGroupId(projectProperty.getVipGroupId())
+                .addMsg(msgList)
+                .build();
+        bot.sendRequest(param, String.class);
     }
 }

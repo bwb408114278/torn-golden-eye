@@ -5,14 +5,14 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 /**
- * 物品历史提醒护具
+ * 物品历史趋势
  *
  * @author Bai
  * @version 0.5.0
  * @since 2026.02.03
  */
 @Data
-public class ItemHistoryNoticeDO {
+public class ItemTrendDO {
     private Integer itemId;
     private String itemName;
 
