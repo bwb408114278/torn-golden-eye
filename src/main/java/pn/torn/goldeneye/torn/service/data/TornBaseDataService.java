@@ -18,6 +18,7 @@ import pn.torn.goldeneye.repository.dao.torn.TornItemsDAO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemHistoryManager;
+import pn.torn.goldeneye.torn.manager.torn.TornItemTrendManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
@@ -51,6 +52,7 @@ public class TornBaseDataService {
     private final SysSettingManager settingManager;
     private final TornItemsManager itemsManager;
     private final TornItemHistoryManager itemHistoryManager;
+    private final TornItemTrendManager itemTrendManager;
     private final TornItemsDAO itemsDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
@@ -133,8 +135,9 @@ public class TornBaseDataService {
             itemsDao.updateBatchById(upadteDataList);
         }
 
-        itemHistoryManager.saveItemHistory(resp);
         itemsManager.refreshCache();
+        itemHistoryManager.saveItemHistory(resp);
+        itemTrendManager.sendTrendMsg();
     }
 
     /**

@@ -8,6 +8,8 @@
                 (#{targetDate}::date - INTERVAL '7 days')::date AS last_week,
                 (#{targetDate}::date - INTERVAL '30 days')::date AS last_month,
                 (#{targetDate}::date - INTERVAL '365 days')::date AS last_year,
+                (#{targetDate}::date - INTERVAL '372 days')::date AS last_year_last_week,
+                (#{targetDate}::date - INTERVAL '395 days')::date AS last_year_last_month,
                 (#{targetDate}::date - INTERVAL '358 days')::date AS last_year_next_week),
         today_data AS (
             SELECT DISTINCT ON (item_id)
@@ -58,6 +60,30 @@
                 </foreach>
                 AND reg_date &lt;= (SELECT last_year FROM date_params)
             ORDER BY item_id, reg_date DESC),
+        last_year_last_week_data AS (
+            SELECT DISTINCT ON (item_id)
+                item_id,
+                market_price,
+                circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT last_year_last_week FROM date_params)
+            ORDER BY item_id, reg_date DESC),
+        last_year_last_month_data AS (
+            SELECT DISTINCT ON (item_id)
+                item_id,
+                market_price,
+                circulation
+            FROM torn_item_history
+            WHERE deleted = 0 AND item_id IN
+                <foreach collection="itemIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+                AND reg_date &lt;= (SELECT last_year_last_month FROM date_params)
+            ORDER BY item_id, reg_date DESC),
         last_year_next_week_data AS (
             SELECT DISTINCT ON (item_id)
                 item_id,
@@ -97,16 +123,26 @@
         ROUND(((t.market_price - ly.market_price)::numeric / ly.market_price * 100), 2) AS last_year_price_change,
         ROUND(((t.circulation - ly.circulation)::numeric / ly.circulation * 100), 2) AS last_year_circulation_change,
 
+        -- 上年上周数据
+        lylw.market_price AS last_year_last_week_price,
+        lylw.circulation AS last_year_last_week_circulation,
+
+        -- 上年上月数据
+        lylm.market_price AS last_year_last_month_price,
+        lylm.circulation AS last_year_last_month_circulation,
+
         -- 上年一周后数据
         lynw.market_price AS last_year_next_week_price,
         lynw.circulation AS last_year_next_week_circulation,
-        ROUND(((ly.market_price - lynw.market_price)::numeric / lynw.market_price * 100), 2) AS last_year_next_week_price_change,
-        ROUND(((ly.circulation - lynw.circulation)::numeric / lynw.circulation * 100), 2) AS last_year_next_week_circulation_change
+        ROUND(((lynw.market_price - ly.market_price)::numeric / ly.market_price * 100), 2) AS last_year_next_week_price_change,
+        ROUND(((lynw.circulation - ly.circulation)::numeric / ly.circulation * 100), 2) AS last_year_next_week_circulation_change
 
         FROM today_data t
         LEFT JOIN last_week_data lw ON t.item_id = lw.item_id
         LEFT JOIN last_month_data lm ON t.item_id = lm.item_id
         LEFT JOIN last_year_data ly ON t.item_id = ly.item_id
+        LEFT JOIN last_year_last_week_data lylw ON t.item_id = lylw.item_id
+        LEFT JOIN last_year_last_month_data lylm ON t.item_id = lylm.item_id
         LEFT JOIN last_year_next_week_data lynw ON t.item_id = lynw.item_id
         ORDER BY t.item_name
     </select>

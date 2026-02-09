@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
@@ -136,6 +137,7 @@ public class VipSubscribeManager {
             }
 
             resp.getLog().stream()
+                    .filter(l -> StringUtils.hasText(l.getData().getMessage()))
                     .filter(l -> TornConstants.VALID_SUBSCRIBE.equalsIgnoreCase(
                             l.getData().getMessage().replace("-", "").replace(" ", "")))
                     .forEach(l -> payList.addAll(l.convert2DO(userManager)));

@@ -38,6 +38,14 @@ public class ItemHistoryNoticeDO {
     private BigDecimal lastYearPriceChange;
     private BigDecimal lastYearCirculationChange;
 
+    // 上年上周数据
+    private Long lastYearLastWeekPrice;
+    private Long lastYearLastWeekCirculation;
+
+    // 上年上月数据
+    private Long lastYearLastMonthPrice;
+    private Long lastYearLastMonthCirculation;
+
     // 上年一周后数据
     private Long lastYearNextWeekPrice;
     private Long lastYearNextWeekCirculation;
