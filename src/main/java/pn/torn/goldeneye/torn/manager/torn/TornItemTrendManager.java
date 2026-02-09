@@ -10,7 +10,7 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.repository.dao.torn.TornItemHistoryDAO;
-import pn.torn.goldeneye.repository.model.torn.ItemHistoryNoticeDO;
+import pn.torn.goldeneye.repository.model.torn.ItemTrendDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.TableImageUtils;
@@ -58,7 +58,7 @@ public class TornItemTrendManager {
     public void sendTrendMsg() {
         LocalDate date = LocalDate.now();
 
-        List<ItemHistoryNoticeDO> historyList = itemHistoryDao.queryItemComparison(CONSUME_ITEM_ID_LIST, date);
+        List<ItemTrendDO> historyList = itemHistoryDao.queryItemComparison(CONSUME_ITEM_ID_LIST, date);
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
                 .addMsg(new ImageQqMsg(buildTableData("糖酒饮料", historyList, date)))
@@ -83,7 +83,7 @@ public class TornItemTrendManager {
     /**
      * 构建表格数据
      */
-    private String buildTableData(String title, List<ItemHistoryNoticeDO> dataList, LocalDate date) {
+    private String buildTableData(String title, List<ItemTrendDO> dataList, LocalDate date) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
@@ -104,7 +104,7 @@ public class TornItemTrendManager {
         }
 
         for (int i = 0; i < dataList.size(); i++) {
-            ItemHistoryNoticeDO data = dataList.get(i);
+            ItemTrendDO data = dataList.get(i);
             BigDecimal forecastPrice = getPriceForecast(data);
             BigDecimal forecastCirculation = getCirculationForecast(data);
 
@@ -146,7 +146,7 @@ public class TornItemTrendManager {
     /**
      * 预测价格变动
      */
-    private BigDecimal getPriceForecast(ItemHistoryNoticeDO data) {
+    private BigDecimal getPriceForecast(ItemTrendDO data) {
         boolean isPriceSameTrend = isSameTrend(
                 data.getTodayPrice(), data.getLastWeekPrice(), data.getLastMonthPrice(),
                 data.getLastYearPrice(), data.getLastYearLastWeekPrice(), data.getLastYearLastMonthPrice());
@@ -162,7 +162,7 @@ public class TornItemTrendManager {
     /**
      * 预测存量变动
      */
-    private BigDecimal getCirculationForecast(ItemHistoryNoticeDO data) {
+    private BigDecimal getCirculationForecast(ItemTrendDO data) {
         boolean isCirculationSameTrend = isSameTrend(
                 data.getTodayCirculation(), data.getLastWeekCirculation(), data.getLastMonthCirculation(),
                 data.getLastYearCirculation(), data.getLastYearLastWeekCirculation(), data.getLastYearLastMonthCirculation());

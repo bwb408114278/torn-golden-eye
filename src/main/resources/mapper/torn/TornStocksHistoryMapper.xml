@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornStocksHistoryMapper">
+    <!-- 获取最近两次记录时间 -->
+    <select id="getLatestTwoRecordTimes" resultType="java.time.LocalDateTime">
+        SELECT DISTINCT reg_date_time
+        FROM torn_stocks_history
+        WHERE deleted = 0
+        ORDER BY reg_date_time DESC
+        LIMIT 2
+    </select>
+
+    <!-- 获取显著交易变化的股票 -->
+    <select id="getGreatTradeChangeList" resultType="pn.torn.goldeneye.repository.model.torn.StocksChangeDO">
+        WITH latest AS (
+            SELECT
+                stocks_id,
+                stocks_name,
+                stocks_shortname,
+                current_price,
+                total_shares,
+                market_cap,
+                reg_date_time
+            FROM torn_stocks_history
+            WHERE reg_date_time = #{latestTime}
+              AND deleted = 0),
+        previous AS (
+             SELECT
+                 stocks_id,
+                 current_price,
+                 total_shares,
+                 market_cap,
+                 reg_date_time
+             FROM torn_stocks_history
+             WHERE reg_date_time = #{previousTime}
+                 AND deleted = 0)
+
+        SELECT
+            l.stocks_id AS stocksId,
+            l.stocks_name AS stocksName,
+            l.stocks_shortname AS stocksShortname,
+            l.current_price AS currentPrice,
+            l.total_shares AS currentTotalShares,
+            l.market_cap AS currentMarketCap,
+            l.reg_date_time AS currentRegDateTime,
+            p.current_price AS previousPrice,
+            p.total_shares AS previousTotalShares,
+            p.market_cap AS previousMarketCap,
+            p.reg_date_time AS previousRegDateTime,
+            (l.total_shares - p.total_shares) AS sharesDelta,
+            (l.total_shares - p.total_shares) * l.current_price AS netTradeValue
+        FROM latest l
+        INNER JOIN previous p ON l.stocks_id = p.stocks_id
+        WHERE ABS((l.total_shares - p.total_shares) * l.current_price) > #{threshold}
+    </select>
+</mapper>

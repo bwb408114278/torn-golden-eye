@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornItemHistoryMapper">
-    <select id="queryItemComparison" resultType="pn.torn.goldeneye.repository.model.torn.ItemHistoryNoticeDO">
+    <select id="queryItemComparison" resultType="pn.torn.goldeneye.repository.model.torn.ItemTrendDO">
         WITH date_params AS (
             SELECT
                 #{targetDate}::date AS today,
