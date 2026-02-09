@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.PnMsgStrategy;
@@ -42,6 +43,11 @@ public class FactionRwAttackStrategyImpl extends PnMsgStrategy {
     @Override
     public String getCommandDescription() {
         return "你就是下一个对冲之王";
+    }
+
+    @Override
+    public List<Long> getCustomGroupId() {
+        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID);
     }
 
     @Override

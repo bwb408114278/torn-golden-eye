@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
@@ -64,9 +65,9 @@ public class VipSubscribeManager {
      */
     @Scheduled(cron = "0 */5 * * * ?")
     public void vipLengthAppend() {
-//        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
-//            return;
-//        }
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
 
         String value = settingDao.querySettingValue(SettingConstants.KEY_ITEM_RECEIVE_LOG_LOAD);
         LocalDateTime from = DateTimeUtils.convertToDateTime(value);
@@ -136,6 +137,7 @@ public class VipSubscribeManager {
             }
 
             resp.getLog().stream()
+                    .filter(l -> StringUtils.hasText(l.getData().getMessage()))
                     .filter(l -> TornConstants.VALID_SUBSCRIBE.equalsIgnoreCase(
                             l.getData().getMessage().replace("-", "").replace(" ", "")))
                     .forEach(l -> payList.addAll(l.convert2DO(userManager)));

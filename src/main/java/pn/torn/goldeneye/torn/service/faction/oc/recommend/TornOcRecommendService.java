@@ -26,7 +26,7 @@ import java.util.List;
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.11.01
  */
 @Slf4j
@@ -117,9 +117,9 @@ public class TornOcRecommendService {
                 .filter(o -> o.getId().equals(joinedOc.getId()))
                 .findAny().orElse(null);
         if (calcOc != null) {
-            calcOc.setReadyTime(calcOc.getReadyTime().minusDays(-1));
+            calcOc.setReadyTime(calcOc.getReadyTime().minusDays(1));
         } else {
-            joinedOc.setReadyTime(joinedOc.getReadyTime().minusDays(-1));
+            joinedOc.setReadyTime(joinedOc.getReadyTime().minusDays(1));
             recruitOcList.add(joinedOc);
         }
         return recruitOcList;

@@ -48,3 +48,5 @@ databaseChangeLog:
       file: db/changelog/0.5.0/faction.yaml
   - include:
       file: db/changelog/0.5.0/vip.yaml
+  - include:
+      file: db/changelog/0.5.0/oc.yaml
