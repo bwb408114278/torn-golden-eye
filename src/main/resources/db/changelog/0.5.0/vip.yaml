@@ -142,3 +142,57 @@ databaseChangeLog:
                   name: setting_value
                   value: '2026-02-02 11:15:00'
             where: id = 26
+
+  - changeSet:
+      id: create_vip_notice_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: vip_notice
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: check_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "校验时间"
+              - column:
+                  name: drug_cd
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "Durg cd"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

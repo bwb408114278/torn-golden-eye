@@ -11,8 +11,8 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
-import pn.torn.goldeneye.repository.dao.setting.VipSubscribeDAO;
-import pn.torn.goldeneye.repository.model.setting.VipSubscribeDO;
+import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
+import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 

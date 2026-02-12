@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.manager.setting;
+package pn.torn.goldeneye.torn.manager.vip;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,11 +25,11 @@ import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.AtQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.dao.setting.VipPayRecordDAO;
-import pn.torn.goldeneye.repository.dao.setting.VipSubscribeDAO;
+import pn.torn.goldeneye.repository.dao.vip.VipPayRecordDAO;
+import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
-import pn.torn.goldeneye.repository.model.setting.VipPayRecordDO;
-import pn.torn.goldeneye.repository.model.setting.VipSubscribeDO;
+import pn.torn.goldeneye.repository.model.vip.VipPayRecordDO;
+import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.torn.model.user.log.TornUserLogDTO;

@@ -1,9 +1,9 @@
-package pn.torn.goldeneye.repository.dao.setting;
+package pn.torn.goldeneye.repository.dao.vip;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
-import pn.torn.goldeneye.repository.mapper.setting.VipSubscribeMapper;
-import pn.torn.goldeneye.repository.model.setting.VipSubscribeDO;
+import pn.torn.goldeneye.repository.mapper.vip.VipSubscribeMapper;
+import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 
 /**
  * VIP订阅持久层类
