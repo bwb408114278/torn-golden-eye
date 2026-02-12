@@ -305,7 +305,7 @@ public class VipSubscribeManager {
             if (subscribe != null) {
                 subscribe.setSubscribeLength(subscribe.getSubscribeLength() + entry.getValue());
                 if (subscribe.getEndDate() != null) {
-                    subscribe.setEndDate(subscribe.getEndDate().plusDays(subscribe.getSubscribeLength()));
+                    subscribe.setEndDate(subscribe.getEndDate().plusDays(entry.getValue()));
                 }
                 subscribeDao.updateById(subscribe);
             } else {

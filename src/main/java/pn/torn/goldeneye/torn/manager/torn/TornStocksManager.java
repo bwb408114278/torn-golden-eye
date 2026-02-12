@@ -144,7 +144,7 @@ public class TornStocksManager {
     /**
      * 发送巨额交易信息
      */
-    public void sendGreatTradeChangeMsg() {
+    private void sendGreatTradeChangeMsg() {
         List<LocalDateTime> recordTimes = stocksHistoryDao.getLatestTwoRecordTimes();
         LocalDateTime latestTime = recordTimes.get(0);
         LocalDateTime previousTime = recordTimes.get(1);
@@ -156,14 +156,13 @@ public class TornStocksManager {
         }
 
         List<QqMsgParam<?>> msgList = new ArrayList<>();
-        msgList.add(new TextQqMsg("过去5分钟内, 检测到股票大额交易 "));
+        msgList.add(new TextQqMsg("过去5分钟内, 检测到股票大额交易"));
         for (StocksChangeDO change : changeList) {
             change.calculateNetTrade();
             msgList.add(new TextQqMsg("\n" + change.getStocksShortname() + ": "
-                    + (change.isBuy() ? "买入" : "卖出")
-                    + NumberUtils.formatCompactNumber(Math.abs(change.getSharesDelta())) + "股, "
-                    + "市值变化: " + (change.isBuy() ? "+" : "")
-                    + NumberUtils.formatCompactNumber(change.getNetTradeValue())));
+                    + (change.isBuy() ? "买入: +" : "卖出: ")
+                    + NumberUtils.formatCompactNumber(change.getNetTradeValue())
+                    + " 当前价格: " + change.getCurrentPrice()));
         }
 
         BotHttpReqParam param = new GroupMsgHttpBuilder()

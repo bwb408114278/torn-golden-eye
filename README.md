@@ -122,5 +122,5 @@ log_timezone = 'Asia/Shanghai'
 | 3174862 | DarcyYao      | Xan × 10                | 助力金眼健康成长                                              |
 | 2965491 | Ex0dus_67373  | 饮料箱                     | 赞美金眼                                                  |
 | 2634386 | Nicol-Bolas   | 500m                    | FOR golden-eye.!                                      |
-| 3952370 | Quokka        | Xan × 10                |                                                       |
+| 3952370 | Quokka        | Xan × 2                 |                                                       |
 | 3174862 | DarcyYao      | Xan × 10                | 给金眼交所得税，作佬牛逼                                          |
