@@ -3,7 +3,7 @@ package pn.torn.goldeneye.torn.model.user.cooldown;
 import lombok.Data;
 
 /**
- * 用户冷却VO
+ * 用户冷却数据VO
  *
  * @author Bai
  * @version 0.5.0
@@ -14,13 +14,13 @@ public class TornUserCooldownDataVO {
     /**
      * 药CD
      */
-    private long drug;
+    private int drug;
     /**
      * 医疗CD
      */
-    private long medical;
+    private int medical;
     /**
      * 增益品CD
      */
-    private long booster;
+    private int booster;
 }

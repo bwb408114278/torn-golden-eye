@@ -29,17 +29,35 @@ public class VipNoticeDO extends BaseDO {
      */
     private Long userId;
     /**
-     * 校验时间
+     * 上次CD校验时间
      */
-    private LocalDateTime checkTime;
+    private LocalDateTime lastCdCheckTime;
     /**
      * Durg cd
      */
-    private Long drugCd;
+    private Integer drugCd;
+    /**
+     * 上次Bar校验时间
+     */
+    private LocalDateTime lastBarCheckTime;
+    /**
+     * 能量填满
+     */
+    private Integer energyFull;
+    /**
+     * 勇气填满
+     */
+    private Integer nerveFull;
 
-    public VipNoticeDO(long userId, LocalDateTime checkTime, long drugCd) {
+    public VipNoticeDO(long userId) {
         this.userId = userId;
-        this.checkTime = checkTime;
-        this.drugCd = drugCd;
+
+        this.drugCd = 0;
+        this.energyFull = 0;
+        this.nerveFull = 0;
+
+        LocalDateTime past = LocalDateTime.of(2000, 1, 1, 0, 0);
+        this.lastCdCheckTime = past;
+        this.lastBarCheckTime = past;
     }
 }

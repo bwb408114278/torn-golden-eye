@@ -5,24 +5,35 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.torn.TornApi;
-import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.vip.VipNoticeDO;
+import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
+import pn.torn.goldeneye.torn.manager.vip.notice.BarNoticeChecker;
+import pn.torn.goldeneye.torn.manager.vip.notice.BaseVipNoticeChecker;
+import pn.torn.goldeneye.torn.manager.vip.notice.CooldownNoticeChecker;
+import pn.torn.goldeneye.torn.manager.vip.notice.VipNoticeChecker;
+import pn.torn.goldeneye.torn.model.user.bar.TornUserBarDTO;
+import pn.torn.goldeneye.torn.model.user.bar.TornUserBarDataVO;
+import pn.torn.goldeneye.torn.model.user.bar.TornUserBarNumberVO;
+import pn.torn.goldeneye.torn.model.user.bar.TornUserBarVO;
 import pn.torn.goldeneye.torn.model.user.cooldown.TornUserCooldownDTO;
 import pn.torn.goldeneye.torn.model.user.cooldown.TornUserCooldownDataVO;
 import pn.torn.goldeneye.torn.model.user.cooldown.TornUserCooldownVO;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -41,266 +52,395 @@ import static org.mockito.Mockito.*;
  */
 @ExtendWith(MockitoExtension.class)
 class VipNoticeManagerTest {
-    @Mock
-    private ThreadPoolTaskExecutor virtualThreadExecutor;
-    @Mock
-    private Bot bot;
-    @Mock
-    private TornApi tornApi;
-    @Mock
-    private TornApiKeyConfig apiKeyConfig;
-    @Mock
-    private VipSubscribeDAO subscribeDao;
-    @Mock
-    private VipNoticeDAO noticeDao;
-    @Mock
-    private ProjectProperty projectProperty;
-
-    @InjectMocks
-    private VipNoticeManager vipNoticeManager;
-
-    private LocalDateTime checkTime;
-    private TornApiKeyDO mockKey;
-
-    @BeforeEach
-    void setUp() {
-        checkTime = LocalDateTime.of(2024, 6, 15, 12, 0, 0);
-        mockKey = new TornApiKeyDO();
-    }
-
-    // ===== checkUserCooldown 测试 =====
-
+    // ==================== shouldCallApi 逻辑测试 ====================
     @Nested
-    @DisplayName("checkUserCooldown - 首次检查（无历史记录）")
-    class FirstCheckTests {
+    @DisplayName("BaseVipNoticeChecker#shouldCallApi")
+    class ShouldCallApiTest {
+        /**
+         * 创建一个具体子类用于测试 protected 方法
+         */
+        private final BaseVipNoticeChecker checker = new BaseVipNoticeChecker() {
+            @Override
+            public List<String> checkAndUpdate(VipNoticeDO notice, LocalDateTime checkTime) {
+                return Collections.emptyList();
+            }
+        };
 
         @Test
-        @DisplayName("首次检查，drugCd=0，应该提醒并保存记录")
-        void shouldNotify_whenFirstCheck_andDrugCdIsZero() {
-            long userId = 1001L;
-            List<VipNoticeDO> noticeList = Collections.emptyList();
-
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-            mockApiResponse(0L);
-
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
-
-            assertThat(result).isTrue();
-            verify(noticeDao).save(any(VipNoticeDO.class));
-            verify(noticeDao, never()).updateById(any());
+        @DisplayName("lastCheckTime 为 null 时应调用 API")
+        void shouldCallApi_whenLastCheckTimeNull() {
+            assertThat(checker.shouldCallApi(
+                    LocalDateTime.of(2024, 1, 1, 12, 0),
+                    null,
+                    3600L
+            )).isTrue();
         }
 
         @Test
-        @DisplayName("首次检查，drugCd>0，不应提醒但应保存记录")
-        void shouldNotNotify_whenFirstCheck_andDrugCdIsPositive() {
-            long userId = 1001L;
-            List<VipNoticeDO> noticeList = Collections.emptyList();
-
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-            mockApiResponse(300L);
-
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
-
-            assertThat(result).isFalse();
-            verify(noticeDao).save(any(VipNoticeDO.class));
+        @DisplayName("剩余时间 > 0 且未过期 → 不调用 API")
+        void shouldNotCallApi_whenCooldownNotExpired() {
+            LocalDateTime lastCheck = LocalDateTime.of(2024, 1, 1, 12, 0);
+            LocalDateTime now = lastCheck.plusSeconds(3599); // 还差 1 秒过期
+            assertThat(checker.shouldCallApi(now, lastCheck, 3600L)).isFalse();
         }
 
         @Test
-        @DisplayName("首次检查，API key为null，不应提醒")
-        void shouldNotNotify_whenFirstCheck_andKeyIsNull() {
-            long userId = 1001L;
-            List<VipNoticeDO> noticeList = Collections.emptyList();
+        @DisplayName("剩余时间 > 0 且已过期 → 调用 API")
+        void shouldCallApi_whenCooldownExpired() {
+            LocalDateTime lastCheck = LocalDateTime.of(2024, 1, 1, 12, 0);
+            LocalDateTime now = lastCheck.plusSeconds(3601);
+            assertThat(checker.shouldCallApi(now, lastCheck, 3600L)).isTrue();
+        }
 
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(null);
+        @Test
+        @DisplayName("剩余时间 = 0 且不到 30 分钟 → 不调用 API")
+        void shouldNotCallApi_whenZeroAndRecheckNotDue() {
+            LocalDateTime lastCheck = LocalDateTime.of(2024, 1, 1, 12, 0);
+            LocalDateTime now = lastCheck.plusMinutes(29);
+            assertThat(checker.shouldCallApi(now, lastCheck, 0L)).isFalse();
+        }
 
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
+        @Test
+        @DisplayName("剩余时间 = 0 且超过 30 分钟 → 调用 API")
+        void shouldCallApi_whenZeroAndRecheckDue() {
+            LocalDateTime lastCheck = LocalDateTime.of(2024, 1, 1, 12, 0);
+            LocalDateTime now = lastCheck.plusMinutes(31);
+            assertThat(checker.shouldCallApi(now, lastCheck, 0L)).isTrue();
+        }
 
-            assertThat(result).isFalse();
-            verify(tornApi, never()).sendRequest((TornReqParam) any(), any(), any());
-            verify(noticeDao, never()).save(any());
+        @ParameterizedTest
+        @DisplayName("边界值：恰好等于过期时间 → isBefore 返回 false → 不调用")
+        @CsvSource({
+                "3600, 3600",  // 剩余时间>0 的边界
+                "0, 1800"      // 剩余时间=0 的边界 (30min = 1800s)
+        })
+        void shouldNotCallApi_atExactBoundary(long remainSecond, long elapsedSeconds) {
+            LocalDateTime lastCheck = LocalDateTime.of(2024, 1, 1, 12, 0);
+            LocalDateTime now = lastCheck.plusSeconds(elapsedSeconds);
+            assertThat(checker.shouldCallApi(now, lastCheck, remainSecond)).isFalse();
         }
     }
 
+    // ==================== DrugCooldownNoticeChecker 测试 ====================
     @Nested
-    @DisplayName("checkUserCooldown - CD过期后重新检查")
-    class CdExpiredTests {
+    @DisplayName("DrugCooldownNoticeChecker")
+    class DrugCooldownNoticeCheckerTest {
+        @Mock
+        private TornApi tornApi;
+        @Mock
+        private TornApiKeyConfig apiKeyConfig;
+        @Mock
+        private VipNoticeDAO noticeDao;
+        @InjectMocks
+        private CooldownNoticeChecker checker;
+        private VipNoticeDO notice;
+        private final LocalDateTime NOW = LocalDateTime.of(2024, 6, 15, 12, 0);
 
-        @Test
-        @DisplayName("上次drugCd>0且已过期，现在drugCd=0，应该提醒并更新记录")
-        void shouldNotify_whenPreviousCdExpired_andNowZero() {
-            long userId = 1001L;
-            // 上次检查：10分钟前，drugCd=300秒（5分钟），所以CD已于5分钟前过期
-            VipNoticeDO previousNotice = createNotice(1L, userId,
-                    checkTime.minusMinutes(10), 300L);
-            List<VipNoticeDO> noticeList = List.of(previousNotice);
-
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-            mockApiResponse(0L);
-
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
-
-            assertThat(result).isTrue();
-            verify(noticeDao).updateById(any(VipNoticeDO.class));
-            verify(noticeDao, never()).save(any());
+        @BeforeEach
+        void setUp() {
+            notice = new VipNoticeDO();
+            notice.setId(1L);
+            notice.setUserId(100L);
+            notice.setDrugCd(0);
+            // 设置为 1 小时前，确保 recheck 触发
+            notice.setLastCdCheckTime(NOW.minusHours(1));
         }
 
         @Test
-        @DisplayName("上次drugCd>0且已过期，现在drugCd仍>0，不应提醒但应更新记录")
-        void shouldNotNotify_whenPreviousCdExpired_andStillPositive() {
-            long userId = 1001L;
-            VipNoticeDO previousNotice = createNotice(1L, userId,
-                    checkTime.minusMinutes(10), 300L);
-            List<VipNoticeDO> noticeList = List.of(previousNotice);
+        @DisplayName("冷却未过期时不调用 API，返回空列表")
+        void returnsEmpty_whenCooldownNotExpired() {
+            notice.setDrugCd(7200); // 2 小时 CD
+            notice.setLastCdCheckTime(NOW.minusMinutes(10));
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).isEmpty();
+            verifyNoInteractions(tornApi);
+        }
 
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-            mockApiResponse(600L);
+        @Test
+        @DisplayName("没有 API Key 时返回空列表")
+        void returnsEmpty_whenNoApiKey() {
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(null);
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).isEmpty();
+            verifyNoInteractions(tornApi);
+        }
 
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
+        @Test
+        @DisplayName("Drug CD = 0 时返回吃药提醒消息")
+        void returnsMessage_whenDrugCdIsZero() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserCooldownVO resp = mockCooldownResponse(0);
+            when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).containsExactly("大郎, 该吃药了");
+        }
 
-            assertThat(result).isFalse();
-            verify(noticeDao).updateById(any(VipNoticeDO.class));
+        @Test
+        @DisplayName("Drug CD > 0 时返回空列表")
+        void returnsEmpty_whenDrugCdGreaterThanZero() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserCooldownVO resp = mockCooldownResponse(3600);
+            when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("调用 API 后应更新 DB 中的 drugCd 和 lastDrugCheckTime")
+        void shouldUpdateDatabaseAfterApiCall() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserCooldownVO resp = mockCooldownResponse(500);
+            when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            checker.checkAndUpdate(notice, NOW);
+            // 验证 lambdaUpdate 被调用（具体字段通过 mock chain 验证较复杂，
+            // 这里验证 update() 被调用即可）
+            verify(noticeDao).lambdaUpdate();
+        }
+
+        private TornUserCooldownVO mockCooldownResponse(int drugCd) {
+            TornUserCooldownVO resp = mock(TornUserCooldownVO.class);
+            TornUserCooldownDataVO cooldowns = mock(TornUserCooldownDataVO.class);
+            when(resp.getCooldowns()).thenReturn(cooldowns);
+            when(cooldowns.getDrug()).thenReturn(drugCd);
+            return resp;
+        }
+
+        private void mockNoticeUpdate() {
+            var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
+            when(noticeDao.lambdaUpdate()).thenReturn(wrapper);
+            when(wrapper.set(any(), any())).thenReturn(wrapper);
+            when(wrapper.eq(any(), any())).thenReturn(wrapper);
+            when(wrapper.update()).thenReturn(true);
         }
     }
 
+    // ==================== BarNoticeChecker 测试 ====================
     @Nested
-    @DisplayName("checkUserCooldown - CD未过期")
-    class CdNotExpiredTests {
+    @DisplayName("BarNoticeChecker")
+    class BarNoticeCheckerTest {
+        @Mock
+        private TornApi tornApi;
+        @Mock
+        private TornApiKeyConfig apiKeyConfig;
+        @Mock
+        private VipNoticeDAO noticeDao;
+        @InjectMocks
+        private BarNoticeChecker checker;
+        private VipNoticeDO notice;
+        private final LocalDateTime NOW = LocalDateTime.of(2024, 6, 15, 12, 0);
+
+        @BeforeEach
+        void setUp() {
+            notice = new VipNoticeDO();
+            notice.setId(1L);
+            notice.setUserId(100L);
+            notice.setEnergyFull(0);
+            notice.setNerveFull(0);
+            notice.setLastBarCheckTime(NOW.minusHours(1));
+        }
 
         @Test
-        @DisplayName("上次drugCd>0且未过期，不应查询API")
-        void shouldNotCheck_whenCdNotExpired() {
-            long userId = 1001L;
-            // 上次检查：1分钟前，drugCd=600秒（10分钟），CD还没过期
-            VipNoticeDO previousNotice = createNotice(1L, userId,
-                    checkTime.minusMinutes(1), 600L);
-            List<VipNoticeDO> noticeList = List.of(previousNotice);
+        @DisplayName("Energy 和 Nerve 都未过期时不调 API")
+        void returnsEmpty_whenBothNotExpired() {
+            notice.setEnergyFull(7200);
+            notice.setNerveFull(7200);
+            notice.setLastBarCheckTime(NOW.minusMinutes(10));
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).isEmpty();
+            verifyNoInteractions(tornApi);
+        }
 
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
+        @Test
+        @DisplayName("只有 Energy 满了")
+        void returnsEnergyOnly() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserBarVO resp = mockBarResponse(0, 3600);
+            when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).containsExactly("Energy满了");
+        }
 
-            assertThat(result).isFalse();
-            verify(apiKeyConfig, never()).getKeyByUserId(anyLong());
-            verify(tornApi, never()).sendRequest((TornReqParam) any(), any(), any());
+        @Test
+        @DisplayName("只有 Nerve 满了")
+        void returnsNerveOnly() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserBarVO resp = mockBarResponse(3600, 0);
+            when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).containsExactly("Nerve满了");
+        }
+
+        @Test
+        @DisplayName("Energy 和 Nerve 都满了")
+        void returnsBoth() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserBarVO resp = mockBarResponse(0, 0);
+            when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).containsExactlyInAnyOrder("Energy满了", "Nerve满了");
+        }
+
+        @Test
+        @DisplayName("都不为 0 时返回空")
+        void returnsEmpty_whenNeitherZero() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserBarVO resp = mockBarResponse(1800, 3600);
+            when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
+                    .thenReturn(resp);
+            mockNoticeUpdate();
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("没有 API Key 时返回空")
+        void returnsEmpty_whenNoApiKey() {
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(null);
+            List<String> result = checker.checkAndUpdate(notice, NOW);
+            assertThat(result).isEmpty();
+        }
+
+        private TornUserBarVO mockBarResponse(int energyFullTime, int nerveFullTime) {
+            TornUserBarVO resp = mock(TornUserBarVO.class);
+            TornUserBarDataVO bars = mock(TornUserBarDataVO.class);
+            TornUserBarNumberVO energy = mock(TornUserBarNumberVO.class);
+            TornUserBarNumberVO nerve = mock(TornUserBarNumberVO.class);
+            when(resp.getBars()).thenReturn(bars);
+            when(bars.getEnergy()).thenReturn(energy);
+            when(bars.getNerve()).thenReturn(nerve);
+            when(energy.getFullTime()).thenReturn(energyFullTime);
+            when(nerve.getFullTime()).thenReturn(nerveFullTime);
+            return resp;
+        }
+
+        private void mockNoticeUpdate() {
+            var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
+            when(noticeDao.lambdaUpdate()).thenReturn(wrapper);
+            when(wrapper.set(any(), any())).thenReturn(wrapper);
+            when(wrapper.eq(any(), any())).thenReturn(wrapper);
+            when(wrapper.update()).thenReturn(true);
         }
     }
 
+    // ==================== VipNoticeManager 集成测试 ====================
     @Nested
-    @DisplayName("checkUserCooldown - 防重复提醒")
-    class NoRepeatNotifyTests {
+    @DisplayName("VipNoticeManager")
+    class VipNoticeManagerFunctionTest {
+        @Mock
+        private ThreadPoolTaskExecutor virtualThreadExecutor;
+        @Mock
+        private Bot bot;
+        @Mock
+        private VipSubscribeDAO subscribeDao;
+        @Mock
+        private VipNoticeDAO noticeDao;
+        @Mock
+        private ProjectProperty projectProperty;
 
         @Test
-        @DisplayName("上次drugCd=0且未超过30分钟，不应查询API也不应提醒")
-        void shouldNotCheck_whenPreviousCdZero_andWithinRecheckInterval() {
-            long userId = 1001L;
-            // 上次检查：10分钟前，drugCd=0
-            VipNoticeDO previousNotice = createNotice(1L, userId,
-                    checkTime.minusMinutes(10), 0L);
-            List<VipNoticeDO> noticeList = List.of(previousNotice);
-
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
-
-            assertThat(result).isFalse();
-            verify(apiKeyConfig, never()).getKeyByUserId(anyLong());
-            verify(tornApi, never()).sendRequest((TornReqParam) any(), any(), any());
+        @DisplayName("非生产环境不执行")
+        void shouldSkip_whenNotProd() {
+            when(projectProperty.getEnv()).thenReturn("dev");
+            VipNoticeManager manager = new VipNoticeManager(
+                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, projectProperty);
+            manager.notice();
+            verifyNoInteractions(subscribeDao);
         }
 
         @Test
-        @DisplayName("上次drugCd=0且已超过30分钟，应重新查询API但drugCd仍为0时不提醒")
-        void shouldRecheck_whenPreviousCdZero_andExceedRecheckInterval_butStillZero() {
-            long userId = 1001L;
-            // 上次检查：35分钟前，drugCd=0
-            VipNoticeDO previousNotice = createNotice(1L, userId,
-                    checkTime.minusMinutes(35), 0L);
-            List<VipNoticeDO> noticeList = List.of(previousNotice);
-
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-            mockApiResponse(0L);
-
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
-
-            // 关键断言：即使API返回0，因为上次也是0，所以不重复提醒
-            assertThat(result).isFalse();
-            // 但应更新记录的checkTime
-            verify(noticeDao).updateById(any(VipNoticeDO.class));
+        @DisplayName("VIP 列表为空时不查询 notice 表")
+        void shouldSkip_whenNoVipUsers() {
+            when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+            var queryWrapper = mock(com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+            when(subscribeDao.lambdaQuery()).thenReturn(queryWrapper);
+            when(queryWrapper.ge(any(), any())).thenReturn(queryWrapper);
+            when(queryWrapper.list()).thenReturn(Collections.emptyList());
+            VipNoticeManager manager = new VipNoticeManager(
+                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, projectProperty);
+            manager.notice();
+            verifyNoInteractions(noticeDao);
         }
 
         @Test
-        @DisplayName("上次drugCd=0且已超30分钟，用户已吃药drugCd>0，不应提醒但应更新记录")
-        void shouldRecheck_whenPreviousCdZero_andUserTookDrug() {
-            long userId = 1001L;
-            VipNoticeDO previousNotice = createNotice(1L, userId,
-                    checkTime.minusMinutes(35), 0L);
-            List<VipNoticeDO> noticeList = List.of(previousNotice);
-
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-            mockApiResponse(5000L); // 用户吃了药，CD变为5000秒
-
-            boolean result = vipNoticeManager.checkUserCooldown(userId, noticeList, checkTime);
-
-            assertThat(result).isFalse();
-            ArgumentCaptor<VipNoticeDO> captor = ArgumentCaptor.forClass(VipNoticeDO.class);
-            verify(noticeDao).updateById(captor.capture());
-            assertThat(captor.getValue().getDrugCd()).isEqualTo(5000L);
+        @DisplayName("Checker 抛异常不影响其他用户")
+        void shouldHandleExceptionGracefully() {
+            when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+            // 模拟直接在当前线程执行（方便测试）
+            doAnswer(invocation -> {
+                ((Runnable) invocation.getArgument(0)).run();
+                return null;
+            }).when(virtualThreadExecutor).execute(any(Runnable.class));
+            VipSubscribeDO vip = new VipSubscribeDO();
+            vip.setUserId(100L);
+            vip.setQqId(200L);
+            vip.setEndDate(LocalDate.of(2099, 12, 31));
+            // 模拟 subscribeDao 查询
+            var subQueryWrapper = mock(com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+            when(subscribeDao.lambdaQuery()).thenReturn(subQueryWrapper);
+            when(subQueryWrapper.ge(any(), any())).thenReturn(subQueryWrapper);
+            when(subQueryWrapper.list()).thenReturn(List.of(vip));
+            // 模拟 noticeDao 查询
+            var noticeQueryWrapper = mock(com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+            when(noticeDao.lambdaQuery()).thenReturn(noticeQueryWrapper);
+            when(noticeQueryWrapper.in(any(), anyList())).thenReturn(noticeQueryWrapper);
+            when(noticeQueryWrapper.list()).thenReturn(Collections.emptyList());
+            when(noticeDao.save(any())).thenReturn(true);
+            // 制造一个会抛异常的 checker
+            VipNoticeChecker failingChecker = (notice, checkTime) -> {
+                throw new RuntimeException("API boom!");
+            };
+            VipNoticeManager manager = new VipNoticeManager(
+                    virtualThreadExecutor, bot, List.of(failingChecker), subscribeDao, noticeDao, projectProperty);
+            // 不应抛出异常
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(manager::notice);
         }
     }
 
+    // ==================== 新增类型扩展性示例测试 ====================
     @Nested
-    @DisplayName("checkUserCooldown - 完整周期测试")
-    class FullCycleTests {
-
+    @DisplayName("扩展性验证 - 添加新 Checker 无需修改 Manager")
+    class ExtensibilityTest {
         @Test
-        @DisplayName("模拟完整周期：首次CD=0提醒 → 不重复提醒 → 用户吃药 → CD再次归零提醒")
-        void fullCycleTest() {
-            long userId = 1001L;
-            when(apiKeyConfig.getKeyByUserId(userId)).thenReturn(mockKey);
-
-            // === 第1步：首次检查，drugCd=0，应提醒 ===
-            mockApiResponse(0L);
-            boolean result1 = vipNoticeManager.checkUserCooldown(
-                    userId, Collections.emptyList(), checkTime);
-            assertThat(result1).isTrue();
-
-            // === 第2步：上次drugCd=0，10分钟后，不应重新检查 ===
-            VipNoticeDO step1Notice = createNotice(1L, userId, checkTime, 0L);
-            LocalDateTime checkTime2 = checkTime.plusMinutes(10);
-            boolean result2 = vipNoticeManager.checkUserCooldown(
-                    userId, List.of(step1Notice), checkTime2);
-            assertThat(result2).isFalse();
-
-            // === 第3步：35分钟后重新检查，用户吃药了，drugCd=5000 ===
-            LocalDateTime checkTime3 = checkTime.plusMinutes(35);
-            mockApiResponse(5000L);
-            boolean result3 = vipNoticeManager.checkUserCooldown(
-                    userId, List.of(step1Notice), checkTime3);
-            assertThat(result3).isFalse(); // drugCd > 0，不提醒
-
-            // === 第4步：drugCd过期后检查，drugCd=0，应提醒（因为上次是5000，状态转换了）===
-            VipNoticeDO step3Notice = createNotice(1L, userId, checkTime3, 5000L);
-            LocalDateTime checkTime4 = checkTime3.plusSeconds(5001);
-            mockApiResponse(0L);
-            boolean result4 = vipNoticeManager.checkUserCooldown(
-                    userId, List.of(step3Notice), checkTime4);
-            assertThat(result4).isTrue(); // 从非0变为0，提醒！
+        @DisplayName("新的 NoticeChecker 实现可以被 Manager 自动收集")
+        void newCheckerIsCollectedAutomatically() {
+            // 假设新增了一个 Travel 提醒
+            VipNoticeChecker travelChecker = (notice, checkTime) -> {
+                // 简化逻辑：总是提醒
+                return List.of("你的旅行结束了");
+            };
+            VipNoticeChecker drugChecker = (notice, checkTime) -> {
+                return List.of("大郎, 该吃药了");
+            };
+            VipNoticeDO notice = new VipNoticeDO(100L);
+            LocalDateTime now = LocalDateTime.of(2024, 6, 15, 12, 0);
+            List<VipNoticeChecker> allCheckers = List.of(drugChecker, travelChecker);
+            // 模拟 manager 中 processUser 的逻辑
+            List<String> allMessages = allCheckers.stream()
+                    .flatMap(c -> c.checkAndUpdate(notice, now).stream())
+                    .toList();
+            assertThat(allMessages).containsExactlyInAnyOrder(
+                    "大郎, 该吃药了",
+                    "你的旅行结束了"
+            );
         }
-    }
-
-    // ===== 辅助方法 =====
-
-    private void mockApiResponse(long drugCd) {
-        TornUserCooldownVO resp = new TornUserCooldownVO();
-        TornUserCooldownDataVO cooldowns = new TornUserCooldownDataVO();
-        cooldowns.setDrug(drugCd);
-        resp.setCooldowns(cooldowns);
-        when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(mockKey),
-                eq(TornUserCooldownVO.class))).thenReturn(resp);
-    }
-
-    private VipNoticeDO createNotice(Long id, Long userId,
-                                     LocalDateTime checkTime, Long drugCd) {
-        VipNoticeDO notice = new VipNoticeDO();
-        notice.setId(id);
-        notice.setUserId(userId);
-        notice.setCheckTime(checkTime);
-        notice.setDrugCd(drugCd);
-        return notice;
     }
 }

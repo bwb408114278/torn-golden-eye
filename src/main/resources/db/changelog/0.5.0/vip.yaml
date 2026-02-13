@@ -164,17 +164,35 @@ databaseChangeLog:
                     nullable: false
                   remarks: "用户ID"
               - column:
-                  name: check_time
+                  name: last_cd_check_time
                   type: DATETIME
                   constraints:
                     nullable: false
-                  remarks: "校验时间"
+                  remarks: "上次CD校验时间"
               - column:
                   name: drug_cd
-                  type: BIGINT
+                  type: INT
                   constraints:
                     nullable: false
                   remarks: "Durg cd"
+              - column:
+                  name: last_bar_check_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "上次Bar校验时间"
+              - column:
+                  name: energy_full
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "能量填满"
+              - column:
+                  name: nerve_full
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "勇气填满"
               - column:
                   name: deleted
                   type: TINYINT
