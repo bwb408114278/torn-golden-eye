@@ -1,9 +1,9 @@
-package pn.torn.goldeneye.repository.dao.setting;
+package pn.torn.goldeneye.repository.dao.vip;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
-import pn.torn.goldeneye.repository.mapper.setting.VipPayRecordMapper;
-import pn.torn.goldeneye.repository.model.setting.VipPayRecordDO;
+import pn.torn.goldeneye.repository.mapper.vip.VipPayRecordMapper;
+import pn.torn.goldeneye.repository.model.vip.VipPayRecordDO;
 
 /**
  * VIP支付记录持久层类

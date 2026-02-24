@@ -16,7 +16,7 @@ import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionAttackDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.utils.NumberUtils;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.math.BigDecimal;

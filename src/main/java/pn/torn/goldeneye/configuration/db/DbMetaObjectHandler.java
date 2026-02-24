@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * 数据库更新字段填充
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.5.0
  * @since 2025.07.24
  */
 @Component
@@ -24,6 +24,6 @@ public class DbMetaObjectHandler implements MetaObjectHandler {
 
     @Override
     public void updateFill(MetaObject metaObject) {
-        this.strictUpdateFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
+        this.setFieldValByName("updateTime", LocalDateTime.now(), metaObject);
     }
 }

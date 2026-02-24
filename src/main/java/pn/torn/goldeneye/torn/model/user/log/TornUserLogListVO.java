@@ -1,7 +1,7 @@
 package pn.torn.goldeneye.torn.model.user.log;
 
 import lombok.Data;
-import pn.torn.goldeneye.repository.model.setting.VipPayRecordDO;
+import pn.torn.goldeneye.repository.model.vip.VipPayRecordDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.utils.DateTimeUtils;

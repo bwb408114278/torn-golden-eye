@@ -13,7 +13,7 @@ import pn.torn.goldeneye.repository.dao.torn.TornItemHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.ItemTrendDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.math.BigDecimal;

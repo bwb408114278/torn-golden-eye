@@ -17,12 +17,12 @@ import java.util.stream.Stream;
  * 股票分红计算逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.5.0
  * @since 2025.09.27
  */
 @Component
 @Slf4j
-public class StocksDividendOptimizerManager {
+public class StocksBonusAnalyzeManager {
     // 设置一个合理的BB等级上限，因为成本会指数级增长，后续的ROI会变得极小
     private static final int MAX_BB_LEVEL_TO_CONSIDER = 10;
     // 动态规划中用于缩放资本的单位，防止DP数组过大。例如1,000,000代表1m
@@ -111,9 +111,9 @@ public class StocksDividendOptimizerManager {
             return Set.of();
         }
 
-        Map<Integer, Integer> userIncrements = userStocks.getStocks().values().stream()
-                .filter(detail -> detail.getDividend() != null && detail.getDividend().getIncrement() > 0)
-                .collect(Collectors.toMap(TornUserStocksDetailVO::getStockId, detail -> detail.getDividend().getIncrement()));
+        Map<Integer, Integer> userIncrements = userStocks.getStocks().stream()
+                .filter(detail -> detail.getBonus() != null && detail.getBonus().getIncrement() > 0)
+                .collect(Collectors.toMap(TornUserStocksDetailVO::getId, detail -> detail.getBonus().getIncrement()));
 
         return allOpportunities.stream()
                 .filter(opp -> userIncrements.getOrDefault(opp.stockId(), 0) >= opp.bbLevel())

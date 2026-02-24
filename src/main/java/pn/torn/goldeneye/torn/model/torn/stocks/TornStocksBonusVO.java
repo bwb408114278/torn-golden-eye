@@ -6,15 +6,15 @@ import lombok.Data;
  * Torn股票分红响应参数
  *
  * @author Bai
- * @version 0.2.0
+ * @version 0.5.0
  * @since 2025.09.26
  */
 @Data
-public class TornStocksBenefitVO {
+public class TornStocksBonusVO {
     /**
      * 收益类型
      */
-    private String type;
+    private boolean passive;
     /**
      * 收益周期
      */

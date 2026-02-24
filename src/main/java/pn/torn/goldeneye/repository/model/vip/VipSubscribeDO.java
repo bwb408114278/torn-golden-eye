@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.repository.model.setting;
+package pn.torn.goldeneye.repository.model.vip;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;

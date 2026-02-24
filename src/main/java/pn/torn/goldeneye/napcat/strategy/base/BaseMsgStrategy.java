@@ -17,7 +17,7 @@ import java.util.List;
  * 基础消息策略
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
@@ -73,9 +73,21 @@ public abstract class BaseMsgStrategy {
     }
 
     /**
-     * 根据消息和发送人获取用户ID
+     * 根据消息和发送人获取用户
      */
     protected TornUserDO getTornUser(QqRecMsgSender sender, String msg) {
+        TornUserDO user = getTornUserWithoutException(sender, msg);
+        if (user == null) {
+            throw new BizException("金蝶不认识你哦");
+        }
+
+        return user;
+    }
+
+    /**
+     * 根据消息和发送人获取用户, 不抛出异常
+     */
+    protected TornUserDO getTornUserWithoutException(QqRecMsgSender sender, String msg) {
         TornUserDO user;
         if (StringUtils.hasText(msg)) {
             String[] msgArray = msg.split("#");
@@ -87,10 +99,6 @@ public abstract class BaseMsgStrategy {
             user = userManager.getUserById(userId);
         } else {
             user = userManager.getUserByQq(sender.getUserId());
-        }
-
-        if (user == null) {
-            throw new BizException("金蝶不认识你哦");
         }
 
         return user;
