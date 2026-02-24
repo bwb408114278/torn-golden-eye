@@ -9,9 +9,11 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.AtQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.vip.VipNoticeDO;
@@ -50,6 +52,7 @@ public class VipNoticeManager {
     private final List<VipNoticeChecker> checkerList;
     private final VipSubscribeDAO subscribeDao;
     private final VipNoticeDAO noticeDao;
+    private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
 
     /**
@@ -58,7 +61,8 @@ public class VipNoticeManager {
     @Scheduled(cron = "10 */5 * * * ?")
     @SuppressWarnings("ConstantValue")
     public void notice() {
-        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+        String isNotice = settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE);
+        if (!"true".equalsIgnoreCase(isNotice) || !BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
         }
         // 静默时间

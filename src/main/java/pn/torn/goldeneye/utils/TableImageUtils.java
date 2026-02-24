@@ -16,7 +16,7 @@ import java.util.List;
  * 表格图片类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.5.0
  * @since 2025.07.24
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -44,15 +44,12 @@ public class TableImageUtils {
             this.rowSpan = Math.max(1, rowSpan);
             this.colSpan = Math.max(1, colSpan);
         }
-
-        public boolean isMerged() {
-            return rowSpan > 1 || colSpan > 1;
-        }
     }
 
     /**
      * 单元格样式配置
      */
+    @Getter
     public static class CellStyle {
         private Font font;
         private Color textColor = Color.BLACK;
@@ -112,7 +109,7 @@ public class TableImageUtils {
         private final Map<Point, CellStyle> styleMap = new HashMap<>();
         private int defaultCellHeight = 40;
         private Font defaultFont = new Font("微软雅黑", Font.PLAIN, 14);
-        private Color defaultBgColor = new Color(255, 255, 255);
+        private Color defaultBgColor = Color.WHITE;
         private Color borderColor = new Color(217, 217, 217);
 
         public TableConfig addMerge(int row, int col, int rowSpan, int colSpan) {
@@ -172,425 +169,13 @@ public class TableImageUtils {
      * 完整渲染方法（包含配置参数）
      */
     public static String renderTableToBase64(List<List<String>> tableData, TableConfig config) {
-        BufferedImage image = createTableImage(tableData, config);
+        if (tableData == null || tableData.isEmpty()) {
+            throw new IllegalArgumentException("Table data cannot be empty");
+        }
+
+        TableRenderer renderer = new TableRenderer(tableData, config);
+        BufferedImage image = renderer.render();
         return convertToBase64(image);
-    }
-
-    private static BufferedImage createTableImage(List<List<String>> tableData, TableConfig config) {
-        // 0. 校验表格结构
-        if (tableData.isEmpty()) throw new IllegalArgumentException("Table data is empty");
-        final int rows = tableData.size();
-        final int cols = tableData.get(0).size();
-
-        // 创建临时Graphics获取字体尺寸
-        BufferedImage tempImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
-        Graphics2D tempG = tempImage.createGraphics();
-        tempG.dispose();
-
-        // 1. 计算行高（考虑合并单元格和自定义样式）
-        int[] rowHeights = new int[rows];
-        Arrays.fill(rowHeights, config.defaultCellHeight);
-
-        // 创建一个数组来记录每行所需的最小高度
-        int[] minRowHeights = new int[rows];
-        Arrays.fill(minRowHeights, 0);
-
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                // 跳过被合并的单元格
-                if (isCellMergedFromLeft(config, r, c) || isCellMergedFromAbove(config, r, c)) {
-                    continue;
-                }
-
-                CellStyle style = getCellStyle(config, r, c);
-                Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
-
-                // 获取实际字体尺寸
-                tempG = tempImage.createGraphics();
-                FontMetrics metrics = tempG.getFontMetrics(cellFont);
-                tempG.dispose();
-
-                // 计算内容所需高度
-                String text = tableData.get(r).get(c);
-                int lineCount = countLines(text);
-                int lineHeight = metrics.getHeight();
-                int lineSpacing = (style != null) ? style.lineSpacing : 4;
-                int padding = (style != null) ? style.verticalPadding : 10;
-
-                // 计算多行文本高度（包括行间距）
-                int textHeight = lineHeight * lineCount + lineSpacing * (lineCount - 1);
-                int requiredHeight = textHeight + 2 * padding;
-
-                // 获取单元格合并信息
-                CellMerge merge = getCellMerge(config, r, c);
-                int rowSpan = merge.getRowSpan();
-
-                if (rowSpan == 1) {
-                    // 单行单元格：直接更新当前行高度
-                    if (requiredHeight > minRowHeights[r]) {
-                        minRowHeights[r] = requiredHeight;
-                    }
-                } else {
-                    // 合并单元格：计算每行所需的最小高度
-                    int minHeightPerRow = (int) Math.ceil((double) requiredHeight / rowSpan);
-
-                    // 更新所有跨越行的最小高度
-                    for (int i = 0; i < rowSpan; i++) {
-                        int rowIndex = r + i;
-                        if (rowIndex < rows && minHeightPerRow > minRowHeights[rowIndex]) {
-                            minRowHeights[rowIndex] = minHeightPerRow;
-                        }
-
-                    }
-                }
-            }
-        }
-
-        // 应用最小行高要求
-        for (int r = 0; r < rows; r++) {
-            if (minRowHeights[r] > rowHeights[r]) {
-                rowHeights[r] = minRowHeights[r];
-            }
-        }
-
-        // 2. 计算列宽（考虑合并单元格）
-        int[] colWidths = new int[cols];
-        for (int c = 0; c < cols; c++) {
-            for (int r = 0; r < rows; r++) {
-                // 跳过被合并的单元格
-                if (isCellMergedFromLeft(config, r, c) || isCellMergedFromAbove(config, r, c)) {
-                    continue;
-                }
-                CellStyle style = getCellStyle(config, r, c);
-                Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
-                int padding = (style != null) ? style.horizontalPadding : 10;
-                // 获取实际字体尺寸
-                tempG = tempImage.createGraphics();
-                FontMetrics metrics = tempG.getFontMetrics(cellFont);
-                tempG.dispose();
-                String text = tableData.get(r).get(c);
-                int maxLineWidth = 0;
-                String[] lines = text.split("\n");
-                for (String line : lines) {
-                    int lineWidth = metrics.stringWidth(line);
-                    if (lineWidth > maxLineWidth) {
-                        maxLineWidth = lineWidth;
-                    }
-                }
-                int requiredWidth = maxLineWidth + 2 * padding;
-                // 获取单元格合并信息
-                CellMerge merge = getCellMerge(config, r, c);
-                if (merge.colSpan > 1) {
-                    // 合并单元格：先计算当前各列的总宽度
-                    int currentTotalWidth = 0;
-                    for (int i = 0; i < merge.colSpan && (c + i) < cols; i++) {
-                        currentTotalWidth += colWidths[c + i];
-                    }
-
-                    // 如果当前总宽度不够，则需要扩展
-                    if (requiredWidth > currentTotalWidth) {
-                        int deficit = requiredWidth - currentTotalWidth;
-                        // 将差额平均分配到各列（处理余数）
-                        int extraPerCol = deficit / merge.colSpan;
-                        int remainder = deficit % merge.colSpan;
-
-                        for (int i = 0; i < merge.colSpan && (c + i) < cols; i++) {
-                            colWidths[c + i] += extraPerCol;
-                            if (i < remainder) {
-                                colWidths[c + i] += 1; // 分配余数
-                            }
-                        }
-                    }
-                } else {
-                    // 单列单元格：直接更新列宽
-                    if (requiredWidth > colWidths[c]) {
-                        colWidths[c] = requiredWidth;
-                    }
-                }
-            }
-        }
-
-        // 3. 创建正式图片
-        int totalWidth = Arrays.stream(colWidths).sum();
-        int totalHeight = Arrays.stream(rowHeights).sum();
-        BufferedImage image = new BufferedImage(totalWidth, totalHeight, BufferedImage.TYPE_INT_RGB);
-
-        Graphics2D g = image.createGraphics();
-        try {
-            configureGraphics(g, config, totalWidth, totalHeight);
-            drawTable(g, tableData, colWidths, rowHeights, config);
-        } finally {
-            g.dispose();
-        }
-        return image;
-    }
-
-    /**
-     * 配置图形参数
-     */
-    private static void configureGraphics(Graphics2D g, TableConfig config, int width, int height) {
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g.setFont(config.defaultFont);
-        g.setColor(Color.WHITE);
-        g.fillRect(0, 0, width, height);
-    }
-
-    /**
-     * 计算文本中的换行符数量
-     */
-    private static int countLines(String text) {
-        if (text == null || text.isEmpty()) return 1;
-        int count = 1;
-        for (char c : text.toCharArray()) {
-            if (c == '\n') count++;
-        }
-        return count;
-    }
-
-    /**
-     * 绘制表格
-     */
-    private static void drawTable(Graphics2D g, List<List<String>> tableData,
-                                  int[] colWidths, int[] rowHeights, TableConfig config) {
-        int y = 0;
-        for (int r = 0; r < tableData.size(); r++) {
-            List<String> row = tableData.get(r);
-            int x = 0;
-
-            for (int c = 0; c < colWidths.length; c++) {
-                // 跳过被合并的单元格
-                if (isCellMergedFromLeft(config, r, c) || isCellMergedFromAbove(config, r, c)) {
-                    x += colWidths[c];
-                    continue;
-                }
-
-                // 获取单元格合并信息
-                CellMerge merge = getCellMerge(config, r, c);
-                int cellWidth = 0;
-                int cellHeight = 0;
-
-                // 计算合并后的单元格尺寸
-                for (int i = 0; i < merge.colSpan; i++) {
-                    if (c + i < colWidths.length) {
-                        cellWidth += colWidths[c + i];
-                    }
-                }
-                for (int i = 0; i < merge.rowSpan; i++) {
-                    if (r + i < rowHeights.length) {
-                        cellHeight += rowHeights[r + i];
-                    }
-                }
-
-                // 获取单元格样式
-                CellStyle style = getCellStyle(config, r, c);
-
-                // 绘制单元格背景
-                drawCellBackground(g, x, y, cellWidth, cellHeight, config, style, r);
-
-                // 绘制单元格内容
-                drawCellContent(g, row.get(c), x, y, cellWidth, cellHeight, config, style);
-
-                // 绘制单元格边框
-                g.setColor(config.borderColor);
-                g.drawRect(x, y, cellWidth, cellHeight);
-
-                x += colWidths[c];
-            }
-            y += rowHeights[r];
-        }
-
-        // 添加表格外边框
-        g.setColor(config.borderColor);
-        g.drawRect(0, 0, Arrays.stream(colWidths).sum() - 1, Arrays.stream(rowHeights).sum() - 1);
-    }
-
-    /**
-     * 绘制单元格背景
-     */
-    private static void drawCellBackground(Graphics2D g, int x, int y, int width, int height,
-                                           TableConfig config, CellStyle style, int row) {
-        Color bgColor;
-
-        if (style != null && style.bgColor != null) {
-            bgColor = style.bgColor;
-        } else if (row % 2 == 0) {
-            bgColor = new Color(242, 242, 242);
-        } else {
-            bgColor = config.defaultBgColor;
-        }
-
-        if (bgColor != null) {
-            g.setColor(bgColor);
-            g.fillRect(x, y, width, height);
-        }
-    }
-
-    /**
-     * 绘制单元格内容
-     */
-    private static void drawCellContent(Graphics2D g, String text, int cellX, int cellY, int cellWidth, int cellHeight,
-                                        TableConfig config, CellStyle style) {
-        if (text == null || text.isEmpty()) return;
-
-        Font cellFont = (style != null && style.font != null) ? style.font : config.defaultFont;
-        Color textColor = (style != null) ? style.textColor : Color.BLACK;
-        int horizontalPadding = (style != null) ? style.horizontalPadding : 10;
-        int verticalPadding = (style != null) ? style.verticalPadding : 10;
-        int lineSpacing = (style != null) ? style.lineSpacing : 20;
-        TextAlignment alignment = (style != null) ? style.alignment : TextAlignment.CENTER;
-
-        g.setFont(cellFont);
-        g.setColor(textColor);
-        FontMetrics metrics = g.getFontMetrics();
-
-        // 计算可用宽度
-        int maxWidth = cellWidth - 2 * horizontalPadding;
-
-        // 分割文本行
-        String[] lines = text.split("\n");
-        int lineHeight = metrics.getHeight();
-
-        // 计算文本总高度（包括行间距）
-        int totalTextHeight = lines.length * lineHeight + (lines.length - 1) * lineSpacing;
-
-        // 垂直居中计算（考虑padding）
-        int startY = cellY + verticalPadding + (cellHeight - 2 * verticalPadding - totalTextHeight) / 2 + metrics.getAscent();
-
-        // 绘制每一行
-        for (String line : lines) {
-            int textWidth = metrics.stringWidth(line);
-            int x = cellX + horizontalPadding;
-
-            // 处理文本过长
-            if (textWidth > maxWidth) {
-                line = truncateText(metrics, line, maxWidth);
-                textWidth = metrics.stringWidth(line);
-            }
-
-            switch (alignment) {
-                case CENTER:
-                    x = cellX + (cellWidth - textWidth) / 2;
-                    break;
-                case RIGHT:
-                    x = cellX + cellWidth - textWidth - horizontalPadding;
-                    break;
-                case DISPERSED:
-                    drawDispersedText(g, line, cellX + horizontalPadding, startY, maxWidth, metrics);
-                    break;
-                default:
-            }
-
-            // 如果不是分散对齐，则绘制文本
-            if (alignment != TextAlignment.DISPERSED) {
-                g.drawString(line, x, startY);
-            }
-
-            // 更新Y位置（考虑行间距）
-            startY += lineHeight + lineSpacing;
-        }
-    }
-
-    /**
-     * 检查单元格是否被左侧合并
-     */
-    private static boolean isCellMergedFromLeft(TableConfig config, int row, int col) {
-        if (col == 0) return false;
-        for (int i = col - 1; i >= 0; i--) {
-            CellMerge merge = getCellMerge(config, row, i);
-            if (merge != null && i + merge.colSpan > col) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 检查单元格是否被上方合并
-     */
-    private static boolean isCellMergedFromAbove(TableConfig config, int row, int col) {
-        if (row == 0) return false;
-        for (int i = row - 1; i >= 0; i--) {
-            CellMerge merge = getCellMerge(config, i, col);
-            if (merge != null && i + merge.rowSpan > row) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 获取单元格合并信息
-     */
-    private static CellMerge getCellMerge(TableConfig config, int row, int col) {
-        return config.mergeMap.getOrDefault(new Point(col, row), new CellMerge());
-    }
-
-    /**
-     * 获取单元格样式
-     */
-    private static CellStyle getCellStyle(TableConfig config, int row, int col) {
-        return config.styleMap.get(new Point(col, row));
-    }
-
-    /**
-     * 绘制分散对齐文本
-     */
-    private static void drawDispersedText(Graphics2D g, String text, int startX, int baselineY, int maxWidth,
-                                          FontMetrics metrics) {
-        // 分割单词
-        String[] words = text.trim().split("\\s+");
-        if (words.length < 2) {
-            g.drawString(text, startX, baselineY);
-            return;
-        }
-
-        // 计算总单词宽度
-        int wordsWidth = 0;
-        for (String word : words) {
-            wordsWidth += metrics.stringWidth(word);
-        }
-
-        // 计算可用空白宽度
-        int totalSpace = maxWidth - wordsWidth;
-        if (totalSpace <= 0) {
-            g.drawString(text, startX, baselineY);
-            return;
-        }
-
-        // 计算间隙和额外像素
-        int gapCount = words.length - 1;
-        int baseGapWidth = totalSpace / gapCount;
-        int extraGaps = totalSpace % gapCount;
-
-        // 绘制每个单词
-        int currentX = startX;
-        for (int i = 0; i < words.length; i++) {
-            if (!words[i].isEmpty()) {
-                g.drawString(words[i], currentX, baselineY);
-                currentX += metrics.stringWidth(words[i]);
-            }
-
-            // 添加空格（最后一个单词后不加）
-            if (i < words.length - 1) {
-                int gap = baseGapWidth + (i < extraGaps ? 1 : 0);
-                currentX += gap;
-            }
-        }
-    }
-
-    /**
-     * 文本截断处理
-     */
-    private static String truncateText(FontMetrics metrics, String text, int maxWidth) {
-        final String ellipsis = "...";
-        int ellipsisWidth = metrics.stringWidth(ellipsis);
-
-        int len = text.length();
-        while (len > 0 && metrics.stringWidth(text.substring(0, len)) + ellipsisWidth > maxWidth) {
-            len--;
-        }
-        return (len > 0 ? text.substring(0, len) : "") + ellipsis;
     }
 
     /**
@@ -602,6 +187,395 @@ public class TableImageUtils {
             return Base64.getEncoder().encodeToString(stream.toByteArray());
         } catch (Exception e) {
             throw new BizException("图片转Base64异常", e);
+        }
+    }
+
+    /**
+     * 核心渲染上下文类
+     */
+    private static class TableRenderer {
+        private final List<List<String>> tableData;
+        private final TableConfig config;
+        private final int rows;
+        private final int cols;
+        private final int[] rowHeights;
+        private final int[] colWidths;
+        private final boolean[][] skippedCells;
+        // 一个临时Graphics提升性能，避免循环内频繁创建
+        private final Graphics2D tempG;
+
+        public TableRenderer(List<List<String>> tableData, TableConfig config) {
+            this.tableData = tableData;
+            this.config = config;
+            this.rows = tableData.size();
+            this.cols = tableData.getFirst().size();
+            this.rowHeights = new int[rows];
+            this.colWidths = new int[cols];
+            this.skippedCells = new boolean[rows][cols];
+            BufferedImage tempImg = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+            this.tempG = tempImg.createGraphics();
+        }
+
+        /**
+         * 渲染主流程
+         */
+        public BufferedImage render() {
+            try {
+                Arrays.fill(rowHeights, config.defaultCellHeight);
+                initSkippedCells();
+                calculateRowHeights();
+                calculateColWidths();
+                return drawFinalImage();
+            } finally {
+                tempG.dispose();
+            }
+        }
+
+        /**
+         * 初始化跳过绘制的单元格
+         */
+        private void initSkippedCells() {
+            for (int r = 0; r < rows; r++) {
+                for (int c = 0; c < cols; c++) {
+                    CellMerge merge = getCellMerge(r, c);
+                    if (merge.rowSpan > 1 || merge.colSpan > 1) {
+                        markMergedCellsAsSkipped(r, c, merge);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 标记合并的单元格为跳过
+         */
+        private void markMergedCellsAsSkipped(int r, int c, CellMerge merge) {
+            for (int i = 0; i < merge.rowSpan; i++) {
+                for (int j = 0; j < merge.colSpan; j++) {
+                    if ((i != 0 || j != 0) && r + i < rows && c + j < cols) {
+                        skippedCells[r + i][c + j] = true;
+                    }
+                }
+            }
+        }
+
+        /**
+         * 计算行高
+         */
+        private void calculateRowHeights() {
+            int[] minRowHeights = new int[rows];
+            for (int r = 0; r < rows; r++) {
+                for (int c = 0; c < cols; c++) {
+                    if (!skippedCells[r][c]) {
+                        updateMinRowHeights(minRowHeights, r, c);
+                    }
+                }
+            }
+            for (int r = 0; r < rows; r++) {
+                rowHeights[r] = Math.max(rowHeights[r], minRowHeights[r]);
+            }
+        }
+
+        /**
+         * 更新最小行高
+         */
+        private void updateMinRowHeights(int[] minRowHeights, int r, int c) {
+            int requiredHeight = calculateCellRequiredHeight(r, c);
+            int rowSpan = getCellMerge(r, c).getRowSpan();
+            if (rowSpan == 1) {
+                minRowHeights[r] = Math.max(minRowHeights[r], requiredHeight);
+                return;
+            }
+            int minHeightPerRow = (int) Math.ceil((double) requiredHeight / rowSpan);
+            for (int i = 0; i < rowSpan && (r + i) < rows; i++) {
+                minRowHeights[r + i] = Math.max(minRowHeights[r + i], minHeightPerRow);
+            }
+        }
+
+        /**
+         * 计算列宽
+         */
+        private void calculateColWidths() {
+            for (int c = 0; c < cols; c++) {
+                for (int r = 0; r < rows; r++) {
+                    if (skippedCells[r][c]) continue;
+                    int requiredWidth = calculateCellRequiredWidth(r, c);
+                    CellMerge merge = getCellMerge(r, c);
+                    if (merge.colSpan > 1) {
+                        distributeColWidthDeficit(c, merge.colSpan, requiredWidth);
+                    } else {
+                        colWidths[c] = Math.max(colWidths[c], requiredWidth);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 分配列宽差值
+         */
+        private void distributeColWidthDeficit(int startCol, int colSpan, int requiredWidth) {
+            int currentTotalWidth = 0;
+            for (int i = 0; i < colSpan && (startCol + i) < cols; i++) {
+                currentTotalWidth += colWidths[startCol + i];
+            }
+            if (requiredWidth > currentTotalWidth) {
+                int deficit = requiredWidth - currentTotalWidth;
+                int extraPerCol = deficit / colSpan;
+                int remainder = deficit % colSpan;
+                for (int i = 0; i < colSpan && (startCol + i) < cols; i++) {
+                    colWidths[startCol + i] += extraPerCol + (i < remainder ? 1 : 0);
+                }
+            }
+        }
+
+        /**
+         * 计算单元格所需高度
+         */
+        private int calculateCellRequiredHeight(int r, int c) {
+            CellStyle style = getCellStyle(r, c);
+            FontMetrics metrics = tempG.getFontMetrics(getFont(style));
+            String text = tableData.get(r).get(c);
+            int lineCount = (text == null || text.isEmpty()) ? 1 : text.split("\n").length;
+            int lineHeight = metrics.getHeight();
+            int lineSpacing = (style != null) ? style.getLineSpacing() : 20;
+            int padding = (style != null) ? style.getVerticalPadding() : 10;
+            int textHeight = lineHeight * lineCount + lineSpacing * (lineCount - 1);
+            return textHeight + 2 * padding;
+        }
+
+        /**
+         * 计算单元格所需宽度
+         */
+        private int calculateCellRequiredWidth(int r, int c) {
+            CellStyle style = getCellStyle(r, c);
+            FontMetrics metrics = tempG.getFontMetrics(getFont(style));
+            String text = tableData.get(r).get(c);
+            int maxLineWidth = 0;
+            if (text != null && !text.isEmpty()) {
+                for (String line : text.split("\n")) {
+                    maxLineWidth = Math.max(maxLineWidth, metrics.stringWidth(line));
+                }
+            }
+            int padding = (style != null) ? style.getHorizontalPadding() : 10;
+            return maxLineWidth + 2 * padding;
+        }
+
+        /**
+         * 绘制最终图形
+         */
+        private BufferedImage drawFinalImage() {
+            int totalWidth = Arrays.stream(colWidths).sum();
+            int totalHeight = Arrays.stream(rowHeights).sum();
+            BufferedImage image = new BufferedImage(totalWidth, totalHeight, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = image.createGraphics();
+            try {
+                configureGraphics(g, totalWidth, totalHeight);
+                drawAllCells(g, totalWidth, totalHeight);
+            } finally {
+                g.dispose();
+            }
+
+            return image;
+        }
+
+        /**
+         * 图片配置
+         */
+        private void configureGraphics(Graphics2D g, int width, int height) {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setFont(config.defaultFont);
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, width, height);
+        }
+
+        /**
+         * 绘制所有单元格
+         */
+        private void drawAllCells(Graphics2D g, int totalWidth, int totalHeight) {
+            int y = 0;
+            for (int r = 0; r < rows; r++) {
+                int x = 0;
+                for (int c = 0; c < cols; c++) {
+                    if (skippedCells[r][c]) {
+                        x += colWidths[c];
+                        continue;
+                    }
+
+                    CellMerge merge = getCellMerge(r, c);
+                    int cellW = calculateSpanWidth(c, merge.colSpan);
+                    int cellH = calculateSpanHeight(r, merge.rowSpan);
+                    CellStyle style = getCellStyle(r, c);
+                    String text = tableData.get(r).get(c);
+                    drawCellBackground(g, r, x, y, cellW, cellH, style);
+                    drawCellContent(g, text, x, y, cellW, cellH, style);
+                    drawCellBorder(g, x, y, cellW, cellH);
+                    x += colWidths[c];
+                }
+                y += rowHeights[r];
+            }
+
+            // 外边框
+            g.setColor(config.borderColor);
+            g.drawRect(0, 0, totalWidth - 1, totalHeight - 1);
+        }
+
+        /**
+         * 绘制单元格背景色
+         */
+        private void drawCellBackground(Graphics2D g, int row, int x, int y, int w, int h, CellStyle style) {
+            Color bgColor;
+            if (style != null && style.getBgColor() != null) {
+                bgColor = style.getBgColor();
+            } else if (row % 2 == 0) {
+                bgColor = new Color(242, 242, 242);
+            } else {
+                bgColor = config.defaultBgColor;
+            }
+
+            if (bgColor != null) {
+                g.setColor(bgColor);
+                g.fillRect(x, y, w, h);
+            }
+        }
+
+        /**
+         * 绘制单元格内容
+         */
+        private void drawCellContent(Graphics2D g, String text, int x, int y, int w, int h, CellStyle style) {
+            if (text == null || text.isEmpty()) return;
+            g.setFont(getFont(style));
+            g.setColor(style != null ? style.getTextColor() : Color.BLACK);
+            FontMetrics metrics = g.getFontMetrics();
+            int hPad = style != null ? style.getHorizontalPadding() : 10;
+            int vPad = style != null ? style.getVerticalPadding() : 10;
+            int spacing = style != null ? style.getLineSpacing() : 20;
+            TextAlignment align = style != null ? style.getAlignment() : TextAlignment.CENTER;
+            int maxWidth = w - 2 * hPad;
+            String[] lines = text.split("\n");
+            int totalTextHeight = lines.length * metrics.getHeight() + (lines.length - 1) * spacing;
+            int startY = y + vPad + (h - 2 * vPad - totalTextHeight) / 2 + metrics.getAscent();
+            for (String line : lines) {
+                if (metrics.stringWidth(line) > maxWidth) {
+                    line = truncateText(metrics, line, maxWidth);
+                }
+                drawSingleLine(g, line, x + hPad, startY, maxWidth, metrics, align);
+                startY += metrics.getHeight() + spacing;
+            }
+        }
+
+        /**
+         * 绘制单行
+         */
+        private void drawSingleLine(Graphics2D g, String line, int startX, int startY, int maxWidth,
+                                    FontMetrics metrics, TextAlignment align) {
+            int textWidth = metrics.stringWidth(line);
+            int finalX = switch (align) {
+                case CENTER -> startX + (maxWidth - textWidth) / 2;
+                case RIGHT -> startX + maxWidth - textWidth;
+                case DISPERSED -> {
+                    drawDispersedText(g, line, startX, startY, maxWidth, metrics);
+                    yield -1;
+                }
+                default -> startX;
+            };
+            if (finalX >= 0) {
+                g.drawString(line, finalX, startY);
+            }
+        }
+
+        /**
+         * 绘制分散对齐文本
+         */
+        private void drawDispersedText(Graphics2D g, String text, int startX, int startY, int maxWidth, FontMetrics metrics) {
+            String[] words = text.trim().split("\\s+");
+            if (words.length < 2) {
+                g.drawString(text, startX, startY);
+                return;
+            }
+            int wordsWidth = Arrays.stream(words).mapToInt(metrics::stringWidth).sum();
+            int totalSpace = maxWidth - wordsWidth;
+            if (totalSpace <= 0) {
+                g.drawString(text, startX, startY);
+                return;
+            }
+            int gapCount = words.length - 1;
+            int baseGap = totalSpace / gapCount;
+            int extraGaps = totalSpace % gapCount;
+            int currentX = startX;
+            for (int i = 0; i < words.length; i++) {
+                if (!words[i].isEmpty()) {
+                    g.drawString(words[i], currentX, startY);
+                    currentX += metrics.stringWidth(words[i]);
+                }
+                if (i < words.length - 1) {
+                    currentX += baseGap + (i < extraGaps ? 1 : 0);
+                }
+            }
+        }
+
+        /**
+         * 绘制单元格边框
+         */
+        private void drawCellBorder(Graphics2D g, int x, int y, int w, int h) {
+            g.setColor(config.borderColor);
+            g.drawRect(x, y, w, h);
+        }
+
+        /**
+         * 计算跨列宽度
+         */
+        private int calculateSpanWidth(int startCol, int colSpan) {
+            int w = 0;
+            for (int i = 0; i < colSpan && (startCol + i) < cols; i++) w += colWidths[startCol + i];
+            return w;
+        }
+
+        /**
+         * 计算跨行高度
+         */
+        private int calculateSpanHeight(int startRow, int rowSpan) {
+            int h = 0;
+            for (int i = 0; i < rowSpan && (startRow + i) < rows; i++) h += rowHeights[startRow + i];
+            return h;
+        }
+
+        /**
+         * 获取字体
+         */
+        private Font getFont(CellStyle style) {
+            return (style != null && style.getFont() != null) ? style.getFont() : config.defaultFont;
+        }
+
+        /**
+         * 获取单元格合并
+         */
+        private CellMerge getCellMerge(int r, int c) {
+            return config.mergeMap.getOrDefault(new Point(c, r), new CellMerge());
+        }
+
+        /**
+         * 获取单元格样式
+         */
+        private CellStyle getCellStyle(int r, int c) {
+            return config.styleMap.get(new Point(c, r));
+        }
+
+        /**
+         * 截断文本
+         */
+        private String truncateText(FontMetrics metrics, String text, int maxWidth) {
+            int ellipsisWidth = metrics.stringWidth("...");
+            int lo = 0;
+            int hi = text.length();
+            while (lo < hi) {
+                int mid = (lo + hi + 1) / 2;
+                if (metrics.stringWidth(text.substring(0, mid)) + ellipsisWidth <= maxWidth) {
+                    lo = mid;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            return text.substring(0, lo) + "...";
         }
     }
 }

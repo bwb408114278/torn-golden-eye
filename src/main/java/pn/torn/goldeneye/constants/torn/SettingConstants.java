@@ -20,6 +20,10 @@ public class SettingConstants {
      * PT价值
      */
     public static final String KEY_POINT_VALUE = "POINT_VALUE";
+    /**
+     * VIP时长提醒
+     */
+    public static final String KEY_VIP_NOTICE = "VIP_NOTICE";
 
     /**
      * 飞书当前拍卖表格ID

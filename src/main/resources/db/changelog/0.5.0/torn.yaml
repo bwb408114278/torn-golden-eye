@@ -368,3 +368,15 @@ databaseChangeLog:
                   constraints:
                     nullable: false
                   remarks: "更新时间"
+
+  - changeSet:
+      id: add_table_stocks_history_time_index
+      author: Bai
+      changes:
+        - createIndex:
+            indexName: idx_torn_stocks_history_time_desc
+            tableName: torn_stocks_history
+            columns:
+              - column:
+                  name: reg_date_time
+                  descending: true
