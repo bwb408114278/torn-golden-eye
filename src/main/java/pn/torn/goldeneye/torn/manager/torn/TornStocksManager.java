@@ -56,7 +56,7 @@ public class TornStocksManager {
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("\\$(\\d{1,3}(?:,\\d{3})*)");
     private static final Pattern ITEM_PATTERN = Pattern.compile("1x (.+)");
 
-    @Scheduled(cron = "0 */5 * * * ?")
+    @Scheduled(cron = "5 * * * * ?")
     public void spiderStockData() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
@@ -150,7 +150,7 @@ public class TornStocksManager {
         LocalDateTime latestTime = recordTimes.get(0);
         LocalDateTime previousTime = recordTimes.get(1);
         long period = Duration.between(previousTime, latestTime).toMinutes();
-        if (period > 5) {
+        if (period > 2) {
             return;
         }
 
@@ -161,7 +161,7 @@ public class TornStocksManager {
         }
 
         List<QqMsgParam<?>> msgList = new ArrayList<>();
-        msgList.add(new TextQqMsg("过去5分钟内, 检测到股票大额交易"));
+        msgList.add(new TextQqMsg("过去1分钟内, 检测到股票大额交易"));
         for (StocksChangeDO change : changeList) {
             change.calculateNetTrade();
             msgList.add(new TextQqMsg("\n" + change.getStocksShortname() + ": "

@@ -47,7 +47,7 @@ import java.util.concurrent.CompletableFuture;
  * Torn 用户数据逻辑层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.08.20
  */
 @Service
@@ -88,22 +88,27 @@ public class TornUserDataService {
      * 爬取所有用户数据
      */
     public void spiderAllData(LocalDateTime to) {
-        List<TornApiKeyDO> keyList = apiKeyConfig.getAllEnableKeys();
-        List<TornUserBsSnapshotDO> existsList = bsSnapshotDao.lambdaQuery()
-                .eq(TornUserBsSnapshotDO::getRecordDate, to.toLocalDate())
-                .list();
+        try {
+            List<TornApiKeyDO> keyList = apiKeyConfig.getAllEnableKeys();
+            List<TornUserBsSnapshotDO> existsList = bsSnapshotDao.lambdaQuery()
+                    .eq(TornUserBsSnapshotDO::getRecordDate, to.toLocalDate())
+                    .list();
 
-        List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        futureList.add(CompletableFuture.runAsync(this::bindUserAndQq, virtualThreadExecutor));
-        for (TornApiKeyDO key : keyList) {
-            futureList.add(CompletableFuture.runAsync(() -> spiderData(key, existsList), virtualThreadExecutor));
+            List<CompletableFuture<Void>> futureList = new ArrayList<>();
+            futureList.add(CompletableFuture.runAsync(this::bindUserAndQq, virtualThreadExecutor));
+            for (TornApiKeyDO key : keyList) {
+                futureList.add(CompletableFuture.runAsync(() -> spiderData(key, existsList), virtualThreadExecutor));
+            }
+
+            CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+            userManager.refreshCache();
+
+            settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
+            addScheduleTask(to);
+        } catch (Exception e) {
+            // 失败5分钟后重试
+            addScheduleTask(LocalDateTime.now().plusMinutes(5));
         }
-
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        userManager.refreshCache();
-
-        settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
-        addScheduleTask(to);
     }
 
     /**
