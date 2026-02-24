@@ -46,7 +46,7 @@ public class VipNoticeManager {
     /**
      * 免打扰结束小时（不含）
      */
-    private static final int QUIET_HOUR_END = 7;
+    private static final int QUIET_HOUR_END = 0;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final List<VipNoticeChecker> checkerList;
@@ -59,7 +59,6 @@ public class VipNoticeManager {
      * 开始执行提醒任务
      */
     @Scheduled(cron = "10 */5 * * * ?")
-    @SuppressWarnings("ConstantValue")
     public void notice() {
         String isNotice = settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE);
         if (!"true".equalsIgnoreCase(isNotice) || !BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {

@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.utils;
+package pn.torn.goldeneye.utils.image;
 
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -13,7 +13,7 @@ import java.util.*;
 import java.util.List;
 
 /**
- * 表格图片类
+ * 表格图片转换工具类
  *
  * @author Bai
  * @version 0.5.0
@@ -24,12 +24,7 @@ public class TableImageUtils {
     /**
      * 文本对齐方式枚举
      */
-    public enum TextAlignment {
-        LEFT,
-        CENTER,
-        RIGHT,
-        DISPERSED
-    }
+    public enum TextAlignment {LEFT, CENTER, RIGHT, DISPERSED}
 
     /**
      * 单元格合并信息类
@@ -152,30 +147,53 @@ public class TableImageUtils {
     }
 
     /**
-     * 默认渲染表格到Base64（不包含特殊配置）
+     * 渲染表格到Base64（不包含特殊配置）
      */
     public static String renderTableToBase64(TableDataBO table) {
         return renderTableToBase64(table.getTableData(), table.getTableConfig());
     }
 
     /**
-     * 默认渲染表格到Base64（不包含特殊配置）
+     * 渲染表格到Base64（不包含特殊配置）
      */
     public static String renderTableToBase64(List<List<String>> tableData) {
         return renderTableToBase64(tableData, new TableConfig());
     }
 
     /**
-     * 完整渲染方法（包含配置参数）
+     * 渲染表格到Base64
      */
     public static String renderTableToBase64(List<List<String>> tableData, TableConfig config) {
         if (tableData == null || tableData.isEmpty()) {
             throw new IllegalArgumentException("Table data cannot be empty");
         }
-
         TableRenderer renderer = new TableRenderer(tableData, config);
         BufferedImage image = renderer.render();
         return convertToBase64(image);
+    }
+
+    /**
+     * 渲染表格到图片
+     */
+    public static BufferedImage renderTableToImage(List<List<String>> tableData, TableConfig config) {
+        if (tableData == null || tableData.isEmpty()) {
+            throw new IllegalArgumentException("Table data cannot be empty");
+        }
+        TableRenderer renderer = new TableRenderer(tableData, config);
+        return renderer.render();
+    }
+
+    /**
+     * 计算表格宽度
+     */
+    public static int calculateTableWidth(List<List<String>> tableData, TableConfig config) {
+        if (tableData == null || tableData.isEmpty()) {
+            throw new IllegalArgumentException("Table data cannot be empty");
+        }
+        TableRenderer renderer = new TableRenderer(tableData, config);
+        renderer.initSkippedCells();
+        renderer.calculateColWidths();
+        return Arrays.stream(renderer.colWidths).sum();
     }
 
     /**
@@ -191,7 +209,7 @@ public class TableImageUtils {
     }
 
     /**
-     * 核心渲染上下文类
+     * 核心渲染上下文
      */
     private static class TableRenderer {
         private final List<List<String>> tableData;

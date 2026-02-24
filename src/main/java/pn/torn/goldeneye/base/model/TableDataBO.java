@@ -2,7 +2,7 @@ package pn.torn.goldeneye.base.model;
 
 import lombok.Getter;
 import lombok.ToString;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.util.List;
 

@@ -13,7 +13,7 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.user.TornUserBsSnapshotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.utils.NumberUtils;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.time.LocalDate;

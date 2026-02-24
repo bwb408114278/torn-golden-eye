@@ -14,7 +14,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgTableManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.util.ArrayList;

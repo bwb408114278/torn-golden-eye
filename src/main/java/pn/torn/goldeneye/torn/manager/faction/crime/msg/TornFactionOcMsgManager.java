@@ -20,7 +20,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.util.*;

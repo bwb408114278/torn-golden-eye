@@ -15,7 +15,7 @@ import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.time.LocalDateTime;

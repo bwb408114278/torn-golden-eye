@@ -10,7 +10,7 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.utils.DateTimeUtils;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.time.LocalDateTime;

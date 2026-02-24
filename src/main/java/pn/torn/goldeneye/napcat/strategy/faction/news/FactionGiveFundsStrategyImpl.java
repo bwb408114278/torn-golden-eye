@@ -12,7 +12,7 @@ import pn.torn.goldeneye.repository.model.faction.funds.GiveFundsRankingDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.NumberUtils;
-import pn.torn.goldeneye.utils.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
 import java.time.LocalDate;
