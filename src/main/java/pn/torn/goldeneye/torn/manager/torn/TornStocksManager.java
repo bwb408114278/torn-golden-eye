@@ -20,13 +20,14 @@ import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBenefitVO;
+import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBonusVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,7 +63,7 @@ public class TornStocksManager {
         }
 
         TornStocksVO resp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
-        List<TornStocksDO> stocksList = resp.getStocks().values().stream().map(this::convert2DO).toList();
+        List<TornStocksDO> stocksList = resp.getStocks().stream().map(this::convert2DO).toList();
         List<TornStocksDO> oldDataList = stocksDao.list();
 
         List<TornStocksDO> newDataList = new ArrayList<>();
@@ -91,11 +92,11 @@ public class TornStocksManager {
      * 计算日利润
      */
     private TornStocksDO convert2DO(TornStocksDetailVO stock) {
-        TornStocksBenefitVO benefit = stock.getBenefit();
+        TornStocksBonusVO benefit = stock.getBonus();
         long profit = parseBenefitValue(benefit.getDescription(), stock.getAcronym());
         long yearProfit = profit / benefit.getFrequency() * 365;
-        long baseCost = stock.getCurrentPrice()
-                .multiply(BigDecimal.valueOf(stock.getBenefit().getRequirement()))
+        long baseCost = stock.getMarket().getPrice()
+                .multiply(BigDecimal.valueOf(stock.getBonus().getRequirement()))
                 .longValue();
         return stock.convert2DO(profit, yearProfit, baseCost);
     }
@@ -136,7 +137,7 @@ public class TornStocksManager {
      */
     private void saveStocksHistory(TornStocksVO resp) {
         LocalDateTime regDateTime = LocalDateTime.now();
-        List<TornStocksHistoryDO> historyList = resp.getStocks().values().stream()
+        List<TornStocksHistoryDO> historyList = resp.getStocks().stream()
                 .map(i -> i.convert2HistoryDO(regDateTime)).toList();
         stocksHistoryDao.saveBatch(historyList);
     }
@@ -148,6 +149,10 @@ public class TornStocksManager {
         List<LocalDateTime> recordTimes = stocksHistoryDao.getLatestTwoRecordTimes();
         LocalDateTime latestTime = recordTimes.get(0);
         LocalDateTime previousTime = recordTimes.get(1);
+        long period = Duration.between(previousTime, latestTime).toMinutes();
+        if (period > 5) {
+            return;
+        }
 
         List<StocksChangeDO> changeList = stocksHistoryDao.getGreatTradeChangeList(latestTime, previousTime,
                 NOTICE_THRESHOLD);

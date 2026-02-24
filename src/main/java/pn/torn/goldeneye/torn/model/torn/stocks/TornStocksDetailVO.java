@@ -1,11 +1,9 @@
 package pn.torn.goldeneye.torn.model.torn.stocks;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -20,8 +18,7 @@ public class TornStocksDetailVO {
     /**
      * 股票ID
      */
-    @JsonProperty("stock_id")
-    private int stockId;
+    private int id;
     /**
      * 名称
      */
@@ -31,39 +28,24 @@ public class TornStocksDetailVO {
      */
     private String acronym;
     /**
-     * 当前价格
+     * 资金市场
      */
-    @JsonProperty("current_price")
-    private BigDecimal currentPrice;
-    /**
-     * 市值
-     */
-    @JsonProperty("market_cap")
-    private long marketCap;
-    /**
-     * 总股数
-     */
-    @JsonProperty("total_shares")
-    private long totalShares;
-    /**
-     * 投资人数
-     */
-    private int investors;
+    private TornStocksMarketVO market;
     /**
      * 分红
      */
-    private TornStocksBenefitVO benefit;
+    private TornStocksBonusVO bonus;
 
     public TornStocksDO convert2DO(long profit, long dailyProfit, long baseCost) {
         TornStocksDO stocks = new TornStocksDO();
-        stocks.setId(this.stockId);
+        stocks.setId(this.id);
         stocks.setStocksName(this.name);
         stocks.setStocksShortname(this.acronym);
-        stocks.setCurrentPrice(this.currentPrice);
-        stocks.setBenefitType(this.benefit.getType());
-        stocks.setBenefitPeriod(this.benefit.getFrequency());
-        stocks.setBenefitReq(this.benefit.getRequirement());
-        stocks.setBenefitDesc(this.benefit.getDescription());
+        stocks.setCurrentPrice(this.market.getPrice());
+        stocks.setBenefitType(this.bonus.isPassive() ? "passive" : "active");
+        stocks.setBenefitPeriod(this.bonus.getFrequency());
+        stocks.setBenefitReq(this.bonus.getRequirement());
+        stocks.setBenefitDesc(this.bonus.getDescription());
         stocks.setProfit(profit);
         stocks.setYearProfit(dailyProfit);
         stocks.setBaseCost(baseCost);
@@ -72,13 +54,13 @@ public class TornStocksDetailVO {
 
     public TornStocksHistoryDO convert2HistoryDO(LocalDateTime regDatetime) {
         TornStocksHistoryDO history = new TornStocksHistoryDO();
-        history.setStocksId(this.stockId);
+        history.setStocksId(this.id);
         history.setStocksName(this.name);
         history.setStocksShortname(this.acronym);
-        history.setCurrentPrice(this.currentPrice);
-        history.setMarketCap(this.marketCap);
-        history.setTotalShares(this.totalShares);
-        history.setInvestors(this.investors);
+        history.setCurrentPrice(this.market.getPrice());
+        history.setMarketCap(this.market.getCap());
+        history.setTotalShares(this.market.getShares());
+        history.setInvestors(this.market.getInvestors());
         history.setRegDateTime(regDatetime);
         return history;
     }
