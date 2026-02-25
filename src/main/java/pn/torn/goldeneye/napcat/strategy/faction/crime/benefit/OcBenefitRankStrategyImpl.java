@@ -12,9 +12,7 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
-import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -29,7 +27,7 @@ import java.util.List;
  * OC收益榜策略实现类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.09.10
  */
 @Component
@@ -53,7 +51,6 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        TornUserDO user = super.getTornUser(sender, "");
         long factionId = super.getTornFactionId(msg);
         if (factionId != 0L) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
@@ -63,32 +60,7 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
         }
 
         LocalDate baseMonth = LocalDate.now();
-        List<QqMsgParam<?>> resultList = new ArrayList<>(super.buildTextMsg(buildUserRankingMsg(user, baseMonth)));
-        resultList.addAll(super.buildImageMsg(ocBenefitRankStrategy.buildRankingMsg(factionId, baseMonth)));
-        return resultList;
-    }
-
-    /**
-     * 构建用户排名信息
-     */
-    public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
-        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
-        TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
-        if (ranking == null) {
-            return user.getNickname() + "在" + date.getMonthValue() + "月还没有OC收益";
-        }
-
-        TornUserDO prevUser = ranking.getPrevUserId() == null ?
-                null : userManager.getUserMap().get(ranking.getPrevUserId());
-        return user.getNickname() + "在" + date.getMonthValue() + "月的OC中赚了"
-                + NumberUtils.addDelimiters(ranking.getBenefit()) +
-                "\n在本帮中排名第" + ranking.getFactionRank() +
-                ", 在同期" + ranking.getCohortUsers() + "人中排名第" + ranking.getCohortRank() +
-                ", 在SMTH中排名第" + ranking.getOverallRank() +
-                (prevUser == null ?
-                        "\n恭喜你豪取家族第一名, 大家请认准欧皇入队! " :
-                        "\n距离上一名" + prevUser.getNickname() + "[" + prevUser.getId() + "] 还差" +
-                                NumberUtils.addDelimiters(ranking.getPrevBenefit() - ranking.getBenefit()));
+        return super.buildImageMsg(ocBenefitRankStrategy.buildRankingMsg(factionId, baseMonth));
     }
 
     /**

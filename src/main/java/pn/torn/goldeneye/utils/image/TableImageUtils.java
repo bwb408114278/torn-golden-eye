@@ -184,19 +184,6 @@ public class TableImageUtils {
     }
 
     /**
-     * 计算表格宽度
-     */
-    public static int calculateTableWidth(List<List<String>> tableData, TableConfig config) {
-        if (tableData == null || tableData.isEmpty()) {
-            throw new IllegalArgumentException("Table data cannot be empty");
-        }
-        TableRenderer renderer = new TableRenderer(tableData, config);
-        renderer.initSkippedCells();
-        renderer.calculateColWidths();
-        return Arrays.stream(renderer.colWidths).sum();
-    }
-
-    /**
      * 转换为Base64
      */
     private static String convertToBase64(BufferedImage image) {
