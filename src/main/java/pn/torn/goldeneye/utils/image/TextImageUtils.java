@@ -130,7 +130,7 @@ public class TextImageUtils {
         Graphics2D g = image.createGraphics();
         try {
             configureGraphics(g, config, image);
-            drawLines(g, lines, config, metrics, lineHeight);
+            drawLines(g, lines, config, metrics, lineHeight, actualWidth);
         } finally {
             g.dispose();
         }
@@ -164,8 +164,8 @@ public class TextImageUtils {
      * 绘制所有行
      */
     private static void drawLines(Graphics2D g, String[] lines, TextConfig config,
-                                  FontMetrics metrics, int lineHeight) {
-        int maxWidth = config.width - 2 * config.horizontalPadding;
+                                  FontMetrics metrics, int lineHeight, int actualWidth) {
+        int maxWidth = actualWidth - 2 * config.horizontalPadding;
         int currentY = config.verticalPadding + metrics.getAscent();
         for (String line : lines) {
             int x = calculateLineX(config, metrics, line, maxWidth);

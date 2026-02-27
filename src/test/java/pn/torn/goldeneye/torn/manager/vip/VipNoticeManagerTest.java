@@ -16,6 +16,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
@@ -354,6 +355,8 @@ class VipNoticeManagerTest {
         @Mock
         private VipNoticeDAO noticeDao;
         @Mock
+        private SysSettingDAO settingDao;
+        @Mock
         private ProjectProperty projectProperty;
 
         @Test
@@ -361,7 +364,7 @@ class VipNoticeManagerTest {
         void shouldSkip_whenNotProd() {
             when(projectProperty.getEnv()).thenReturn("dev");
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, settingDao, projectProperty);
             manager.notice();
             verifyNoInteractions(subscribeDao);
         }
@@ -375,7 +378,7 @@ class VipNoticeManagerTest {
             when(queryWrapper.ge(any(), any())).thenReturn(queryWrapper);
             when(queryWrapper.list()).thenReturn(Collections.emptyList());
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, settingDao, projectProperty);
             manager.notice();
             verifyNoInteractions(noticeDao);
         }
@@ -409,7 +412,7 @@ class VipNoticeManagerTest {
                 throw new RuntimeException("API boom!");
             };
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(failingChecker), subscribeDao, noticeDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(failingChecker), subscribeDao, noticeDao, settingDao, projectProperty);
             // 不应抛出异常
             org.junit.jupiter.api.Assertions.assertDoesNotThrow(manager::notice);
         }

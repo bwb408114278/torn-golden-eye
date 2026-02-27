@@ -73,3 +73,63 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: 'true'
+
+  - changeSet:
+      id: add_block_word_table
+      author: Bai
+      changes:
+        - createTable:
+            tableName: sys_block_word
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  autoIncrement: true
+                  remarks: "ID"
+              - column:
+                  name: word
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "屏蔽词"
+              - column:
+                  name: replace_word
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "替换词"
+              - column:
+                  name: white_list
+                  type: VARCHAR(128)
+                  constraints:
+                    nullable: false
+                  remarks: "白名单词汇"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: |
+              INSERT INTO sys_block_word (word, replace_word, white_list) VALUES
+              ('od', '欧地', 'eod,mod'),
+              ('overdose', '欧地', '');

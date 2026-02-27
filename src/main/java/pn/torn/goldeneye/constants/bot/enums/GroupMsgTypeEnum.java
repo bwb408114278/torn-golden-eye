@@ -7,7 +7,7 @@ import lombok.Getter;
  * 群聊消息类型
  *
  * @author Bai
- * @version 0.1.0
+ * @version 0.5.0
  * @since 2025.06.22
  */
 @Getter
@@ -27,4 +27,14 @@ public enum GroupMsgTypeEnum {
     IMAGE("image");
 
     private final String code;
+
+    public static GroupMsgTypeEnum codeOf(String code) {
+        for (GroupMsgTypeEnum value : values()) {
+            if (value.getCode().equals(code)) {
+                return value;
+            }
+        }
+
+        return null;
+    }
 }

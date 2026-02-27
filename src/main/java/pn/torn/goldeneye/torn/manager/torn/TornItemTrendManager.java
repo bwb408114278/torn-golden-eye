@@ -61,21 +61,21 @@ public class TornItemTrendManager {
         List<ItemTrendDO> historyList = itemHistoryDao.queryItemComparison(CONSUME_ITEM_ID_LIST, date);
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
-                .addMsg(new ImageQqMsg(buildTableData("糖酒饮料", historyList, date)))
+                .addMsg(ImageQqMsg.fromBase64(buildTableData("糖酒饮料", historyList, date)))
                 .build();
         bot.sendRequest(param, String.class);
 
         historyList = itemHistoryDao.queryItemComparison(MUSEUM_ITEM_ID_LIST, date);
         param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
-                .addMsg(new ImageQqMsg(buildTableData("花偶", historyList, date)))
+                .addMsg(ImageQqMsg.fromBase64(buildTableData("花偶", historyList, date)))
                 .build();
         bot.sendRequest(param, String.class);
 
         historyList = itemHistoryDao.queryItemComparison(OTHER_ITEM_ID_LIST, date);
         param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
-                .addMsg(new ImageQqMsg(buildTableData("其他物品", historyList, date)))
+                .addMsg(ImageQqMsg.fromBase64(buildTableData("其他物品", historyList, date)))
                 .build();
         bot.sendRequest(param, String.class);
     }

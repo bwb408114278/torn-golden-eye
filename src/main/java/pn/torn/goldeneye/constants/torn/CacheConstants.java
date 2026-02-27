@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -26,9 +26,13 @@ public class CacheConstants {
     public static final String KEY_TORN_USER_MAP = "torn:user:map";
 
     /**
-     * 系统管理员Key
+     * 系统设置Key
      */
     public static final String KEY_SYS_SETTING = "sys:setting";
+    /**
+     * 屏蔽词设置Key
+     */
+    public static final String KEY_SYS_BLOCK_WORD = "sys:block:word";
     /**
      * 物品Key
      */
@@ -58,6 +62,10 @@ public class CacheConstants {
      * 帮派ID设置Key
      */
     public static final String KEY_TORN_SETTING_FACTION_GROUP_ID = "torn:setting:faction:group";
+    /**
+     * 帮派ID设置Key
+     */
+    public static final String KEY_TORN_SETTING_FACTION_GROUP_SINGLE = "torn:setting:faction:group:single";
     /**
      * 帮派别名设置Key
      */

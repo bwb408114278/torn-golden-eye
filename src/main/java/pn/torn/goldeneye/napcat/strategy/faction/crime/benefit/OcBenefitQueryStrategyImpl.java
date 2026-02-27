@@ -15,14 +15,19 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
+import pn.torn.goldeneye.utils.image.ImageCompositor;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
+import pn.torn.goldeneye.utils.image.TextImageUtils;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -63,8 +68,14 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
         }
 
         // 构建并返回图片消息
-        String imageBase64 = buildDetailMsg(user, dataResult);
-        return super.buildImageMsg(imageBase64);
+        BufferedImage imageTable = buildDetailMsg(user, dataResult);
+        String rankingMsg = buildUserRankingMsg(user, monthRange.fromDate().toLocalDate());
+
+        int tableWidth = imageTable.getWidth();
+        BufferedImage imgMsg = TextImageUtils.renderTextToImage(rankingMsg,
+                new TextImageUtils.TextConfig().setWidth(tableWidth).setAlignment(TextImageUtils.TextAlignment.RIGHT));
+        String base64 = ImageCompositor.stitchVerticallyToBase64(List.of(imageTable, imgMsg));
+        return super.buildImageMsg(base64);
     }
 
     /**
@@ -125,9 +136,32 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
+     * 构建用户排名信息
+     */
+    public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
+        TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
+        if (ranking == null) {
+            return user.getNickname() + "在" + date.getMonthValue() + "月还没有OC收益";
+        }
+
+        TornUserDO prevUser = ranking.getPrevUserId() == null ?
+                null : userManager.getUserMap().get(ranking.getPrevUserId());
+        return user.getNickname() + "在" + date.getMonthValue() + "月的OC中赚了"
+                + NumberUtils.addDelimiters(ranking.getBenefit()) +
+                "\n在本帮中排名第" + ranking.getFactionRank() +
+                ", 在同期" + ranking.getCohortUsers() + "人中排名第" + ranking.getCohortRank() +
+                ", 在SMTH中排名第" + ranking.getOverallRank() +
+                (prevUser == null ?
+                        "\n恭喜你豪取家族第一名, 大家请认准欧皇入队! " :
+                        "\n距离上一名" + prevUser.getNickname() + "[" + prevUser.getId() + "] 还差" +
+                                NumberUtils.addDelimiters(ranking.getPrevBenefit() - ranking.getBenefit()));
+    }
+
+    /**
      * 构建OC收益表格
      */
-    private String buildDetailMsg(TornUserDO user, OcDataResult dataResult) {
+    private BufferedImage buildDetailMsg(TornUserDO user, OcDataResult dataResult) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
@@ -141,19 +175,15 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
         // 添加大锅饭表格
         int currentRow = 1;
         if (!dataResult.getIncomeList().isEmpty()) {
-            currentRow = buildIncomeTable(tableData, tableConfig,
-                    dataResult.getIncomeList(), currentRow, displayConfig);
+            currentRow = buildIncomeTable(tableData, tableConfig, dataResult.getIncomeList(), currentRow, displayConfig);
         }
 
         // 添加非大锅饭表格
         if (!dataResult.getBenefitList().isEmpty()) {
-            currentRow = buildBenefitTable(tableData, tableConfig,
-                    dataResult.getBenefitList(), currentRow, displayConfig);
+            buildBenefitTable(tableData, tableConfig, dataResult.getBenefitList(), currentRow, displayConfig);
         }
 
-        // 添加总计行
-        addTotalRow(tableData, tableConfig, dataResult, currentRow, totalColumns);
-        return TableImageUtils.renderTableToBase64(tableData, tableConfig);
+        return TableImageUtils.renderTableToImage(tableData, tableConfig);
     }
 
     /**
@@ -235,11 +265,11 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     /**
      * 构建普通OC收益表格
      */
-    private int buildBenefitTable(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
-                                  List<TornFactionOcBenefitDO> benefitList, int startRow,
-                                  TableDisplayConfig displayConfig) {
+    private void buildBenefitTable(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
+                                   List<TornFactionOcBenefitDO> benefitList, int startRow,
+                                   TableDisplayConfig displayConfig) {
         if (CollectionUtils.isEmpty(benefitList)) {
-            return startRow;
+            return;
         }
 
         int totalColumns = displayConfig.getTotalColumns();
@@ -264,8 +294,6 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
             tableConfig.setCellStyle(dataRow, benefitColumnStart,
                     new TableImageUtils.CellStyle().setHorizontalPadding(20));
         }
-
-        return startRow + benefitList.size() + 1;
     }
 
     /**
@@ -287,37 +315,6 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
         }
 
         return row;
-    }
-
-    /**
-     * 添加总计行
-     */
-    private void addTotalRow(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
-                             OcDataResult dataResult,
-                             int row,
-                             int totalColumns) {
-        long totalBenefit = dataResult.getBenefitList().stream()
-                .map(TornFactionOcBenefitDO::getBenefitMoney)
-                .reduce(0L, Long::sum);
-
-        long totalIncome = dataResult.getIncomeSummary() != null ?
-                dataResult.getIncomeSummary().getFinalIncome() : 0L;
-
-        int month = LocalDate.now().getMonthValue();
-        String totalText = month + "月OC收益总计:" + NumberUtils.THOUSAND_DELIMITER.format(totalBenefit + totalIncome);
-
-        List<String> totalRow = new ArrayList<>();
-        totalRow.add(totalText);
-        for (int i = 1; i < totalColumns; i++) {
-            totalRow.add("");
-        }
-
-        tableData.add(totalRow);
-
-        tableConfig.addMerge(row, 0, 1, totalColumns);
-        tableConfig.setCellStyle(row, 0, new TableImageUtils.CellStyle()
-                .setFont(new Font("微软雅黑", Font.BOLD, 14))
-                .setAlignment(TableImageUtils.TextAlignment.RIGHT));
     }
 
     /**

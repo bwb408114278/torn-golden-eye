@@ -9,16 +9,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.glassfish.tyrus.client.ClientManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotSocketReqParam;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
+import pn.torn.goldeneye.constants.bot.enums.GroupMsgTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
+import pn.torn.goldeneye.napcat.receive.BaseQqRec;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsg;
+import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgDetail;
+import pn.torn.goldeneye.napcat.send.DeleteMsgReqParam;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.napcat.send.msg.PrivateMsgSocketBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
@@ -27,15 +33,20 @@ import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.manage.DocStrategyImpl;
 import pn.torn.goldeneye.napcat.strategy.manage.PrivateDocStrategyImpl;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.setting.SysBlockWordDO;
+import pn.torn.goldeneye.torn.manager.setting.SysBlockWordManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.model.faction.TornFactionBO;
 import pn.torn.goldeneye.utils.JsonUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -82,11 +93,15 @@ public class BotSocketClient {
     @Resource
     private List<BasePrivateMsgStrategy> privateMsgStrategyList;
     @Resource
+    private Bot bot;
+    @Resource
     private DocStrategyImpl docStrategy;
     @Resource
     private PrivateDocStrategyImpl privateDocStrategy;
     @Resource
     private TornSettingFactionManager factionManager;
+    @Resource
+    private SysBlockWordManager blockWordManager;
     @Resource
     private ProjectProperty projectProperty;
 
@@ -269,6 +284,11 @@ public class BotSocketClient {
         }
 
         QqRecMsg msg = JsonUtils.jsonToObj(rawMessage, QqRecMsg.class);
+        TornFactionBO faction = isGroupMessage ? factionManager.getByGroup(msg.getGroupId()) : null;
+        if (isGroupMessage && handleBlockedWords(msg, faction)) {
+            return;
+        }
+
         if (!isCommandMsg(msg)) {
             return;
         }
@@ -279,10 +299,73 @@ public class BotSocketClient {
         }
 
         if (isGroupMessage) {
-            handleGroupMsg(msg, msgArray);
+            handleGroupMsg(msg, msgArray, faction);
         } else {
             handlePrivateMsg(msg, msgArray);
         }
+    }
+
+    /**
+     * 处理屏蔽词消息
+     *
+     * @return true为已处理，不需要后续处理
+     */
+    private boolean handleBlockedWords(QqRecMsg msg, TornFactionBO faction) {
+        List<QqMsgParam<?>> replaceList = replaceBlockMsg(msg, faction);
+        if (CollectionUtils.isEmpty(replaceList)) {
+            return false;
+        }
+
+        ResponseEntity<BaseQqRec> resp = bot.sendRequest(new DeleteMsgReqParam(msg.getMessageId()), BaseQqRec.class);
+        BaseQqRec body = resp.getBody();
+        if (body == null || "failed".equals(body.getStatus())) {
+            return false;
+        }
+
+        GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
+        builder.addMsg(new TextQqMsg(msg.getSender().getCard() + " 刚才说:\n"));
+        replaceList.forEach(builder::addMsg);
+        replyMsg(faction, builder.build());
+        return true;
+    }
+
+    /**
+     * 替换屏蔽词
+     */
+    private List<QqMsgParam<?>> replaceBlockMsg(QqRecMsg msg, TornFactionBO faction) {
+        if (faction == null || faction.getGroupId().equals(0L)
+                || Boolean.FALSE.equals(faction.getIsAdmin())
+                || faction.getAllAdminQq().contains(msg.getSender().getUserId())) {
+            return List.of();
+        }
+
+        Map<String, SysBlockWordDO> wordMap = blockWordManager.getWordMap();
+        List<QqMsgParam<?>> resultList = new ArrayList<>();
+        boolean hasReplacement = false;
+        for (QqRecMsgDetail detail : msg.getMessage()) {
+            if (!GroupMsgTypeEnum.TEXT.getCode().equals(detail.getType())) {
+                resultList.add(detail.convertToParam());
+                continue;
+            }
+
+            String text = detail.getData().getText().replace(" ", "").toLowerCase();
+            String replacedText = text;
+            for (Map.Entry<String, SysBlockWordDO> entry : wordMap.entrySet()) {
+                String key = entry.getKey();
+                SysBlockWordDO blockWord = entry.getValue();
+                boolean needReplace = replacedText.contains(key)
+                        && !(StringUtils.hasText(blockWord.getWhiteList())
+                        && Arrays.stream(blockWord.getWhiteList().split(",")).anyMatch(text::contains));
+                if (needReplace) {
+                    replacedText = replacedText.replace(key, blockWord.getReplaceWord());
+                    hasReplacement = true;
+                }
+            }
+
+            resultList.add(new TextQqMsg(replacedText));
+        }
+
+        return hasReplacement ? resultList : List.of();
     }
 
     /**
@@ -300,9 +383,7 @@ public class BotSocketClient {
     /**
      * 处理群聊消息
      */
-    private void handleGroupMsg(QqRecMsg msg, String[] msgArray) {
-        TornSettingFactionDO faction = factionManager.getGroupIdMap().get(msg.getGroupId());
-
+    private void handleGroupMsg(QqRecMsg msg, String[] msgArray, TornFactionBO faction) {
         if (!StringUtils.hasText(msgArray[1])) {
             GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
             List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, docStrategy);
@@ -326,7 +407,7 @@ public class BotSocketClient {
                     paramList.forEach(builder::addMsg);
                 }
                 // 从缓存中重新取一遍，防止修改禁言状态后取得值不对
-                faction = factionManager.getGroupIdMap().get(msg.getGroupId());
+                faction = factionManager.getByGroup(msg.getGroupId());
                 replyMsg(faction, builder.build());
                 break;
             }
@@ -375,7 +456,7 @@ public class BotSocketClient {
      *
      * @return true为没有管理员权限
      */
-    private boolean invalidAdmin(long userId, BaseGroupMsgStrategy strategy, TornSettingFactionDO faction) {
+    private boolean invalidAdmin(long userId, BaseGroupMsgStrategy strategy, TornFactionBO faction) {
         if (projectProperty.getAdminId().contains(userId)) {
             return false;
         } else if (strategy.isNeedSa()) {
@@ -415,7 +496,7 @@ public class BotSocketClient {
     /**
      * 回复消息
      */
-    private void replyMsg(TornSettingFactionDO faction, BotSocketReqParam param) {
+    private void replyMsg(TornFactionBO faction, BotSocketReqParam param) {
         replyMsg(faction != null && !faction.getMsgBlock(), param);
     }
 
