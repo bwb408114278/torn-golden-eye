@@ -216,6 +216,7 @@ class VipNoticeManagerTest {
             return resp;
         }
 
+        @SuppressWarnings("unchecked")
         private void mockNoticeUpdate() {
             var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
             when(noticeDao.lambdaUpdate()).thenReturn(wrapper);
@@ -334,6 +335,7 @@ class VipNoticeManagerTest {
             return resp;
         }
 
+        @SuppressWarnings("unchecked")
         private void mockNoticeUpdate() {
             var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
             when(noticeDao.lambdaUpdate()).thenReturn(wrapper);
@@ -372,6 +374,7 @@ class VipNoticeManagerTest {
         }
 
         @Test
+        @SuppressWarnings("unchecked")
         @DisplayName("VIP 列表为空时不查询 notice 表")
         void shouldSkip_whenNoVipUsers() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
@@ -387,6 +390,7 @@ class VipNoticeManagerTest {
         }
 
         @Test
+        @SuppressWarnings("unchecked")
         @DisplayName("Checker 抛异常不影响其他用户")
         void shouldHandleExceptionGracefully() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
