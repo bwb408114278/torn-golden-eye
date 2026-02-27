@@ -16,6 +16,7 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
@@ -135,7 +136,7 @@ class VipNoticeManagerTest {
         @InjectMocks
         private CooldownNoticeChecker checker;
         private VipNoticeDO notice;
-        private final LocalDateTime NOW = LocalDateTime.of(2024, 6, 15, 12, 0);
+        private final LocalDateTime now = LocalDateTime.of(2024, 6, 15, 12, 0);
 
         @BeforeEach
         void setUp() {
@@ -144,15 +145,15 @@ class VipNoticeManagerTest {
             notice.setUserId(100L);
             notice.setDrugCd(0);
             // 设置为 1 小时前，确保 recheck 触发
-            notice.setLastCdCheckTime(NOW.minusHours(1));
+            notice.setLastCdCheckTime(now.minusHours(1));
         }
 
         @Test
         @DisplayName("冷却未过期时不调用 API，返回空列表")
         void returnsEmpty_whenCooldownNotExpired() {
             notice.setDrugCd(7200); // 2 小时 CD
-            notice.setLastCdCheckTime(NOW.minusMinutes(10));
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            notice.setLastCdCheckTime(now.minusMinutes(10));
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).isEmpty();
             verifyNoInteractions(tornApi);
         }
@@ -161,7 +162,7 @@ class VipNoticeManagerTest {
         @DisplayName("没有 API Key 时返回空列表")
         void returnsEmpty_whenNoApiKey() {
             when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(null);
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).isEmpty();
             verifyNoInteractions(tornApi);
         }
@@ -175,7 +176,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).containsExactly("大郎, 该吃药了");
         }
 
@@ -188,7 +189,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).isEmpty();
         }
 
@@ -201,7 +202,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            checker.checkAndUpdate(notice, NOW);
+            checker.checkAndUpdate(notice, now);
             // 验证 lambdaUpdate 被调用（具体字段通过 mock chain 验证较复杂，
             // 这里验证 update() 被调用即可）
             verify(noticeDao).lambdaUpdate();
@@ -237,16 +238,16 @@ class VipNoticeManagerTest {
         @InjectMocks
         private BarNoticeChecker checker;
         private VipNoticeDO notice;
-        private final LocalDateTime NOW = LocalDateTime.of(2024, 6, 15, 12, 0);
+        private final LocalDateTime now = LocalDateTime.of(2024, 6, 15, 12, 0);
 
         @BeforeEach
         void setUp() {
             notice = new VipNoticeDO();
             notice.setId(1L);
             notice.setUserId(100L);
-            notice.setEnergyFull(0);
-            notice.setNerveFull(0);
-            notice.setLastBarCheckTime(NOW.minusHours(1));
+            notice.setEnergyFull(60);
+            notice.setNerveFull(60);
+            notice.setLastBarCheckTime(now.minusHours(1));
         }
 
         @Test
@@ -254,8 +255,8 @@ class VipNoticeManagerTest {
         void returnsEmpty_whenBothNotExpired() {
             notice.setEnergyFull(7200);
             notice.setNerveFull(7200);
-            notice.setLastBarCheckTime(NOW.minusMinutes(10));
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            notice.setLastBarCheckTime(now.minusMinutes(10));
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).isEmpty();
             verifyNoInteractions(tornApi);
         }
@@ -269,7 +270,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).containsExactly("Energy满了");
         }
 
@@ -282,7 +283,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).containsExactly("Nerve满了");
         }
 
@@ -295,7 +296,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).containsExactlyInAnyOrder("Energy满了", "Nerve满了");
         }
 
@@ -308,7 +309,7 @@ class VipNoticeManagerTest {
             when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class)))
                     .thenReturn(resp);
             mockNoticeUpdate();
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).isEmpty();
         }
 
@@ -316,7 +317,7 @@ class VipNoticeManagerTest {
         @DisplayName("没有 API Key 时返回空")
         void returnsEmpty_whenNoApiKey() {
             when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(null);
-            List<String> result = checker.checkAndUpdate(notice, NOW);
+            List<String> result = checker.checkAndUpdate(notice, now);
             assertThat(result).isEmpty();
         }
 
@@ -363,6 +364,7 @@ class VipNoticeManagerTest {
         @DisplayName("非生产环境不执行")
         void shouldSkip_whenNotProd() {
             when(projectProperty.getEnv()).thenReturn("dev");
+            when(settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             VipNoticeManager manager = new VipNoticeManager(
                     virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, settingDao, projectProperty);
             manager.notice();
@@ -373,6 +375,7 @@ class VipNoticeManagerTest {
         @DisplayName("VIP 列表为空时不查询 notice 表")
         void shouldSkip_whenNoVipUsers() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+            when(settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             var queryWrapper = mock(com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
             when(subscribeDao.lambdaQuery()).thenReturn(queryWrapper);
             when(queryWrapper.ge(any(), any())).thenReturn(queryWrapper);
@@ -387,6 +390,7 @@ class VipNoticeManagerTest {
         @DisplayName("Checker 抛异常不影响其他用户")
         void shouldHandleExceptionGracefully() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+            when(settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             // 模拟直接在当前线程执行（方便测试）
             doAnswer(invocation -> {
                 ((Runnable) invocation.getArgument(0)).run();
