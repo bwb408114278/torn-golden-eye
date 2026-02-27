@@ -89,3 +89,25 @@ databaseChangeLog:
                     nullable: false
                   defaultValue: "08:00:00"
                   remarks: "集合时间"
+
+  - changeSet:
+      id: add_group_all_admin
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction
+            columns:
+              - column:
+                  name: all_admin_qq
+                  type: VARCHAR(1024)
+                  constraints:
+                    nullable: false
+                  defaultValue: ""
+                  remarks: "所有管理员QQ"
+              - column:
+                  name: is_admin
+                  type: BOOL
+                  constraints:
+                    nullable: false
+                  defaultValueComputed: "false"
+                  remarks: "是否担任管理员"

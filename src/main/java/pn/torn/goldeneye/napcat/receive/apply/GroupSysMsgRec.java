@@ -2,6 +2,8 @@ package pn.torn.goldeneye.napcat.receive.apply;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.napcat.receive.BaseQqRec;
 
 /**
  * 群聊系统消息返回体
@@ -10,12 +12,9 @@ import lombok.Data;
  * @version 0.5.0
  * @since 2026.01.29
  */
+@EqualsAndHashCode(callSuper = true)
 @Data
-public class GroupSysMsgRec {
-    /**
-     * 状态 ok/failed
-     */
-    private String status;
+public class GroupSysMsgRec extends BaseQqRec {
     /**
      * 返回码
      */

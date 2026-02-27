@@ -31,12 +31,12 @@ public class AuditJoinGroupReqParam implements BotHttpReqParam {
 
     @Override
     public Object body() {
-        return new GroupSysBody(String.valueOf(reqId), true);
+        return new AuditGroupMemberBody(String.valueOf(reqId), true);
     }
 
     @AllArgsConstructor
     @Getter
-    private static class GroupSysBody {
+    private static class AuditGroupMemberBody {
         /**
          * 请求Flag
          */

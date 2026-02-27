@@ -62,7 +62,7 @@ public abstract class BaseMsgStrategy {
      * @param base64 图片Base64
      */
     protected List<ImageQqMsg> buildImageMsg(String base64) {
-        return List.of(new ImageQqMsg(base64));
+        return List.of(ImageQqMsg.fromBase64(base64));
     }
 
     /**

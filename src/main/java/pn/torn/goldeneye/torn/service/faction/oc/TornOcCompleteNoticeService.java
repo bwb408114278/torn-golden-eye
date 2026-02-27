@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.11.26
  */
 @Service
@@ -131,7 +131,7 @@ public class TornOcCompleteNoticeService {
         } else {
             msgList.add(new TextQqMsg("\nOC还有3分钟结束, 推荐按以下岗位加入\n没有及时加入记得用g#OC推荐~\n"));
             String title = faction.getFactionShortName() + " OC队伍分配建议";
-            msgList.add(new ImageQqMsg(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
+            msgList.add(ImageQqMsg.fromBase64(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
         }
 
         BotHttpReqParam param = new GroupMsgHttpBuilder()

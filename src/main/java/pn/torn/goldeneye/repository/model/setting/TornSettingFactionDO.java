@@ -9,7 +9,7 @@ import pn.torn.goldeneye.repository.model.BaseDO;
  * Torn设置帮派表
  *
  * @author Bai
- * @version 0.4.0
+ * @version 0.5.0
  * @since 2025.08.28
  */
 @Data
@@ -56,4 +56,12 @@ public class TornSettingFactionDO extends BaseDO {
      * 是否屏蔽消息
      */
     private Boolean msgBlock;
+    /**
+     * 所有管理员QQ
+     */
+    private String allAdminQq;
+    /**
+     * 是否担任管理员
+     */
+    private Boolean isAdmin;
 }

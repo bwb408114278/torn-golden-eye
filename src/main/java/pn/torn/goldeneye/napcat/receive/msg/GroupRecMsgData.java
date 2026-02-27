@@ -16,4 +16,12 @@ public class GroupRecMsgData {
      * 文本消息
      */
     private String text;
+    /**
+     * At消息
+     */
+    private String qq;
+    /**
+     * 图片消息
+     */
+    private String url;
 }

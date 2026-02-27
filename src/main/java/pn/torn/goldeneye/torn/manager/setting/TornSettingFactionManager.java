@@ -14,6 +14,7 @@ import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.model.faction.TornFactionBO;
 
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +24,7 @@ import java.util.Map;
  * 帮派设置公共逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 0.5.0
  * @since 2025.10.10
  */
 @Component
@@ -49,6 +50,7 @@ public class TornSettingFactionManager implements DataCacheManager {
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_ID, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_GROUP_ID, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_GROUP_SINGLE, allEntries = true),
             @CacheEvict(cacheNames = CacheConstants.KEY_TORN_SETTING_FACTION_ALIAS, allEntries = true)})
     public void refreshCache() {
         log.info("帮派设置缓存已重置");
@@ -98,10 +100,18 @@ public class TornSettingFactionManager implements DataCacheManager {
         // 开发环境专供
         if (!resultMap.containsKey(projectProperty.getGroupId())) {
             TornSettingFactionDO pn = settingFactionDao.getById(TornConstants.FACTION_PN_ID);
+            pn.setIsAdmin(true);
+            pn.setAllAdminQq("408114278");
             resultMap.put(projectProperty.getGroupId(), pn);
         }
 
         return resultMap;
+    }
+
+    @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_GROUP_SINGLE, key = "#groupId")
+    public TornFactionBO getByGroup(long groupId) {
+        TornSettingFactionDO faction = factionManager.getGroupIdMap().get(groupId);
+        return new TornFactionBO(faction);
     }
 
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_ALIAS)
