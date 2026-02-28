@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * Torn OC收益表
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.0.0
  * @since 2025.09.08
  */
 @Data
@@ -62,4 +62,12 @@ public class TornFactionOcBenefitDO extends BaseDO {
      * 收益金钱
      */
     private Long benefitMoney;
+    /**
+     * 道具成本
+     */
+    private Long itemCost;
+    /**
+     * 净收益
+     */
+    private Long netReward;
 }
