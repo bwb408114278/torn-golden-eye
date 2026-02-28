@@ -27,7 +27,7 @@ import java.util.List;
  * OC收益榜策略实现类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.09.10
  */
 @Component
@@ -106,6 +106,14 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
                     settingFactionManager.getIdMap().get(ranking.getFactionId()).getFactionShortName(),
                     NumberUtils.addDelimiters(ranking.getBenefit())));
         }
+
+        tableData.add(List.of("收益为去掉道具成本后的净收益", "", "", "", ""));
+        int totalRow = 2 + rankingList.size();
+        tableConfig.addMerge(totalRow, 0, 1, 5);
+        tableConfig.setCellStyle(totalRow, 0, new TableImageUtils.CellStyle()
+                .setFont(new Font("微软雅黑", Font.BOLD, 14))
+                .setAlignment(TableImageUtils.TextAlignment.RIGHT));
+
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 }

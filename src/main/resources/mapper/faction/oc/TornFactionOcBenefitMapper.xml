@@ -3,7 +3,7 @@
 <mapper namespace="pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcBenefitMapper">
     <!-- 普通OC收益数据源 -->
     <sql id="normalBenefitDataSource">
-        SELECT b.user_id, b.faction_id, b.benefit_money
+        SELECT b.user_id, b.faction_id, b.item_cost, b.net_reward
         FROM torn_faction_oc_benefit b
         WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate}
         <choose>
@@ -21,7 +21,9 @@
 
     <!-- 大锅饭收益数据源 -->
     <sql id="reassignBenefitDataSource">
-        SELECT s.user_id, s.faction_id, s.final_income AS benefit_money
+        SELECT s.user_id, s.faction_id,
+               s.total_item_cost AS item_cost,
+               s.final_income - s.total_item_cost AS net_reward
         FROM torn_faction_oc_income_summary s
         WHERE s.deleted = 0 AND s.year_month = #{query.yearMonth}
         <if test="query.factionId > 0">
@@ -30,7 +32,7 @@
 
         UNION ALL
 
-        SELECT b.user_id, b.faction_id, b.benefit_money
+        SELECT b.user_id, b.faction_id, b.item_cost, b.net_reward
         FROM torn_faction_oc_benefit b
         WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate} AND b.oc_name NOT IN
         <foreach collection="query.reassignOcList" item="item" open="(" close=")" separator=",">
@@ -53,7 +55,7 @@
     <select id="queryBenefitRanking"
             resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
         WITH base_benefit AS (
-        SELECT t.user_id, t.faction_id, SUM(t.benefit_money) AS benefit
+        SELECT t.user_id, t.faction_id, SUM(t.net_reward) AS benefit, SUM(t.item_cost) AS item_cost
         FROM (
             <if test="query.includeNormalBenefit == true">
                 <include refid="normalBenefitDataSource"/>
@@ -76,7 +78,7 @@
     <select id="queryBenefitUserRanking"
             resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO">
         WITH base_benefit AS (
-        SELECT t.user_id, t.faction_id, SUM(t.benefit_money) AS benefit
+        SELECT t.user_id, t.faction_id, SUM(t.net_reward) AS benefit, SUM(t.item_cost) AS item_cost
         FROM (
             <include refid="normalBenefitDataSource"/>
             UNION ALL
@@ -84,7 +86,7 @@
         GROUP BY t.user_id, t.faction_id),
 
         ranked_data AS (
-            SELECT user_id, faction_id, benefit,
+            SELECT user_id, faction_id, benefit, item_cost,
                 SUBSTRING(LPAD(user_id::TEXT, 7, '0'), 1, 3) AS cohort,
                 ROW_NUMBER() OVER (ORDER BY benefit DESC) AS overall_rank,
                 ROW_NUMBER() OVER (PARTITION BY faction_id ORDER BY benefit DESC) AS faction_rank,

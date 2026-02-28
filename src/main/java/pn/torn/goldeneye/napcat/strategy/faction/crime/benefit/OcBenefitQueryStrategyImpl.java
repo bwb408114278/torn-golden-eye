@@ -37,7 +37,7 @@ import java.util.List;
  * OC收益查询实现类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.08.20
  */
 @Component
@@ -147,8 +147,9 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
 
         TornUserDO prevUser = ranking.getPrevUserId() == null ?
                 null : userManager.getUserMap().get(ranking.getPrevUserId());
-        return user.getNickname() + "在" + date.getMonthValue() + "月的OC中赚了"
-                + NumberUtils.addDelimiters(ranking.getBenefit()) +
+        return user.getNickname() + "在" + date.getMonthValue() + "月的OC中赚了" +
+                NumberUtils.addDelimiters(ranking.getBenefit() + ranking.getItemCost()) +
+                "(含" + NumberUtils.addDelimiters(ranking.getItemCost()) + "道具成本)" +
                 "\n在本帮中排名第" + ranking.getFactionRank() +
                 ", 在同期" + ranking.getCohortUsers() + "人中排名第" + ranking.getCohortRank() +
                 ", 在SMTH中排名第" + ranking.getOverallRank() +

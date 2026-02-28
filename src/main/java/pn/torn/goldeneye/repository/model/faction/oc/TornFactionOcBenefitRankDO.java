@@ -6,7 +6,7 @@ import lombok.Data;
  * OC收益榜查询结果
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.09.10
  */
 @Data
@@ -23,4 +23,8 @@ public class TornFactionOcBenefitRankDO {
      * 总数
      */
     private Long benefit;
+    /**
+     * 道具成本
+     */
+    private Long itemCost;
 }
