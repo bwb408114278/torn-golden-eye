@@ -103,4 +103,20 @@
         ORDER BY overall_rank
         LIMIT 1
     </select>
+
+    <!-- 查询同期OC收益排行榜 -->
+    <select id="queryCohortBenefitRanking"
+            resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO">
+        WITH base_benefit AS (
+        SELECT t.user_id, t.faction_id, SUM(t.net_reward) AS benefit, SUM(t.item_cost) AS item_cost
+        FROM (
+            <include refid="normalBenefitDataSource"/>
+            UNION ALL
+            <include refid="reassignBenefitDataSource"/>) t
+        GROUP BY t.user_id, t.faction_id)
+
+        SELECT * FROM base_benefit
+        WHERE SUBSTRING(LPAD(user_id::TEXT, 7, '0'), 1, 3) = SUBSTRING(LPAD(#{query.userId}::TEXT, 7, '0'), 1, 3)
+        ORDER BY benefit DESC
+    </select>
 </mapper>

@@ -14,7 +14,7 @@ import java.util.List;
  * OC收益持久层类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.09.09
  */
 @Repository
@@ -31,5 +31,12 @@ public class TornFactionOcBenefitDAO extends ServiceImpl<TornFactionOcBenefitMap
      */
     public TornFactionOcBenefitUserRankDO queryBenefitUserRanking(OcBenefitRankingQuery query) {
         return baseMapper.queryBenefitUserRanking(query);
+    }
+
+    /**
+     * 查询同期OC收益排行榜
+     */
+    public List<TornFactionOcBenefitRankDO> queryCohortBenefitRanking(OcBenefitRankingQuery query) {
+        return baseMapper.queryCohortBenefitRanking(query);
     }
 }

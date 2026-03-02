@@ -2,17 +2,16 @@ package pn.torn.goldeneye.napcat.strategy.faction.crime.benefit;
 
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -51,8 +50,15 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        long factionId = super.getTornFactionId(msg);
-        if (factionId != 0L) {
+        TornUserDO user = null;
+        long factionId = 0L;
+        if ("同期".equals(msg)) {
+            user = super.getTornUser(sender, "");
+        } else {
+            factionId = super.getTornFactionId(msg);
+        }
+
+        if (user == null && factionId != 0L) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
             if (faction == null) {
                 return super.buildTextMsg("请输入正确的帮派ID");
@@ -60,23 +66,33 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
         }
 
         LocalDate baseMonth = LocalDate.now();
-        return super.buildImageMsg(ocBenefitRankStrategy.buildRankingMsg(factionId, baseMonth));
+        List<TornFactionOcBenefitRankDO> rankList;
+        String title;
+        if (user != null) {
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), baseMonth);
+            rankList = benefitDao.queryCohortBenefitRanking(query);
+            String cohort = String.format("%07d", user.getId()).substring(0, 3);
+            title = cohort + "同期" + baseMonth.getMonthValue() + "月OC收益排行榜";
+        } else {
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, baseMonth);
+            rankList = benefitDao.queryBenefitRanking(query);
+            String factionName = factionId == 0L ?
+                    "SMTH" : settingFactionManager.getIdMap().get(factionId).getFactionShortName();
+            title = factionName + "  " + baseMonth.getMonthValue() + "月OC收益排行榜";
+
+        }
+
+        return super.buildImageMsg(ocBenefitRankStrategy.buildRankTable(rankList, title));
     }
 
     /**
      * 构建OC收益排行榜表格
      */
-    @Cacheable(value = CacheConstants.KEY_TORN_OC_BENEFIT_RANKING_FACTION, key = "#factionId")
-    public String buildRankingMsg(long factionId, LocalDate date) {
-        OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, date);
-        List<TornFactionOcBenefitRankDO> rankingList = benefitDao.queryBenefitRanking(query);
-        String factionName = factionId == 0L ?
-                "SMTH" : settingFactionManager.getIdMap().get(factionId).getFactionShortName();
-
+    public String buildRankTable(List<TornFactionOcBenefitRankDO> rankingList, String title) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
-        tableData.add(List.of(factionName + "  " + date.getMonthValue() + "月OC收益排行榜", "", "", "", ""));
+        tableData.add(List.of(title, "", "", "", ""));
         tableConfig.addMerge(0, 0, 1, 5);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
                 .setBgColor(Color.WHITE)

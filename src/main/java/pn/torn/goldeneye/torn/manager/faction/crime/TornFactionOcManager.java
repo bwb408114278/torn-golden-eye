@@ -2,12 +2,10 @@ package pn.torn.goldeneye.torn.manager.faction.crime;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -30,7 +28,7 @@ import java.util.Map;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.08.08
  */
 @Component
@@ -48,7 +46,6 @@ public class TornFactionOcManager {
      * 更新OC数据
      */
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = CacheConstants.KEY_TORN_OC_BENEFIT_RANKING_FACTION, allEntries = true)
     public void updateOc(long factionId, List<TornFactionCrimeVO> availableList, List<TornFactionCrimeVO> completeList) {
         List<Long> validOcIdList = updateAvailableOc(factionId, availableList);
         validOcIdList.addAll(completeOcData(factionId, completeList));

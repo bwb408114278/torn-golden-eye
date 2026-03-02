@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.11.26
  */
 @Service
@@ -56,9 +56,13 @@ public class TornOcCompleteNoticeService {
     private static final int TIME_WINDOW_MINUTES = 3;
 
     public void init() {
+        List<Long> noticeFactionIdList = new ArrayList<>();
+        noticeFactionIdList.add(TornConstants.FACTION_PN_ID);
+        noticeFactionIdList.add(TornConstants.FACTION_SH_ID);
+
         for (long factionId : TornConstants.REASSIGN_OC_FACTION) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
-            if (!faction.getId().equals(TornConstants.FACTION_PN_ID) || faction.getGroupId().equals(0L)) {
+            if (!noticeFactionIdList.contains(factionId) || faction.getGroupId().equals(0L)) {
                 continue;
             }
             scheduleOcTask(faction);

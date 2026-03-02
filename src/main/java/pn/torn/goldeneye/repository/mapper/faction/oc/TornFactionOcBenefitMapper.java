@@ -14,7 +14,7 @@ import java.util.List;
  * OC收益数据库访问层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.09.10
  */
 @Mapper
@@ -34,4 +34,12 @@ public interface TornFactionOcBenefitMapper extends BaseMapper<TornFactionOcBene
      * @return 排行榜列表
      */
     TornFactionOcBenefitUserRankDO queryBenefitUserRanking(@Param("query") OcBenefitRankingQuery query);
+
+    /**
+     * 查询同期OC收益排行榜
+     *
+     * @param query 过滤条件
+     * @return 排行榜列表
+     */
+    List<TornFactionOcBenefitRankDO> queryCohortBenefitRanking(@Param("query") OcBenefitRankingQuery query);
 }
