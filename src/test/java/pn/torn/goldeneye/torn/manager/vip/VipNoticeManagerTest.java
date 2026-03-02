@@ -17,12 +17,12 @@ import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.vip.VipNoticeDO;
 import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.vip.notice.BarNoticeChecker;
 import pn.torn.goldeneye.torn.manager.vip.notice.BaseVipNoticeChecker;
 import pn.torn.goldeneye.torn.manager.vip.notice.CooldownNoticeChecker;
@@ -49,7 +49,7 @@ import static org.mockito.Mockito.*;
  * VIP提醒集成测试
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2026.02.12
  */
 @ExtendWith(MockitoExtension.class)
@@ -216,6 +216,7 @@ class VipNoticeManagerTest {
             return resp;
         }
 
+        @SuppressWarnings("unchecked")
         private void mockNoticeUpdate() {
             var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
             when(noticeDao.lambdaUpdate()).thenReturn(wrapper);
@@ -334,6 +335,7 @@ class VipNoticeManagerTest {
             return resp;
         }
 
+        @SuppressWarnings("unchecked")
         private void mockNoticeUpdate() {
             var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
             when(noticeDao.lambdaUpdate()).thenReturn(wrapper);
@@ -352,11 +354,11 @@ class VipNoticeManagerTest {
         @Mock
         private Bot bot;
         @Mock
+        private SysSettingManager settingManager;
+        @Mock
         private VipSubscribeDAO subscribeDao;
         @Mock
         private VipNoticeDAO noticeDao;
-        @Mock
-        private SysSettingDAO settingDao;
         @Mock
         private ProjectProperty projectProperty;
 
@@ -364,33 +366,35 @@ class VipNoticeManagerTest {
         @DisplayName("非生产环境不执行")
         void shouldSkip_whenNotProd() {
             when(projectProperty.getEnv()).thenReturn("dev");
-            when(settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
+            when(settingManager.getSettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, settingDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(), settingManager, subscribeDao, noticeDao, projectProperty);
             manager.notice();
             verifyNoInteractions(subscribeDao);
         }
 
         @Test
+        @SuppressWarnings("unchecked")
         @DisplayName("VIP 列表为空时不查询 notice 表")
         void shouldSkip_whenNoVipUsers() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
-            when(settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
+            when(settingManager.getSettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             var queryWrapper = mock(com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
             when(subscribeDao.lambdaQuery()).thenReturn(queryWrapper);
             when(queryWrapper.ge(any(), any())).thenReturn(queryWrapper);
             when(queryWrapper.list()).thenReturn(Collections.emptyList());
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(), subscribeDao, noticeDao, settingDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(), settingManager, subscribeDao, noticeDao, projectProperty);
             manager.notice();
             verifyNoInteractions(noticeDao);
         }
 
         @Test
+        @SuppressWarnings("unchecked")
         @DisplayName("Checker 抛异常不影响其他用户")
         void shouldHandleExceptionGracefully() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
-            when(settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
+            when(settingManager.getSettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             // 模拟直接在当前线程执行（方便测试）
             doAnswer(invocation -> {
                 ((Runnable) invocation.getArgument(0)).run();
@@ -416,7 +420,7 @@ class VipNoticeManagerTest {
                 throw new RuntimeException("API boom!");
             };
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(failingChecker), subscribeDao, noticeDao, settingDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(failingChecker), settingManager, subscribeDao, noticeDao, projectProperty);
             // 不应抛出异常
             org.junit.jupiter.api.Assertions.assertDoesNotThrow(manager::notice);
         }

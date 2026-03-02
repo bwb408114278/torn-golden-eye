@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_oc_benefit_cost
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_benefit
+            columns:
+              - column:
+                  name: item_cost
+                  type: BIGINT
+                  defaultValue: "0"
+                  remarks: "道具成本"
+              - column:
+                  name: net_reward
+                  type: BIGINT
+                  defaultValue: "0"
+                  remarks: "净收益"

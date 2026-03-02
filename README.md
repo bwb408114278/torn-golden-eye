@@ -9,8 +9,8 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 | 名称            | 版本       | 作用        | 集成状态 | 
 |:--------------|:---------|:----------|------|
 | JDK           | 21       | 语言能力      | 已集成  |
-| SpringBoot    | 3.5.3    | 基础框架      | 已集成  |
-| NapCat        | 4.10.9   | 机器人框架     | 已集成  |
+| SpringBoot    | 3.5.11   | 基础框架      | 已集成  |
+| NapCat        | 4.17.25  | 机器人框架     | 已集成  |
 | Docker        | 28.3.0   | 容器        | 已集成  |
 | Tyrus         | 2.1.5    | Websocket | 已集成  |
 | Logback       | 1.5.18   | 日志框架      | 已集成  |
@@ -18,7 +18,7 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 | Grafana Alloy | v.1.11.2 | 日志采集      | 已集成  |
 | Grafana       | 12.0.2   | 监控平台      | 已集成  |
 | PostgreSql    | 17.5     | 数据库       | 已集成  |
-| Liquibase     | 4.31.0   | 数据库迭代     | 已集成  |
+| Liquibase     | 4.31.1   | 数据库迭代     | 已集成  |
 | Mybatis Plus  | 3.5.12   | ORM       | 已集成  |
 
 ## 启动方式
@@ -26,7 +26,7 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 1. 进入项目所在的文件夹,运行以下代码打包镜像
 
 ```
-docker build -f ./build/Dockerfile -t golden-eye:0.5.0 .
+docker build -f ./build/Dockerfile -t golden-eye:1.0.0 .
 ```
 
 2. 进入build文件夹,修改.env文件

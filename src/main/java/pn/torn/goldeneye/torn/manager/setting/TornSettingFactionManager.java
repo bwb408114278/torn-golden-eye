@@ -24,7 +24,7 @@ import java.util.Map;
  * 帮派设置公共逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.10.10
  */
 @Component
@@ -111,7 +111,7 @@ public class TornSettingFactionManager implements DataCacheManager {
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_GROUP_SINGLE, key = "#groupId")
     public TornFactionBO getByGroup(long groupId) {
         TornSettingFactionDO faction = factionManager.getGroupIdMap().get(groupId);
-        return new TornFactionBO(faction);
+        return faction == null ? null : new TornFactionBO(faction);
     }
 
     @Cacheable(value = CacheConstants.KEY_TORN_SETTING_FACTION_ALIAS)

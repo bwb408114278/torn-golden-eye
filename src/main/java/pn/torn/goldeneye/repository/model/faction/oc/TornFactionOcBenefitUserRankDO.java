@@ -6,7 +6,7 @@ import lombok.Data;
  * OC用户收益榜查询结果
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.09.10
  */
 @Data
@@ -15,6 +15,10 @@ public class TornFactionOcBenefitUserRankDO {
      * 收益
      */
     private Long benefit;
+    /**
+     * 物品成本
+     */
+    private Long itemCost;
     /**
      * 同期标识
      */

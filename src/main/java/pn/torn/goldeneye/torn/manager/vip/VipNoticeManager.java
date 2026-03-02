@@ -13,11 +13,11 @@ import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.AtQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
-import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.vip.VipNoticeDO;
 import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.vip.notice.VipNoticeChecker;
 
 import java.time.LocalDateTime;
@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * VIP提醒公共逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2026.02.12
  */
 @Slf4j
@@ -50,9 +50,9 @@ public class VipNoticeManager {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final List<VipNoticeChecker> checkerList;
+    private final SysSettingManager sysSettingManager;
     private final VipSubscribeDAO subscribeDao;
     private final VipNoticeDAO noticeDao;
-    private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
 
     /**
@@ -60,7 +60,7 @@ public class VipNoticeManager {
      */
     @Scheduled(cron = "10 */5 * * * ?")
     public void notice() {
-        String isNotice = settingDao.querySettingValue(SettingConstants.KEY_VIP_NOTICE);
+        String isNotice = sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_NOTICE);
         if (!"true".equalsIgnoreCase(isNotice) || !BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
         }

@@ -50,3 +50,6 @@ databaseChangeLog:
       file: db/changelog/0.5.0/vip.yaml
   - include:
       file: db/changelog/0.5.0/oc.yaml
+  # 1.0.0
+  - include:
+      file: db/changelog/1.0.0/oc.yaml

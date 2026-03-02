@@ -6,7 +6,6 @@ import com.lark.oapi.service.bitable.v1.model.*;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -20,7 +19,6 @@ import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteBitTablePrope
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
-import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
@@ -42,7 +40,7 @@ import java.util.stream.IntStream;
  * Torn OC收益逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.0.0
  * @since 2025.09.08
  */
 @Service
@@ -89,7 +87,6 @@ public class TornFactionOcBenefitService {
     /**
      * 爬取OC收益
      */
-    @CacheEvict(value = CacheConstants.KEY_TORN_OC_BENEFIT_RANKING_FACTION, allEntries = true)
     public void spiderOcBenefit(LocalDateTime from, LocalDateTime to) {
         LarkSuiteBitTableProperty bitTable = larkSuiteProperty.findBitTable(TornConstants.BIT_TABLE_OC_BENEFIT);
         String pageToken = null;
@@ -233,6 +230,8 @@ public class TornFactionOcBenefitService {
                 benefit.setUserPassRate((int) (details.chance() * 100));
             }
             benefit.setBenefitMoney(Long.parseLong(benefits[i].trim()));
+            benefit.setItemCost(details == null ? 0L : details.itemCost());
+            benefit.setNetReward(benefit.getBenefitMoney() - benefit.getItemCost());
             benefitList.add(benefit);
         }
         return benefitList;
@@ -267,6 +266,8 @@ public class TornFactionOcBenefitService {
             benefitDO.setUserPassRate((int) (details.chance() * 100));
             // 从Map中查找该用户的奖金，找不到则默认为0
             benefitDO.setBenefitMoney(benefitMap.getOrDefault(details.userId(), 0L));
+            benefitDO.setItemCost(details.itemCost());
+            benefitDO.setNetReward(benefitDO.getBenefitMoney() - details.itemCost());
             benefitList.add(benefitDO);
         }
         return benefitList;
@@ -293,8 +294,10 @@ public class TornFactionOcBenefitService {
             String formattedPosition = originalPosition + "#" + count;
             Number chanceNum = (Number) fields.get(PREFIX_SLOT + i + "_chance");
             double chance = (chanceNum != null) ? chanceNum.doubleValue() : 0.0;
+            Number itemCostNum = (Number) fields.get(PREFIX_SLOT + i + "_item_marketvalue");
+            long itemCost = (itemCostNum != null) ? itemCostNum.longValue() : 0L;
 
-            participants.add(new OcJoinUser(userIdNum.longValue(), formattedPosition, chance));
+            participants.add(new OcJoinUser(userIdNum.longValue(), formattedPosition, chance, itemCost));
         }
         return participants;
     }
@@ -356,6 +359,6 @@ public class TornFactionOcBenefitService {
         taskService.updateTask("oc-benefit-reload", () -> spiderOcBenefit(to, to.plusHours(1)), to.plusHours(1));
     }
 
-    private record OcJoinUser(long userId, String position, double chance) {
+    private record OcJoinUser(long userId, String position, double chance, long itemCost) {
     }
 }
