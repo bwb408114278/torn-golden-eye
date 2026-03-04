@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_vip_notice_travel
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: vip_notice
+            columns:
+              - column:
+                  name: travel_aboard
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "旅行滞留国外"
+              - column:
+                  name: last_travel_check_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "上次旅行校验时间"

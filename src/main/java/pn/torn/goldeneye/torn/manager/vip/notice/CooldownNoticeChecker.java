@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * CD提醒检查基础策略类
+ * CD检查提醒策略类
  *
  * @author Bai
  * @version 0.5.0

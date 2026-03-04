@@ -9,7 +9,7 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
  * Torn用户详情响应参数
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.0.0
  * @since 2025.10.09
  */
 @Data
@@ -31,6 +31,10 @@ public class TornUserProfileVO {
      */
     @JsonProperty("faction_id")
     private Long factionId;
+    /**
+     * 状态
+     */
+    private TornUserStatusVO status;
     /**
      * 状态
      */
