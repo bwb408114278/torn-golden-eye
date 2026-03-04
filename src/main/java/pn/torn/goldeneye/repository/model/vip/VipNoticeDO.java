@@ -6,6 +6,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -48,6 +49,22 @@ public class VipNoticeDO extends BaseDO {
      * 勇气填满
      */
     private Integer nerveFull;
+    /**
+     * 旅行滞留国外
+     */
+    private Integer travelAboard;
+    /**
+     * 上次旅行校验时间
+     */
+    private LocalDateTime lastTravelCheckTime;
+    /**
+     * 是否Refill能量
+     */
+    private Boolean isRefillEnergy;
+    /**
+     * 上次Refill校验时间
+     */
+    private LocalDate lastRefillEnergyCheckDate;
 
     public VipNoticeDO(long userId) {
         this.userId = userId;
@@ -55,9 +72,13 @@ public class VipNoticeDO extends BaseDO {
         this.drugCd = 0;
         this.energyFull = 0;
         this.nerveFull = 0;
+        this.travelAboard = 0;
+        this.isRefillEnergy = false;
 
         LocalDateTime past = LocalDateTime.of(2000, 1, 1, 0, 0);
         this.lastCdCheckTime = past;
         this.lastBarCheckTime = past;
+        this.lastTravelCheckTime = past;
+        this.lastRefillEnergyCheckDate = past.toLocalDate();
     }
 }

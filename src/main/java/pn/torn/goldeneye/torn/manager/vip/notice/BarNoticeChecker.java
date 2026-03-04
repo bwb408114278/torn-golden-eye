@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Bar提醒检查基础策略类
+ * Bar提醒检查策略类
  *
  * @author Bai
  * @version 0.5.0

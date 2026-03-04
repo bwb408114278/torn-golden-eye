@@ -8,12 +8,16 @@ import pn.torn.goldeneye.repository.model.torn.TornItemHistoryDO;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Torn物品历史持久层类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2026.01.26
  */
 @Repository
@@ -26,6 +30,12 @@ public class TornItemHistoryDAO extends ServiceImpl<TornItemHistoryMapper, TornI
      * @return 环比数据列表
      */
     public List<ItemTrendDO> queryItemComparison(List<Integer> itemIds, LocalDate targetDate) {
-        return baseMapper.queryItemComparison(itemIds, targetDate);
+        Map<Integer, ItemTrendDO> trendMap = baseMapper.queryItemComparison(itemIds, targetDate)
+                .stream()
+                .collect(Collectors.toMap(ItemTrendDO::getItemId, Function.identity()));
+        return itemIds.stream()
+                .map(trendMap::get)
+                .filter(Objects::nonNull)
+                .toList();
     }
 }

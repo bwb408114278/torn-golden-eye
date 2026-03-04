@@ -29,8 +29,6 @@ import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcUserManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.model.user.bs.TornUserBsDTO;
 import pn.torn.goldeneye.torn.model.user.bs.TornUserBsVO;
 import pn.torn.goldeneye.torn.model.user.oc.TornUserOcDTO;
@@ -47,7 +45,7 @@ import java.util.concurrent.CompletableFuture;
  * Torn 用户数据逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.08.20
  */
 @Service
@@ -165,19 +163,11 @@ public class TornUserDataService {
      * 更新OC成功率
      */
     private void updateOcRate(TornApiKeyDO key) {
-        List<TornFactionCrimeVO> ocList = new ArrayList<>();
-        if (Boolean.TRUE.equals(key.getHasFactionAccess())) {
-            TornFactionOcVO oc = tornApi.sendRequest(new TornFactionOcDTO(1, false),
-                    key, TornFactionOcVO.class);
-            ocList.addAll(oc.getCrimes());
-        } else {
-            TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);
-            if (oc == null || oc.getOrganizedCrime() == null ||
-                    CollectionUtils.isEmpty(oc.getOrganizedCrime().getSlots())) {
-                return;
-            }
-            ocList.add(oc.getOrganizedCrime());
+        TornUserOcVO oc = tornApi.sendRequest(new TornUserOcDTO(), key, TornUserOcVO.class);
+        if (oc == null || CollectionUtils.isEmpty(oc.getOcList())) {
+            return;
         }
+        List<TornFactionCrimeVO> ocList = oc.getOcList();
 
         ocUserManager.updateEmptyUserPassRate(key.getFactionId(), key.getUserId(), ocList);
     }

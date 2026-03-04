@@ -53,3 +53,5 @@ databaseChangeLog:
   # 1.0.0
   - include:
       file: db/changelog/1.0.0/oc.yaml
+  - include:
+      file: db/changelog/1.0.0/vip.yaml

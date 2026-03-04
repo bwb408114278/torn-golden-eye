@@ -113,14 +113,17 @@
             COALESCE(ls.total_rounds, 0) AS total_rounds,
             COALESCE(ls.damage_dealt, 0) AS damage_dealt,
             COALESCE(ds.damage_taken, 0) AS damage_taken,
-            COALESCE(ls.damage_score, 0) AS damage_score,
+            COALESCE(ls.damage_score, 0) *
+                (CASE WHEN pas.total_attacks = 0 THEN 0 ELSE pas.online_opponent_count::NUMERIC / pas.total_attacks END)
+                AS damage_score,
             COALESCE(ls.syringe_used, 0) AS syringe_used,
             COALESCE(ls.special_ammo_rounds, 0) AS special_ammo_rounds,
             COALESCE(ls.debuff_temp_count, 0) AS debuff_temp_count
         FROM player_attack_stats pas
         LEFT JOIN log_stats ls ON pas.attack_user_id = ls.attack_user_id
         LEFT JOIN defender_stats ds ON pas.attack_user_id = ds.attack_user_id
-        ORDER BY COALESCE(ls.damage_score, 0) DESC
+        ORDER BY COALESCE(ls.damage_score, 0) *
+            (CASE WHEN pas.total_attacks = 0 THEN 0 ELSE pas.online_opponent_count::NUMERIC / pas.total_attacks END) DESC
     </select>
 
     <!-- 统计指定时间的物品数据 -->
