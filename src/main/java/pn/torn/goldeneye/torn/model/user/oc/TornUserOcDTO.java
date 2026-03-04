@@ -9,14 +9,14 @@ import pn.torn.goldeneye.base.torn.TornReqParamV2;
  * Torn用户OC请求
  *
  * @author Bai
- * @version 0.1.0
+ * @version 1.0.0
  * @since 2025.08.20
  */
 @Data
 public class TornUserOcDTO implements TornReqParamV2 {
     @Override
     public String uri() {
-        return "/user/organizedcrime";
+        return "/user/organizedcrimes";
     }
 
     @Override

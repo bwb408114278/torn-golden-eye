@@ -35,9 +35,9 @@ public class TornItemTrendManager {
     private final Bot bot;
     private final TornItemHistoryDAO itemHistoryDao;
     private final ProjectProperty projectProperty;
-    private static final List<Integer> CONSUME_ITEM_ID_LIST = new ArrayList<>();
-    private static final List<Integer> MUSEUM_ITEM_ID_LIST = new ArrayList<>();
-    private static final List<Integer> OTHER_ITEM_ID_LIST = new ArrayList<>();
+    public static final List<Integer> CONSUME_ITEM_ID_LIST = new ArrayList<>();
+    public static final List<Integer> MUSEUM_ITEM_ID_LIST = new ArrayList<>();
+    public static final List<Integer> OTHER_ITEM_ID_LIST = new ArrayList<>();
     private static final TableImageUtils.CellStyle STYLE_NORMAL = new TableImageUtils.CellStyle()
             .setBgColor(Color.WHITE).setTextColor(new Color(144, 164, 174));
     private static final TableImageUtils.CellStyle STYLE_PLUS = new TableImageUtils.CellStyle()
@@ -83,7 +83,7 @@ public class TornItemTrendManager {
     /**
      * 构建表格数据
      */
-    private String buildTableData(String title, List<ItemTrendDO> dataList, LocalDate date) {
+    public String buildTableData(String title, List<ItemTrendDO> dataList, LocalDate date) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
@@ -241,50 +241,49 @@ public class TornItemTrendManager {
      * 初始化糖酒饮料消耗品的物品ID
      */
     private void initConsumeItemIdList() {
-        CONSUME_ITEM_ID_LIST.add(531);
-        CONSUME_ITEM_ID_LIST.add(550);
-        CONSUME_ITEM_ID_LIST.add(541);
-        CONSUME_ITEM_ID_LIST.add(552);
-        CONSUME_ITEM_ID_LIST.add(638);
-        CONSUME_ITEM_ID_LIST.add(551);
-        CONSUME_ITEM_ID_LIST.add(542);
-        CONSUME_ITEM_ID_LIST.add(587);
-        CONSUME_ITEM_ID_LIST.add(1039);
+        CONSUME_ITEM_ID_LIST.add(527);
+        CONSUME_ITEM_ID_LIST.add(36);
+        CONSUME_ITEM_ID_LIST.add(528);
+        CONSUME_ITEM_ID_LIST.add(634);
+        CONSUME_ITEM_ID_LIST.add(529);
+        CONSUME_ITEM_ID_LIST.add(556);
         CONSUME_ITEM_ID_LIST.add(151);
         CONSUME_ITEM_ID_LIST.add(586);
-        CONSUME_ITEM_ID_LIST.add(556);
-        CONSUME_ITEM_ID_LIST.add(529);
-        CONSUME_ITEM_ID_LIST.add(634);
-        CONSUME_ITEM_ID_LIST.add(528);
-        CONSUME_ITEM_ID_LIST.add(36);
-        CONSUME_ITEM_ID_LIST.add(527);
-        CONSUME_ITEM_ID_LIST.add(553);
-        CONSUME_ITEM_ID_LIST.add(987);
-        CONSUME_ITEM_ID_LIST.add(986);
+        CONSUME_ITEM_ID_LIST.add(587);
+        CONSUME_ITEM_ID_LIST.add(1039);
+        CONSUME_ITEM_ID_LIST.add(531);
+        CONSUME_ITEM_ID_LIST.add(550);
+        CONSUME_ITEM_ID_LIST.add(551);
+        CONSUME_ITEM_ID_LIST.add(542);
+        CONSUME_ITEM_ID_LIST.add(638);
+        CONSUME_ITEM_ID_LIST.add(541);
+        CONSUME_ITEM_ID_LIST.add(552);
         CONSUME_ITEM_ID_LIST.add(985);
-        CONSUME_ITEM_ID_LIST.add(533);
-        CONSUME_ITEM_ID_LIST.add(555);
+        CONSUME_ITEM_ID_LIST.add(986);
+        CONSUME_ITEM_ID_LIST.add(987);
+        CONSUME_ITEM_ID_LIST.add(530);
+        CONSUME_ITEM_ID_LIST.add(553);
         CONSUME_ITEM_ID_LIST.add(554);
         CONSUME_ITEM_ID_LIST.add(532);
-        CONSUME_ITEM_ID_LIST.add(530);
+        CONSUME_ITEM_ID_LIST.add(555);
+        CONSUME_ITEM_ID_LIST.add(533);
     }
 
     /**
      * 初始化花偶物品ID列表
      */
     private void initMuseumItemIdList() {
-        MUSEUM_ITEM_ID_LIST.add(263);
         MUSEUM_ITEM_ID_LIST.add(260);
         MUSEUM_ITEM_ID_LIST.add(272);
-        MUSEUM_ITEM_ID_LIST.add(385);
-        MUSEUM_ITEM_ID_LIST.add(276);
-        MUSEUM_ITEM_ID_LIST.add(282);
-        MUSEUM_ITEM_ID_LIST.add(277);
-        MUSEUM_ITEM_ID_LIST.add(271);
-        MUSEUM_ITEM_ID_LIST.add(267);
+        MUSEUM_ITEM_ID_LIST.add(263);
         MUSEUM_ITEM_ID_LIST.add(264);
         MUSEUM_ITEM_ID_LIST.add(617);
-        MUSEUM_ITEM_ID_LIST.add(384);
+        MUSEUM_ITEM_ID_LIST.add(271);
+        MUSEUM_ITEM_ID_LIST.add(267);
+        MUSEUM_ITEM_ID_LIST.add(277);
+        MUSEUM_ITEM_ID_LIST.add(282);
+        MUSEUM_ITEM_ID_LIST.add(276);
+        MUSEUM_ITEM_ID_LIST.add(385);
         MUSEUM_ITEM_ID_LIST.add(261);
         MUSEUM_ITEM_ID_LIST.add(618);
         MUSEUM_ITEM_ID_LIST.add(273);
@@ -292,8 +291,9 @@ public class TornItemTrendManager {
         MUSEUM_ITEM_ID_LIST.add(266);
         MUSEUM_ITEM_ID_LIST.add(268);
         MUSEUM_ITEM_ID_LIST.add(269);
-        MUSEUM_ITEM_ID_LIST.add(281);
         MUSEUM_ITEM_ID_LIST.add(274);
+        MUSEUM_ITEM_ID_LIST.add(281);
+        MUSEUM_ITEM_ID_LIST.add(384);
     }
 
     /**
@@ -301,21 +301,21 @@ public class TornItemTrendManager {
      */
     private void initOtherItemIdList() {
         OTHER_ITEM_ID_LIST.add(366);
-        OTHER_ITEM_ID_LIST.add(367);
         OTHER_ITEM_ID_LIST.add(561);
-        OTHER_ITEM_ID_LIST.add(206);
-        OTHER_ITEM_ID_LIST.add(870);
-        OTHER_ITEM_ID_LIST.add(380);
-        OTHER_ITEM_ID_LIST.add(865);
-        OTHER_ITEM_ID_LIST.add(396);
-        OTHER_ITEM_ID_LIST.add(428);
-        OTHER_ITEM_ID_LIST.add(1298);
-        OTHER_ITEM_ID_LIST.add(369);
-        OTHER_ITEM_ID_LIST.add(370);
+        OTHER_ITEM_ID_LIST.add(367);
         OTHER_ITEM_ID_LIST.add(365);
+        OTHER_ITEM_ID_LIST.add(369);
         OTHER_ITEM_ID_LIST.add(817);
+        OTHER_ITEM_ID_LIST.add(364);
+        OTHER_ITEM_ID_LIST.add(1298);
+        OTHER_ITEM_ID_LIST.add(370);
         OTHER_ITEM_ID_LIST.add(815);
         OTHER_ITEM_ID_LIST.add(818);
-        OTHER_ITEM_ID_LIST.add(364);
+        OTHER_ITEM_ID_LIST.add(380);
+        OTHER_ITEM_ID_LIST.add(396);
+        OTHER_ITEM_ID_LIST.add(428);
+        OTHER_ITEM_ID_LIST.add(865);
+        OTHER_ITEM_ID_LIST.add(870);
+        OTHER_ITEM_ID_LIST.add(206);
     }
 }
