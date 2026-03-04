@@ -31,7 +31,6 @@ public class TravelNoticeChecker extends BaseVipNoticeChecker {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
     private final VipNoticeDAO noticeDao;
-    private static final String WARNING_MSG = "别睡了, 再睡回不来了";
 
     @Override
     public List<String> checkAndUpdate(VipNoticeDO notice, LocalDateTime checkTime) {
@@ -46,19 +45,28 @@ public class TravelNoticeChecker extends BaseVipNoticeChecker {
 
         TornUserVO resp = tornApi.sendRequest(new TornUserDTO(), key, TornUserVO.class);
         if (TornUserStatusEnum.ABROAD.getCode().equals(resp.getProfile().getStatus().getState())) {
-            return List.of(WARNING_MSG);
+            noticeDao.lambdaUpdate()
+                    .set(VipNoticeDO::getTravelAboard, 0L)
+                    .set(VipNoticeDO::getLastTravelCheckTime, checkTime)
+                    .eq(VipNoticeDO::getId, notice.getId())
+                    .update();
+            return List.of("别睡了, 再睡回不来了");
         } else if (TornUserStatusEnum.TRAVELING.getCode().equals(resp.getProfile().getStatus().getState())) {
             TornUserTravelVO travel = tornApi.sendRequest(new TornUserTravelDTO(), key, TornUserTravelVO.class);
-            LocalDateTime nextCheckTime = DateTimeUtils.convertToDateTime(travel.getTravel().getArrivalAt());
-            Duration duration = Duration.between(checkTime, nextCheckTime);
-            long nextCheckSecond = "Torn".equals(travel.getTravel().getDestination()) ?
-                    duration.plusMinutes(10L).toSeconds() : duration.toSeconds();
+            LocalDateTime arrivalTime = DateTimeUtils.convertToDateTime(travel.getTravel().getArrivalAt());
+            long nextCheckSecond = Duration.between(checkTime, arrivalTime).toSeconds();
+            if (nextCheckSecond < 0) {
+                nextCheckSecond = 0L;
+            }
+
+            if ("Torn".equals(travel.getTravel().getDestination())) {
+                nextCheckSecond += 600L;
+            }
             noticeDao.lambdaUpdate()
                     .set(VipNoticeDO::getTravelAboard, nextCheckSecond)
                     .set(VipNoticeDO::getLastTravelCheckTime, checkTime)
                     .eq(VipNoticeDO::getId, notice.getId())
                     .update();
-
             return List.of();
         } else {
             noticeDao.lambdaUpdate()

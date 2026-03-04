@@ -9,12 +9,28 @@ databaseChangeLog:
               - column:
                   name: travel_aboard
                   type: INT
+                  defaultValue: "0"
                   constraints:
                     nullable: false
                   remarks: "旅行滞留国外"
               - column:
                   name: last_travel_check_time
                   type: DATETIME
+                  defaultValue: "2026-03-01 00:00:00"
                   constraints:
                     nullable: false
                   remarks: "上次旅行校验时间"
+              - column:
+                  name: is_refill_energy
+                  type: BOOL
+                  defaultValue: "f"
+                  constraints:
+                    nullable: false
+                  remarks: "是否Refill能量"
+              - column:
+                  name: last_refill_energy_check_date
+                  type: DATETIME
+                  defaultValue: "2026-03-01"
+                  constraints:
+                    nullable: false
+                  remarks: "上次Refill校验时间"
