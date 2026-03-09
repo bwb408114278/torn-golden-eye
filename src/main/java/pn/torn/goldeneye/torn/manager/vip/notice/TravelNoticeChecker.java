@@ -50,7 +50,7 @@ public class TravelNoticeChecker extends BaseVipNoticeChecker {
                     .set(VipNoticeDO::getLastTravelCheckTime, checkTime)
                     .eq(VipNoticeDO::getId, notice.getId())
                     .update();
-            return List.of("别睡了, 再睡回不来了");
+            return List.of("在海外滞留了");
         } else if (TornUserStatusEnum.TRAVELING.getCode().equals(resp.getProfile().getStatus().getState())) {
             TornUserTravelVO travel = tornApi.sendRequest(new TornUserTravelDTO(), key, TornUserTravelVO.class);
             LocalDateTime arrivalTime = DateTimeUtils.convertToDateTime(travel.getTravel().getArrivalAt());

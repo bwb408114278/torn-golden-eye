@@ -1,6 +1,5 @@
 package pn.torn.goldeneye.configuration;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -14,6 +13,7 @@ import pn.torn.goldeneye.base.torn.TornReqParam;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.enums.key.TornApiErrorCodeEnum;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.utils.JsonUtils;
 
@@ -23,7 +23,7 @@ import java.util.List;
  * Torn Api请求实现类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.07.22
  */
 @Slf4j
@@ -39,11 +39,7 @@ class TornApiImpl implements TornApi {
     private final RestClient restClientV2;
     // 定义最大重试次数
     private static final int MAX_RETRIES = 3;
-    // 定义Key无效的错误码
-    private static final int INVALID_KEY_ERROR_CODE = 2;
-    private static final int KEY_OWNER_FJ = 10;
-    private static final int KEY_OWNER_INACTIVE = 13;
-    private static final int KEY_PAUSED_ERROR_CODE = 18;
+    private static final int HTTP_RETRY_COUNT = 3;
 
     public TornApiImpl(TornApiKeyConfig apiKeyConfig) {
         this.apiKeyConfig = apiKeyConfig;
@@ -58,172 +54,178 @@ class TornApiImpl implements TornApi {
         apiKeyConfig.reloadKeyData();
     }
 
-
     @Override
     public <T> T sendRequest(TornReqParam param, TornApiKeyDO apiKey, Class<T> responseType) {
-        try {
-            String uriWithParam = param.uri() + "/" +
-                    (param.getId() == null ? "" : param.getId()) +
-                    "?selections=" + param.getSection() +
-                    "&key=" + apiKey.getApiKey();
-
-            ResponseEntity<String> entity = this.restClient
-                    .method(HttpMethod.GET)
-                    .uri(uriWithParam)
-                    .retrieve()
-                    .toEntity(String.class);
-
-            apiKeyConfig.returnKey(apiKey);
-            return handleResponse(param.uri(), entity, responseType);
-        } catch (BizException e) {
-            if (e.getCode() == BotConstants.EX_INVALID_KEY && apiKey != null) {
-                log.warn("调用者指定的API Key(ID:{}) 已失效，将作废该Key并向上抛出异常。", apiKey.getId());
-                apiKeyConfig.invalidateKey(apiKey);
-            } else {
-                apiKeyConfig.returnKey(apiKey);
-            }
-            throw e;
-        } catch (Exception e) {
-            log.error("使用指定Key请求Torn Api时出错", e);
-            apiKeyConfig.returnKey(apiKey);
-            return null;
-        }
+        TornApiRequestExecutor executor = key -> executeV1Request(param, key);
+        return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false);
     }
 
     @Override
     public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
-        return executeRequest(param, null, responseType);
+        return sendRequest(param, null, responseType);
     }
 
     @Override
     public <T> T sendRequest(long factionId, TornReqParamV2 param, Class<T> responseType) {
-        return executeRequest(param, factionId, responseType);
+        return executeWithRetry(param, factionId, responseType);
     }
 
     @Override
     public <T> T sendRequest(TornReqParamV2 param, TornApiKeyDO apiKey, Class<T> responseType) {
-        try {
-            UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
-            MultiValueMap<String, String> paramMap = param.buildReqParam();
-            paramMap.put("comment", List.of("golden-eye"));
-            uriBuilder.queryParams(paramMap);
-
-            String finalUri = uriBuilder.encode().build().toUriString();
-            RestClient.RequestBodySpec reqSpec = this.restClientV2.method(HttpMethod.GET).uri(finalUri);
-            if (apiKey != null) {
-                reqSpec = reqSpec.header("Authorization", "ApiKey " + apiKey.getApiKey());
-            }
-
-            ResponseEntity<String> entity = sendRequest(reqSpec, 0);
-            T response = handleResponse(param.uri(), entity, responseType);
-            apiKeyConfig.returnKey(apiKey);
-            return response;
-        } catch (BizException e) {
-            if (e.getCode() == BotConstants.EX_INVALID_KEY && apiKey != null) {
-                log.warn("调用者指定的API Key(ID:{}) 已失效，将作废该Key并向上抛出异常。", apiKey.getId());
-                apiKeyConfig.invalidateKey(apiKey);
-            } else {
-                apiKeyConfig.returnKey(apiKey);
-            }
-            throw e;
-        } catch (Exception e) {
-            log.error("使用指定Key请求Torn Api V2时出错", e);
-            apiKeyConfig.returnKey(apiKey);
-            return null;
-        }
+        TornApiRequestExecutor executor = key -> executeV2Request(param, key);
+        return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false);
     }
 
-    private <T> T executeRequest(TornReqParamV2 param, Long factionId, Class<T> responseType) {
-        for (int i = 0; i < MAX_RETRIES; i++) {
+    /**
+     * 执行 V1 API 请求
+     */
+    private ResponseEntity<String> executeV1Request(TornReqParam param, TornApiKeyDO apiKey) {
+        String uriWithParam = param.uri() + "/" +
+                (param.getId() == null ? "" : param.getId()) +
+                "?selections=" + param.getSection() +
+                "&key=" + apiKey.getApiKey();
+        return restClient.method(HttpMethod.GET)
+                .uri(uriWithParam)
+                .retrieve()
+                .toEntity(String.class);
+    }
+
+    /**
+     * 执行 V2 API 请求
+     */
+    private ResponseEntity<String> executeV2Request(TornReqParamV2 param, TornApiKeyDO apiKey) {
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
+        MultiValueMap<String, String> paramMap = param.buildReqParam();
+        paramMap.put("comment", List.of("golden-eye"));
+        uriBuilder.queryParams(paramMap);
+        String finalUri = uriBuilder.encode().build().toUriString();
+        RestClient.RequestBodySpec reqSpec = restClientV2.method(HttpMethod.GET).uri(finalUri);
+
+        if (apiKey != null) {
+            reqSpec = reqSpec.header("Authorization", "ApiKey " + apiKey.getApiKey());
+        }
+        return executeWithHttpRetry(reqSpec, 0);
+    }
+
+    /**
+     * 带重试机制的请求执行（针对 Key 失效）
+     */
+    private <T> T executeWithRetry(TornReqParamV2 param, Long factionId, Class<T> responseType) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             TornApiKeyDO apiKey = (factionId == null)
                     ? apiKeyConfig.getEnableKey()
                     : apiKeyConfig.getFactionKey(factionId, param.needFactionAccess());
-
             if (apiKey == null) {
                 log.warn("无法获取可用的API Key (帮派ID: {}), 终止请求。", factionId);
                 return null;
             }
+            TornApiRequestExecutor executor = key -> executeV2Request(param, key);
+            T result = executeWithKeyManagement(executor, apiKey, param.uri(), responseType, true);
 
-            try {
-                UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(param.uri());
-                MultiValueMap<String, String> paramMap = param.buildReqParam();
-                paramMap.put("comment", List.of("golden-eye"));
-                uriBuilder.queryParams(paramMap);
-
-                String finalUri = uriBuilder.encode().build().toUriString();
-                RestClient.RequestBodySpec reqSpec = this.restClientV2.method(HttpMethod.GET).uri(finalUri)
-                        .header("Authorization", "ApiKey " + apiKey.getApiKey());
-
-                ResponseEntity<String> entity = sendRequest(reqSpec, 0);
-                T result = handleResponse(param.uri(), entity, responseType);
-
-                apiKeyConfig.returnKey(apiKey);
+            if (result != null) {
                 return result;
-            } catch (BizException e) {
-                if (e.getCode() == BotConstants.EX_INVALID_KEY) {
-                    log.warn("API Key(ID:{}) 已失效。正在移除并进行第 {}/{} 次重试...", apiKey.getId(), i + 1, MAX_RETRIES);
-                    apiKeyConfig.invalidateKey(apiKey);
-                    // 继续下一次循环，获取新Key
-                } else {
-                    apiKeyConfig.returnKey(apiKey);
-                    throw e;
-                }
-            } catch (Exception e) {
-                log.error("请求Torn Api V2时发生未知错误", e);
-                apiKeyConfig.returnKey(apiKey);
-                return null;
             }
+            log.warn("第 {}/{} 次重试...", attempt + 1, MAX_RETRIES);
         }
         log.error("Torn请求 {} 在因Key失效重试 {} 次后仍然失败。", param.uri(), MAX_RETRIES);
         return null;
     }
 
     /**
-     * 发送请求，失败后会进行3次重试
+     * 核心执行方法：统一的 Key 管理和异常处理
      */
-    private ResponseEntity<String> sendRequest(RestClient.RequestBodySpec reqSpec, int retryCount) {
+    private <T> T executeWithKeyManagement(TornApiRequestExecutor executor, TornApiKeyDO apiKey, String uri,
+                                           Class<T> responseType, boolean isRetryContext) {
         try {
-            return reqSpec.retrieve().toEntity(String.class);
+            ResponseEntity<String> response = executor.execute(apiKey);
+            TornApiRequestContext context = new TornApiRequestContext(uri, apiKey, response);
+
+            T result = processResponse(context, responseType);
+            apiKeyConfig.returnKey(apiKey);
+            return result;
+        } catch (BizException e) {
+            handleBizException(e, apiKey, isRetryContext);
+            throw e;
         } catch (Exception e) {
-            retryCount++;
-            log.warn("第{}次请求Torn Api V2出错", retryCount, e);
-            if (retryCount > 3) {
-                return null;
-            } else {
-                return sendRequest(reqSpec, retryCount);
-            }
+            log.error("请求Torn API时发生未知错误", e);
+            apiKeyConfig.returnKey(apiKey);
+            return null;
         }
     }
 
     /**
-     * 处理响应体
+     * 处理业务异常
      */
-    private <T> T handleResponse(String uri, ResponseEntity<String> entity, Class<T> responseType) {
+    private void handleBizException(BizException e, TornApiKeyDO apiKey, boolean isRetryContext) {
+        if (e.getCode() == BotConstants.EX_INVALID_KEY && apiKey != null) {
+            if (!isRetryContext) {
+                log.warn("调用者指定的API Key(ID:{}) 已失效，将作废该Key并向上抛出异常。", apiKey.getId());
+            }
+            apiKeyConfig.invalidateKey(apiKey);
+        } else {
+            apiKeyConfig.returnKey(apiKey);
+        }
+    }
+
+    /**
+     * HTTP 层面的重试（网络错误等）
+     */
+    private ResponseEntity<String> executeWithHttpRetry(RestClient.RequestBodySpec reqSpec, int retryCount) {
         try {
-            if (entity == null || entity.getBody() == null || entity.getBody().isEmpty()) {
+            return reqSpec.retrieve().toEntity(String.class);
+        } catch (Exception e) {
+            retryCount++;
+            log.warn("第{}次请求Torn API出错", retryCount, e);
+            if (retryCount >= HTTP_RETRY_COUNT) {
                 return null;
             }
+            return executeWithHttpRetry(reqSpec, retryCount);
+        }
+    }
 
-            if (JsonUtils.existsNode(entity.getBody(), "error")) {
-                log.error("Torn Api报错, uri: {}, response: {}", uri, entity.getBody());
-                JsonNode node = JsonUtils.getNode(entity.getBody(), "error.code");
-                // 无效的Key
-                if (node != null && (node.asInt() == INVALID_KEY_ERROR_CODE ||
-                        node.asInt() == KEY_OWNER_FJ ||
-                        node.asInt() == KEY_OWNER_INACTIVE ||
-                        node.asInt() == KEY_PAUSED_ERROR_CODE)) {
-                    throw new BizException(BotConstants.EX_INVALID_KEY, "无效的Key");
-                } else {
-                    return null;
+    /**
+     * 处理响应并解析
+     */
+    private <T> T processResponse(TornApiRequestContext context, Class<T> responseType) {
+        if (context.response() == null || context.response().getBody() == null
+                || context.response().getBody().isEmpty()) {
+            return null;
+        }
+
+        if (context.hasError()) {
+            handleApiError(context);
+            return null;
+        }
+
+        return JsonUtils.jsonToObj(context.response().getBody(), responseType);
+    }
+
+    /**
+     * 统一处理 API 错误
+     */
+    private void handleApiError(TornApiRequestContext context) {
+        Integer errorCode = context.getErrorCode();
+        if (errorCode == null) {
+            log.error("Torn API报错但无法解析错误码, uri: {}, response: {}",
+                    context.uri(), context.response().getBody());
+            return;
+        }
+
+        TornApiErrorCodeEnum apiError = TornApiErrorCodeEnum.fromCode(errorCode);
+        String responseBody = context.response().getBody();
+
+        switch (apiError) {
+            case INVALID_KEY, KEY_OWNER_FJ, KEY_OWNER_INACTIVE, KEY_PAUSED -> {
+                log.warn("Torn API Key错误 [错误码:{}], uri: {}, Key ID: {}",
+                        errorCode, context.uri(), context.apiKey().getId());
+                if (apiError.isShouldInvalidateKey()) {
+                    throw new BizException(BotConstants.EX_INVALID_KEY, apiError.getMessage());
                 }
             }
-
-            return JsonUtils.jsonToObj(entity.getBody(), responseType);
-        } catch (BizException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("解析Torn API响应时发生未知错误", e);
-            return null;
+            case TOO_MANY_REQUESTS -> log.error("Torn API请求过于频繁 [错误码:{}], uri: {}, Key ID: {}, User ID: {}",
+                    errorCode, context.uri(), context.apiKey().getId(), context.apiKey().getUserId());
+            default -> log.error("Torn API报错 [错误码:{}], uri: {}, Key ID: {}, response: {}",
+                    errorCode, context.uri(), context.apiKey().getId(), responseBody);
         }
     }
 }
