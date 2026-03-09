@@ -29,9 +29,9 @@ public class RefillEnergyNoticeChecker extends BaseVipNoticeChecker {
     private final TornApiKeyConfig apiKeyConfig;
     private final VipNoticeDAO noticeDao;
     /**
-     * 仅在每天的 7、12、21 点执行检查
+     * 仅在每天的 7、21 点执行检查
      */
-    private static final Set<Integer> NOTIFY_HOURS = Set.of(7, 12, 21);
+    private static final Set<Integer> NOTIFY_HOURS = Set.of(7, 21);
     /**
      * 游戏日切换的小时(本地时区 8:00)
      */
@@ -70,8 +70,8 @@ public class RefillEnergyNoticeChecker extends BaseVipNoticeChecker {
         }
 
         String msg = hour < GAME_DAY_RESET_HOUR
-                ? "Refill还有不到1小时就要重置了, 不用建议捐给帮派"
-                : "今天还没Refill, 不想变强了吗";
+                ? "Refill还有不到1小时就要重置了"
+                : "今天还没Refill";
         return List.of(msg);
     }
 }

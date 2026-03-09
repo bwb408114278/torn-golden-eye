@@ -54,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 
 /**
  * Web Socket客户端机器人
@@ -348,16 +349,18 @@ public class BotSocketClient {
                 continue;
             }
 
-            String text = detail.getData().getText().replace(" ", "").toLowerCase();
-            String replacedText = text;
+            String originalText = detail.getData().getText();
+            String normalizedText = originalText.replace(" ", "").toLowerCase();
+            String replacedText = originalText;
             for (Map.Entry<String, SysBlockWordDO> entry : wordMap.entrySet()) {
                 String key = entry.getKey();
                 SysBlockWordDO blockWord = entry.getValue();
-                boolean needReplace = replacedText.contains(key)
+                boolean needReplace = normalizedText.contains(key)
                         && !(StringUtils.hasText(blockWord.getWhiteList())
-                        && Arrays.stream(blockWord.getWhiteList().split(",")).anyMatch(text::contains));
+                        && Arrays.stream(blockWord.getWhiteList().split(",")).anyMatch(normalizedText::contains));
                 if (needReplace) {
-                    replacedText = replacedText.replace(key, blockWord.getReplaceWord());
+                    replacedText = replacedText.replaceAll("(?i)" + Pattern.quote(key.replace(" ", "")),
+                            blockWord.getReplaceWord());
                     hasReplacement = true;
                 }
             }
