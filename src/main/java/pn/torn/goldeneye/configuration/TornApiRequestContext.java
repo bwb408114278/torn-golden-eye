@@ -9,10 +9,9 @@ import pn.torn.goldeneye.utils.JsonUtils;
  * Torn API 请求上下文
  *
  */
-record TornApiRequestContext(
-        String uri,
-        TornApiKeyDO apiKey,
-        ResponseEntity<String> response) {
+record TornApiRequestContext(String uri,
+                             TornApiKeyDO apiKey,
+                             ResponseEntity<String> response) {
     boolean hasError() {
         return response != null && response.getBody() != null
                 && JsonUtils.existsNode(response.getBody(), "error");

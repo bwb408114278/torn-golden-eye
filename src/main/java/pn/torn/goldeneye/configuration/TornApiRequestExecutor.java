@@ -12,5 +12,11 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
  */
 @FunctionalInterface
 interface TornApiRequestExecutor {
-    ResponseEntity<String> execute(TornApiKeyDO apiKey) throws Exception;
+    /**
+     * 执行请求
+     *
+     * @param apiKey 请求用的ApiKey
+     * @return 请求结果
+     */
+    ResponseEntity<String> execute(TornApiKeyDO apiKey) throws RuntimeException;
 }

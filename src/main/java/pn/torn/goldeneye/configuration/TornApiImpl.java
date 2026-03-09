@@ -67,7 +67,8 @@ class TornApiImpl implements TornApi {
 
     @Override
     public <T> T sendRequest(long factionId, TornReqParamV2 param, Class<T> responseType) {
-        return executeWithRetry(param, factionId, responseType);
+        TornApiRequestExecutor executor = key -> executeV2Request(param, key);
+        return executeWithRetry(executor, param.uri(), factionId, param.needFactionAccess(), responseType);
     }
 
     @Override
@@ -83,7 +84,8 @@ class TornApiImpl implements TornApi {
         String uriWithParam = param.uri() + "/" +
                 (param.getId() == null ? "" : param.getId()) +
                 "?selections=" + param.getSection() +
-                "&key=" + apiKey.getApiKey();
+                "&key=" + apiKey.getApiKey() +
+                "&comment=golden-eye";
         return restClient.method(HttpMethod.GET)
                 .uri(uriWithParam)
                 .retrieve()
@@ -110,24 +112,24 @@ class TornApiImpl implements TornApi {
     /**
      * 带重试机制的请求执行（针对 Key 失效）
      */
-    private <T> T executeWithRetry(TornReqParamV2 param, Long factionId, Class<T> responseType) {
+    private <T> T executeWithRetry(TornApiRequestExecutor executor, String uri,
+                                   long factionId, boolean needFactionAccess, Class<T> responseType) {
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            TornApiKeyDO apiKey = (factionId == null)
+            TornApiKeyDO apiKey = (factionId == 0L)
                     ? apiKeyConfig.getEnableKey()
-                    : apiKeyConfig.getFactionKey(factionId, param.needFactionAccess());
+                    : apiKeyConfig.getFactionKey(factionId, needFactionAccess);
             if (apiKey == null) {
                 log.warn("无法获取可用的API Key (帮派ID: {}), 终止请求。", factionId);
                 return null;
             }
-            TornApiRequestExecutor executor = key -> executeV2Request(param, key);
-            T result = executeWithKeyManagement(executor, apiKey, param.uri(), responseType, true);
 
+            T result = executeWithKeyManagement(executor, apiKey, uri, responseType, true);
             if (result != null) {
                 return result;
             }
             log.warn("第 {}/{} 次重试...", attempt + 1, MAX_RETRIES);
         }
-        log.error("Torn请求 {} 在因Key失效重试 {} 次后仍然失败。", param.uri(), MAX_RETRIES);
+        log.error("Torn请求 {} 在因Key失效重试 {} 次后仍然失败。", uri, MAX_RETRIES);
         return null;
     }
 
@@ -187,17 +189,20 @@ class TornApiImpl implements TornApi {
      * 处理响应并解析
      */
     private <T> T processResponse(TornApiRequestContext context, Class<T> responseType) {
-        if (context.response() == null || context.response().getBody() == null
-                || context.response().getBody().isEmpty()) {
+        ResponseEntity<String> response = context.response();
+        if (response == null) {
             return null;
         }
 
+        String body = response.getBody();
+        if (body == null || body.isEmpty()) {
+            return null;
+        }
         if (context.hasError()) {
             handleApiError(context);
             return null;
         }
-
-        return JsonUtils.jsonToObj(context.response().getBody(), responseType);
+        return JsonUtils.jsonToObj(body, responseType);
     }
 
     /**
