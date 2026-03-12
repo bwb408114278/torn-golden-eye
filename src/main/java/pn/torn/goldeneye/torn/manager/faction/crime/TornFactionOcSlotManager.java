@@ -17,7 +17,7 @@ import java.util.Objects;
  * OC岗位公共逻辑层
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.0.0
  * @since 2025.08.31
  */
 @Component
@@ -32,7 +32,7 @@ public class TornFactionOcSlotManager {
         List<TornFactionOcSlotDO> oldSlotList = slotDao.queryListByOc(oldDataList);
         for (TornFactionCrimeVO oc : ocList) {
             for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-                String position = slot.getPosition() + "#" + slot.getPositionNumber();
+                String position = slot.getPosition() + "#" + slot.getPositionInfo().getNumber();
                 TornFactionOcSlotDO oldSlot = oldSlotList.stream()
                         .filter(old -> old.getOcId().equals(oc.getId()) && old.getPosition().equals(position))
                         .findAny().orElse(null);
@@ -42,24 +42,31 @@ public class TornFactionOcSlotManager {
                     continue;
                 }
 
-                if (slot.getUser() != null) {
-                    slotDao.lambdaUpdate()
-                            .set(TornFactionOcSlotDO::getUserId, slot.getUser().getId())
-                            .set(TornFactionOcSlotDO::getJoinTime, DateTimeUtils.convertToDateTime(slot.getUser().getJoinedAt()))
-                            .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
-                            .set(TornFactionOcSlotDO::getProgress, progress)
-                            .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
-                            .update();
-                } else {
-                    slotDao.lambdaUpdate()
-                            .set(TornFactionOcSlotDO::getUserId, null)
-                            .set(TornFactionOcSlotDO::getJoinTime, null)
-                            .set(TornFactionOcSlotDO::getPassRate, null)
-                            .set(TornFactionOcSlotDO::getProgress, BigDecimal.ZERO)
-                            .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
-                            .update();
-                }
+                updateSlotData(slot, progress, oldSlot);
             }
+        }
+    }
+
+    /**
+     * 更新Slot数据
+     */
+    private void updateSlotData(TornFactionCrimeSlotVO slot, BigDecimal progress, TornFactionOcSlotDO oldSlot) {
+        if (slot.getUser() != null) {
+            slotDao.lambdaUpdate()
+                    .set(TornFactionOcSlotDO::getUserId, slot.getUser().getId())
+                    .set(TornFactionOcSlotDO::getJoinTime, DateTimeUtils.convertToDateTime(slot.getUser().getJoinedAt()))
+                    .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
+                    .set(TornFactionOcSlotDO::getProgress, progress)
+                    .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
+                    .update();
+        } else {
+            slotDao.lambdaUpdate()
+                    .set(TornFactionOcSlotDO::getUserId, null)
+                    .set(TornFactionOcSlotDO::getJoinTime, null)
+                    .set(TornFactionOcSlotDO::getPassRate, null)
+                    .set(TornFactionOcSlotDO::getProgress, BigDecimal.ZERO)
+                    .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
+                    .update();
         }
     }
 }
