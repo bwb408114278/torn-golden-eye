@@ -1,3 +1,6 @@
+server:
+  port: 18180
+
 spring:
   application:
     name: golden-eye

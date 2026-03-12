@@ -47,11 +47,15 @@ public class TornApiKeyConfig {
     public TornApiKeyDO getEnableKey() {
         lock.readLock().lock();
         try {
-            return allKeys.values().stream()
-                    .filter(key -> !inUseKeyIds.contains(key.getId()))
-                    .min(Comparator.comparingInt(TornApiKeyDO::getUseCount))
-                    .map(this::markKeyInUse)
-                    .orElse(null);
+            List<TornApiKeyDO> candidates = allKeys.values().stream()
+                    .sorted(Comparator.comparingInt(TornApiKeyDO::getUseCount))
+                    .toList();
+            for (TornApiKeyDO key : candidates) {
+                if (inUseKeyIds.add(key.getId())) {
+                    return key;
+                }
+            }
+            return null;
         } finally {
             lock.readLock().unlock();
         }
@@ -130,14 +134,18 @@ public class TornApiKeyConfig {
             if (keyIds == null || keyIds.isEmpty()) {
                 return null;
             }
-            return keyIds.stream()
+            List<TornApiKeyDO> candidates = keyIds.stream()
                     .map(allKeys::get)
                     .filter(Objects::nonNull)
-                    .filter(key -> !inUseKeyIds.contains(key.getId()))
                     .filter(key -> !needFactionAccess || Boolean.TRUE.equals(key.getHasFactionAccess()))
-                    .min(Comparator.comparingInt(TornApiKeyDO::getUseCount))
-                    .map(this::markKeyInUse)
-                    .orElse(null);
+                    .sorted(Comparator.comparingInt(TornApiKeyDO::getUseCount))
+                    .toList();
+            for (TornApiKeyDO key : candidates) {
+                if (inUseKeyIds.add(key.getId())) {
+                    return key;
+                }
+            }
+            return null;
         } finally {
             lock.readLock().unlock();
         }
@@ -153,10 +161,9 @@ public class TornApiKeyConfig {
             if (keyId == null) {
                 return null;
             }
-
             TornApiKeyDO key = allKeys.get(keyId);
-            if (key != null && !inUseKeyIds.contains(keyId)) {
-                return markKeyInUse(key);
+            if (key != null && inUseKeyIds.add(keyId)) {
+                return key;
             }
             return null;
         } finally {

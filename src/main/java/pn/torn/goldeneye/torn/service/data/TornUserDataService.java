@@ -16,9 +16,11 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.napcat.receive.member.GroupMemberDataRec;
 import pn.torn.goldeneye.napcat.receive.member.GroupMemberRec;
 import pn.torn.goldeneye.napcat.send.GroupMemberReqParam;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingFactionDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserBsSnapshotDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
@@ -58,6 +60,7 @@ public class TornUserDataService {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
     private final TornSettingFactionManager settingFactionManager;
+    private final TornSettingFactionDAO settingFactionDao;
     private final TornUserManager userManager;
     private final TornFactionOcUserManager ocUserManager;
     private final TornUserDAO userDao;
@@ -126,12 +129,14 @@ public class TornUserDataService {
                 continue;
             }
 
-            ResponseEntity<GroupMemberRec> memberList = bot.sendRequest(
+            ResponseEntity<GroupMemberRec> resp = bot.sendRequest(
                     new GroupMemberReqParam(faction.getGroupId()), GroupMemberRec.class);
+            List<GroupMemberDataRec> memberList = resp.getBody() == null ? List.of() : resp.getBody().getData();
             List<TornUserDO> userList = userDao.lambdaQuery().eq(TornUserDO::getQqId, 0L).list();
+
             for (TornUserDO user : userList) {
                 String card = "[" + user.getId() + "]";
-                memberList.getBody().getData().stream()
+                memberList.stream()
                         .filter(m -> m.getCard().contains(card))
                         .findAny()
                         .ifPresent(member ->
@@ -140,7 +145,19 @@ public class TornUserDataService {
                                         .eq(TornUserDO::getId, user.getId())
                                         .update());
             }
+
+            List<String> adminIdList = memberList.stream()
+                    .filter(m -> "owner".equals(m.getRole()) || "admin".equals(m.getRole()))
+                    .map(m -> String.valueOf(m.getUserId()))
+                    .toList();
+            String adminIdStr = String.join(",", adminIdList);
+            settingFactionDao.lambdaUpdate()
+                    .set(TornSettingFactionDO::getAllAdminQq, adminIdStr)
+                    .eq(TornSettingFactionDO::getId, faction.getId())
+                    .update();
         }
+
+        settingFactionManager.refreshCache();
     }
 
     /**
