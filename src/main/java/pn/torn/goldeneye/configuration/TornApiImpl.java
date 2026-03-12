@@ -62,7 +62,7 @@ class TornApiImpl implements TornApi {
 
     @Override
     public <T> T sendRequest(TornReqParamV2 param, Class<T> responseType) {
-        return sendRequest(param, null, responseType);
+        return sendRequest(0L, param, responseType);
     }
 
     @Override
