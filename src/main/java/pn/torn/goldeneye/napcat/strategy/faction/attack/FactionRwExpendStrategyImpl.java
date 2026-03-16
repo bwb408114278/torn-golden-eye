@@ -53,7 +53,7 @@ public class FactionRwExpendStrategyImpl extends PnManageMsgStrategy {
 
     @Override
     public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID);
+        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID);
     }
 
     @Override

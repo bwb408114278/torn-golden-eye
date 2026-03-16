@@ -60,7 +60,7 @@ import java.util.regex.Pattern;
  * Web Socket客户端机器人
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.07.09
  */
 @Slf4j
@@ -500,7 +500,8 @@ public class BotSocketClient {
      * 回复消息
      */
     private void replyMsg(TornFactionBO faction, BotSocketReqParam param) {
-        replyMsg(faction != null && !faction.getMsgBlock(), param);
+        boolean factionMsgValid = faction != null && !faction.getMsgBlock();
+        replyMsg(faction == null || factionMsgValid, param);
     }
 
     /**
