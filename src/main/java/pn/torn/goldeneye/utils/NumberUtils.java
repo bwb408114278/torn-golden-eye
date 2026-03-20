@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
  * 数字工具类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.07.24
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -127,6 +127,16 @@ public class NumberUtils {
                     .setScale(0, RoundingMode.HALF_UP).longValueExact();
             default -> number.setScale(0, RoundingMode.HALF_UP).longValueExact();
         };
+    }
+
+    /**
+     * 将大数字转换为k/m/b/t格式的字符串
+     *
+     * @param number 输入数字（long类型）
+     * @return 格式化后的字符串（如1.5k, 2.34m, 3.78b, 4.56t）
+     */
+    public static String formatCompactNumber(BigDecimal number) {
+        return formatCompactNumber(number.longValue());
     }
 
     /**

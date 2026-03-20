@@ -53,4 +53,59 @@
         INNER JOIN previous p ON l.stocks_id = p.stocks_id
         WHERE ABS((l.total_shares - p.total_shares) * l.current_price) > #{threshold}
     </select>
+
+    <!-- 获取指定股票的历史交易统计 -->
+    <select id="getTradeStats" resultType="pn.torn.goldeneye.repository.model.torn.StocksTradeStatsDO">
+        WITH all_records AS (
+            SELECT
+            stocks_id,
+            current_price,
+            total_shares,
+            reg_date_time,
+            LAG(total_shares) OVER (PARTITION BY stocks_id ORDER BY reg_date_time) AS prev_total_shares
+            FROM torn_stocks_history
+            WHERE deleted = 0
+                AND reg_date_time >= #{startTime7d}::timestamp - INTERVAL '5 minutes'
+                AND stocks_id IN
+                <foreach collection="stocksIds" item="id" open="(" separator="," close=")">
+                 #{id}
+                </foreach>),
+        changes AS (
+            SELECT
+            stocks_id,
+            current_price,
+            reg_date_time,
+            total_shares - prev_total_shares AS shares_delta
+            FROM all_records
+            WHERE prev_total_shares IS NOT NULL
+            AND reg_date_time >= #{startTime7d})
+
+        SELECT
+        stocks_id AS stocksId,
+
+        -- 24小时维度
+        SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta > 0
+                 THEN shares_delta * current_price ELSE 0 END) AS buyVolume24h,
+        SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta &lt; 0
+                 THEN ABS(shares_delta * current_price) ELSE 0 END) AS sellVolume24h,
+        MIN(CASE WHEN reg_date_time >= #{startTime24h} THEN current_price END) AS minPrice24h,
+        MAX(CASE WHEN reg_date_time >= #{startTime24h} THEN current_price END) AS maxPrice24h,
+        AVG(CASE WHEN reg_date_time >= #{startTime24h} THEN current_price END) AS avgPrice24h,
+        AVG(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta > 0
+                 THEN current_price END) AS avgBuyPrice24h,
+        AVG(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta &lt; 0
+                 THEN current_price END) AS avgSellPrice24h,
+
+        -- 7天维度
+        SUM(CASE WHEN shares_delta > 0 THEN shares_delta * current_price ELSE 0 END) AS buyVolume7d,
+        SUM(CASE WHEN shares_delta &lt; 0 THEN ABS(shares_delta * current_price) ELSE 0 END) AS sellVolume7d,
+        MIN(current_price) AS minPrice7d,
+        MAX(current_price) AS maxPrice7d,
+        AVG(current_price) AS avgPrice7d,
+        AVG(CASE WHEN shares_delta > 0 THEN current_price END) AS avgBuyPrice7d,
+        AVG(CASE WHEN shares_delta &lt; 0 THEN current_price END) AS avgSellPrice7d
+
+        FROM changes
+        GROUP BY stocks_id
+    </select>
 </mapper>

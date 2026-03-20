@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.torn.StocksChangeDO;
+import pn.torn.goldeneye.repository.model.torn.StocksTradeStatsDO;
 import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
 
 import java.time.LocalDateTime;
@@ -13,7 +14,7 @@ import java.util.List;
  * Torn股票历史数据库访问层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2026.01.26
  */
 @Mapper
@@ -36,4 +37,16 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
     List<StocksChangeDO> getGreatTradeChangeList(@Param("latestTime") LocalDateTime latestTime,
                                                  @Param("previousTime") LocalDateTime previousTime,
                                                  @Param("threshold") long threshold);
+
+    /**
+     * 获取指定股票的历史交易统计
+     *
+     * @param stocksIds    股票ID列表
+     * @param startTime24h 24小时内的开始时间
+     * @param startTime7d  7天内的开始时间
+     * @return 股票交易状态列表
+     */
+    List<StocksTradeStatsDO> getTradeStats(@Param("stocksIds") List<Integer> stocksIds,
+                                           @Param("startTime24h") LocalDateTime startTime24h,
+                                           @Param("startTime7d") LocalDateTime startTime7d);
 }
