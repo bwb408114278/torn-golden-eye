@@ -27,9 +27,9 @@ public abstract class BaseVipNoticeChecker implements VipNoticeChecker {
         }
 
         if (remainSecond == 0L) {
-            return lastCheckTime.plusMinutes(RECHECK_MINUTES_WHEN_ZERO).isBefore(now);
+            return !lastCheckTime.plusMinutes(RECHECK_MINUTES_WHEN_ZERO).isAfter(now);
         }
 
-        return lastCheckTime.plusSeconds(remainSecond).isBefore(now);
+        return !lastCheckTime.plusSeconds(remainSecond).isAfter(now);
     }
 }
