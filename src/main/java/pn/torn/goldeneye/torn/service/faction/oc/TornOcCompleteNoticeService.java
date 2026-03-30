@@ -59,6 +59,7 @@ public class TornOcCompleteNoticeService {
         List<Long> noticeFactionIdList = new ArrayList<>();
         noticeFactionIdList.add(TornConstants.FACTION_PN_ID);
         noticeFactionIdList.add(TornConstants.FACTION_SH_ID);
+        noticeFactionIdList.add(TornConstants.FACTION_HP_ID);
 
         for (long factionId : TornConstants.REASSIGN_OC_FACTION) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);

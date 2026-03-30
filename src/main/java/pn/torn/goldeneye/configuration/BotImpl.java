@@ -6,7 +6,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgReqParam;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
@@ -15,7 +14,7 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
  * 机器人类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.06.22
  */
 @Slf4j
@@ -28,10 +27,8 @@ class BotImpl implements Bot {
      * 系统设置
      */
     private final TornSettingFactionManager factionManager;
-    private final ProjectProperty projectProperty;
 
-    public BotImpl(String serverAddr, String serverPort, String serverToken,
-                   TornSettingFactionManager factionManager, ProjectProperty projectProperty) {
+    public BotImpl(String serverAddr, String serverPort, String serverToken, TornSettingFactionManager factionManager) {
         this.restClient = RestClient.builder()
                 .baseUrl("http://" + serverAddr + ":" + serverPort)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, serverToken)
@@ -39,15 +36,14 @@ class BotImpl implements Bot {
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
                 .build();
         this.factionManager = factionManager;
-        this.projectProperty = projectProperty;
     }
 
     @Override
     public <T> ResponseEntity<T> sendRequest(BotHttpReqParam param, Class<T> responseType) {
         try {
-            if (param.body() instanceof GroupMsgReqParam msg && projectProperty.getVipGroupId() != msg.getGroupId()) {
+            if (param.body() instanceof GroupMsgReqParam msg) {
                 TornSettingFactionDO faction = factionManager.getGroupIdMap().get(msg.getGroupId());
-                if (faction == null || faction.getMsgBlock()) {
+                if (faction != null && faction.getMsgBlock()) {
                     return null;
                 }
             }
