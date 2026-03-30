@@ -45,13 +45,14 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
     /**
      * 获取指定股票的历史交易统计
      *
-     * @param stocksIds    股票ID列表
-     * @param startTime24h 24小时内的开始时间
-     * @param startTime7d  7天内的开始时间
+     * @param stocksIds       股票ID列表
+     * @param minSampleVolume 加权最低成交额
+     * @param startTime24h    24小时内的开始时间
+     * @param startTime7d     7天内的开始时间
      * @return 股票交易状态列表
      */
-    public List<StocksTradeStatsDO> getTradeStats(List<Integer> stocksIds, LocalDateTime startTime24h,
-                                                  LocalDateTime startTime7d) {
-        return baseMapper.getTradeStats(stocksIds, startTime24h, startTime7d);
+    public List<StocksTradeStatsDO> getTradeStats(List<Integer> stocksIds, long minSampleVolume,
+                                                  LocalDateTime startTime24h, LocalDateTime startTime7d) {
+        return baseMapper.getTradeStats(stocksIds, minSampleVolume, startTime24h, startTime7d);
     }
 }

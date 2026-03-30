@@ -11,6 +11,7 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
+import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
@@ -22,7 +23,9 @@ import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
 import pn.torn.goldeneye.utils.NumberUtils;
+import pn.torn.goldeneye.utils.image.TextImageUtils;
 
+import java.awt.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -51,7 +54,7 @@ public class TornStocksManager {
     private final TornStocksDAO stocksDao;
     private final TornStocksHistoryDAO stocksHistoryDao;
     private final ProjectProperty projectProperty;
-    private static final Long NOTICE_THRESHOLD = 100_000_000_000L;
+    private static final long NOTICE_THRESHOLD = 100_000_000_000L;
     private static final String BUY_COUNT = "买入量: ";
     private static final String SELL_COUNT = "卖出量: ";
     private static final String AVG_PRICE = " | 平均价: ";
@@ -165,18 +168,23 @@ public class TornStocksManager {
             return;
         }
 
-        List<QqMsgParam<?>> msgList = new ArrayList<>();
         List<Integer> stocksIds = changeList.stream().map(StocksChangeDO::getStocksId).toList();
         Map<Integer, StocksTradeStatsDO> statsMap = stocksHistoryDao.getTradeStats(stocksIds,
-                        regDateTime.minusHours(24), regDateTime.minusDays(7))
+                        NOTICE_THRESHOLD, regDateTime.minusHours(24), regDateTime.minusDays(7))
                 .stream().collect(Collectors.toMap(StocksTradeStatsDO::getStocksId, s -> s));
 
-        msgList.add(new TextQqMsg("过去1分钟内, 检测到股票大额交易"));
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("过去1分钟内, 检测到股票大额交易");
         for (StocksChangeDO change : changeList) {
-            String msgContent = buildStockMsgContent(change, statsMap);
-            msgList.add(new TextQqMsg(msgContent));
+            stringBuilder.append(buildStockMsgContent(change, statsMap));
         }
+        String msgContent = stringBuilder.toString();
 
+        List<QqMsgParam<?>> msgList = new ArrayList<>();
+        TextImageUtils.TextConfig textConfig = new TextImageUtils.TextConfig()
+                .setFont(new Font("微软雅黑", Font.PLAIN, 30));
+        msgList.add(ImageQqMsg.fromBase64(TextImageUtils.renderTextToBase64(msgContent, textConfig)));
+        msgList.add(new TextQqMsg(msgContent));
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
                 .addMsg(msgList)
@@ -190,7 +198,7 @@ public class TornStocksManager {
      * @param statsMap Key为股票ID
      */
     private String buildStockMsgContent(StocksChangeDO change,
-                                       Map<Integer, StocksTradeStatsDO> statsMap) {
+                                        Map<Integer, StocksTradeStatsDO> statsMap) {
         change.calculateNetTrade();
         StringBuilder sb = new StringBuilder();
         sb.append("\n").append(change.getStocksShortname()).append(": ")

@@ -91,10 +91,20 @@
         MIN(CASE WHEN reg_date_time >= #{startTime24h} THEN current_price END) AS minPrice24h,
         MAX(CASE WHEN reg_date_time >= #{startTime24h} THEN current_price END) AS maxPrice24h,
         AVG(CASE WHEN reg_date_time >= #{startTime24h} THEN current_price END) AS avgPrice24h,
-        AVG(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta > 0
-                 THEN current_price END) AS avgBuyPrice24h,
-        AVG(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta &lt; 0
-                 THEN current_price END) AS avgSellPrice24h,
+        CASE WHEN SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta > 0
+                           THEN shares_delta * current_price ELSE 0 END) >= #{minSampleVolume}
+             THEN SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta > 0
+                           THEN shares_delta * current_price ELSE 0 END)
+                  / NULLIF(SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta > 0
+                                    THEN shares_delta ELSE 0 END), 0)
+             END AS avgBuyPrice24h,
+        CASE WHEN SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta &lt; 0
+                           THEN (-shares_delta) * current_price ELSE 0 END) >= #{minSampleVolume}
+             THEN SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta &lt; 0
+                           THEN (-shares_delta) * current_price ELSE 0 END)
+                  / NULLIF(SUM(CASE WHEN reg_date_time >= #{startTime24h} AND shares_delta &lt; 0
+                                    THEN (-shares_delta) ELSE 0 END), 0)
+             END AS avgSellPrice24h,
 
         -- 7天维度
         SUM(CASE WHEN shares_delta > 0 THEN shares_delta * current_price ELSE 0 END) AS buyVolume7d,
@@ -102,8 +112,14 @@
         MIN(current_price) AS minPrice7d,
         MAX(current_price) AS maxPrice7d,
         AVG(current_price) AS avgPrice7d,
-        AVG(CASE WHEN shares_delta > 0 THEN current_price END) AS avgBuyPrice7d,
-        AVG(CASE WHEN shares_delta &lt; 0 THEN current_price END) AS avgSellPrice7d
+        CASE WHEN SUM(CASE WHEN shares_delta > 0 THEN shares_delta * current_price ELSE 0 END) >= #{minSampleVolume}
+             THEN SUM(CASE WHEN shares_delta > 0 THEN shares_delta * current_price ELSE 0 END)
+                  / NULLIF(SUM(CASE WHEN shares_delta > 0 THEN shares_delta ELSE 0 END), 0)
+             END AS avgBuyPrice7d,
+        CASE WHEN SUM(CASE WHEN shares_delta &lt; 0 THEN (-shares_delta) * current_price ELSE 0 END) >= #{minSampleVolume}
+             THEN SUM(CASE WHEN shares_delta &lt; 0 THEN (-shares_delta) * current_price ELSE 0 END)
+                  / NULLIF(SUM(CASE WHEN shares_delta &lt; 0 THEN (-shares_delta) ELSE 0 END), 0)
+             END AS avgSellPrice7d
 
         FROM changes
         GROUP BY stocks_id

@@ -41,12 +41,14 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
     /**
      * 获取指定股票的历史交易统计
      *
-     * @param stocksIds    股票ID列表
-     * @param startTime24h 24小时内的开始时间
-     * @param startTime7d  7天内的开始时间
+     * @param stocksIds       股票ID列表
+     * @param minSampleVolume 加权最低成交额
+     * @param startTime24h    24小时内的开始时间
+     * @param startTime7d     7天内的开始时间
      * @return 股票交易状态列表
      */
     List<StocksTradeStatsDO> getTradeStats(@Param("stocksIds") List<Integer> stocksIds,
+                                           @Param("minSampleVolume") long minSampleVolume,
                                            @Param("startTime24h") LocalDateTime startTime24h,
                                            @Param("startTime7d") LocalDateTime startTime7d);
 }
