@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
  * 帮派攻击记录逻辑类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.12.18
  */
 @Slf4j
@@ -68,7 +68,7 @@ public class TornFactionAttackService {
             }
 
             extractElo(resp, eloMap);
-            attackList = parseNewsList(resp, userMap, logIdSet, userNameMap, eloMap);
+            attackList = parseAttackList(resp, userMap, logIdSet, userNameMap, eloMap);
             if (!CollectionUtils.isEmpty(attackList)) {
                 attackDao.saveBatch(attackList);
             }
@@ -88,9 +88,9 @@ public class TornFactionAttackService {
     /**
      * 解析新闻列表为攻击记录
      */
-    public List<TornFactionAttackDO> parseNewsList(TornFactionAttackRespVO resp, Map<Long, TornFactionMemberVO> userMap,
-                                                   Set<String> logIdSet, Map<Long, String> userNameMap,
-                                                   Map<Long, TornUserStatsVO> eloMap) {
+    public List<TornFactionAttackDO> parseAttackList(TornFactionAttackRespVO resp, Map<Long, TornFactionMemberVO> userMap,
+                                                     Set<String> logIdSet, Map<Long, String> userNameMap,
+                                                     Map<Long, TornUserStatsVO> eloMap) {
         if (resp == null || CollectionUtils.isEmpty(resp.getAttacks())) {
             return new ArrayList<>();
         }
