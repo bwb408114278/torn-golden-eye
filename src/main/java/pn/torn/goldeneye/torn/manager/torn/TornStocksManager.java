@@ -22,6 +22,7 @@ import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBonusVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TextImageUtils;
 
@@ -173,18 +174,25 @@ public class TornStocksManager {
                         NOTICE_THRESHOLD, regDateTime.minusHours(24), regDateTime.minusDays(7))
                 .stream().collect(Collectors.toMap(StocksTradeStatsDO::getStocksId, s -> s));
 
+        List<String> msgPriceList = new ArrayList<>();
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("过去1分钟内, 检测到股票大额交易");
         for (StocksChangeDO change : changeList) {
-            stringBuilder.append(buildStockMsgContent(change, statsMap));
+            change.calculateNetTrade();
+            String msgPrice = change.getStocksShortname() + ": "
+                    + (change.isBuy() ? "买入: +" : "卖出: ")
+                    + NumberUtils.formatCompactNumber(change.getNetTradeValue())
+                    + " 当前价格: " + change.getCurrentPrice();
+            msgPriceList.add(msgPrice);
+            stringBuilder.append(buildStockMsgContent(change, msgPrice, statsMap));
         }
-        String msgContent = stringBuilder.toString();
 
         List<QqMsgParam<?>> msgList = new ArrayList<>();
         TextImageUtils.TextConfig textConfig = new TextImageUtils.TextConfig()
                 .setFont(new Font("微软雅黑", Font.PLAIN, 30));
-        msgList.add(ImageQqMsg.fromBase64(TextImageUtils.renderTextToBase64(msgContent, textConfig)));
-        msgList.add(new TextQqMsg(msgContent));
+        msgList.add(ImageQqMsg.fromBase64(TextImageUtils.renderTextToBase64(stringBuilder.toString(), textConfig)));
+        msgList.add(new TextQqMsg(DateTimeUtils.convertToString(regDateTime) +
+                " 股票大额交易\n" + String.join("\n", msgPriceList)));
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
                 .addMsg(msgList)
@@ -197,14 +205,10 @@ public class TornStocksManager {
      *
      * @param statsMap Key为股票ID
      */
-    private String buildStockMsgContent(StocksChangeDO change,
-                                        Map<Integer, StocksTradeStatsDO> statsMap) {
-        change.calculateNetTrade();
+    public String buildStockMsgContent(StocksChangeDO change, String msgPrice,
+                                       Map<Integer, StocksTradeStatsDO> statsMap) {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n").append(change.getStocksShortname()).append(": ")
-                .append(change.isBuy() ? "买入: +" : "卖出: ")
-                .append(NumberUtils.formatCompactNumber(change.getNetTradeValue()))
-                .append(" 当前价格: ").append(change.getCurrentPrice());
+        sb.append("\n").append(msgPrice);
 
         StocksTradeStatsDO stats = statsMap.get(change.getStocksId());
         if (stats != null) {

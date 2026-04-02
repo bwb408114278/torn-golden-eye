@@ -21,7 +21,6 @@ import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.vip.notice.VipNoticeChecker;
 
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -46,7 +45,7 @@ public class VipNoticeManager {
     /**
      * 免打扰结束小时（不含）
      */
-    private static final int QUIET_HOUR_END = 0;
+    private static final int QUIET_HOUR_END = 6;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final List<VipNoticeChecker> checkerList;
@@ -65,13 +64,18 @@ public class VipNoticeManager {
             return;
         }
         // 静默时间
-        int hour = LocalTime.now().getHour();
-        // 免打扰时段判断，保留 QUIET_HOUR_START 比较以便后续调整时段
-        if (hour >= QUIET_HOUR_START && hour < QUIET_HOUR_END) {
+        LocalDateTime now = LocalDateTime.now();
+        int hour = now.getHour();
+        int minute = now.getMinute();
+        // 静默时段（0:00-5:59）每小时只执行一次：仅在整点执行
+        if (hour >= QUIET_HOUR_START && hour < QUIET_HOUR_END && minute != 0) {
+            return;
+        }
+        // 8:00 跳过本次提醒, 因为Api Key还未更新
+        if (hour == 8 && minute == 0) {
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now();
         List<VipSubscribeDO> vipList = subscribeDao.lambdaQuery().ge(VipSubscribeDO::getEndDate, now.toLocalDate()).list();
         if (CollectionUtils.isEmpty(vipList)) {
             return;

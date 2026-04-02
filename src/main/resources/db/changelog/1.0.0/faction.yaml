@@ -1,0 +1,59 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_attack_index
+      author: Bai
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - indexExists:
+                tableName: torn_faction_attack
+                indexName: idx_faction_opponent_time
+            - indexExists:
+                tableName: torn_attack_log
+                indexName: idx_attacker_time
+            - indexExists:
+                tableName: torn_attack_log
+                indexName: idx_defender_time
+      changes:
+        - createIndex:
+            tableName: torn_faction_attack
+            indexName: idx_faction_opponent_time
+            columns:
+              - column:
+                  name: deleted
+              - column:
+                  name: attack_faction_id
+              - column:
+                  name: defend_faction_id
+              - column:
+                  name: attack_end_time
+        - createIndex:
+            tableName: torn_attack_log
+            indexName: idx_attacker_time
+            columns:
+              - column:
+                  name: deleted
+              - column:
+                  name: log_time
+              - column:
+                  name: attacker_id
+        - createIndex:
+            tableName: torn_attack_log
+            indexName: idx_defender_time
+            columns:
+              - column:
+                  name: deleted
+              - column:
+                  name: log_time
+              - column:
+                  name: defender_id
+      rollback:
+        - dropIndex:
+            tableName: torn_faction_attack
+            indexName: idx_faction_opponent_time
+        - dropIndex:
+            tableName: torn_attack_log
+            indexName: idx_attacker_time
+        - dropIndex:
+            tableName: torn_attack_log
+            indexName: idx_defender_time
