@@ -35,9 +35,9 @@ public class TornItemTrendManager {
     private final Bot bot;
     private final TornItemHistoryDAO itemHistoryDao;
     private final ProjectProperty projectProperty;
-    public static final List<Integer> CONSUME_ITEM_ID_LIST = new ArrayList<>();
-    public static final List<Integer> MUSEUM_ITEM_ID_LIST = new ArrayList<>();
-    public static final List<Integer> OTHER_ITEM_ID_LIST = new ArrayList<>();
+    private static final List<Integer> CONSUME_ITEM_ID_LIST = new ArrayList<>();
+    private static final List<Integer> MUSEUM_ITEM_ID_LIST = new ArrayList<>();
+    private static final List<Integer> OTHER_ITEM_ID_LIST = new ArrayList<>();
     private static final TableImageUtils.CellStyle STYLE_NORMAL = new TableImageUtils.CellStyle()
             .setBgColor(Color.WHITE).setTextColor(new Color(144, 164, 174));
     private static final TableImageUtils.CellStyle STYLE_PLUS = new TableImageUtils.CellStyle()

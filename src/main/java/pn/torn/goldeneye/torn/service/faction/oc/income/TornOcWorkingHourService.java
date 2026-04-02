@@ -55,7 +55,9 @@ public class TornOcWorkingHourService {
             int baseWorkingHours = totalSlots - i;
 
             // 2.2 获取系数
-            BigDecimal coefficient = oc.getFactionId().equals(TornConstants.FACTION_NOV_ID) ?
+            boolean isNoCoefficient = oc.getFactionId().equals(TornConstants.FACTION_NOV_ID)
+                    || oc.getFactionId().equals(TornConstants.FACTION_BSU_ID);
+            BigDecimal coefficient = isNoCoefficient ?
                     BigDecimal.ONE :
                     coefficientManager.getCoefficient(oc, slot.getPosition(), slot.getPassRate());
 

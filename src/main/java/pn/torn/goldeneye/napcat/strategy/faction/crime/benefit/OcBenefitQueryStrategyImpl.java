@@ -191,8 +191,9 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
      * 创建表格显示配置
      */
     private TableDisplayConfig createDisplayConfig(TornUserDO user) {
-        boolean isNov = user.getFactionId().equals(TornConstants.FACTION_NOV_ID);
-        return new TableDisplayConfig(isNov);
+        boolean isNoCoefficientReassign = user.getFactionId().equals(TornConstants.FACTION_NOV_ID)
+                || user.getFactionId().equals(TornConstants.FACTION_BSU_ID);
+        return new TableDisplayConfig(isNoCoefficientReassign);
     }
 
     /**
