@@ -2,6 +2,7 @@ package pn.torn.goldeneye.repository.dao.torn;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.mapper.torn.TornItemHistoryMapper;
 import pn.torn.goldeneye.repository.model.torn.ItemTrendDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemHistoryDO;
@@ -22,6 +23,24 @@ import java.util.stream.Collectors;
  */
 @Repository
 public class TornItemHistoryDAO extends ServiceImpl<TornItemHistoryMapper, TornItemHistoryDO> {
+    /**
+     * 查询物品历史数据
+     *
+     * @param itemIds    物品ID列表
+     * @param targetDate 目标日期
+     * @return 历史数据列表
+     */
+    public List<TornItemHistoryDO> queryItemHistory(List<Integer> itemIds, LocalDate targetDate) {
+        if (CollectionUtils.isEmpty(itemIds)) {
+            return List.of();
+        }
+
+        return lambdaQuery()
+                .in(TornItemHistoryDO::getItemId, itemIds)
+                .eq(TornItemHistoryDO::getRegDate, targetDate)
+                .list();
+    }
+
     /**
      * 查询物品环比数据
      *

@@ -19,6 +19,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcBatchIncomeService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -98,7 +99,7 @@ public class TornFactionOcManager {
                 .in(TornFactionOcDO::getId, ocIdList)
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .list();
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(planOcList);
+        List<TornFactionOcSlotDO> slotList = queryCompleteSlotData(ocList, planOcList);
         List<TornFactionCrimeVO> lostData = new ArrayList<>();
         for (TornFactionCrimeVO oc : ocList) {
             TornFactionOcDO planOc = planOcList.stream()
@@ -109,6 +110,7 @@ public class TornFactionOcManager {
             } else if (TornOcStatusEnum.getCompleteStatusList().contains(planOc.getStatus())) {
                 continue;
             }
+
 
             updateCompleteData(oc, slotList);
             validOcIdList.add(oc.getId());
@@ -220,5 +222,36 @@ public class TornFactionOcManager {
                     .eq(TornFactionOcSlotDO::getId, execSlot.getId())
                     .update();
         }
+    }
+
+    /**
+     * 查询完成OC的岗位数据，如果有丢失的数据先补齐再重新查询返回
+     */
+    private List<TornFactionOcSlotDO> queryCompleteSlotData(List<TornFactionCrimeVO> ocList, List<TornFactionOcDO> planOcList) {
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(planOcList);
+        List<TornFactionOcSlotDO> lostDataList = slotList.stream()
+                .filter(s -> s.getUserId() == null ||
+                        BigDecimal.valueOf(100).compareTo(s.getProgress()) < 0).toList();
+        if (CollectionUtils.isEmpty(lostDataList)) {
+            return slotList;
+        }
+
+        for (TornFactionOcSlotDO errorSlot : lostDataList) {
+            TornFactionCrimeVO oc = ocList.stream()
+                    .filter(o -> o.getId().equals(errorSlot.getOcId()))
+                    .findAny().orElse(null);
+            if (oc == null) {
+                continue;
+            }
+
+            for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
+                String position = slot.getPosition() + "#" + slot.getPositionInfo().getNumber();
+                if (position.equals(errorSlot.getPosition())) {
+                    slotManager.updateSlotData(slot, slot.getUser().getProgress(), errorSlot);
+                }
+            }
+        }
+
+        return slotDao.queryListByOc(planOcList);
     }
 }

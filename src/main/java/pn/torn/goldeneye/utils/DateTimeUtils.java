@@ -10,7 +10,7 @@ import java.time.format.DateTimeFormatter;
  * 时间工具类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 1.0.0
  * @since 2025.07.29
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -93,5 +93,15 @@ public class DateTimeUtils {
      */
     public static LocalDateTime convertLocalTime(LocalDateTime dateTime) {
         return dateTime.plusHours(8L);
+    }
+
+    /**
+     * 获取Torn的当前日期
+     */
+    public static LocalDate getTornLocalDate() {
+        LocalDateTime result = LocalDateTime.now();
+        boolean isTornOldDay = result.toLocalTime().isAfter(LocalTime.of(0, 0))
+                && result.toLocalTime().isBefore(LocalTime.of(8, 0));
+        return isTornOldDay ? result.toLocalDate().minusDays(1) : result.toLocalDate();
     }
 }
