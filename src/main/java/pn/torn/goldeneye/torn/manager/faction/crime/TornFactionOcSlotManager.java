@@ -50,7 +50,7 @@ public class TornFactionOcSlotManager {
     /**
      * 更新Slot数据
      */
-    private void updateSlotData(TornFactionCrimeSlotVO slot, BigDecimal progress, TornFactionOcSlotDO oldSlot) {
+    public void updateSlotData(TornFactionCrimeSlotVO slot, BigDecimal progress, TornFactionOcSlotDO oldSlot) {
         if (slot.getUser() != null) {
             slotDao.lambdaUpdate()
                     .set(TornFactionOcSlotDO::getUserId, slot.getUser().getId())

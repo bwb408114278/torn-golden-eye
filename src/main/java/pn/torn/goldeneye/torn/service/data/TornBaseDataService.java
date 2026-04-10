@@ -14,7 +14,9 @@ import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
+import pn.torn.goldeneye.repository.dao.torn.TornItemHistoryDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornItemsDAO;
+import pn.torn.goldeneye.repository.model.torn.TornItemHistoryDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemHistoryManager;
@@ -39,7 +41,7 @@ import java.util.List;
  * Torn基础数据逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.09.10
  */
 @Service
@@ -54,6 +56,7 @@ public class TornBaseDataService {
     private final TornItemHistoryManager itemHistoryManager;
     private final TornItemTrendManager itemTrendManager;
     private final TornItemsDAO itemsDao;
+    private final TornItemHistoryDAO itemHistoryDao;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
 
@@ -114,6 +117,7 @@ public class TornBaseDataService {
      */
     public void spiderItems() {
         TornItemsListVO resp = tornApi.sendRequest(new TornItemsDTO(), TornItemsListVO.class);
+        fillEmptyMarketPrice(resp);
         List<TornItemsDO> itemList = resp.getItems().stream().map(TornItemsVO::convert2DO).toList();
         List<TornItemsDO> oldDataList = itemsDao.list();
 
@@ -138,6 +142,28 @@ public class TornBaseDataService {
         itemsManager.refreshCache();
         itemHistoryManager.saveItemHistory(resp);
         itemTrendManager.sendTrendMsg();
+    }
+
+    /**
+     * 填充空的市场价格，取昨天价格
+     */
+    private void fillEmptyMarketPrice(TornItemsListVO resp) {
+        List<Integer> itemIdList = resp.getItems().stream().map(TornItemsVO::getId).toList();
+        LocalDate lastDay = DateTimeUtils.getTornLocalDate().minusDays(1);
+        List<TornItemHistoryDO> lastHistoryList = itemHistoryDao.queryItemHistory(itemIdList, lastDay);
+
+        for (TornItemsVO item : resp.getItems()) {
+            boolean notTrade = item.getValue() == null;
+            boolean hasPrice = item.getValue() != null && item.getValue().getMarketPrice() > 0;
+            if (notTrade || hasPrice) {
+                continue;
+            }
+
+            lastHistoryList.stream()
+                    .filter(h -> h.getItemId().equals(item.getId()))
+                    .findAny()
+                    .ifPresent(h -> item.getValue().setMarketPrice(h.getMarketPrice()));
+        }
     }
 
     /**
