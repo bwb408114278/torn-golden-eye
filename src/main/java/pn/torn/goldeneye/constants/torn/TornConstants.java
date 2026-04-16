@@ -90,6 +90,7 @@ public class TornConstants {
         ROTATION_OC_NAME.add("Blast from the Past");
         ROTATION_OC_NAME.add("Break the Bank");
         ROTATION_OC_NAME.add("Clinical Precision");
+        ROTATION_OC_NAME.add("Window of Opportunity");
 
         REASSIGN_OC_FACTION.add(FACTION_PN_ID);
         REASSIGN_OC_FACTION.add(FACTION_HP_ID);
