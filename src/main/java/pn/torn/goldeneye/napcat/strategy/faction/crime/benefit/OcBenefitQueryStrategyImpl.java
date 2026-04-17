@@ -97,7 +97,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
                 queryIncomeList(user.getId(), dateRange) : List.of();
         TornFactionOcIncomeSummaryDO incomeSummary = shouldCalcReassign ?
                 queryIncomeSummary(user.getId(), dateRange.toDate()) : null;
-        List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user.getId(), dateRange, shouldCalcReassign);
+        List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user, dateRange, shouldCalcReassign);
         return new OcDataResult(incomeList, incomeSummary, benefitList);
     }
 
@@ -126,11 +126,13 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     /**
      * 查询收益列表
      */
-    private List<TornFactionOcBenefitDO> queryBenefitList(Long userId, DateRange dateRange, boolean shouldCalcReassign) {
+    private List<TornFactionOcBenefitDO> queryBenefitList(TornUserDO user, DateRange dateRange,
+                                                          boolean shouldCalcReassign) {
         return benefitDao.lambdaQuery()
-                .eq(TornFactionOcBenefitDO::getUserId, userId)
+                .eq(TornFactionOcBenefitDO::getUserId, user.getId())
                 .between(TornFactionOcBenefitDO::getOcFinishTime, dateRange.fromDate(), dateRange.toDate())
-                .notIn(shouldCalcReassign, TornFactionOcBenefitDO::getOcName, TornConstants.ROTATION_OC_NAME)
+                .notIn(shouldCalcReassign, TornFactionOcBenefitDO::getOcName,
+                        TornConstants.ROTATION_OC_NAME.get(user.getFactionId()))
                 .orderByDesc(TornFactionOcBenefitDO::getOcFinishTime)
                 .list();
     }
@@ -139,7 +141,8 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
      * 构建用户排名信息
      */
     public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
-        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date,
+                TornConstants.ROTATION_OC_NAME.get(user.getFactionId()));
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
         if (ranking == null) {
             return user.getNickname() + "在" + date.getMonthValue() + "月还没有OC收益";

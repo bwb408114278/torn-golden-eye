@@ -36,7 +36,7 @@ public class TornOcBatchIncomeService {
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
-                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME)
+                .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME.get(factionId))
                 .isNotNull(TornFactionOcDO::getExecutedTime)
                 .notExists("SELECT 1 FROM torn_faction_oc_income WHERE oc_id = torn_faction_oc.id")
                 .list();

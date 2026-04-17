@@ -22,7 +22,7 @@ import java.util.List;
  * OC队伍推荐公共逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.11.24
  */
 @Component
@@ -71,7 +71,8 @@ public class TornOcRecommendManager {
         }
 
         List<TornSettingOcSlotDO> reassignSlotList = settingOcSlotManager.getList().stream()
-                .filter(s -> TornConstants.ROTATION_OC_NAME.contains(s.getOcName()))
+                .filter(s ->
+                        TornConstants.ROTATION_OC_NAME.get(user.getFactionId()).contains(s.getOcName()))
                 .toList();
 
         boolean isMatch = false;
