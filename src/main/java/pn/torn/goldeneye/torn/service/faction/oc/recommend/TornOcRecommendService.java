@@ -67,7 +67,7 @@ public class TornOcRecommendService {
         List<OcRecommendationVO> recommendations = new ArrayList<>();
         for (TornFactionOcDO oc : recruitOcList) {
             // 大锅饭制度的, 只要成功率够了就只判断大锅饭
-            if (isReassign && !TornConstants.ROTATION_OC_NAME.contains(oc.getName())) {
+            if (isReassign && !TornConstants.ROTATION_OC_NAME.get(user.getFactionId()).contains(oc.getName())) {
                 continue;
             }
 

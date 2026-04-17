@@ -4,7 +4,9 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Torn常量
@@ -50,8 +52,18 @@ public class TornConstants {
     public static final long FACTION_BSU_ID = 11796;
 
     // ====================OC相关====================
-    public static final List<String> ROTATION_OC_NAME = new ArrayList<>();
+    /**
+     * Key为帮派ID
+     */
+    public static final Map<Long, List<String>> ROTATION_OC_NAME = new HashMap<>();
     public static final List<Long> REASSIGN_OC_FACTION = new ArrayList<>();
+
+    public static final String OC_NAME_ACE_IN_THE_HOLE = "Ace in the Hole";
+    public static final String OC_NAME_STACKING_THE_DECK = "Stacking the Deck";
+    public static final String OC_NAME_BREAK_THE_BANK = "Break the Bank";
+    public static final String OC_NAME_CLINICAL_PRECISION = "Clinical Precision";
+    public static final String OC_NAME_BLAST_FROM_THE_PAST = "Blast from the Past";
+    public static final String OC_NAME_WINDOW_OF_OPPORTUNITY = "Window of Opportunity";
 
     // ====================物品相关====================
     public static final String ITEM_TYPE_WEAPON = "Weapon";
@@ -87,9 +99,19 @@ public class TornConstants {
     public static final List<String> SYRINGE = new ArrayList<>();
 
     static {
-        ROTATION_OC_NAME.add("Blast from the Past");
-        ROTATION_OC_NAME.add("Break the Bank");
-        ROTATION_OC_NAME.add("Clinical Precision");
+        ROTATION_OC_NAME.put(FACTION_PN_ID, List.of(OC_NAME_ACE_IN_THE_HOLE, OC_NAME_STACKING_THE_DECK,
+                OC_NAME_BREAK_THE_BANK, OC_NAME_CLINICAL_PRECISION,
+                OC_NAME_BLAST_FROM_THE_PAST, OC_NAME_WINDOW_OF_OPPORTUNITY));
+        ROTATION_OC_NAME.put(FACTION_HP_ID, List.of(OC_NAME_BREAK_THE_BANK, OC_NAME_CLINICAL_PRECISION,
+                OC_NAME_BLAST_FROM_THE_PAST, OC_NAME_WINDOW_OF_OPPORTUNITY));
+        ROTATION_OC_NAME.put(FACTION_CCRC_ID, List.of(OC_NAME_BREAK_THE_BANK, OC_NAME_CLINICAL_PRECISION,
+                OC_NAME_BLAST_FROM_THE_PAST, OC_NAME_WINDOW_OF_OPPORTUNITY));
+        ROTATION_OC_NAME.put(FACTION_SH_ID, List.of(OC_NAME_BREAK_THE_BANK, OC_NAME_CLINICAL_PRECISION,
+                OC_NAME_BLAST_FROM_THE_PAST, OC_NAME_WINDOW_OF_OPPORTUNITY));
+        ROTATION_OC_NAME.put(FACTION_NOV_ID, List.of(OC_NAME_BREAK_THE_BANK, OC_NAME_CLINICAL_PRECISION,
+                OC_NAME_BLAST_FROM_THE_PAST, OC_NAME_WINDOW_OF_OPPORTUNITY));
+        ROTATION_OC_NAME.put(FACTION_BSU_ID, List.of(OC_NAME_BREAK_THE_BANK, OC_NAME_CLINICAL_PRECISION,
+                OC_NAME_BLAST_FROM_THE_PAST, OC_NAME_WINDOW_OF_OPPORTUNITY));
 
         REASSIGN_OC_FACTION.add(FACTION_PN_ID);
         REASSIGN_OC_FACTION.add(FACTION_HP_ID);

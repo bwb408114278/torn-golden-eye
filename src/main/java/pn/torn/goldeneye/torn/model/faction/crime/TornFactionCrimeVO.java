@@ -8,7 +8,6 @@ import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.model.faction.crime.constraint.TornFactionOc;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -75,10 +74,6 @@ public class TornFactionCrimeVO implements TornFactionOc {
         oc.setStatus(this.status);
         oc.setPreviousOcId(this.previousCrimeId);
         oc.setRewardMoney(getRewardMoney());
-
-        if (this.rewards != null && !CollectionUtils.isEmpty(this.rewards.getItems())) {
-            this.rewards.getItems().sort((Comparator.comparing(TornFactionCrimeRewardItemVO::getId)));
-        }
         oc.setRewardItems(getRewardItems());
         oc.setRewardItemsValue(getRewardItemsValue(itemMap));
 

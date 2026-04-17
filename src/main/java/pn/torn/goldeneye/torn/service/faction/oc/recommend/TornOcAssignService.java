@@ -188,7 +188,7 @@ public class TornOcAssignService {
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
             TornFactionOcDO oc = entry.getKey();
             // 大锅饭制度的, 只要成功率够了就只判断大锅饭
-            if (isReassign && !TornConstants.ROTATION_OC_NAME.contains(oc.getName())) {
+            if (isReassign && !TornConstants.ROTATION_OC_NAME.get(user.getFactionId()).contains(oc.getName())) {
                 continue;
             }
 

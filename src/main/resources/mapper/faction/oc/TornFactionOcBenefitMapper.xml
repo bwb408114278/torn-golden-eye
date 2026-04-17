@@ -34,21 +34,18 @@
 
         SELECT b.user_id, b.faction_id, b.item_cost, b.net_reward
         FROM torn_faction_oc_benefit b
-        WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate} AND b.oc_name NOT IN
-        <foreach collection="query.reassignOcList" item="item" open="(" close=")" separator=",">
-            #{item}
-        </foreach>
-        <choose>
-            <when test="query.factionId > 0">
-                AND b.faction_id = #{query.factionId}
-            </when>
-            <otherwise>
-                AND b.faction_id IN
-                <foreach collection="query.reassignFactionList" item="item" open="(" close=")" separator=",">
-                    #{item}
+        WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate} AND (
+        <foreach collection="query.factionOcExclusions" item="exclusion" separator="OR">
+            (b.faction_id = #{exclusion.factionId}
+            <if test="exclusion.ocList != null and exclusion.ocList.size() > 0">
+                AND b.oc_name NOT IN
+                <foreach collection="exclusion.ocList" item="oc" open="(" close=")" separator=",">
+                    #{oc}
                 </foreach>
-            </otherwise>
-        </choose>
+            </if>
+            )
+        </foreach>
+        )
     </sql>
 
     <!-- 查询OC收益排行榜 -->

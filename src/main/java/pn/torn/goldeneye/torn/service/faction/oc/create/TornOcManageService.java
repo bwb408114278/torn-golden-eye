@@ -40,7 +40,7 @@ public class TornOcManageService {
      */
     public OcNewTeamBO analyze(long factionId, LocalDateTime now, LocalDateTime targetTime) {
         List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(factionId).stream()
-                .filter(o -> TornConstants.ROTATION_OC_NAME.contains(o.getName()))
+                .filter(o -> TornConstants.ROTATION_OC_NAME.get(factionId).contains(o.getName()))
                 .toList();
         List<TornFactionOcDO> occupyList = new ArrayList<>();
         List<TornFactionOcDO> finishList = new ArrayList<>();
@@ -55,7 +55,7 @@ public class TornOcManageService {
             }
         }
 
-        List<TornSettingOcSlotDO> settingList = getSettingList();
+        List<TornSettingOcSlotDO> settingList = getSettingList(factionId);
         Set<Long> availableUser = queryAvailableUser(factionId, settingList);
         List<TornFactionOcUserDO> freeUserList = queryFreeUser(factionId, availableUser, occupyList, stopList);
         OcNewTeamBO result = new OcNewTeamBO(ocList, availableUser, freeUserList, stopList, finishList);
@@ -120,9 +120,9 @@ public class TornOcManageService {
     /**
      * 获取OC岗位配置列表，以级别、权重正序排序
      */
-    private List<TornSettingOcSlotDO> getSettingList() {
+    private List<TornSettingOcSlotDO> getSettingList(long factionId) {
         return settingOcSlotManager.getList().stream()
-                .filter(s -> TornConstants.ROTATION_OC_NAME.contains(s.getOcName()))
+                .filter(s -> TornConstants.ROTATION_OC_NAME.get(factionId).contains(s.getOcName()))
                 .sorted(Comparator.comparing(TornSettingOcSlotDO::getRank)
                         .thenComparing(TornSettingOcSlotDO::getPriority))
                 .toList();
@@ -156,7 +156,7 @@ public class TornOcManageService {
     private Set<Long> queryAvailableUser(long factionId, List<TornSettingOcSlotDO> settingList) {
         List<TornFactionOcUserDO> ocUserList = ocUserDao.lambdaQuery()
                 .eq(TornFactionOcUserDO::getFactionId, factionId)
-                .in(TornFactionOcUserDO::getOcName, TornConstants.ROTATION_OC_NAME)
+                .in(TornFactionOcUserDO::getOcName, TornConstants.ROTATION_OC_NAME.get(factionId))
                 .list();
 
         Set<Long> resultSet = new HashSet<>();
@@ -185,7 +185,7 @@ public class TornOcManageService {
 
         return ocUserDao.lambdaQuery()
                 .eq(TornFactionOcUserDO::getFactionId, factionId)
-                .in(TornFactionOcUserDO::getOcName, TornConstants.ROTATION_OC_NAME)
+                .in(TornFactionOcUserDO::getOcName, TornConstants.ROTATION_OC_NAME.get(factionId))
                 .in(TornFactionOcUserDO::getUserId, availableUser)
                 .notIn(!CollectionUtils.isEmpty(occupyUserList), TornFactionOcUserDO::getUserId, occupyUserList)
                 .list();
