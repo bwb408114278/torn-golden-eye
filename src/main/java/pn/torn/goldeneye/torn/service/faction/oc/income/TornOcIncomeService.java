@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -22,6 +23,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -30,7 +32,7 @@ import java.util.stream.Collectors;
  * OC收益计算服务
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.11.03
  */
 @Service
@@ -41,43 +43,58 @@ public class TornOcIncomeService {
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcIncomeDAO incomeDao;
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    private final TornFactionOcDAO ocDao;
 
     /**
      * 计算并保存OC收益
      */
     @Transactional(rollbackFor = Exception.class)
     public void calculateAndSaveIncome(TornFactionOcDO oc) {
+        List<TornFactionOcDO> ocChain = getOcChain(oc);
         // 1. 计算工时
-        List<WorkingHoursDTO> workingHoursList = workingHourService.calculateWorkingHours(oc);
-        if (CollectionUtils.isEmpty(workingHoursList)) {
-            log.warn("OC没有参与者，跳过收益计算: ocId={}", oc.getId());
+        Map<Long, List<WorkingHoursDTO>> stepWorkingHoursMap = new LinkedHashMap<>();
+        for (TornFactionOcDO stepOc : ocChain) {
+            List<WorkingHoursDTO> whs = workingHourService.calculateWorkingHours(stepOc);
+            if (!CollectionUtils.isEmpty(whs)) {
+                stepWorkingHoursMap.put(stepOc.getId(), whs);
+            }
+        }
+        // 2. 计算全叶子节点总有效工时
+        BigDecimal totalEffectiveHours = stepWorkingHoursMap.values().stream()
+                .flatMap(List::stream)
+                .map(WorkingHoursDTO::getEffectiveWorkingHours)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (totalEffectiveHours.compareTo(BigDecimal.ZERO) == 0) {
+            log.warn("OC链总有效工时为0，跳过收益计算: ocId={}", oc.getId());
             return;
         }
-
-        // 2. 查询所有slot获取道具成本
-        List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery().eq(TornFactionOcSlotDO::getOcId, oc.getId()).list();
+        // 3. 计算全叶子节点总道具成本
+        List<Long> allOcIds = ocChain.stream().map(TornFactionOcDO::getId).toList();
+        List<TornFactionOcSlotDO> slots = ocSlotDao.lambdaQuery()
+                .in(TornFactionOcSlotDO::getOcId, allOcIds)
+                .list();
         Map<Long, Long> userItemCostMap = slots.stream()
                 .collect(Collectors.toMap(TornFactionOcSlotDO::getUserId,
                         TornFactionOcSlotDO::getOutcomeItemValue, Long::sum));
-
-        // 3. 计算总道具成本
         long totalItemCost = userItemCostMap.values().stream()
                 .mapToLong(Long::longValue)
                 .sum();
-
-        // 4. 判断成功还是失败
+        // 4. 按步骤生成income记录
         boolean isSuccess = TornOcStatusEnum.SUCCESSFUL.getCode().equals(oc.getStatus());
-        List<IncomeCalculationDTO> incomeList = new ArrayList<>();
-
+        List<IncomeCalculationDTO> incomeList;
         long netReward = oc.getRewardMoney() - totalItemCost;
-        for (WorkingHoursDTO workingHours : workingHoursList) {
-            long itemCost = userItemCostMap.get(workingHours.getUserId());
-            incomeList.add(new IncomeCalculationDTO(workingHours, itemCost, totalItemCost,
-                    oc.getRewardMoney(), netReward));
-        }
+        for (TornFactionOcDO stepOc : ocChain) {
+            List<WorkingHoursDTO> workingHoursList = stepWorkingHoursMap.get(stepOc.getId());
+            incomeList = new ArrayList<>();
+            for (WorkingHoursDTO workingHours : workingHoursList) {
+                long itemCost = userItemCostMap.get(workingHours.getUserId());
+                incomeList.add(new IncomeCalculationDTO(workingHours, itemCost, totalItemCost,
+                        oc.getRewardMoney(), netReward));
+            }
 
-        // 5. 保存详细记录
-        saveIncomeRecords(oc, incomeList, isSuccess, oc.getRewardMoney(), totalItemCost);
+            // 5. 保存详细记录
+            saveIncomeRecords(stepOc, incomeList, isSuccess, oc.getRewardMoney(), totalItemCost);
+        }
         // 6. 更新汇总表
         calcMonthlyIncomeSummary(oc.getFactionId(), oc.getExecutedTime().format(DateTimeUtils.YEAR_MONTH_FORMATTER));
     }
@@ -203,5 +220,24 @@ public class TornOcIncomeService {
         log.info("月度汇总重新计算完成: yearMonth={}, 参与人数={}, 总收益={}, 总成本={}, 净收益={}",
                 yearMonth, userRecordsMap.size(), monthlyTotalReward,
                 monthlyTotalItemCost, monthlyNetReward);
+    }
+
+    /**
+     * 沿 previousOcId 链回溯，获取完整OC链（从最早步骤到最终步骤）
+     */
+    private List<TornFactionOcDO> getOcChain(TornFactionOcDO finalOc) {
+        List<TornFactionOcDO> chain = new ArrayList<>();
+        chain.add(finalOc);
+        Long previousId = finalOc.getPreviousOcId();
+        while (previousId != null) {
+            TornFactionOcDO previousOc = ocDao.getById(previousId);
+            if (previousOc == null) {
+                break;
+            }
+            // 插入头部，保持时间顺序
+            chain.addFirst(previousOc);
+            previousId = previousOc.getPreviousOcId();
+        }
+        return chain;
     }
 }

@@ -16,7 +16,7 @@ import java.util.List;
  * OC批量收益计算服务
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.11.03
  */
 @Slf4j
@@ -39,6 +39,7 @@ public class TornOcBatchIncomeService {
                 .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME.get(factionId))
                 .isNotNull(TornFactionOcDO::getExecutedTime)
                 .notExists("SELECT 1 FROM torn_faction_oc_income WHERE oc_id = torn_faction_oc.id")
+                .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id")
                 .list();
         if (CollectionUtils.isEmpty(ocList)) {
             log.info("没有待计算收益的OC");
