@@ -43,6 +43,20 @@ public class StocksBonusAnalyzeManager {
      * @return 买卖操作建议列表（卖出在前，买入在后）
      */
     public List<OptimalAction> calculate(long availableCash, List<TornStocksDO> allStocks, TornUserStocksVO userStocks) {
+        return calculate(availableCash, allStocks, userStocks, false);
+    }
+
+    /**
+     * 计算最佳股票分红购买策略
+     *
+     * @param availableCash 用户可用现金
+     * @param allStocks     所有股票信息
+     * @param userStocks    用户持仓信息
+     * @param buyOnly       只计算购买
+     * @return 买卖操作建议列表（卖出在前，买入在后）
+     */
+    public List<OptimalAction> calculate(long availableCash, List<TornStocksDO> allStocks, TornUserStocksVO userStocks,
+                                         boolean buyOnly) {
         log.info("=== 开始计算最佳分红策略 ===");
         log.info("初始现金: {}", NumberUtils.formatCompactNumber(availableCash));
         // 1. 生成所有可能的单一BB投资机会
@@ -52,7 +66,7 @@ public class StocksBonusAnalyzeManager {
         logPortfolioSummary("当前持仓", currentPortfolio);
         // 3. 计算总资本（现金 + 已投资成本）
         long investedCapital = currentPortfolio.stream().mapToLong(BBOpportunity::cost).sum();
-        long totalCapital = availableCash + investedCapital;
+        long totalCapital = buyOnly ? availableCash : availableCash + investedCapital;
         log.info("总资本: {} (现金: {} + 已投资: {})",
                 NumberUtils.formatCompactNumber(totalCapital),
                 NumberUtils.formatCompactNumber(availableCash),
@@ -61,7 +75,7 @@ public class StocksBonusAnalyzeManager {
         Set<BBOpportunity> targetPortfolio = buildOptimalPortfolio(allStocks, totalCapital);
         logPortfolioSummary("目标组合", targetPortfolio);
         // 5. 生成操作建议
-        List<OptimalAction> actions = generateActions(currentPortfolio, targetPortfolio);
+        List<OptimalAction> actions = generateActions(currentPortfolio, targetPortfolio, buyOnly);
         log.info("=== 策略计算完成：{} 条卖出，{} 条买入 ===",
                 actions.stream().filter(a -> a.type() == OptimalAction.ActionType.SELL).count(),
                 actions.stream().filter(a -> a.type() == OptimalAction.ActionType.BUY).count());
@@ -235,11 +249,11 @@ public class StocksBonusAnalyzeManager {
     /**
      * 生成买卖操作建议
      */
-    private List<OptimalAction> generateActions(Set<BBOpportunity> current, Set<BBOpportunity> target) {
+    private List<OptimalAction> generateActions(Set<BBOpportunity> current, Set<BBOpportunity> target, boolean buyOnly) {
         Set<String> currentIds = current.stream().map(BBOpportunity::uniqueId).collect(Collectors.toSet());
         Set<String> targetIds = target.stream().map(BBOpportunity::uniqueId).collect(Collectors.toSet());
         // 卖出：当前有但目标没有，按BB等级降序（先卖高级）
-        List<OptimalAction> sellActions = current.stream()
+        List<OptimalAction> sellActions = buyOnly ? List.of() : current.stream()
                 .filter(opp -> !targetIds.contains(opp.uniqueId()))
                 .map(opp -> new OptimalAction(OptimalAction.ActionType.SELL, opp.stockShortName(),
                         opp.bbLevel(), opp.cost(), opp.yearProfit(), opp.roi()))
