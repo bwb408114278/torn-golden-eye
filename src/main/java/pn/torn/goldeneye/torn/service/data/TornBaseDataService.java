@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.data;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
@@ -27,6 +28,7 @@ import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsDTO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsListVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsVO;
+import pn.torn.goldeneye.torn.model.torn.items.TornItemsValueVO;
 import pn.torn.goldeneye.torn.model.torn.stats.TornStatsDTO;
 import pn.torn.goldeneye.torn.model.torn.stats.TornStatsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -36,6 +38,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Torn基础数据逻辑层
@@ -44,6 +47,7 @@ import java.util.List;
  * @version 1.0.0
  * @since 2025.09.10
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Order(InitOrderConstants.TORN_BASE_DATA)
@@ -90,6 +94,7 @@ public class TornBaseDataService {
             addScheduleTask(to.plusDays(1).atTime(8, 40, 0));
         } catch (Exception e) {
             // 失败5分钟后重试
+            log.error("爬取Torn基础数据时出现异常, 错误信息: {}, 堆栈信息: ", e.getMessage(), e);
             addScheduleTask(LocalDateTime.now().plusMinutes(5));
         }
     }
@@ -145,24 +150,30 @@ public class TornBaseDataService {
     }
 
     /**
-     * 填充空的市场价格，取昨天价格
+     * 填充空的市场价格或存量，取昨天价格和存量
      */
     private void fillEmptyMarketPrice(TornItemsListVO resp) {
         List<Integer> itemIdList = resp.getItems().stream().map(TornItemsVO::getId).toList();
         LocalDate lastDay = DateTimeUtils.getTornLocalDate().minusDays(1);
         List<TornItemHistoryDO> lastHistoryList = itemHistoryDao.queryItemHistory(itemIdList, lastDay);
-
         for (TornItemsVO item : resp.getItems()) {
             boolean notTrade = item.getValue() == null;
-            boolean hasPrice = item.getValue() != null && item.getValue().getMarketPrice() > 0;
-            if (notTrade || hasPrice) {
+            if (notTrade) {
                 continue;
             }
 
-            lastHistoryList.stream()
+            TornItemsValueVO value = item.getValue();
+            Optional<TornItemHistoryDO> lastHistory = lastHistoryList.stream()
                     .filter(h -> h.getItemId().equals(item.getId()))
-                    .findAny()
-                    .ifPresent(h -> item.getValue().setMarketPrice(h.getMarketPrice()));
+                    .findAny();
+            // 填充市场价格
+            if (value.getMarketPrice() <= 0) {
+                lastHistory.ifPresent(h -> value.setMarketPrice(h.getMarketPrice()));
+            }
+            // 填充存量
+            if (item.getCirculation() <= 0) {
+                lastHistory.ifPresent(h -> item.setCirculation(h.getCirculation()));
+            }
         }
     }
 
