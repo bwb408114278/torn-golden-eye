@@ -83,6 +83,10 @@ public class TornConstants {
      */
     public static final String USER_STATUS_OFFLINE = "Offline";
     /**
+     * 用户状态 - 在线
+     */
+    public static final String USER_STATUS_ONLINE = "Online";
+    /**
      * 用户名称 - 匿名
      */
     public static final String SOMEONE = "Someone";

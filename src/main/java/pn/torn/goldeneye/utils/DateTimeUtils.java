@@ -5,6 +5,8 @@ import lombok.NoArgsConstructor;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 时间工具类
@@ -103,5 +105,20 @@ public class DateTimeUtils {
         boolean isTornOldDay = result.toLocalTime().isAfter(LocalTime.of(0, 0))
                 && result.toLocalTime().isBefore(LocalTime.of(8, 0));
         return isTornOldDay ? result.toLocalDate().minusDays(1) : result.toLocalDate();
+    }
+
+    /**
+     * 至少大于目标区间
+     *
+     * @param timestamp 时间戳1
+     * @param dateTime  时间2
+     * @param length    区间长度
+     * @param unit      时间单位
+     * @return true为大于
+     */
+    public static boolean isIntervalAtLeast(long timestamp, LocalDateTime dateTime, long length, TimeUnit unit) {
+        LocalDateTime targetDateTime = convertToDateTime(timestamp);
+        long diffNanos = Math.abs(ChronoUnit.NANOS.between(dateTime, targetDateTime));
+        return diffNanos > unit.toNanos(length);
     }
 }

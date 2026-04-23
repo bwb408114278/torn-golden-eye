@@ -54,7 +54,7 @@ public class TornRwDataService {
     private final ProjectProperty projectProperty;
 
     private static final long QUERY_OVERLAP_SECONDS = 2L;
-    private static final long NORMAL_INTERVAL_MINUTES = 3;
+    private static final long NORMAL_INTERVAL_MINUTES = 2;
     private static final long LOW_FREQUENCY_INTERVAL_MINUTES = 60;
 
     @EventListener(ApplicationReadyEvent.class)

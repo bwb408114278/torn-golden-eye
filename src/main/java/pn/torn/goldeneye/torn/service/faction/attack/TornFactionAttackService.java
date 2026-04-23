@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -68,7 +69,7 @@ public class TornFactionAttackService {
             }
 
             extractElo(resp, eloMap);
-            attackList = parseAttackList(resp, userMap, logIdSet, userNameMap, eloMap);
+            attackList = parseAttackList(LocalDateTime.now(), resp, userMap, logIdSet, userNameMap, eloMap);
             if (!CollectionUtils.isEmpty(attackList)) {
                 attackDao.saveBatch(attackList);
             }
@@ -88,9 +89,9 @@ public class TornFactionAttackService {
     /**
      * 解析新闻列表为攻击记录
      */
-    public List<TornFactionAttackDO> parseAttackList(TornFactionAttackRespVO resp, Map<Long, TornFactionMemberVO> userMap,
-                                                     Set<String> logIdSet, Map<Long, String> userNameMap,
-                                                     Map<Long, TornUserStatsVO> eloMap) {
+    public List<TornFactionAttackDO> parseAttackList(LocalDateTime now, TornFactionAttackRespVO resp,
+                                                     Map<Long, TornFactionMemberVO> userMap, Set<String> logIdSet,
+                                                     Map<Long, String> userNameMap, Map<Long, TornUserStatsVO> eloMap) {
         if (resp == null || CollectionUtils.isEmpty(resp.getAttacks())) {
             return new ArrayList<>();
         }
@@ -105,7 +106,7 @@ public class TornFactionAttackService {
                 continue;
             }
 
-            TornFactionAttackDO data = parseNews(attack, userMap, eloMap);
+            TornFactionAttackDO data = parseNews(now, attack, userMap, eloMap);
             attackList.add(data);
 
             existingIds.add(data.getId());
@@ -120,8 +121,8 @@ public class TornFactionAttackService {
     /**
      * 解析单条新闻为攻击记录
      */
-    public TornFactionAttackDO parseNews(TornFactionAttackVO attack, Map<Long, TornFactionMemberVO> userMap,
-                                         Map<Long, TornUserStatsVO> eloMap) {
+    public TornFactionAttackDO parseNews(LocalDateTime now, TornFactionAttackVO attack,
+                                         Map<Long, TornFactionMemberVO> userMap, Map<Long, TornUserStatsVO> eloMap) {
         TornFactionAttackDO data = new TornFactionAttackDO();
         data.setId(attack.getId());
         data.setDefendUserId(attack.getDefender().getId());
@@ -166,7 +167,9 @@ public class TornFactionAttackService {
         }
 
         TornFactionMemberVO la = userMap.get(data.getDefendUserId());
-        data.setDefendUserOnlineStatus(la == null ? TornConstants.USER_STATUS_OFFLINE : la.getLastAction().getStatus());
+        boolean isOffline = la == null ||
+                DateTimeUtils.isIntervalAtLeast(la.getLastAction().getTimestamp(), now, 2, TimeUnit.MINUTES);
+        data.setDefendUserOnlineStatus(isOffline ? TornConstants.USER_STATUS_OFFLINE : TornConstants.USER_STATUS_ONLINE);
 
         TornUserStatsVO attackerStats = eloMap.get(data.getAttackUserId());
         TornUserStatsVO defenderStats = eloMap.get(data.getDefendUserId());

@@ -6,7 +6,7 @@ import lombok.Data;
  * Torn用户状态响应参数
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.12.18
  */
 @Data
@@ -16,9 +16,9 @@ public class TornUserLastActionVO {
      */
     private String status;
     /**
-     * 状态
+     * 上次操作时间
      */
-    private Long timestamp;
+    private long timestamp;
     /**
      * 状态描述
      */
