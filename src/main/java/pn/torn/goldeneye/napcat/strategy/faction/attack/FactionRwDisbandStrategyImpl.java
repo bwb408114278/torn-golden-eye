@@ -17,25 +17,25 @@ import java.time.LocalTime;
 import java.util.List;
 
 /**
- * RW集合时间策略实现类
+ * RW解散时间策略实现类
  *
  * @author Bai
- * @version 0.5.0
- * @since 2026.01.23
+ * @version 1.0.0
+ * @since 2026.04.22
  */
 @Component
 @RequiredArgsConstructor
-public class FactionRwGatheringStrategyImpl extends PnManageMsgStrategy {
+public class FactionRwDisbandStrategyImpl extends PnManageMsgStrategy {
     private final TornFactionRwDAO rwDao;
 
     @Override
     public String getCommand() {
-        return BotCommands.RW_GATHERING_TIME;
+        return BotCommands.RW_DISBAND_TIME;
     }
 
     @Override
     public String getCommandDescription() {
-        return "到点了!起床集合!";
+        return "解散睡觉!明早偷袭!";
     }
 
     @Override
@@ -51,7 +51,7 @@ public class FactionRwGatheringStrategyImpl extends PnManageMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         if (!NumberUtils.isInt(msg)) {
-            return super.buildTextMsg("正确格式为g#" + BotCommands.RW_GATHERING_TIME + "#几点");
+            return super.buildTextMsg("正确格式为g#" + BotCommands.RW_DISBAND_TIME + "#几点");
         }
 
         int hour = Integer.parseInt(msg);
@@ -69,9 +69,9 @@ public class FactionRwGatheringStrategyImpl extends PnManageMsgStrategy {
         }
 
         rwDao.lambdaUpdate()
-                .set(TornFactionRwDO::getGatheringTime, LocalTime.of(hour, 0, 0))
+                .set(TornFactionRwDO::getDisbandTime, LocalTime.of(hour, 0, 0))
                 .eq(TornFactionRwDO::getId, rw.getId())
                 .update();
-        return super.buildTextMsg("集合时间已调整为" + msg + "点");
+        return super.buildTextMsg("解散时间已调整为" + msg + "点");
     }
 }

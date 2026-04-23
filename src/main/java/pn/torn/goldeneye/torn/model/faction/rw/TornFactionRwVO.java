@@ -72,6 +72,7 @@ public class TornFactionRwVO {
         rw.setStartTime(DateTimeUtils.convertToDateTime(this.start));
         rw.setEndTime(this.end == null || this.end == 0L ? null : DateTimeUtils.convertToDateTime(this.end));
         rw.setGatheringTime(LocalTime.of(8, 0, 0));
+        rw.setDisbandTime(LocalTime.of(0, 0, 0));
         return rw;
     }
 }

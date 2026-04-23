@@ -57,3 +57,18 @@ databaseChangeLog:
         - dropIndex:
             tableName: torn_attack_log
             indexName: idx_defender_time
+
+  - changeSet:
+      id: add_rw_disband_time
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_rw
+            columns:
+              - column:
+                  name: disband_time
+                  type: TIME
+                  constraints:
+                    nullable: false
+                  defaultValue: "00:00:00"
+                  remarks: "解散时间"

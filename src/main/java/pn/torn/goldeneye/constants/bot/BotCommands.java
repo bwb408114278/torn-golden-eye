@@ -86,17 +86,25 @@ public class BotCommands {
      */
     public static final String BS_IMPROVE = "战力增长";
     /**
-     * RW真赛
+     * RW真赛等级
      */
     public static final String RW_SIGN = "RW真赛登记";
+    /**
+     * RW真赛结束
+     */
+    public static final String RW_END = "RW真赛结束";
     /**
      * RW攻击频率
      */
     public static final String RW_ATTACK_PERIOD = "RW攻击频率";
     /**
-     * RW真赛
+     * RW集合时间
      */
     public static final String RW_GATHERING_TIME = "RW集合时间";
+    /**
+     * RW解散时间
+     */
+    public static final String RW_DISBAND_TIME = "RW解散时间";
     /**
      * RW战神
      */
