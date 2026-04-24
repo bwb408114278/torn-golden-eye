@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
@@ -70,8 +69,7 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
         List<TornFactionOcBenefitRankDO> rankList;
         String title;
         if (user != null) {
-            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), baseMonth,
-                    TornConstants.ROTATION_OC_NAME.get(user.getFactionId()));
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), baseMonth);
             rankList = benefitDao.queryCohortBenefitRanking(query);
             String cohort = String.format("%07d", user.getId()).substring(0, 3);
             title = cohort + "同期" + baseMonth.getMonthValue() + "月OC收益排行榜";

@@ -70,8 +70,7 @@ public class OcBenefitRankingQuery {
         if (factionId == 0L) {
             // 为每个大锅饭派系构建各自的排除列表
             this.factionOcExclusions = TornConstants.REASSIGN_OC_FACTION.stream()
-                    .map(fid -> new FactionOcExclusion(fid,
-                            TornConstants.ROTATION_OC_NAME.getOrDefault(fid, List.of())))
+                    .map(fid -> new FactionOcExclusion(fid, TornConstants.ROTATION_OC_NAME.get(fid)))
                     .toList();
             this.includeNormalBenefit = true;
             this.includeReassignBenefit = true;
@@ -88,14 +87,14 @@ public class OcBenefitRankingQuery {
         }
     }
 
-    public OcBenefitRankingQuery(long userId, LocalDate baseMonth, List<String> reassignOcList) {
+    public OcBenefitRankingQuery(long userId, LocalDate baseMonth) {
         this.fromDate = baseMonth.withDayOfMonth(1).atTime(0, 0, 0);
         this.toDate = baseMonth.withDayOfMonth(baseMonth.lengthOfMonth()).atTime(23, 59, 59);
         this.yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
         this.factionId = 0L;
         this.reassignFactionList = TornConstants.REASSIGN_OC_FACTION;
         this.factionOcExclusions = TornConstants.REASSIGN_OC_FACTION.stream()
-                .map(fid -> new FactionOcExclusion(fid, reassignOcList))
+                .map(fid -> new FactionOcExclusion(fid, TornConstants.ROTATION_OC_NAME.get(fid)))
                 .toList();
         this.includeNormalBenefit = true;
         this.includeReassignBenefit = true;
