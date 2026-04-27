@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @Transactional
 @Rollback
+@DisplayName("大锅饭收入生成测试")
 class TornOcIncomeServiceTest {
     @Autowired
     private TornOcIncomeService incomeService;

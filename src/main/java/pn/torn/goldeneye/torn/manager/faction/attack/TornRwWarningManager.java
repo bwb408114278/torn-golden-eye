@@ -6,7 +6,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.user.TornPlaneTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.user.TornTravelStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.user.TornTravelTargetEnum;
@@ -30,12 +29,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 帮派RW警告公共逻辑类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2026.01.21
  */
 @Slf4j
@@ -51,14 +51,14 @@ public class TornRwWarningManager {
      * 发送警告
      */
     public void sendWarning(TornFactionRwDO rw, LocalDateTime dateTime, Collection<TornFactionMemberVO> memberList) {
-        sendOnlineWarning(rw, memberList);
+        sendOnlineWarning(rw, dateTime, memberList);
         checkTravelingWarning(rw, dateTime, memberList);
     }
 
     /**
      * 发送在线提醒
      */
-    private void sendOnlineWarning(TornFactionRwDO rw, Collection<TornFactionMemberVO> memberList) {
+    private void sendOnlineWarning(TornFactionRwDO rw, LocalDateTime now, Collection<TornFactionMemberVO> memberList) {
         if (CollectionUtils.isEmpty(memberList)) {
             return;
         }
@@ -67,7 +67,10 @@ public class TornRwWarningManager {
         int opponentOnlineCount = 0;
         int opponentOkayCount = 0;
         for (TornFactionMemberVO member : memberList) {
-            if (TornConstants.USER_STATUS_OFFLINE.equals(member.getLastAction().getStatus()) ||
+            boolean isOffline = member.getLastAction() == null ||
+                    DateTimeUtils.isIntervalAtLeast(member.getLastAction().getTimestamp(), now,
+                            2, TimeUnit.MINUTES);
+            if (isOffline ||
                     TornUserStatusEnum.TRAVELING.getCode().equals(member.getStatus().getState()) ||
                     TornUserStatusEnum.ABROAD.getCode().equals(member.getStatus().getState())) {
                 continue;
@@ -110,15 +113,18 @@ public class TornRwWarningManager {
         List<TornFactionRwUserStatusDO> factionMemberList = new ArrayList<>();
         List<TornFactionRwUserStatusDO> newDataList = new ArrayList<>();
         List<TornFactionRwUserStatusDO> updateDataList = new ArrayList<>();
-        fillDataList(rw, memberList, factionMemberList, newDataList, updateDataList);
-
+        List<TornFactionRwUserStatusDO> warningList = new ArrayList<>();
+        fillDataList(rw, memberList, factionMemberList, newDataList, updateDataList, warningList);
         if (!CollectionUtils.isEmpty(newDataList)) {
             userStatusDao.saveBatch(newDataList);
         }
 
         if (!CollectionUtils.isEmpty(updateDataList)) {
             userStatusDao.updateBatchById(updateDataList);
-            sendTravelingWarningMsg(rw.getFactionId(), dateTime, factionMemberList, updateDataList);
+        }
+
+        if (!CollectionUtils.isEmpty(warningList)) {
+            sendTravelingWarningMsg(rw.getFactionId(), dateTime, factionMemberList, warningList);
         }
     }
 
@@ -156,7 +162,8 @@ public class TornRwWarningManager {
     private void fillDataList(TornFactionRwDO rw, Collection<TornFactionMemberVO> memberList,
                               List<TornFactionRwUserStatusDO> factionMemberList,
                               List<TornFactionRwUserStatusDO> newDataList,
-                              List<TornFactionRwUserStatusDO> updateDataList) {
+                              List<TornFactionRwUserStatusDO> updateDataList,
+                              List<TornFactionRwUserStatusDO> warningList) {
         List<TornFactionRwUserStatusDO> statusList = userStatusDao.lambdaQuery()
                 .eq(TornFactionRwUserStatusDO::getRwId, rw.getId())
                 .list();
@@ -169,14 +176,32 @@ public class TornRwWarningManager {
                     factionMemberList.add(new TornFactionRwUserStatusDO(rw.getFactionId(), rw.getId(), member));
                 }
             } else {
-                TornFactionRwUserStatusDO status = statusList.stream()
-                        .filter(s -> s.getUserId().equals(member.getId()))
-                        .findAny().orElse(null);
-                if (status == null) {
-                    newDataList.add(new TornFactionRwUserStatusDO(rw.getFactionId(), rw.getId(), member));
-                } else if (!member.getStatus().getState().equals(status.getState()) && isTravel) {
-                    updateDataList.add(new TornFactionRwUserStatusDO(status.getId(), member));
-                }
+                fillOpponentData(rw, member, isTravel, statusList, newDataList, updateDataList, warningList);
+            }
+        }
+    }
+
+    /**
+     * 填充对手数据
+     */
+    private void fillOpponentData(TornFactionRwDO rw, TornFactionMemberVO member, boolean isTravel,
+                                  List<TornFactionRwUserStatusDO> statusList,
+                                  List<TornFactionRwUserStatusDO> newDataList,
+                                  List<TornFactionRwUserStatusDO> updateDataList,
+                                  List<TornFactionRwUserStatusDO> warningList) {
+        TornFactionRwUserStatusDO status = statusList.stream()
+                .filter(s -> s.getUserId().equals(member.getId()))
+                .findAny().orElse(null);
+        if (status == null) {
+            newDataList.add(new TornFactionRwUserStatusDO(rw.getFactionId(), rw.getId(), member));
+            return;
+        }
+
+        if (!member.getStatus().getState().equals(status.getState())) {
+            TornFactionRwUserStatusDO updateStatus = new TornFactionRwUserStatusDO(status.getId(), member);
+            updateDataList.add(updateStatus);
+            if (isTravel) {
+                warningList.add(updateStatus);
             }
         }
     }

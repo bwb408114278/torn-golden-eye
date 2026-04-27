@@ -53,9 +53,8 @@ public class TornRwDataService {
     private final TornFactionRwDAO rwDao;
     private final ProjectProperty projectProperty;
 
-    private static final LocalTime LOW_FREQUENCY_START = LocalTime.of(0, 0);
     private static final long QUERY_OVERLAP_SECONDS = 2L;
-    private static final long NORMAL_INTERVAL_MINUTES = 3;
+    private static final long NORMAL_INTERVAL_MINUTES = 2;
     private static final long LOW_FREQUENCY_INTERVAL_MINUTES = 60;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -156,7 +155,13 @@ public class TornRwDataService {
      */
     private boolean isLowFrequencyPeriod(LocalDateTime dateTime, TornFactionRwDO rw) {
         LocalTime time = dateTime.toLocalTime();
-        return !time.isBefore(LOW_FREQUENCY_START) && time.isBefore(rw.getGatheringTime());
+        LocalTime start = rw.getDisbandTime();
+        LocalTime end = rw.getGatheringTime();
+        if (!start.isBefore(end)) {
+            // 跨午夜区间：time >= start 或 time < end
+            return !time.isBefore(start) || time.isBefore(end);
+        }
+        return !time.isBefore(start) && time.isBefore(end);
     }
 
     /**

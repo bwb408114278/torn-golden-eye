@@ -1,11 +1,10 @@
 package pn.torn.goldeneye.napcat.strategy.user;
 
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
-import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
@@ -23,35 +22,28 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 股票分红计算实现类
+ * 股票分红计算基类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.09.27
  */
 @Component
-@RequiredArgsConstructor
-public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
-    private final TornApiKeyConfig apiKeyConfig;
-    private final TornApi tornApi;
-    private final StocksBonusAnalyzeManager stocksBonusAnalyzeManager;
-    private final TornStocksDAO stocksDao;
-
-    @Override
-    public String getCommand() {
-        return BotCommands.STOCK_DIVIDEND_CALC;
-    }
-
-    @Override
-    public String getCommandDescription() {
-        return "计算分红股最高收益购买方式，g#" + BotCommands.STOCK_DIVIDEND_CALC + "#资金";
-    }
+public abstract class BaseStocksDividendStrategy extends SmthMsgStrategy {
+    @Resource
+    private TornApiKeyConfig apiKeyConfig;
+    @Resource
+    private TornApi tornApi;
+    @Resource
+    private StocksBonusAnalyzeManager stocksBonusAnalyzeManager;
+    @Resource
+    private TornStocksDAO stocksDao;
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         Long money = NumberUtils.convert(msg);
         if (money == null) {
-            return super.sendErrorFormatMsg();
+            return super.buildTextMsg("请输入计算的金额, 例如有2b用于购买分红股, 则输入g#" + getCommand() + "#2b, 上限为100b");
         }
 
         TornUserDO user = super.getTornUser(sender, "");
@@ -68,9 +60,9 @@ public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
         TornUserStocksVO userStocks = tornApi.sendRequest(new TornUserStocksDTO(), key, TornUserStocksVO.class);
         List<TornStocksDO> stocksList = stocksDao.lambdaQuery().gt(TornStocksDO::getProfit, 0).list();
         List<StocksBonusAnalyzeManager.OptimalAction> result = stocksBonusAnalyzeManager
-                .calculate(money, stocksList, userStocks);
+                .calculate(money, stocksList, userStocks, isBuyOnly());
         if (CollectionUtils.isEmpty(result)) {
-            return super.buildTextMsg(user.getNickname() + ", 当前购买策略已是最佳");
+            return super.buildTextMsg(user.getNickname() + ", " + isBestNowMsg());
         }
 
         List<TextQqMsg> msgList = new ArrayList<>();
@@ -78,4 +70,18 @@ public class TornStocksDividendStrategyImpl extends SmthMsgStrategy {
         result.forEach(r -> msgList.add(new TextQqMsg(r.toString() + "\n")));
         return msgList;
     }
+
+    /**
+     * 是否只买不卖
+     *
+     * @return true为只买不卖
+     */
+    protected abstract boolean isBuyOnly();
+
+    /**
+     * 当前已是最佳的提示消息
+     *
+     * @return 消息内容
+     */
+    protected abstract String isBestNowMsg();
 }

@@ -141,8 +141,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
      * 构建用户排名信息
      */
     public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
-        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date,
-                TornConstants.ROTATION_OC_NAME.get(user.getFactionId()));
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
         if (ranking == null) {
             return user.getNickname() + "在" + date.getMonthValue() + "月还没有OC收益";
