@@ -25,17 +25,17 @@ import java.util.stream.Stream;
 @Slf4j
 public class StocksBonusAnalyzeManager {
     /**
-     * BB等级上限，防止指数增长导致计算规模和金额失控。
+     * BB等级上限，防止指数增长导致计算规模和金额失控
      */
     private static final int MAX_BB_LEVEL = 10;
     /**
-     * DP资本缩放单位（1M = 1,000,000）。
-     * 预算按 floor，成本按 ceil，避免因缩放误差造成“理论可买、实际超买”。
+     * DP资本缩放单位（1M = 1,000,000）
+     * 预算按 floor，成本按 ceil，避免因缩放误差造成“理论可买、实际超买”
      */
     private static final long CAPITAL_SCALE_UNIT = 1_000_000L;
 
     /**
-     * 计算最佳股票分红购买策略。
+     * 计算最佳股票分红购买策略
      *
      * @param availableCash 用户可用现金
      */
@@ -44,7 +44,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 计算最佳股票分红购买策略。
+     * 计算最佳股票分红购买策略
      *
      * <p>模式说明：
      * <ul>
@@ -104,12 +104,12 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 生成所有股票所有可能的单个BB机会。
+     * 生成所有股票所有可能的单个BB机会
      */
     private List<BBOpportunity> generateAllBbOpportunities(List<TornStocksDO> allStocks) {
         List<BBOpportunity> opportunities = new ArrayList<>();
         for (TornStocksDO stock : allStocks) {
-            if (!isValidStock(stock)) {
+            if (isInvalidStock(stock)) {
                 log.warn("股票数据无效，跳过，stockId={}, shortName={}",
                         stock == null ? null : stock.getId(),
                         stock == null ? null : stock.getStocksShortname());
@@ -136,7 +136,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 根据用户持股数识别当前拥有的BB集合。
+     * 根据用户持股数识别当前拥有的BB集合
      */
     private Set<BBOpportunity> identifyCurrentPortfolio(List<BBOpportunity> allOpportunities,
                                                         TornUserStocksVO userStocks) {
@@ -166,7 +166,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 提取用户每支股票当前已拥有的最高BB等级。
+     * 提取用户每支股票当前已拥有的最高BB等级
      */
     private Map<Integer, Integer> extractMaxOwnedLevels(Set<BBOpportunity> currentPortfolio) {
         if (currentPortfolio == null || currentPortfolio.isEmpty()) {
@@ -180,7 +180,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 构建最优目标投资组合。
+     * 构建最优目标投资组合
      *
      * <p>普通模式：
      * <ul>
@@ -225,7 +225,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 构建普通模式使用的“绝对累计选项”。
+     * 构建普通模式使用的“绝对累计选项”
      *
      * <p>例如：
      * <ul>
@@ -237,7 +237,7 @@ public class StocksBonusAnalyzeManager {
     private Map<Integer, List<CumulativeBbOption>> buildAbsoluteOptions(List<TornStocksDO> allStocks) {
         Map<Integer, List<CumulativeBbOption>> optionsMap = new HashMap<>();
         for (TornStocksDO stock : allStocks) {
-            if (!isValidStock(stock)) {
+            if (isInvalidStock(stock)) {
                 continue;
             }
             optionsMap.put(stock.getId(), buildAbsoluteOptionsForStock(stock));
@@ -246,7 +246,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 构建只买不卖模式使用的“增量选项”。
+     * 构建只买不卖模式使用的“增量选项”
      *
      * <p>假设当前已持有2BB，则生成：
      * <ul>
@@ -261,7 +261,7 @@ public class StocksBonusAnalyzeManager {
         Map<Integer, List<CumulativeBbOption>> optionsMap = new HashMap<>();
 
         for (TornStocksDO stock : allStocks) {
-            if (!isValidStock(stock)) {
+            if (isInvalidStock(stock)) {
                 continue;
             }
 
@@ -288,41 +288,47 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 构建单支股票的绝对累计选项。
+     * 构建单支股票的绝对累计选项
      */
     private List<CumulativeBbOption> buildAbsoluteOptionsForStock(TornStocksDO stock) {
         List<CumulativeBbOption> options = new ArrayList<>();
         options.add(new CumulativeBbOption(stock.getId(), 0, 0, 0));
-
         long cumulativeCost = 0L;
         long cumulativeProfit = 0L;
-
         for (int level = 1; level <= MAX_BB_LEVEL; level++) {
-            long levelCost = calculateBbCost(stock.getBaseCost(), level);
-            if (levelCost <= 0) {
+            NextCumulativeValue nextValue = calculateNextCumulativeValue(stock, level, cumulativeCost, cumulativeProfit);
+            if (!nextValue.valid()) {
                 break;
             }
-
-            long nextCumulativeCost = safeAdd(cumulativeCost, levelCost);
-            if (nextCumulativeCost < 0) {
-                break;
-            }
-
-            long nextCumulativeProfit = safeAdd(cumulativeProfit, stock.getYearProfit());
-            if (nextCumulativeProfit < 0) {
-                break;
-            }
-
-            cumulativeCost = nextCumulativeCost;
-            cumulativeProfit = nextCumulativeProfit;
+            cumulativeCost = nextValue.cumulativeCost();
+            cumulativeProfit = nextValue.cumulativeProfit();
             options.add(new CumulativeBbOption(stock.getId(), level, cumulativeCost, cumulativeProfit));
         }
-
         return options;
     }
 
     /**
-     * 从选项中按等级查找目标项，找不到则返回0级。
+     * 计算下一个累计值
+     */
+    private NextCumulativeValue calculateNextCumulativeValue(TornStocksDO stock, int level,
+                                                             long currentCumulativeCost, long currentCumulativeProfit) {
+        long levelCost = calculateBbCost(stock.getBaseCost(), level);
+        if (levelCost <= 0) {
+            return NextCumulativeValue.invalid();
+        }
+        long nextCumulativeCost = safeAdd(currentCumulativeCost, levelCost);
+        if (nextCumulativeCost < 0) {
+            return NextCumulativeValue.invalid();
+        }
+        long nextCumulativeProfit = safeAdd(currentCumulativeProfit, stock.getYearProfit());
+        if (nextCumulativeProfit < 0) {
+            return NextCumulativeValue.invalid();
+        }
+        return NextCumulativeValue.valid(nextCumulativeCost, nextCumulativeProfit);
+    }
+
+    /**
+     * 从选项中按等级查找目标项，找不到则返回0级
      */
     private CumulativeBbOption findOptionByLevel(List<CumulativeBbOption> options, int level) {
         return options.stream()
@@ -333,9 +339,9 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 分组背包DP求解。
+     * 分组背包DP求解
      *
-     * <p>每支股票是一组，每组只能选一个最终等级。
+     * <p>每支股票是一组，每组只能选一个最终等级
      */
     private DpResult solveGroupedKnapsack(Map<Integer, List<CumulativeBbOption>> stockOptions, int capacity) {
         long[] dp = new long[capacity + 1];
@@ -355,7 +361,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 处理单个股票组的DP状态转移。
+     * 处理单个股票组的DP状态转移
      */
     private void processStockGroup(int stockId,
                                    List<CumulativeBbOption> options,
@@ -391,7 +397,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 根据最优等级结果构建最终投资组合。
+     * 根据最优等级结果构建最终投资组合
      */
     private Set<BBOpportunity> backtrackSolution(Map<Integer, Integer> optimalLevels, List<TornStocksDO> allStocks) {
         Set<BBOpportunity> portfolio = new HashSet<>();
@@ -400,7 +406,7 @@ public class StocksBonusAnalyzeManager {
         }
 
         for (TornStocksDO stock : allStocks) {
-            if (!isValidStock(stock)) {
+            if (isInvalidStock(stock)) {
                 continue;
             }
 
@@ -421,9 +427,9 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 生成买卖操作建议。
+     * 生成买卖操作建议
      *
-     * <p>卖出按BB等级降序，买入按BB等级升序，保证操作顺序合理。
+     * <p>卖出按BB等级降序，买入按BB等级升序，保证操作顺序合理
      */
     private List<OptimalAction> generateActions(Set<BBOpportunity> current,
                                                 Set<BBOpportunity> target,
@@ -453,7 +459,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 计算指数增长值。
+     * 计算指数增长值
      *
      * <p>公式：baseValue * 2^(level - 1)
      */
@@ -470,21 +476,21 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 计算第level个BB的成本。
+     * 计算第level个BB的成本
      */
     private long calculateBbCost(long baseCost, int level) {
         return calculateExponentialValue(baseCost, level);
     }
 
     /**
-     * 计算第level个BB单独所需股数。
+     * 计算第level个BB单独所需股数
      */
     private long calculateBbSharesRequired(long benefitReq, int level) {
         return calculateExponentialValue(benefitReq, level);
     }
 
     /**
-     * 计算拥有第level个BB所需的累计股数。
+     * 计算拥有第level个BB所需的累计股数
      *
      * <p>公式：benefitReq * (2^level - 1)
      *
@@ -507,7 +513,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 预算缩放：向下取整。
+     * 预算缩放：向下取整
      */
     private int scaleBudget(long capital) {
         if (capital <= 0) {
@@ -518,7 +524,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 成本缩放：向上取整，避免缩放误差导致超买。
+     * 成本缩放：向上取整，避免缩放误差导致超买
      */
     private int scaleCost(long cost) {
         if (cost <= 0) {
@@ -529,7 +535,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 打印投资组合摘要。
+     * 打印投资组合摘要
      */
     private void logPortfolioSummary(String title, Set<BBOpportunity> portfolio) {
         long totalProfit = portfolio.stream().mapToLong(BBOpportunity::yearProfit).sum();
@@ -555,7 +561,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 校验最终组合是否在真实预算内。
+     * 校验最终组合是否在真实预算内
      *
      * <p>普通模式：按组合总成本 <= 总资本判断
      * <p>只买不卖模式：按“目标组合总成本 - 当前组合总成本” <= 现金预算判断
@@ -575,7 +581,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 根据当前等级映射计算已持仓成本。
+     * 根据当前等级映射计算已持仓成本
      */
     private long calculatePortfolioCostByLevels(Map<Integer, Integer> levels, Set<BBOpportunity> targetPortfolio) {
         if (levels == null || levels.isEmpty()) {
@@ -603,14 +609,14 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 计算组合总成本。
+     * 计算组合总成本
      */
     private long sumCost(Set<BBOpportunity> portfolio) {
         return portfolio.stream().mapToLong(BBOpportunity::cost).sum();
     }
 
     /**
-     * 计算ROI。
+     * 计算ROI
      */
     private double calculateRoi(long yearProfit, long cost) {
         if (cost <= 0) {
@@ -620,7 +626,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * long安全加法，溢出返回-1。
+     * long安全加法，溢出返回-1
      */
     private long safeAdd(long left, long right) {
         if (right > 0 && left > Long.MAX_VALUE - right) {
@@ -633,22 +639,22 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 校验股票基础数据是否合法。
+     * 校验股票基础数据是否合法
      */
-    private boolean isValidStock(TornStocksDO stock) {
-        return stock != null
-                && stock.getId() != null
-                && stock.getStocksShortname() != null
-                && stock.getBaseCost() != null
-                && stock.getBenefitReq() != null
-                && stock.getYearProfit() != null
-                && stock.getBaseCost() > 0
-                && stock.getBenefitReq() > 0
-                && stock.getYearProfit() >= 0;
+    private boolean isInvalidStock(TornStocksDO stock) {
+        return stock == null
+                || stock.getId() == null
+                || stock.getStocksShortname() == null
+                || stock.getBaseCost() == null
+                || stock.getBenefitReq() == null
+                || stock.getYearProfit() == null
+                || stock.getBaseCost() <= 0
+                || stock.getBenefitReq() <= 0
+                || stock.getYearProfit() < 0;
     }
 
     /**
-     * 单个BB投资机会。
+     * 单个BB投资机会
      *
      * @param stockId                 股票ID
      * @param stockShortName          股票简称
@@ -671,7 +677,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 累计购买选项。
+     * 累计购买选项
      *
      * @param stockId          股票ID
      * @param level            最终等级
@@ -685,7 +691,26 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * DP求解结果。
+     * 下一个累计值
+     *
+     * @param valid            是否合法
+     * @param cumulativeCost   累计成本
+     * @param cumulativeProfit 累计利润
+     */
+    private record NextCumulativeValue(boolean valid,
+                                       long cumulativeCost,
+                                       long cumulativeProfit) {
+        private static NextCumulativeValue invalid() {
+            return new NextCumulativeValue(false, 0L, 0L);
+        }
+
+        private static NextCumulativeValue valid(long cumulativeCost, long cumulativeProfit) {
+            return new NextCumulativeValue(true, cumulativeCost, cumulativeProfit);
+        }
+    }
+
+    /**
+     * DP求解结果
      *
      * @param optimalLevels 每支股票最终应达到的最优等级
      * @param maxProfit     最大利润
@@ -695,7 +720,7 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
-     * 操作建议。
+     * 操作建议
      */
     public record OptimalAction(ActionType type,
                                 String stockShortName,
