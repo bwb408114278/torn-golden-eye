@@ -47,13 +47,14 @@ public class TornFactionOcManager {
      * 更新OC数据
      */
     @Transactional(rollbackFor = Exception.class)
-    public void updateOc(long factionId, List<TornFactionCrimeVO> availableList, List<TornFactionCrimeVO> completeList) {
+    public void updateOc(long factionId, LocalDateTime execTime,
+                         List<TornFactionCrimeVO> availableList, List<TornFactionCrimeVO> completeList) {
         List<Long> validOcIdList = updateAvailableOc(factionId, availableList);
         validOcIdList.addAll(completeOcData(factionId, completeList));
         deleteOcData(factionId, validOcIdList);
 
         if (TornConstants.REASSIGN_OC_FACTION.contains(factionId)) {
-            virtualThreadExecutor.execute(() -> ocBatchIncomeService.batchCalculateIncome(factionId));
+            virtualThreadExecutor.execute(() -> ocBatchIncomeService.batchCalculateIncome(factionId, execTime));
         }
     }
 

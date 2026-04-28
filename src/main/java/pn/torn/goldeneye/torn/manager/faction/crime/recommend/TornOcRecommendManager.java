@@ -6,8 +6,10 @@ import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 
@@ -28,19 +30,35 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class TornOcRecommendManager {
+    private final TornSettingFactionOcManager settingFactionOcManager;
     private final TornSettingOcSlotManager settingOcSlotManager;
     private final TornSettingOcCoefficientManager coefficientManager;
 
     /**
      * 查询对应的OC岗位配置
      */
-    public TornSettingOcSlotDO findSlotSetting(TornFactionOcDO oc, TornFactionOcSlotDO slot) {
-        return settingOcSlotManager.getList().stream()
+    public TornSettingOcSlotDO findSlotSetting(long factionId, TornFactionOcDO oc, TornFactionOcSlotDO slot) {
+        // 1. 检查帮派是否禁用整个OC
+        if (settingFactionOcManager.isOcDisabled(factionId, oc)) {
+            return null;
+        }
+
+        TornSettingOcSlotDO globalSetting = settingOcSlotManager.getList().stream()
                 .filter(s -> s.getOcName().equals(oc.getName()))
                 .filter(s -> s.getRank().equals(oc.getRank()))
                 .filter(s -> s.getSlotCode().equals(slot.getPosition()))
-                .findAny()
-                .orElse(null);
+                .findAny().orElse(null);
+        if (globalSetting == null) {
+            return null;
+        }
+        // 2. 检查帮派是否有岗位级别覆盖
+        TornSettingFactionOcSlotDO override = settingFactionOcManager.getFactionSlot(factionId, oc, slot.getPosition());
+        if (override != null) {
+            // 克隆并覆盖成功率要求
+            return globalSetting.overridePassRate(override.getPassRate());
+        }
+
+        return globalSetting;
     }
 
     /**
@@ -55,7 +73,7 @@ public class TornOcRecommendManager {
         return userOcData.stream()
                 .filter(data -> data.getOcName().equals(oc.getName()))
                 .filter(data -> data.getRank().equals(oc.getRank()))
-                .filter(data -> data.getPosition().equals(slotSetting.getSlotShortCode()))  // 使用短Code
+                .filter(data -> data.getPosition().equals(slotSetting.getSlotShortCode()))
                 .findFirst()
                 .orElse(null);
     }
@@ -178,7 +196,8 @@ public class TornOcRecommendManager {
      */
     private BigDecimal calculateTimeScore(LocalDateTime readyTime) {
         if (readyTime == null) {
-            return BigDecimal.valueOf(95); // 新队99分, 优先级次于2小时后停转队
+            // 新队99分, 优先级次于2小时后停转队
+            return BigDecimal.valueOf(95);
         }
 
         LocalDateTime now = LocalDateTime.now();

@@ -6,11 +6,13 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 
+import java.time.LocalDateTime;
+
 /**
  * OC刷新公共逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.11.26
  */
 @Component
@@ -25,6 +27,7 @@ public class TornFactionOcRefreshManager {
     public void refreshOc(int pageSize, long factionId) {
         for (int pageNo = 1; pageNo <= pageSize; pageNo++) {
             try {
+                LocalDateTime execTime = LocalDateTime.now();
                 Thread.sleep(1000L);
                 TornFactionOcVO availableOc = tornApi.sendRequest(factionId,
                         new TornFactionOcDTO(pageNo, false), TornFactionOcVO.class);
@@ -33,7 +36,7 @@ public class TornFactionOcRefreshManager {
                         new TornFactionOcDTO(pageNo, true), TornFactionOcVO.class);
 
                 if (availableOc != null && completeOc != null) {
-                    ocManager.updateOc(factionId, availableOc.getCrimes(), completeOc.getCrimes());
+                    ocManager.updateOc(factionId, execTime, availableOc.getCrimes(), completeOc.getCrimes());
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

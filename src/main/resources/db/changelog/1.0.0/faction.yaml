@@ -72,3 +72,148 @@ databaseChangeLog:
                     nullable: false
                   defaultValue: "00:00:00"
                   remarks: "解散时间"
+
+  - changeSet:
+      id: create_torn_setting_faction_oc_slot
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_faction_oc_disable
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                  remarks: "ID"
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "OC等级"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: torn_setting_faction_oc_slot
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                  remarks: "ID"
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "帮派ID"
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "OC等级"
+              - column:
+                  name: slot_code
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "岗位编码"
+              - column:
+                  name: pass_rate
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "成功率"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: |
+              INSERT INTO torn_setting_faction_oc_disable (faction_id, oc_name, rank) VALUES
+              (2095, 'No Reserve', 5),
+              (11796, 'No Reserve', 5),
+              (11796, 'Stacking the Deck', 5),
+              (11796, 'Manifest Cruelty', 5);
+              INSERT INTO torn_setting_faction_oc_slot (faction_id, oc_name, rank, slot_code, pass_rate) VALUES
+              (2095, 'Market Forces', 3, 'Arsonist#1', 0),
+              (2095, 'Gaslight the Way', 3, 'Looter#2', 0),
+              (2095, 'Stage Fright', 4, 'Lookout#1', 0),
+              (2095, 'Stage Fright', 4, 'Muscle#2', 0),
+              (2095, 'Snow Blind', 4, 'Muscle#1', 0),
+              (2095, 'Snow Blind', 4, 'Muscle#2', 0),
+              (11796, 'Window of Opportunity', 7, 'Looter#1', 60),
+              (11796, 'Window of Opportunity', 7, 'Looter#2', 60),
+              (11796, 'Window of Opportunity', 7, 'Muscle#2', 60),
+              (11796, 'Blast from the Past', 7, 'Bomber#1', 70),
+              (11796, 'Blast from the Past', 7, 'Engineer#1', 75),
+              (11796, 'Blast from the Past', 7, 'Muscle#1', 75),
+              (11796, 'Clinical Precision', 8, 'Assassin#1', 65),
+              (11796, 'Clinical Precision', 8, 'Cat Burglar#1', 65),
+              (11796, 'Clinical Precision', 8, 'Cleaner#1', 65),
+              (11796, 'Clinical Precision', 8, 'Imitator#1', 70),
+              (11796, 'Break the Bank', 8, 'Muscle#1', 70),
+              (11796, 'Break the Bank', 8, 'Muscle#2', 65),
+              (11796, 'Break the Bank', 8, 'Muscle#3', 70),
+              (11796, 'Break the Bank', 8, 'Thief#2', 70),
+              (27902, 'Blast from the Past', 7, 'Picklock#2', 50),
+              (27902, 'Break the Bank', 8, 'Thief#1', 55);

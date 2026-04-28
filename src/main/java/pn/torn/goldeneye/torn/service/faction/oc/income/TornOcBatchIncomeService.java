@@ -10,6 +10,7 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -31,13 +32,14 @@ public class TornOcBatchIncomeService {
      * 供定时任务调用
      */
     @Transactional(rollbackFor = Exception.class)
-    public void batchCalculateIncome(long factionId) {
+    public void batchCalculateIncome(long factionId, LocalDateTime execTime) {
+        LocalDateTime currentMonth = LocalDateTime.of(execTime.getYear(), execTime.getMonth(), 1, 0, 0, 0);
         // 1. 查询所有已完成但未计算收益的OC
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
                 .in(TornFactionOcDO::getName, TornConstants.ROTATION_OC_NAME.get(factionId))
-                .isNotNull(TornFactionOcDO::getExecutedTime)
+                .ge(TornFactionOcDO::getExecutedTime, currentMonth)
                 .notExists("SELECT 1 FROM torn_faction_oc_income WHERE oc_id = torn_faction_oc.id")
                 .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id")
                 .list();

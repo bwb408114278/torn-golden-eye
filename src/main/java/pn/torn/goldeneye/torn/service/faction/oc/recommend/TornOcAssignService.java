@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  * OC队伍分配基础逻辑层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.11.24
  */
 @Slf4j
@@ -193,7 +193,7 @@ public class TornOcAssignService {
             }
 
             for (TornFactionOcSlotDO slot : entry.getValue()) {
-                TornSettingOcSlotDO setting = ocRecommendManager.findSlotSetting(oc, slot);
+                TornSettingOcSlotDO setting = ocRecommendManager.findSlotSetting(user.getFactionId(), oc, slot);
                 TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, setting);
 
                 // 跳过已分配的岗位, 检查是否满足最低成功率要求

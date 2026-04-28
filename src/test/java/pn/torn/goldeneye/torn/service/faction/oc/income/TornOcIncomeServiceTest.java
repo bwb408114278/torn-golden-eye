@@ -52,15 +52,37 @@ class TornOcIncomeServiceTest {
     @DisplayName("单步OC计算")
     void testCalculateIncome_SingleOc() {
         // 单步OC，非链式
-        TornFactionOcDO oc = createOc(null, "Break the Bank", 8, TornOcStatusEnum.SUCCESSFUL,
-                LocalDateTime.of(2026, 4, 15, 10, 0), 1000000L);
-        createSlot(oc.getId(), USER_ID_1, "Thief#1", 60, 50000L);
-        createSlot(oc.getId(), USER_ID_2, "Thief#2", 70, 30000L);
+        TornFactionOcDO oc1 = createOc(null, "Break the Bank", 8, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 1000000L, null);
+        createSlot(oc1.getId(), USER_ID_1, "Thief#1", 60, 50000L);
+        createSlot(oc1.getId(), USER_ID_2, "Thief#2", 70, 30000L);
 
-        incomeService.calculateAndSaveIncome(oc);
+        incomeService.calculateAndSaveIncome(oc1);
 
         List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
-                .eq(TornFactionOcIncomeDO::getOcId, oc.getId())
+                .eq(TornFactionOcIncomeDO::getOcId, oc1.getId())
+                .list();
+
+        assertEquals(2, incomes.size());
+        assertTrue(incomes.stream().allMatch(TornFactionOcIncomeDO::getIsSuccess));
+        assertEquals(1000000L, incomes.getFirst().getTotalReward());
+        assertEquals(80000L, incomes.stream().mapToLong(TornFactionOcIncomeDO::getItemCost).sum());
+    }
+
+    @Test
+    @DisplayName("单步OC计算, 收益为道具")
+    void testCalculateIncome_SingleItemOc() {
+        // 单步OC，非链式
+        TornFactionOcDO oc1 = createOc(null, "Window of Opportunity", 7, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 0L,
+                "400000#600000");
+        createSlot(oc1.getId(), USER_ID_1, "Looter#1", 60, 50000L);
+        createSlot(oc1.getId(), USER_ID_2, "Looter#2", 70, 30000L);
+
+        incomeService.calculateAndSaveIncome(oc1);
+
+        List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, oc1.getId())
                 .list();
 
         assertEquals(2, incomes.size());
@@ -74,9 +96,9 @@ class TornOcIncomeServiceTest {
     void testCalculateIncome_ChainOc_SameMonth() {
         // 链式OC，同月完成
         TornFactionOcDO step1 = createOc(null, "Stacking the Deck", 8, TornOcStatusEnum.SUCCESSFUL,
-                LocalDateTime.of(2026, 4, 10, 10, 0), 0L);
+                LocalDateTime.of(2026, 4, 10, 10, 0), 0L, null);
         TornFactionOcDO step2 = createOc(step1.getId(), "Ace in the Hole", 9, TornOcStatusEnum.SUCCESSFUL,
-                LocalDateTime.of(2026, 4, 20, 15, 0), 2000000L);
+                LocalDateTime.of(2026, 4, 20, 15, 0), 2000000L, null);
 
         createSlot(step1.getId(), USER_ID_1, "Imitator#1", 80, 100000L);
         createSlot(step2.getId(), USER_ID_2, "Imitator#1", 75, 150000L);
@@ -111,9 +133,9 @@ class TornOcIncomeServiceTest {
     void testCalculateIncome_ChainOc_CrossMonth() {
         // 链式OC，跨月完成
         TornFactionOcDO step1 = createOc(null, "Stacking the Deck", 8, TornOcStatusEnum.SUCCESSFUL,
-                LocalDateTime.of(2026, 3, 28, 10, 0), 0L);
+                LocalDateTime.of(2026, 3, 28, 10, 0), 0L, null);
         TornFactionOcDO step2 = createOc(step1.getId(), "Ace in the Hole", 9, TornOcStatusEnum.SUCCESSFUL,
-                LocalDateTime.of(2026, 4, 2, 15, 0), 1500000L);
+                LocalDateTime.of(2026, 4, 2, 15, 0), 1500000L, null);
 
         createSlot(step1.getId(), USER_ID_1, "Imitator#1", 80, 80000L);
         createSlot(step2.getId(), USER_ID_1, "Imitator#1", 75, 120000L);
@@ -141,7 +163,7 @@ class TornOcIncomeServiceTest {
     void testCalculateIncome_FirstStepFailed() {
         // 第一步失败
         TornFactionOcDO step1 = createOc(null, "Stacking the Deck", 8, TornOcStatusEnum.FAILURE,
-                LocalDateTime.of(2026, 4, 15, 10, 0), 0L);
+                LocalDateTime.of(2026, 4, 15, 10, 0), 0L, null);
 
         createSlot(step1.getId(), USER_ID_1, "Hacker#1", 60, 50000L);
 
@@ -157,7 +179,8 @@ class TornOcIncomeServiceTest {
     }
 
     private TornFactionOcDO createOc(Long previousOcId, String name, Integer rank,
-                                     TornOcStatusEnum status, LocalDateTime executedTime, Long rewardMoney) {
+                                     TornOcStatusEnum status, LocalDateTime executedTime,
+                                     Long rewardMoney, String rewardItems) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setFactionId(FACTION_ID);
         oc.setPreviousOcId(previousOcId);
@@ -166,6 +189,7 @@ class TornOcIncomeServiceTest {
         oc.setStatus(status.getCode());
         oc.setExecutedTime(executedTime);
         oc.setRewardMoney(rewardMoney);
+        oc.setRewardItemsValue(rewardItems);
         ocDao.save(oc);
         return oc;
     }
