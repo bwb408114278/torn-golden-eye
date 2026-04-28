@@ -66,7 +66,7 @@ public class StocksBonusAnalyzeManager {
         logPortfolioSummary("当前持仓", currentPortfolio);
         // 3. 计算总资本（现金 + 已投资成本）
         long investedCapital = currentPortfolio.stream().mapToLong(BBOpportunity::cost).sum();
-        long totalCapital = buyOnly ? availableCash : availableCash + investedCapital;
+        long totalCapital = availableCash + investedCapital;
         log.info("总资本: {} (现金: {} + 已投资: {})",
                 NumberUtils.formatCompactNumber(totalCapital),
                 NumberUtils.formatCompactNumber(availableCash),
