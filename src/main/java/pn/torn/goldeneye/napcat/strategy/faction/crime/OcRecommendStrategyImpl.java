@@ -5,11 +5,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.PnMsgStrategy;
+import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
@@ -28,25 +27,17 @@ import java.util.List;
  * OC推荐策略实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.0.0
  * @since 2025.11.07
  */
 @Component
 @RequiredArgsConstructor
-public class OcRecommendStrategyImpl extends PnMsgStrategy {
+public class OcRecommendStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornOcRecommendService recommendService;
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
-
-    @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(),
-                BotConstants.GROUP_HP_ID,
-                BotConstants.GROUP_CCRC_ID,
-                BotConstants.GROUP_SH_ID);
-    }
 
     @Override
     public String getCommand() {

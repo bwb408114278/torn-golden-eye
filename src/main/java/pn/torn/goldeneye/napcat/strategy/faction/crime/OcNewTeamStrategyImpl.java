@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
@@ -21,7 +20,7 @@ import java.util.List;
  * 创建OC新队实现类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.0.0
  * @since 2025.11.04
  */
 @Component
@@ -29,14 +28,6 @@ import java.util.List;
 public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
     private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornOcManageService ocManageService;
-
-    @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(),
-                BotConstants.GROUP_HP_ID,
-                BotConstants.GROUP_CCRC_ID,
-                BotConstants.GROUP_SH_ID);
-    }
 
     @Override
     public String getCommand() {
