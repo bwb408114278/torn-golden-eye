@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -71,6 +71,14 @@ public class CacheConstants {
      */
     public static final String KEY_TORN_SETTING_FACTION_ALIAS = "torn:setting:faction:alias";
     /**
+     * 帮派OC禁用设置Key
+     */
+    public static final String KEY_TORN_SETTING_FACTION_OC_DISABLE = "torn:setting:faction:oc:disable";
+    /**
+     * 帮派OC岗位设置Key
+     */
+    public static final String KEY_TORN_SETTING_FACTION_OC_SLOT = "torn:setting:faction:oc:slot";
+    /**
      * OC设置Key
      */
     public static final String KEY_TORN_SETTING_OC = "torn:setting:oc";
@@ -82,9 +90,4 @@ public class CacheConstants {
      * OC系数设置Key
      */
     public static final String KEY_TORN_SETTING_OC_COEFFICIENT = "torn:setting:oc:coefficient";
-
-    /**
-     * OC帮派排行榜 Key
-     */
-    public static final String KEY_TORN_OC_BENEFIT_RANKING_FACTION = "torn:oc:benefit:ranking:faction";
 }

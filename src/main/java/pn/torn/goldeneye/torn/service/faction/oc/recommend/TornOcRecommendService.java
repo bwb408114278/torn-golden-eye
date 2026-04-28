@@ -26,7 +26,7 @@ import java.util.List;
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.0.0
  * @since 2025.11.01
  */
 @Slf4j
@@ -76,7 +76,7 @@ public class TornOcRecommendService {
                     .filter(s -> s.getOcId().equals(oc.getId())).toList();
             // 尝试匹配每个空闲岗位
             for (TornFactionOcSlotDO slot : vacantSlots) {
-                TornSettingOcSlotDO slotSetting = ocRecommendManager.findSlotSetting(oc, slot);
+                TornSettingOcSlotDO slotSetting = ocRecommendManager.findSlotSetting(user.getFactionId(), oc, slot);
                 TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, slotSetting);
                 boolean isNotMatch = matchedData == null || matchedData.getPassRate() < slotSetting.getPassRate();
                 if (slotSetting == null || isNotMatch) {

@@ -50,4 +50,17 @@ public class TornSettingOcSlotDO extends BaseDO {
      * 大成功占比
      */
     private BigDecimal bestSuccess;
+
+    public TornSettingOcSlotDO overridePassRate(int passRate) {
+        TornSettingOcSlotDO setting = new TornSettingOcSlotDO();
+        setting.setId(this.id);
+        setting.setOcName(this.ocName);
+        setting.setRank(this.rank);
+        setting.setSlotCode(this.slotCode);
+        setting.setSlotShortCode(this.slotShortCode);
+        setting.setPassRate(passRate);
+        setting.setPriority(this.priority);
+        setting.setBestSuccess(this.bestSuccess);
+        return setting;
+    }
 }
