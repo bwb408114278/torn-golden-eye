@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
@@ -22,10 +23,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -82,18 +80,21 @@ public class TornOcIncomeService {
         // 4. 按步骤生成income记录
         boolean isSuccess = TornOcStatusEnum.SUCCESSFUL.getCode().equals(oc.getStatus());
         List<IncomeCalculationDTO> incomeList;
-        long netReward = oc.getRewardMoney() - totalItemCost;
+        long itemReward = !StringUtils.hasText(oc.getRewardItemsValue()) ? 0 :
+                Arrays.stream(oc.getRewardItemsValue().split("#")).map(Long::parseLong).reduce(0L, Long::sum);
+        long totalReward = oc.getRewardMoney() + itemReward;
+        long netReward = totalReward - totalItemCost;
         for (TornFactionOcDO stepOc : ocChain) {
             List<WorkingHoursDTO> workingHoursList = stepWorkingHoursMap.get(stepOc.getId());
             incomeList = new ArrayList<>();
             for (WorkingHoursDTO workingHours : workingHoursList) {
                 long itemCost = userItemCostMap.get(workingHours.getUserId());
                 incomeList.add(new IncomeCalculationDTO(workingHours, itemCost, totalItemCost,
-                        oc.getRewardMoney(), netReward));
+                        totalReward, netReward));
             }
 
             // 5. 保存详细记录
-            saveIncomeRecords(stepOc, incomeList, isSuccess, oc.getRewardMoney(), totalItemCost);
+            saveIncomeRecords(stepOc, incomeList, isSuccess, totalReward, totalItemCost);
         }
         // 6. 更新汇总表
         calcMonthlyIncomeSummary(oc.getFactionId(), oc.getExecutedTime().format(DateTimeUtils.YEAR_MONTH_FORMATTER));
@@ -191,6 +192,7 @@ public class TornOcIncomeService {
             // 查询或创建汇总记录
             TornFactionOcIncomeSummaryDO summary = incomeSummaryDao.lambdaQuery()
                     .eq(TornFactionOcIncomeSummaryDO::getUserId, userId)
+                    .eq(TornFactionOcIncomeSummaryDO::getFactionId, factionId)
                     .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
                     .one();
             if (summary == null) {

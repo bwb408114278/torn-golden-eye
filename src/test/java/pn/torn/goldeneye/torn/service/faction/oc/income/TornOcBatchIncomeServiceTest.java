@@ -64,7 +64,7 @@ class TornOcBatchIncomeServiceTest {
         createSlot(step1.getId(), USER_ID, "Hacker#1", 65, 50000L);
         createSlot(step2.getId(), USER_ID, "Imitator#1", 70, 30000L);
 
-        batchIncomeService.batchCalculateIncome(FACTION_ID);
+        batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
 
         // step1 不应该有独立的 income 记录（它的数据应该合并到 step2 的计算中）
         List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
@@ -100,7 +100,7 @@ class TornOcBatchIncomeServiceTest {
         existingIncome.setIsSuccess(true);
         incomeDao.save(existingIncome);
 
-        batchIncomeService.batchCalculateIncome(FACTION_ID);
+        batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
 
         // 应该只有之前手动创建的那一条
         List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
@@ -122,7 +122,7 @@ class TornOcBatchIncomeServiceTest {
         createSlot(rotationOc.getId(), USER_ID, "Muscle#1", 65, 20000L);
         createSlot(nonRotationOc.getId(), USER_ID, "Reviver#1", 70, 10000L);
 
-        batchIncomeService.batchCalculateIncome(FACTION_ID);
+        batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
 
         List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
                 .eq(TornFactionOcIncomeDO::getFactionId, FACTION_ID)
@@ -144,7 +144,7 @@ class TornOcBatchIncomeServiceTest {
         createSlot(oc1.getId(), USER_ID, "Imitator#1", 70, 40000L);
         createSlot(oc2.getId(), USER_ID, "Imitator#1", 65, 30000L);
 
-        batchIncomeService.batchCalculateIncome(FACTION_ID);
+        batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
 
         List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
                 .eq(TornFactionOcIncomeDO::getFactionId, FACTION_ID)
