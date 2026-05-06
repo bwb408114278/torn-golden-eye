@@ -95,10 +95,15 @@ public class StocksBonusAnalyzeManager {
         logPortfolioSummary("目标组合", targetPortfolio);
 
         List<OptimalAction> actions = generateActions(currentPortfolio, targetPortfolio, buyOnly);
+        if (!buyOnly && !isTargetPortfolioBetter(currentPortfolio, targetPortfolio)) {
+            log.info("目标组合收益未优于当前组合，保持当前持仓不变");
+            return List.of();
+        }
 
         long sellCount = actions.stream().filter(action -> action.type() == OptimalAction.ActionType.SELL).count();
         long buyCount = actions.stream().filter(action -> action.type() == OptimalAction.ActionType.BUY).count();
         log.info("=== 策略计算完成：{} 条卖出，{} 条买入 ===", sellCount, buyCount);
+
 
         return actions;
     }
@@ -356,8 +361,17 @@ public class StocksBonusAnalyzeManager {
             processStockGroup(entry.getKey(), entry.getValue(), capacity, dp, solutions);
         }
 
-        log.debug("DP求解完成，最大利润: {}", NumberUtils.formatCompactNumber(dp[capacity]));
-        return new DpResult(solutions[capacity], dp[capacity]);
+        int bestIndex = 0;
+        long maxProfit = dp[0];
+        for (int w = 1; w <= capacity; w++) {
+            if (dp[w] > maxProfit) {
+                maxProfit = dp[w];
+                bestIndex = w;
+            }
+        }
+        log.debug("DP求解完成，最大利润: {}, 最优容量位置: {}",
+                NumberUtils.formatCompactNumber(maxProfit), bestIndex);
+        return new DpResult(new HashMap<>(solutions[bestIndex]), maxProfit);
     }
 
     /**
@@ -513,6 +527,13 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
+     * 计算年化利润
+     */
+    private long sumYearProfit(Set<BBOpportunity> portfolio) {
+        return portfolio.stream().mapToLong(BBOpportunity::yearProfit).sum();
+    }
+
+    /**
      * 预算缩放：向下取整
      */
     private int scaleBudget(long capital) {
@@ -532,6 +553,28 @@ public class StocksBonusAnalyzeManager {
         }
         long scaled = (cost + CAPITAL_SCALE_UNIT - 1) / CAPITAL_SCALE_UNIT;
         return scaled > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) scaled;
+    }
+
+    /**
+     * 目标投资是否更优
+     */
+    private boolean isTargetPortfolioBetter(Set<BBOpportunity> currentPortfolio,
+                                            Set<BBOpportunity> targetPortfolio) {
+        long currentProfit = sumYearProfit(currentPortfolio);
+        long targetProfit = sumYearProfit(targetPortfolio);
+
+        if (targetProfit > currentProfit) {
+            return true;
+        }
+
+        if (targetProfit < currentProfit) {
+            return false;
+        }
+
+        long currentCost = sumCost(currentPortfolio);
+        long targetCost = sumCost(targetPortfolio);
+
+        return targetCost > currentCost;
     }
 
     /**
