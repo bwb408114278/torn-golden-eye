@@ -60,10 +60,12 @@ public class TornOcCompleteNoticeService {
         noticeFactionIdList.add(TornConstants.FACTION_PN_ID);
         noticeFactionIdList.add(TornConstants.FACTION_SH_ID);
         noticeFactionIdList.add(TornConstants.FACTION_HP_ID);
+        noticeFactionIdList.add(TornConstants.FACTION_BSU_ID);
+        noticeFactionIdList.add(TornConstants.FACTION_PTA_ID);
 
-        for (long factionId : TornConstants.REASSIGN_OC_FACTION) {
+        for (long factionId : noticeFactionIdList) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
-            if (!noticeFactionIdList.contains(factionId) || faction.getGroupId().equals(0L)) {
+            if (faction.getGroupId().equals(0L)) {
                 continue;
             }
             scheduleOcTask(faction);

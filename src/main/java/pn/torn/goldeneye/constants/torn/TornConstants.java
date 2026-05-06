@@ -50,6 +50,10 @@ public class TornConstants {
      * BSU帮派ID
      */
     public static final long FACTION_BSU_ID = 11796;
+    /**
+     * PTA帮派ID
+     */
+    public static final long FACTION_PTA_ID = 9356;
 
     // ====================OC相关====================
     /**
