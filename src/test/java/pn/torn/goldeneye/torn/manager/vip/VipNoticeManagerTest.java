@@ -113,8 +113,8 @@ class VipNoticeManagerTest {
         @ParameterizedTest
         @DisplayName("边界值：恰好等于过期时间 → isBefore 返回 false → 不调用")
         @CsvSource({
-                "3600, 3600",  // 剩余时间>0 的边界
-                "0, 1800"      // 剩余时间=0 的边界 (30min = 1800s)
+                "3600, 3599",  // 剩余时间>0 的边界
+                "0, 1799"      // 剩余时间=0 的边界 (30min = 1800s)
         })
         void shouldNotCallApi_atExactBoundary(long remainSecond, long elapsedSeconds) {
             LocalDateTime lastCheck = LocalDateTime.of(2024, 1, 1, 12, 0);

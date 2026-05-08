@@ -40,7 +40,7 @@ import java.util.stream.IntStream;
  * Torn OC收益逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.1.0
  * @since 2025.09.08
  */
 @Service
@@ -61,6 +61,7 @@ public class TornFactionOcBenefitService {
     private static final String FIELD_OC_ID = "OCID";
     private static final String FIELD_OC_NAME = "OC名称";
     private static final String FIELD_PREVIOUS = "previous";
+    private static final String FIELD_NEXT = "next";
     private static final String FIELD_FINISH_TIME = "实际完成时间";
     private static final String FIELD_USER_IDS_STRING = "参与人id字符串";
     private static final String FIELD_BONUS_STRING = "个人奖金";
@@ -175,9 +176,10 @@ public class TornFactionOcBenefitService {
         Map<String, Object> fields = item.getFields();
         String ocStatus = LarkSuiteUtils.getTextFieldValue(fields, FIELD_OC_STATUS);
         Number previousOcIdNum = (Number) fields.get(FIELD_PREVIOUS);
+        Number nextOcIdNum = (Number) fields.get(FIELD_NEXT);
 
         // 复杂情况：一个成功的OC，并且它有一个前置OC。奖金合并计算。
-        if ("Successful".equals(ocStatus) && previousOcIdNum != null) {
+        if ("Successful".equals(ocStatus) && previousOcIdNum != null && nextOcIdNum == null) {
             return handleSuccessChainOc(fields, previousOcIdNum.longValue());
         } else {
             // 标准情况：独立的OC，或失败的OC。
