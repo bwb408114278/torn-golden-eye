@@ -60,10 +60,10 @@ public class BarNoticeChecker extends BaseVipNoticeChecker {
         }
 
         List<String> messages = new ArrayList<>();
-        if (energyFull == 0) {
+        if (energyFull == 0 && config.isEnabled(VipNoticeTypeEnum.ENERGY)) {
             messages.add("Energy满了");
         }
-        if (nerveFull == 0) {
+        if (nerveFull == 0 && config.isEnabled(VipNoticeTypeEnum.NERVE)) {
             messages.add("Nerve满了");
         }
         return messages;

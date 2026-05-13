@@ -33,18 +33,22 @@ public class VipNoticeConfigDO extends BaseDO {
      */
     private Long qqId;
     /**
-     * 禁用类型位掩码
+     * 启用类型位掩码
      */
-    private Integer disabledTypes;
+    private Integer enableTypes;
     /**
      * 暂停到日期
      */
     private LocalDateTime pauseUntil;
 
-    public boolean isDisabled(List<VipNoticeTypeEnum> typeList) {
+    public boolean isEnabled(List<VipNoticeTypeEnum> typeList) {
         int combinedType = typeList.stream().mapToInt(VipNoticeTypeEnum::getBit)
                 .reduce(0, (a, b) -> a | b);
-        return (disabledTypes & combinedType) != 0;
+        return (enableTypes & combinedType) != 0;
+    }
+
+    public boolean isEnabled(VipNoticeTypeEnum type) {
+        return (enableTypes & type.getBit()) != 0;
     }
 
     /**

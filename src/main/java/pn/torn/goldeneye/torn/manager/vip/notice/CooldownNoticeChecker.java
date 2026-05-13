@@ -60,10 +60,10 @@ public class CooldownNoticeChecker extends BaseVipNoticeChecker {
         }
 
         List<String> messages = new ArrayList<>();
-        if (drugCd == 0) {
+        if (drugCd == 0 && config.isEnabled(VipNoticeTypeEnum.DRUG)) {
             messages.add("大郎, 该吃药了");
         }
-        if (boosterCd == 0) {
+        if (boosterCd == 0 && config.isEnabled(VipNoticeTypeEnum.BOOSTER)) {
             messages.add("Booster CD空了");
         }
 

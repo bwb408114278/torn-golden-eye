@@ -29,12 +29,12 @@ databaseChangeLog:
                     nullable: false
                   remarks: "QQ号"
               - column:
-                  name: disabled_types
+                  name: enabled_types
                   type: INT
                   defaultValueComputed: '0'
                   constraints:
                     nullable: false
-                  remarks: "禁用类型位掩码"
+                  remarks: "启用类型位掩码"
               - column:
                   name: pause_until
                   type: DATETIME
