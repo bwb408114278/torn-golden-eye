@@ -60,7 +60,9 @@ public class BarNoticeChecker extends BaseVipNoticeChecker {
         }
 
         List<String> messages = new ArrayList<>();
-        if (energyFull == 0 && config.isEnabled(VipNoticeTypeEnum.ENERGY)) {
+        boolean isEnergyPause = config.getPauseEnergyUntil() != null &&
+                !LocalDateTime.now().isAfter(config.getPauseEnergyUntil());
+        if (energyFull == 0 && config.isEnabled(VipNoticeTypeEnum.ENERGY) && !isEnergyPause) {
             messages.add("Energy满了");
         }
         if (nerveFull == 0 && config.isEnabled(VipNoticeTypeEnum.NERVE)) {

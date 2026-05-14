@@ -2,6 +2,7 @@ package pn.torn.goldeneye.napcat.strategy.vip;
 
 import jakarta.annotation.Resource;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.enums.VipNoticeTypeEnum;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
@@ -31,7 +32,7 @@ public abstract class BaseVipNoticeConfigStrategyImpl extends BaseVipMsgStrategy
 
     @Override
     protected List<? extends QqMsgParam<?>> handle(TornUserDO user, String msg) {
-        if (msg == null) {
+        if (!StringUtils.hasText(msg)) {
             return List.of(new TextQqMsg(buildSupportTypeMsg()));
         }
 
@@ -48,12 +49,7 @@ public abstract class BaseVipNoticeConfigStrategyImpl extends BaseVipMsgStrategy
             return List.of(new TextQqMsg(buildSupportTypeMsg()));
         }
 
-        VipNoticeConfigDO config = configDao.lambdaQuery().eq(VipNoticeConfigDO::getUserId, user.getId()).one();
-        if (config == null) {
-            config = new VipNoticeConfigDO(user.getId(), user.getQqId());
-            configDao.save(config);
-        }
-
+        VipNoticeConfigDO config = configDao.getOrCreate(user);
         int changeEnableTypes = 0;
         for (VipNoticeTypeEnum type : typeList) {
             if (needChange(config, type)) {

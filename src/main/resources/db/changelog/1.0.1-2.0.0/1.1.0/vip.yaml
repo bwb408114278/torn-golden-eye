@@ -36,9 +36,13 @@ databaseChangeLog:
                     nullable: false
                   remarks: "启用类型位掩码"
               - column:
-                  name: pause_until
+                  name: pause_energy_until
                   type: DATETIME
-                  remarks: "暂停到日期"
+                  remarks: "暂停能量到日期"
+              - column:
+                  name: pause_travel_until
+                  type: DATETIME
+                  remarks: "暂停旅行到日期"
               - column:
                   name: deleted
                   type: TINYINT

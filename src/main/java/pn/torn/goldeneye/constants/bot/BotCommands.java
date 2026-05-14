@@ -166,7 +166,7 @@ public class BotCommands {
      */
     public static final String VIP_NOTICE_PAUSE = "提醒暂停";
     /**
-     * 提醒回复
+     * 提醒恢复
      */
     public static final String VIP_NOTICE_RESUME = "提醒回复";
 }

@@ -112,8 +112,8 @@ public class VipNoticeManager {
         for (VipNoticeConfigDO config : configList) {
             for (VipNoticeChecker checker : checkerList) {
                 List<VipNoticeTypeEnum> type = checker.getType();
-                // 跳过禁用和暂停的类型
-                if (!config.isEnabled(type) || config.isPaused(type)) {
+                // 跳过禁用的类型
+                if (!config.isEnabled(type)) {
                     continue;
                 }
 

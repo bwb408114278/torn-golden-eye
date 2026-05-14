@@ -39,9 +39,13 @@ public class VipNoticeConfigDO extends BaseDO {
      */
     private Integer enableTypes;
     /**
-     * 暂停到日期
+     * 暂停能量到日期
      */
-    private LocalDateTime pauseUntil;
+    private LocalDateTime pauseEnergyUntil;
+    /**
+     * 暂停能量到日期
+     */
+    private LocalDateTime pauseTravelUntil;
 
     public VipNoticeConfigDO(long userId, long qqId) {
         this.userId = userId;
@@ -57,16 +61,5 @@ public class VipNoticeConfigDO extends BaseDO {
 
     public boolean isEnabled(VipNoticeTypeEnum type) {
         return (enableTypes & type.getBit()) != 0;
-    }
-
-    /**
-     * 仅ENERGY和TRAVEL受暂停影响
-     */
-    public boolean isPaused(List<VipNoticeTypeEnum> typeList) {
-        if (!typeList.contains(VipNoticeTypeEnum.ENERGY) && !typeList.contains(VipNoticeTypeEnum.TRAVEL)) {
-            return false;
-        }
-
-        return pauseUntil != null && !LocalDateTime.now().isAfter(pauseUntil);
     }
 }

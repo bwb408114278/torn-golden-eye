@@ -59,7 +59,9 @@ public class TravelNoticeChecker extends BaseVipNoticeChecker {
                     .set(VipNoticeStateDO::getLastCheckTime, checkTime)
                     .eq(VipNoticeStateDO::getId, state.getId())
                     .update();
-            return List.of("在海外滞留了");
+            boolean isTravelPause = config.getPauseTravelUntil() != null &&
+                    !LocalDateTime.now().isAfter(config.getPauseTravelUntil());
+            return isTravelPause ? List.of() : List.of("在海外滞留了");
         } else if (TornUserStatusEnum.TRAVELING.getCode().equals(resp.getProfile().getStatus().getState())) {
             TornUserTravelVO travel = tornApi.sendRequest(new TornUserTravelDTO(), key, TornUserTravelVO.class);
             LocalDateTime arrivalTime = DateTimeUtils.convertToDateTime(travel.getTravel().getArrivalAt());
