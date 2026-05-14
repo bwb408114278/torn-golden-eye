@@ -21,6 +21,7 @@ import pn.torn.goldeneye.repository.model.vip.VipNoticeConfigDO;
 import pn.torn.goldeneye.repository.model.vip.VipNoticeStateDO;
 import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.manager.user.TornQqUserManager;
 import pn.torn.goldeneye.torn.manager.vip.notice.VipNoticeChecker;
 
 import java.time.LocalDateTime;
@@ -53,6 +54,7 @@ public class VipNoticeManager {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final List<VipNoticeChecker> checkerList;
+    private final TornQqUserManager qqUserManager;
     private final SysSettingManager sysSettingManager;
     private final VipSubscribeDAO subscribeDao;
     private final VipNoticeConfigDAO noticeConfigDao;
@@ -135,10 +137,16 @@ public class VipNoticeManager {
             return;
         }
 
+        List<Long> qqIdList = qqUserManager.getGroupQqIdList(projectProperty.getVipNoticeGroupId());
+        List<Long> existsQqIdList = noticeIdList.stream().filter(qqIdList::contains).toList();
+        if (CollectionUtils.isEmpty(existsQqIdList)) {
+            return;
+        }
+
         GroupMsgHttpBuilder builder = new GroupMsgHttpBuilder()
-                .setGroupId(projectProperty.getVipGroupId())
+                .setGroupId(projectProperty.getVipNoticeGroupId())
                 .addMsg(new TextQqMsg(msgText));
-        noticeIdList.forEach(i -> builder.addMsg(new TextQqMsg("\n")).addMsg(new AtQqMsg(i)));
+        existsQqIdList.forEach(i -> builder.addMsg(new TextQqMsg("\n")).addMsg(new AtQqMsg(i)));
         bot.sendRequest(builder.build(), String.class);
     }
 }

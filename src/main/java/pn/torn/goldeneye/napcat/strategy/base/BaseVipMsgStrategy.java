@@ -14,7 +14,7 @@ import java.util.List;
  * VIP消息策略
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.1
  * @since 2026.01.29
  */
 public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
@@ -27,7 +27,9 @@ public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
         if (!isVip(user)) {
             return List.of(new TextQqMsg("未订阅VIP或已过期, 发送2Xan到3312605, 并备注"
                     + TornConstants.REMARK_SUBSCRIBE + "支持一次订阅多月" +
-                    "\n如是加群功能申请QQ群" + projectProperty.getVipGroupId() + ", 金眼会自动通过入群申请"));
+                    "\n如是加群功能申请QQ群, \n赚钱群: " + projectProperty.getVipGroupId() +
+                    "\n通知群: " + projectProperty.getVipNoticeGroupId() +
+                    "\n金眼会自动通过入群申请"));
         }
 
         return handle(user, msg);

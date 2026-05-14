@@ -12,8 +12,8 @@ import pn.torn.goldeneye.napcat.strategy.base.BaseMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
-import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
@@ -24,7 +24,7 @@ import java.util.List;
  * 获取私聊指令手册
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.1
  * @since 2026.02.02
  */
 @Component
@@ -52,8 +52,10 @@ public class PrivateDocStrategyImpl extends SmthMsgStrategy {
 
         StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
         helpText.append("如需订阅VIP功能, 发送2Xan到3312605, 并备注" + TornConstants.REMARK_SUBSCRIBE)
-                .append("\n然后申请群").append(projectProperty.getVipGroupId())
-                .append(", 金眼会自动通过入群申请(内测中, 当前为优惠价格, 支持一次订阅多月)");
+                .append("\n然后申请QQ群, ")
+                .append("\n赚钱群（物价预测、炒股）: ").append(projectProperty.getVipGroupId())
+                .append("\n通知群（EN药Booster等）: ").append(projectProperty.getVipNoticeGroupId())
+                .append("\n金眼会自动通过入群申请(内测中, 当前为优惠价格, 支持一次订阅多月)");
 
         TornUserDO user = super.getTornUser(sender, "");
         helpText.append(buildVipRemainDesc(user)).append("\n");

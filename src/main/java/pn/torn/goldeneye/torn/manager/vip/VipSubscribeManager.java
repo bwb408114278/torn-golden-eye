@@ -28,9 +28,10 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipPayRecordDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.repository.model.vip.VipPayRecordDO;
 import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
-import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.user.TornQqUserManager;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 import pn.torn.goldeneye.torn.model.user.log.TornUserLogDTO;
 import pn.torn.goldeneye.torn.model.user.log.TornUserLogVO;
@@ -45,7 +46,7 @@ import java.util.stream.Collectors;
  * VIP订阅公共逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.1
  * @since 2026.01.29
  */
 @Component
@@ -55,6 +56,7 @@ public class VipSubscribeManager {
     private final Bot bot;
     private final TornApi tornApi;
     private final TornUserManager userManager;
+    private final TornQqUserManager qqUserManager;
     private final VipSubscribeDAO subscribeDao;
     private final VipPayRecordDAO payRecordDao;
     private final SysSettingDAO settingDao;
@@ -96,11 +98,21 @@ public class VipSubscribeManager {
             return;
         }
 
+        List<Long> vipQqIdList = qqUserManager.getGroupQqIdList(projectProperty.getVipGroupId());
+        List<Long> vipNoticeQqIdList = qqUserManager.getGroupQqIdList(projectProperty.getVipNoticeGroupId());
         List<Long> warningQqList = new ArrayList<>();
         for (VipSubscribeDO subscribe : limitList) {
             if (subscribe.getEndDate().isBefore(LocalDate.now())) {
-                bot.sendRequest(new KickGroupMemberReqParam(
-                        projectProperty.getVipGroupId(), subscribe.getQqId()), String.class);
+                if (vipQqIdList.contains(subscribe.getQqId())) {
+                    bot.sendRequest(new KickGroupMemberReqParam(
+                            projectProperty.getVipGroupId(), subscribe.getQqId()), String.class);
+                }
+
+                if (vipNoticeQqIdList.contains(subscribe.getQqId())) {
+                    bot.sendRequest(new KickGroupMemberReqParam(
+                            projectProperty.getVipNoticeGroupId(), subscribe.getQqId()), String.class);
+                }
+
                 subscribeDao.removeById(subscribe.getId());
             } else {
                 warningQqList.add(subscribe.getQqId());
@@ -204,7 +216,8 @@ public class VipSubscribeManager {
     private void applyJoin() {
         ResponseEntity<GroupSysMsgRec> resp = bot.sendRequest(new GroupSysMsgReqParam(), GroupSysMsgRec.class);
         List<GroupSysMsgJoinRec> applyList = resp.getBody().getData().getJoinRequests().stream()
-                .filter(m -> projectProperty.getVipGroupId() == m.getGroupId())
+                .filter(m -> projectProperty.getVipGroupId() == m.getGroupId() ||
+                        projectProperty.getVipNoticeGroupId() == m.getGroupId())
                 .filter(m -> !m.isChecked())
                 .toList();
         if (CollectionUtils.isEmpty(applyList)) {
@@ -221,9 +234,11 @@ public class VipSubscribeManager {
             }
 
             bot.sendRequest(new AuditJoinGroupReqParam(apply.getRequestId()), String.class);
-            subscribe.setStartDate(LocalDate.now());
-            subscribe.setEndDate(LocalDate.now().plusDays(subscribe.getSubscribeLength()));
-            subscribeDao.updateById(subscribe);
+            if (subscribe.getStartDate() == null) {
+                subscribe.setStartDate(LocalDate.now());
+                subscribe.setEndDate(LocalDate.now().plusDays(subscribe.getSubscribeLength()));
+                subscribeDao.updateById(subscribe);
+            }
         }
     }
 
@@ -256,7 +271,7 @@ public class VipSubscribeManager {
         int needDeductQty = exchangeCount * 2;
 
         if (exchangeCount == 0) {
-            log.debug("用户 {} 道具数量不足5个，暂不兑换，剩余数量: {}", userId, totalRemainQty);
+            log.debug("用户 {} 道具数量不足2个，暂不兑换，剩余数量: {}", userId, totalRemainQty);
             return 0;
         }
 
