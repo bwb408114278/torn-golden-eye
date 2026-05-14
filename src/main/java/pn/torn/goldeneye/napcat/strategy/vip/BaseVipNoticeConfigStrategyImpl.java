@@ -75,8 +75,9 @@ public abstract class BaseVipNoticeConfigStrategyImpl extends BaseVipMsgStrategy
     private String buildSupportTypeMsg() {
         List<String> typeAliasList = Arrays.stream(VipNoticeTypeEnum.values()).map(VipNoticeTypeEnum::getAlias).toList();
         String enableTypeMsg = String.join(", ", typeAliasList);
-        return getSubCommandDesc() + ", 一次设置多个可以用英文逗号,分隔, 例如g#"
-                + getCommand() + "#药,Booster, 目前支持的类型如下：\n" + enableTypeMsg;
+        return getSubCommandDesc() + ", 一次设置多个可以用英文逗号,分隔\n" +
+                "例如g#" + getCommand() + "#药,Booster" +
+                "\n目前支持的类型如下：" + enableTypeMsg;
     }
 
     /**

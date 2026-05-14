@@ -29,7 +29,7 @@ databaseChangeLog:
                     nullable: false
                   remarks: "QQ号"
               - column:
-                  name: enabled_types
+                  name: enable_types
                   type: INT
                   defaultValueComputed: '0'
                   constraints:

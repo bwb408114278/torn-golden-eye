@@ -15,7 +15,7 @@ import pn.torn.goldeneye.repository.model.vip.VipNoticeConfigDO;
 import java.util.List;
 
 /**
- * VIP提醒暂停
+ * VIP提醒恢复
  *
  * @author Bai
  * @version 1.1.1

@@ -33,7 +33,7 @@ public class VipNoticeCancelStrategyImpl extends BaseVipNoticeConfigStrategyImpl
 
     @Override
     protected boolean needChange(VipNoticeConfigDO config, VipNoticeTypeEnum type) {
-        return !config.isEnabled(type);
+        return config.isEnabled(type);
     }
 
     @Override

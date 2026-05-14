@@ -168,5 +168,5 @@ public class BotCommands {
     /**
      * 提醒恢复
      */
-    public static final String VIP_NOTICE_RESUME = "提醒回复";
+    public static final String VIP_NOTICE_RESUME = "提醒恢复";
 }

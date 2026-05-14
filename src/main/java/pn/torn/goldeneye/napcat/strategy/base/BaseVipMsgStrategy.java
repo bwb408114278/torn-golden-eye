@@ -6,8 +6,11 @@ import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
+import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -19,7 +22,9 @@ import java.util.List;
  */
 public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
     @Resource
-    protected ProjectProperty projectProperty;
+    private VipSubscribeDAO subscribeDao;
+    @Resource
+    private ProjectProperty projectProperty;
 
     @Override
     public List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
@@ -27,9 +32,9 @@ public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
         if (!isVip(user)) {
             return List.of(new TextQqMsg("未订阅VIP或已过期, 发送2Xan到3312605, 并备注"
                     + TornConstants.REMARK_SUBSCRIBE + "支持一次订阅多月" +
-                    "\n如是加群功能申请QQ群, \n赚钱群: " + projectProperty.getVipGroupId() +
-                    "\n通知群: " + projectProperty.getVipNoticeGroupId() +
-                    "\n金眼会自动通过入群申请"));
+                    "\n如是加群功能申请QQ群, 金眼会自动通过入群申请" +
+                    "\n赚钱群: " + projectProperty.getVipGroupId() +
+                    "\n提醒群: " + projectProperty.getVipNoticeGroupId()));
         }
 
         return handle(user, msg);
@@ -39,11 +44,12 @@ public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
      * 校验用户是否是VIP用户
      */
     private boolean isVip(TornUserDO user) {
-        if (projectProperty.getAdminId().contains(user.getId())) {
-            return true;
+        VipSubscribeDO subscribe = subscribeDao.lambdaQuery().eq(VipSubscribeDO::getQqId, user.getQqId()).one();
+        if (subscribe == null) {
+            return false;
         }
 
-        return user.getId().equals(3267881L);
+        return subscribe.getEndDate() == null || !subscribe.getEndDate().isBefore(LocalDate.now());
     }
 
     /**
