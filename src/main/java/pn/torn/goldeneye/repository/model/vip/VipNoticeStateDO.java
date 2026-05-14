@@ -3,6 +3,8 @@ package pn.torn.goldeneye.repository.model.vip;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import pn.torn.goldeneye.constants.bot.enums.VipNoticeTypeEnum;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.time.LocalDateTime;
@@ -17,6 +19,7 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @TableName(value = "vip_notice_state", autoResultMap = true)
+@NoArgsConstructor
 public class VipNoticeStateDO extends BaseDO {
     /**
      * ID
@@ -38,4 +41,11 @@ public class VipNoticeStateDO extends BaseDO {
      * 剩余秒数
      */
     private Long lastValue;
+
+    public VipNoticeStateDO(Long userId, VipNoticeTypeEnum noticeType) {
+        this.userId = userId;
+        this.noticeType = noticeType.getBit();
+        this.lastCheckTime = LocalDateTime.now();
+        this.lastValue = 0L;
+    }
 }

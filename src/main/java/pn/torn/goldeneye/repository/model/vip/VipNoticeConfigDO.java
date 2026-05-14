@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.model.vip;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.constants.bot.enums.VipNoticeTypeEnum;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
@@ -19,6 +20,7 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @TableName(value = "vip_notice_config", autoResultMap = true)
+@NoArgsConstructor
 public class VipNoticeConfigDO extends BaseDO {
     /**
      * ID
@@ -40,6 +42,12 @@ public class VipNoticeConfigDO extends BaseDO {
      * 暂停到日期
      */
     private LocalDateTime pauseUntil;
+
+    public VipNoticeConfigDO(long userId, long qqId) {
+        this.userId = userId;
+        this.qqId = qqId;
+        this.enableTypes = 0;
+    }
 
     public boolean isEnabled(List<VipNoticeTypeEnum> typeList) {
         int combinedType = typeList.stream().mapToInt(VipNoticeTypeEnum::getBit)

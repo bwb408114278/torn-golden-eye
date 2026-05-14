@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.1
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -151,4 +151,22 @@ public class BotCommands {
      * 绑Key
      */
     public static final String BIND_KEY = "绑Key";
+
+    // ====================其他功能相关====================/
+    /**
+     * 提醒设置
+     */
+    public static final String VIP_NOTICE_SET = "提醒设置";
+    /**
+     * 提醒取消
+     */
+    public static final String VIP_NOTICE_CANCEL = "提醒取消";
+    /**
+     * 提醒暂停
+     */
+    public static final String VIP_NOTICE_PAUSE = "提醒暂停";
+    /**
+     * 提醒回复
+     */
+    public static final String VIP_NOTICE_RESUME = "提醒回复";
 }

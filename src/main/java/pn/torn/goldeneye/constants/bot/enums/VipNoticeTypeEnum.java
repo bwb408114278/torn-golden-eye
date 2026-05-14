@@ -17,33 +17,30 @@ public enum VipNoticeTypeEnum {
     /**
      * Drug CD提醒
      */
-    DRUG(1),
+    DRUG(1, "药"),
     /**
      * 能量提醒
      */
-    ENERGY(2),
+    ENERGY(2, "energy"),
     /**
      * 勇气提醒
      */
-    NERVE(4),
+    NERVE(4, "nerve"),
     /**
      * Refill提醒
      */
-    REFILL(8),
+    REFILL(8, "refill"),
     /**
      * 旅行提醒
      */
-    TRAVEL(16),
+    TRAVEL(16, "躺飞"),
     /**
      * Booster CD提醒
      */
-    BOOSTER(32),
-    /**
-     * 赛车提醒
-     */
-    RACING(64);
+    BOOSTER(32, "booster");
 
-    public final int bit;
+    private final int bit;
+    private final String alias;
 
     public static VipNoticeTypeEnum bitOf(int bit) {
         for (VipNoticeTypeEnum value : values()) {
@@ -53,5 +50,15 @@ public enum VipNoticeTypeEnum {
         }
 
         throw new BizException("VIP提醒类型未识别位掩码: " + bit);
+    }
+
+    public static VipNoticeTypeEnum aliasOf(String alias) {
+        for (VipNoticeTypeEnum value : values()) {
+            if (alias.trim().toLowerCase().equals(value.getAlias())) {
+                return value;
+            }
+        }
+
+        return null;
     }
 }
