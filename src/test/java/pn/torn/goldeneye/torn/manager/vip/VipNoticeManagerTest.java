@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -18,6 +19,7 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.bot.enums.VipNoticeTypeEnum;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.constants.torn.enums.user.TornUserStatusEnum;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeConfigDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipNoticeStateDAO;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
@@ -26,10 +28,12 @@ import pn.torn.goldeneye.repository.model.vip.VipNoticeConfigDO;
 import pn.torn.goldeneye.repository.model.vip.VipNoticeStateDO;
 import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-import pn.torn.goldeneye.torn.manager.vip.notice.BarNoticeChecker;
-import pn.torn.goldeneye.torn.manager.vip.notice.BaseVipNoticeChecker;
-import pn.torn.goldeneye.torn.manager.vip.notice.CooldownNoticeChecker;
-import pn.torn.goldeneye.torn.manager.vip.notice.VipNoticeChecker;
+import pn.torn.goldeneye.torn.manager.user.TornQqUserManager;
+import pn.torn.goldeneye.torn.manager.vip.notice.*;
+import pn.torn.goldeneye.torn.model.user.TornUserDTO;
+import pn.torn.goldeneye.torn.model.user.TornUserProfileVO;
+import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
+import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.torn.model.user.bar.TornUserBarDTO;
 import pn.torn.goldeneye.torn.model.user.bar.TornUserBarDataVO;
 import pn.torn.goldeneye.torn.model.user.bar.TornUserBarNumberVO;
@@ -37,6 +41,10 @@ import pn.torn.goldeneye.torn.model.user.bar.TornUserBarVO;
 import pn.torn.goldeneye.torn.model.user.cooldown.TornUserCooldownDTO;
 import pn.torn.goldeneye.torn.model.user.cooldown.TornUserCooldownDataVO;
 import pn.torn.goldeneye.torn.model.user.cooldown.TornUserCooldownVO;
+import pn.torn.goldeneye.torn.model.user.travel.TornUserTravelDTO;
+import pn.torn.goldeneye.torn.model.user.travel.TornUserTravelDataVO;
+import pn.torn.goldeneye.torn.model.user.travel.TornUserTravelVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -169,8 +177,6 @@ class VipNoticeManagerTest {
         @Mock
         private TornApiKeyConfig apiKeyConfig;
         @Mock
-        private VipNoticeConfigDAO configDao;
-        @Mock
         private VipNoticeStateDAO stateDao;
         @InjectMocks
         private CooldownNoticeChecker checker;
@@ -219,7 +225,7 @@ class VipNoticeManagerTest {
         void returnsMessage_whenDrugCdIsZero() {
             TornApiKeyDO key = new TornApiKeyDO();
             when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
-            TornUserCooldownVO resp = mockCooldownResponse(0);
+            TornUserCooldownVO resp = mockCooldownResponseFull(0, 5000);
             when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
                     .thenReturn(resp);
             mockStateUpdate();
@@ -232,7 +238,7 @@ class VipNoticeManagerTest {
         void returnsEmpty_whenDrugCdGreaterThanZero() {
             TornApiKeyDO key = new TornApiKeyDO();
             when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
-            TornUserCooldownVO resp = mockCooldownResponse(3600);
+            TornUserCooldownVO resp = mockCooldownResponseFull(3600, 300);
             when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
                     .thenReturn(resp);
             mockStateUpdate();
@@ -241,11 +247,50 @@ class VipNoticeManagerTest {
         }
 
         @Test
+        @DisplayName("Booster CD = 0 时返回 Booster 提醒消息")
+        void returnsMessage_whenBoosterCdIsZero() {
+            config.setEnableTypes(VipNoticeTypeEnum.BOOSTER.getBit());
+            VipNoticeStateDO boosterState = new VipNoticeStateDO();
+            boosterState.setUserId(100L);
+            boosterState.setNoticeType(VipNoticeTypeEnum.BOOSTER.getBit());
+            boosterState.setLastCheckTime(now.minusHours(1));
+            boosterState.setLastValue(0L);
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserCooldownVO resp = mockCooldownResponseFull(3600, 0);
+            when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class))).thenReturn(resp);
+            mockStateUpdate();
+            List<String> result = checker.checkAndUpdate(config, List.of(boosterState), now);
+            assertThat(result).containsExactly("Booster CD空了");
+        }
+
+        @Test
+        @DisplayName("Drug 和 Booster CD 都为 0 时同时返回两条消息")
+        void returnsBoth_whenDrugAndBoosterCdZero() {
+            config.setEnableTypes(VipNoticeTypeEnum.DRUG.getBit() | VipNoticeTypeEnum.BOOSTER.getBit());
+            VipNoticeStateDO drugState = new VipNoticeStateDO();
+            drugState.setNoticeType(VipNoticeTypeEnum.DRUG.getBit());
+            drugState.setLastCheckTime(now.minusHours(1));
+            drugState.setLastValue(0L);
+            VipNoticeStateDO boosterState = new VipNoticeStateDO();
+            boosterState.setNoticeType(VipNoticeTypeEnum.BOOSTER.getBit());
+            boosterState.setLastCheckTime(now.minusHours(1));
+            boosterState.setLastValue(0L);
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserCooldownVO resp = mockCooldownResponseFull(0, 0);
+            when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class))).thenReturn(resp);
+            mockStateUpdate();
+            List<String> result = checker.checkAndUpdate(config, List.of(drugState, boosterState), now);
+            assertThat(result).containsExactlyInAnyOrder("大郎, 该吃药了", "Booster CD空了");
+        }
+
+        @Test
         @DisplayName("调用API后应更新 DB")
         void shouldUpdateDatabaseAfterApiCall() {
             TornApiKeyDO key = new TornApiKeyDO();
             when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
-            TornUserCooldownVO resp = mockCooldownResponse(500);
+            TornUserCooldownVO resp = mockCooldownResponseFull(500, 300);
             when(tornApi.sendRequest(any(TornUserCooldownDTO.class), eq(key), eq(TornUserCooldownVO.class)))
                     .thenReturn(resp);
             mockStateUpdate();
@@ -253,21 +298,13 @@ class VipNoticeManagerTest {
             verify(stateDao).lambdaUpdate();
         }
 
-        private TornUserCooldownVO mockCooldownResponse(int drugCd) {
+        private TornUserCooldownVO mockCooldownResponseFull(int drugCd, int boosterCd) {
             TornUserCooldownVO resp = mock(TornUserCooldownVO.class);
             TornUserCooldownDataVO cooldowns = mock(TornUserCooldownDataVO.class);
             when(resp.getCooldowns()).thenReturn(cooldowns);
             when(cooldowns.getDrug()).thenReturn(drugCd);
+            when(cooldowns.getBooster()).thenReturn(boosterCd);
             return resp;
-        }
-
-        @SuppressWarnings("unchecked")
-        private void mockConfigUpdate() {
-            var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
-            when(configDao.lambdaUpdate()).thenReturn(wrapper);
-            when(wrapper.set(any(), any())).thenReturn(wrapper);
-            when(wrapper.eq(any(), any())).thenReturn(wrapper);
-            when(wrapper.update()).thenReturn(true);
         }
 
         @SuppressWarnings("unchecked")
@@ -380,6 +417,34 @@ class VipNoticeManagerTest {
         }
 
         @Test
+        @DisplayName("Energy 满了但在暂停期内，不发送 Energy 通知")
+        void returnsEmpty_whenEnergyPaused() {
+            config.setEnableTypes(VipNoticeTypeEnum.ENERGY.getBit() | VipNoticeTypeEnum.NERVE.getBit());
+            config.setPauseEnergyUntil(LocalDateTime.now().plusHours(1));
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserBarVO resp = mockBarResponse(0, 3600);
+            when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class))).thenReturn(resp);
+            mockStateUpdate();
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Energy 暂停已过期，正常发送通知")
+        void returnsEnergy_whenPauseExpired() {
+            config.setEnableTypes(VipNoticeTypeEnum.ENERGY.getBit());
+            config.setPauseEnergyUntil(now.minusMinutes(1));
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserBarVO resp = mockBarResponse(0, 3600);
+            when(tornApi.sendRequest(any(TornUserBarDTO.class), eq(key), eq(TornUserBarVO.class))).thenReturn(resp);
+            mockStateUpdate();
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).containsExactly("Energy满了");
+        }
+
+        @Test
         @DisplayName("都不为 0 时返回空")
         void returnsEmpty_whenNeitherZero() {
             TornApiKeyDO key = new TornApiKeyDO();
@@ -423,6 +488,184 @@ class VipNoticeManagerTest {
         }
     }
 
+    // ==================== TravelNoticeChecker 测试 ====================
+    @Nested
+    @DisplayName("TravelNoticeChecker")
+    class TravelNoticeCheckerTest {
+        @Mock
+        private TornApi tornApi;
+        @Mock
+        private TornApiKeyConfig apiKeyConfig;
+        @Mock
+        private VipNoticeStateDAO stateDao;
+        @InjectMocks
+        private TravelNoticeChecker checker;
+
+        private VipNoticeConfigDO config;
+        private VipNoticeStateDO state;
+        private List<VipNoticeStateDO> stateList;
+        private final LocalDateTime now = LocalDateTime.of(2024, 6, 15, 12, 0);
+
+        @BeforeEach
+        void setUp() {
+            config = new VipNoticeConfigDO();
+            config.setUserId(100L);
+            config.setEnableTypes(VipNoticeTypeEnum.TRAVEL.getBit());
+
+            state = new VipNoticeStateDO();
+            state.setId(1L);
+            state.setLastCheckTime(now.minusHours(1));
+            state.setLastValue(0L);
+            stateList = List.of(state);
+        }
+
+        @Test
+        @DisplayName("未过期时不调用 API，返回空列表")
+        void returnsEmpty_whenNotExpired() {
+            state.setLastCheckTime(now.minusMinutes(5));
+            state.setLastValue(7200L);
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).isEmpty();
+            verifyNoInteractions(tornApi);
+        }
+
+        @Test
+        @DisplayName("没有 API Key 时返回空列表")
+        void returnsEmpty_whenNoApiKey() {
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(null);
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).isEmpty();
+            verifyNoInteractions(tornApi);
+        }
+
+        @Test
+        @DisplayName("状态为 ABROAD 且未暂停时，返回滞留消息")
+        void returnsMessage_whenAbroadAndNotPaused() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserVO userResp = mockUserStatus(TornUserStatusEnum.ABROAD.getCode());
+            when(tornApi.sendRequest(any(TornUserDTO.class), eq(key), eq(TornUserVO.class))).thenReturn(userResp);
+            mockStateUpdate();
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).containsExactly("在海外滞留了");
+        }
+
+        @Test
+        @DisplayName("状态为 ABROAD 且暂停已过期，返回滞留消息")
+        void returnsMessage_whenAbroadAndPauseExpired() {
+            config.setPauseTravelUntil(now.minusMinutes(1));
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserVO userResp = mockUserStatus(TornUserStatusEnum.ABROAD.getCode());
+            when(tornApi.sendRequest(any(TornUserDTO.class), eq(key), eq(TornUserVO.class))).thenReturn(userResp);
+            mockStateUpdate();
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).containsExactly("在海外滞留了");
+        }
+
+        @Test
+        @DisplayName("状态为 TRAVELING，目的地非Torn，存入到达剩余秒数")
+        void savesArrivalSeconds_whenTravelingToForeign() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserVO userResp = mockUserStatus(TornUserStatusEnum.TRAVELING.getCode());
+            when(tornApi.sendRequest(any(TornUserDTO.class), eq(key), eq(TornUserVO.class))).thenReturn(userResp);
+
+            LocalDateTime arrivalTime = now.plusSeconds(1800);
+            TornUserTravelVO cayman = mockTravelResponse("Cayman Islands", arrivalTime);
+            when(tornApi.sendRequest(any(TornUserTravelDTO.class), eq(key), eq(TornUserTravelVO.class)))
+                    .thenReturn(cayman);
+            mockStateUpdate();
+
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).isEmpty();
+            verify(stateDao.lambdaUpdate().set(any(), eq(1800L)).eq(any(), eq(1L))).update();
+        }
+
+        @Test
+        @DisplayName("状态为 TRAVELING，目的地是 Torn，nextCheckSecond 额外加 600")
+        void addsExtraDelay_whenTravelingBackToTorn() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserVO userResp = mockUserStatus(TornUserStatusEnum.TRAVELING.getCode());
+            when(tornApi.sendRequest(any(TornUserDTO.class), eq(key), eq(TornUserVO.class))).thenReturn(userResp);
+
+            LocalDateTime arrivalTime = now.plusSeconds(1800);
+            TornUserTravelVO torn = mockTravelResponse("Torn", arrivalTime);
+            when(tornApi.sendRequest(any(TornUserTravelDTO.class), eq(key), eq(TornUserTravelVO.class))).thenReturn(torn);
+
+            mockStateUpdate();
+            checker.checkAndUpdate(config, stateList, now);
+            ArgumentCaptor<Object> valueCaptor = ArgumentCaptor.forClass(Object.class);
+            verify(stateDao.lambdaUpdate(), atLeastOnce()).set(any(), valueCaptor.capture());
+            assertThat(valueCaptor.getAllValues()).contains(2400L);
+        }
+
+        @Test
+        @DisplayName("状态为 TRAVELING，到达时间已过（负数），nextCheckSecond 归零")
+        void clampsToZero_whenArrivalAlreadyPassed() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserVO userResp = mockUserStatus(TornUserStatusEnum.TRAVELING.getCode());
+            when(tornApi.sendRequest(any(TornUserDTO.class), eq(key), eq(TornUserVO.class))).thenReturn(userResp);
+
+            LocalDateTime arrivalTime = now.minusSeconds(300);
+            TornUserTravelVO cayman = mockTravelResponse("Cayman Islands", arrivalTime);
+            when(tornApi.sendRequest(any(TornUserTravelDTO.class), eq(key), eq(TornUserTravelVO.class)))
+                    .thenReturn(cayman);
+            mockStateUpdate();
+            checker.checkAndUpdate(config, stateList, now);
+            ArgumentCaptor<Object> valueCaptor = ArgumentCaptor.forClass(Object.class);
+            verify(stateDao.lambdaUpdate(), atLeastOnce()).set(any(), valueCaptor.capture());
+            assertThat(valueCaptor.getAllValues()).contains(0L);
+        }
+
+        @Test
+        @DisplayName("其他状态（如在国内）存入 600 秒，返回空列表")
+        void saves600_whenStatusIsOther() {
+            TornApiKeyDO key = new TornApiKeyDO();
+            when(apiKeyConfig.getKeyByUserId(100L)).thenReturn(key);
+            TornUserVO userResp = mockUserStatus("Okay");
+            when(tornApi.sendRequest(any(TornUserDTO.class), eq(key), eq(TornUserVO.class))).thenReturn(userResp);
+            mockStateUpdate();
+
+            List<String> result = checker.checkAndUpdate(config, stateList, now);
+            assertThat(result).isEmpty();
+            ArgumentCaptor<Object> valueCaptor = ArgumentCaptor.forClass(Object.class);
+            verify(stateDao.lambdaUpdate(), atLeastOnce()).set(any(), valueCaptor.capture());
+            assertThat(valueCaptor.getAllValues()).contains(600);
+        }
+
+        private TornUserVO mockUserStatus(String statusCode) {
+            TornUserVO resp = mock(TornUserVO.class);
+            TornUserProfileVO profile = mock(TornUserProfileVO.class);
+            TornUserStatusVO status = mock(TornUserStatusVO.class);
+            when(resp.getProfile()).thenReturn(profile);
+            when(profile.getStatus()).thenReturn(status);
+            when(status.getState()).thenReturn(statusCode);
+            return resp;
+        }
+
+        private TornUserTravelVO mockTravelResponse(String destination, LocalDateTime arrivalTime) {
+            TornUserTravelVO resp = mock(TornUserTravelVO.class);
+            TornUserTravelDataVO travel = mock(TornUserTravelDataVO.class);
+            when(resp.getTravel()).thenReturn(travel);
+            when(travel.getDestination()).thenReturn(destination);
+            when(travel.getArrivalAt()).thenReturn(DateTimeUtils.convertToTimestamp(arrivalTime));
+            return resp;
+        }
+
+        @SuppressWarnings("unchecked")
+        private com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper<VipNoticeStateDO> mockStateUpdate() {
+            var wrapper = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class);
+            when(stateDao.lambdaUpdate()).thenReturn(wrapper);
+            when(wrapper.set(any(), any())).thenReturn(wrapper);
+            when(wrapper.eq(any(), any())).thenReturn(wrapper);
+            when(wrapper.update()).thenReturn(true);
+            return wrapper;
+        }
+    }
+
     // ==================== VipNoticeManager 集成测试 ====================
     @Nested
     @DisplayName("VipNoticeManager")
@@ -431,6 +674,8 @@ class VipNoticeManagerTest {
         private ThreadPoolTaskExecutor virtualThreadExecutor;
         @Mock
         private Bot bot;
+        @Mock
+        private TornQqUserManager qqUserManager;
         @Mock
         private SysSettingManager settingManager;
         @Mock
@@ -448,8 +693,8 @@ class VipNoticeManagerTest {
             when(projectProperty.getEnv()).thenReturn("dev");
             when(settingManager.getSettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(), settingManager, subscribeDao,
-                    noticeConfigDao, noticeStateDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(), qqUserManager, settingManager,
+                    subscribeDao, noticeConfigDao, noticeStateDao, projectProperty);
             manager.notice();
             verifyNoInteractions(subscribeDao);
         }
@@ -465,8 +710,8 @@ class VipNoticeManagerTest {
             when(queryWrapper.ge(any(), any())).thenReturn(queryWrapper);
             when(queryWrapper.list()).thenReturn(Collections.emptyList());
             VipNoticeManager manager = new VipNoticeManager(
-                    virtualThreadExecutor, bot, List.of(), settingManager, subscribeDao,
-                    noticeConfigDao, noticeStateDao, projectProperty);
+                    virtualThreadExecutor, bot, List.of(), qqUserManager, settingManager,
+                    subscribeDao, noticeConfigDao, noticeStateDao, projectProperty);
             manager.notice();
             verifyNoInteractions(noticeConfigDao);
         }
@@ -520,8 +765,8 @@ class VipNoticeManagerTest {
                 }
             };
 
-            return new VipNoticeManager(virtualThreadExecutor, bot, List.of(failingChecker), settingManager,
-                    subscribeDao, noticeConfigDao, noticeStateDao, projectProperty);
+            return new VipNoticeManager(virtualThreadExecutor, bot, List.of(failingChecker), qqUserManager,
+                    settingManager, subscribeDao, noticeConfigDao, noticeStateDao, projectProperty);
         }
     }
 

@@ -108,7 +108,6 @@ public class VipNoticeManager {
         List<VipNoticeStateDO> stateList = noticeStateDao.lambdaQuery()
                 .in(VipNoticeStateDO::getUserId, userIdList)
                 .list();
-        List<String> messages = new ArrayList<>();
         for (VipNoticeConfigDO config : configList) {
             for (VipNoticeChecker checker : checkerList) {
                 List<VipNoticeTypeEnum> type = checker.getType();
@@ -121,7 +120,7 @@ public class VipNoticeManager {
                         .filter(s -> s.getUserId().equals(config.getUserId()))
                         .filter(s -> type.contains(VipNoticeTypeEnum.bitOf(s.getNoticeType())))
                         .toList();
-                messages.addAll(checker.checkAndUpdate(config, checkTypeList, checkTime));
+                List<String> messages = checker.checkAndUpdate(config, checkTypeList, checkTime);
                 for (String msg : messages) {
                     msgMap.computeIfAbsent(msg, k -> new ConcurrentLinkedQueue<>()).add(config.getQqId());
                 }

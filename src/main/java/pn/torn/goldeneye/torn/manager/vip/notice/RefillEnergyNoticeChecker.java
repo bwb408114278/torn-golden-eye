@@ -74,7 +74,7 @@ public class RefillEnergyNoticeChecker extends BaseVipNoticeChecker {
         long nextResetEpoch = gameDate.atTime(GAME_DAY_RESET_HOUR, 0).toEpochSecond(ZoneOffset.UTC);
         // 已 Refill → 记录解禁时间，今天不再提醒；未 Refill → lastValue 置 0，下次窗口继续提醒
         stateDao.lambdaUpdate()
-                .set(VipNoticeStateDO::getLastValue, isRefill ? 0L : nextResetEpoch)
+                .set(VipNoticeStateDO::getLastValue, isRefill ? nextResetEpoch : 0L)
                 .set(VipNoticeStateDO::getLastCheckTime, checkTime)
                 .eq(VipNoticeStateDO::getId, state.getId())
                 .update();
