@@ -10,7 +10,7 @@ import java.util.List;
  * 项目属性
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.1
  * @since 2025.07.10
  */
 @Data
@@ -29,6 +29,10 @@ public class ProjectProperty {
      * VIP群ID
      */
     private long vipGroupId;
+    /**
+     * VIP提醒群ID
+     */
+    private long vipNoticeGroupId;
     /**
      * 扫描的Token
      */

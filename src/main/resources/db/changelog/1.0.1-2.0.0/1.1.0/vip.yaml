@@ -1,0 +1,124 @@
+databaseChangeLog:
+  - changeSet:
+      id: refactor_vip_notice
+      author: Bai
+      changes:
+        - createTable:
+            tableName: vip_notice_config
+            remarks: "VIP提醒设置表"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    unique: true
+                  remarks: "用户ID"
+              - column:
+                  name: qq_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "QQ号"
+              - column:
+                  name: enable_types
+                  type: INT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "启用类型位掩码"
+              - column:
+                  name: pause_energy_until
+                  type: DATETIME
+                  remarks: "暂停能量到日期"
+              - column:
+                  name: pause_travel_until
+                  type: DATETIME
+                  remarks: "暂停旅行到日期"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createTable:
+            tableName: vip_notice_state
+            remarks: "VIP提醒状态表"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "用户ID"
+              - column:
+                  name: notice_type
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "通知类型"
+              - column:
+                  name: last_check_time
+                  type: DATETIME
+                  constraints:
+                    nullable: false
+                  remarks: "上次检查时间"
+              - column:
+                  name: last_value
+                  type: BIGINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "剩余秒数"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"

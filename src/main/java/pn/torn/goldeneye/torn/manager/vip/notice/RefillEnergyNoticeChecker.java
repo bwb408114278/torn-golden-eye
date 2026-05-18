@@ -4,14 +4,17 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
-import pn.torn.goldeneye.repository.dao.vip.VipNoticeDAO;
+import pn.torn.goldeneye.constants.bot.enums.VipNoticeTypeEnum;
+import pn.torn.goldeneye.repository.dao.vip.VipNoticeStateDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
-import pn.torn.goldeneye.repository.model.vip.VipNoticeDO;
+import pn.torn.goldeneye.repository.model.vip.VipNoticeConfigDO;
+import pn.torn.goldeneye.repository.model.vip.VipNoticeStateDO;
 import pn.torn.goldeneye.torn.model.user.refill.TornUserRefillDTO;
 import pn.torn.goldeneye.torn.model.user.refill.TornUserRefillVO;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 
@@ -19,7 +22,7 @@ import java.util.Set;
  * CD检查提醒策略类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.1.1
  * @since 2026.03.04
  */
 @Component
@@ -27,7 +30,7 @@ import java.util.Set;
 public class RefillEnergyNoticeChecker extends BaseVipNoticeChecker {
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
-    private final VipNoticeDAO noticeDao;
+    private final VipNoticeStateDAO stateDao;
     /**
      * 仅在每天的 7、21 点执行检查
      */
@@ -38,7 +41,13 @@ public class RefillEnergyNoticeChecker extends BaseVipNoticeChecker {
     private static final int GAME_DAY_RESET_HOUR = 8;
 
     @Override
-    public List<String> checkAndUpdate(VipNoticeDO notice, LocalDateTime checkTime) {
+    public List<VipNoticeTypeEnum> getType() {
+        return List.of(VipNoticeTypeEnum.REFILL);
+    }
+
+    @Override
+    public List<String> checkAndUpdate(VipNoticeConfigDO config, List<VipNoticeStateDO> stateList,
+                                       LocalDateTime checkTime) {
         int hour = checkTime.getHour();
         int minute = checkTime.getMinute();
         // 仅在指定整点的前 5 分钟窗口内触发
@@ -46,26 +55,31 @@ public class RefillEnergyNoticeChecker extends BaseVipNoticeChecker {
             return List.of();
         }
 
-        LocalDate today = checkTime.toLocalDate();
-        LocalDate gameDate = hour < GAME_DAY_RESET_HOUR ? today.minusDays(1) : today;
-        // 当天游戏日已检查过且 Refill 已被使用，不再提醒
-        if (gameDate.equals(notice.getLastRefillEnergyCheckDate()) && Boolean.TRUE.equals(notice.getIsRefillEnergy())) {
+        VipNoticeStateDO state = stateList.getFirst();
+        long now = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC);
+        if (state.getLastValue() > now) {
             return List.of();
         }
 
-        TornApiKeyDO key = apiKeyConfig.getKeyByUserId(notice.getUserId());
+        TornApiKeyDO key = apiKeyConfig.getKeyByUserId(config.getUserId());
         if (key == null) {
             return List.of();
         }
 
         TornUserRefillVO resp = tornApi.sendRequest(new TornUserRefillDTO(), key, TornUserRefillVO.class);
-        boolean isNotRefill = resp.getRefills().isEnergy();
-        noticeDao.lambdaUpdate()
-                .set(VipNoticeDO::getIsRefillEnergy, isNotRefill)
-                .set(VipNoticeDO::getLastRefillEnergyCheckDate, gameDate)
-                .eq(VipNoticeDO::getId, notice.getId())
+        boolean isRefill = resp.getRefills().isEnergy();
+        // 计算下次游戏日重置时间（次日 8:00）作为解禁时间
+        LocalDate today = checkTime.toLocalDate();
+        LocalDate gameDate = hour < GAME_DAY_RESET_HOUR ? today : today.plusDays(1);
+        long nextResetEpoch = gameDate.atTime(GAME_DAY_RESET_HOUR, 0).toEpochSecond(ZoneOffset.UTC);
+        // 已 Refill → 记录解禁时间，今天不再提醒；未 Refill → lastValue 置 0，下次窗口继续提醒
+        stateDao.lambdaUpdate()
+                .set(VipNoticeStateDO::getLastValue, isRefill ? nextResetEpoch : 0L)
+                .set(VipNoticeStateDO::getLastCheckTime, checkTime)
+                .eq(VipNoticeStateDO::getId, state.getId())
                 .update();
-        if (isNotRefill) {
+
+        if (isRefill) {
             return List.of();
         }
 

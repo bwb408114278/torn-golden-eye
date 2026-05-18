@@ -77,19 +77,21 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:1.0.0
+    image: golden-eye:1.1.1
     ports:
-      - 10779:8080
+      - 10779:18180
     volumes:
       - ${GOLDENEYE_DIR}/logs:/app/golden-eye/logs
     networks:
       - golden-eye-net
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://pgsql:5432/golden-eye
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
       - BOT_SERVER_ADDR=napcat
       - LOKI_URL=http://loki:3100/loki/api/v1/push
       - PROJECT_ENV=prod
       - PROJECT_GROUPID=818347578
+      - SCAN_VIP_TOKEN=${SCAN_VIP_TOKEN}
       - LARK_APP_ID=${LARK_APP_ID}
       - LARK_APP_SECRET=${LARK_APP_SECRET}
       # 飞书 - OC收益
