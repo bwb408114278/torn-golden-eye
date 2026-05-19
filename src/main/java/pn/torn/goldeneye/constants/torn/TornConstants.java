@@ -12,7 +12,7 @@ import java.util.Map;
  * Torn常量
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.2
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -81,6 +81,10 @@ public class TornConstants {
      * 飞书多维表 - 拍卖行
      */
     public static final String BIT_TABLE_AUCTION = "auction";
+    /**
+     * 飞书多维表 - 师父排队
+     */
+    public static final String BIT_TABLE_MASTER_QUEUE = "master_queue";
 
     /**
      * 用户状态 - 离线

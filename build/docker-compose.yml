@@ -77,7 +77,7 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:1.1.1
+    image: golden-eye:1.1.2
     ports:
       - 10779:18180
     volumes:
@@ -100,6 +100,10 @@ services:
       - LARK_OC_BENEFIT_VIEW_ID=${LARK_OC_BENEFIT_VIEW_ID}
       # 飞书 - 拍卖行
       - LARK_AUCTION_APP_TOKEN=${LARK_AUCTION_APP_TOKEN}
+      # 飞书 - 师父排队
+      - LARK_MASTER_QUEUE_APP_TOKEN = ${LARK_MASTER_QUEUE_APP_TOKEN}
+      - LARK_MASTER_QUEUE_TABLE_ID = ${LARK_MASTER_QUEUE_TABLE_ID}
+      - LARK_MASTER_QUEUE_VIEW_ID = ${LARK_MASTER_QUEUE_VIEW_ID}
     depends_on:
       - napcat
 

@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.1.1
+ * @version 1.1.2
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -117,6 +117,10 @@ public class BotCommands {
      * 拍卖历史
      */
     public static final String AUCTION_HISTORY = "拍卖历史";
+    /**
+     * 师父排名
+     */
+    public static final String MASTER_QUEUE = "师父排队";
 
     // ====================管理功能相关====================
     /**

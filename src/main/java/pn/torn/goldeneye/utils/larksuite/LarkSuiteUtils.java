@@ -11,7 +11,7 @@ import java.util.Objects;
  * 飞书工具类
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.1.2
  * @since 2025.09.09
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -25,19 +25,24 @@ public class LarkSuiteUtils {
     @SuppressWarnings("unchecked")
     public static String getTextFieldValue(Map<String, Object> fields, String key) {
         Object value = fields.get(key);
-        if (value == null) {
-            return "";
-        }
-        if (value instanceof String str) {
-            return str;
-        }
-        if (value instanceof List<?> list && !list.isEmpty()) {
-            Object firstElement = list.get(0);
-            if (firstElement instanceof Map) {
-                Map<String, Object> map = (Map<String, Object>) firstElement;
-                return Objects.toString(map.get("text"), "");
+        switch (value) {
+            case String str -> {
+                return str;
+            }
+
+            case List<?> list when !list.isEmpty() -> {
+                Object firstElement = list.getFirst();
+                if (firstElement instanceof Map) {
+                    Map<String, Object> map = (Map<String, Object>) firstElement;
+                    return Objects.toString(map.get("text"), "");
+                }
+            }
+
+            case null, default -> {
+                return "";
             }
         }
+
         return value.toString();
     }
 }
