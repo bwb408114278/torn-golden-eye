@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: auction_lark_table_dynamic
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: '30'
+              - column:
+                  name: setting_key
+                  value: 'BOT_ID'
+              - column:
+                  name: setting_value
+                  value: '110445870,466788116,530378849'

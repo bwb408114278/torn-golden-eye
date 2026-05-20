@@ -1,19 +1,25 @@
 package pn.torn.goldeneye.torn.manager.setting;
 
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * 系统设置公共逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.1.3
  * @since 2025.09.17
  */
 @Component
@@ -21,10 +27,13 @@ import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 @Slf4j
 public class SysSettingManager implements DataCacheManager {
     private final SysSettingDAO settingDao;
+    @Lazy
+    @Resource
+    private SysSettingManager settingManager;
 
     @Override
     public void warmUpCache() {
-        // 配置只能用的时候再加载
+        settingManager.getBotId();
     }
 
     @Override
@@ -45,10 +54,19 @@ public class SysSettingManager implements DataCacheManager {
      * 获取配置值
      *
      * @param settingKey 配置Key
-     * @return 管理员QQ号列表
+     * @return 配置值
      */
     @Cacheable(value = CacheConstants.KEY_SYS_SETTING, key = "#settingKey")
     public String getSettingValue(String settingKey) {
         return settingDao.querySettingValue(settingKey);
+    }
+
+    /**
+     * 获取机器人ID
+     */
+    @Cacheable(value = CacheConstants.KEY_SYS_SETTING_BOT_ID)
+    public List<Long> getBotId() {
+        String botIds = settingManager.getSettingValue(SettingConstants.KEY_BOT_ID);
+        return Arrays.stream(botIds.split(",")).map(Long::parseLong).toList();
     }
 }

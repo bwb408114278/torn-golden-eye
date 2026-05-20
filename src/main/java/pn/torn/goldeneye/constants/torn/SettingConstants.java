@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.1.3
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -25,6 +25,10 @@ public class SettingConstants {
      */
     public static final String KEY_VIP_NOTICE = "VIP_NOTICE";
 
+    /**
+     * 机器人ID
+     */
+    public static final String KEY_BOT_ID = "BOT_ID";
     /**
      * 飞书当前拍卖表格ID
      */
