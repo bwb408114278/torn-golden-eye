@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 1.1.2
+ * @version 1.1.3
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -29,6 +29,10 @@ public class CacheConstants {
      * 系统设置Key
      */
     public static final String KEY_SYS_SETTING = "sys:setting";
+    /**
+     * 系统设置 - 机器人IDKey
+     */
+    public static final String KEY_SYS_SETTING_BOT_ID = "sys:setting:bot:id";
     /**
      * 屏蔽词设置Key
      */

@@ -10,7 +10,6 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
-import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.vip.VipSubscribeDAO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.repository.model.vip.VipSubscribeDO;
@@ -24,12 +23,12 @@ import java.util.List;
  * 获取私聊指令手册
  *
  * @author Bai
- * @version 1.1.1
+ * @version 1.1.3
  * @since 2026.02.02
  */
 @Component
 @RequiredArgsConstructor
-public class PrivateDocStrategyImpl extends SmthMsgStrategy {
+public class PrivateDocStrategyImpl extends BasePrivateMsgStrategy {
     private final ApplicationContext applicationContext;
     private final VipSubscribeDAO vipSubscribeDao;
     private final ProjectProperty projectProperty;
@@ -45,7 +44,7 @@ public class PrivateDocStrategyImpl extends SmthMsgStrategy {
     }
 
     @Override
-    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+    public List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
         Collection<BasePrivateMsgStrategy> privateStrategyList = applicationContext
                 .getBeansOfType(BasePrivateMsgStrategy.class)
                 .values();
