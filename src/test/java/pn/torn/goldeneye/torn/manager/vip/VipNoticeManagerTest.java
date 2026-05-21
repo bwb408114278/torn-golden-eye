@@ -62,7 +62,7 @@ import static org.mockito.Mockito.*;
  * VIP提醒集成测试
  *
  * @author Bai
- * @version 1.1.1
+ * @version 1.1.3
  * @since 2026.02.12
  */
 @ExtendWith(MockitoExtension.class)
@@ -722,10 +722,6 @@ class VipNoticeManagerTest {
         void shouldHandleExceptionGracefully() {
             when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
             when(settingManager.getSettingValue(SettingConstants.KEY_VIP_NOTICE)).thenReturn("true");
-            doAnswer(invocation -> {
-                ((Runnable) invocation.getArgument(0)).run();
-                return null;
-            }).when(virtualThreadExecutor).execute(any(Runnable.class));
 
             VipSubscribeDO vip = new VipSubscribeDO();
             vip.setUserId(100L);

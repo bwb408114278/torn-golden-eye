@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.1.2
+ * @version 1.1.4
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -109,6 +109,10 @@ public class BotCommands {
      * RW战神
      */
     public static final String RW_GOD = "RW战神";
+    /**
+     * RW磁铁头
+     */
+    public static final String RW_BIG_HEAD = "RW磁铁头";
     /**
      * RW消耗
      */

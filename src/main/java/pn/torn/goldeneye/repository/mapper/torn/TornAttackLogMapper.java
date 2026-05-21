@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
+import pn.torn.goldeneye.repository.model.torn.PlayerDefendStatDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 
 import java.time.LocalDateTime;
@@ -14,7 +15,7 @@ import java.util.List;
  * Torn战斗日志数据库访问层
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.4
  * @since 2025.12.18
  */
 @Mapper
@@ -46,4 +47,15 @@ public interface TornAttackLogMapper extends BaseMapper<TornAttackLogDO> {
     List<PlayerAttackItemDO> queryPlayerAttackItem(@Param("factionId") long factionId,
                                                    @Param("startTime") LocalDateTime startTime,
                                                    @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 统计指定时间的被爆头数据
+     *
+     * @param factionId 帮派ID
+     * @param startTime 开始时间
+     * @param endTime   结束时间
+     */
+    List<PlayerDefendStatDO> queryPlayerHeadHit(@Param("factionId") long factionId,
+                                                @Param("startTime") LocalDateTime startTime,
+                                                @Param("endTime") LocalDateTime endTime);
 }

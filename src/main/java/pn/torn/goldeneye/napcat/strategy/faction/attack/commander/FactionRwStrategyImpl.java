@@ -1,15 +1,14 @@
-package pn.torn.goldeneye.napcat.strategy.faction.attack;
+package pn.torn.goldeneye.napcat.strategy.faction.attack.commander;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.PnManageMsgStrategy;
+import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
@@ -26,12 +25,12 @@ import java.util.List;
  * RW真赛开启策略实现类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.4
  * @since 2025.12.25
  */
 @Component
 @RequiredArgsConstructor
-public class FactionRwStrategyImpl extends PnManageMsgStrategy {
+public class FactionRwStrategyImpl extends BaseRwStrategy {
     private final TornApi tornApi;
     private final TornRwDataService rwDataService;
     private final TornSettingFactionManager settingFactionManager;
@@ -50,11 +49,6 @@ public class FactionRwStrategyImpl extends PnManageMsgStrategy {
     @Override
     public TornFactionRoleTypeEnum getRoleType() {
         return TornFactionRoleTypeEnum.WAR_COMMANDER;
-    }
-
-    @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID);
     }
 
     @Override

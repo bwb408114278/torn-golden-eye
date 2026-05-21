@@ -171,6 +171,25 @@
         INNER JOIN torn_user u ON al.attacker_id = u.id AND u.faction_id = #{factionId}
         WHERE al.log_time BETWEEN #{startTime} AND #{endTime}
             AND attacker_item_name IN ('Epinephrine', 'Melatonin', 'Serotonin', 'Tyrosine')
-        GROUP BY al.attacker_item_name;
+        GROUP BY al.attacker_item_name
+    </select>
+
+    <!-- 统计指定时间的被爆头数据 -->
+    <select id="queryPlayerHeadHit" resultType="pn.torn.goldeneye.repository.model.torn.PlayerDefendStatDO">
+        SELECT
+            u.id AS user_id,
+            u.nickname,
+            COUNT(*) AS hit_num,
+            COUNT(*) FILTER (WHERE l.hit_location = 'Head') AS head_hit_num,
+            SUM(l.damage) FILTER (WHERE l.hit_location = 'Head') AS head_hit_damage,
+            ROUND(COUNT(*) FILTER (WHERE l.hit_location = 'Head')::numeric / NULLIF(COUNT(*), 0) * 100, 2) AS head_hit_rate
+        FROM torn_attack_log l
+        INNER JOIN torn_user u ON u.deleted = 0 AND u.faction_id = #{factionId} AND l.defender_id = u.id
+        WHERE l.deleted = 0 AND l.log_time BETWEEN #{startTime} AND #{endTime}
+            AND l.log_action IN ('hit', 'critical hit', 'missed', 'won', 'specialTemp', 'specialTempI', 'onItemUseEff')
+            AND l.damage_type NOT IN ('bleeding', 'poison')
+        GROUP BY u.id, u.nickname
+        ORDER BY head_hit_damage DESC NULLS LAST
+        LIMIT 30
     </select>
 </mapper>

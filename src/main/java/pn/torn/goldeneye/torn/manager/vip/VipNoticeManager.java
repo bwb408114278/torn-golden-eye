@@ -25,18 +25,16 @@ import pn.torn.goldeneye.torn.manager.user.TornQqUserManager;
 import pn.torn.goldeneye.torn.manager.vip.notice.VipNoticeChecker;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 /**
  * VIP提醒公共逻辑层
  *
  * @author Bai
- * @version 1.1.1
+ * @version 1.1.3
  * @since 2026.02.12
  */
 @Slf4j
@@ -88,11 +86,8 @@ public class VipNoticeManager {
             return;
         }
 
-        Map<String, ConcurrentLinkedQueue<Long>> resultMap = new ConcurrentHashMap<>();
-        List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        futureList.add(CompletableFuture.runAsync(() -> processUserMsg(vipList, now, resultMap), virtualThreadExecutor));
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-
+        Map<String, Set<Long>> resultMap = new ConcurrentHashMap<>();
+        processUserMsg(vipList, now, resultMap);
         resultMap.forEach((message, qqIds) -> sendNoticeMsg(message, List.copyOf(qqIds)));
     }
 
@@ -100,30 +95,53 @@ public class VipNoticeManager {
      * 处理用户的通知消息
      */
     private void processUserMsg(List<VipSubscribeDO> vipList, LocalDateTime checkTime,
-                                Map<String, ConcurrentLinkedQueue<Long>> msgMap) {
-        List<Long> userIdList = vipList.stream().map(VipSubscribeDO::getUserId).toList();
+                                Map<String, Set<Long>> msgMap) {
+        List<Long> userIdList = vipList.stream().map(VipSubscribeDO::getUserId).distinct().toList();
         List<VipNoticeConfigDO> configList = noticeConfigDao.lambdaQuery()
                 .in(VipNoticeConfigDO::getUserId, userIdList)
                 .list();
         List<VipNoticeStateDO> stateList = noticeStateDao.lambdaQuery()
                 .in(VipNoticeStateDO::getUserId, userIdList)
                 .list();
-        for (VipNoticeConfigDO config : configList) {
-            for (VipNoticeChecker checker : checkerList) {
-                List<VipNoticeTypeEnum> type = checker.getType();
-                // 跳过禁用的类型
-                if (!config.isEnabled(type)) {
-                    continue;
-                }
+        Map<Long, Map<Integer, List<VipNoticeStateDO>>> stateGroupMap = stateList.stream()
+                .collect(Collectors.groupingBy(VipNoticeStateDO::getUserId,
+                        Collectors.groupingBy(VipNoticeStateDO::getNoticeType)));
+        List<CompletableFuture<Void>> futureList = configList.stream()
+                .map(config -> CompletableFuture.runAsync(() -> {
+                    try {
+                        checkAndBuildMsg(config, stateGroupMap, checkTime, msgMap);
+                    } catch (Exception e) {
+                        log.error("处理VIP提醒失败, userId={}", config.getUserId(), e);
+                    }
+                }, virtualThreadExecutor))
+                .toList();
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
+    }
 
-                List<VipNoticeStateDO> checkTypeList = stateList.stream()
-                        .filter(s -> s.getUserId().equals(config.getUserId()))
-                        .filter(s -> type.contains(VipNoticeTypeEnum.bitOf(s.getNoticeType())))
-                        .toList();
-                List<String> messages = checker.checkAndUpdate(config, checkTypeList, checkTime);
-                for (String msg : messages) {
-                    msgMap.computeIfAbsent(msg, k -> new ConcurrentLinkedQueue<>()).add(config.getQqId());
-                }
+    /**
+     * 检查并构建用户的提醒信息
+     *
+     * @param msgMap Key为消息内容, Value为该消息类型下需要提醒的用户ID
+     */
+    private void checkAndBuildMsg(VipNoticeConfigDO config, Map<Long, Map<Integer, List<VipNoticeStateDO>>> stateGroupMap,
+                                  LocalDateTime checkTime, Map<String, Set<Long>> msgMap) {
+        Map<Integer, List<VipNoticeStateDO>> userStateMap = stateGroupMap.getOrDefault(config.getUserId(), Map.of());
+        for (VipNoticeChecker checker : checkerList) {
+            List<VipNoticeTypeEnum> type = checker.getType();
+            // 跳过禁用的类型
+            if (!config.isEnabled(type)) {
+                continue;
+            }
+
+            List<VipNoticeStateDO> checkTypeList = type.stream()
+                    .map(VipNoticeTypeEnum::getBit)
+                    .map(userStateMap::get)
+                    .filter(Objects::nonNull)
+                    .flatMap(List::stream)
+                    .toList();
+            List<String> messages = checker.checkAndUpdate(config, checkTypeList, checkTime);
+            for (String msg : messages) {
+                msgMap.computeIfAbsent(msg, k -> ConcurrentHashMap.newKeySet()).add(config.getQqId());
             }
         }
     }
@@ -136,8 +154,8 @@ public class VipNoticeManager {
             return;
         }
 
-        List<Long> qqIdList = qqUserManager.getGroupQqIdList(projectProperty.getVipNoticeGroupId());
-        List<Long> existsQqIdList = noticeIdList.stream().filter(qqIdList::contains).toList();
+        Set<Long> qqIdSet = new HashSet<>(qqUserManager.getGroupQqIdList(projectProperty.getVipNoticeGroupId()));
+        List<Long> existsQqIdList = noticeIdList.stream().filter(qqIdSet::contains).toList();
         if (CollectionUtils.isEmpty(existsQqIdList)) {
             return;
         }
