@@ -1,21 +1,16 @@
-package pn.torn.goldeneye.napcat.strategy.faction.attack;
+package pn.torn.goldeneye.napcat.strategy.faction.attack.commander;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.PnManageMsgStrategy;
-import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
+import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO;
-import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
@@ -27,13 +22,12 @@ import java.util.List;
  * 对冲战斗统计策略实现类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.4
  * @since 2025.12.29
  */
 @Component
 @RequiredArgsConstructor
-public class FactionRwExpendStrategyImpl extends PnManageMsgStrategy {
-    private final TornFactionRwDAO rwDao;
+public class FactionRwExpendStrategyImpl extends BaseRwStrategy {
     private final TornAttackLogDAO attackLogDao;
 
     @Override
@@ -52,33 +46,11 @@ public class FactionRwExpendStrategyImpl extends PnManageMsgStrategy {
     }
 
     @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID);
-    }
-
-    @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        if (StringUtils.hasText(msg) && !NumberUtils.isLong(msg)) {
-            return super.sendErrorFormatMsg();
-        }
-
-        long factionId = super.getTornFactionIdBySender(sender);
-        long rwId = NumberUtils.isLong(msg) ? Long.parseLong(msg) : 0L;
-
-        Page<TornFactionRwDO> rwList = rwDao.lambdaQuery()
-                .eq(TornFactionRwDO::getFactionId, factionId)
-                .eq(rwId > 0L, TornFactionRwDO::getId, rwId)
-                .le(rwId == 0L, TornFactionRwDO::getStartTime, LocalDateTime.now())
-                .orderByDesc(TornFactionRwDO::getStartTime)
-                .page(new Page<>(1, 1));
-        if (CollectionUtils.isEmpty(rwList.getRecords())) {
-            return super.buildTextMsg("未查询到RW记录");
-        }
-
-        TornFactionRwDO rw = rwList.getRecords().getFirst();
+        TornFactionRwDO rw = getCurrentRw(sender, msg);
         LocalDateTime startTime = rw.getStartTime();
         LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
-        List<PlayerAttackItemDO> attackList = attackLogDao.queryPlayerAttackItem(factionId, startTime, endTime);
+        List<PlayerAttackItemDO> attackList = attackLogDao.queryPlayerAttackItem(rw.getFactionId(), startTime, endTime);
         if (CollectionUtils.isEmpty(attackList)) {
             return super.buildTextMsg("未查询到物品使用记录");
         }

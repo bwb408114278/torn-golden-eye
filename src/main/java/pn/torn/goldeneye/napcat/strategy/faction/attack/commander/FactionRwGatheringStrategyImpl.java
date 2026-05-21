@@ -1,45 +1,40 @@
-package pn.torn.goldeneye.napcat.strategy.faction.attack;
+package pn.torn.goldeneye.napcat.strategy.faction.attack.commander;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.PnManageMsgStrategy;
+import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.utils.NumberUtils;
 
-import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
 /**
- * RW真赛结束策略实现类
+ * RW集合时间策略实现类
  *
  * @author Bai
- * @version 1.0.0
- * @since 2026.04.22
+ * @version 1.1.4
+ * @since 2026.01.23
  */
 @Component
 @RequiredArgsConstructor
-public class FactionRwEndStrategyImpl extends PnManageMsgStrategy {
-    private final DynamicTaskService taskService;
+public class FactionRwGatheringStrategyImpl extends BaseRwStrategy {
     private final TornFactionRwDAO rwDao;
-    private final TornSettingFactionManager settingFactionManager;
 
     @Override
     public String getCommand() {
-        return BotCommands.RW_END;
+        return BotCommands.RW_GATHERING_TIME;
     }
 
     @Override
     public String getCommandDescription() {
-        return "手动结束RW，停止消息提醒和数据抓取";
+        return "到点了!起床集合!";
     }
 
     @Override
@@ -48,12 +43,16 @@ public class FactionRwEndStrategyImpl extends PnManageMsgStrategy {
     }
 
     @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID);
-    }
-
-    @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+        if (!NumberUtils.isInt(msg)) {
+            return super.buildTextMsg("正确格式为g#" + BotCommands.RW_GATHERING_TIME + "#几点");
+        }
+
+        int hour = Integer.parseInt(msg);
+        if (hour < 0 || hour > 23) {
+            return super.sendErrorFormatMsg();
+        }
+
         TornUserDO user = super.getTornUser(sender, "");
         TornFactionRwDO rw = rwDao.lambdaQuery()
                 .eq(TornFactionRwDO::getFactionId, user.getFactionId())
@@ -63,15 +62,10 @@ public class FactionRwEndStrategyImpl extends PnManageMsgStrategy {
             return super.buildTextMsg("未查询到已登记的真赛");
         }
 
-        LocalDateTime now = LocalDateTime.now();
         rwDao.lambdaUpdate()
-                .set(TornFactionRwDO::getEndTime, now)
+                .set(TornFactionRwDO::getGatheringTime, LocalTime.of(hour, 0, 0))
                 .eq(TornFactionRwDO::getId, rw.getId())
                 .update();
-
-        TornSettingFactionDO faction = settingFactionManager.getIdMap().get(user.getFactionId());
-        taskService.cancelTask(faction.getFactionShortName() + "-rw-data-reload");
-
-        return super.buildTextMsg("RW已手动结束, 诸君辛苦了!");
+        return super.buildTextMsg("集合时间已调整为" + msg + "点");
     }
 }

@@ -1,16 +1,12 @@
-package pn.torn.goldeneye.napcat.strategy.faction.attack;
+package pn.torn.goldeneye.napcat.strategy.faction.attack.publish;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.PnMsgStrategy;
-import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
+import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
@@ -26,13 +22,12 @@ import java.util.List;
  * RW对冲战斗统计策略实现类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.4
  * @since 2025.12.25
  */
 @Component
 @RequiredArgsConstructor
-public class FactionRwAttackStrategyImpl extends PnMsgStrategy {
-    private final TornFactionRwDAO rwDao;
+public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
     private final TornAttackLogDAO attackLogDao;
 
     @Override
@@ -46,36 +41,14 @@ public class FactionRwAttackStrategyImpl extends PnMsgStrategy {
     }
 
     @Override
-    public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID);
-    }
-
-    @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        if (StringUtils.hasText(msg) && !NumberUtils.isLong(msg)) {
-            return super.sendErrorFormatMsg();
-        }
-
-        long factionId = super.getTornFactionIdBySender(sender);
-        long rwId = NumberUtils.isLong(msg) ? Long.parseLong(msg) : 0L;
-
-        Page<TornFactionRwDO> rwList = rwDao.lambdaQuery()
-                .eq(TornFactionRwDO::getFactionId, factionId)
-                .eq(rwId > 0L, TornFactionRwDO::getId, rwId)
-                .le(rwId == 0L, TornFactionRwDO::getStartTime, LocalDateTime.now())
-                .orderByDesc(TornFactionRwDO::getStartTime)
-                .page(new Page<>(1, 1));
-        if (CollectionUtils.isEmpty(rwList.getRecords())) {
-            return super.buildTextMsg("未查询到RW记录");
-        }
-
+        TornFactionRwDO rw = getCurrentRw(sender, msg);
         int windowMinutes = 3;
         int minBattleCount = 100;
-        TornFactionRwDO rw = rwList.getRecords().getFirst();
         LocalDateTime startTime = rw.getStartTime();
         LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
-        List<PlayerAttackStatDO> attackList = attackLogDao.queryPlayerAttackStat(factionId, rw.getOpponentFactionId(),
-                windowMinutes, minBattleCount, startTime, endTime);
+        List<PlayerAttackStatDO> attackList = attackLogDao.queryPlayerAttackStat(rw.getFactionId(),
+                rw.getOpponentFactionId(), windowMinutes, minBattleCount, startTime, endTime);
         if (CollectionUtils.isEmpty(attackList)) {
             return super.buildTextMsg("未查询到战斗记录");
         }
@@ -91,20 +64,22 @@ public class FactionRwAttackStrategyImpl extends PnMsgStrategy {
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
         tableData.add(List.of(factionName + " VS " + opponentFactionName + " 对冲战斗数据统计",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
-        tableConfig.addMerge(0, 0, 1, 18);
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
+        tableConfig.addMerge(0, 0, 1, 19);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
                 .setBgColor(Color.WHITE)
                 .setPadding(25)
                 .setFont(new Font("微软雅黑", Font.BOLD, 30)));
 
-        tableData.add(List.of("ID", "昵称", "攻击次数", "Hosp", "Leave", "Assist", "Lost",
+        tableData.add(List.of("Rank", "ID", "昵称", "攻击次数", "Hosp", "Leave", "Assist", "Lost",
                 "战斗耗时(秒)", "平均耗时(秒)", "攻击在线数", "对手平均ELO",
                 "总回合数", "输出评分", "输出伤害", "承受伤害", "打针数", "特殊子弹回合", "烟/闪/泪/椒"));
-        tableConfig.setSubTitle(1, 18);
+        tableConfig.setSubTitle(1, 19);
 
-        for (PlayerAttackStatDO attack : attackList) {
+        for (int i = 0; i < attackList.size(); i++) {
+            PlayerAttackStatDO attack = attackList.get(i);
             tableData.add(List.of(
+                    String.valueOf(i + 1),
                     attack.getUserId().toString(),
                     attack.getNickname(),
                     attack.getTotalAttacks().toString(),
@@ -127,7 +102,7 @@ public class FactionRwAttackStrategyImpl extends PnMsgStrategy {
 
         tableData.add(List.of("采样范围为3分钟内双方行动超过100次的战斗",
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
-        tableConfig.addMerge(attackList.size() + 2, 0, 1, 18);
+        tableConfig.addMerge(attackList.size() + 2, 0, 1, 19);
         tableConfig.setCellStyle(attackList.size() + 2, 0, new TableImageUtils.CellStyle()
                 .setAlignment(TableImageUtils.TextAlignment.RIGHT)
                 .setFont(new Font("微软雅黑", Font.BOLD, 14)));
