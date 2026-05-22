@@ -13,7 +13,6 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDTO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogRespVO;
-import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.*;
@@ -23,7 +22,7 @@ import java.util.concurrent.CompletableFuture;
  * 攻击日志逻辑类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.5
  * @since 2025.12.18
  */
 @Slf4j
@@ -38,8 +37,8 @@ public class TornAttackLogService {
     /**
      * 保存攻击日志
      */
-    public void saveAttackLog(long factionId, Set<String> logIdSet, Map<Long, String> userNameMap,
-                              Map<Long, TornUserStatsVO> eloMap) {
+    public void saveAttackLog(long factionId, Set<String> logIdSet,
+                              Map<Long, String> userNameMap, Map<Long, Integer> eloMap) {
         if (CollectionUtils.isEmpty(logIdSet)) {
             return;
         }
@@ -76,7 +75,7 @@ public class TornAttackLogService {
      * 转换Log数据
      */
     private List<List<TornAttackLogDO>> parseLog(long factionId, String logId, Map<Long, String> userNameMap,
-                                                 Map<Long, TornUserStatsVO> eloMap, List<TornAttackLogDO> recordList) {
+                                                 Map<Long, Integer> eloMap, List<TornAttackLogDO> recordList) {
         boolean isExists = recordList.stream().anyMatch(l -> l.getLogId().equals(logId));
         if (isExists) {
             return List.of();
