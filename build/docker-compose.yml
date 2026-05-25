@@ -77,7 +77,7 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:1.1.4
+    image: golden-eye:1.1.5
     ports:
       - 10779:18180
     volumes:

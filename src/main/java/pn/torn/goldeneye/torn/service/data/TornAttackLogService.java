@@ -13,17 +13,17 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDTO;
 import pn.torn.goldeneye.torn.model.torn.attack.AttackLogRespVO;
-import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * 攻击日志逻辑类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.5
  * @since 2025.12.18
  */
 @Slf4j
@@ -38,12 +38,12 @@ public class TornAttackLogService {
     /**
      * 保存攻击日志
      */
-    public void saveAttackLog(long factionId, Set<String> logIdSet, Map<Long, String> userNameMap,
-                              Map<Long, TornUserStatsVO> eloMap) {
+    public void saveAttackLog(long factionId, Set<String> logIdSet,
+                              Map<Long, String> userNameMap, Map<Long, Integer> eloMap) {
         if (CollectionUtils.isEmpty(logIdSet)) {
             return;
         }
-
+        // 已存库的记录（用于跳过已存在的 logId）
         List<TornAttackLogDO> recordList = attackLogDao.lambdaQuery()
                 .in(TornAttackLogDO::getLogId, logIdSet)
                 .list();
@@ -68,7 +68,7 @@ public class TornAttackLogService {
             allLogList.addAll(batchResult);
         }
 
-        Collection<List<TornAttackLogDO>> logList = filterRepeatLog(allLogList);
+        Collection<List<TornAttackLogDO>> logList = filterRepeatLog(allLogList, recordList);
         saveLogData(logList);
     }
 
@@ -76,7 +76,7 @@ public class TornAttackLogService {
      * 转换Log数据
      */
     private List<List<TornAttackLogDO>> parseLog(long factionId, String logId, Map<Long, String> userNameMap,
-                                                 Map<Long, TornUserStatsVO> eloMap, List<TornAttackLogDO> recordList) {
+                                                 Map<Long, Integer> eloMap, List<TornAttackLogDO> recordList) {
         boolean isExists = recordList.stream().anyMatch(l -> l.getLogId().equals(logId));
         if (isExists) {
             return List.of();
@@ -131,12 +131,21 @@ public class TornAttackLogService {
     /**
      * 过滤重复日志
      */
-    private Collection<List<TornAttackLogDO>> filterRepeatLog(List<List<TornAttackLogDO>> allLogList) {
+    private Collection<List<TornAttackLogDO>> filterRepeatLog(List<List<TornAttackLogDO>> allLogList,
+                                                              List<TornAttackLogDO> existingRecords) {
         if (CollectionUtils.isEmpty(allLogList)) {
             return List.of();
         }
 
-        Map<String, List<TornAttackLogDO>> logMap = new HashMap<>();
+        // 从已存库数据中提取战斗指纹
+        Map<String, List<TornAttackLogDO>> logMap = existingRecords.stream()
+                .filter(l -> l.getLogText().contains("initiated an attack against"))
+                .collect(Collectors.toMap(
+                        l -> l.getAttackerId() + "#" +
+                                l.getDefenderId() + "#" +
+                                DateTimeUtils.convertToString(l.getLogTime()),
+                        // 占位，值不重要，只用 key 去重
+                        List::of, (a, b) -> a, HashMap::new));
         for (List<TornAttackLogDO> logList : allLogList) {
             TornAttackLogDO initAttackLog = logList.stream()
                     .filter(l -> l.getLogText().contains("initiated an attack against"))
@@ -151,6 +160,8 @@ public class TornAttackLogService {
             logMap.putIfAbsent(key, logList);
         }
 
-        return logMap.values();
+        return logMap.values().stream()
+                .filter(list -> list.size() > 1 || !existingRecords.contains(list.getFirst()))
+                .toList();
     }
 }

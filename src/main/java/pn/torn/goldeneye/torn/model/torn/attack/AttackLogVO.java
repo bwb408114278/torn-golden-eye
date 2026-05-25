@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
 import pn.torn.goldeneye.torn.manager.torn.AttackLogParser;
-import pn.torn.goldeneye.torn.model.user.elo.TornUserStatsVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.util.Map;
@@ -16,7 +15,7 @@ import static pn.torn.goldeneye.constants.torn.TornConstants.*;
  * 战斗Log响应参数
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.5
  * @since 2025.12.17
  */
 @Slf4j
@@ -51,7 +50,7 @@ public class AttackLogVO {
         this.text = text.replace("  ", " ");
     }
 
-    public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap, Map<Long, TornUserStatsVO> eloMap) {
+    public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap, Map<Long, Integer> eloMap) {
         TornAttackLogDO log = new TornAttackLogDO();
         log.setLogId(logId);
         log.setLogTime(DateTimeUtils.convertToDateTime(this.timestamp));
@@ -65,7 +64,7 @@ public class AttackLogVO {
         return log;
     }
 
-    private void extractAttacker(Map<Long, String> userNameMap, TornAttackLogDO log, Map<Long, TornUserStatsVO> eloMap) {
+    private void extractAttacker(Map<Long, String> userNameMap, TornAttackLogDO log, Map<Long, Integer> eloMap) {
         if (this.attacker == null) {
             log.setAttackerId(0L);
             log.setAttackerName(SOMEONE);
@@ -89,7 +88,7 @@ public class AttackLogVO {
         }
     }
 
-    private void extractDefender(Map<Long, String> userNameMap, TornAttackLogDO log, Map<Long, TornUserStatsVO> eloMap) {
+    private void extractDefender(Map<Long, String> userNameMap, TornAttackLogDO log, Map<Long, Integer> eloMap) {
         if (this.defender == null) {
             log.setDefenderId(0L);
             log.setDefenderName(SOMEONE);
@@ -150,12 +149,12 @@ public class AttackLogVO {
         return "";
     }
 
-    private Integer getElo(long userId, Map<Long, TornUserStatsVO> eloMap) {
+    private Integer getElo(long userId, Map<Long, Integer> eloMap) {
         if (userId == 0L) {
             return 0;
         }
 
-        TornUserStatsVO stats = eloMap.get(userId);
-        return stats == null ? 0 : stats.getValue();
+        Integer elo = eloMap.get(userId);
+        return elo == null ? 0 : elo;
     }
 }
