@@ -7,7 +7,7 @@ import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
-import pn.torn.goldeneye.torn.manager.torn.StockFeatureBuildService;
+import pn.torn.goldeneye.torn.manager.torn.stocks.StockFeatureBuildService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;

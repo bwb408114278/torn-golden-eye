@@ -24,7 +24,7 @@ WORKDIR /app/golden-eye
 # 从构建阶段复制生成的jar文件
 COPY --from=build /app/golden-eye/target/*.jar app.jar
 # 设置JVM参数
-ENV JAVA_TOOL_OPTIONS="-Xmx1024m -Xms256m"
+ENV JAVA_TOOL_OPTIONS="-Xmx2048m -Xms512m"
 # 设置时区（解决容器内时间问题）
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone

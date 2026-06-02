@@ -4,7 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksDetailVO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksVO;
 import pn.torn.goldeneye.utils.NumberUtils;

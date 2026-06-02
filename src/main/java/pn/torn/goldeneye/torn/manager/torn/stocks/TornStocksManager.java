@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.manager.torn;
+package pn.torn.goldeneye.torn.manager.torn.stocks;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -15,10 +15,15 @@ import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
-import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
-import pn.torn.goldeneye.repository.dao.torn.TornStocksHistoryDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBonusVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;

@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.repository.model.torn;
+package pn.torn.goldeneye.repository.model.torn.stocks;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
  * @since 2026.06.02
  */
 public record StockPricePoint(
-        int stocksId,
+        Integer stocksId,
         String stocksShortname,
         BigDecimal price,
         Integer investors,

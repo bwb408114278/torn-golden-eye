@@ -1,7 +1,7 @@
-package pn.torn.goldeneye.torn.model.torn.stocks;
+package pn.torn.goldeneye.torn.model.torn.stocks.trade;
 
-import pn.torn.goldeneye.repository.model.torn.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.StockStrategyFeatureUpsert;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeatureUpsert;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

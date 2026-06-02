@@ -1,9 +1,9 @@
-package pn.torn.goldeneye.torn.manager.torn;
+package pn.torn.goldeneye.torn.manager.torn.stocks;
 
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.repository.model.torn.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.StockStrategyFeatureUpsert;
-import pn.torn.goldeneye.torn.model.torn.stocks.StockRollingState;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeatureUpsert;
+import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockRollingState;
 
 import java.util.Comparator;
 import java.util.HashMap;

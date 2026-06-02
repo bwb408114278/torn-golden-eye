@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.model.torn.stocks;
+package pn.torn.goldeneye.torn.model.torn.stocks.trade;
 
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockStrategyTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockTradeActionEnum;

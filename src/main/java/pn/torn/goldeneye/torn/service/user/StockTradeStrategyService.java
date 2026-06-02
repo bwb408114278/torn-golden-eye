@@ -5,9 +5,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockStrategyTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockTradeActionEnum;
-import pn.torn.goldeneye.repository.dao.torn.TornStockStrategyFeatureDAO;
-import pn.torn.goldeneye.repository.model.torn.StockStrategyFeaturePoint;
-import pn.torn.goldeneye.torn.model.torn.stocks.StockTradeAdvice;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStockStrategyFeatureDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeaturePoint;
+import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockTradeAdvice;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

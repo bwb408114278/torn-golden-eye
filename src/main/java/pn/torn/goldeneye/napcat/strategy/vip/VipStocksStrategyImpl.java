@@ -8,7 +8,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseVipMsgStrategy;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.model.torn.stocks.StockTradeAdvice;
+import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockTradeAdvice;
 import pn.torn.goldeneye.torn.service.user.StockTradeStrategyService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.JsonUtils;

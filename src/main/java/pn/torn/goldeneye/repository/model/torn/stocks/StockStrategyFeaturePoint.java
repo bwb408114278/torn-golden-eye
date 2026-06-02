@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.repository.model.torn;
+package pn.torn.goldeneye.repository.model.torn.stocks;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

@@ -1,12 +1,12 @@
-package pn.torn.goldeneye.repository.mapper.torn;
+package pn.torn.goldeneye.repository.mapper.torn.stocks;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import pn.torn.goldeneye.repository.model.torn.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.StockStrategyFeaturePoint;
-import pn.torn.goldeneye.repository.model.torn.StockStrategyFeatureUpsert;
-import pn.torn.goldeneye.repository.model.torn.TornStockStrategyFeatureDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeaturePoint;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeatureUpsert;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStockStrategyFeatureDO;
 
 import java.time.LocalDateTime;
 import java.util.List;

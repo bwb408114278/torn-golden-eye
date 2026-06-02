@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornStockStrategyFeatureMapper">
-    <resultMap id="StockStrategyFeaturePointMap" type="pn.torn.goldeneye.repository.model.torn.StockStrategyFeaturePoint">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.TornStockStrategyFeatureMapper">
+    <resultMap id="StockStrategyFeaturePointMap" type="pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeaturePoint">
         <constructor>
             <arg column="stocks_id" javaType="java.lang.Integer"/>
             <arg column="stocks_shortname" javaType="java.lang.String"/>
@@ -70,7 +70,7 @@
         ORDER BY latest.stocks_id ASC
     </select>
 
-    <resultMap id="StockPricePointMap" type="pn.torn.goldeneye.repository.model.torn.StockPricePoint">
+    <resultMap id="StockPricePointMap" type="pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint">
         <constructor>
             <arg column="stocks_id" javaType="java.lang.Integer"/>
             <arg column="stocks_shortname" javaType="java.lang.String"/>

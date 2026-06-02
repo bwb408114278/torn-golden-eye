@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.model.torn.stocks;
+package pn.torn.goldeneye.torn.model.torn.stocks.trade;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

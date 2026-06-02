@@ -1,8 +1,8 @@
-package pn.torn.goldeneye.repository.mapper.torn;
+package pn.torn.goldeneye.repository.mapper.torn.stocks;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
-import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 
 /**
  * Torn股票数据库访问层

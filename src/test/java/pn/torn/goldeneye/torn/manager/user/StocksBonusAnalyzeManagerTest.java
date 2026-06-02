@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.junit.jupiter.MockitoExtension;
-import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksDetailVO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksVO;
 

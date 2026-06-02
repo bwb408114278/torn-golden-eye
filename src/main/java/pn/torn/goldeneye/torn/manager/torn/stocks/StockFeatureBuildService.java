@@ -1,12 +1,11 @@
-package pn.torn.goldeneye.torn.manager.torn;
+package pn.torn.goldeneye.torn.manager.torn.stocks;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.repository.dao.torn.TornStockStrategyFeatureDAO;
-import pn.torn.goldeneye.repository.model.torn.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.StockStrategyFeatureUpsert;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStockStrategyFeatureDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeatureUpsert;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,7 +28,6 @@ public class StockFeatureBuildService {
     /**
      * 构建时间范围内的特征值
      */
-    @Transactional(rollbackFor = Exception.class)
     public void buildBetween(LocalDateTime startTime, LocalDateTime endTime) {
         Objects.requireNonNull(startTime, "startTime must not be null");
         Objects.requireNonNull(endTime, "endTime must not be null");
