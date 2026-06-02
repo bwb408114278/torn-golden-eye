@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornStockStrategyFeatureMapper">
+    <resultMap id="StockStrategyFeaturePointMap" type="pn.torn.goldeneye.repository.model.torn.StockStrategyFeaturePoint">
+        <constructor>
+            <arg column="stocks_id" javaType="java.lang.Integer"/>
+            <arg column="stocks_shortname" javaType="java.lang.String"/>
+            <arg column="feature_time" javaType="java.time.LocalDateTime"/>
+            <arg column="base_price" javaType="java.math.BigDecimal"/>
+            <arg column="ma1d" javaType="java.math.BigDecimal"/>
+            <arg column="ma7d" javaType="java.math.BigDecimal"/>
+            <arg column="ma30d" javaType="java.math.BigDecimal"/>
+            <arg column="zscore1d" javaType="java.math.BigDecimal"/>
+            <arg column="zscore7d" javaType="java.math.BigDecimal"/>
+            <arg column="zscore30d" javaType="java.math.BigDecimal"/>
+            <arg column="rsi" javaType="java.math.BigDecimal"/>
+            <arg column="return1d" javaType="java.math.BigDecimal"/>
+            <arg column="return7d" javaType="java.math.BigDecimal"/>
+            <arg column="return14d" javaType="java.math.BigDecimal"/>
+            <arg column="pct_above_30d_low" javaType="java.math.BigDecimal"/>
+            <arg column="pct_below_30d_high" javaType="java.math.BigDecimal"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 查询最近的股票特征 -->
+    <select id="selectLatestFeatures" resultMap="StockStrategyFeaturePointMap">
+        SELECT
+            latest.stocks_id,
+            latest.stocks_shortname,
+            latest.feature_time,
+            latest.base_price,
+            latest.ma1d,
+            latest.ma7d,
+            latest.ma30d,
+            latest.zscore1d,
+            latest.zscore7d,
+            latest.zscore30d,
+            latest.rsi,
+            latest.return1d,
+            latest.return7d,
+            latest.return14d,
+            latest.pct_above_30d_low,
+            latest.pct_below_30d_high
+        FROM torn_stocks s
+        JOIN LATERAL (
+            SELECT
+                f.stocks_id,
+                f.stocks_shortname,
+                f.feature_time,
+                f.base_price,
+                f.ma1d,
+                f.ma7d,
+                f.ma30d,
+                f.zscore1d,
+                f.zscore7d,
+                f.zscore30d,
+                f.rsi,
+                f.return1d,
+                f.return7d,
+                f.return14d,
+                f.pct_above_30d_low,
+                f.pct_below_30d_high
+            FROM torn_stock_strategy_feature f
+            WHERE f.deleted = 0
+              AND f.stocks_id = s.id
+              AND f.feature_time <![CDATA[<=]]> #{analysisTime}
+            ORDER BY f.feature_time DESC
+            LIMIT 1) latest ON true
+        WHERE s.deleted = 0
+        ORDER BY latest.stocks_id ASC
+    </select>
+
+    <resultMap id="StockPricePointMap" type="pn.torn.goldeneye.repository.model.torn.StockPricePoint">
+        <constructor>
+            <arg column="stocks_id" javaType="java.lang.Integer"/>
+            <arg column="stocks_shortname" javaType="java.lang.String"/>
+            <arg column="price" javaType="java.math.BigDecimal"/>
+            <arg column="investors" javaType="java.lang.Integer"/>
+            <arg column="reg_date_time" javaType="java.time.LocalDateTime"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 查询时间范围内价格点 -->
+    <select id="selectHistoryPointsBetween" resultMap="StockPricePointMap">
+        SELECT
+            stocks_id,
+            stocks_shortname,
+            current_price AS price,
+            investors,
+            reg_date_time
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time <![CDATA[>]]> #{startTime}
+          AND reg_date_time <![CDATA[<=]]> #{endTime}
+        ORDER BY reg_date_time ASC, stocks_id ASC
+    </select>
+
+    <!-- 批量更新或插入股票特征 -->
+    <insert id="batchUpsertFeatures">
+        INSERT INTO torn_stock_strategy_feature(
+          stocks_id,
+          stocks_shortname,
+          feature_time,
+          base_price,
+          ma1d,
+          ma7d,
+          ma30d,
+          zscore1d,
+          zscore7d,
+          zscore30d,
+          rsi,
+          return1d,
+          return7d,
+          return14d,
+          pct_above_30d_low,
+          pct_below_30d_high,
+          low30d,
+          high30d,
+          latest_investors,
+          investors_change_7d)
+        VALUES
+        <foreach collection="features" item="item" separator=",">
+            (
+            #{item.stocksId},
+            #{item.stocksShortname},
+            #{item.featureTime},
+            #{item.basePrice},
+            #{item.ma1d},
+            #{item.ma7d},
+            #{item.ma30d},
+            #{item.zScore1d},
+            #{item.zScore7d},
+            #{item.zScore30d},
+            #{item.rsi},
+            #{item.return1d},
+            #{item.return7d},
+            #{item.return14d},
+            #{item.pctAbove30dLow},
+            #{item.pctBelow30dHigh},
+            #{item.low30d},
+            #{item.high30d},
+            #{item.latestInvestors},
+            #{item.investorsChange7d}
+            )
+        </foreach>
+        ON CONFLICT (stocks_id, feature_time)
+        DO UPDATE SET
+        stocks_shortname = EXCLUDED.stocks_shortname,
+        base_price = EXCLUDED.base_price,
+        ma1d = EXCLUDED.ma1d,
+        ma7d = EXCLUDED.ma7d,
+        ma30d = EXCLUDED.ma30d,
+        zscore1d = EXCLUDED.zscore1d,
+        zscore7d = EXCLUDED.zscore7d,
+        zscore30d = EXCLUDED.zscore30d,
+        rsi = EXCLUDED.rsi,
+        return1d = EXCLUDED.return1d,
+        return7d = EXCLUDED.return7d,
+        return14d = EXCLUDED.return14d,
+        pct_above_30d_low = EXCLUDED.pct_above_30d_low,
+        pct_below_30d_high = EXCLUDED.pct_below_30d_high,
+        low30d = EXCLUDED.low30d,
+        high30d = EXCLUDED.high30d,
+        latest_investors = EXCLUDED.latest_investors,
+        investors_change_7d = EXCLUDED.investors_change_7d
+    </insert>
+</mapper>

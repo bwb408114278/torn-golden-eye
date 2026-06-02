@@ -122,3 +122,216 @@ databaseChangeLog:
                   constraints:
                     nullable: false
                   remarks: "更新时间"
+
+  - changeSet:
+      id: create_stocks_feature
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_strategy_feature
+            remarks: "股票策略预计算特征表"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  remarks: "股票ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  remarks: "股票简称"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: feature_time
+                  type: DATETIME
+                  remarks: "特征时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: base_price
+                  type: DECIMAL(10,2)
+                  remarks: "基础价格"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: ma1d
+                  type: DECIMAL(12,6)
+                  remarks: "近1日均价"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: ma7d
+                  type: DECIMAL(12,6)
+                  remarks: "近7日均价"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: ma30d
+                  type: DECIMAL(12,6)
+                  remarks: "近30日均价"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: zscore1d
+                  type: DECIMAL(12,6)
+                  remarks: "近1日价格偏离度"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: zscore7d
+                  type: DECIMAL(12,6)
+                  remarks: "近7日价格偏离度"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: zscore30d
+                  type: DECIMAL(12,6)
+                  remarks: "近30日价格偏离度"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: rsi
+                  type: DECIMAL(12,6)
+                  remarks: "RSI指标"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: return1d
+                  type: DECIMAL(12,6)
+                  remarks: "近1日收益率"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: return7d
+                  type: DECIMAL(12,6)
+                  remarks: "近7日收益率"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: return14d
+                  type: DECIMAL(12,6)
+                  remarks: "近14日收益率"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: pct_above_30d_low
+                  type: DECIMAL(12,6)
+                  remarks: "距离30日低点涨幅"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: pct_below_30d_high
+                  type: DECIMAL(12,6)
+                  remarks: "距离30日高点跌幅"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: low30d
+                  type: DECIMAL(10,2)
+                  remarks: "近30日最低价"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: high30d
+                  type: DECIMAL(10,2)
+                  remarks: "近30日最高价"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: latest_investors
+                  type: INT
+                  remarks: "当前投资人数"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: investors_change_7d
+                  type: INT
+                  defaultValueComputed: "0"
+                  remarks: "近7日投资人数变化"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - addUniqueConstraint:
+            tableName: torn_stock_strategy_feature
+            columnNames: stocks_id, feature_time
+            constraintName: uk_torn_stock_strategy_feature_stock_time
+        - createIndex:
+            tableName: torn_stock_strategy_feature
+            indexName: idx_torn_stock_strategy_feature_time
+            columns:
+              - column:
+                  name: feature_time
+                  descending: true
+        - createIndex:
+            tableName: torn_stock_strategy_feature
+            indexName: idx_torn_stock_strategy_feature_stock_time
+            columns:
+              - column:
+                  name: stocks_id
+              - column:
+                  name: feature_time
+                  descending: true
+        - createIndex:
+            tableName: torn_stock_strategy_feature
+            indexName: idx_torn_stock_strategy_feature_shortname_time
+            columns:
+              - column:
+                  name: stocks_shortname
+              - column:
+                  name: feature_time
+                  descending: true
+        - sql:
+            sql: |
+              CREATE INDEX IF NOT EXISTS idx_torn_stock_strategy_feature_stock_time_cover
+              ON torn_stock_strategy_feature (stocks_id, feature_time DESC)
+              INCLUDE (stocks_shortname, base_price, 
+                  ma1d, ma7d, ma30d,
+                  zscore1d, zscore7d, zscore30d,
+                  rsi,
+                  return1d, return7d, return14d,
+                  pct_above_30d_low, pct_below_30d_high)
+              WHERE deleted = 0;
+
+  - changeSet:
+      id: create_stocks_history_index
+      author: Bai
+      changes:
+        - sql:
+            sql: |
+              CREATE INDEX IF NOT EXISTS idx_torn_stocks_history_stock_time
+              ON torn_stocks_history (stocks_id, reg_date_time DESC)
+              WHERE deleted = 0;
+
+              CREATE INDEX IF NOT EXISTS idx_torn_stocks_history_shortname_time
+              ON torn_stocks_history (stocks_shortname, reg_date_time DESC)
+              WHERE deleted = 0;

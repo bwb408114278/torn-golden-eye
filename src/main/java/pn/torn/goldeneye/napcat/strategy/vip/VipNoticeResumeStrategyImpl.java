@@ -64,7 +64,7 @@ public class VipNoticeResumeStrategyImpl extends BaseVipMsgStrategy {
 
     private String buildCommandFormatMsg() {
         return "格式如下: g#" + BotCommands.VIP_NOTICE_RESUME + "#类型, 举例: \n" +
-                "恢复能量提醒: g#" + BotCommands.VIP_NOTICE_RESUME + "#Engery\n" +
-                "恢复能量和躺飞提醒: g#" + BotCommands.VIP_NOTICE_RESUME + "#Engery,躺飞";
+                "恢复能量提醒: g#" + BotCommands.VIP_NOTICE_RESUME + "#Energy\n" +
+                "恢复能量和躺飞提醒: g#" + BotCommands.VIP_NOTICE_RESUME + "#Energy,躺飞";
     }
 }

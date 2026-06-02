@@ -5,6 +5,7 @@ databaseChangeLog:
       changes:
         - createTable:
             tableName: torn_user_state_snapshot
+            remarks: "用户数据快照"
             columns:
               - column:
                   name: id

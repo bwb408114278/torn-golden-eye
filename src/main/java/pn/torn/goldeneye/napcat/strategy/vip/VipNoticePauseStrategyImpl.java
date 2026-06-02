@@ -73,7 +73,7 @@ public class VipNoticePauseStrategyImpl extends BaseVipMsgStrategy {
 
     private String buildCommandFormatMsg() {
         return "格式如下: g#" + BotCommands.VIP_NOTICE_PAUSE + "#类型#天数, 举例: \n" +
-                "停止能量提醒2天: g#" + BotCommands.VIP_NOTICE_PAUSE + "#Engery#2\n" +
-                "停止能量和躺飞提醒1天: g#" + BotCommands.VIP_NOTICE_PAUSE + "#Engery,躺飞#1";
+                "停止能量提醒2天: g#" + BotCommands.VIP_NOTICE_PAUSE + "#Energy#2\n" +
+                "停止能量和躺飞提醒1天: g#" + BotCommands.VIP_NOTICE_PAUSE + "#Energy,躺飞#1";
     }
 }

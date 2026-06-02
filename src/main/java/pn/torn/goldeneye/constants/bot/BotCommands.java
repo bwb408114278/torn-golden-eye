@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.1.4
+ * @version 1.1.6
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -156,11 +156,15 @@ public class BotCommands {
      */
     public static final String AUCTION_SYNC = "拍卖记录同步";
     /**
+     * 股市特征值
+     */
+    public static final String STOCK_FEATURE_SYNC = "计算股市特征值";
+    /**
      * 绑Key
      */
     public static final String BIND_KEY = "绑Key";
 
-    // ====================其他功能相关====================/
+    // ====================VIP功能相关====================/
     /**
      * 提醒设置
      */
@@ -177,4 +181,8 @@ public class BotCommands {
      * 提醒恢复
      */
     public static final String VIP_NOTICE_RESUME = "提醒恢复";
+    /**
+     * 炒股推荐
+     */
+    public static final String VIP_STOCK_RECOMMEND = "炒股推荐";
 }
