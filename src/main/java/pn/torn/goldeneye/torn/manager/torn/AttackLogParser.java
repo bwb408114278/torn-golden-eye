@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
  * 战斗日志分期器
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.1.6
  * @since 2025.12.23
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -54,8 +54,9 @@ public class AttackLogParser {
                 "(\\w+) fired (\\d+) (?:(\\w+) )?rounds? of (?:his|her|their) ([\\w\\s\\-]+?) " +
                         "(critically hitting|hitting|missing|puncturing) (\\w+)(?: in the ([\\w\\s]+?) for (\\d+))?");
         private static final Pattern HIT_PATTERN = Pattern.compile(
-                "(\\w+) (critically )?(?:hit|missed|flogged) (\\w+) with (?:his|her|their) ([\\w\\s\\-]+)" +
-                        "(?: in the ([\\w\\s]+?) for (\\d+))?");
+                "^(?<attacker>[\\w-]+) (?<critical>critically )?(?<action>hit|missed|flogged) (?<defender>[\\w-]+) " +
+                        "with (?:his|her|their) (?<weapon>[\\w\\s\\-]+?)" +
+                        "(?: in the (?<location>[\\w\\s]+?) for (?<damage>\\d+))?$");
 
         private static final Pattern BLEEDING_PATTERN = Pattern.compile(
                 "Bleeding damaged (\\w+) for (\\d+)");
@@ -135,24 +136,29 @@ public class AttackLogParser {
          */
         private static boolean parseMeleeAttack(CombatLog log, String text) {
             Matcher m = HIT_PATTERN.matcher(text);
-            if (m.find()) {
-                log.setDamageType("melee");
-                // 检查是否命中
-                if (text.contains("missed")) {
-                    log.setIsMiss(true);
-                } else {
-                    log.setIsMiss(false);
-                    if (m.group(5) != null) {
-                        log.setHitLocation(m.group(5));
-                    }
-                    if (m.group(6) != null) {
-                        log.setDamage(Integer.parseInt(m.group(6)));
-                    }
-                }
+            if (!m.matches()) {
+                return false;
+            }
 
+            log.setDamageType("melee");
+            String action = m.group("action");
+            if ("missed".equals(action)) {
+                log.setIsMiss(true);
                 return true;
             }
-            return false;
+            log.setIsMiss(false);
+
+            String location = m.group("location");
+            if (location != null) {
+                log.setHitLocation(location);
+            }
+
+            String damage = m.group("damage");
+            if (damage != null) {
+                log.setDamage(Integer.parseInt(damage));
+            }
+
+            return true;
         }
 
         /**

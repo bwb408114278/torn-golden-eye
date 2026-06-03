@@ -20,7 +20,7 @@ import java.util.List;
  * RW基础策略
  *
  * @author Bai
- * @version 1.1.4
+ * @version 1.1.6
  * @since 2026.05.21
  */
 public abstract class BaseRwStrategy extends SmthMsgStrategy {
@@ -31,7 +31,10 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
 
     @Override
     public List<Long> getCustomGroupId() {
-        return List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID);
+        return List.of(projectProperty.getGroupId(),
+                BotConstants.GROUP_CCRC_ID,
+                BotConstants.GROUP_SH_ID,
+                BotConstants.GROUP_HP_ID);
     }
 
     /**

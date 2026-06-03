@@ -3,7 +3,6 @@ package pn.torn.goldeneye.napcat.strategy.vip;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseVipMsgStrategy;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
@@ -14,7 +13,6 @@ import pn.torn.goldeneye.utils.image.TableImageUtils;
 import pn.torn.goldeneye.utils.image.TextImageUtils;
 
 import java.awt.*;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,22 +25,22 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
+public class TestStrategyImpl extends BaseVipMsgStrategy {
     private final StockTradeStrategyService stockAnalysisService;
 
     @Override
     public String getCommand() {
-        return BotCommands.VIP_STOCK_RECOMMEND;
+        return "Test";
     }
 
     @Override
     public String getCommandDescription() {
-        return "让金眼开波算命蒙一下怎么炒股赚钱";
+        return "Test";
     }
 
     @Override
     protected List<? extends QqMsgParam<?>> handle(TornUserDO user, String msg) {
-        List<StockTradeAdvice> analyze = stockAnalysisService.analyze(LocalDateTime.now(), false);
+        List<StockTradeAdvice> analyze = stockAnalysisService.analyze(DateTimeUtils.convertToDateTime(msg), true);
         return super.buildImageMsg(this.buildGptStockAnalyzeMsg(analyze));
     }
 

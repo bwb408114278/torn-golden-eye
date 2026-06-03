@@ -15,7 +15,7 @@ import static pn.torn.goldeneye.constants.torn.TornConstants.*;
  * 战斗Log响应参数
  *
  * @author Bai
- * @version 1.1.5
+ * @version 1.1.6
  * @since 2025.12.17
  */
 @Slf4j
@@ -47,7 +47,7 @@ public class AttackLogVO {
     private AttackLogDefenderVO defender;
 
     public void setText(String text) {
-        this.text = text.replace("  ", " ");
+        this.text = text == null ? null : text.trim().replaceAll("\\s+", " ");
     }
 
     public TornAttackLogDO convert2DO(String logId, Map<Long, String> userNameMap, Map<Long, Integer> eloMap) {
