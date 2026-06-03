@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.napcat.strategy.vip;
+package pn.torn.goldeneye.napcat.strategy.manage;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -22,7 +22,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class VipStocksBuildStrategyImpl extends BaseGroupMsgStrategy {
+public class StocksFeatureBuildStrategyImpl extends BaseGroupMsgStrategy {
     private final StockFeatureBuildService featureBuildService;
 
     @Override
