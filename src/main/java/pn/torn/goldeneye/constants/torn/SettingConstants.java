@@ -80,7 +80,11 @@ public class SettingConstants {
      */
     public static final String KEY_OC_LOAD = "OC_LOAD_TIME";
     /**
-     * 配置Key - RW读取时间
+     * 配置Key - 股票读取时间
      */
     public static final String KEY_RW_LOAD = "RW_LOAD_TIME";
+    /**
+     * 股票特征读取时间
+     */
+    public static final String KEY_STOCK_FEATURE_LOAD = "STOCK_FEATURE_CALC_TIME";
 }

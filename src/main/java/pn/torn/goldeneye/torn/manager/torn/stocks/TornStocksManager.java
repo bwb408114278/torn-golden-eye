@@ -1,7 +1,8 @@
-package pn.torn.goldeneye.torn.manager.torn;
+package pn.torn.goldeneye.torn.manager.torn.stocks;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -14,10 +15,15 @@ import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
-import pn.torn.goldeneye.repository.dao.torn.TornStocksDAO;
-import pn.torn.goldeneye.repository.dao.torn.TornStocksHistoryDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBonusVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
@@ -42,14 +48,16 @@ import java.util.stream.Collectors;
  * Torn股票公共逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.1.6
  * @since 2025.09.26
  */
 @Component
 @RequiredArgsConstructor
 public class TornStocksManager {
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
     private final TornApi tornApi;
+    private final StockFeatureBuildService featureBuildService;
     private final SysSettingManager settingManager;
     private final TornItemsManager itemsManager;
     private final TornStocksDAO stocksDao;
@@ -96,6 +104,7 @@ public class TornStocksManager {
         LocalDateTime regDateTime = LocalDateTime.now();
         saveStocksHistory(resp, regDateTime);
         sendGreatTradeChangeMsg(regDateTime);
+        calcStockFeature(regDateTime);
     }
 
     /**
@@ -205,8 +214,8 @@ public class TornStocksManager {
      *
      * @param statsMap Key为股票ID
      */
-    public String buildStockMsgContent(StocksChangeDO change, String msgPrice,
-                                       Map<Integer, StocksTradeStatsDO> statsMap) {
+    private String buildStockMsgContent(StocksChangeDO change, String msgPrice,
+                                        Map<Integer, StocksTradeStatsDO> statsMap) {
         StringBuilder sb = new StringBuilder();
         sb.append("\n").append(msgPrice);
 
@@ -231,5 +240,17 @@ public class TornStocksManager {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * 计算股票特征值
+     */
+    private void calcStockFeature(LocalDateTime regDateTime) {
+        virtualThreadExecutor.execute(() -> {
+            String setting = settingManager.getSettingValue(SettingConstants.KEY_STOCK_FEATURE_LOAD);
+            featureBuildService.buildBetween(DateTimeUtils.convertToDateTime(setting), regDateTime);
+            settingManager.updateSetting(SettingConstants.KEY_STOCK_FEATURE_LOAD,
+                    DateTimeUtils.convertToString(regDateTime));
+        });
     }
 }

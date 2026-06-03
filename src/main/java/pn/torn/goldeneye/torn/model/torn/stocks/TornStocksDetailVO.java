@@ -1,8 +1,8 @@
 package pn.torn.goldeneye.torn.model.torn.stocks;
 
 import lombok.Data;
-import pn.torn.goldeneye.repository.model.torn.TornStocksDO;
-import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 
 import java.time.LocalDateTime;
 

@@ -1,11 +1,11 @@
-package pn.torn.goldeneye.repository.dao.torn;
+package pn.torn.goldeneye.repository.dao.torn.stocks;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
-import pn.torn.goldeneye.repository.mapper.torn.TornStocksHistoryMapper;
-import pn.torn.goldeneye.repository.model.torn.StocksChangeDO;
-import pn.torn.goldeneye.repository.model.torn.StocksTradeStatsDO;
-import pn.torn.goldeneye.repository.model.torn.TornStocksHistoryDO;
+import pn.torn.goldeneye.repository.mapper.torn.stocks.TornStocksHistoryMapper;
+import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 
 import java.time.LocalDateTime;
 import java.util.List;
