@@ -11,7 +11,7 @@ import java.util.List;
  * 飞书属性
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.2.0
  * @since 2025.09.04
  */
 @Data
@@ -27,17 +27,39 @@ public class LarkSuiteProperty {
      */
     private String appSecret;
     /**
+     * 自建应用App Id
+     */
+    private String selfAppId;
+    /**
+     * 自建应用App Secret
+     */
+    private String selfAppSecret;
+    /**
      * 多维表属性
      */
     private List<LarkSuiteBitTableProperty> bitTable;
+    /**
+     * 云文档属性
+     */
+    private List<LarkSuiteTableProperty> table;
 
     public LarkSuiteBitTableProperty findBitTable(String name) {
-        for (LarkSuiteBitTableProperty bitTable : bitTable) {
-            if (bitTable.getName().equals(name)) {
-                return bitTable;
+        for (LarkSuiteBitTableProperty child : bitTable) {
+            if (child.getName().equals(name)) {
+                return child;
             }
         }
 
         throw new BizException("未找到对应的飞书多维表配置");
+    }
+
+    public LarkSuiteTableProperty findTable(String name) {
+        for (LarkSuiteTableProperty child : table) {
+            if (child.getName().equals(name)) {
+                return child;
+            }
+        }
+
+        throw new BizException("未找到对应的飞书云文档配置");
     }
 }
