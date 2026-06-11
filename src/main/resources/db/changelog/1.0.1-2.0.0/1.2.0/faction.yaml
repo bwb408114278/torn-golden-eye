@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_rw_upload_record
+      author: Bai
+      changes:
+        - setTableRemarks:
+            tableName: torn_faction_rw
+            remarks: "帮派RW表"
+        - addColumn:
+            tableName: torn_faction_rw
+            columns:
+              - column:
+                  name: larksuite_sheet_id
+                  type: VARCHAR(64)
+                  remarks: "飞书上传后的工作表ID"

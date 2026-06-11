@@ -12,7 +12,7 @@ import java.time.LocalTime;
  * 帮派Rw表
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.0
  * @since 2025.12.25
  */
 @Data
@@ -55,4 +55,8 @@ public class TornFactionRwDO extends BaseDO {
      * 解散时间
      */
     private LocalTime disbandTime;
+    /**
+     * 飞书上传后的工作表ID
+     */
+    private String larksuiteSheetId;
 }

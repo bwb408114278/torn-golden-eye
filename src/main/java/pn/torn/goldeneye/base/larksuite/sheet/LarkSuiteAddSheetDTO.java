@@ -38,12 +38,12 @@ public class LarkSuiteAddSheetDTO implements LarkSuiteManualReqParam {
 
     @Override
     public String uri() {
-        return "/sheets/v2/spreadsheets/{spreadsheet_token}/sheets_batch_update";
+        return "/sheets/v2/spreadsheets/{spreadsheetToken}/sheets_batch_update";
     }
 
     @Override
     public Map<String, Object> buildUrlParam() {
-        return Map.of("spreadsheet_token", spreadsheetToken);
+        return Map.of("spreadsheetToken", spreadsheetToken);
     }
 
     @Override

@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.0
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -117,6 +117,10 @@ public class BotCommands {
      * RW消耗
      */
     public static final String RW_EXPEND = "RW消耗";
+    /**
+     * RW上传
+     */
+    public static final String RW_UPLOAD = "RW上传";
     /**
      * 拍卖历史
      */

@@ -4,8 +4,6 @@ import com.lark.oapi.core.response.BaseResponse;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.util.List;
-
 /**
  * 操作工作表响应参数
  *
@@ -15,9 +13,5 @@ import java.util.List;
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
-public class LarkSuiteSheetVO extends BaseResponse<List<LarkSuiteSheetReplyVO>> {
-    /**
-     * 回复消息列表
-     */
-    private List<LarkSuiteSheetReplyVO> replies;
+public class LarkSuiteSheetVO extends BaseResponse<LarkSuiteSheetDataVO> {
 }
