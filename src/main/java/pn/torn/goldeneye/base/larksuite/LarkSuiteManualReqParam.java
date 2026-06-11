@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.base.larksuite;
 
+import org.springframework.http.HttpMethod;
+
 import java.util.Map;
 
 /**
@@ -30,4 +32,11 @@ public interface LarkSuiteManualReqParam {
      * @return Body参数
      */
     Map<String, Object> buildBodyParam();
+
+    /**
+     * 请求Method
+     */
+    default HttpMethod method() {
+        return HttpMethod.POST;
+    }
 }

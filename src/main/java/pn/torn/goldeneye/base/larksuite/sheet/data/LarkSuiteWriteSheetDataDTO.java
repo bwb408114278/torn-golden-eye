@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.base.larksuite.sheet.data;
 
+import org.springframework.http.HttpMethod;
 import pn.torn.goldeneye.base.larksuite.LarkSuiteManualReqParam;
 
 import java.util.ArrayList;
@@ -7,13 +8,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 飞书增加工作表数据请求参数
+ * 飞书写入工作表数据请求参数
  *
  * @author Bai
  * @version 1.2.0
  * @since 2026.06.08
  */
-public class LarkSuiteAddSheetDataDTO implements LarkSuiteManualReqParam {
+public class LarkSuiteWriteSheetDataDTO implements LarkSuiteManualReqParam {
     /**
      * 表格Token
      */
@@ -35,7 +36,7 @@ public class LarkSuiteAddSheetDataDTO implements LarkSuiteManualReqParam {
      */
     private final List<List<Object>> values = new ArrayList<>();
 
-    public LarkSuiteAddSheetDataDTO(String spreadsheetToken, String sheetId, String startRowColumn, String endRowColumn) {
+    public LarkSuiteWriteSheetDataDTO(String spreadsheetToken, String sheetId, String startRowColumn, String endRowColumn) {
         this.spreadsheetToken = spreadsheetToken;
         this.sheetId = sheetId;
         this.startRowColumn = startRowColumn;
@@ -48,7 +49,12 @@ public class LarkSuiteAddSheetDataDTO implements LarkSuiteManualReqParam {
 
     @Override
     public String uri() {
-        return "/sheets/v2/spreadsheets/{spreadsheetToken}/values_append";
+        return "/sheets/v2/spreadsheets/{spreadsheetToken}/values";
+    }
+
+    @Override
+    public HttpMethod method() {
+        return HttpMethod.PUT;
     }
 
     @Override

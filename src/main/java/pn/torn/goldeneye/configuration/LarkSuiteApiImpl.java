@@ -5,6 +5,7 @@ import com.lark.oapi.core.enums.BaseUrlEnum;
 import com.lark.oapi.core.response.BaseResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import pn.torn.goldeneye.base.exception.BizException;
@@ -52,9 +53,10 @@ class LarkSuiteApiImpl implements LarkSuiteApi {
     public <D, T extends BaseResponse<D>> D sendRequest(LarkSuiteManualReqParam param, String tenantToken,
                                                         Class<T> responseType) {
         try {
-            String resp = restClient.post()
+            String resp = restClient.method(param.method())
                     .uri(param.uri(), param.buildUrlParam())
                     .header("Authorization", "Bearer " + tenantToken)
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(param.buildBodyParam())
                     .retrieve()
                     .body(String.class);
@@ -62,7 +64,17 @@ class LarkSuiteApiImpl implements LarkSuiteApi {
                 throw new BizException("飞书请求返回的Body为空");
             }
 
-            return JsonUtils.jsonToObj(resp, responseType).getData();
+            T response = JsonUtils.jsonToObj(resp, responseType);
+            if (response == null) {
+                throw new BizException("飞书请求返回结果转换失败");
+            }
+
+            if (!response.success()) {
+                log.error("飞书请求出错, code:{}, msg:{}", response.getCode(), response.getMsg());
+                return null;
+            }
+
+            return response.getData();
         } catch (Exception e) {
             log.error("飞书请求异常, ", e);
             return null;

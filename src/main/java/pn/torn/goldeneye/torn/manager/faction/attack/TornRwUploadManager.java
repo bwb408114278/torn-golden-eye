@@ -12,7 +12,8 @@ import pn.torn.goldeneye.base.larksuite.LarkSuiteApi;
 import pn.torn.goldeneye.base.larksuite.sheet.LarkSuiteAddSheetDTO;
 import pn.torn.goldeneye.base.larksuite.sheet.LarkSuiteSheetDataVO;
 import pn.torn.goldeneye.base.larksuite.sheet.LarkSuiteSheetVO;
-import pn.torn.goldeneye.base.larksuite.sheet.data.LarkSuiteAddSheetDataDTO;
+import pn.torn.goldeneye.base.larksuite.sheet.cell.LarkSuiteMergeCellDTO;
+import pn.torn.goldeneye.base.larksuite.sheet.data.LarkSuiteWriteSheetDataDTO;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteTableProperty;
 import pn.torn.goldeneye.constants.torn.TornConstants;
@@ -52,12 +53,13 @@ public class TornRwUploadManager {
         String appToken = table.getAppToken();
         String tenantToken = getTenantToken();
 
-        if (rw.getLarksuiteSheetId() == null) {
+        boolean existingSheet = rw.getLarksuiteSheetId() != null;
+        if (!existingSheet) {
             addNewSheet(rw, tenantToken, appToken);
         }
 
-        appendData(rw, attackList, tenantToken,
-                larkSuiteProperty.findTable(TornConstants.TABLE_RW_FIERCE).getAppToken());
+        appendData(rw, attackList, tenantToken, appToken);
+        mergeTitleRow(rw, tenantToken, appToken);
     }
 
     /**
@@ -105,11 +107,12 @@ public class TornRwUploadManager {
     /**
      * 追加数据
      */
+    @SuppressWarnings("unchecked")
     private void appendData(TornFactionRwDO rw, List<PlayerAttackStatDO> attackList,
                             String tenantToken, String appToken) {
         String startRowColumn = "A1";
         String endRowColumn = "R" + (attackList.size() + 2);
-        LarkSuiteAddSheetDataDTO param = new LarkSuiteAddSheetDataDTO(appToken, rw.getLarksuiteSheetId(),
+        LarkSuiteWriteSheetDataDTO param = new LarkSuiteWriteSheetDataDTO(appToken, rw.getLarksuiteSheetId(),
                 startRowColumn, endRowColumn);
 
         insertColumnHeader(rw, param);
@@ -140,9 +143,18 @@ public class TornRwUploadManager {
     }
 
     /**
+     * 合并标题行
+     */
+    @SuppressWarnings("unchecked")
+    private void mergeTitleRow(TornFactionRwDO rw, String tenantToken, String appToken) {
+        LarkSuiteMergeCellDTO param = new LarkSuiteMergeCellDTO(appToken, rw.getLarksuiteSheetId(), "A1:R1");
+        larkSuiteApi.sendRequest(param, tenantToken, BaseResponse.class);
+    }
+
+    /**
      * 插入表头
      */
-    private void insertColumnHeader(TornFactionRwDO rw, LarkSuiteAddSheetDataDTO param) {
+    private void insertColumnHeader(TornFactionRwDO rw, LarkSuiteWriteSheetDataDTO param) {
         param.addRow(List.of(rw.getFactionName() + " VS " + rw.getOpponentFactionName() + " 对冲战斗数据统计",
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
         param.addRow(List.of("ID", "昵称", "攻击次数", "Hosp", "Leave", "Assist", "Lost",

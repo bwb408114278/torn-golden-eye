@@ -50,6 +50,8 @@ public class FactionRwUploadStrategyImpl extends BaseRwStrategy {
         }
 
         rwUploadManager.uploadRwData(rw, attackList);
-        return super.buildTextMsg("上传成功, sheetId为" + rw.getLarksuiteSheetId());
+        return super.buildTextMsg("上传成功, sheetId为" + rw.getLarksuiteSheetId()
+                + "\n查看数据地址: https://my.feishu.cn/sheets/H8yPspU4yhIuuotAlqlcyCETnuh?from=from_copylink&sheet="
+                + rw.getLarksuiteSheetId());
     }
 }
