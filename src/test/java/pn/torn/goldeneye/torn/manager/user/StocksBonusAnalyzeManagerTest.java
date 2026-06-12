@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 股票分红收益计算集成测试
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.1
  * @since 2026.03.09
  */
 @ExtendWith(MockitoExtension.class)
@@ -261,6 +261,50 @@ class StocksBonusAnalyzeManagerTest {
         actions = manager.calculate(0L, allStocks, userStocks);
         // 资金为0时，如果当前配置不是最优，可能建议卖出
         assertThat(actions).isNotNull();
+    }
+
+    @Test
+    @DisplayName("负数金额：卖出收益损失最低")
+    void testNegativeCapital_SellLowestProfitLoss() {
+        allStocks.add(createStock(1, "HIGH", 1_000_000L, 100L, 100_000L));
+        allStocks.add(createStock(2, "LOW", 1_000_000L, 100L, 50_000L));
+
+        TornUserStocksVO userStocks = new TornUserStocksVO();
+        TornUserStocksDetailVO high = new TornUserStocksDetailVO();
+        high.setId(1);
+        high.setShares(100L);
+        TornUserStocksDetailVO low = new TornUserStocksDetailVO();
+        low.setId(2);
+        low.setShares(100L);
+        userStocks.setStocks(List.of(high, low));
+
+        List<StocksBonusAnalyzeManager.OptimalAction> actions = manager.calculate(-1_000_000L, allStocks, userStocks);
+
+        assertThat(actions).hasSize(1);
+        assertThat(actions.getFirst().type()).isEqualTo(StocksBonusAnalyzeManager.OptimalAction.ActionType.SELL);
+        assertThat(actions.getFirst().stockShortName()).isEqualTo("LOW");
+    }
+
+    @Test
+    @DisplayName("负数金额：卖出后多余资金可再次买入更优股票")
+    void testNegativeCapital_ReinvestExtraCash() {
+        allStocks.add(createStock(1, "LOW", 2_000_000L, 100L, 100_000L));
+        allStocks.add(createStock(2, "HIGH", 1_000_000L, 100L, 200_000L));
+
+        TornUserStocksVO userStocks = new TornUserStocksVO();
+        TornUserStocksDetailVO low = new TornUserStocksDetailVO();
+        low.setId(1);
+        low.setShares(100L);
+        userStocks.setStocks(List.of(low));
+
+        List<StocksBonusAnalyzeManager.OptimalAction> actions = manager.calculate(-1_000_000L, allStocks, userStocks);
+
+        assertThat(actions).extracting(StocksBonusAnalyzeManager.OptimalAction::type)
+                .containsExactly(
+                        StocksBonusAnalyzeManager.OptimalAction.ActionType.SELL,
+                        StocksBonusAnalyzeManager.OptimalAction.ActionType.BUY);
+        assertThat(actions.getFirst().stockShortName()).isEqualTo("LOW");
+        assertThat(actions.get(1).stockShortName()).isEqualTo("HIGH");
     }
 
     @Test
