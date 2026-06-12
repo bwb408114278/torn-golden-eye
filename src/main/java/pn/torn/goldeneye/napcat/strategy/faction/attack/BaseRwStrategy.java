@@ -38,7 +38,8 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
         return List.of(projectProperty.getGroupId(),
                 BotConstants.GROUP_CCRC_ID,
                 BotConstants.GROUP_SH_ID,
-                BotConstants.GROUP_HP_ID);
+                BotConstants.GROUP_HP_ID,
+                BotConstants.GROUP_BSU_ID);
     }
 
     /**

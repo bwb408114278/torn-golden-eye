@@ -7,7 +7,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.PnManageMsgStrategy;
+import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.model.faction.crime.create.OcNewTeamBO;
 import pn.torn.goldeneye.torn.service.faction.oc.create.TornOcManageService;
@@ -20,12 +20,12 @@ import java.util.List;
  * 创建OC新队实现类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.0
  * @since 2025.11.04
  */
 @Component
 @RequiredArgsConstructor
-public class OcNewTeamStrategyImpl extends PnManageMsgStrategy {
+public class OcNewTeamStrategyImpl extends BaseGroupMsgStrategy {
     private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornOcManageService ocManageService;
 
