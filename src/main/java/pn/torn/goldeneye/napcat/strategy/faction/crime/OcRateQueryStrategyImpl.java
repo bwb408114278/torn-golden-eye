@@ -8,10 +8,12 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgTableManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
@@ -25,7 +27,7 @@ import java.util.List;
  * OC成功率查询实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.2.1
  * @since 2025.08.20
  */
 @Component
@@ -35,6 +37,7 @@ public class OcRateQueryStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcUserDAO ocUserDao;
     private final TornSettingOcManager settingOcManager;
     private final TornSettingOcSlotManager settingOcSlotManager;
+    private final TornSettingFactionOcManager settingFactionOcManager;
     private static final TableImageUtils.CellStyle TITLE_STYLE =
             new TableImageUtils.CellStyle().setBgColor(new Color(242, 242, 242))
                     .setFont(new Font("微软雅黑", Font.BOLD, 16));
@@ -71,7 +74,7 @@ public class OcRateQueryStrategyImpl extends SmthMsgStrategy {
      * 构建成功率消息
      */
     private String buildPassRateMsg(TornUserDO user, List<TornFactionOcUserDO> ocUserList) {
-        List<TornSettingOcDO> ocList = settingOcManager.getList();
+        List<TornSettingOcDO> ocList = filterOcList(user, ocUserList, settingOcManager.getList());
         ocList.sort(Comparator
                 .comparing(TornSettingOcDO::getRank, Comparator.reverseOrder())
                 .thenComparing(TornSettingOcDO::getOcName));
@@ -115,6 +118,54 @@ public class OcRateQueryStrategyImpl extends SmthMsgStrategy {
         }
 
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
+    }
+
+    /**
+     * 按7级OC岗位要求过滤展示范围
+     */
+    private List<TornSettingOcDO> filterOcList(TornUserDO user, List<TornFactionOcUserDO> ocUserList,
+                                               List<TornSettingOcDO> ocList) {
+        boolean qualifiedForRankSeven = isQualifiedForRankSeven(user, ocUserList);
+        int minRank = qualifiedForRankSeven ? 7 : 1;
+        int maxRank = qualifiedForRankSeven ? 10 : 7;
+        return new ArrayList<>(ocList.stream()
+                .filter(oc -> oc.getRank() >= minRank && oc.getRank() <= maxRank)
+                .toList());
+    }
+
+    /**
+     * 是否满足帮派任意7级OC岗位要求
+     */
+    private boolean isQualifiedForRankSeven(TornUserDO user, List<TornFactionOcUserDO> ocUserList) {
+        List<TornSettingOcSlotDO> rankSevenSlotList = settingOcSlotManager.getList().stream()
+                .filter(slot -> slot.getRank().equals(7))
+                .toList();
+        for (TornSettingOcSlotDO slot : rankSevenSlotList) {
+            int requiredPassRate = getRequiredPassRate(user.getFactionId(), slot);
+            boolean matched = ocUserList.stream()
+                    .filter(ocUser -> ocUser.getRank().equals(slot.getRank()))
+                    .filter(ocUser -> ocUser.getOcName().equals(slot.getOcName()))
+                    .filter(ocUser -> ocUser.getPosition().equals(slot.getSlotShortCode()))
+                    .anyMatch(ocUser -> ocUser.getPassRate() >= requiredPassRate);
+            if (matched) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 获取帮派岗位要求成功率
+     */
+    private int getRequiredPassRate(long factionId, TornSettingOcSlotDO slot) {
+        TornSettingFactionOcSlotDO factionSlot = settingFactionOcManager.getSlotList().stream()
+                .filter(s -> s.getFactionId().equals(factionId))
+                .filter(s -> s.getRank().equals(slot.getRank()))
+                .filter(s -> s.getOcName().equals(slot.getOcName()))
+                .filter(s -> s.getSlotCode().equals(slot.getSlotCode()))
+                .findAny().orElse(null);
+        return factionSlot == null ? slot.getPassRate() : factionSlot.getPassRate();
     }
 
     /**
