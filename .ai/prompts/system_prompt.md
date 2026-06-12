@@ -26,11 +26,11 @@
 
 每次 Java 代码开发或修改前，必须读取：
 
-- `.ai/knowledge/java-coding-style.md`
+- `.ai/knowledge/java_coding_style.md`
 
 如涉及数据库，还要读取：
 
-- `.ai/knowledge/database.md`
+- `.ai/skills/database.md`
 
 查找文件位置前，先读取`.ai/knowledge/file_location.md`，如果没有找到，从项目文件中寻找或提问，并且更新到这个文件下
 
@@ -38,7 +38,30 @@
 
 根据任务类型选择：
 
-- 新功能开发：`.ai/skills/implement-feature.md`
+- 新功能开发：`.ai/skills/implement_feature.md`
+
+## 第三方知识库
+
+如果任务涉及Torn、飞书、NapCat等其他第三方 API、SDK 或协议，优先访问官方文档页面，再次进行提问。
+
+优先使用以下文档源：
+
+- Torn Wiki: https://wiki.torn.com/wiki/Main_Page
+- Torn Api: https://www.torn.com/api.html
+- Torn Api V2: https://www.torn.com/swagger.php
+- 飞书服务端API: https://open.feishu.cn/document/
+- NapCatAPI: https://napcat.apifox.cn/
+- Stripe API: https://docs.stripe.com/api
+- GitHub REST API: https://docs.github.com/en/rest
+- PostgreSQL: https://www.postgresql.org/docs/
+- Spring Boot: https://docs.spring.io/spring-boot/docs/current/reference/html/
+
+使用网页资料时必须：
+1. 优先读取官方文档。
+2. 记录参考 URL。
+3. 注意文档版本。
+4. 不要使用过期博客替代官方文档。
+5. 如果网页内容和项目知识库冲突，先提醒用户确认。
 
 ## 标准执行流程
 

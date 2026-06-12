@@ -14,4 +14,4 @@
 - Logback
 
 ## 约定
-每次开始任务前，必须先读取项目中的 `.ai/prompts/agent-system-prompt.md`，并严格遵守其中的工作流程、工具使用规则和输出格式。
+每次开始任务前，必须先读取项目中的 `.ai/prompts/system_prompt.md`，并严格遵守其中的工作流程、工具使用规则和输出格式。

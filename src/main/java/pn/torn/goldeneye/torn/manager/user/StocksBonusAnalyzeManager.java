@@ -18,7 +18,7 @@ import java.util.stream.Stream;
  * 股票分红计算逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.1
  * @since 2025.09.27
  */
 @Component
@@ -57,11 +57,6 @@ public class StocksBonusAnalyzeManager {
      */
     public List<OptimalAction> calculate(long availableCash, List<TornStocksDO> allStocks, TornUserStocksVO userStocks,
                                          boolean buyOnly) {
-        if (availableCash < 0) {
-            log.warn("availableCash 小于 0，按 0 处理，原值={}", availableCash);
-            availableCash = 0;
-        }
-
         List<TornStocksDO> safeStocks = Optional.ofNullable(allStocks).orElseGet(Collections::emptyList);
         if (safeStocks.isEmpty()) {
             log.info("股票列表为空，直接返回空操作");
@@ -75,6 +70,15 @@ public class StocksBonusAnalyzeManager {
         List<BBOpportunity> allOpportunities = generateAllBbOpportunities(safeStocks);
         Set<BBOpportunity> currentPortfolio = identifyCurrentPortfolio(allOpportunities, userStocks);
         Map<Integer, Integer> currentLevels = extractMaxOwnedLevels(currentPortfolio);
+
+        if (availableCash < 0) {
+            if (buyOnly) {
+                log.warn("只买不卖模式不支持负数金额，按 0 处理，原值={}", availableCash);
+                availableCash = 0;
+            } else {
+                return calculateLowestProfitLossSellActions(availableCash, safeStocks, currentPortfolio, currentLevels);
+            }
+        }
 
         logPortfolioSummary("当前持仓", currentPortfolio);
 
@@ -105,6 +109,42 @@ public class StocksBonusAnalyzeManager {
         log.info("=== 策略计算完成：{} 条卖出，{} 条买入 ===", sellCount, buyCount);
 
 
+        return actions;
+    }
+
+    /**
+     * 计算卖出指定资金时收益损失最低的操作
+     */
+    private List<OptimalAction> calculateLowestProfitLossSellActions(long availableCash, List<TornStocksDO> allStocks,
+                                                                     Set<BBOpportunity> currentPortfolio,
+                                                                     Map<Integer, Integer> currentLevels) {
+        long requiredCash = Math.abs(availableCash);
+        if (requiredCash <= 0 || currentPortfolio.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        long investedCapital = sumCost(currentPortfolio);
+        if (requiredCash >= investedCapital) {
+            return generateActions(currentPortfolio, Collections.emptySet(), false);
+        }
+
+        long targetCapital = investedCapital - requiredCash;
+        Set<BBOpportunity> targetPortfolio = buildOptimalPortfolio(allStocks, targetCapital, currentLevels, false);
+        logPortfolioSummary("负数金额目标组合", targetPortfolio);
+        List<OptimalAction> actions = generateActions(currentPortfolio, targetPortfolio, false);
+
+        long soldCapital = actions.stream()
+                .filter(action -> action.type() == OptimalAction.ActionType.SELL)
+                .mapToLong(OptimalAction::cost)
+                .sum();
+        long profitLoss = actions.stream()
+                .filter(action -> action.type() == OptimalAction.ActionType.SELL)
+                .mapToLong(OptimalAction::yearProfit)
+                .sum();
+        log.info("负数金额按卖出处理：目标卖出 {}, 实际卖出 {}, 收益损失 {}",
+                NumberUtils.formatCompactNumber(requiredCash),
+                NumberUtils.formatCompactNumber(soldCapital),
+                NumberUtils.formatCompactNumber(profitLoss));
         return actions;
     }
 
