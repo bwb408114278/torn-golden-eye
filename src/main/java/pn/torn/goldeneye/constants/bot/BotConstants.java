@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot常量
  *
  * @author Bai
- * @version 0.1.0
+ * @version 1.2.0
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -30,4 +30,8 @@ public class BotConstants {
      * SH群号
      */
     public static final long GROUP_SH_ID = 1015570409L;
+    /**
+     * BSU群号
+     */
+    public static final long GROUP_BSU_ID = 798645562L;
 }

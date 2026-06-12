@@ -10,7 +10,9 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
+import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
+import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.time.LocalDateTime;
@@ -20,12 +22,14 @@ import java.util.List;
  * RW基础策略
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.0
  * @since 2026.05.21
  */
 public abstract class BaseRwStrategy extends SmthMsgStrategy {
     @Resource
     private TornFactionRwDAO rwDao;
+    @Resource
+    private TornAttackLogDAO attackLogDao;
     @Resource
     private ProjectProperty projectProperty;
 
@@ -34,7 +38,20 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
         return List.of(projectProperty.getGroupId(),
                 BotConstants.GROUP_CCRC_ID,
                 BotConstants.GROUP_SH_ID,
-                BotConstants.GROUP_HP_ID);
+                BotConstants.GROUP_HP_ID,
+                BotConstants.GROUP_BSU_ID);
+    }
+
+    /**
+     * 查询对冲战斗记录
+     */
+    protected List<PlayerAttackStatDO> queryAttackList(TornFactionRwDO rw) {
+        int windowMinutes = 3;
+        int minBattleCount = 100;
+        LocalDateTime startTime = rw.getStartTime();
+        LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
+        return attackLogDao.queryPlayerAttackStat(rw.getFactionId(),
+                rw.getOpponentFactionId(), windowMinutes, minBattleCount, startTime, endTime);
     }
 
     /**

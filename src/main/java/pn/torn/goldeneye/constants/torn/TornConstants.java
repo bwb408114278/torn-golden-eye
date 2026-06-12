@@ -12,7 +12,7 @@ import java.util.Map;
  * Torn常量
  *
  * @author Bai
- * @version 1.1.2
+ * @version 1.2.0
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -85,6 +85,10 @@ public class TornConstants {
      * 飞书多维表 - 师父排队
      */
     public static final String BIT_TABLE_MASTER_QUEUE = "master_queue";
+    /**
+     * 飞书云文档 - RW对冲
+     */
+    public static final String TABLE_RW_FIERCE = "rw_fierce";
 
     /**
      * 用户状态 - 离线

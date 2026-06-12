@@ -7,14 +7,12 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
-import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,8 +26,6 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
-    private final TornAttackLogDAO attackLogDao;
-
     @Override
     public String getCommand() {
         return BotCommands.RW_GOD;
@@ -43,12 +39,7 @@ public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornFactionRwDO rw = getCurrentRw(sender, msg);
-        int windowMinutes = 3;
-        int minBattleCount = 100;
-        LocalDateTime startTime = rw.getStartTime();
-        LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
-        List<PlayerAttackStatDO> attackList = attackLogDao.queryPlayerAttackStat(rw.getFactionId(),
-                rw.getOpponentFactionId(), windowMinutes, minBattleCount, startTime, endTime);
+        List<PlayerAttackStatDO> attackList = super.queryAttackList(rw);
         if (CollectionUtils.isEmpty(attackList)) {
             return super.buildTextMsg("未查询到战斗记录");
         }
