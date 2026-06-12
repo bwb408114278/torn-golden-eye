@@ -26,11 +26,11 @@
 
 每次 Java 代码开发或修改前，必须读取：
 
-- `.ai/knowledge/java-coding-style.md`
+- `.ai/knowledge/java_coding_style.md`
 
 如涉及数据库，还要读取：
 
-- `.ai/knowledge/database.md`
+- `.ai/skills/database.md`
 
 查找文件位置前，先读取`.ai/knowledge/file_location.md`，如果没有找到，从项目文件中寻找或提问，并且更新到这个文件下
 
@@ -38,7 +38,7 @@
 
 根据任务类型选择：
 
-- 新功能开发：`.ai/skills/implement-feature.md`
+- 新功能开发：`.ai/skills/implement_feature.md`
 
 ## 第三方知识库
 

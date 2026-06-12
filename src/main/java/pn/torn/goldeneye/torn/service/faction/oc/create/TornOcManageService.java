@@ -23,7 +23,7 @@ import java.util.*;
  * OC管理服务
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.2.1
  * @since 2025.11.03
  */
 @Slf4j
@@ -39,9 +39,7 @@ public class TornOcManageService {
      * 核心分析方法
      */
     public OcNewTeamBO analyze(long factionId, LocalDateTime now, LocalDateTime targetTime) {
-        List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(factionId).stream()
-                .filter(o -> TornConstants.ROTATION_OC_NAME.get(factionId).contains(o.getName()))
-                .toList();
+        List<TornFactionOcDO> ocList = ocDao.queryExecutingOc(factionId);
         List<TornFactionOcDO> occupyList = new ArrayList<>();
         List<TornFactionOcDO> finishList = new ArrayList<>();
         List<TornFactionOcDO> stopList = new ArrayList<>();
