@@ -8,15 +8,16 @@
 ```text
 ├── build/                                                                      # 构建项目镜像需要的文件
 ├── src/                                                                        # 代码根目录
-│  ├── main/                                                                   # 功能代码
+│  ├── main/                                                                    # 功能代码
 │  │    └── java/                                                               # java代码
 │  │        └── pn.torn.goldeneye/                                              # 项目根目录
 │  │            └── napcat/                                                     # napcat交互
 │  │                └── strategy/                                               # 接受Socket消息后的处理策略
 │  │                    └── faction/                                            # 帮派相关功能
 │  │                        └── crime/                                          # Crime相关功能
-│  │                            └── OcRateQueryStrategyImpl.java                # 查询OC成功率策略实现
-│  └── test/                                                                   # 测试代码
+│  │                            ├── OcRateQueryStrategyImpl.java                # 查询OC成功率策略实现
+│  │                            └── OcRecommendStrategyImpl.java                # 推荐加入OC策略实现
+│  └── test/                                                                    # 测试代码
 └── README.md                                                                   # 项目说明文档
 ```
 

@@ -40,6 +40,29 @@
 
 - 新功能开发：`.ai/skills/implement-feature.md`
 
+## 第三方知识库
+
+如果任务涉及Torn、飞书、NapCat等其他第三方 API、SDK 或协议，优先访问官方文档页面，再次进行提问。
+
+优先使用以下文档源：
+
+- Torn Wiki: https://wiki.torn.com/wiki/Main_Page
+- Torn Api: https://www.torn.com/api.html
+- Torn Api V2: https://www.torn.com/swagger.php
+- 飞书服务端API: https://open.feishu.cn/document/
+- NapCatAPI: https://napcat.apifox.cn/
+- Stripe API: https://docs.stripe.com/api
+- GitHub REST API: https://docs.github.com/en/rest
+- PostgreSQL: https://www.postgresql.org/docs/
+- Spring Boot: https://docs.spring.io/spring-boot/docs/current/reference/html/
+
+使用网页资料时必须：
+1. 优先读取官方文档。
+2. 记录参考 URL。
+3. 注意文档版本。
+4. 不要使用过期博客替代官方文档。
+5. 如果网页内容和项目知识库冲突，先提醒用户确认。
+
 ## 标准执行流程
 
 ### 1. 理解任务

@@ -6,8 +6,8 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
-import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
+import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -21,13 +21,14 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * OC推荐策略实现类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.1
  * @since 2025.11.07
  */
 @Component
@@ -93,10 +94,30 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
     /**
      * 构建建议表格
      */
-    private List<ImageQqMsg> buildRecommendTable(TornUserDO user, List<OcRecommendationVO> result) {
+    private List<QqMsgParam<?>> buildRecommendTable(TornUserDO user, List<OcRecommendationVO> result) {
         String title = user.getNickname() + ", 推荐加入以下队伍";
         String table = msgManager.buildRecommendTable(title, user.getFactionId(),
                 result.stream().map(r -> new OcRecommendTableBO(null, r)).toList());
-        return super.buildImageMsg(table);
+        List<QqMsgParam<?>> msgList = new ArrayList<>();
+        msgList.add(new TextQqMsg(buildRecommendText(result)));
+        msgList.addAll(super.buildImageMsg(table));
+        return msgList;
+    }
+
+    /**
+     * 构建建议文本
+     */
+    private String buildRecommendText(List<OcRecommendationVO> result) {
+        StringBuilder builder = new StringBuilder("推荐加入：");
+        for (OcRecommendationVO recommendation : result) {
+            builder.append("\n")
+                    .append(recommendation.getOcName())
+                    .append(" - ")
+                    .append(recommendation.getRecommendedPosition())
+                    .append("\n")
+                    .append("https://www.torn.com/factions.php?step=your&type=12#/tab=crimes&crimeId=")
+                    .append(recommendation.getOcId());
+        }
+        return builder.toString();
     }
 }
