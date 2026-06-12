@@ -32,12 +32,13 @@
 
 - `.ai/knowledge/database.md`
 
+查找文件位置前，先读取`.ai/knowledge/file_location.md`，如果没有找到，从项目文件中寻找或提问，并且更新到这个文件下
+
 ## 必须优先读取的 Skill
 
 根据任务类型选择：
 
 - 新功能开发：`.ai/skills/implement-feature.md`
-- 单元测试：`.ai/skills/unit-test.md`
 
 ## 标准执行流程
 
@@ -99,3 +100,11 @@
 ### 风险点
 
 ### 后续建议
+
+# 元信息
+- 文档类型：AI Agent 提示词
+- 适用项目：Golden-Eye
+- 适用版本：1.2.0及以上
+- 最后更新：2026.06.12
+- 维护人：Bai
+- 状态：有效
