@@ -18,16 +18,25 @@
 │  │    │       │   └── strategy/                                               # 接受Socket消息后的处理策略
 │  │    │       │       └── faction/                                            # 帮派相关功能
 │  │    │       │           └── crime/                                          # Crime相关功能
+│  │    │       │               ├── OcIdleRankStrategyImpl.java                 # 查询OC空转榜策略实现
 │  │    │       │               ├── OcRateQueryStrategyImpl.java                # 查询OC成功率策略实现
 │  │    │       │               └── OcRecommendStrategyImpl.java                # 推荐加入OC策略实现
 │  │    │       ├── repository/                                                 # 持久层
+│  │    │       │   ├── dao/                                                    # 数据库持久层访问
+│  │    │       │   │   └── faction/                                            # 帮派相关功能
+│  │    │       │   │       └── oc/                                             # OC相关功能
+│  │    │       │   │           ├── TornFactionOcDAO.java                       # OC相关DAO
+│  │    │       │   │           └── TornFactionOcSlotDAO.java                   # OC岗位相关DAO
 │  │    │       │   ├── mapper/                                                 # Mapper相关
 │  │    │       │   │   └── faction/                                            # 帮派相关功能
 │  │    │       │   │       └── oc/                                             # OC相关功能
-│  │    │       │   │           └── TornFactionOcMapper.java                    # OC相关Mapper
+│  │    │       │   │           ├── TornFactionOcMapper.java                    # OC相关Mapper
+│  │    │       │   │           └── TornFactionOcSlotMapper.java                # OC岗位相关Mapper
 │  │    │       │   └── model/                                                  # 数据对应模型
 │  │    │       │       └── faction/                                            # 帮派相关功能
 │  │    │       │           └── oc/                                             # OC相关功能
+│  │    │       │               ├── TornFactionOcDO.java                        # 帮派OC表
+│  │    │       │               ├── TornFactionOcIdleRankDO.java                # OC空转榜查询结果
 │  │    │       │               └── TornFactionOcSlotDO.java                    # 帮派OC岗位表
 │  │    │       └── torn/                                                       # Torn相关
 │  │    │           ├── manager/                                                # 公共逻辑层
@@ -42,7 +51,8 @@
 │  │        └── mapper/                                                         # Mapper文件
 │  │            └── faction/                                                    # 帮派相关
 │  │                └── oc/                                                     # OC相关
-│  │                    └── TornFactionOcMapper.xml                             # 帮派OC表
+│  │                    ├── TornFactionOcMapper.xml                             # 帮派OC表
+│  │                    └── TornFactionOcSlotMapper.xml                         # 帮派OC岗位表
 │  └── test/                                                                    # 测试代码
 └── README.md                                                                   # 项目说明文档
 ```
