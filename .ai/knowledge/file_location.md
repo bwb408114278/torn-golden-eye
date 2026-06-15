@@ -9,14 +9,40 @@
 ├── build/                                                                      # 构建项目镜像需要的文件
 ├── src/                                                                        # 代码根目录
 │  ├── main/                                                                    # 功能代码
-│  │    └── java/                                                               # java代码
-│  │        └── pn.torn.goldeneye/                                              # 项目根目录
-│  │            └── napcat/                                                     # napcat交互
-│  │                └── strategy/                                               # 接受Socket消息后的处理策略
-│  │                    └── faction/                                            # 帮派相关功能
-│  │                        └── crime/                                          # Crime相关功能
-│  │                            ├── OcRateQueryStrategyImpl.java                # 查询OC成功率策略实现
-│  │                            └── OcRecommendStrategyImpl.java                # 推荐加入OC策略实现
+│  │    ├── java/                                                               # java代码
+│  │    │   └── pn.torn.goldeneye/                                              # 项目根目录
+│  │    │       ├── constants/                                                  # 常量
+│  │    │       │   └── bot/                                                    # 机器人相关常量
+│  │    │       │       └── BotCommands.java/                                   # 机器人指令
+│  │    │       ├── napcat/                                                     # napcat交互
+│  │    │       │   └── strategy/                                               # 接受Socket消息后的处理策略
+│  │    │       │       └── faction/                                            # 帮派相关功能
+│  │    │       │           └── crime/                                          # Crime相关功能
+│  │    │       │               ├── OcRateQueryStrategyImpl.java                # 查询OC成功率策略实现
+│  │    │       │               └── OcRecommendStrategyImpl.java                # 推荐加入OC策略实现
+│  │    │       ├── repository/                                                 # 持久层
+│  │    │       │   ├── mapper/                                                 # Mapper相关
+│  │    │       │   │   └── faction/                                            # 帮派相关功能
+│  │    │       │   │       └── oc/                                             # OC相关功能
+│  │    │       │   │           └── TornFactionOcMapper.java                    # OC相关Mapper
+│  │    │       │   └── model/                                                  # 数据对应模型
+│  │    │       │       └── faction/                                            # 帮派相关功能
+│  │    │       │           └── oc/                                             # OC相关功能
+│  │    │       │               └── TornFactionOcSlotDO.java                    # 帮派OC岗位表
+│  │    │       └── torn/                                                       # Torn相关
+│  │    │           ├── manager/                                                # 公共逻辑层
+│  │    │           │   └── faction/                                            # 帮派相关功能
+│  │    │           │       └── crime/                                          # OC相关功能
+│  │    │           │           └── TornFactionOcSlotManager.java               # 帮派OC岗位公共逻辑
+│  │    │           └── model/                                                  # Torn相关模型
+│  │    │               └── faction/                                            # 帮派相关功能
+│  │    │                   └── crime/                                          # Crime相关功能
+│  │    │                       └── TornFactionCrimeSlotVO.java                 # 帮派OC岗位返回数据结构
+│  │    └── resources/                                                          # 资源文件
+│  │        └── mapper/                                                         # Mapper文件
+│  │            └── faction/                                                    # 帮派相关
+│  │                └── oc/                                                     # OC相关
+│  │                    └── TornFactionOcMapper.xml                             # 帮派OC表
 │  └── test/                                                                    # 测试代码
 └── README.md                                                                   # 项目说明文档
 ```

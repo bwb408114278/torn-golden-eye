@@ -32,7 +32,7 @@
 
 - `.ai/skills/database.md`
 
-查找文件位置前，先读取`.ai/knowledge/file_location.md`，如果没有找到，从项目文件中寻找或提问，并且更新到这个文件下
+如果查找文件位置，先读取`.ai/knowledge/file_location.md`，如果没有找到，从项目文件中寻找或提问，最后必须将文件路径更新到这个文件下
 
 ## 必须优先读取的 Skill
 
