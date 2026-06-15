@@ -5,8 +5,10 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcSlotMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIdleRankDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -16,7 +18,7 @@ import java.util.stream.Collectors;
  * Torn Oc Slot持久层类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.2.2
  * @since 2025.07.29
  */
 @Repository
@@ -63,5 +65,13 @@ public class TornFactionOcSlotDAO extends ServiceImpl<TornFactionOcSlotMapper, T
                 .in(TornFactionOcSlotDO::getOcId, ocIdSet)
                 .isNull(TornFactionOcSlotDO::getUserId)
                 .list();
+    }
+
+    /**
+     * 查询OC空转排行榜
+     */
+    public List<TornFactionOcIdleRankDO> queryIdleRanking(LocalDateTime fromDate, LocalDateTime toDate,
+                                                          long factionId, int limit) {
+        return baseMapper.queryIdleRanking(fromDate, toDate, factionId, limit);
     }
 }
