@@ -11,6 +11,8 @@
 │  ├── main/                                                                    # 功能代码
 │  │    ├── java/                                                               # java代码
 │  │    │   └── pn.torn.goldeneye/                                              # 项目根目录
+│  │    │       ├── configuration/                                              # 项目配置
+│  │    │       │   └── DynamicTaskService.java                                 # 动态定时任务
 │  │    │       ├── constants/                                                  # 常量
 │  │    │       │   └── bot/                                                    # 机器人相关常量
 │  │    │       │       └── BotCommands.java/                                   # 机器人指令
@@ -43,10 +45,14 @@
 │  │    │           │   └── faction/                                            # 帮派相关功能
 │  │    │           │       └── crime/                                          # OC相关功能
 │  │    │           │           └── TornFactionOcSlotManager.java               # 帮派OC岗位公共逻辑
-│  │    │           └── model/                                                  # Torn相关模型
+│  │    │           ├── model/                                                  # Torn相关模型
+│  │    │           │   └── faction/                                            # 帮派相关功能
+│  │    │           │       └── crime/                                          # Crime相关功能
+│  │    │           │           └── TornFactionCrimeSlotVO.java                 # 帮派OC岗位返回数据结构
+│  │    │           └── service/                                                # 业务逻辑层
 │  │    │               └── faction/                                            # 帮派相关功能
-│  │    │                   └── crime/                                          # Crime相关功能
-│  │    │                       └── TornFactionCrimeSlotVO.java                 # 帮派OC岗位返回数据结构
+│  │    │                   └── oc                                              # Crime相关功能
+│  │    │                       └── TornFactionOcBenefitService.java            # 帮派OC收益业务
 │  │    └── resources/                                                          # 资源文件
 │  │        └── mapper/                                                         # Mapper文件
 │  │            └── faction/                                                    # 帮派相关
@@ -54,6 +60,13 @@
 │  │                    ├── TornFactionOcMapper.xml                             # 帮派OC表
 │  │                    └── TornFactionOcSlotMapper.xml                         # 帮派OC岗位表
 │  └── test/                                                                    # 测试代码
+│       └── java/                                                               # java代码
+│           └── pn.torn.goldeneye/                                              # 项目根目录
+│               └── torn/                                                       # Torn相关
+│                   └── service/                                                # 业务逻辑层
+│                       └── faction/                                            # 帮派相关功能
+│                           └── oc                                              # Crime相关功能
+│                               └── TornFactionOcBenefitServiceTest.java        # 帮派OC收益业务测试
 └── README.md                                                                   # 项目说明文档
 ```
 

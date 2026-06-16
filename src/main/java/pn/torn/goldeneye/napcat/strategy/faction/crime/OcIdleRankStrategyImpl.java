@@ -42,7 +42,6 @@ public class OcIdleRankStrategyImpl extends SmthMsgStrategy {
     private final TornUserDAO userDao;
 
     private static final int RANK_LIMIT = 30;
-    private static final int QUERY_DAYS = 30;
 
     @Override
     public String getCommand() {
@@ -57,26 +56,25 @@ public class OcIdleRankStrategyImpl extends SmthMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         long factionId = StringUtils.hasText(msg) ? super.getTornFactionId(msg) : super.getTornFactionIdBySender(sender);
-//        LocalDateTime toDate = LocalDateTime.now();
-//        LocalDateTime fromDate = toDate.minusDays(QUERY_DAYS);
+
         LocalDate baseMonth = LocalDate.now();
         LocalDateTime fromDate = baseMonth.withDayOfMonth(1).atTime(0, 0, 0);
         LocalDateTime toDate = baseMonth.withDayOfMonth(baseMonth.lengthOfMonth()).atTime(23, 59, 59);
         List<TornFactionOcIdleRankDO> rankList = slotDao.queryIdleRanking(fromDate, toDate, factionId, RANK_LIMIT);
         if (CollectionUtils.isEmpty(rankList)) {
-            return super.buildTextMsg("最近30天暂无OC空转数据");
+            return super.buildTextMsg("暂未查询到" + baseMonth.getMonthValue() + "月完成的OC");
         }
 
-        String title = buildTitle(factionId);
+        String title = buildTitle(factionId, baseMonth);
         return super.buildImageMsg(buildRankTable(rankList, title));
     }
 
     /**
      * 构建标题
      */
-    private String buildTitle(long factionId) {
+    private String buildTitle(long factionId, LocalDate baseMonth) {
         TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
-        return faction.getFactionShortName() + "最近30天OC空转榜";
+        return faction.getFactionShortName() + "  " + baseMonth.getMonthValue() + "月OC空转榜";
     }
 
     /**
