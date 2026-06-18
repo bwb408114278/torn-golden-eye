@@ -12,11 +12,9 @@ import pn.torn.goldeneye.repository.model.faction.revive.TornFactionRwReviveDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.model.faction.revive.TornFactionReviveDTO;
 import pn.torn.goldeneye.torn.model.faction.revive.TornFactionReviveRespVO;
-import pn.torn.goldeneye.torn.model.faction.revive.TornFactionReviveVO;
 import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileDTO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
-import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -55,9 +53,23 @@ public class TornRwReviveManager {
             return;
         }
 
-        List<TornFactionRwReviveDO> saveList = resp.getReviveList().stream()
-                .filter(revive -> !existsRevive(revive))
+        List<TornFactionRwReviveDO> dataList = resp.getReviveList().stream()
                 .map(revive -> revive.convert2DO(rw, faction))
+                .toList();
+        if (CollectionUtils.isEmpty(dataList)) {
+            return;
+        }
+
+        // 批量查询已存在的复活记录
+        List<TornFactionRwReviveDO> existingRevives = reviveDao.lambdaQuery()
+                .eq(TornFactionRwReviveDO::getFactionId, faction.getId())
+                .eq(TornFactionRwReviveDO::getRwId, rw.getId())
+                .list();
+        Set<String> existingKeys = existingRevives.stream()
+                .map(this::buildUniqueKey)
+                .collect(Collectors.toSet());
+        List<TornFactionRwReviveDO> saveList = dataList.stream()
+                .filter(r -> !existingKeys.contains(buildUniqueKey(r)))
                 .toList();
         if (CollectionUtils.isEmpty(saveList)) {
             return;
@@ -65,17 +77,6 @@ public class TornRwReviveManager {
 
         fillLifeAndHealAmount(saveList);
         reviveDao.saveBatch(saveList);
-    }
-
-    /**
-     * 获取已存在的数据
-     */
-    private boolean existsRevive(TornFactionReviveVO revive) {
-        return reviveDao.lambdaQuery()
-                .eq(TornFactionRwReviveDO::getReviverId, revive.getReviver().getId())
-                .eq(TornFactionRwReviveDO::getTargetId, revive.getTarget().getId())
-                .eq(TornFactionRwReviveDO::getReviveTime, DateTimeUtils.convertToDateTime(revive.getTimestamp()))
-                .exists();
     }
 
     /**
@@ -134,5 +135,12 @@ public class TornRwReviveManager {
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
                 .subtract(BigDecimal.valueOf(currentLife));
         return healAmount.max(BigDecimal.ZERO).setScale(0, RoundingMode.HALF_UP).intValue();
+    }
+
+    /**
+     * 构建唯一Key
+     */
+    private String buildUniqueKey(TornFactionRwReviveDO r) {
+        return r.getReviverId() + "#" + r.getTargetId() + "#" + r.getReviveTime();
     }
 }

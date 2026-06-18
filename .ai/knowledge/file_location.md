@@ -62,6 +62,8 @@
 │   │   │   └── torn/                                                           # Torn相关
 │   │   │       ├── manager/                                                    # 公共逻辑层
 │   │   │       │   └── faction/                                                # 帮派相关功能
+│   │   │       │       ├── attack/                                             # 攻击记录相关
+│   │   │       │       │   └── TornRwReviveManager.java                        # RW复活公共逻辑
 │   │   │       │       └── crime/                                              # OC相关功能
 │   │   │       │           └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
 │   │   │       ├── model/                                                      # Torn相关模型
@@ -69,8 +71,10 @@
 │   │   │       │       └── crime/                                              # Crime相关功能
 │   │   │       │           └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位返回数据结构
 │   │   │       └── service/                                                    # 业务逻辑层
+│   │   │           ├── data/                                                   # 数据相关功能
+│   │   │           │   └── TornRwDataService.java                              # RW数据逻辑
 │   │   │           └── faction/                                                # 帮派相关功能
-│   │   │               └── oc                                                  # Crime相关功能
+│   │   │               └── oc/                                                 # Crime相关功能
 │   │   │                   └── TornFactionOcBenefitService.java                # 帮派OC收益业务
 │   │   └── resources/                                                          # 资源文件
 │   │       └── mapper/                                                         # Mapper文件

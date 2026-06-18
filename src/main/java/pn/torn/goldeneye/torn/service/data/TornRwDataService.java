@@ -1,13 +1,12 @@
 package pn.torn.goldeneye.torn.service.data;
 
-import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
-import org.springframework.util.ObjectUtils;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
@@ -31,14 +30,14 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.*;
+import java.util.Collection;
 import java.util.List;
 
 /**
  * TornRw数据逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.3
  * @since 2025.12.25
  */
 @Slf4j
@@ -50,10 +49,10 @@ public class TornRwDataService {
     private final TornApi tornApi;
     private final TornFactionAttackService attackService;
     private final TornRwWarningManager rwWarningManager;
+    private final TornRwReviveManager reviveManager;
     private final TornSettingFactionManager settingFactionManager;
     private final SysSettingDAO settingDao;
     private final TornFactionRwDAO rwDao;
-    private final TornRwReviveManager reviveManager;
     private final ProjectProperty projectProperty;
 
     private static final long QUERY_OVERLAP_SECONDS = 2L;
@@ -112,7 +111,9 @@ public class TornRwDataService {
             addScheduleTask(faction, to, rw);
             return;
         }
+        // 边界重叠抓取，避免 from/to 边界漏数据
         LocalDateTime queryFrom = buildQueryFromWithOverlap(from, start);
+        // 防御性判断：避免无效区间
         if (invalidTimeRange(faction, rw, from, to, queryFrom, ended)) {
             return;
         }
@@ -121,11 +122,11 @@ public class TornRwDataService {
             Collection<TornFactionMemberVO> memberList = attackService.spiderAttackData(faction,
                     currentRw.getOpponentFaction(faction.getId()).getId(), queryFrom, to);
             updateRwLoadCheckpoint(faction, to);
-            reviveManager.spiderReviveData(faction, rw, start, to);
             if (!ended && !isLowFrequencyPeriod(now, rw)) {
                 rwWarningManager.sendWarning(rw, now, memberList);
             }
 
+            reviveManager.spiderReviveData(faction, rw, start, to);
             if (ended) {
                 rwDao.lambdaUpdate()
                         .set(TornFactionRwDO::getEndTime, to)
@@ -140,31 +141,6 @@ public class TornRwDataService {
             addScheduleTask(faction, from, rw);
             throw e;
         }
-    }
-
-    private LocalDateTime buildQueryTo(TornFactionRwVO currentRw, boolean ended, LocalDateTime start, LocalDateTime now) {
-        if (ended) {
-            return DateTimeUtils.convertToDateTime(currentRw.getEnd());
-        }
-        return now.isAfter(start) ? now : start.plusMinutes(1);
-    }
-
-    private LocalDateTime buildQueryFromWithOverlap(LocalDateTime from, LocalDateTime start) {
-        LocalDateTime result = from.minusSeconds(QUERY_OVERLAP_SECONDS);
-        return result.isBefore(start) ? start : result;
-    }
-
-    private boolean invalidTimeRange(TornSettingFactionDO faction, TornFactionRwDO rw, LocalDateTime from, LocalDateTime to, LocalDateTime queryFrom, boolean ended) {
-        if (ObjectUtils.isEmpty(rw)) {
-            log.warn("RW数据不存在, faction={}, from={}, to={}", faction.getFactionShortName(), from, to);
-            return true;
-        }
-        return !queryFrom.isBefore(to) && !queryFrom.isEqual(to) || (!ended && from.isAfter(to));
-    }
-
-    private void updateRwLoadCheckpoint(TornSettingFactionDO faction, LocalDateTime to) {
-        settingDao.updateSetting(faction.getFactionShortName() + "_" + SettingConstants.KEY_RW_LOAD,
-                DateTimeUtils.convertToString(to));
     }
 
     /**
@@ -185,6 +161,7 @@ public class TornRwDataService {
         LocalTime start = rw.getDisbandTime();
         LocalTime end = rw.getGatheringTime();
         if (!start.isBefore(end)) {
+            // 跨午夜区间：time >= start 或 time < end
             return !time.isBefore(start) || time.isBefore(end);
         }
         return !time.isBefore(start) && time.isBefore(end);
@@ -202,8 +179,70 @@ public class TornRwDataService {
      */
     private LocalDateTime calculateNextExecutionTime(LocalDateTime currentTime, TornFactionRwDO rw) {
         long intervalMinutes = getIntervalMinutes(currentTime, rw);
-        return currentTime.plusMinutes(intervalMinutes);
+        LocalDateTime nextTime = currentTime.plusMinutes(intervalMinutes);
+
+        // 如果当前是正常频率时段，但下次执行会进入低频时段
+        if (!isLowFrequencyPeriod(currentTime, rw) && isLowFrequencyPeriod(nextTime, rw)) {
+            // 检查是否需要调整到低频时段的整点
+            LocalDateTime nextHour = nextTime.withMinute(0).withSecond(0).withNano(0);
+            if (nextHour.isAfter(currentTime)) {
+                return nextHour;
+            }
+        }
+
+        return nextTime;
     }
 
+    /**
+     * 判断区间是否有效
+     */
+    private boolean invalidTimeRange(TornSettingFactionDO faction, TornFactionRwDO rw,
+                                     LocalDateTime from, LocalDateTime to, LocalDateTime queryFrom, boolean ended) {
+        if (!queryFrom.isBefore(to)) {
+            if (ended) {
+                rwDao.lambdaUpdate()
+                        .set(TornFactionRwDO::getEndTime, to)
+                        .eq(TornFactionRwDO::getId, rw.getId())
+                        .update();
+                updateRwLoadCheckpoint(faction, to);
+            } else {
+                addScheduleTask(faction, from, rw);
+            }
+            return true;
+        }
+        return false;
+    }
 
+    /**
+     * 构建重叠的起始爬取时间，防止漏掉数据
+     */
+    private LocalDateTime buildQueryFromWithOverlap(LocalDateTime checkpointFrom, LocalDateTime rwStart) {
+        LocalDateTime overlapFrom = checkpointFrom.minusSeconds(QUERY_OVERLAP_SECONDS);
+        return overlapFrom.isBefore(rwStart) ? rwStart : overlapFrom;
+    }
+
+    /**
+     * 构建结束爬取时间
+     */
+    private LocalDateTime buildQueryTo(TornFactionRwVO currentRw, boolean ended,
+                                       LocalDateTime start, LocalDateTime now) {
+        LocalDateTime to;
+        if (ended) {
+            to = DateTimeUtils.convertToDateTime(currentRw.getEnd());
+        } else if (start.isAfter(now)) {
+            to = start;
+        } else {
+            to = now;
+        }
+
+        return to;
+    }
+
+    /**
+     * 更新RW数据读取时间的检查点
+     */
+    private void updateRwLoadCheckpoint(TornSettingFactionDO faction, LocalDateTime checkpoint) {
+        settingDao.updateSetting(faction.getFactionShortName() + "_" + SettingConstants.KEY_RW_LOAD,
+                DateTimeUtils.convertToString(checkpoint));
+    }
 }
