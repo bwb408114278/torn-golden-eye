@@ -151,34 +151,44 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
             int healAmount = userRevives.stream()
                     .mapToInt(item -> item.getHealAmount() == null ? 0 : item.getHealAmount())
                     .sum();
-
-            // 按时间窗口维度计算复活频率：每个窗口内独立计算时间跨度，总次数 / 总时间
-            long totalReviveSeconds = 0L;
-            for (AttackTimeWindowDO window : windowList) {
-                LocalDateTime windowFirst = null;
-                LocalDateTime windowLast = null;
-                for (TornFactionRwReviveDO revive : userRevives) {
-                    LocalDateTime rt = revive.getReviveTime();
-                    if (rt != null && window.contains(rt)) {
-                        if (windowFirst == null || rt.isBefore(windowFirst)) windowFirst = rt;
-                        if (windowLast == null || rt.isAfter(windowLast)) windowLast = rt;
-                    }
-                }
-                if (windowFirst != null && windowLast != null && !windowFirst.equals(windowLast)) {
-                    totalReviveSeconds += Duration.between(windowFirst, windowLast).toSeconds();
-                }
-            }
-            double playerMinutes = totalReviveSeconds / 60D;
-            BigDecimal reviveFrequency = playerMinutes <= 0D ?
-                    BigDecimal.ZERO :
-                    BigDecimal.valueOf(reviveCount)
-                            .divide(BigDecimal.valueOf(playerMinutes), 2, java.math.RoundingMode.HALF_UP);
+            BigDecimal reviveFrequency = calcReviveFrequency(userRevives, reviveCount, windowList);
 
             rankRows.add(new RankRow(first.getReviverId(), first.getReviverName(), first.getReviverFactionName(),
                     reviveCount, successCount, successRate, healAmount, reviveFrequency));
         }
 
         return rankRows;
+    }
+
+    /**
+     * 按时间窗口维度计算复活频率：总次数 / 各窗口内时间跨度之和（分钟）
+     */
+    private BigDecimal calcReviveFrequency(List<TornFactionRwReviveDO> userRevives,
+                                            long reviveCount,
+                                            List<AttackTimeWindowDO> windowList) {
+        long totalSeconds = windowList.stream()
+                .mapToLong(window -> calcWindowReviveSeconds(userRevives, window))
+                .sum();
+        double minutes = totalSeconds / 60D;
+        return minutes <= 0D ? BigDecimal.ZERO
+                : BigDecimal.valueOf(reviveCount).divide(BigDecimal.valueOf(minutes), 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 计算单个时间窗口内玩家复活的时间跨度（秒）
+     */
+    private long calcWindowReviveSeconds(List<TornFactionRwReviveDO> userRevives,
+                                          AttackTimeWindowDO window) {
+        LocalDateTime first = null;
+        LocalDateTime last = null;
+        for (TornFactionRwReviveDO revive : userRevives) {
+            LocalDateTime rt = revive.getReviveTime();
+            if (rt == null || !window.contains(rt)) continue;
+            if (first == null || rt.isBefore(first)) first = rt;
+            if (last == null || rt.isAfter(last)) last = rt;
+        }
+        if (first == null || first.equals(last)) return 0L;
+        return Duration.between(first, last).toSeconds();
     }
 
     /**

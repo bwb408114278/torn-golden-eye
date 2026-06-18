@@ -28,23 +28,23 @@ public class TornFactionRwReviveDO extends BaseDO {
      */
     private Long rwId;
     /**
-     * 被复活目标所属帮派ID
+     * 帮派ID
      */
     private Long factionId;
     /**
-     * 复活者ID
+     * 医生ID
      */
     private Long reviverId;
     /**
-     * 复活者昵称
+     * 医生昵称
      */
     private String reviverName;
     /**
-     * 复活者帮派ID
+     * 医生帮派ID
      */
     private Long reviverFactionId;
     /**
-     * 复活者帮派名
+     * 医生帮派名称
      */
     private String reviverFactionName;
     /**

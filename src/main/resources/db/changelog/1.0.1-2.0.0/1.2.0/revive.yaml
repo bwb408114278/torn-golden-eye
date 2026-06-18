@@ -5,96 +5,104 @@ databaseChangeLog:
       changes:
         - createTable:
             tableName: torn_faction_rw_revive
-            remarks: RW复活记录
+            remarks: "RW复活记录"
             columns:
               - column:
                   name: id
                   type: BIGINT
-                  remarks: 主键ID
+                  remarks: "ID"
                   constraints:
                     primaryKey: true
                     nullable: false
               - column:
                   name: rw_id
                   type: BIGINT
-                  remarks: RW ID
+                  remarks: "RW ID"
               - column:
                   name: faction_id
                   type: BIGINT
-                  remarks: 被复活目标所属帮派ID
+                  remarks: "帮派ID"
               - column:
                   name: reviver_id
                   type: BIGINT
-                  remarks: 复活者ID
+                  remarks: "医生ID"
               - column:
                   name: reviver_name
                   type: VARCHAR(64)
-                  remarks: 复活者昵称
+                  remarks: "医生昵称"
               - column:
                   name: reviver_faction_id
                   type: BIGINT
-                  remarks: 复活者帮派ID
+                  remarks: "医生帮派ID"
               - column:
                   name: reviver_faction_name
                   type: VARCHAR(128)
-                  remarks: 复活者帮派名
+                  remarks: "医生帮派名称"
               - column:
                   name: skill
-                  type: DECIMAL(10, 4)
-                  remarks: 复活技能
+                  type: DECIMAL(6, 2)
+                  remarks: "复活技能"
               - column:
                   name: target_id
                   type: BIGINT
-                  remarks: 被复活目标ID
+                  remarks: "被复活目标ID"
               - column:
                   name: target_name
                   type: VARCHAR(64)
-                  remarks: 被复活目标昵称
+                  remarks: "被复活目标昵称"
               - column:
                   name: target_faction_id
                   type: BIGINT
-                  remarks: 被复活目标帮派ID
+                  remarks: "被复活目标帮派ID"
               - column:
                   name: target_faction_name
                   type: VARCHAR(128)
-                  remarks: 被复活目标帮派名
+                  remarks: "被复活目标帮派名称"
               - column:
                   name: success_chance
-                  type: DECIMAL(10, 4)
-                  remarks: 成功率
+                  type: DECIMAL(6, 2)
+                  remarks: "成功率"
               - column:
                   name: success
                   type: BOOLEAN
-                  remarks: 是否成功
+                  remarks: "是否成功"
               - column:
                   name: revive_time
                   type: DATETIME
-                  remarks: 复活时间
+                  remarks: "复活时间"
               - column:
                   name: target_life_current
                   type: INT
-                  remarks: 目标当前血量
+                  remarks: "目标当前血量"
               - column:
                   name: target_life_maximum
                   type: INT
-                  remarks: 目标最大血量
+                  remarks: "目标最大血量"
               - column:
                   name: heal_amount
                   type: INT
-                  remarks: 回血量
+                  remarks: "回血量"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
-                  type: DATETIME
-                  remarks: 创建时间
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
               - column:
                   name: update_time
-                  type: DATETIME
-                  remarks: 更新时间
-              - column:
-                  name: is_delete
-                  type: BOOLEAN
-                  defaultValueBoolean: false
-                  remarks: 是否删除
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
         - addUniqueConstraint:
             tableName: torn_faction_rw_revive
             columnNames: reviver_id,target_id,revive_time
