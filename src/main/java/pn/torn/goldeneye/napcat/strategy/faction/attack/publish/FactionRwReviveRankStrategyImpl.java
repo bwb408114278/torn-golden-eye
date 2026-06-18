@@ -3,7 +3,6 @@ package pn.torn.goldeneye.napcat.strategy.faction.attack.publish;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.exception.BizException;
-import pn.torn.goldeneye.base.model.TableDataBO;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
@@ -45,39 +44,27 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "RW神医榜";
+        return "神医的恩情还不完！";
     }
 
     @Override
     public List<ImageQqMsg> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornFactionRwDO rw = getCurrentRw(sender, msg);
         if (rw == null) {
-            throw new BizException("暂无RW数据");
+            throw new BizException("暂无RW真赛数据");
         }
 
-
-        long factionId = getTornFactionIdBySender(sender);
-        TornSettingFactionDO faction = factionManager.getIdMap().get(factionId);
-        return buildImageMsg(buildRwReviveRankImage(faction, rw));
-    }
-
-    private String buildRwReviveRankImage(TornSettingFactionDO faction, TornFactionRwDO rw) {
         // 使用滚动窗口SQL查询活跃对战时间窗口（3分钟内双方攻击>=100次）
         List<AttackTimeWindowDO> windowList = queryActiveTimeWindows(rw);
         if (windowList == null || windowList.isEmpty()) {
-            throw new BizException("暂无活跃对战数据");
+            throw new BizException("暂无对冲数据");
         }
 
         // 取最早和最晚的时间边界，下推到SQL做过滤
-        LocalDateTime windowStart = windowList.getFirst().start();
-        LocalDateTime windowEnd = windowList.getLast().end();
-
+        TornSettingFactionDO faction = factionManager.getIdMap().get(rw.getFactionId());
         List<TornFactionRwReviveDO> reviveList = reviveDao.lambdaQuery()
                 .eq(TornFactionRwReviveDO::getFactionId, faction.getId())
                 .eq(TornFactionRwReviveDO::getRwId, rw.getId())
-                .ge(TornFactionRwReviveDO::getReviveTime, windowStart)
-                .le(TornFactionRwReviveDO::getReviveTime, windowEnd)
-                .orderByDesc(TornFactionRwReviveDO::getReviveTime)
                 .list();
         if (reviveList == null || reviveList.isEmpty()) {
             throw new BizException("暂无神医榜数据");
@@ -85,9 +72,10 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
 
         // 精确过滤：只保留落在活跃窗口内的复活记录
         List<TornFactionRwReviveDO> filteredList = reviveList.stream()
-                .filter(revive -> revive.getReviveTime() != null)
-                .filter(revive -> windowList.stream().anyMatch(window -> window.contains(revive.getReviveTime())))
-                .collect(Collectors.toMap(this::buildReviveUniqueKey, Function.identity(), (first, second) -> second, LinkedHashMap::new))
+                .filter(revive -> windowList.stream()
+                        .anyMatch(window -> window.contains(revive.getReviveTime())))
+                .collect(Collectors.toMap(this::buildReviveUniqueKey, Function.identity(),
+                        (first, second) -> second, LinkedHashMap::new))
                 .values()
                 .stream()
                 .toList();
@@ -95,34 +83,32 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
             throw new BizException("暂无神医榜数据");
         }
 
-        double totalMinutes = windowList.stream()
-                .mapToLong(window -> Duration.between(window.start(), window.end()).toSeconds())
-                .sum() / 60D;
+        List<RankRow> rankRows = buildReviveSummary(filteredList);
+        return buildImageMsg(buildRwReviveRankImage(rw.getFactionName(), rw.getOpponentFactionName(), rankRows));
+    }
 
-        Map<Long, List<TornFactionRwReviveDO>> groupMap = filteredList.stream()
-                .filter(item -> item.getReviverId() != null)
-                .collect(Collectors.groupingBy(TornFactionRwReviveDO::getReviverId));
-
-        List<RankRow> rankRows = new ArrayList<>();
-        int rank = 1;
-        for (Map.Entry<Long, List<TornFactionRwReviveDO>> entry : groupMap.entrySet().stream()
-                .sorted(Comparator.comparingInt((Map.Entry<Long, List<TornFactionRwReviveDO>> entry) -> entry.getValue().size()).reversed())
-                .toList()) {
-            List<TornFactionRwReviveDO> userRevives = entry.getValue();
-            TornFactionRwReviveDO first = userRevives.getFirst();
-            long successCount = userRevives.stream().filter(revive -> Boolean.TRUE.equals(revive.getSuccess())).count();
-            long reviveCount = userRevives.size();
-            BigDecimal successRate = reviveCount == 0 ? BigDecimal.ZERO : BigDecimal.valueOf(successCount * 100D / reviveCount);
-            int healAmount = userRevives.stream().mapToInt(item -> item.getHealAmount() == null ? 0 : item.getHealAmount()).sum();
-            BigDecimal reviveFrequency = totalMinutes <= 0D ? BigDecimal.ZERO : BigDecimal.valueOf(reviveCount).divide(BigDecimal.valueOf(totalMinutes), 2, java.math.RoundingMode.HALF_UP);
-            rankRows.add(new RankRow(rank++, first.getReviverId(), first.getReviverName(), first.getReviverFactionName(), reviveCount, successCount, successRate, healAmount, reviveFrequency));
-        }
-
+    /**
+     * 构建表格图片
+     */
+    private String buildRwReviveRankImage(String factionName, String opponentFactionName, List<RankRow> rankRows) {
         List<List<String>> tableData = new ArrayList<>();
+        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
+
+        tableData.add(List.of(factionName + " VS " + opponentFactionName + " 对冲复活数据统计",
+                "", "", "", "", "", "", "", ""));
+        tableConfig.addMerge(0, 0, 1, 9);
+        tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
+                .setBgColor(Color.WHITE)
+                .setPadding(25)
+                .setFont(new Font("微软雅黑", Font.BOLD, 30)));
+
         tableData.add(List.of("Rank", "ID", "昵称", "帮派", "复活次数", "成功次数", "成功率", "回血量", "复活频率"));
-        for (RankRow row : rankRows) {
+        tableConfig.setSubTitle(1, 9);
+
+        for (int i = 0; i < rankRows.size(); i++) {
+            RankRow row = rankRows.get(i);
             tableData.add(List.of(
-                    String.valueOf(row.rank()),
+                    String.valueOf(i + 1),
                     String.valueOf(row.userId()),
                     row.name(),
                     row.factionName(),
@@ -134,19 +120,65 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
             ));
         }
 
-        TableImageUtils.TableConfig config = new TableImageUtils.TableConfig()
-                .setDefaultCellHeight(44)
-                .setDefaultBgColor(new Color(250, 250, 250))
-                .setBorderColor(new Color(180, 180, 180));
-        return TableImageUtils.renderTableToBase64(new TableDataBO(tableData, config));
+        return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 
+    /**
+     * 构建复活统计数据
+     */
+    private List<RankRow> buildReviveSummary(List<TornFactionRwReviveDO> reviveList) {
+        Map<Long, List<TornFactionRwReviveDO>> groupMap = reviveList.stream()
+                .filter(item -> item.getReviverId() != null)
+                .collect(Collectors.groupingBy(TornFactionRwReviveDO::getReviverId));
+
+        List<RankRow> rankRows = new ArrayList<>();
+        List<Map.Entry<Long, List<TornFactionRwReviveDO>>> userReviveMap = groupMap.entrySet().stream()
+                .sorted(Comparator.comparingInt((Map.Entry<Long, List<TornFactionRwReviveDO>> entry) ->
+                        entry.getValue().size()).reversed())
+                .toList();
+
+        for (Map.Entry<Long, List<TornFactionRwReviveDO>> entry : userReviveMap) {
+            List<TornFactionRwReviveDO> userRevives = entry.getValue();
+            TornFactionRwReviveDO first = userRevives.getFirst();
+            long reviveCount = userRevives.size();
+            long successCount = userRevives.stream().filter(TornFactionRwReviveDO::getSuccess).count();
+            BigDecimal successRate = reviveCount == 0 ?
+                    BigDecimal.ZERO : BigDecimal.valueOf(successCount * 100D / reviveCount);
+            int healAmount = userRevives.stream()
+                    .mapToInt(item -> item.getHealAmount() == null ? 0 : item.getHealAmount())
+                    .sum();
+
+            // 计算该玩家的个人复活时间窗口：最早→最晚，频率=总次数/个人有效时间（分钟）
+            LocalDateTime firstReviveTime = userRevives.stream()
+                    .map(TornFactionRwReviveDO::getReviveTime)
+                    .min(LocalDateTime::compareTo)
+                    .orElse(null);
+            LocalDateTime lastReviveTime = userRevives.stream()
+                    .map(TornFactionRwReviveDO::getReviveTime)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
+            double playerMinutes = firstReviveTime != null ?
+                    Duration.between(firstReviveTime, lastReviveTime).toSeconds() / 60D : 0D;
+            BigDecimal reviveFrequency = playerMinutes <= 0D ?
+                    BigDecimal.ZERO :
+                    BigDecimal.valueOf(reviveCount)
+                            .divide(BigDecimal.valueOf(playerMinutes), 2, java.math.RoundingMode.HALF_UP);
+
+            rankRows.add(new RankRow(first.getReviverId(), first.getReviverName(), first.getReviverFactionName(),
+                    reviveCount, successCount, successRate, healAmount, reviveFrequency));
+        }
+
+        return rankRows;
+    }
+
+    /**
+     * 构建唯一Key
+     */
     private String buildReviveUniqueKey(TornFactionRwReviveDO revive) {
         return revive.getReviverId() + "#" + revive.getTargetId() + "#" + revive.getReviveTime();
     }
 
-    private record RankRow(int rank,
-                           long userId,
+    private record RankRow(long userId,
                            String name,
                            String factionName,
                            long reviveCount,
