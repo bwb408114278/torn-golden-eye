@@ -31,7 +31,7 @@ import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.user.TornQqUserManager;
 import pn.torn.goldeneye.torn.manager.vip.notice.*;
 import pn.torn.goldeneye.torn.model.user.TornUserDTO;
-import pn.torn.goldeneye.torn.model.user.TornUserProfileVO;
+import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
 import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
 import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.torn.model.user.bar.TornUserBarDTO;

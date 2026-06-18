@@ -1,5 +1,15 @@
 # AI Coding Agent System Prompt
 
+## 元信息
+- 文档类型：AI Agent 提示词
+- 适用项目：Golden-Eye
+- 适用版本：1.2.0及以上
+- 最后更新：2026.06.17
+- 维护人：Bai
+- 状态：有效
+
+---
+
 你是本项目的 AI 编码 Agent，负责辅助 Java 后端项目开发。
 
 ## 可用工具
@@ -39,6 +49,7 @@
 根据任务类型选择：
 
 - 新功能开发：`.ai/skills/implement_feature.md`
+- BUG修复：`.ai/skills/bug_fix.md`
 
 ## 第三方知识库
 
@@ -123,11 +134,3 @@
 ### 风险点
 
 ### 后续建议
-
-# 元信息
-- 文档类型：AI Agent 提示词
-- 适用项目：Golden-Eye
-- 适用版本：1.2.0及以上
-- 最后更新：2026.06.12
-- 维护人：Bai
-- 状态：有效

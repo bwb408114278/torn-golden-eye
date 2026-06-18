@@ -66,3 +66,5 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.1.0/user.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.2.0/faction.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.2.0/revive.yaml

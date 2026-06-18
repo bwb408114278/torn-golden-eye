@@ -2,15 +2,13 @@ package pn.torn.goldeneye.napcat.strategy.faction.attack;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
-import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
+import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -22,8 +20,8 @@ import java.util.List;
  * RW基础策略
  *
  * @author Bai
- * @version 1.2.0
- * @since 2026.05.21
+ * @version 1.2.3
+ * @since 2026.06.17
  */
 public abstract class BaseRwStrategy extends SmthMsgStrategy {
     @Resource
@@ -32,6 +30,8 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
     private TornAttackLogDAO attackLogDao;
     @Resource
     private ProjectProperty projectProperty;
+    private static final int WINDOW_MINUTES = 3;
+    private static final int MIN_BATTLE_COUNT = 100;
 
     @Override
     public List<Long> getCustomGroupId() {
@@ -46,24 +46,21 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
      * 查询对冲战斗记录
      */
     protected List<PlayerAttackStatDO> queryAttackList(TornFactionRwDO rw) {
-        int windowMinutes = 3;
-        int minBattleCount = 100;
         LocalDateTime startTime = rw.getStartTime();
         LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
         return attackLogDao.queryPlayerAttackStat(rw.getFactionId(),
-                rw.getOpponentFactionId(), windowMinutes, minBattleCount, startTime, endTime);
+                rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT, startTime, endTime);
     }
 
     /**
-     * 获取最近一场Rw
+     * 获取当前/指定RW
      */
     protected TornFactionRwDO getCurrentRw(QqRecMsgSender sender, String msg) {
-        if (StringUtils.hasText(msg) && !NumberUtils.isLong(msg)) {
-            throw new BizException("请输入RW ID, 没有ID时取最近一场");
+        long factionId = getTornFactionIdBySender(sender);
+        long rwId = 0L;
+        if (NumberUtils.isLong(msg)) {
+            rwId = Long.parseLong(msg);
         }
-
-        long factionId = super.getTornFactionIdBySender(sender);
-        long rwId = NumberUtils.isLong(msg) ? Long.parseLong(msg) : 0L;
 
         Page<TornFactionRwDO> rwList = rwDao.lambdaQuery()
                 .eq(TornFactionRwDO::getFactionId, factionId)
@@ -71,10 +68,21 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
                 .le(rwId == 0L, TornFactionRwDO::getStartTime, LocalDateTime.now())
                 .orderByDesc(TornFactionRwDO::getStartTime)
                 .page(new Page<>(1, 1));
-        if (CollectionUtils.isEmpty(rwList.getRecords())) {
-            throw new BizException("未查询到RW记录");
-        }
+        return rwList.getRecords().isEmpty() ? null : rwList.getRecords().getFirst();
+    }
 
-        return rwList.getRecords().getFirst();
+    /**
+     * 查询活跃对战时间窗口（滚动窗口：windowMinutes分钟内双方攻击次数>=minBattleCount的连续时间段）
+     * <p>
+     * 用于神医榜等需要根据实际战斗活跃时段过滤数据的场景
+     *
+     * @param rw RW对象
+     * @return 活跃对战时间窗口列表
+     */
+    protected List<AttackTimeWindowDO> queryActiveTimeWindows(TornFactionRwDO rw) {
+        LocalDateTime startTime = rw.getStartTime();
+        LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
+        return attackLogDao.queryActiveTimeWindows(rw.getFactionId(),
+                rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT, startTime, endTime);
     }
 }

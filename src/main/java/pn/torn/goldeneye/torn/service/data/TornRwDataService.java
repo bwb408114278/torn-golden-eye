@@ -18,6 +18,7 @@ import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.torn.manager.faction.attack.TornRwReviveManager;
 import pn.torn.goldeneye.torn.manager.faction.attack.TornRwWarningManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
@@ -36,7 +37,7 @@ import java.util.List;
  * TornRw数据逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.3
  * @since 2025.12.25
  */
 @Slf4j
@@ -48,6 +49,7 @@ public class TornRwDataService {
     private final TornApi tornApi;
     private final TornFactionAttackService attackService;
     private final TornRwWarningManager rwWarningManager;
+    private final TornRwReviveManager reviveManager;
     private final TornSettingFactionManager settingFactionManager;
     private final SysSettingDAO settingDao;
     private final TornFactionRwDAO rwDao;
@@ -124,6 +126,7 @@ public class TornRwDataService {
                 rwWarningManager.sendWarning(rw, now, memberList);
             }
 
+            reviveManager.spiderReviveData(faction, rw, start, to);
             if (ended) {
                 rwDao.lambdaUpdate()
                         .set(TornFactionRwDO::getEndTime, to)

@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * 动态定时任务配置
  *
  * @author Bai
- * @version 0.1.0
+ * @version 1.2.2
  * @since 2025.07.30
  */
 @Service
@@ -150,7 +150,13 @@ public class DynamicTaskService {
                 if (callback != null) {
                     callback.onTaskExecuted(taskId, true);
                 }
-                log.info("定时任务执行完毕成功, id: " + taskId);
+                log.info("定时任务执行完毕成功, id: {}", taskId);
+            } catch (Exception e) {
+                if (callback != null) {
+                    callback.onTaskExecuted(taskId, false);
+                }
+                log.error("定时任务执行失败, id: {}", taskId, e);
+                throw e;
             } finally {
                 ScheduledFuture<?> currentFuture = futureRef.get();
                 if (currentFuture != null) {

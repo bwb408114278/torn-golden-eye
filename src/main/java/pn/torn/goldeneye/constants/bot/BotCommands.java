@@ -126,6 +126,10 @@ public class BotCommands {
      */
     public static final String RW_UPLOAD = "RW上传";
     /**
+     * RW神医榜
+     */
+    public static final String RW_REVIVE_RANK = "RW神医榜";
+    /**
      * 拍卖历史
      */
     public static final String AUCTION_HISTORY = "拍卖历史";

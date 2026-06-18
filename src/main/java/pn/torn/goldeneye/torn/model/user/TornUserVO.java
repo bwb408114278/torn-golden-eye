@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.model.user;
 
 import lombok.Data;
+import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
 
 /**
  * Torn用户响应参数

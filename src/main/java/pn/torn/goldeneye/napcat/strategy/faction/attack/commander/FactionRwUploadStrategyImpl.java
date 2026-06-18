@@ -18,7 +18,7 @@ import java.util.List;
  * RW对冲战斗统计策略实现类
  *
  * @author Bai
- * @version 1.2.0
+ * @version 1.2.3
  * @since 2026.06.10
  */
 @Component

@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.dao.torn;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.TornAttackLogMapper;
+import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerDefendStatDO;
@@ -34,6 +35,23 @@ public class TornAttackLogDAO extends ServiceImpl<TornAttackLogMapper, TornAttac
                                                           int windowMinutes, int minBattleCount,
                                                           LocalDateTime startTime, LocalDateTime endTime) {
         return baseMapper.queryPlayerAttackStat(factionId, opponentFactionId, windowMinutes, minBattleCount, startTime, endTime);
+    }
+
+    /**
+     * 查询活跃对战时间窗口（滚动窗口：windowMinutes分钟内双方攻击次数>=minBattleCount的连续时间段）
+     *
+     * @param factionId         帮派ID
+     * @param opponentFactionId 对手帮派ID
+     * @param windowMinutes     时间窗口长度（分钟）
+     * @param minBattleCount    满足战斗场次才是对冲
+     * @param startTime         开始时间
+     * @param endTime           结束时间
+     * @return 活跃对战时间窗口列表
+     */
+    public List<AttackTimeWindowDO> queryActiveTimeWindows(long factionId, long opponentFactionId,
+                                                           int windowMinutes, int minBattleCount,
+                                                           LocalDateTime startTime, LocalDateTime endTime) {
+        return baseMapper.queryActiveTimeWindows(factionId, opponentFactionId, windowMinutes, minBattleCount, startTime, endTime);
     }
 
     /**

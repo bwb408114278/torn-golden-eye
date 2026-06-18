@@ -12,7 +12,7 @@ import java.time.LocalTime;
  * 帮派Rw表
  *
  * @author Bai
- * @version 1.2.0
+ * @version 1.2.3
  * @since 2025.12.25
  */
 @Data

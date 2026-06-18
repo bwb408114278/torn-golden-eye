@@ -4,6 +4,7 @@ import com.lark.oapi.service.bitable.v1.enums.ConditionOperatorEnum;
 import com.lark.oapi.service.bitable.v1.enums.FilterInfoConjunctionEnum;
 import com.lark.oapi.service.bitable.v1.model.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -40,12 +41,13 @@ import java.util.stream.IntStream;
  * Torn OC收益逻辑层
  *
  * @author Bai
- * @version 1.1.0
+ * @version 1.2.2
  * @since 2025.09.08
  */
 @Service
 @RequiredArgsConstructor
 @Order(InitOrderConstants.TORN_OC_BENEFIT)
+@Slf4j
 public class TornFactionOcBenefitService {
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
@@ -89,6 +91,19 @@ public class TornFactionOcBenefitService {
      * 爬取OC收益
      */
     public void spiderOcBenefit(LocalDateTime from, LocalDateTime to) {
+        try {
+            doSpiderOcBenefit(from, to);
+        } catch (Exception e) {
+            log.error("OC收益采集失败, from={}, to={}",
+                    DateTimeUtils.convertToString(from), DateTimeUtils.convertToString(to), e);
+            addRetryTask(from);
+        }
+    }
+
+    /**
+     * 爬取OC收益
+     */
+    private void doSpiderOcBenefit(LocalDateTime from, LocalDateTime to) {
         LarkSuiteBitTableProperty bitTable = larkSuiteProperty.findBitTable(TornConstants.BIT_TABLE_OC_BENEFIT);
         String pageToken = null;
         boolean hasMore;
@@ -139,20 +154,37 @@ public class TornFactionOcBenefitService {
             return;
         }
 
-        Set<Long> ocIdSet = benefitList.stream().map(TornFactionOcBenefitDO::getOcId).collect(Collectors.toSet());
-        Set<Long> existOcIdSet = benefitDao.lambdaQuery()
+        List<TornFactionOcBenefitDO> distinctBenefitList = distinctBenefitList(benefitList);
+        Set<Long> ocIdSet = distinctBenefitList.stream().map(TornFactionOcBenefitDO::getOcId).collect(Collectors.toSet());
+        Set<OcBenefitKey> existKeySet = benefitDao.lambdaQuery()
                 .in(TornFactionOcBenefitDO::getOcId, ocIdSet)
                 .list()
                 .stream()
-                .map(TornFactionOcBenefitDO::getOcId)
+                .map(b -> new OcBenefitKey(b.getOcId(), b.getUserId()))
                 .collect(Collectors.toSet());
 
-        List<TornFactionOcBenefitDO> newDataList = benefitList.stream()
-                .filter(b -> !existOcIdSet.contains(b.getOcId()))
+        List<TornFactionOcBenefitDO> newDataList = distinctBenefitList.stream()
+                .filter(b -> !existKeySet.contains(new OcBenefitKey(b.getOcId(), b.getUserId())))
                 .toList();
         if (!CollectionUtils.isEmpty(newDataList)) {
             benefitDao.saveBatch(newDataList);
         }
+    }
+
+    /**
+     * 按唯一键去重收益列表
+     */
+    private List<TornFactionOcBenefitDO> distinctBenefitList(List<TornFactionOcBenefitDO> benefitList) {
+        Map<OcBenefitKey, TornFactionOcBenefitDO> benefitMap = new LinkedHashMap<>();
+        for (TornFactionOcBenefitDO benefit : benefitList) {
+            OcBenefitKey key = new OcBenefitKey(benefit.getOcId(), benefit.getUserId());
+            TornFactionOcBenefitDO oldBenefit = benefitMap.putIfAbsent(key, benefit);
+            if (oldBenefit != null) {
+                log.warn("OC收益批次内出现重复记录, ocId={}, userId={}, oldBenefit={}, newBenefit={}",
+                        key.ocId(), key.userId(), oldBenefit.getBenefitMoney(), benefit.getBenefitMoney());
+            }
+        }
+        return new ArrayList<>(benefitMap.values());
     }
 
     /**
@@ -161,7 +193,12 @@ public class TornFactionOcBenefitService {
     private List<TornFactionOcBenefitDO> parseRecords(AppTableRecord[] items) {
         List<TornFactionOcBenefitDO> benefits = new ArrayList<>();
         for (AppTableRecord item : items) {
-            benefits.addAll(parseSingleRecord(item));
+            try {
+                benefits.addAll(parseSingleRecord(item));
+            } catch (Exception e) {
+                log.error("解析OC收益记录失败, recordId={}, fields={}", item == null ? null : item.getRecordId(),
+                        item == null ? null : item.getFields(), e);
+            }
         }
         return benefits;
     }
@@ -191,52 +228,114 @@ public class TornFactionOcBenefitService {
      * 处理奖金合并的成功 OC
      */
     private List<TornFactionOcBenefitDO> handleSuccessChainOc(Map<String, Object> currentFields, long previousOcId) {
-        // 1. 通过API请求获取前置OC的记录
-        AppTableRecord previousRecord = findOcRecordById(previousOcId);
-        if (previousRecord == null) {
+        List<AppTableRecord> ocChain = getOcChain(currentFields, previousOcId);
+        if (ocChain.isEmpty()) {
             return List.of();
         }
 
-        // 2. 分别提取前置和当前OC的参与人详情（按slot顺序）
-        // 创建一个共享的计数器map，确保岗位编号在前后两个OC之间是连续的
-        List<OcJoinUser> prevUserList = extractUserByFields(previousRecord.getFields());
-        List<OcJoinUser> currentUserList = extractUserByFields(currentFields);
-
-        // 3. 从当前OC记录中获取合并后的用户ID和奖金列表
+        List<OcChainJoinUser> joinUserList = buildChainJoinUserList(ocChain);
         String[] userIds = LarkSuiteUtils.getTextFieldValue(currentFields, FIELD_USER_IDS_STRING).split(",");
         String[] benefits = LarkSuiteUtils.getTextFieldValue(currentFields, FIELD_BONUS_STRING).split(",");
-
-        if (ArrayUtils.isEmpty(userIds) || benefits.length != userIds.length) {
+        if (!isValidBenefitPayload(userIds, benefits)) {
             return List.of();
         }
 
-        // 4. 创建DO列表，将奖金逐一分配给合并后的参与人列表
-        List<TornFactionOcBenefitDO> benefitList = new ArrayList<>();
-        for (int i = 0; i < userIds.length; i++) {
-            long userId = Long.parseLong(userIds[i]);
-            OcJoinUser details;
-            // 创建基础DO，使用当前OC（后置OC）的信息作为记录主体
-            TornFactionOcBenefitDO benefit = createBaseDO(currentFields);
-            if (i > currentUserList.size() - 1) {
-                details = prevUserList.stream().filter(u -> u.userId == userId).findAny().orElse(null);
-                benefit.setOcId(((Number) previousRecord.getFields().get(FIELD_OC_ID)).longValue());
-                benefit.setOcName(previousRecord.getFields().get(FIELD_OC_NAME).toString());
-                benefit.setOcRank(((Number) previousRecord.getFields().get(FIELD_OC_RANK)).intValue());
-            } else {
-                details = currentUserList.stream().filter(u -> u.userId == userId).findAny().orElse(null);
-            }
+        return buildChainBenefits(currentFields, joinUserList, userIds, benefits);
+    }
 
-            if (details != null) {
-                benefit.setUserId(details.userId());
-                benefit.setUserPosition(details.position());
-                benefit.setUserPassRate((int) (details.chance() * 100));
+    /**
+     * 构建链式OC参与人列表
+     */
+    private List<OcChainJoinUser> buildChainJoinUserList(List<AppTableRecord> ocChain) {
+        List<OcChainJoinUser> joinUserList = new ArrayList<>();
+        for (AppTableRecord data : ocChain) {
+            Map<String, Object> fields = data.getFields();
+            for (OcJoinUser user : extractUserByFields(fields)) {
+                joinUserList.add(new OcChainJoinUser(fields, user));
             }
-            benefit.setBenefitMoney(Long.parseLong(benefits[i].trim()));
-            benefit.setItemCost(details == null ? 0L : details.itemCost());
-            benefit.setNetReward(benefit.getBenefitMoney() - benefit.getItemCost());
+        }
+        return joinUserList;
+    }
+
+    /**
+     * 校验链式OC的奖金载荷
+     */
+    private boolean isValidBenefitPayload(String[] userIds, String[] benefits) {
+        return !ArrayUtils.isEmpty(userIds) && benefits.length == userIds.length;
+    }
+
+    /**
+     * 构建链式OC收益结果
+     */
+    private List<TornFactionOcBenefitDO> buildChainBenefits(Map<String, Object> currentFields,
+                                                            List<OcChainJoinUser> joinUserList,
+                                                            String[] userIds,
+                                                            String[] benefits) {
+        List<TornFactionOcBenefitDO> benefitList = new ArrayList<>();
+        List<OcChainJoinUser> remainingJoinUserList = new ArrayList<>(joinUserList);
+        for (int i = 0; i < userIds.length; i++) {
+            long userId = Long.parseLong(userIds[i].trim());
+            OcChainJoinUser chainUser = findAndRemoveChainUser(remainingJoinUserList, userId);
+            TornFactionOcBenefitDO benefit = createBaseDO(chainUser == null ? currentFields : chainUser.fields());
+            fillChainBenefit(benefit, chainUser, userId, benefits[i]);
             benefitList.add(benefit);
         }
         return benefitList;
+    }
+
+    /**
+     * 查找并移除链式OC参与人
+     */
+    private OcChainJoinUser findAndRemoveChainUser(List<OcChainJoinUser> joinUserList, long userId) {
+        for (int i = 0; i < joinUserList.size(); i++) {
+            OcChainJoinUser chainUser = joinUserList.get(i);
+            if (chainUser.user().userId() == userId) {
+                return joinUserList.remove(i);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 填充链式OC收益结果
+     */
+    private void fillChainBenefit(TornFactionOcBenefitDO benefit, OcChainJoinUser chainUser,
+                                  long userId, String benefitValue) {
+        if (chainUser != null) {
+            OcJoinUser details = chainUser.user();
+            benefit.setUserId(details.userId());
+            benefit.setUserPosition(details.position());
+            benefit.setUserPassRate((int) (details.chance() * 100));
+            benefit.setItemCost(details.itemCost());
+        } else {
+            benefit.setUserId(userId);
+            benefit.setItemCost(0L);
+        }
+        benefit.setBenefitMoney(Long.parseLong(benefitValue.trim()));
+        benefit.setNetReward(benefit.getBenefitMoney() - benefit.getItemCost());
+    }
+
+    /**
+     * 获取完整OC链
+     */
+    private List<AppTableRecord> getOcChain(Map<String, Object> currentFields, long previousOcId) {
+        List<AppTableRecord> ocChain = new ArrayList<>();
+        AppTableRecord currentRecord = new AppTableRecord();
+        currentRecord.setFields(currentFields);
+        ocChain.add(currentRecord);
+
+        Long currentPreviousId = previousOcId;
+        while (currentPreviousId != null) {
+            AppTableRecord previousRecord = findOcRecordById(currentPreviousId);
+            if (previousRecord == null || previousRecord.getFields() == null) {
+                log.warn("未找到链式OC前置记录, previousOcId={}", currentPreviousId);
+                break;
+            }
+            ocChain.addFirst(previousRecord);
+            Number previous = (Number) previousRecord.getFields().get(FIELD_PREVIOUS);
+            currentPreviousId = previous == null ? null : previous.longValue();
+        }
+        return ocChain;
     }
 
     /**
@@ -361,6 +460,20 @@ public class TornFactionOcBenefitService {
         taskService.updateTask("oc-benefit-reload", () -> spiderOcBenefit(to, to.plusHours(1)), to.plusHours(1));
     }
 
+    /**
+     * 添加重试任务
+     */
+    private void addRetryTask(LocalDateTime from) {
+        LocalDateTime retryTime = LocalDateTime.now().plusMinutes(10);
+        taskService.updateTask("oc-benefit-reload", () -> spiderOcBenefit(from, LocalDateTime.now()), retryTime);
+    }
+
     private record OcJoinUser(long userId, String position, double chance, long itemCost) {
+    }
+
+    private record OcChainJoinUser(Map<String, Object> fields, OcJoinUser user) {
+    }
+
+    private record OcBenefitKey(Long ocId, Long userId) {
     }
 }
