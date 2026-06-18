@@ -2,9 +2,6 @@ package pn.torn.goldeneye.napcat.strategy.faction.attack;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
-import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
@@ -16,14 +13,15 @@ import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * RW基础策略
  *
  * @author Bai
- * @version 1.2.0
- * @since 2026.05.21
+ * @version 1.2.3
+ * @since 2026.06.17
  */
 public abstract class BaseRwStrategy extends SmthMsgStrategy {
     @Resource
@@ -55,15 +53,14 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
     }
 
     /**
-     * 获取最近一场Rw
+     * 获取当前/指定RW
      */
     protected TornFactionRwDO getCurrentRw(QqRecMsgSender sender, String msg) {
-        if (StringUtils.hasText(msg) && !NumberUtils.isLong(msg)) {
-            throw new BizException("请输入RW ID, 没有ID时取最近一场");
+        long factionId = getTornFactionIdBySender(sender);
+        long rwId = 0L;
+        if (NumberUtils.isLong(msg)) {
+            rwId = Long.parseLong(msg);
         }
-
-        long factionId = super.getTornFactionIdBySender(sender);
-        long rwId = NumberUtils.isLong(msg) ? Long.parseLong(msg) : 0L;
 
         Page<TornFactionRwDO> rwList = rwDao.lambdaQuery()
                 .eq(TornFactionRwDO::getFactionId, factionId)
@@ -71,10 +68,35 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
                 .le(rwId == 0L, TornFactionRwDO::getStartTime, LocalDateTime.now())
                 .orderByDesc(TornFactionRwDO::getStartTime)
                 .page(new Page<>(1, 1));
-        if (CollectionUtils.isEmpty(rwList.getRecords())) {
-            throw new BizException("未查询到RW记录");
-        }
+        return rwList.getRecords().isEmpty() ? null : rwList.getRecords().getFirst();
+    }
 
-        return rwList.getRecords().getFirst();
+    /**
+     * 计算对冲时间窗口列表
+     */
+    protected List<TimeWindow> buildAttackTimeWindowList(TornFactionRwDO rw) {
+        List<TimeWindow> windows = new ArrayList<>();
+        LocalDateTime current = rw.getStartTime();
+        LocalDateTime actualEnd = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
+        while (current.isBefore(actualEnd)) {
+            LocalDateTime windowStart = current.with(rw.getGatheringTime());
+            LocalDateTime windowEnd = current.with(rw.getDisbandTime());
+            if (!windowEnd.isAfter(windowStart)) {
+                windowEnd = windowEnd.plusDays(1);
+            }
+            LocalDateTime boundedStart = windowStart.isBefore(rw.getStartTime()) ? rw.getStartTime() : windowStart;
+            LocalDateTime boundedEnd = windowEnd.isAfter(actualEnd) ? actualEnd : windowEnd;
+            if (boundedStart.isBefore(boundedEnd)) {
+                windows.add(new TimeWindow(boundedStart, boundedEnd));
+            }
+            current = current.plusDays(1);
+        }
+        return windows;
+    }
+
+    protected record TimeWindow(LocalDateTime start, LocalDateTime end) {
+        public boolean contains(LocalDateTime dateTime) {
+            return !dateTime.isBefore(start) && dateTime.isBefore(end);
+        }
     }
 }

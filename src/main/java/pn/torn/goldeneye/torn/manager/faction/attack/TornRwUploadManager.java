@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Torn RW对冲上传数据公共逻辑层
  *
  * @author Bai
- * @version 1.2.0
+ * @version 1.2.3
  * @since 2026.06.05
  */
 @Component
