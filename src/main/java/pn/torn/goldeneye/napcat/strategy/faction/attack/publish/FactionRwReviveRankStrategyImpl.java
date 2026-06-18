@@ -10,7 +10,7 @@ import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.dao.faction.revive.TornFactionRwReviveDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
-import pn.torn.goldeneye.repository.model.faction.revive.TornFactionRwReviveDO;
+import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwReviveDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
@@ -63,7 +63,7 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
         // 取最早和最晚的时间边界，下推到SQL做过滤
         TornSettingFactionDO faction = factionManager.getIdMap().get(rw.getFactionId());
         List<TornFactionRwReviveDO> reviveList = reviveDao.lambdaQuery()
-                .eq(TornFactionRwReviveDO::getFactionId, faction.getId())
+                .eq(TornFactionRwReviveDO::getTargetFactionId, faction.getId())
                 .eq(TornFactionRwReviveDO::getRwId, rw.getId())
                 .list();
         if (reviveList == null || reviveList.isEmpty()) {
@@ -74,7 +74,7 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
         List<TornFactionRwReviveDO> filteredList = reviveList.stream()
                 .filter(revive -> windowList.stream()
                         .anyMatch(window -> window.contains(revive.getReviveTime())))
-                .collect(Collectors.toMap(this::buildReviveUniqueKey, Function.identity(),
+                .collect(Collectors.toMap(TornFactionRwReviveDO::getId, Function.identity(),
                         (first, second) -> second, LinkedHashMap::new))
                 .values()
                 .stream()
@@ -130,7 +130,7 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
      * @param windowList 活跃对战时间窗口
      */
     private List<RankRow> buildReviveSummary(List<TornFactionRwReviveDO> reviveList,
-                                              List<AttackTimeWindowDO> windowList) {
+                                             List<AttackTimeWindowDO> windowList) {
         Map<Long, List<TornFactionRwReviveDO>> groupMap = reviveList.stream()
                 .filter(item -> item.getReviverId() != null)
                 .collect(Collectors.groupingBy(TornFactionRwReviveDO::getReviverId));
@@ -164,13 +164,13 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
      * 按时间窗口维度计算复活频率：总次数 / 各窗口内时间跨度之和（分钟）
      */
     private BigDecimal calcReviveFrequency(List<TornFactionRwReviveDO> userRevives,
-                                            long reviveCount,
-                                            List<AttackTimeWindowDO> windowList) {
+                                           long reviveCount,
+                                           List<AttackTimeWindowDO> windowList) {
         long totalSeconds = windowList.stream()
                 .mapToLong(window -> calcWindowReviveSeconds(userRevives, window))
                 .sum();
         double minutes = totalSeconds / 60D;
-        return minutes <= 0D ? BigDecimal.ZERO
+        return minutes <= 0D ? BigDecimal.ONE
                 : BigDecimal.valueOf(reviveCount).divide(BigDecimal.valueOf(minutes), 2, java.math.RoundingMode.HALF_UP);
     }
 
@@ -178,7 +178,7 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
      * 计算单个时间窗口内玩家复活的时间跨度（秒）
      */
     private long calcWindowReviveSeconds(List<TornFactionRwReviveDO> userRevives,
-                                          AttackTimeWindowDO window) {
+                                         AttackTimeWindowDO window) {
         LocalDateTime first = null;
         LocalDateTime last = null;
         for (TornFactionRwReviveDO revive : userRevives) {
@@ -189,13 +189,6 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
         }
         if (first == null || first.equals(last)) return 0L;
         return Duration.between(first, last).toSeconds();
-    }
-
-    /**
-     * 构建唯一Key
-     */
-    private String buildReviveUniqueKey(TornFactionRwReviveDO revive) {
-        return revive.getReviverId() + "#" + revive.getTargetId() + "#" + revive.getReviveTime();
     }
 
     private record RankRow(long userId,

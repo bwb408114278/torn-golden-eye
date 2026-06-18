@@ -3,8 +3,7 @@ package pn.torn.goldeneye.torn.model.faction.revive;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
-import pn.torn.goldeneye.repository.model.faction.revive.TornFactionRwReviveDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwReviveDO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
@@ -44,24 +43,24 @@ public class TornFactionReviveVO {
      */
     private Long timestamp;
 
-    public TornFactionRwReviveDO convert2DO(TornFactionRwDO rw, TornSettingFactionDO faction) {
-        TornFactionRwReviveDO reviveDO = new TornFactionRwReviveDO();
-        reviveDO.setId(this.id);
-        reviveDO.setRwId(rw.getId());
-        reviveDO.setFactionId(faction.getId());
-        reviveDO.setReviverId(this.reviver.getId());
-        reviveDO.setReviverName(this.reviver.getName());
-        reviveDO.setReviverFactionId(this.reviver.getFaction() == null ? null : this.reviver.getFaction().getId());
-        reviveDO.setReviverFactionName(this.reviver.getFaction() == null ? null : this.reviver.getFaction().getName());
-        reviveDO.setSkill(this.reviver.getSkill());
-        reviveDO.setTargetId(this.target.getId());
-        reviveDO.setTargetName(this.target.getName());
-        reviveDO.setTargetFactionId(this.target.getFaction() == null ? null : this.target.getFaction().getId());
-        reviveDO.setTargetFactionName(this.target.getFaction() == null ? null : this.target.getFaction().getName());
-        reviveDO.setSuccessChance(this.successChance);
-        reviveDO.setSuccess("success".equalsIgnoreCase(this.result));
-        reviveDO.setReviveTime(DateTimeUtils.convertToDateTime(this.timestamp));
-        return reviveDO;
+    public TornFactionRwReviveDO convert2DO(TornFactionRwDO rw) {
+        TornFactionRwReviveDO revive = new TornFactionRwReviveDO();
+        revive.setId(this.id);
+        revive.setRwId(rw.getId());
+        revive.setFactionId(rw.getFactionId());
+        revive.setReviverId(this.reviver.getId());
+        revive.setReviverName(this.reviver.getName());
+        revive.setReviverFactionId(this.reviver.getFaction() == null ? null : this.reviver.getFaction().getId());
+        revive.setReviverFactionName(this.reviver.getFaction() == null ? null : this.reviver.getFaction().getName());
+        revive.setSkill(this.reviver.getSkill());
+        revive.setTargetId(this.target.getId());
+        revive.setTargetName(this.target.getName());
+        revive.setTargetFactionId(this.target.getFaction() == null ? null : this.target.getFaction().getId());
+        revive.setTargetFactionName(this.target.getFaction() == null ? null : this.target.getFaction().getName());
+        revive.setSuccessChance(this.successChance);
+        revive.setSuccess("success".equalsIgnoreCase(this.result));
+        revive.setReviveTime(DateTimeUtils.convertToDateTime(this.timestamp));
+        return revive;
     }
 
     /**

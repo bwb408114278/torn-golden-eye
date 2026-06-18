@@ -8,13 +8,15 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.repository.dao.faction.revive.TornFactionRwReviveDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
-import pn.torn.goldeneye.repository.model.faction.revive.TornFactionRwReviveDO;
+import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwReviveDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.model.faction.revive.TornFactionReviveDTO;
 import pn.torn.goldeneye.torn.model.faction.revive.TornFactionReviveRespVO;
+import pn.torn.goldeneye.torn.model.faction.revive.TornFactionReviveVO;
 import pn.torn.goldeneye.torn.model.user.TornUserVO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileDTO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -47,36 +49,49 @@ public class TornRwReviveManager {
      */
     public void spiderReviveData(TornSettingFactionDO faction, TornFactionRwDO rw,
                                  LocalDateTime from, LocalDateTime to) {
-        TornFactionReviveDTO param = new TornFactionReviveDTO(from, to);
-        TornFactionReviveRespVO resp = tornApi.sendRequest(faction.getId(), param, TornFactionReviveRespVO.class);
-        if (resp == null || CollectionUtils.isEmpty(resp.getReviveList())) {
-            return;
-        }
+        int limit = 100;
+        TornFactionReviveDTO param;
+        LocalDateTime queryFrom = from;
+        TornFactionReviveRespVO resp;
+        List<TornFactionRwReviveDO> reviveList;
 
-        List<TornFactionRwReviveDO> dataList = resp.getReviveList().stream()
-                .map(revive -> revive.convert2DO(rw, faction))
-                .toList();
-        if (CollectionUtils.isEmpty(dataList)) {
-            return;
-        }
+        do {
+            param = new TornFactionReviveDTO(queryFrom, to, limit);
+            resp = tornApi.sendRequest(faction.getId(), param, TornFactionReviveRespVO.class);
+            if (resp == null || CollectionUtils.isEmpty(resp.getReviveList())) {
+                break;
+            }
 
-        // 批量查询已存在的复活记录
-        List<TornFactionRwReviveDO> existingRevives = reviveDao.lambdaQuery()
-                .eq(TornFactionRwReviveDO::getFactionId, faction.getId())
-                .eq(TornFactionRwReviveDO::getRwId, rw.getId())
-                .list();
-        Set<String> existingKeys = existingRevives.stream()
-                .map(this::buildUniqueKey)
+            reviveList = parseReviveList(rw, resp);
+            if (!CollectionUtils.isEmpty(reviveList)) {
+                fillLifeAndHealAmount(reviveList);
+                reviveDao.saveBatch(reviveList);
+            }
+
+            queryFrom = DateTimeUtils.convertToDateTime(resp.getReviveList().getLast().getTimestamp());
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        } while (resp.getReviveList().size() >= limit);
+    }
+
+    /**
+     * 转换复活数据列表
+     */
+    private List<TornFactionRwReviveDO> parseReviveList(TornFactionRwDO rw, TornFactionReviveRespVO resp) {
+        Set<Long> idSet = resp.getReviveList().stream().map(TornFactionReviveVO::getId).collect(Collectors.toSet());
+        Set<Long> existIdSet = reviveDao.lambdaQuery()
+                .in(TornFactionRwReviveDO::getId, idSet)
+                .list().stream()
+                .map(TornFactionRwReviveDO::getId)
                 .collect(Collectors.toSet());
-        List<TornFactionRwReviveDO> saveList = dataList.stream()
-                .filter(r -> !existingKeys.contains(buildUniqueKey(r)))
+        return resp.getReviveList().stream()
+                .distinct()
+                .filter(r -> !existIdSet.contains(r.getId()))
+                .map(revive -> revive.convert2DO(rw))
                 .toList();
-        if (CollectionUtils.isEmpty(saveList)) {
-            return;
-        }
-
-        fillLifeAndHealAmount(saveList);
-        reviveDao.saveBatch(saveList);
     }
 
     /**
@@ -103,11 +118,9 @@ public class TornRwReviveManager {
                 continue;
             }
 
-            Integer currentLife = profile.getLife().getCurrent() == null ? null : profile.getLife().getCurrent();
             Integer maximumLife = profile.getLife().getMaximum() == null ? null : profile.getLife().getMaximum();
-            revive.setTargetLifeCurrent(currentLife);
             revive.setTargetLifeMaximum(maximumLife);
-            revive.setHealAmount(calcHealAmount(maximumLife, currentLife, revive.getSkill()));
+            revive.setHealAmount(calcHealAmount(maximumLife, revive.getSkill()));
         }
     }
 
@@ -116,7 +129,7 @@ public class TornRwReviveManager {
      */
     private TornUserVO loadUserProfile(Long targetId) {
         try {
-            return tornApi.sendRequest(targetId, new TornUserProfileDTO(targetId), TornUserVO.class);
+            return tornApi.sendRequest(new TornUserProfileDTO(targetId), TornUserVO.class);
         } catch (Exception e) {
             log.warn("查询复活目标档案失败, userId={}", targetId, e);
             return null;
@@ -126,21 +139,14 @@ public class TornRwReviveManager {
     /**
      * 计算回复血量
      */
-    private int calcHealAmount(Integer maximumLife, Integer currentLife, BigDecimal skill) {
-        if (maximumLife == null || currentLife == null || skill == null) {
+    private int calcHealAmount(Integer maximumLife, BigDecimal skill) {
+        if (maximumLife == null || skill == null) {
             return 0;
         }
+
         BigDecimal healAmount = BigDecimal.valueOf(maximumLife)
                 .multiply(skill)
-                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.valueOf(currentLife));
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         return healAmount.max(BigDecimal.ZERO).setScale(0, RoundingMode.HALF_UP).intValue();
-    }
-
-    /**
-     * 构建唯一Key
-     */
-    private String buildUniqueKey(TornFactionRwReviveDO r) {
-        return r.getReviverId() + "#" + r.getTargetId() + "#" + r.getReviveTime();
     }
 }

@@ -26,6 +26,10 @@ public class TornFactionReviveDTO implements TornReqParamV2 {
      * 查询结束时间戳
      */
     private final LocalDateTime to;
+    /**
+     * 限制行数
+     */
+    private final int limit;
 
     @Override
     public String uri() {
@@ -39,10 +43,12 @@ public class TornFactionReviveDTO implements TornReqParamV2 {
 
     @Override
     public MultiValueMap<String, String> buildReqParam() {
-        MultiValueMap<String, String> param = new LinkedMultiValueMap<>(3);
+        MultiValueMap<String, String> param = new LinkedMultiValueMap<>(5);
         param.put("selections", List.of("revives"));
         param.put("from", List.of(DateTimeUtils.convertToShortTimestamp(from).toString()));
         param.put("to", List.of(DateTimeUtils.convertToShortTimestamp(to).toString()));
+        param.put("limit", List.of(String.valueOf(this.limit)));
+        param.put("sort", List.of("ASC"));
 
         return param;
     }

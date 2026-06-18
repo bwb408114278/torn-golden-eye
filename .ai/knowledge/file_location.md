@@ -54,7 +54,8 @@
 │   │   │   │   └── model/                                                      # 数据对应模型
 │   │   │   │       └── faction/                                                # 帮派相关功能
 │   │   │   │           ├── attack/                                             # 帮派攻击相关功能
-│   │   │   │           │   └── AttackTimeWindowDO.java                         # 对冲时间窗口
+│   │   │   │           │   ├── AttackTimeWindowDO.java                         # 对冲时间窗口
+│   │   │   │           │   └── TornFactionRwReviveDO.java                      # RW复活记录
 │   │   │   │           └── oc/                                                 # OC相关功能
 │   │   │   │               ├── TornFactionOcDO.java                            # 帮派OC表
 │   │   │   │               ├── TornFactionOcIdleRankDO.java                    # OC空转榜查询结果
@@ -68,8 +69,11 @@
 │   │   │       │           └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
 │   │   │       ├── model/                                                      # Torn相关模型
 │   │   │       │   └── faction/                                                # 帮派相关功能
-│   │   │       │       └── crime/                                              # Crime相关功能
-│   │   │       │           └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位返回数据结构
+│   │   │       │       ├── crime/                                              # Crime相关功能
+│   │   │       │       │   └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位返回数据结构
+│   │   │       │       └── revive/                                             # 复活相关功能
+│   │   │       │           └── TornFactionReviveVO.java                        # 帮派复活数据返回数据结构
+│   │   │       │           └── TornFactionReviveDTO.java                       # 帮派复活请求参数
 │   │   │       └── service/                                                    # 业务逻辑层
 │   │   │           ├── data/                                                   # 数据相关功能
 │   │   │           │   └── TornRwDataService.java                              # RW数据逻辑

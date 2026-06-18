@@ -1,6 +1,6 @@
 databaseChangeLog:
   - changeSet:
-      id: 1.2.3-create-torn-faction-rw-revive
+      id: create_rw_revive_table
       author: Bai
       changes:
         - createTable:
@@ -70,10 +70,6 @@ databaseChangeLog:
                   name: revive_time
                   type: DATETIME
                   remarks: "复活时间"
-              - column:
-                  name: target_life_current
-                  type: INT
-                  remarks: "目标当前血量"
               - column:
                   name: target_life_maximum
                   type: INT

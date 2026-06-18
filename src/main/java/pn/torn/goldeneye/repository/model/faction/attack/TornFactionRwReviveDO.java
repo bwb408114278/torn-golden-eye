@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.repository.model.faction.revive;
+package pn.torn.goldeneye.repository.model.faction.attack;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -79,10 +79,6 @@ public class TornFactionRwReviveDO extends BaseDO {
      * 复活时间
      */
     private LocalDateTime reviveTime;
-    /**
-     * 目标当前血量
-     */
-    private Integer targetLifeCurrent;
     /**
      * 目标最大血量
      */

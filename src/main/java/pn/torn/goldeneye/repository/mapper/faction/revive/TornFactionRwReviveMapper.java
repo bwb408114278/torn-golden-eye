@@ -2,7 +2,7 @@ package pn.torn.goldeneye.repository.mapper.faction.revive;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
-import pn.torn.goldeneye.repository.model.faction.revive.TornFactionRwReviveDO;
+import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwReviveDO;
 
 /**
  * RW复活Mapper
