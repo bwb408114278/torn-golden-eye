@@ -8,12 +8,12 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
+import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -30,6 +30,8 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
     private TornAttackLogDAO attackLogDao;
     @Resource
     private ProjectProperty projectProperty;
+    private static final int WINDOW_MINUTES = 3;
+    private static final int MIN_BATTLE_COUNT = 100;
 
     @Override
     public List<Long> getCustomGroupId() {
@@ -44,12 +46,10 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
      * 查询对冲战斗记录
      */
     protected List<PlayerAttackStatDO> queryAttackList(TornFactionRwDO rw) {
-        int windowMinutes = 3;
-        int minBattleCount = 100;
         LocalDateTime startTime = rw.getStartTime();
         LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
         return attackLogDao.queryPlayerAttackStat(rw.getFactionId(),
-                rw.getOpponentFactionId(), windowMinutes, minBattleCount, startTime, endTime);
+                rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT, startTime, endTime);
     }
 
     /**
@@ -72,31 +72,17 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
     }
 
     /**
-     * 计算对冲时间窗口列表
+     * 查询活跃对战时间窗口（滚动窗口：windowMinutes分钟内双方攻击次数>=minBattleCount的连续时间段）
+     * <p>
+     * 用于神医榜等需要根据实际战斗活跃时段过滤数据的场景
+     *
+     * @param rw RW对象
+     * @return 活跃对战时间窗口列表
      */
-    protected List<TimeWindow> buildAttackTimeWindowList(TornFactionRwDO rw) {
-        List<TimeWindow> windows = new ArrayList<>();
-        LocalDateTime current = rw.getStartTime();
-        LocalDateTime actualEnd = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
-        while (current.isBefore(actualEnd)) {
-            LocalDateTime windowStart = current.with(rw.getGatheringTime());
-            LocalDateTime windowEnd = current.with(rw.getDisbandTime());
-            if (!windowEnd.isAfter(windowStart)) {
-                windowEnd = windowEnd.plusDays(1);
-            }
-            LocalDateTime boundedStart = windowStart.isBefore(rw.getStartTime()) ? rw.getStartTime() : windowStart;
-            LocalDateTime boundedEnd = windowEnd.isAfter(actualEnd) ? actualEnd : windowEnd;
-            if (boundedStart.isBefore(boundedEnd)) {
-                windows.add(new TimeWindow(boundedStart, boundedEnd));
-            }
-            current = current.plusDays(1);
-        }
-        return windows;
-    }
-
-    protected record TimeWindow(LocalDateTime start, LocalDateTime end) {
-        public boolean contains(LocalDateTime dateTime) {
-            return !dateTime.isBefore(start) && dateTime.isBefore(end);
-        }
+    protected List<AttackTimeWindowDO> queryActiveTimeWindows(TornFactionRwDO rw) {
+        LocalDateTime startTime = rw.getStartTime();
+        LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
+        return attackLogDao.queryActiveTimeWindows(rw.getFactionId(),
+                rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT, startTime, endTime);
     }
 }

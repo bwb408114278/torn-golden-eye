@@ -9,21 +9,19 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.dao.faction.revive.TornFactionRwReviveDAO;
+import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.faction.revive.TornFactionRwReviveDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
-import java.awt.Color;
+import java.awt.*;
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -52,29 +50,40 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
 
     @Override
     public List<ImageQqMsg> handle(long groupId, QqRecMsgSender sender, String msg) {
-        long factionId = getTornFactionIdBySender(sender);
-        TornSettingFactionDO faction = factionManager.getIdMap().get(factionId);
-        if (faction == null) {
-            throw new BizException("未找到帮派信息");
-        }
         TornFactionRwDO rw = getCurrentRw(sender, msg);
         if (rw == null) {
             throw new BizException("暂无RW数据");
         }
+
+
+        long factionId = getTornFactionIdBySender(sender);
+        TornSettingFactionDO faction = factionManager.getIdMap().get(factionId);
         return buildImageMsg(buildRwReviveRankImage(faction, rw));
     }
 
     private String buildRwReviveRankImage(TornSettingFactionDO faction, TornFactionRwDO rw) {
-        List<TimeWindow> windowList = buildAttackTimeWindowList(rw);
+        // 使用滚动窗口SQL查询活跃对战时间窗口（3分钟内双方攻击>=100次）
+        List<AttackTimeWindowDO> windowList = queryActiveTimeWindows(rw);
+        if (windowList == null || windowList.isEmpty()) {
+            throw new BizException("暂无活跃对战数据");
+        }
+
+        // 取最早和最晚的时间边界，下推到SQL做过滤
+        LocalDateTime windowStart = windowList.getFirst().start();
+        LocalDateTime windowEnd = windowList.getLast().end();
+
         List<TornFactionRwReviveDO> reviveList = reviveDao.lambdaQuery()
                 .eq(TornFactionRwReviveDO::getFactionId, faction.getId())
                 .eq(TornFactionRwReviveDO::getRwId, rw.getId())
+                .ge(TornFactionRwReviveDO::getReviveTime, windowStart)
+                .le(TornFactionRwReviveDO::getReviveTime, windowEnd)
                 .orderByDesc(TornFactionRwReviveDO::getReviveTime)
                 .list();
         if (reviveList == null || reviveList.isEmpty()) {
             throw new BizException("暂无神医榜数据");
         }
 
+        // 精确过滤：只保留落在活跃窗口内的复活记录
         List<TornFactionRwReviveDO> filteredList = reviveList.stream()
                 .filter(revive -> revive.getReviveTime() != null)
                 .filter(revive -> windowList.stream().anyMatch(window -> window.contains(revive.getReviveTime())))
@@ -110,13 +119,13 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
         }
 
         List<List<String>> tableData = new ArrayList<>();
-        tableData.add(List.of("Rank", "帮派", "ID", "昵称", "复活次数", "成功次数", "成功率", "回血量", "复活频率"));
+        tableData.add(List.of("Rank", "ID", "昵称", "帮派", "复活次数", "成功次数", "成功率", "回血量", "复活频率"));
         for (RankRow row : rankRows) {
             tableData.add(List.of(
                     String.valueOf(row.rank()),
-                    row.factionName(),
                     String.valueOf(row.userId()),
                     row.name(),
+                    row.factionName(),
                     String.valueOf(row.reviveCount()),
                     String.valueOf(row.successCount()),
                     String.format(Locale.ROOT, "%.2f%%", row.successRate().doubleValue()),
@@ -136,6 +145,14 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
         return revive.getReviverId() + "#" + revive.getTargetId() + "#" + revive.getReviveTime();
     }
 
-    private record RankRow(int rank, long userId, String name, String factionName, long reviveCount, long successCount, BigDecimal successRate, int healAmount, BigDecimal reviveFrequency) {
+    private record RankRow(int rank,
+                           long userId,
+                           String name,
+                           String factionName,
+                           long reviveCount,
+                           long successCount,
+                           BigDecimal successRate,
+                           int healAmount,
+                           BigDecimal reviveFrequency) {
     }
 }

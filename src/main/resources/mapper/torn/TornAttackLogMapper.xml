@@ -164,6 +164,52 @@
             ]]>
     </select>
 
+    <!-- 查询对冲时间窗口 -->
+    <select id="queryActiveTimeWindows" resultType="pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO">
+        <![CDATA[
+        WITH pair_attacks AS (
+            SELECT fa.attack_end_time
+            FROM torn_faction_attack fa
+            WHERE fa.deleted = 0
+              AND fa.attack_end_time BETWEEN #{startTime} AND #{endTime}
+              AND (
+                (fa.attack_faction_id = #{factionId} AND fa.defend_faction_id = #{opponentFactionId})
+                    OR (fa.attack_faction_id = #{opponentFactionId} AND fa.defend_faction_id = #{factionId})
+              )
+        ),
+        anchor_points AS (
+            SELECT DISTINCT pa.attack_end_time
+            FROM pair_attacks pa
+        ),
+        qualified_windows AS (
+            SELECT ap.attack_end_time AS window_end
+            FROM anchor_points ap
+            JOIN pair_attacks pa
+                ON pa.attack_end_time >= ap.attack_end_time - (CAST(#{windowMinutes} AS TEXT) || ' minutes')::INTERVAL
+                AND pa.attack_end_time <= ap.attack_end_time
+            GROUP BY ap.attack_end_time
+            HAVING COUNT(*) >= #{minBattleCount}
+        ),
+        window_groups AS (
+            SELECT window_end,
+                   window_end - (CAST(#{windowMinutes} AS TEXT) || ' minutes')::INTERVAL AS window_start,
+                   SUM(gap) OVER (ORDER BY window_end) AS grp
+            FROM (
+                SELECT window_end,
+                       CASE WHEN window_end - LAG(window_end) OVER (ORDER BY window_end)
+                            > (CAST(#{windowMinutes} AS TEXT) || ' minutes')::INTERVAL
+                       THEN 1 ELSE 0 END AS gap
+                FROM qualified_windows
+            ) sub
+        )
+
+        SELECT MIN(window_start) AS start, MAX(window_end) AS end
+        FROM window_groups
+        GROUP BY grp
+        ORDER BY start
+        ]]>
+    </select>
+
     <!-- 统计指定时间的物品数据 -->
     <select id="queryPlayerAttackItem" resultType="pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO">
         SELECT al.attacker_item_name, COUNT(*) AS num
