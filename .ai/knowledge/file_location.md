@@ -75,7 +75,7 @@
 │   │   │       │       ├── crime/                                              # Crime相关功能
 │   │   │       │       │   └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位返回数据结构
 │   │   │       │       └── revive/                                             # 复活相关功能
-│   │   │       │           └── TornFactionReviveVO.java                        # 帮派复活数据返回数据结构
+│   │   │       │           ├── TornFactionReviveVO.java                        # 帮派复活数据返回数据结构
 │   │   │       │           └── TornFactionReviveDTO.java                       # 帮派复活请求参数
 │   │   │       └── service/                                                    # 业务逻辑层
 │   │   │           ├── data/                                                   # 数据相关功能
@@ -90,6 +90,7 @@
 │   │           │       ├── TornFactionOcMapper.xml                             # 帮派OC表
 │   │           │       └── TornFactionOcSlotMapper.xml                         # 帮派OC岗位表
 │   │           └── torn/                                                       # Torn相关
+│   │               └── TornAttackLogMapper.xml                                 # 攻击日志相关功能
 │   └── test/                                                                   # 攻击日志表
 │       └── java.pn.torn.goldeneye/                                             # 测试代码根目录
 │           └── torn/                                                           # Torn相关

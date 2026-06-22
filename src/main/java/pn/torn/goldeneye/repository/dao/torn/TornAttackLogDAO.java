@@ -38,6 +38,18 @@ public class TornAttackLogDAO extends ServiceImpl<TornAttackLogMapper, TornAttac
     }
 
     /**
+     * 统计指定时间窗口的玩家数据（基于已计算的时间窗口列表，不重复滑动窗口计算）
+     *
+     * @param factionId         帮派ID
+     * @param opponentFactionId 对手帮派ID
+     * @param windows           活跃时间窗口列表
+     */
+    public List<PlayerAttackStatDO> queryPlayerAttackStatByWindows(long factionId, long opponentFactionId,
+                                                                    List<AttackTimeWindowDO> windows) {
+        return baseMapper.queryPlayerAttackStatByWindows(factionId, opponentFactionId, windows);
+    }
+
+    /**
      * 查询活跃对战时间窗口（滚动窗口：windowMinutes分钟内双方攻击次数>=minBattleCount的连续时间段）
      *
      * @param factionId         帮派ID
