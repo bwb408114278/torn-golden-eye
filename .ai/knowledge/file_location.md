@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.06.22
+- 最后更新：2026.06.23
 - 维护人：Bai
 - 状态：有效
 
@@ -69,6 +69,8 @@
 │   │   │       │       ├── attack/                                             # 攻击记录相关
 │   │   │       │       │   └── TornRwReviveManager.java                        # RW复活公共逻辑
 │   │   │       │       └── crime/                                              # OC相关功能
+│   │   │       │           ├── recommend/                                      # OC推荐相关功能
+│   │   │       │           │   └── TornOcRecommendManager.java                 # OC推荐公共逻辑
 │   │   │       │           └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
 │   │   │       ├── model/                                                      # Torn相关模型
 │   │   │       │   └── faction/                                                # 帮派相关功能

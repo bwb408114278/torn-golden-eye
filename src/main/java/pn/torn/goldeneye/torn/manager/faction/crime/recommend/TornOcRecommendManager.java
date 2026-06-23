@@ -133,7 +133,7 @@ public class TornOcRecommendManager {
                 .multiply(BigDecimal.valueOf(0.1))
                 .add(rankScore);
 
-        BigDecimal timeScore = calculateTimeScore(LocalDateTime.now());
+        BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
         return positionScore.multiply(BigDecimal.valueOf(0.8))
                 .add(timeScore.multiply(BigDecimal.valueOf(0.2)));
     }
