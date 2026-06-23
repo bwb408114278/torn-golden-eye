@@ -40,7 +40,7 @@ public class VipNoticeSetStrategyImpl extends BaseVipNoticeConfigStrategyImpl {
         if (key == null) {
             return super.buildTextMsg("个人提醒需要先绑定Torn Api");
         }
-
+        apiKeyConfig.returnKey(key);
         return super.handle(user, msg);
     }
 

@@ -55,6 +55,10 @@ public interface TornAttackLogMapper extends BaseMapper<TornAttackLogDO> {
                                                     @Param("startTime") LocalDateTime startTime,
                                                     @Param("endTime") LocalDateTime endTime);
 
+    List<PlayerAttackStatDO> queryPlayerAttackStatByWindows(@Param("factionId") long factionId,
+                                                            @Param("opponentFactionId") long opponentFactionId,
+                                                            @Param("windows") List<AttackTimeWindowDO> windows);
+
     /**
      * 统计指定时间的物品数据
      *

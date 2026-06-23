@@ -164,6 +164,113 @@
             ]]>
     </select>
 
+    <!-- 统计指定时间窗口的玩家数据（基于已计算的时间窗口，不重复滑动窗口计算） -->
+    <select id="queryPlayerAttackStatByWindows" resultType="pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO">
+        WITH qualified_attacks AS (
+            -- 仅统计我方对对手的攻击，限制在活跃时间窗口内
+            SELECT fa.attack_user_id, fa.attack_user_nickname, fa.attack_result,
+                   fa.defend_user_online_status, fa.defender_elo,
+                   fa.attack_log_id, fa.attack_start_time, fa.attack_end_time,
+                   EXTRACT(EPOCH FROM (fa.attack_end_time - fa.attack_start_time))::INTEGER AS combat_duration
+            FROM torn_faction_attack fa
+            WHERE fa.deleted = 0
+              AND fa.attack_faction_id = #{factionId}
+              AND fa.defend_faction_id = #{opponentFactionId}
+              AND (
+                  <foreach collection="windows" item="win" separator=" OR ">
+                      (fa.attack_end_time >= #{win.start} AND fa.attack_end_time <![CDATA[<=]]> #{win.end})
+                  </foreach>
+              )
+        ),
+        qualified_users AS (
+            SELECT DISTINCT qa.attack_user_id
+            FROM qualified_attacks qa
+        ),
+        player_attack_stats AS (
+            SELECT qa.attack_user_id,
+                   qa.attack_user_nickname,
+                   COUNT(*) AS total_attacks,
+                   COUNT(*) FILTER (WHERE qa.attack_result = 'Hospitalized') AS hosp_count,
+                   COUNT(*) FILTER (WHERE qa.attack_result IN ('Attacked', 'Special', 'Arrested', 'Mugged')) AS leave_count,
+                   COUNT(*) FILTER (WHERE qa.attack_result = 'Assist') AS assist_count,
+                   COUNT(*) FILTER (WHERE qa.attack_result IN ('Lost', 'Escape', 'Timeout', 'Stalemate', 'Interrupted')) AS lost_count,
+                   SUM(qa.combat_duration) AS total_combat_duration,
+                   ROUND(AVG(qa.combat_duration)::NUMERIC, 2) AS avg_combat_duration,
+                   COUNT(*) FILTER (WHERE qa.defend_user_online_status = 'Online') AS online_opponent_count,
+                   ROUND((AVG(qa.defender_elo) FILTER (WHERE qa.defender_elo IS NOT NULL))::NUMERIC, 2) AS avg_opponent_elo
+            FROM qualified_attacks qa
+            GROUP BY qa.attack_user_id, qa.attack_user_nickname
+        ),
+        qualified_logs AS (
+            SELECT al.attacker_id,
+                   al.defender_id,
+                   al.log_action,
+                   al.damage,
+                   al.defender_elo,
+                   al.syringe_type,
+                   al.ammo_type,
+                   al.attacker_item_name,
+                   al.log_time
+            FROM torn_attack_log al
+            WHERE al.deleted = 0
+              AND (
+                  <foreach collection="windows" item="win" separator=" OR ">
+                      (al.log_time >= #{win.start} AND al.log_time <![CDATA[<=]]> #{win.end})
+                  </foreach>
+              )
+              AND (al.attacker_id IN (SELECT qu.attack_user_id FROM qualified_users qu)
+                   OR al.defender_id IN (SELECT qu.attack_user_id FROM qualified_users qu))
+        ),
+        log_stats AS (
+            SELECT ql.attacker_id AS attack_user_id,
+                   COUNT(*) FILTER (WHERE ql.log_action IN ('busy', 'critical hit', 'hit', 'missed', 'onItemUseEff', 'reload', 'specialTemp', 'specialTempI', 'won')) AS total_rounds,
+                   COALESCE(SUM(ql.damage), 0) AS damage_dealt,
+                   COALESCE(SUM(
+                       CASE
+                           WHEN ql.defender_elo IS NOT NULL AND ql.defender_elo > 0
+                           THEN ((ql.defender_elo - 1000) / 1000.0) * ql.damage
+                           ELSE 0
+                       END
+                   ), 0) AS damage_score,
+                   COUNT(*) FILTER (WHERE ql.syringe_type IS NOT NULL) AS syringe_used,
+                   COUNT(*) FILTER (WHERE ql.ammo_type IS NOT NULL) AS special_ammo_rounds,
+                   COUNT(*) FILTER (WHERE ql.attacker_item_name IN ('Smoke Grenade', 'Flash Grenade', 'Tear Gas', 'Pepper Spray')) AS debuff_temp_count
+            FROM qualified_logs ql
+                     JOIN qualified_users qu ON qu.attack_user_id = ql.attacker_id
+            GROUP BY ql.attacker_id
+        ),
+        defender_stats AS (
+            SELECT ql.defender_id AS attack_user_id,
+                   COALESCE(SUM(ql.damage), 0) AS damage_taken
+            FROM qualified_logs ql
+                     JOIN qualified_users qu ON qu.attack_user_id = ql.defender_id
+            GROUP BY ql.defender_id
+        )
+
+        SELECT pas.attack_user_id        AS user_id,
+               pas.attack_user_nickname  AS nickname,
+               pas.total_attacks,
+               pas.hosp_count,
+               pas.leave_count,
+               pas.assist_count,
+               pas.lost_count,
+               COALESCE(ls.total_rounds, 0)          AS total_rounds,
+               COALESCE(ls.damage_dealt, 0)           AS damage_dealt,
+               COALESCE(ds.damage_taken, 0)           AS damage_taken,
+               COALESCE(ls.damage_score, 0)           AS damage_score,
+               COALESCE(ls.syringe_used, 0)           AS syringe_used,
+               COALESCE(ls.special_ammo_rounds, 0)    AS special_ammo_rounds,
+               COALESCE(ls.debuff_temp_count, 0)      AS debuff_temp_count,
+               pas.total_combat_duration,
+               pas.avg_combat_duration,
+               pas.online_opponent_count,
+               pas.avg_opponent_elo
+        FROM player_attack_stats pas
+                 LEFT JOIN log_stats ls ON pas.attack_user_id = ls.attack_user_id
+                 LEFT JOIN defender_stats ds ON pas.attack_user_id = ds.attack_user_id
+        ORDER BY COALESCE(ls.damage_score, 0) DESC NULLS LAST
+    </select>
+
     <!-- 查询对冲时间窗口 -->
     <select id="queryActiveTimeWindows" resultType="pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO">
         <![CDATA[

@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -44,12 +45,17 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
 
     /**
      * 查询对冲战斗记录
+     * <p>
+     * 复用 queryActiveTimeWindows 获取活跃时间窗口，
+     * 再基于窗口列表查询玩家统计数据，避免重复计算滑动窗口。
      */
     protected List<PlayerAttackStatDO> queryAttackList(TornFactionRwDO rw) {
-        LocalDateTime startTime = rw.getStartTime();
-        LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
-        return attackLogDao.queryPlayerAttackStat(rw.getFactionId(),
-                rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT, startTime, endTime);
+        List<AttackTimeWindowDO> windows = queryActiveTimeWindows(rw);
+        if (windows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return attackLogDao.queryPlayerAttackStatByWindows(
+                rw.getFactionId(), rw.getOpponentFactionId(), windows);
     }
 
     /**
