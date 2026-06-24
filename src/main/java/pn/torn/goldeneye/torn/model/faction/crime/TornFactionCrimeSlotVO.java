@@ -15,7 +15,7 @@ import java.util.Map;
  * Torn OC Slot详情响应参数
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.5
  * @since 2025.07.29
  */
 @Data
@@ -38,6 +38,11 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
      * 岗位人员
      */
     private TornFactionCrimeUserVO user;
+    /**
+     * 物品需求
+     */
+    @JsonProperty("item_requirement")
+    private TornFactionCrimeRequireItemVO itemRequirement;
 
     public TornFactionOcSlotDO convert2SlotDO(long ocId) {
         TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
@@ -53,6 +58,11 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
             slot.setPassRate(null);
             slot.setJoinTime(null);
             slot.setProgress(BigDecimal.ZERO);
+        }
+
+        if (this.itemRequirement != null) {
+            slot.setItemRequirementId(this.itemRequirement.getId());
+            slot.setItemRequirementAvailable(this.itemRequirement.getIsAvailable());
         }
 
         return slot;

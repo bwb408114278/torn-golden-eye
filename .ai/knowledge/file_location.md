@@ -24,8 +24,12 @@
 │   │   │   ├── configuration/                                                  # 项目配置
 │   │   │   │   └── DynamicTaskService.java                                     # 动态定时任务
 │   │   │   ├── constants/                                                      # 常量
-│   │   │   │   └── bot/                                                        # 机器人相关常量
-│   │   │   │       └── BotCommands.java/                                       # 机器人指令
+│   │   │   │   ├── bot/                                                        # 机器人相关常量
+│   │   │   │   │   └── BotCommands.java                                        # 机器人指令
+│   │   │   │   └── torn/                                                       # Torn相关常量
+│   │   │   │       └── enums/                                                  # 枚举常量
+│   │   │   │           └── user/                                               # 用户相关枚举
+│   │   │   │               └── TornUserStatusEnum.java                         # 用户状态枚举
 │   │   │   ├── napcat/                                                         # napcat交互
 │   │   │   │   └── strategy/                                                   # 接受Socket消息后的处理策略
 │   │   │   │       ├── faction/                                                # 帮派相关功能
@@ -75,17 +79,23 @@
 │   │   │       ├── model/                                                      # Torn相关模型
 │   │   │       │   └── faction/                                                # 帮派相关功能
 │   │   │       │       ├── crime/                                              # Crime相关功能
-│   │   │       │       │   └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位返回数据结构
+│   │   │       │       │   ├── TornFactionCrimeRequireItemVO.java              # OC岗位需要物品响应参数
+│   │   │       │       │   └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位响应参数
 │   │   │       │       └── revive/                                             # 复活相关功能
-│   │   │       │           ├── TornFactionReviveVO.java                        # 帮派复活数据返回数据结构
+│   │   │       │           ├── TornFactionReviveVO.java                        # 帮派复活数据响应参数
 │   │   │       │           └── TornFactionReviveDTO.java                       # 帮派复活请求参数
 │   │   │       └── service/                                                    # 业务逻辑层
 │   │   │           ├── data/                                                   # 数据相关功能
 │   │   │           │   └── TornRwDataService.java                              # RW数据逻辑
 │   │   │           └── faction/                                                # 帮派相关功能
 │   │   │               └── oc/                                                 # Crime相关功能
-│   │   │                   └── TornFactionOcBenefitService.java                # 帮派OC收益业务
+│   │   │                   ├── TornFactionOcBenefitService.java                # 帮派OC收益业务
+│   │   │                   └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
 │   │   └── resources/                                                          # 资源文件
+│   │       ├── db.changelog/                                                   # Liquibase的数据库修改日志
+│   │       │   └── 1.0.1-2.0.0/                                                # 1.0.1到2.0.0版本的改动
+│   │       │       └── 1.2.0/                                                  # 1.2.0后的版本改动
+│   │       │           └── faction.yml                                         # 帮派相关改动
 │   │       └── mapper/                                                         # Mapper文件
 │   │           ├── faction/                                                    # 帮派相关
 │   │           │   └── oc/                                                     # OC相关

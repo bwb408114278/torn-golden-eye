@@ -13,3 +13,19 @@ databaseChangeLog:
                   name: larksuite_sheet_id
                   type: VARCHAR(64)
                   remarks: "飞书上传后的工作表ID"
+
+  - changeSet:
+      id: add_oc_slot_item_requirement
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_slot
+            columns:
+              - column:
+                  name: item_requirement_id
+                  type: INT
+                  remarks: "需求物品ID"
+              - column:
+                  name: item_requirement_available
+                  type: BOOLEAN
+                  remarks: "是否持有需求物品"
