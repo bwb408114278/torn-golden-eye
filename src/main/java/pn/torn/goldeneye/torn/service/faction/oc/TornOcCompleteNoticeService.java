@@ -34,7 +34,6 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileDTO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
-import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -126,52 +125,16 @@ public class TornOcCompleteNoticeService {
         List<TornFactionOcSlotDO> slotList = ocSlotDao.queryListByOc(ocList);
 
         // 2. 查询这些用户的成功率数据
-        List<Long> userIdList = slotList.stream().map(TornFactionOcSlotDO::getUserId).toList();
-        List<TornFactionOcUserDO> allUsers = ocUserDao.queryByUserId(userIdList);
-        Map<Long, List<TornFactionOcUserDO>> completeUserMap = allUsers.stream()
-                .collect(Collectors.groupingBy(TornFactionOcUserDO::getUserId));
+        List<Long> userIdList = slotList.stream()
+                .map(TornFactionOcSlotDO::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
 
-        // 3. 组装参数
+        // 3. 用户映射
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(userIdList);
-        Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = new TreeMap<>(Comparator.comparing(TornUserDO::getId));
-        completeUserMap.forEach((k, v) -> paramMap.put(userMap.get(k), v));
 
-        // 4. 获取推荐结果
-        Map<TornUserDO, OcRecommendationVO> recommendMap = assignService.assignUserList(faction.getId(), paramMap);
-
-        // === 构建3分钟预警消息 ===
-        List<QqMsgParam<?>> msgList = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
-
-        String ocCountText = String.format("即将有%d个OC结束，请注意是否需要生成新的OC", ocList.size());
-        msgList.add(new TextQqMsg("\n" + ocCountText + "\n\n"));
-        msgList.add(new TextQqMsg(buildOcDetailText(ocList, slotList, userMap)));
-
-        // 检查道具需求
-        List<QqMsgParam<?>> itemWarnings = buildItemWarnings(slotList, userMap);
-        // 检查用户状态
-        List<QqMsgParam<?>> statusWarnings = buildStatusWarnings(userIdList, userMap);
-
-        if (!itemWarnings.isEmpty() || !statusWarnings.isEmpty()) {
-            msgList.add(new TextQqMsg("\n"));
-            msgList.addAll(itemWarnings);
-            msgList.addAll(statusWarnings);
-        }
-
-        // 推荐表格
-        if (CollectionUtils.isEmpty(recommendMap) || recommendMap.values().stream().noneMatch(Objects::nonNull)) {
-            msgList.add(new TextQqMsg("暂未适合加入的OC，联系OC指挥官生成"));
-        } else {
-            msgList.add(new TextQqMsg("\nOC还有3分钟结束，推荐按以下岗位加入\n没有及时加入记得用g#OC推荐~\n"));
-            String title = faction.getFactionShortName() + " OC队伍分配建议";
-            msgList.add(ImageQqMsg.fromBase64(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
-        }
-
-        // 发送
-        BotHttpReqParam param = new GroupMsgHttpBuilder()
-                .setGroupId(faction.getGroupId())
-                .addMsg(msgList)
-                .build();
-        bot.sendRequest(param, String.class);
+        sendCommanderNotice(faction, ocList, slotList, userIdList, userMap);
 
         // 5. 标记已通知 & 调度下一批
         Set<Long> ocIdSet = ocList.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
@@ -179,34 +142,34 @@ public class TornOcCompleteNoticeService {
         scheduleOcTask(faction);
 
         // 6. 调度OC完成检测任务
-        scheduleOcCompleteCheck(faction, ocList, slotList);
+        scheduleOcCompleteCheck(faction, ocList);
     }
 
     /**
-     * 构建OC详情文本
+     * 发送指挥官消息（OC详情 + 道具/状态警告）
      */
-    private String buildOcDetailText(List<TornFactionOcDO> ocList, List<TornFactionOcSlotDO> slotList,
+    private void sendCommanderNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
+                                     List<TornFactionOcSlotDO> slotList, List<Long> userIdList,
                                      Map<Long, TornUserDO> userMap) {
-        StringBuilder sb = new StringBuilder("OC详情：\n");
-        for (TornFactionOcDO oc : ocList) {
-            sb.append("  #").append(oc.getRank()).append(" ").append(oc.getName());
-            // 该OC的参与成员
-            List<TornFactionOcSlotDO> ocSlots = slotList.stream()
-                    .filter(s -> s.getOcId().equals(oc.getId()) && s.getUserId() != null)
-                    .toList();
-            if (!ocSlots.isEmpty()) {
-                sb.append(" — 参与: ");
-                List<String> nameParts = new ArrayList<>();
-                for (TornFactionOcSlotDO slot : ocSlots) {
-                    TornUserDO user = userMap.get(slot.getUserId());
-                    String name = user != null ? user.getNickname() : String.valueOf(slot.getUserId());
-                    nameParts.add(name + "[" + slot.getUserId() + "]");
-                }
-                sb.append(String.join(", ", nameParts));
-            }
-            sb.append("\n");
+        List<QqMsgParam<?>> msgList = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
+
+        String ocCountText = String.format("即将有%d个OC结束，请注意是否需要生成新的OC", ocList.size());
+        msgList.add(new TextQqMsg("\n" + ocCountText + "\n\n"));
+        msgList.add(ImageQqMsg.fromBase64(msgManager.buildOcTable(
+                faction.getFactionShortName() + " OC即将结束", ocList)));
+
+        List<QqMsgParam<?>> itemWarnings = buildItemWarnings(slotList, userMap);
+        List<QqMsgParam<?>> statusWarnings = buildStatusWarnings(userIdList, userMap);
+        if (!itemWarnings.isEmpty() || !statusWarnings.isEmpty()) {
+            msgList.addAll(itemWarnings);
+            msgList.addAll(statusWarnings);
         }
-        return sb.toString();
+
+        BotHttpReqParam param = new GroupMsgHttpBuilder()
+                .setGroupId(faction.getGroupId())
+                .addMsg(msgList)
+                .build();
+        bot.sendRequest(param, String.class);
     }
 
     /**
@@ -245,11 +208,15 @@ public class TornOcCompleteNoticeService {
 
         List<CompletableFuture<Void>> futures = userIdList.stream()
                 .map(userId -> CompletableFuture.runAsync(() -> {
-                    TornUserProfileVO resp = tornApi.sendRequest(
-                            new TornUserProfileDTO(userId), TornUserProfileVO.class);
-                    if (resp != null && resp.getStatus() != null
-                            && TornUserStatusEnum.isOcNotExecutable(resp.getStatus().getState())) {
-                        badStatusMap.put(userId, resp.getStatus().getState());
+                    try {
+                        TornUserProfileVO resp = tornApi.sendRequest(
+                                new TornUserProfileDTO(userId), TornUserProfileVO.class);
+                        if (resp != null && resp.getStatus() != null
+                                && TornUserStatusEnum.isOcNotExecutable(resp.getStatus().getState())) {
+                            badStatusMap.put(userId, resp.getStatus().getState());
+                        }
+                    } catch (Exception e) {
+                        log.warn("查询用户Profile状态失败，userId: {}", userId, e);
                     }
                 }, virtualThreadExecutor))
                 .toList();
@@ -282,8 +249,7 @@ public class TornOcCompleteNoticeService {
      * 调度OC完成检测任务
      * 在readyAt后下一个整分钟的第30秒首次检查，之后每分钟重试直到OC完成
      */
-    private void scheduleOcCompleteCheck(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
-                                         List<TornFactionOcSlotDO> slotList) {
+    private void scheduleOcCompleteCheck(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
         // 取最早readyAt，计算首次检查时间 = readyAt之后的下一个整分钟:30
         LocalDateTime earliestReady = ocList.stream()
                 .map(TornFactionOcDO::getReadyTime)
@@ -299,15 +265,9 @@ public class TornOcCompleteNoticeService {
         LocalDateTime firstCheckTime = nextMinute.plusSeconds(30);
 
         List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
-        List<Long> userIdList = slotList.stream()
-                .map(TornFactionOcSlotDO::getUserId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-
         String taskId = faction.getFactionShortName() + "-oc-complete-check";
         taskService.updateTask(taskId,
-                () -> checkOcCompleted(faction, ocIdList, userIdList, 0),
+                () -> checkOcCompleted(faction, ocIdList, 0),
                 firstCheckTime);
     }
 
@@ -316,8 +276,7 @@ public class TornOcCompleteNoticeService {
      *
      * @param retryCount 已重试次数（仅用于日志）
      */
-    private void checkOcCompleted(TornSettingFactionDO faction, List<Long> ocIdList, List<Long> userIdList,
-                                  int retryCount) {
+    private void checkOcCompleted(TornSettingFactionDO faction, List<Long> ocIdList, int retryCount) {
         // 刷新OC数据
         ocRefreshManager.refreshOc(1, faction.getId());
 
@@ -327,19 +286,35 @@ public class TornOcCompleteNoticeService {
                 .list();
 
         List<String> completeStatuses = TornOcStatusEnum.getCompleteStatusList();
-        boolean allCompleted = currentOcList.stream()
-                .allMatch(oc -> completeStatuses.contains(oc.getStatus()));
 
-        if (allCompleted) {
-            // OC已完成，发送通知
-            sendOcCompleteNotice(faction, userIdList, currentOcList);
-        } else {
-            // 仍未完成，1分钟后重试
+        // 分离已完成和未完成的OC
+        List<TornFactionOcDO> completedOcs = currentOcList.stream()
+                .filter(oc -> completeStatuses.contains(oc.getStatus()))
+                .toList();
+        List<TornFactionOcDO> pendingOcs = currentOcList.stream()
+                .filter(oc -> !completeStatuses.contains(oc.getStatus()))
+                .toList();
+
+        // 已完成的OC立即发送通知
+        if (!completedOcs.isEmpty()) {
+            List<Long> completedOcIds = completedOcs.stream().map(TornFactionOcDO::getId).toList();
+            List<TornFactionOcSlotDO> completedSlots = ocSlotDao.lambdaQuery()
+                    .in(TornFactionOcSlotDO::getOcId, completedOcIds).list();
+            List<Long> completedUserIds = completedSlots.stream()
+                    .map(TornFactionOcSlotDO::getUserId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            sendOcCompleteNotice(faction, completedUserIds, completedOcs);
+        }
+
+        // 未完成的继续轮询
+        if (!pendingOcs.isEmpty()) {
             String taskId = faction.getFactionShortName() + "-oc-complete-check";
             int nextRetry = retryCount + 1;
-            log.warn("OC ID: {}, 未按时完成, 准备重试第{}次", JsonUtils.objToJson(ocIdList), nextRetry);
+            List<Long> pendingOcIds = pendingOcs.stream().map(TornFactionOcDO::getId).toList();
             taskService.updateTask(taskId,
-                    () -> checkOcCompleted(faction, ocIdList, userIdList, nextRetry),
+                    () -> checkOcCompleted(faction, pendingOcIds, nextRetry),
                     LocalDateTime.now().plusMinutes(1));
         }
     }
@@ -374,8 +349,17 @@ public class TornOcCompleteNoticeService {
 
         msgList.add(new TextQqMsg(ocDesc.toString()));
 
-        // 推荐表格
-        Map<TornUserDO, OcRecommendationVO> recommendMap = assignService.assignUserList(faction.getId());
+        // 推荐表格（仅对本次完成的OC成员做推荐）
+        List<TornFactionOcUserDO> allUsers = ocUserDao.queryByUserId(userIdList);
+        Map<Long, List<TornFactionOcUserDO>> completeUserMap = allUsers.stream()
+                .collect(Collectors.groupingBy(TornFactionOcUserDO::getUserId));
+        Map<TornUserDO, List<TornFactionOcUserDO>> paramMap = new TreeMap<>(Comparator.comparing(TornUserDO::getId));
+        completeUserMap.forEach((k, v) -> {
+            if (userMap.containsKey(k)) {
+                paramMap.put(userMap.get(k), v);
+            }
+        });
+        Map<TornUserDO, OcRecommendationVO> recommendMap = assignService.assignUserList(faction.getId(), paramMap);
         if (CollectionUtils.isEmpty(recommendMap) || recommendMap.values().stream().noneMatch(Objects::nonNull)) {
             msgList.add(new TextQqMsg("暂未适合加入的OC，联系OC指挥官生成"));
         } else {
