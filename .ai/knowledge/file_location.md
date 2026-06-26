@@ -39,8 +39,11 @@
 │   │   │   │       │   │   └── BaseRwStrategy.java                             # RW基础策略
 │   │   │   │       │   └── crime/                                              # Crime相关功能
 │   │   │   │       │       ├── OcIdleRankStrategyImpl.java                     # OC空转榜
-│   │   │   │       │       ├── OcRateQueryStrategyImpl.java                    # OC成功率
-│   │   │   │       │       └── OcRecommendStrategyImpl.java                    # OC推荐
+│   │   │   │       │       ├── OcLuckyRankStrategyImpl.java                    # OC欧皇榜
+│   │   │   │       │       ├── OcRateQueryStrategyImpl.java                    # OC个人成功率
+│   │   │   │       │       ├── OcRecommendStrategyImpl.java                    # OC推荐
+│   │   │   │       │       ├── OcSuccessRankTableBuilder.java                  # OC成功率榜构建器
+│   │   │   │       │       └── OcUnluckyRankStrategyImpl.java                  # OC非酋榜
 │   │   │   │       └── vip/                                                    # VIP相关功能
 │   │   │   │           └── VipNoticeSetStrategyImpl.java                       # 设置VIP提醒
 │   │   │   ├── repository/                                                     # 持久层
@@ -64,6 +67,7 @@
 │   │   │   │           │   ├── AttackTimeWindowDO.java                         # 对冲时间窗口
 │   │   │   │           │   └── TornFactionRwReviveDO.java                      # RW复活记录
 │   │   │   │           └── oc/                                                 # OC相关功能
+│   │   │   │               ├── OcSuccessRankDO.java                            # OC成功率排行
 │   │   │   │               ├── TornFactionOcDO.java                            # 帮派OC表
 │   │   │   │               ├── TornFactionOcIdleRankDO.java                    # OC空转榜查询结果
 │   │   │   │               └── TornFactionOcSlotDO.java                        # 帮派OC岗位表

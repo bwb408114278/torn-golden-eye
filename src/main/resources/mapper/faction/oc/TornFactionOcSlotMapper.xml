@@ -55,4 +55,34 @@
         ORDER BY idleSeconds DESC
         LIMIT #{limit}
     </select>
+
+    <!-- 查询OC成功率排行榜 -->
+    <select id="querySuccessRanking"
+            resultType="pn.torn.goldeneye.repository.model.faction.oc.OcSuccessRankDO">
+        SELECT s.user_id            AS userId,
+               o.faction_id         AS factionId,
+               COUNT(DISTINCT s.oc_id) AS totalOcCount,
+               COUNT(DISTINCT CASE WHEN o.status = 'Successful' THEN s.oc_id END) AS successCount,
+               ROUND(COUNT(DISTINCT CASE WHEN o.status = 'Successful' THEN s.oc_id END)::DECIMAL
+                     / COUNT(DISTINCT s.oc_id) * 100, 1) AS successRate
+        FROM torn_faction_oc_slot s
+        INNER JOIN torn_faction_oc o ON o.id = s.oc_id
+        WHERE s.deleted = 0
+          AND o.deleted = 0
+          AND s.user_id IS NOT NULL
+          AND o.status IN ('Successful', 'Failure')
+          AND o.executed_time >= #{sinceDate}
+          AND (#{factionId} = 0 OR o.faction_id = #{factionId})
+        GROUP BY s.user_id, o.faction_id
+        HAVING COUNT(DISTINCT s.oc_id) > 0
+        <choose>
+            <when test="sortAsc">
+                ORDER BY successRate ASC, totalOcCount DESC
+            </when>
+            <otherwise>
+                ORDER BY successRate DESC, totalOcCount DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
 </mapper>
