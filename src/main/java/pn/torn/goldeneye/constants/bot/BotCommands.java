@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.2.2
+ * @version 1.2.6
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -41,6 +41,14 @@ public class BotCommands {
      * OC空转榜
      */
     public static final String OC_IDLE_RANK = "OC空转榜";
+    /**
+     * OC欧皇榜
+     */
+    public static final String OC_LUCKY_RANK = "OC欧皇榜";
+    /**
+     * OC非酋榜
+     */
+    public static final String OC_UNLUCKY_RANK = "OC非酋榜";
     /**
      * OC新队
      */

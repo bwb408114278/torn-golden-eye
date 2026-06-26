@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
  * RW神医榜
  *
  * @author Bai
- * @version 1.2.3
+ * @version 1.2.6
  * @since 2026.06.17
  */
 @Component
@@ -51,7 +51,11 @@ public class FactionRwReviveRankStrategyImpl extends BaseRwStrategy {
     public List<ImageQqMsg> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornFactionRwDO rw = getCurrentRw(sender, msg);
         if (rw == null) {
-            throw new BizException("暂无RW真赛数据");
+            TornSettingFactionDO faction = factionManager.getGroupIdMap().get(groupId);
+            rw = getCurrentRw(faction.getId(), msg);
+            if (rw == null) {
+                throw new BizException("暂无RW真赛数据");
+            }
         }
 
         // 使用滚动窗口SQL查询活跃对战时间窗口（3分钟内双方攻击>=100次）

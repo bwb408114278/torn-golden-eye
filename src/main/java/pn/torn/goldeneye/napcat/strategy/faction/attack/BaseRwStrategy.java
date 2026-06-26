@@ -21,7 +21,7 @@ import java.util.List;
  * RW基础策略
  *
  * @author Bai
- * @version 1.2.3
+ * @version 1.2.6
  * @since 2026.06.17
  */
 public abstract class BaseRwStrategy extends SmthMsgStrategy {
@@ -63,6 +63,13 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
      */
     protected TornFactionRwDO getCurrentRw(QqRecMsgSender sender, String msg) {
         long factionId = getTornFactionIdBySender(sender);
+        return getCurrentRw(factionId, msg);
+    }
+
+    /**
+     * 获取当前/指定RW
+     */
+    protected TornFactionRwDO getCurrentRw(long factionId, String msg) {
         long rwId = 0L;
         if (NumberUtils.isLong(msg)) {
             rwId = Long.parseLong(msg);
