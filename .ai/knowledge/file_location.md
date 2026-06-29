@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.06.23
+- 最后更新：2026.06.29
 - 维护人：Bai
 - 状态：有效
 
@@ -93,7 +93,9 @@
 │   │   │           │   └── TornRwDataService.java                              # RW数据逻辑
 │   │   │           └── faction/                                                # 帮派相关功能
 │   │   │               └── oc/                                                 # Crime相关功能
-│   │   │                   ├── TornFactionOcBenefitService.java                # 帮派OC收益业务
+│   │   │                   ├── recommend/                                      # OC推荐功能
+│   │   │                   │   └── TornOcRecommendService.java                 # OC推荐逻辑层
+│   │   │                   ├── TornFactionOcBenefitService.java                # 帮派OC收益逻辑层
 │   │   │                   └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
 │   │   └── resources/                                                          # 资源文件
 │   │       ├── db.changelog/                                                   # Liquibase的数据库修改日志
@@ -113,7 +115,9 @@
 │               └── service/                                                    # 业务逻辑层
 │                   └── faction/                                                # 帮派相关功能
 │                       └── oc                                                  # Crime相关功能
-│                           └── TornFactionOcBenefitServiceTest.java            # 帮派OC收益业务测试
+│                           ├── recommend/                                      # OC推荐功能
+│                           │   └── TornOcRecommendServiceTest.java             # OC推荐功能测试
+│                           └── TornFactionOcBenefitServiceTest.java            # 帮派OC收益功能测试
 ├── pom.xml                                                                     # Maven构建项目依赖
 └── README.md                                                                   # 项目说明文档
 ```
