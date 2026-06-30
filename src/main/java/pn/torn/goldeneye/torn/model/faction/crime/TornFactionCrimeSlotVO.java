@@ -15,7 +15,7 @@ import java.util.Map;
  * Torn OC Slot详情响应参数
  *
  * @author Bai
- * @version 1.2.5
+ * @version 1.2.7
  * @since 2025.07.29
  */
 @Data
@@ -58,11 +58,6 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
             slot.setPassRate(null);
             slot.setJoinTime(null);
             slot.setProgress(BigDecimal.ZERO);
-        }
-
-        if (this.itemRequirement != null) {
-            slot.setItemRequirementId(this.itemRequirement.getId());
-            slot.setItemRequirementAvailable(this.itemRequirement.getIsAvailable());
         }
 
         return slot;

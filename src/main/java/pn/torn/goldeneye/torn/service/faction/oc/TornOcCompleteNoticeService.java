@@ -30,6 +30,7 @@ import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
+import pn.torn.goldeneye.torn.model.faction.crime.*;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileDTO;
 import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.2.5
+ * @version 1.2.7
  * @since 2025.11.26
  */
 @Slf4j
@@ -134,7 +135,9 @@ public class TornOcCompleteNoticeService {
         // 3. 用户映射
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(userIdList);
 
-        sendCommanderNotice(faction, ocList, slotList, userIdList, userMap);
+        // 4. 查询API原始数据获取 item_requirement
+        Map<Long, TornFactionCrimeSlotVO> slotMap = fetchSlotMap(ocList);
+        sendCommanderNotice(faction, ocList, slotMap, userIdList, userMap);
 
         // 5. 标记已通知 & 调度下一批
         Set<Long> ocIdSet = ocList.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
@@ -146,11 +149,37 @@ public class TornOcCompleteNoticeService {
     }
 
     /**
+     * 从Torn API获取OC slot原始数据，构建 userId → slot VO 映射
+     */
+    private Map<Long, TornFactionCrimeSlotVO> fetchSlotMap(List<TornFactionOcDO> ocList) {
+        TornFactionOcVO resp = tornApi.sendRequest(new TornFactionOcDTO(1, false),
+                TornFactionOcVO.class);
+        if (resp == null || CollectionUtils.isEmpty(resp.getCrimes())) {
+            return Map.of();
+        }
+
+        Map<Long, TornFactionCrimeSlotVO> slotMap = new HashMap<>();
+        Set<Long> ocIdSet = ocList.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
+        for (TornFactionCrimeVO crime : resp.getCrimes()) {
+            if (!ocIdSet.contains(crime.getId())) {
+                continue;
+            }
+            for (TornFactionCrimeSlotVO slot : crime.getSlots()) {
+                if (slot.getUserId() != null) {
+                    slotMap.put(slot.getUserId(), slot);
+                }
+            }
+        }
+
+        return slotMap;
+    }
+
+    /**
      * 发送指挥官消息（OC详情 + 道具/状态警告）
      */
     private void sendCommanderNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
-                                     List<TornFactionOcSlotDO> slotList, List<Long> userIdList,
-                                     Map<Long, TornUserDO> userMap) {
+                                     Map<Long, TornFactionCrimeSlotVO> slotMap,
+                                     List<Long> userIdList, Map<Long, TornUserDO> userMap) {
         List<QqMsgParam<?>> msgList = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
 
         String ocCountText = String.format("即将有%d个OC结束，请注意是否需要生成新的OC", ocList.size());
@@ -158,7 +187,7 @@ public class TornOcCompleteNoticeService {
         msgList.add(ImageQqMsg.fromBase64(msgManager.buildOcTable(
                 faction.getFactionShortName() + " OC即将结束", ocList)));
 
-        List<QqMsgParam<?>> itemWarnings = buildItemWarnings(slotList, userMap);
+        List<QqMsgParam<?>> itemWarnings = buildItemWarnings(slotMap, userMap);
         List<QqMsgParam<?>> statusWarnings = buildStatusWarnings(userIdList, userMap);
         if (!itemWarnings.isEmpty() || !statusWarnings.isEmpty()) {
             msgList.addAll(itemWarnings);
@@ -173,28 +202,28 @@ public class TornOcCompleteNoticeService {
     }
 
     /**
-     * 构建道具缺失提醒
+     * 构建道具缺失提醒（直接从API原始数据读取 item_requirement，不依赖DB）
      */
-    private List<QqMsgParam<?>> buildItemWarnings(List<TornFactionOcSlotDO> slotList, Map<Long, TornUserDO> userMap) {
+    private List<QqMsgParam<?>> buildItemWarnings(Map<Long, TornFactionCrimeSlotVO> slotMap,
+                                                  Map<Long, TornUserDO> userMap) {
         List<QqMsgParam<?>> warnings = new ArrayList<>();
-        Set<Long> warnedUserIds = new HashSet<>();
-
-        for (TornFactionOcSlotDO slot : slotList) {
-            if (slot.getUserId() == null || slot.getItemRequirementId() == null) {
+        for (Map.Entry<Long, TornFactionCrimeSlotVO> entry : slotMap.entrySet()) {
+            Long userId = entry.getKey();
+            TornFactionCrimeRequireItemVO itemReq = entry.getValue().getItemRequirement();
+            if (itemReq == null || Boolean.TRUE.equals(itemReq.getIsAvailable())) {
                 continue;
             }
-            if (Boolean.FALSE.equals(slot.getItemRequirementAvailable())
-                    && warnedUserIds.add(slot.getUserId())) {
-                TornUserDO user = userMap.get(slot.getUserId());
-                if (user != null && !user.getQqId().equals(0L)) {
-                    warnings.add(new AtQqMsg(user.getQqId()));
-                }
-                String name = user != null ? user.getNickname() : String.valueOf(slot.getUserId());
-                warnings.add(new TextQqMsg(name + " 你的OC岗位需要道具: " +
-                        itemsManager.getMap().get(slot.getItemRequirementId()).getItemName() +
-                        "，当前未持有，请购买\n"));
+            TornUserDO user = userMap.get(userId);
+            if (user != null && !user.getQqId().equals(0L)) {
+                warnings.add(new AtQqMsg(user.getQqId()));
             }
+
+            String itemName = itemsManager.getMap().containsKey(itemReq.getId())
+                    ? itemsManager.getMap().get(itemReq.getId()).getItemName()
+                    : "#" + itemReq.getId();
+            warnings.add(new TextQqMsg("OC需要道具: " + itemName + "，请购买\n"));
         }
+
         return warnings;
     }
 
