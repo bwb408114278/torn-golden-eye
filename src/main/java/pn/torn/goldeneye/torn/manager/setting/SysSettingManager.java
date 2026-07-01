@@ -10,16 +10,20 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.constants.torn.enums.stocks.StockPersonalityEnum;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 系统设置公共逻辑层
  *
  * @author Bai
- * @version 1.1.3
+ * @version 1.2.8
  * @since 2025.09.17
  */
 @Component
@@ -68,5 +72,30 @@ public class SysSettingManager implements DataCacheManager {
     public List<Long> getBotId() {
         String botIds = settingManager.getSettingValue(SettingConstants.KEY_BOT_ID);
         return Arrays.stream(botIds.split(",")).map(Long::parseLong).toList();
+    }
+
+    /**
+     * 获取股票个性分类配置
+     *
+     * @return 股票简称 → 个性分类的映射，配置不存在时返回空 Map
+     */
+    public Map<String, StockPersonalityEnum> getStockPersonalities() {
+        String raw = settingManager.getSettingValue(SettingConstants.KEY_STOCK_PERSONALITY);
+        if (raw == null || raw.isBlank()) {
+            return Collections.emptyMap();
+        }
+        Map<String, StockPersonalityEnum> result = new HashMap<>();
+        for (String entry : raw.split(",")) {
+            String[] parts = entry.trim().split(":");
+            if (parts.length == 2) {
+                try {
+                    result.put(parts[0].trim().toUpperCase(),
+                            StockPersonalityEnum.valueOf(parts[1].trim().toUpperCase()));
+                } catch (IllegalArgumentException ignored) {
+                    // 忽略无效的配置项
+                }
+            }
+        }
+        return result;
     }
 }

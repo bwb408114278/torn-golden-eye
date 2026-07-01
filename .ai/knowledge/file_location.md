@@ -27,9 +27,12 @@
 │   │   │   │   ├── bot/                                                        # 机器人相关常量
 │   │   │   │   │   └── BotCommands.java                                        # 机器人指令
 │   │   │   │   └── torn/                                                       # Torn相关常量
-│   │   │   │       └── enums/                                                  # 枚举常量
-│   │   │   │           └── user/                                               # 用户相关枚举
-│   │   │   │               └── TornUserStatusEnum.java                         # 用户状态枚举
+│   │   │   │       ├── enums/                                                  # 枚举常量
+│   │   │   │       │   ├── stocks/                                             # 股票相关枚举
+│   │   │   │       │   │   └── StockPersonalityEnum.java                       # 股票个性化类型
+│   │   │   │       │   └── user/                                               # 用户相关枚举
+│   │   │   │       │       └── TornUserStatusEnum.java                         # 用户状态枚举
+│   │   │   │       └── SettingConstants.java                                   # 系统配置项常量
 │   │   │   ├── napcat/                                                         # napcat交互
 │   │   │   │   └── strategy/                                                   # 接受Socket消息后的处理策略
 │   │   │   │       ├── faction/                                                # 帮派相关功能
@@ -73,13 +76,15 @@
 │   │   │   │               └── TornFactionOcSlotDO.java                        # 帮派OC岗位表
 │   │   │   └── torn/                                                           # Torn相关
 │   │   │       ├── manager/                                                    # 公共逻辑层
-│   │   │       │   └── faction/                                                # 帮派相关功能
-│   │   │       │       ├── attack/                                             # 攻击记录相关
-│   │   │       │       │   └── TornRwReviveManager.java                        # RW复活公共逻辑
-│   │   │       │       └── crime/                                              # OC相关功能
-│   │   │       │           ├── recommend/                                      # OC推荐相关功能
-│   │   │       │           │   └── TornOcRecommendManager.java                 # OC推荐公共逻辑
-│   │   │       │           └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
+│   │   │       │   ├── faction/                                                # 帮派相关功能
+│   │   │       │   │   ├── attack/                                             # 攻击记录相关
+│   │   │       │   │   │   └── TornRwReviveManager.java                        # RW复活公共逻辑
+│   │   │       │   │   └── crime/                                              # OC相关功能
+│   │   │       │   │       ├── recommend/                                      # OC推荐相关功能
+│   │   │       │   │       │   └── TornOcRecommendManager.java                 # OC推荐公共逻辑
+│   │   │       │   │       └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
+│   │   │       │   └── setting/                                                # 配置相关功能
+│   │   │       │       └── SysSettingManager.java                              # 系统配置公共逻辑、缓存
 │   │   │       ├── model/                                                      # Torn相关模型
 │   │   │       │   └── faction/                                                # 帮派相关功能
 │   │   │       │       ├── crime/                                              # Crime相关功能
@@ -91,17 +96,20 @@
 │   │   │       └── service/                                                    # 业务逻辑层
 │   │   │           ├── data/                                                   # 数据相关功能
 │   │   │           │   └── TornRwDataService.java                              # RW数据逻辑
-│   │   │           └── faction/                                                # 帮派相关功能
-│   │   │               └── oc/                                                 # Crime相关功能
-│   │   │                   ├── recommend/                                      # OC推荐功能
-│   │   │                   │   └── TornOcRecommendService.java                 # OC推荐逻辑层
-│   │   │                   ├── TornFactionOcBenefitService.java                # 帮派OC收益逻辑层
-│   │   │                   └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
+│   │   │           ├── faction/                                                # 帮派相关功能
+│   │   │           │   └── oc/                                                 # Crime相关功能
+│   │   │           │       ├── recommend/                                      # OC推荐功能
+│   │   │           │       │   └── TornOcRecommendService.java                 # OC推荐逻辑层
+│   │   │           │       ├── TornFactionOcBenefitService.java                # 帮派OC收益逻辑层
+│   │   │           │       └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
+│   │   │           └── user/                                                   # 用户相关功能
+│   │   │               └── StockTradeStrategyService.java                      # 股票交易策略逻辑层
 │   │   └── resources/                                                          # 资源文件
 │   │       ├── db.changelog/                                                   # Liquibase的数据库修改日志
 │   │       │   └── 1.0.1-2.0.0/                                                # 1.0.1到2.0.0版本的改动
 │   │       │       └── 1.2.0/                                                  # 1.2.0后的版本改动
-│   │       │           └── faction.yml                                         # 帮派相关改动
+│   │       │           ├── faction.yml                                         # 帮派相关改动
+│   │       │           └── setting.yml                                         # 配置相关改动
 │   │       └── mapper/                                                         # Mapper文件
 │   │           ├── faction/                                                    # 帮派相关
 │   │           │   └── oc/                                                     # OC相关

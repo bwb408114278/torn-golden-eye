@@ -3,10 +3,12 @@ package pn.torn.goldeneye.torn.service.user;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.constants.torn.enums.stocks.StockPersonalityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockStrategyTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockTradeActionEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStockStrategyFeatureDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeaturePoint;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockTradeAdvice;
 
 import java.math.BigDecimal;
@@ -18,26 +20,32 @@ import java.util.*;
  * 股票交易策略逻辑层
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.8
  * @since 2026.06.02
  */
 @Service
 @RequiredArgsConstructor
 public class StockTradeStrategyService {
     private final TornStockStrategyFeatureDAO featureDao;
+    private final SysSettingManager settingManager;
 
     private static final int SCALE = 6;
     private static final double BUY_SCORE_THRESHOLD = 50D;
     private static final double TAKE_PROFIT_SELL_SCORE_THRESHOLD = 55D;
     private static final double REBOUND_SELL_SCORE_THRESHOLD = 45D;
-
-    private static final Set<String> SLOW_REBOUND_STOCKS = Set.of("HRG", "LSC", "IOU", "TCI", "TCC");
+    // 阴跌持续检测：两周跌幅阈值
+    private static final double PERSISTENT_DECLINE_14D_THRESHOLD = -0.005D;
+    // 月初数据不足时额外提高的买入阈值
+    private static final double BEGIN_MONTH_BUY_PENALTY = 10D;
+    // 窄幅股 Z-Score 折扣系数
+    private static final double NARROW_BAND_Z_DISCOUNT = 0.6;
 
     /**
      * 分析股票
      */
     public List<StockTradeAdvice> analyze(LocalDateTime analysisTime, boolean debug) {
-        Objects.requireNonNull(analysisTime, "analysisTime must not be null");
+        Map<String, StockPersonalityEnum> personalities = settingManager.getStockPersonalities();
+        boolean isBeginOfMonth = isBeginOfMonth(analysisTime);
 
         List<StockStrategyFeaturePoint> featurePoints = featureDao.selectLatestFeatures(analysisTime);
         if (CollectionUtils.isEmpty(featurePoints)) {
@@ -45,7 +53,7 @@ public class StockTradeStrategyService {
         }
 
         List<StockTradeAdvice> advices = featurePoints.stream()
-                .map(point -> analyzeSingleFeature(point, analysisTime))
+                .map(point -> analyzeSingleFeature(point, analysisTime, personalities, isBeginOfMonth))
                 .toList();
         if (debug) {
             return advices.stream()
@@ -62,7 +70,15 @@ public class StockTradeStrategyService {
     /**
      * 分析单个特征
      */
-    private StockTradeAdvice analyzeSingleFeature(StockStrategyFeaturePoint point, LocalDateTime analysisTime) {
+    private StockTradeAdvice analyzeSingleFeature(StockStrategyFeaturePoint point, LocalDateTime analysisTime,
+                                                  Map<String, StockPersonalityEnum> personalities,
+                                                  boolean isBeginOfMonth) {
+        StockPersonalityEnum personality = resolvePersonality(personalities, point.stocksShortname());
+        double adjustedZ30d = adjustZScoreForNarrowBand(point.zScore30d().doubleValue(), personality);
+        boolean fallingKnife = isFallingKnife(point.pctAbove30dLow().doubleValue(),
+                point.return1d().doubleValue(), point.zScore30d().doubleValue(), personality);
+        boolean persistentDecline = isPersistentDecline(point, personality);
+
         StockFeature feature = new StockFeature(
                 point.stocksId(),
                 point.stocksShortname(),
@@ -73,17 +89,17 @@ public class StockTradeStrategyService {
                 point.ma30d().doubleValue(),
                 point.zScore1d().doubleValue(),
                 point.zScore7d().doubleValue(),
-                point.zScore30d().doubleValue(),
+                adjustedZ30d,
                 point.rsi().doubleValue(),
                 point.return1d().doubleValue(),
                 point.return7d().doubleValue(),
                 point.return14d().doubleValue(),
                 point.pctAbove30dLow().doubleValue(),
                 point.pctBelow30dHigh().doubleValue(),
-                SLOW_REBOUND_STOCKS.contains(point.stocksShortname()),
-                isFallingKnife(point.pctAbove30dLow().doubleValue(),
-                        point.return1d().doubleValue(),
-                        point.zScore30d().doubleValue()));
+                personality,
+                fallingKnife,
+                persistentDecline,
+                isBeginOfMonth);
         StrategySignal bestSignal = selectBestSignal(List.of(
                 buildSwingLowBuySignal(feature),
                 buildSwingReversalBuySignal(feature),
@@ -134,7 +150,11 @@ public class StockTradeStrategyService {
 
         score = applyLowBuyRiskPenalty(feature, score, reasons);
 
-        if (score < BUY_SCORE_THRESHOLD) {
+        int effectiveThreshold = feature.beginOfMonth()
+                ? feature.personality().getBuyThreshold() + (int) BEGIN_MONTH_BUY_PENALTY
+                : feature.personality().getBuyThreshold();
+
+        if (score < effectiveThreshold) {
             return holdSignal(StockStrategyTypeEnum.SWING_LOW_BUY, score, reasons);
         }
 
@@ -166,9 +186,12 @@ public class StockTradeStrategyService {
             reasons.add("7日位置未明显过热");
         }
 
-        if (feature.slowReboundStock()) {
+        if (feature.personality() == StockPersonalityEnum.DECLINER) {
             score += 10D;
-            reasons.add("慢反弹股票已出现确认信号，允许小仓位参与");
+            reasons.add("阴跌型股票已出现确认信号，允许小仓位参与");
+        } else if (feature.personality() != StockPersonalityEnum.STRONG) {
+            score += 10D;
+            reasons.add("非强势股出现低位反弹确认信号");
         }
 
         if (feature.fallingKnifeRisk()) {
@@ -269,13 +292,21 @@ public class StockTradeStrategyService {
         double score = sourceScore;
 
         if (feature.fallingKnifeRisk()) {
-            score -= 25D;
-            reasons.add("接近30日低点但仍在走弱，存在接飞刀风险");
+            score += feature.personality().getDeclinePenalty();
+            reasons.add("接近30日低点但仍在走弱，存在接" + feature.personality().getDescription() + "风险");
         }
 
-        if (feature.slowReboundStock() && feature.return1d() <= 0D) {
-            score -= 18D;
-            reasons.add("慢反弹股票尚未出现1日反弹确认，容易长时间套牢");
+        if (feature.persistentDecline()) {
+            score -= 30D;
+            reasons.add("阴跌持续中：近14日跌幅超0.5%且接近历史低点，不建议裸买入");
+        }
+
+        if (feature.personality() == StockPersonalityEnum.DECLINER && feature.return1d() <= 0D) {
+            score -= 22D;
+            reasons.add("阴跌型股票尚未出现1日反弹确认，容易长时间套牢");
+        } else if (feature.personality() == StockPersonalityEnum.WEAK && feature.return1d() <= 0D) {
+            score -= 14D;
+            reasons.add("弱势股票尚未出现反弹确认，建议等待");
         }
 
         if (feature.zScore30d() <= -3D && feature.return1d() < 0D) {
@@ -289,8 +320,10 @@ public class StockTradeStrategyService {
     /**
      * 是否飞刀
      */
-    private boolean isFallingKnife(double pctAbove30dLow, double return1d, double zScore30d) {
-        return pctAbove30dLow <= 0.001D && return1d < 0D && zScore30d <= -2.5D;
+    private boolean isFallingKnife(double pctAbove30dLow, double return1d, double zScore30d,
+                                   StockPersonalityEnum personality) {
+        double zThreshold = personality != null ? personality.getFallingKnifeZThreshold() : -2.5D;
+        return pctAbove30dLow <= 0.001D && return1d < 0D && zScore30d <= zThreshold;
     }
 
     /**
@@ -300,6 +333,45 @@ public class StockTradeStrategyService {
         return signals.stream()
                 .max(Comparator.comparingDouble(StrategySignal::score))
                 .orElse(new StrategySignal(StockTradeActionEnum.HOLD, StockStrategyTypeEnum.NONE, 0D, List.of("无有效信号")));
+    }
+
+    /**
+     * 解析股票的个性分类
+     */
+    private StockPersonalityEnum resolvePersonality(Map<String, StockPersonalityEnum> personalities, String shortname) {
+        if (personalities != null && personalities.containsKey(shortname.toUpperCase())) {
+            return personalities.get(shortname.toUpperCase());
+        }
+        return StockPersonalityEnum.STEADY; // 默认按稳步上行处理
+    }
+
+    /**
+     * 窄幅震荡股 Z-Score 打折 — 价格带<4%的股票 Z-Score 虚高，需要缩小
+     */
+    private double adjustZScoreForNarrowBand(double rawZScore, StockPersonalityEnum personality) {
+        if (personality == StockPersonalityEnum.NARROW) {
+            return rawZScore * NARROW_BAND_Z_DISCOUNT;
+        }
+        return rawZScore;
+    }
+
+    /**
+     * 是否月初数据不足 — 前3天 Z1D/Z7D/Z30D 同值表明窗口数据不足
+     */
+    private boolean isBeginOfMonth(LocalDateTime analysisTime) {
+        return analysisTime.getDayOfMonth() <= 3;
+    }
+
+    /**
+     * 检测持续性阴跌 — 非一次性暴跌而是温水煮青蛙式下跌
+     */
+    private boolean isPersistentDecline(StockStrategyFeaturePoint point, StockPersonalityEnum personality) {
+        if (personality != StockPersonalityEnum.DECLINER && personality != StockPersonalityEnum.WEAK) {
+            return false;
+        }
+        return point.zScore30d().doubleValue() <= -1.5D
+                && point.return14d().doubleValue() < PERSISTENT_DECLINE_14D_THRESHOLD
+                && point.pctAbove30dLow().doubleValue() <= 0.005D;
     }
 
     /**
@@ -339,7 +411,7 @@ public class StockTradeStrategyService {
                 toBigDecimal(feature.return14d()),
                 toBigDecimal(feature.pctAbove30dLow()),
                 toBigDecimal(feature.pctBelow30dHigh()),
-                feature.slowReboundStock(),
+                feature.personality() == StockPersonalityEnum.DECLINER || feature.personality() == StockPersonalityEnum.WEAK,
                 feature.fallingKnifeRisk(),
                 signal.reasons());
     }
@@ -358,10 +430,10 @@ public class StockTradeStrategyService {
      * 股票特征
      */
     private record StockFeature(
-            int stocksId,
+            Integer stocksId,
             String stocksShortname,
             BigDecimal basePrice,
-            double latestPrice,
+            double basePriceDouble,
             double ma1d,
             double ma7d,
             double ma30d,
@@ -374,8 +446,10 @@ public class StockTradeStrategyService {
             double return14d,
             double pctAbove30dLow,
             double pctBelow30dHigh,
-            boolean slowReboundStock,
-            boolean fallingKnifeRisk) {
+            StockPersonalityEnum personality,
+            boolean fallingKnifeRisk,
+            boolean persistentDecline,
+            boolean beginOfMonth) {
     }
 
     /**
