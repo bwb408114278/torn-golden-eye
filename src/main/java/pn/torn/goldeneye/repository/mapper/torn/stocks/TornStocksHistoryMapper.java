@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.mapper.torn.stocks;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
 import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
@@ -14,7 +15,7 @@ import java.util.List;
  * Torn股票历史数据库访问层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.8
  * @since 2026.01.26
  */
 @Mapper
@@ -51,4 +52,11 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
                                            @Param("minSampleVolume") long minSampleVolume,
                                            @Param("startTime24h") LocalDateTime startTime24h,
                                            @Param("startTime7d") LocalDateTime startTime7d);
+
+    /**
+     * 查询所有股票指定时间之后的历史价格点（用于窗口冷启动批量预热）
+     *
+     * @param since 从何时开始
+     */
+    List<StockPricePoint> selectHistoryPointsSince(@Param("since") LocalDateTime since);
 }

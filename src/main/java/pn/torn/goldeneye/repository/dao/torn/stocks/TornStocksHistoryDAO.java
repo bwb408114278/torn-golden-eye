@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.stocks.TornStocksHistoryMapper;
 import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
 import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 
@@ -14,7 +15,7 @@ import java.util.List;
  * Torn股票历史持久层类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.8
  * @since 2026.01.26
  */
 @Repository
@@ -54,5 +55,12 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
     public List<StocksTradeStatsDO> getTradeStats(List<Integer> stocksIds, long minSampleVolume,
                                                   LocalDateTime startTime24h, LocalDateTime startTime7d) {
         return baseMapper.getTradeStats(stocksIds, minSampleVolume, startTime24h, startTime7d);
+    }
+
+    /**
+     * 查询所有股票指定时间之后的历史价格点（用于窗口冷启动批量预热）
+     */
+    public List<StockPricePoint> selectHistoryPointsSince(LocalDateTime since) {
+        return baseMapper.selectHistoryPointsSince(since);
     }
 }

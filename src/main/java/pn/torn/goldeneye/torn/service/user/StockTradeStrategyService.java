@@ -14,7 +14,10 @@ import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockTradeAdvice;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 股票交易策略逻辑层
@@ -35,8 +38,8 @@ public class StockTradeStrategyService {
     private static final double REBOUND_SELL_SCORE_THRESHOLD = 45D;
     // 阴跌持续检测：两周跌幅阈值
     private static final double PERSISTENT_DECLINE_14D_THRESHOLD = -0.005D;
-    // 月初数据不足时额外提高的买入阈值
-    private static final double BEGIN_MONTH_BUY_PENALTY = 10D;
+    // 窗口数据不足时额外提高的买入阈值
+    private static final double WINDOW_INSUFFICIENT_PENALTY = 10D;
     // 窄幅股 Z-Score 折扣系数
     private static final double NARROW_BAND_Z_DISCOUNT = 0.6;
 
@@ -45,7 +48,6 @@ public class StockTradeStrategyService {
      */
     public List<StockTradeAdvice> analyze(LocalDateTime analysisTime, boolean debug) {
         Map<String, StockPersonalityEnum> personalities = settingManager.getStockPersonalities();
-        boolean isBeginOfMonth = isBeginOfMonth(analysisTime);
 
         List<StockStrategyFeaturePoint> featurePoints = featureDao.selectLatestFeatures(analysisTime);
         if (CollectionUtils.isEmpty(featurePoints)) {
@@ -53,7 +55,10 @@ public class StockTradeStrategyService {
         }
 
         List<StockTradeAdvice> advices = featurePoints.stream()
-                .map(point -> analyzeSingleFeature(point, analysisTime, personalities, isBeginOfMonth))
+                .map(point -> {
+                    boolean insufficient = isWindowDataInsufficient(point);
+                    return analyzeSingleFeature(point, analysisTime, personalities, insufficient);
+                })
                 .toList();
         if (debug) {
             return advices.stream()
@@ -72,7 +77,7 @@ public class StockTradeStrategyService {
      */
     private StockTradeAdvice analyzeSingleFeature(StockStrategyFeaturePoint point, LocalDateTime analysisTime,
                                                   Map<String, StockPersonalityEnum> personalities,
-                                                  boolean isBeginOfMonth) {
+                                                  boolean windowInsufficient) {
         StockPersonalityEnum personality = resolvePersonality(personalities, point.stocksShortname());
         double adjustedZ30d = adjustZScoreForNarrowBand(point.zScore30d().doubleValue(), personality);
         boolean fallingKnife = isFallingKnife(point.pctAbove30dLow().doubleValue(),
@@ -99,7 +104,7 @@ public class StockTradeStrategyService {
                 personality,
                 fallingKnife,
                 persistentDecline,
-                isBeginOfMonth);
+                windowInsufficient);
         StrategySignal bestSignal = selectBestSignal(List.of(
                 buildSwingLowBuySignal(feature),
                 buildSwingReversalBuySignal(feature),
@@ -150,8 +155,8 @@ public class StockTradeStrategyService {
 
         score = applyLowBuyRiskPenalty(feature, score, reasons);
 
-        int effectiveThreshold = feature.beginOfMonth()
-                ? feature.personality().getBuyThreshold() + (int) BEGIN_MONTH_BUY_PENALTY
+        int effectiveThreshold = feature.windowInsufficient()
+                ? feature.personality().getBuyThreshold() + (int) WINDOW_INSUFFICIENT_PENALTY
                 : feature.personality().getBuyThreshold();
 
         if (score < effectiveThreshold) {
@@ -356,14 +361,17 @@ public class StockTradeStrategyService {
     }
 
     /**
-     * 是否月初数据不足 — 前3天 Z1D/Z7D/Z30D 同值表明窗口数据不足
+     * 检测窗口数据是否充分 — Z1D/Z7D/Z30D 完全一致说明窗口未分化
      */
-    private boolean isBeginOfMonth(LocalDateTime analysisTime) {
-        return analysisTime.getDayOfMonth() <= 3;
+    private boolean isWindowDataInsufficient(StockStrategyFeaturePoint point) {
+        double z1 = point.zScore1d().doubleValue();
+        double z7 = point.zScore7d().doubleValue();
+        double z30 = point.zScore30d().doubleValue();
+        return Math.abs(z1 - z7) < 0.0001 && Math.abs(z7 - z30) < 0.0001;
     }
 
     /**
-     * 检测持续性阴跌 — 非一次性暴跌而是温水煮青蛙式下跌
+     * 检测持续性阴跌
      */
     private boolean isPersistentDecline(StockStrategyFeaturePoint point, StockPersonalityEnum personality) {
         if (personality != StockPersonalityEnum.DECLINER && personality != StockPersonalityEnum.WEAK) {
@@ -449,7 +457,7 @@ public class StockTradeStrategyService {
             StockPersonalityEnum personality,
             boolean fallingKnifeRisk,
             boolean persistentDecline,
-            boolean beginOfMonth) {
+            boolean windowInsufficient) {
     }
 
     /**

@@ -124,4 +124,14 @@
         FROM changes
         GROUP BY stocks_id
     </select>
+
+    <!-- 查询所有股票指定时间之后的历史价格点（用于窗口冷启动批量预热） -->
+    <select id="selectHistoryPointsSince" resultType="pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint">
+        SELECT stocks_id     AS stocksId,
+               base_price    AS price,
+               reg_date_time AS time
+        FROM torn_stocks_history
+        WHERE reg_date_time >= #{since}
+        ORDER BY stocks_id, create_time
+    </select>
 </mapper>
