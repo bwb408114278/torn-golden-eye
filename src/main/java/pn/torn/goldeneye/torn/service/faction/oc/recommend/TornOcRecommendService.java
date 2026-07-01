@@ -26,7 +26,7 @@ import java.util.List;
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.7
  * @since 2025.11.01
  */
 @Slf4j
@@ -66,34 +66,73 @@ public class TornOcRecommendService {
         boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
         List<OcRecommendationVO> recommendations = new ArrayList<>();
         for (TornFactionOcDO oc : recruitOcList) {
-            // 大锅饭制度的, 只要成功率够了就只判断大锅饭
-            if (isReassign && !TornConstants.ROTATION_OC_NAME.get(user.getFactionId()).contains(oc.getName())) {
+            if (shouldSkipOc(isReassign, user.getFactionId(), oc, joinedOc)) {
                 continue;
             }
-
-            // 查询当前OC下所有空闲岗位
-            List<TornFactionOcSlotDO> vacantSlots = emptySlotList.stream()
-                    .filter(s -> s.getOcId().equals(oc.getId())).toList();
-            // 尝试匹配每个空闲岗位
-            for (TornFactionOcSlotDO slot : vacantSlots) {
-                TornSettingOcSlotDO slotSetting = ocRecommendManager.findSlotSetting(user.getFactionId(), oc, slot);
-                TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, slotSetting);
-                boolean isNotMatch = matchedData == null || matchedData.getPassRate() < slotSetting.getPassRate();
-                if (slotSetting == null || isNotMatch) {
-                    continue;
-                }
-
-                // 计算推荐度评分
-                BigDecimal recommendScore = ocRecommendManager.calcRecommendScore(isReassign, oc, slotSetting, matchedData);
-                String recommentReason = ocRecommendManager.buildRecommendReason(oc.getReadyTime(), matchedData.getPassRate());
-                recommendations.add(new OcRecommendationVO(oc, slot, recommendScore, recommentReason));
-            }
+            collectSlotsScore(oc, emptySlotList, user.getFactionId(), userOcData, isReassign, recommendations);
         }
 
-        // 5. 按推荐度排序，返回Top N
-        return recommendations.stream()
+        // 5. 按推荐度排序
+        List<OcRecommendationVO> sorted = recommendations.stream()
                 .sorted(Comparator.comparing(OcRecommendationVO::getRecommendScore).reversed())
-                .limit(topN)
+                .toList();
+
+        // 6. 以当前队评分为基线过滤，返回Top N
+        sorted = filterBelowBaseline(sorted, joinedOc);
+        return sorted.stream().limit(topN).toList();
+    }
+
+    /**
+     * 大锅饭模式下，检查是否应跳过该OC（当前队伍永远不跳过）
+     */
+    private boolean shouldSkipOc(boolean isReassign, long factionId, TornFactionOcDO oc, OcSlotDictBO joinedOc) {
+        if (!isReassign) {
+            return false;
+        }
+        if (TornConstants.ROTATION_OC_NAME.get(factionId).contains(oc.getName())) {
+            return false;
+        }
+        return joinedOc == null || !joinedOc.getOc().getId().equals(oc.getId());
+    }
+
+    /**
+     * 评估单个OC的所有空闲槽位，符合条件的加入推荐列表
+     */
+    private void collectSlotsScore(TornFactionOcDO oc, List<TornFactionOcSlotDO> emptySlotList,
+                                   long factionId, List<TornFactionOcUserDO> userOcData,
+                                   boolean isReassign, List<OcRecommendationVO> recommendations) {
+        List<TornFactionOcSlotDO> vacantSlots = emptySlotList.stream()
+                .filter(s -> s.getOcId().equals(oc.getId())).toList();
+        for (TornFactionOcSlotDO slot : vacantSlots) {
+            TornSettingOcSlotDO slotSetting = ocRecommendManager.findSlotSetting(factionId, oc, slot);
+            TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, slotSetting);
+            if (slotSetting == null || matchedData == null
+                    || matchedData.getPassRate() < slotSetting.getPassRate()) {
+                continue;
+            }
+            BigDecimal recommendScore = ocRecommendManager.calcRecommendScore(isReassign, oc, slotSetting, matchedData);
+            String recommentReason = ocRecommendManager.buildRecommendReason(oc.getReadyTime(), matchedData.getPassRate());
+            recommendations.add(new OcRecommendationVO(oc, slot, recommendScore, recommentReason));
+        }
+    }
+
+    /**
+     * 已加入队伍时，过滤掉评分低于当前队的推荐
+     */
+    private List<OcRecommendationVO> filterBelowBaseline(List<OcRecommendationVO> sorted, OcSlotDictBO joinedOc) {
+        if (joinedOc == null) {
+            return sorted;
+        }
+        BigDecimal currentScore = sorted.stream()
+                .filter(r -> r.getOcId().equals(joinedOc.getOc().getId())
+                        && r.getRecommendedPosition().equals(joinedOc.getSlot().getPosition()))
+                .map(OcRecommendationVO::getRecommendScore)
+                .findFirst().orElse(null);
+        if (currentScore == null) {
+            return sorted;
+        }
+        return sorted.stream()
+                .filter(r -> r.getRecommendScore().compareTo(currentScore) >= 0)
                 .toList();
     }
 
