@@ -136,7 +136,7 @@ public class TornOcCompleteNoticeService {
         Map<Long, TornUserDO> userMap = userDao.queryUserMap(userIdList);
 
         // 4. 查询API原始数据获取 item_requirement
-        Map<Long, TornFactionCrimeSlotVO> slotMap = fetchSlotMap(ocList);
+        Map<Long, TornFactionCrimeSlotVO> slotMap = fetchSlotMap(faction.getId(), ocList);
         sendCommanderNotice(faction, ocList, slotMap, userIdList, userMap);
 
         // 5. 标记已通知 & 调度下一批
@@ -151,8 +151,8 @@ public class TornOcCompleteNoticeService {
     /**
      * 从Torn API获取OC slot原始数据，构建 userId → slot VO 映射
      */
-    private Map<Long, TornFactionCrimeSlotVO> fetchSlotMap(List<TornFactionOcDO> ocList) {
-        TornFactionOcVO resp = tornApi.sendRequest(new TornFactionOcDTO(1, false),
+    private Map<Long, TornFactionCrimeSlotVO> fetchSlotMap(long factionId, List<TornFactionOcDO> ocList) {
+        TornFactionOcVO resp = tornApi.sendRequest(factionId, new TornFactionOcDTO(1, false),
                 TornFactionOcVO.class);
         if (resp == null || CollectionUtils.isEmpty(resp.getCrimes())) {
             return Map.of();

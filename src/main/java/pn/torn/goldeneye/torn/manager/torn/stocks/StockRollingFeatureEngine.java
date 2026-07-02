@@ -29,14 +29,12 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class StockRollingFeatureEngine {
-    private final TornStocksHistoryDAO historyDAO;
+    private final TornStocksHistoryDAO historyDao;
     private final Map<Integer, StockRollingState> stateMap = new HashMap<>();
-    private volatile boolean warmedUp = false;
 
     public synchronized List<StockStrategyFeatureUpsert> addAndCalculate(List<StockPricePoint> points) {
-        if (!warmedUp && !CollectionUtils.isEmpty(points)) {
+        if (stateMap.isEmpty() && !CollectionUtils.isEmpty(points)) {
             warmupAll(points.getFirst().time());
-            warmedUp = true;
         }
         return points.stream()
                 .sorted(Comparator.comparing(StockPricePoint::time))
@@ -53,8 +51,8 @@ public class StockRollingFeatureEngine {
      * 批量预热：一次查询所有股票最近30天历史，按股票ID分组灌入各自窗口
      */
     private void warmupAll(LocalDateTime pointTime) {
-        LocalDateTime since = pointTime.minusDays(30);
-        List<StockPricePoint> history = historyDAO.selectHistoryPointsSince(since);
+        LocalDateTime since = pointTime.minusDays(46);
+        List<StockPricePoint> history = historyDao.selectHistoryPointsSince(since);
         if (CollectionUtils.isEmpty(history)) {
             log.debug("窗口预热：无历史数据可回填");
             return;
