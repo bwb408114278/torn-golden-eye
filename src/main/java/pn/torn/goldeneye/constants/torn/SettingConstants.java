@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 1.1.3
+ * @version 1.2.8
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -87,4 +87,9 @@ public class SettingConstants {
      * 股票特征读取时间
      */
     public static final String KEY_STOCK_FEATURE_LOAD = "STOCK_FEATURE_CALC_TIME";
+    /**
+     * 股票个性分类配置
+     * 格式: SYM1:TYPE1,SYM2:TYPE2  (TYPE = DECLINER|WEAK|NARROW|RANGING|STEADY|STRONG)
+     */
+    public static final String KEY_STOCK_PERSONALITY = "STOCK_PERSONALITY";
 }

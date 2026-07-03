@@ -1,0 +1,22 @@
+databaseChangeLog:
+  - changeSet:
+      id: extend_setting_value_for_stock_personality
+      author: Bai
+      changes:
+        - modifyDataType:
+            tableName: sys_setting
+            columnName: setting_value
+            newDataType: VARCHAR(1024)
+  - changeSet:
+      id: insert_default_stock_personality_config
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "STOCK_PERSONALITY"
+              - column:
+                  name: setting_value
+                  value: "ASS:STEADY,BAG:RANGING,CBD:WEAK,CNC:STEADY,ELT:STRONG,EVL:NARROW,EWM:NARROW,FHG:STRONG,GRN:STEADY,HRG:DECLINER,IIL:NARROW,IOU:NARROW,IST:STEADY,LAG:NARROW,LOS:NARROW,LSC:STRONG,MCS:RANGING,MSG:NARROW,MUN:RANGING,PRN:STEADY,PTS:NARROW,SYM:STRONG,SYS:RANGING,TCC:RANGING,TCI:RANGING,TCM:WEAK,TCP:NARROW,TCT:NARROW,TGP:STEADY,THS:WEAK,TMI:NARROW,TSB:WEAK,WLT:NARROW,WSU:STEADY,YAZ:WEAK"

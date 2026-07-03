@@ -15,7 +15,7 @@ import java.util.TreeMap;
  * 股票回溯状态
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.8
  * @since 2026.06.02
  */
 public class StockRollingState {
@@ -29,6 +29,19 @@ public class StockRollingState {
     private final StockRollingRsiWindow rsiWindow = new StockRollingRsiWindow();
 
     private final NavigableMap<LocalDateTime, StockPricePoint> priceMap = new TreeMap<>();
+
+    /**
+     * 预热窗口 — 静默添加历史数据点，不计算特征值
+     * <p>用于服务重启后的窗口冷启动回填，避免窗口分化不足导致 Z-Score 失真
+     */
+    public void warmup(StockPricePoint point) {
+        window1d.add(point);
+        window7d.add(point);
+        window30d.add(point);
+        rsiWindow.add(point.price());
+        priceMap.put(point.time(), point);
+        evictPriceMap(point.time());
+    }
 
     /**
      * 添加并计算特征值

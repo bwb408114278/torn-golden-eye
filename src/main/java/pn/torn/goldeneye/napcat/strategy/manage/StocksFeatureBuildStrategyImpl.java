@@ -17,7 +17,7 @@ import java.util.List;
  * VIP股票特征值初始化策略实现类
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.8
  * @since 2026.06.01
  */
 @Component
@@ -50,7 +50,7 @@ public class StocksFeatureBuildStrategyImpl extends BaseGroupMsgStrategy {
         String[] msgArray = msg.split("#");
         LocalDateTime startTime = DateTimeUtils.convertToDateTime(msgArray[0]);
         LocalDateTime endTime = DateTimeUtils.convertToDateTime(msgArray[1]);
-        featureBuildService.buildBetween(startTime, endTime);
+        featureBuildService.rebuildBetween(startTime, endTime);
         return super.buildTextMsg("同步股票特征完成");
     }
 }

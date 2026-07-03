@@ -15,7 +15,7 @@ import java.util.Objects;
  * 股票特征构建逻辑层
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.8
  * @since 2026.06.02
  */
 @Service
@@ -26,7 +26,24 @@ public class StockFeatureBuildService {
     private static final int UPSERT_BATCH_SIZE = 1000;
 
     /**
-     * 构建时间范围内的特征值
+     * 手动重建时间范围内的特征值（全量刷新）。
+     * <p>通过原子方法 {@code rebuildAndCalculate} 完成 reset + warmup + 计算，
+     * 整个过程阻塞实时轮询的增量计算，杜绝竞态条件。
+     */
+    public void rebuildBetween(LocalDateTime startTime, LocalDateTime endTime) {
+        Objects.requireNonNull(startTime, "startTime must not be null");
+        Objects.requireNonNull(endTime, "endTime must not be null");
+        List<StockPricePoint> points = featureDao.selectHistoryPointsBetween(startTime, endTime);
+        if (CollectionUtils.isEmpty(points)) {
+            return;
+        }
+
+        List<StockStrategyFeatureUpsert> features = featureEngine.rebuildAndCalculate(points);
+        saveFeature(features);
+    }
+
+    /**
+     * 增量构建时间范围内的特征值（实时轮询调用）。
      */
     public void buildBetween(LocalDateTime startTime, LocalDateTime endTime) {
         Objects.requireNonNull(startTime, "startTime must not be null");
@@ -37,6 +54,13 @@ public class StockFeatureBuildService {
         }
 
         List<StockStrategyFeatureUpsert> features = featureEngine.addAndCalculate(points);
+        saveFeature(features);
+    }
+
+    /**
+     * 保存股票特征值数据
+     */
+    private void saveFeature(List<StockStrategyFeatureUpsert> features) {
         if (CollectionUtils.isEmpty(features)) {
             return;
         }
