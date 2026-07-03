@@ -126,7 +126,7 @@
     </select>
 
     <!-- 查询所有股票指定时间之后的历史价格点（用于窗口冷启动批量预热） -->
-    <select id="selectHistoryPointsSince" resultType="pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint">
+    <select id="selectHistoryPointsRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint">
         SELECT stocks_id           AS stocksId,
                stocks_shortname    AS stocksShortname,
                current_price       AS price,
@@ -134,6 +134,7 @@
                reg_date_time       AS time
         FROM torn_stocks_history
         WHERE reg_date_time >= #{since}
+          AND reg_date_time &lt; #{endTime}
         ORDER BY stocks_id, reg_date_time
     </select>
 </mapper>

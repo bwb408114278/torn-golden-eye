@@ -58,9 +58,13 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
     }
 
     /**
-     * 查询所有股票指定时间之后的历史价格点（用于窗口冷启动批量预热）
+     * 查询指定时间范围内的历史价格点（不含 endTime）
+     *
+     * @param since   起始时间（含）
+     * @param endTime 结束时间（不含）
+     * @return 历史价格点列表
      */
-    public List<StockPricePoint> selectHistoryPointsSince(LocalDateTime since) {
-        return baseMapper.selectHistoryPointsSince(since);
+    public List<StockPricePoint> selectHistoryPointsRange(LocalDateTime since, LocalDateTime endTime) {
+        return baseMapper.selectHistoryPointsRange(since, endTime);
     }
 }

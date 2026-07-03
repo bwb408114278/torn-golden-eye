@@ -42,17 +42,37 @@ public class StockRollingFeatureEngine {
                 .toList();
     }
 
+    /**
+     * 重建并计算特征值（原子操作）。
+     * <p>在同一个 synchronized 块内完成：reset → warmup → 逐点计算，
+     * 阻塞实时轮询的 {@link #addAndCalculate}，杜绝竞态条件。
+     */
+    public synchronized List<StockStrategyFeatureUpsert> rebuildAndCalculate(List<StockPricePoint> points) {
+        stateMap.clear();
+        if (!CollectionUtils.isEmpty(points)) {
+            warmupAll(points.getFirst().time());
+        }
+        return points.stream()
+                .sorted(Comparator.comparing(StockPricePoint::time))
+                .map(this::addSinglePoint)
+                .toList();
+    }
+
     private StockStrategyFeatureUpsert addSinglePoint(StockPricePoint point) {
         StockRollingState state = stateMap.computeIfAbsent(point.stocksId(), k -> new StockRollingState());
         return state.addAndCalculate(point);
     }
 
     /**
-     * 批量预热：一次查询所有股票最近30天历史，按股票ID分组灌入各自窗口
+     * 批量预热：查询 rebuild 范围之前的 46 天历史数据，灌入窗口。
+     * <p>只拉到 rebuild 起点的前一刻（pointTime 不含），与后续 addAndCalculate 处理的
+     * rebuild 范围数据互不重叠，避免双写导致 MA/Std 失真。
+     * <p>同时确保 priceMap 中的起点足够早，使得 rebuild 第一个点的 return14d
+     * 能查到 14 天前的价格（46 天余量 > 14 天 + evict 31 天窗口）。
      */
     private void warmupAll(LocalDateTime pointTime) {
         LocalDateTime since = pointTime.minusDays(46);
-        List<StockPricePoint> history = historyDao.selectHistoryPointsSince(since);
+        List<StockPricePoint> history = historyDao.selectHistoryPointsRange(since, pointTime);
         if (CollectionUtils.isEmpty(history)) {
             log.debug("窗口预热：无历史数据可回填");
             return;

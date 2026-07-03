@@ -56,7 +56,9 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
     /**
      * 查询所有股票指定时间之后的历史价格点（用于窗口冷启动批量预热）
      *
-     * @param since 从何时开始
+     * @param since   从何时开始
+     * @param endTime 从何时结束
      */
-    List<StockPricePoint> selectHistoryPointsSince(@Param("since") LocalDateTime since);
+    List<StockPricePoint> selectHistoryPointsRange(@Param("since") LocalDateTime since,
+                                                   @Param("endTime") LocalDateTime endTime);
 }
