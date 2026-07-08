@@ -5,13 +5,13 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.11</version>
+        <version>3.5.16</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
     <groupId>pn.torn</groupId>
     <artifactId>golden-eye</artifactId>
-    <version>1.2.8</version>
+    <version>1.2.9</version>
     <name>golden-eye</name>
     <description>金蝶独家官方认证</description>
 
@@ -134,6 +134,12 @@
             <groupId>com.larksuite.oapi</groupId>
             <artifactId>oapi-sdk</artifactId>
             <version>${feishu.version}</version>
+        </dependency>
+
+        <!-- Redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
     </dependencies>
 

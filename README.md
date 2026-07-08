@@ -18,8 +18,9 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 | Grafana Alloy | v.1.11.2 | 日志采集      | 已集成  |
 | Grafana       | 12.0.2   | 监控平台      | 已集成  |
 | PostgreSql    | 17.5     | 数据库       | 已集成  |
+| Redis         | 7.4.9    | 缓存        | 已集成  |
 | Liquibase     | 4.31.1   | 数据库迭代     | 已集成  |
-| Mybatis Plus  | 3.5.12   | ORM       | 已集成  |
+| Grafana Alloy | v.1.11.2 | 日志采集      | 已集成  |
 
 ## 启动方式
 

@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.2.6
+ * @version 1.2.9
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -205,4 +205,14 @@ public class BotCommands {
      * 炒股推荐
      */
     public static final String VIP_STOCK_RECOMMEND = "炒股推荐";
+
+    // ====================活跃度热力图====================
+    /**
+     * 活跃度热力图查询
+     */
+    public static final String ACTIVITY_HEATMAP = "活跃度";
+    /**
+     * 活跃度帮派对比
+     */
+    public static final String ACTIVITY_COMPARE = "活跃度对比";
 }

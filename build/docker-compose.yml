@@ -17,6 +17,18 @@ services:
       - ${PGSQL_DIR}/log:/var/log/postgresql
     restart: always
 
+  redis:
+    container_name: redis
+    image: redis:7.4.9
+    ports:
+      - 6379:6379
+    volumes:
+      - ${REDIS_DIR}/data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    networks:
+      - golden-eye-net
+
   loki:
     container_name: loki
     image: grafana/loki:3.5.2
@@ -87,6 +99,7 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://pgsql:5432/golden-eye
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=localhost
       - BOT_SERVER_ADDR=napcat
       - LOKI_URL=http://loki:3100/loki/api/v1/push
       - PROJECT_ENV=prod
@@ -109,6 +122,8 @@ services:
       # 飞书 - RW对冲记录
       - LARK_RW_FIERCE_APP_TOKEN=${LARK_RW_FIERCE_APP_TOKEN}
     depends_on:
+      - pgsql
+      - redis
       - napcat
 
 networks:
