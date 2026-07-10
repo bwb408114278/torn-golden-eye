@@ -11,7 +11,6 @@ import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.torn.model.activity.ActivityHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
-import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;
@@ -28,7 +27,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
     private final ActivityHeatmapService heatmapService;
-    private final TornActivityCollectService collectService;
 
     private static final int DEFAULT_DAYS = 28;
 

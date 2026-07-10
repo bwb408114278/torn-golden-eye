@@ -24,8 +24,9 @@ services:
       - 6379:6379
     volumes:
       - ${REDIS_DIR}/data:/data
+      - ${REDIS_DIR}/log:/log
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    restart: unless-stopped
+    restart: always
     networks:
       - golden-eye-net
 
@@ -89,7 +90,7 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:1.2.8
+    image: golden-eye:1.2.9
     ports:
       - 10779:18180
     volumes:

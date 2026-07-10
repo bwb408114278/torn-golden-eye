@@ -162,7 +162,6 @@ public class HeatmapImageRenderer {
 
     private static void drawGrid(Graphics2D g, ActivityHeatmapVO vo) {
         double[][] data = vo.getHeatmap();
-        double maxVal = findMax(data);
         Color[] colors = vo.isFactionMode() ? FACTION_COLORS : PERSONAL_COLORS;
         int[] thresholds = vo.isFactionMode() ? FACTION_THRESHOLDS : PERSONAL_THRESHOLDS;
 
@@ -170,26 +169,60 @@ public class HeatmapImageRenderer {
             for (int h = 0; h < 24; h++) {
                 int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE;
                 int y = HEADER_HEIGHT + dow * CELL_SIZE;
-
                 double val = data[dow][h];
-                Color cellColor = getCellColor(val, colors, thresholds, maxVal);
-                g.setColor(cellColor);
-                g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
-
-                // 格子内数值
-                if (val > 0) {
-                    g.setFont(CELL_FONT);
-                    String text = vo.isFactionMode()
-                            ? String.valueOf((int) Math.round(val))
-                            : (int) (val * 100) + "%";
-                    g.setColor(isDarkColor(cellColor) ? Color.WHITE : Color.BLACK);
-                    FontMetrics fm = g.getFontMetrics();
-                    int tx = x + (CELL_SIZE - fm.stringWidth(text)) / 2;
-                    int ty = y + (CELL_SIZE + fm.getAscent()) / 2 - 2;
-                    g.drawString(text, tx, ty);
-                }
+                Color cellColor = getCellColor(val, colors, thresholds);
+                drawCell(g, x, y, val, cellColor, vo.isFactionMode());
             }
         }
+    }
+
+    /**
+     * 绘制单个格子（背景色 + 数值文字）
+     *
+     * @param g             图形上下文
+     * @param x             格子左上角x坐标
+     * @param y             格子左上角y坐标
+     * @param val           格子数值
+     * @param cellColor     格子背景色
+     * @param isFactionMode 是否为帮派模式
+     */
+    private static void drawCell(Graphics2D g, int x, int y, double val, Color cellColor, boolean isFactionMode) {
+        g.setColor(cellColor);
+        g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        if (val > 0) {
+            drawCellText(g, x, y, formatCellValue(val, isFactionMode), cellColor);
+        }
+    }
+
+    /**
+     * 在格子中心绘制文字
+     *
+     * @param g         图形上下文
+     * @param x         格子左上角x坐标
+     * @param y         格子左上角y坐标
+     * @param text      待绘制文字
+     * @param cellColor 格子背景色（用于决定文字颜色）
+     */
+    private static void drawCellText(Graphics2D g, int x, int y, String text, Color cellColor) {
+        g.setFont(CELL_FONT);
+        g.setColor(isDarkColor(cellColor) ? Color.WHITE : Color.BLACK);
+        FontMetrics fm = g.getFontMetrics();
+        int tx = x + (CELL_SIZE - fm.stringWidth(text)) / 2;
+        int ty = y + (CELL_SIZE + fm.getAscent()) / 2 - 2;
+        g.drawString(text, tx, ty);
+    }
+
+    /**
+     * 格式化格子数值为显示文字
+     *
+     * @param val           格子数值
+     * @param isFactionMode 是否为帮派模式
+     * @return 帮派模式返回整数，个人模式返回百分比
+     */
+    private static String formatCellValue(double val, boolean isFactionMode) {
+        return isFactionMode
+                ? String.valueOf((int) Math.round(val))
+                : (int) (val * 100) + "%";
     }
 
     private static void drawRowLabels(Graphics2D g) {
@@ -235,7 +268,7 @@ public class HeatmapImageRenderer {
 
     // ============ 工具方法 ============
 
-    private static Color getCellColor(double val, Color[] colors, int[] thresholds, double maxVal) {
+    private static Color getCellColor(double val, Color[] colors, int[] thresholds) {
         if (val <= 0) return EMPTY_COLOR;
         for (int i = 0; i < thresholds.length - 1; i++) {
             if (val >= thresholds[i] && val < thresholds[i + 1]) {
@@ -243,16 +276,6 @@ public class HeatmapImageRenderer {
             }
         }
         return colors[colors.length - 1];
-    }
-
-    private static double findMax(double[][] data) {
-        double max = 0;
-        for (double[] row : data) {
-            for (double v : row) {
-                if (v > max) max = v;
-            }
-        }
-        return max;
     }
 
     private static boolean isDarkColor(Color c) {
@@ -328,7 +351,25 @@ public class HeatmapImageRenderer {
     private static void drawComparisonGrid(Graphics2D g, ActivityHeatmapVO vo) {
         double[][] data = vo.getHeatmap();
 
-        // 绘制网格线
+        drawGridLines(g);
+
+        for (int dow = 0; dow < 7; dow++) {
+            for (int h = 0; h < 24; h++) {
+                int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE;
+                int y = HEADER_HEIGHT + dow * CELL_SIZE;
+                double val = data[dow][h];
+                Color cellColor = getComparisonCellColor(val);
+                drawComparisonCell(g, x, y, val, cellColor);
+            }
+        }
+    }
+
+    /**
+     * 绘制对比模式网格线
+     *
+     * @param g 图形上下文
+     */
+    private static void drawGridLines(Graphics2D g) {
         g.setColor(GRID_COLOR);
         for (int dow = 0; dow <= 7; dow++) {
             int y = HEADER_HEIGHT + dow * CELL_SIZE;
@@ -340,31 +381,35 @@ public class HeatmapImageRenderer {
             g.drawLine(x, HEADER_HEIGHT,
                     x, HEADER_HEIGHT + 7 * CELL_SIZE);
         }
+    }
 
-        for (int dow = 0; dow < 7; dow++) {
-            for (int h = 0; h < 24; h++) {
-                int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE;
-                int y = HEADER_HEIGHT + dow * CELL_SIZE;
-
-                double val = data[dow][h];
-                Color cellColor = getComparisonCellColor(val);
-                g.setColor(cellColor);
-                g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
-
-                // 格子内数值
-                if (val != 0) {
-                    g.setFont(CELL_FONT);
-                    String text = val > 0
-                            ? "+" + (int) Math.round(val)
-                            : String.valueOf((int) Math.round(val));
-                    g.setColor(isDarkColor(cellColor) ? Color.WHITE : Color.BLACK);
-                    FontMetrics fm = g.getFontMetrics();
-                    int tx = x + (CELL_SIZE - fm.stringWidth(text)) / 2;
-                    int ty = y + (CELL_SIZE + fm.getAscent()) / 2 - 2;
-                    g.drawString(text, tx, ty);
-                }
-            }
+    /**
+     * 绘制对比模式单个格子（背景色 + 数值文字）
+     *
+     * @param g         图形上下文
+     * @param x         格子左上角x坐标
+     * @param y         格子左上角y坐标
+     * @param val       格子差值（正=我方优势，负=对方优势，0=平局）
+     * @param cellColor 格子背景色
+     */
+    private static void drawComparisonCell(Graphics2D g, int x, int y, double val, Color cellColor) {
+        g.setColor(cellColor);
+        g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        if (val != 0) {
+            drawCellText(g, x, y, formatComparisonValue(val), cellColor);
         }
+    }
+
+    /**
+     * 格式化对比模式格子数值为显示文字
+     *
+     * @param val 格子差值
+     * @return 正值前加"+"号，负值直接显示
+     */
+    private static String formatComparisonValue(double val) {
+        return val > 0
+                ? "+" + (int) Math.round(val)
+                : String.valueOf((int) Math.round(val));
     }
 
     /**

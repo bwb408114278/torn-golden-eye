@@ -7,6 +7,7 @@ databaseChangeLog:
             tableName: sys_setting
             columnName: setting_value
             newDataType: VARCHAR(1024)
+
   - changeSet:
       id: insert_default_stock_personality_config
       author: Bai
@@ -20,3 +21,20 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: "ASS:STEADY,BAG:RANGING,CBD:WEAK,CNC:STEADY,ELT:STRONG,EVL:NARROW,EWM:NARROW,FHG:STRONG,GRN:STEADY,HRG:DECLINER,IIL:NARROW,IOU:NARROW,IST:STEADY,LAG:NARROW,LOS:NARROW,LSC:STRONG,MCS:RANGING,MSG:NARROW,MUN:RANGING,PRN:STEADY,PTS:NARROW,SYM:STRONG,SYS:RANGING,TCC:RANGING,TCI:RANGING,TCM:WEAK,TCP:NARROW,TCT:NARROW,TGP:STEADY,THS:WEAK,TMI:NARROW,TSB:WEAK,WLT:NARROW,WSU:STEADY,YAZ:WEAK"
+
+  - changeSet:
+      id: insert_activity_faction_range_date
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: id
+                  value: "3"
+              - column:
+                  name: setting_key
+                  value: "ACTIVITY_FACTION_LOAD_DATE"
+              - column:
+                  name: setting_value
+                  value: "2026-07-01"
