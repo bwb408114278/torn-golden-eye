@@ -59,4 +59,38 @@ public class ActivityHeatmapVO {
      * 对方帮派ID
      */
     private long targetFactionId;
+
+    /**
+     * 创建空热力图（非对比模式）
+     *
+     * @param title 标题
+     */
+    public static ActivityHeatmapVO empty(String title) {
+        ActivityHeatmapVO vo = new ActivityHeatmapVO();
+        vo.title = title;
+        vo.heatmap = new double[7][24];
+        vo.dataSufficient = false;
+        return vo;
+    }
+
+    /**
+     * 创建对比模式热力图
+     *
+     * @param faction1Id   我方帮派ID
+     * @param faction1Name 我方帮派名
+     * @param faction2Id   对方帮派ID
+     * @param faction2Name 对方帮派名
+     */
+    public static ActivityHeatmapVO forComparison(long faction1Id, String faction1Name,
+                                                   long faction2Id, String faction2Name) {
+        ActivityHeatmapVO vo = new ActivityHeatmapVO();
+        vo.compareMode = true;
+        vo.userFactionId = faction1Id;
+        vo.faction1Name = faction1Name;
+        vo.targetFactionId = faction2Id;
+        vo.faction2Name = faction2Name;
+        vo.heatmap = new double[7][24];
+        vo.dataSufficient = false;
+        return vo;
+    }
 }

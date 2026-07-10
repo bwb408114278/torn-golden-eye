@@ -2,36 +2,17 @@ package pn.torn.goldeneye.torn.service.activity;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.base.torn.TornApi;
-import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.torn.model.activity.ActivityHeatmapVO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Set;
 
 /**
- * 活跃度热力图数据服务
- * <p>
- * 查询 Redis BITMAP 数据，构建 7×24 热力图矩陣。
- * 每天分为 24 个小时段，每段 4 个 15 分钟槽位（共 96 bit）。
- *
- * <pre>
- * 个人热力图：
- *   cellValue = totalActiveBits / (dayCount[dayOfWeek] × 4)
- *   → 活跃比例 0.0~1.0，渲染器展示为百分比
- *
- * 帮派热力图：
- *   cellValue = totalActiveBits / (dayCount[dayOfWeek] × memberCount × 4)
- *   → 成员平均活跃比例 0.0~1.0
- * </pre>
+ * 活跃度热力图查询服务
  *
  * @author Bai
  * @version 1.2.9
@@ -41,401 +22,271 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class ActivityHeatmapService {
-    private final StringRedisTemplate stringRedisTemplate;
-    private final TornActivityCollectService tornActivityCollectService;
-    private final TornApi tornApi;
-    /**
-     * Redis key 不存在或该位未设置时 GetBit 返回 false
-     */
     private static final int SAMPLES_PER_HOUR = 4;
+    private static final int MIN_DATA_DAYS = 7;
+    private static final String REDIS_MEMBERS_PREFIX = "faction:members:";
 
-    // ==================== 个人热力图 ====================
+    private final StringRedisTemplate redisTemplate;
 
     /**
      * 查询个人活跃度热力图
-     * <p>
-     * 遍历最近 {@code days} 天，对每天的 24 个小时各执行 4 次 GetBit，
-     * 按星期几聚合，计算活跃比例。
      *
      * @param userId 用户 ID
-     * @param days   统计天数（>= 1）
-     * @return 热力图 VO，{@code factionMode = false}
+     * @param days   查询天数
+     * @return 个人热力图数据
      */
     public ActivityHeatmapVO queryPersonalHeatmap(long userId, int days) {
-        String title = "用户 " + userId;
-        ActivityHeatmapVO vo = new ActivityHeatmapVO();
-        vo.setTitle(title);
+        ActivityHeatmapVO vo = ActivityHeatmapVO.empty("用户 " + userId + " 活跃度热力图");
         vo.setFactionMode(false);
         vo.setTotalDays(days);
         vo.setSamplesPerHour(SAMPLES_PER_HOUR);
 
-        LocalDate today = LocalDate.now();
-        LocalDate startDate = today.minusDays(days - 1L);
+        double[][] heatmap = vo.getHeatmap();
+        int actualDays = aggregatePersonal(userId, days, heatmap);
 
-        int[][] totalBits = new int[7][24];
-        int[] dayCounts = new int[7];
-        int totalKeysFound = 0;
-
-        for (LocalDate date = startDate; !date.isAfter(today); date = date.plusDays(1)) {
-            String key = TornActivityCollectService.buildRedisKey(userId, date);
-            int dayIndex = toDayOfWeekIndex(date.getDayOfWeek());
-            dayCounts[dayIndex]++;
-
-            boolean keyHasData = false;
-
-            for (int hour = 0; hour < 24; hour++) {
-                int startBit = hour * SAMPLES_PER_HOUR;
-                int bitsActive = countBitsInRange(key, startBit, SAMPLES_PER_HOUR);
-                if (bitsActive > 0) {
-                    keyHasData = true;
-                }
-                totalBits[dayIndex][hour] += bitsActive;
-            }
-
-            if (keyHasData) {
-                totalKeysFound++;
-            }
-        }
-
-        // 计算每个 (dayOfWeek, hour) 的活跃比例 0.0~1.0
-        double[][] heatmap = new double[7][24];
-        for (int dow = 0; dow < 7; dow++) {
-            if (dayCounts[dow] == 0) {
-                continue;
-            }
-            double divisor = dayCounts[dow] * (double) SAMPLES_PER_HOUR;
-            for (int hour = 0; hour < 24; hour++) {
-                heatmap[dow][hour] = totalBits[dow][hour] / divisor;
-            }
-        }
-        vo.setHeatmap(heatmap);
-
-        // 数据充分性检查：至少需要 7 天有数据
-        vo.setDataSufficient(totalKeysFound >= 7);
+        normalizeByDow(heatmap, days);
+        vo.setDataSufficient(actualDays >= MIN_DATA_DAYS);
         if (!vo.isDataSufficient()) {
-            vo.setInsufficientMessage("数据不足：仅采集到 " + totalKeysFound + " 天数据，需至少 7 天");
+            vo.setInsufficientMessage("⚠️ 数据不足（仅采集 " + actualDays + " 天），需至少 " + MIN_DATA_DAYS + " 天后才能生成有效热力图");
         }
-
-        log.debug("个人热力图: userId={}, days={}, keysFound={}, sufficient={}",
-                userId, days, totalKeysFound, vo.isDataSufficient());
         return vo;
     }
 
-    // ==================== 帮派热力图 ====================
-
     /**
-     * 查询帮派活跃度热力图
-     * <p>
-     * 先通过 TornApi 拉取帮派成员列表，再对每个成员聚合其 BITMAP 数据。
-     * 需要该帮派在当前追踪范围内，否则返回 {@code dataSufficient = false}。
+     * 查询帮派活跃度热力图（人均在线人数）
      *
      * @param factionId 帮派 ID
-     * @param days      统计天数（>= 1）
-     * @return 热力图 VO，{@code factionMode = true}
+     * @param days      查询天数
+     * @return 帮派热力图数据
      */
     public ActivityHeatmapVO queryFactionHeatmap(long factionId, int days) {
-        String title = "帮派 " + factionId;
-        ActivityHeatmapVO vo = new ActivityHeatmapVO();
-        vo.setTitle(title);
+        Set<String> members = redisTemplate.opsForSet().members(REDIS_MEMBERS_PREFIX + factionId);
+        if (members == null || members.isEmpty()) {
+            ActivityHeatmapVO vo = ActivityHeatmapVO.empty("帮派 " + factionId);
+            vo.setDataSufficient(false);
+            vo.setInsufficientMessage("⚠️ 未找到帮派 " + factionId + " 的成员数据");
+            return vo;
+        }
+
+        ActivityHeatmapVO vo = ActivityHeatmapVO.empty("帮派 " + factionId + " 活跃度热力图（在线人数）");
         vo.setFactionMode(true);
         vo.setTotalDays(days);
         vo.setSamplesPerHour(SAMPLES_PER_HOUR);
 
-        // 1. 校验帮派是否在追踪范围内
-        List<Long> trackedIds = tornActivityCollectService.getTrackedFactionIds();
-        if (!trackedIds.contains(factionId)) {
-            vo.setHeatmap(new double[7][24]);
-            vo.setDataSufficient(false);
-            vo.setInsufficientMessage("该帮派未在追踪范围内");
-            return vo;
+        double[][] heatmap = vo.getHeatmap();
+        aggregateMembers(heatmap, members, days);
+
+        int dataDays = countAnyMemberDays(members, days);
+        vo.setDataSufficient(dataDays >= MIN_DATA_DAYS);
+        if (!vo.isDataSufficient()) {
+            vo.setInsufficientMessage("⚠️ 数据不足（仅采集 " + dataDays + " 天），需至少 " + MIN_DATA_DAYS + " 天后才能生成有效热力图");
         }
-
-        // 2. 拉取帮派成员列表
-        List<Long> memberIds;
-        try {
-            TornFactionMemberDTO param = new TornFactionMemberDTO(factionId);
-            TornFactionMemberListVO resp = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-
-            if (resp == null || CollectionUtils.isEmpty(resp.getMembers())) {
-                vo.setHeatmap(new double[7][24]);
-                vo.setDataSufficient(false);
-                vo.setInsufficientMessage("该帮派无成员数据");
-                return vo;
-            }
-
-            memberIds = new ArrayList<>();
-            for (TornFactionMemberVO member : resp.getMembers()) {
-                if (member.getId() != null) {
-                    memberIds.add(member.getId());
-                }
-            }
-
-            if (memberIds.isEmpty()) {
-                vo.setHeatmap(new double[7][24]);
-                vo.setDataSufficient(false);
-                vo.setInsufficientMessage("该帮派无有效成员");
-                return vo;
-            }
-        } catch (Exception e) {
-            log.error("获取帮派 {} 成员列表失败", factionId, e);
-            vo.setHeatmap(new double[7][24]);
-            vo.setDataSufficient(false);
-            vo.setInsufficientMessage("获取帮派成员列表失败: " + e.getMessage());
-            return vo;
-        }
-
-        int memberCount = memberIds.size();
-        log.info("帮派 {} 成员数: {}", factionId, memberCount);
-
-        // 3. 遍历日期 × 成员 × 小时，聚合 BitCount
-        LocalDate today = LocalDate.now();
-        LocalDate startDate = today.minusDays(days - 1L);
-
-        int[][] totalBits = new int[7][24];
-        int[] dayCounts = new int[7];
-
-        for (LocalDate date = startDate; !date.isAfter(today); date = date.plusDays(1)) {
-            int dayIndex = toDayOfWeekIndex(date.getDayOfWeek());
-            dayCounts[dayIndex]++;
-
-            for (int hour = 0; hour < 24; hour++) {
-                int startBit = hour * SAMPLES_PER_HOUR;
-                int bitsActiveSum = 0;
-
-                for (Long memberId : memberIds) {
-                    String key = TornActivityCollectService.buildRedisKey(memberId, date);
-                    bitsActiveSum += countBitsInRange(key, startBit, SAMPLES_PER_HOUR);
-                }
-
-                totalBits[dayIndex][hour] += bitsActiveSum;
-            }
-        }
-
-        // 4. 计算每个 (dayOfWeek, hour) 的成员平均活跃比例
-        double[][] heatmap = new double[7][24];
-        for (int dow = 0; dow < 7; dow++) {
-            if (dayCounts[dow] == 0) {
-                continue;
-            }
-            double divisor = dayCounts[dow] * (double) memberCount * SAMPLES_PER_HOUR;
-            for (int hour = 0; hour < 24; hour++) {
-                heatmap[dow][hour] = totalBits[dow][hour] / divisor;
-            }
-        }
-        vo.setHeatmap(heatmap);
-        vo.setDataSufficient(true);
-
-        log.debug("帮派热力图: factionId={}, members={}, days={}, sufficient=true",
-                factionId, memberCount, days);
         return vo;
     }
 
-    // ==================== 工具方法 ====================
-
     /**
-     * 统计指定 key 中从 {@code startBit} 开始的 {@code count} 个 bit 中有多少个为 1。
-     * <p>
-     * 使用 Redis GetBit 逐位查询。若 key 不存在，GetBit 返回 false，归零参与计数。
-     *
-     * @param key      Redis bitmap key
-     * @param startBit 起始位偏移量
-     * @param count    要统计的位数
-     * @return 置位数量 (0 ~ count)
-     */
-    private int countBitsInRange(String key, int startBit, int count) {
-        int bitsActive = 0;
-        for (int offset = startBit; offset < startBit + count; offset++) {
-            Boolean isSet = stringRedisTemplate.opsForValue().getBit(key, offset);
-            if (Boolean.TRUE.equals(isSet)) {
-                bitsActive++;
-            }
-        }
-        return bitsActive;
-    }
-
-    /**
-     * 将 Java DayOfWeek 映射为星期一=0 ... 星期日=6 的索引。
-     *
-     * @param dayOfWeek Java DayOfWeek 枚举
-     * @return 0=星期一, 6=星期日
-     */
-    private static int toDayOfWeekIndex(DayOfWeek dayOfWeek) {
-        return dayOfWeek.getValue() - 1; // MONDAY=1 → 0, SUNDAY=7 → 6
-    }
-
-    // ==================== 帮派对比热力图 ====================
-
-    /**
-     * 帮派活跃度对比热力图
-     * <p>
-     * 计算两个帮派的活跃度差值热力图。
-     * 每个 (dayOfWeek, hour) 格子的值为 faction1Avg - faction2Avg，
-     * 正值表示帮派1更活跃，负值表示帮派2更活跃。
+     * 对比两个帮派的活跃度差异（帮派1 - 帮派2）
      *
      * @param faction1Id 帮派1 ID
      * @param faction2Id 帮派2 ID
-     * @param days       统计天数（>= 1）
-     * @return 热力图 VO，{@code compareMode = true}
+     * @param days       查询天数
+     * @return 对比热力图数据
      */
     public ActivityHeatmapVO compareFactions(long faction1Id, long faction2Id, int days) {
-        ActivityHeatmapVO vo = new ActivityHeatmapVO();
-        vo.setTitle("帮派 " + faction1Id + " vs " + faction2Id);
-        vo.setFactionMode(false);
-        vo.setCompareMode(true);
-        vo.setFaction1Name("帮派 " + faction1Id);
-        vo.setFaction2Name("帮派 " + faction2Id);
+        Set<String> m1 = redisTemplate.opsForSet().members(REDIS_MEMBERS_PREFIX + faction1Id);
+        Set<String> m2 = redisTemplate.opsForSet().members(REDIS_MEMBERS_PREFIX + faction2Id);
+
+        if (m1 == null || m1.isEmpty() || m2 == null || m2.isEmpty()) {
+            ActivityHeatmapVO vo = ActivityHeatmapVO.forComparison(faction1Id, "帮派 " + faction1Id, faction2Id, "帮派 " + faction2Id);
+            vo.setDataSufficient(false);
+            vo.setInsufficientMessage("⚠️ 未找到帮派成员数据");
+            return vo;
+        }
+
+        ActivityHeatmapVO vo = ActivityHeatmapVO.forComparison(faction1Id, "帮派 " + faction1Id, faction2Id, "帮派 " + faction2Id);
         vo.setTotalDays(days);
         vo.setSamplesPerHour(SAMPLES_PER_HOUR);
 
-        // 1. 获取两个帮派的成员列表
-        List<Long> faction1Members = fetchFactionMembers(faction1Id);
-        if (CollectionUtils.isEmpty(faction1Members)) {
-            vo.setHeatmap(new double[7][24]);
-            vo.setDataSufficient(false);
-            vo.setInsufficientMessage("无法获取帮派 " + faction1Id + " 成员列表");
-            return vo;
+        double[][] heatmap = vo.getHeatmap();
+        aggregateDiff(heatmap, m1, m2, days);
+
+        int dataDays = Math.min(countAnyMemberDays(m1, days), countAnyMemberDays(m2, days));
+        vo.setDataSufficient(dataDays >= MIN_DATA_DAYS);
+        if (!vo.isDataSufficient()) {
+            String name = dataDays == countAnyMemberDays(m1, days) ? "帮派 " + faction2Id : "帮派 " + faction1Id;
+            vo.setInsufficientMessage("⚠️ 数据不足，" + name + " 仅采集 " + dataDays + " 天，需至少 " + MIN_DATA_DAYS + " 天");
         }
-
-        List<Long> faction2Members = fetchFactionMembers(faction2Id);
-        if (CollectionUtils.isEmpty(faction2Members)) {
-            vo.setHeatmap(new double[7][24]);
-            vo.setDataSufficient(false);
-            vo.setInsufficientMessage("无法获取帮派 " + faction2Id + " 成员列表");
-            return vo;
-        }
-
-        int memberCount1 = faction1Members.size();
-        int memberCount2 = faction2Members.size();
-        log.info("帮派对比: faction1={} ({}人), faction2={} ({}人)", faction1Id, memberCount1, faction2Id, memberCount2);
-
-        // 2. 遍历日期 × 小时，聚合两个帮派各小时的总活跃 bit 数
-        LocalDate today = LocalDate.now();
-        LocalDate startDate = today.minusDays(days - 1L);
-
-        int[][] totalBits1 = new int[7][24];
-        int[][] totalBits2 = new int[7][24];
-        int[] dayCounts = new int[7];
-
-        for (LocalDate date = startDate; !date.isAfter(today); date = date.plusDays(1)) {
-            int dayIndex = toDayOfWeekIndex(date.getDayOfWeek());
-            dayCounts[dayIndex]++;
-
-            for (int hour = 0; hour < 24; hour++) {
-                int startBit = hour * SAMPLES_PER_HOUR;
-
-                // 帮派1：汇总所有成员在该 (date, hour) 的活跃 bits
-                int bits1Sum = 0;
-                for (Long memberId : faction1Members) {
-                    String key = TornActivityCollectService.buildRedisKey(memberId, date);
-                    bits1Sum += countBitsInRange(key, startBit, SAMPLES_PER_HOUR);
-                }
-                totalBits1[dayIndex][hour] += bits1Sum;
-
-                // 帮派2：汇总所有成员在该 (date, hour) 的活跃 bits
-                int bits2Sum = 0;
-                for (Long memberId : faction2Members) {
-                    String key = TornActivityCollectService.buildRedisKey(memberId, date);
-                    bits2Sum += countBitsInRange(key, startBit, SAMPLES_PER_HOUR);
-                }
-                totalBits2[dayIndex][hour] += bits2Sum;
-            }
-        }
-
-        // 3. 计算每个 (dayOfWeek, hour) 的平均在线人数差值
-        //    faction1Avg = totalBits1 / (dayCount × memberCount1 × SAMPLES_PER_HOUR)
-        //    faction2Avg = totalBits2 / (dayCount × memberCount2 × SAMPLES_PER_HOUR)
-        //    diff = faction1Avg - faction2Avg（正值 = faction1 更活跃）
-        double[][] heatmap = new double[7][24];
-        for (int dow = 0; dow < 7; dow++) {
-            if (dayCounts[dow] == 0) {
-                continue;
-            }
-            double divisor1 = dayCounts[dow] * (double) memberCount1 * SAMPLES_PER_HOUR;
-            double divisor2 = dayCounts[dow] * (double) memberCount2 * SAMPLES_PER_HOUR;
-            for (int hour = 0; hour < 24; hour++) {
-                double faction1Avg = totalBits1[dow][hour] / divisor1;
-                double faction2Avg = totalBits2[dow][hour] / divisor2;
-                heatmap[dow][hour] = faction1Avg - faction2Avg;
-            }
-        }
-        vo.setHeatmap(heatmap);
-
-        // 4. 数据充分性检查：取每个帮派第一个成员，检查其数据天数 >= 7
-        int dataDays1 = countDataDays(faction1Members.getFirst(), startDate, today);
-        int dataDays2 = countDataDays(faction2Members.getFirst(), startDate, today);
-
-        if (dataDays1 < 7 || dataDays2 < 7) {
-            vo.setDataSufficient(false);
-            StringBuilder msg = new StringBuilder("数据不足：");
-            if (dataDays1 < 7) {
-                msg.append("帮派 ").append(faction1Id).append(" 仅 ").append(dataDays1).append(" 天");
-            }
-            if (dataDays2 < 7) {
-                if (dataDays1 < 7) {
-                    msg.append("，");
-                }
-                msg.append("帮派 ").append(faction2Id).append(" 仅 ").append(dataDays2).append(" 天");
-            }
-            msg.append("（需各至少 7 天）");
-            vo.setInsufficientMessage(msg.toString());
-        } else {
-            vo.setDataSufficient(true);
-        }
-
-        log.debug("帮派对比热力图: faction1={}, faction2={}, days={}, dataDays1={}, dataDays2={}, sufficient={}",
-                faction1Id, faction2Id, days, dataDays1, dataDays2, vo.isDataSufficient());
         return vo;
     }
 
     /**
-     * 获取帮派成员 ID 列表
+     * 聚合个人活跃度数据到热力图矩阵
      *
-     * @param factionId 帮派 ID
-     * @return 成员 ID 列表，获取失败返回空列表
+     * @param userId  用户 ID
+     * @param days    查询天数
+     * @param heatmap 热力图矩阵
+     * @return 实际有数据的天数
      */
-    private List<Long> fetchFactionMembers(long factionId) {
-        try {
-            TornFactionMemberDTO param = new TornFactionMemberDTO(factionId);
-            TornFactionMemberListVO resp = tornApi.sendRequest(param, TornFactionMemberListVO.class);
-            if (resp == null || CollectionUtils.isEmpty(resp.getMembers())) {
-                return List.of();
+    private int aggregatePersonal(long userId, int days, double[][] heatmap) {
+        LocalDate today = LocalDate.now();
+        int actualDays = 0;
+        for (int d = 0; d < days; d++) {
+            LocalDate date = today.minusDays(d);
+            String key = TornActivityCollectService.buildRedisKey(userId, date);
+            Boolean hasKey = redisTemplate.hasKey(key);
+            if (!Boolean.TRUE.equals(hasKey)) continue;
+            actualDays++;
+
+            int dow = dowIndex(date.getDayOfWeek());
+            for (int h = 0; h < 24; h++) {
+                long startBit = (long) h * SAMPLES_PER_HOUR;
+                long endBit = startBit + SAMPLES_PER_HOUR - 1;
+                byte[] keyBytes = key.getBytes();
+                Long bits = redisTemplate.execute((RedisCallback<Long>) conn ->
+                        conn.stringCommands().bitCount(keyBytes, startBit, endBit));
+                heatmap[dow][h] += (bits != null ? bits : 0);
             }
-            List<Long> memberIds = new ArrayList<>();
-            for (TornFactionMemberVO member : resp.getMembers()) {
-                if (member.getId() != null) {
-                    memberIds.add(member.getId());
+        }
+        return actualDays;
+    }
+
+    /**
+     * 聚合帮派所有成员的活跃度到热力图矩阵（人均在线人数）
+     *
+     * @param heatmap   热力图矩阵
+     * @param memberIds 帮派成员 ID 集合
+     * @param days      查询天数
+     */
+    private void aggregateMembers(double[][] heatmap, Set<String> memberIds, int days) {
+        LocalDate today = LocalDate.now();
+        for (int d = 0; d < days; d++) {
+            LocalDate date = today.minusDays(d);
+            int dow = dowIndex(date.getDayOfWeek());
+            for (int h = 0; h < 24; h++) {
+                long startBit = (long) h * SAMPLES_PER_HOUR;
+                long endBit = startBit + SAMPLES_PER_HOUR - 1;
+                long total = 0;
+                int count = 0;
+                for (String uid : memberIds) {
+                    String key = TornActivityCollectService.buildRedisKey(Long.parseLong(uid), date);
+                    byte[] keyBytes = key.getBytes();
+                    Long bits = redisTemplate.execute((RedisCallback<Long>) conn ->
+                            conn.stringCommands().bitCount(keyBytes, startBit, endBit));
+                    if (bits != null) {
+                        total += bits;
+                        count++;
+                    }
                 }
+                heatmap[dow][h] += count > 0 ? (double) total / count / SAMPLES_PER_HOUR : 0;
             }
-            return memberIds;
-        } catch (Exception e) {
-            log.error("获取帮派 {} 成员列表失败", factionId, e);
-            return List.of();
+        }
+        normalizeByDow(heatmap, days);
+    }
+
+    /**
+     * 聚合两帮派活跃度差异到热力图矩阵（帮派1 - 帮派2）
+     *
+     * @param heatmap 热力图矩阵
+     * @param m1      帮派1成员 ID 集合
+     * @param m2      帮派2成员 ID 集合
+     * @param days    查询天数
+     */
+    private void aggregateDiff(double[][] heatmap, Set<String> m1, Set<String> m2, int days) {
+        LocalDate today = LocalDate.now();
+        for (int d = 0; d < days; d++) {
+            LocalDate date = today.minusDays(d);
+            int dow = dowIndex(date.getDayOfWeek());
+            for (int h = 0; h < 24; h++) {
+                long s = (long) h * SAMPLES_PER_HOUR;
+                long e = s + SAMPLES_PER_HOUR - 1;
+                double avg1 = avgBits(m1, date, s, e);
+                double avg2 = avgBits(m2, date, s, e);
+                heatmap[dow][h] += avg1 - avg2;
+            }
+        }
+        normalizeByDow(heatmap, days);
+    }
+
+    /**
+     * 计算指定成员集合在某日某时段的平均活跃比特数
+     *
+     * @param members 成员 ID 集合
+     * @param date    日期
+     * @param start   Bitmap 起始位
+     * @param end     Bitmap 结束位
+     * @return 该时段的人均活跃采样数
+     */
+    private double avgBits(Set<String> members, LocalDate date, long start, long end) {
+        long total = 0;
+        int count = 0;
+        for (String uid : members) {
+            String key = TornActivityCollectService.buildRedisKey(Long.parseLong(uid), date);
+            byte[] keyBytes = key.getBytes();
+            Long bits = redisTemplate.execute((RedisCallback<Long>) conn ->
+                    conn.stringCommands().bitCount(keyBytes, start, end));
+            if (bits != null) {
+                total += bits;
+                count++;
+            }
+        }
+        return count > 0 ? (double) total / count / SAMPLES_PER_HOUR : 0;
+    }
+
+    /**
+     * 按星期几归一化热力图数据（除以该星期几出现的天数）
+     *
+     * @param heatmap   热力图矩阵
+     * @param totalDays 总查询天数
+     */
+    private static void normalizeByDow(double[][] heatmap, int totalDays) {
+        int[] dowCounts = countDaysOfWeek(totalDays);
+        for (int dow = 0; dow < 7; dow++) {
+            if (dowCounts[dow] > 0) {
+                for (int h = 0; h < 24; h++) heatmap[dow][h] /= dowCounts[dow];
+            }
         }
     }
 
     /**
-     * 统计某个成员在指定日期范围内有多少天有数据
-     * <p>
-     * 遍历日期范围，检查每天任意小时是否至少有一个活跃 bit。
+     * 统计查询天数范围内每个星期几出现的次数
      *
-     * @param memberId  成员 ID
-     * @param startDate 起始日期（含）
-     * @param endDate   结束日期（含）
+     * @param totalDays 总查询天数
+     * @return 长度为7的数组，索引0=周一
+     */
+    private static int[] countDaysOfWeek(int totalDays) {
+        int[] c = new int[7];
+        LocalDate today = LocalDate.now();
+        for (int d = 0; d < totalDays; d++) c[dowIndex(today.minusDays(d).getDayOfWeek())]++;
+        return c;
+    }
+
+    /**
+     * 将 DayOfWeek 转换为热力图行索引（周一=0，周日=6）
+     *
+     * @param dow 星期几
+     * @return 行索引 (0-6)
+     */
+    private static int dowIndex(DayOfWeek dow) {
+        return dow == DayOfWeek.SUNDAY ? 6 : dow.getValue() - 1;
+    }
+
+    /**
+     * 统计帮派成员中至少有一天活动数据的天数
+     *
+     * @param members 帮派成员 ID 集合
+     * @param days    查询天数
      * @return 有数据的天数
      */
-    private int countDataDays(long memberId, LocalDate startDate, LocalDate endDate) {
-        int dataDays = 0;
-        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
-            String key = TornActivityCollectService.buildRedisKey(memberId, date);
-            // 检查该天是否有任意小时的活跃 bit
-            int totalActive = 0;
-            for (int hour = 0; hour < 24; hour++) {
-                totalActive += countBitsInRange(key, hour * SAMPLES_PER_HOUR, SAMPLES_PER_HOUR);
-            }
-            if (totalActive > 0) {
-                dataDays++;
-            }
+    private int countAnyMemberDays(Set<String> members, int days) {
+        if (members.isEmpty()) return 0;
+        String first = members.iterator().next();
+        LocalDate today = LocalDate.now();
+        int c = 0;
+        for (int d = 0; d < days; d++) {
+            String key = TornActivityCollectService.buildRedisKey(Long.parseLong(first), today.minusDays(d));
+            Boolean hasKey = redisTemplate.hasKey(key);
+            if (Boolean.TRUE.equals(hasKey)) c++;
         }
-        return dataDays;
+        return c;
     }
 }
