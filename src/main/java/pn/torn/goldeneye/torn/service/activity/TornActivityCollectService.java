@@ -33,6 +33,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -65,6 +66,8 @@ public class TornActivityCollectService {
     private static final int BATCH_SIZE = 200;
     private static final int BITMAP_TTL_DAYS = 30;
     private static final int MEMBERS_TTL_DAYS = 7;
+    private static final String REDIS_TRACKED_FACTIONS_KEY = "faction:tracked";
+    private static final int TRACKED_FACTIONS_TTL_DAYS = 7;
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final AtomicReference<List<Long>> trackedFactionIds = new AtomicReference<>(new ArrayList<>());
@@ -78,19 +81,24 @@ public class TornActivityCollectService {
             return;
         }
 
+        // 先从 Redis 恢复上次刷新的帮派列表，避免重启后数据丢失
+        loadFactionListFromRedis();
+
         String lastRefreshStr = settingManager.getSettingValue(SettingConstants.KEY_ACTIVITY_FACTION_LOAD);
         LocalDate lastRefresh = DateTimeUtils.convertToDate(lastRefreshStr);
-        if (lastRefresh.isBefore(LocalDate.now())) {
+        boolean needRefresh = trackedFactionIds.get().isEmpty()
+                || lastRefresh.isBefore(LocalDate.now());
+        if (needRefresh) {
             refreshFactionList();
         } else {
-            log.info("帮派列表今日已刷新, 跳过");
+            log.info("帮派列表已从 Redis 恢复, 帮派数={}, 今日已刷新跳过", trackedFactionIds.get().size());
         }
 
         scheduleNextRefresh();
     }
 
     /**
-     * 刷新黄金+帮派列表并存储成员到 Redis
+     * 刷新黄金+帮派列表（仅获取帮派ID列表，成员信息由采集链路统一维护）
      */
     public void refreshFactionList() {
         log.info("开始刷新帮派列表...");
@@ -103,12 +111,43 @@ public class TornActivityCollectService {
         }
 
         trackedFactionIds.set(new ArrayList<>(factions));
-        refreshFactionMembers(factions);
+
+        // 持久化帮派列表到 Redis，重启后可恢复（Redis 异常不影响核心流程）
+        try {
+            persistFactionListToRedis(factions);
+        } catch (Exception e) {
+            log.warn("帮派列表持久化到 Redis 失败: {}", e.getMessage());
+        }
 
         settingManager.updateSetting(SettingConstants.KEY_ACTIVITY_FACTION_LOAD,
                 DateTimeUtils.convertToString(LocalDate.now()));
         log.info("帮派列表刷新完成, 帮派数={}", trackedFactionIds.get().size());
         scheduleNextRefresh();
+    }
+
+    /**
+     * 从 Redis 加载已持久化的帮派列表到内存
+     */
+    private void loadFactionListFromRedis() {
+        Set<String> members = redisTemplate.opsForSet().members(REDIS_TRACKED_FACTIONS_KEY);
+        if (members != null && !members.isEmpty()) {
+            List<Long> ids = members.stream().map(Long::parseLong).toList();
+            trackedFactionIds.set(new ArrayList<>(ids));
+            log.info("从 Redis 加载帮派列表, 帮派数={}", ids.size());
+        }
+    }
+
+    /**
+     * 将帮派ID列表持久化到 Redis Set，供重启恢复
+     *
+     * @param factions 帮派ID列表
+     */
+    private void persistFactionListToRedis(List<Long> factions) {
+        String[] ids = factions.stream().map(String::valueOf).toArray(String[]::new);
+        redisTemplate.delete(REDIS_TRACKED_FACTIONS_KEY);
+        redisTemplate.opsForSet().add(REDIS_TRACKED_FACTIONS_KEY, ids);
+        redisTemplate.expire(REDIS_TRACKED_FACTIONS_KEY, Duration.ofDays(TRACKED_FACTIONS_TTL_DAYS));
+        log.debug("帮派列表已持久化到 Redis, 帮派数={}", factions.size());
     }
 
     /**
@@ -190,47 +229,6 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 批量刷新帮派成员列表，通过线程池并行调用 API 存储到 Redis
-     *
-     * @param factions 帮派 ID 列表
-     */
-    private void refreshFactionMembers(List<Long> factions) {
-        for (int i = 0; i < factions.size(); i += BATCH_SIZE) {
-            List<Long> batch = factions.subList(i, Math.min(i + BATCH_SIZE, factions.size()));
-            List<CompletableFuture<Void>> futures = batch.stream()
-                    .map(fid -> CompletableFuture.runAsync(() -> storeFactionMembers(fid), executor))
-                    .toList();
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        }
-    }
-
-    /**
-     * 存储单个帮派的成员列表到 Redis Set
-     *
-     * @param factionId 帮派 ID
-     */
-    private void storeFactionMembers(long factionId) {
-        try {
-            TornFactionMemberListVO resp = tornApi.sendRequest(
-                    new TornFactionMemberDTO(factionId), TornFactionMemberListVO.class);
-            if (resp == null || resp.getMembers() == null) return;
-
-            String key = REDIS_MEMBERS_PREFIX + factionId;
-            String[] ids = resp.getMembers().stream()
-                    .map(TornFactionMemberVO::getId)
-                    .filter(Objects::nonNull)
-                    .map(String::valueOf)
-                    .toArray(String[]::new);
-            if (ids.length > 0) {
-                redisTemplate.opsForSet().add(key, ids);
-                redisTemplate.expire(key, Duration.ofDays(MEMBERS_TTL_DAYS));
-            }
-        } catch (Exception e) {
-            log.warn("存储帮派 {} 成员失败: {}", factionId, e.getMessage());
-        }
-    }
-
-    /**
      * 通过线程池并行处理一批帮派的活跃度采集
      *
      * @param batch 帮派 ID 批次
@@ -243,7 +241,7 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 采集单个帮派成员的活跃度，将在线状态写入 Redis Bitmap
+     * 采集单个帮派成员的活跃度，将在线状态写入 Redis Bitmap，并同步更新成员列表缓存
      *
      * @param factionId 帮派 ID
      */
@@ -264,6 +262,18 @@ public class TornActivityCollectService {
                     redisTemplate.opsForValue().setBit(key, slot, true);
                     redisTemplate.expire(key, Duration.ofDays(BITMAP_TTL_DAYS));
                 }
+            }
+
+            // 同步更新帮派成员列表缓存（供热力图查询使用）
+            String membersKey = REDIS_MEMBERS_PREFIX + factionId;
+            String[] memberIds = resp.getMembers().stream()
+                    .map(TornFactionMemberVO::getId)
+                    .filter(Objects::nonNull)
+                    .map(String::valueOf)
+                    .toArray(String[]::new);
+            if (memberIds.length > 0) {
+                redisTemplate.opsForSet().add(membersKey, memberIds);
+                redisTemplate.expire(membersKey, Duration.ofDays(MEMBERS_TTL_DAYS));
             }
         } catch (Exception e) {
             log.warn("采集帮派 {} 失败: {}", factionId, e.getMessage());
