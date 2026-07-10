@@ -16,8 +16,8 @@ spring:
       database: 1
       lettuce:
         pool:
-          max-active: 16
-          max-idle: 8
+          max-active: 64
+          max-idle: 16
 
 loki:
   url: http://localhost:13131/loki/api/v1/push

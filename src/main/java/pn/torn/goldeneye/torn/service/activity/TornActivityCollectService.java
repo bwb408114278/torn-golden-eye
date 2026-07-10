@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -31,8 +32,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -242,6 +243,9 @@ public class TornActivityCollectService {
 
     /**
      * 采集单个帮派成员的活跃度，将在线状态写入 Redis Bitmap，并同步更新成员列表缓存
+     * <p>
+     * 所有 Redis 写操作（SETBIT / EXPIRE / DELETE / SADD）通过单个 Pipeline 批量提交，
+     * 将 N 次网络往返压缩为 1 次，避免在高并发下争抢 Lettuce 连接池。
      *
      * @param factionId 帮派 ID
      */
@@ -254,27 +258,42 @@ public class TornActivityCollectService {
             LocalDate today = LocalDate.now();
             long now = System.currentTimeMillis() / 1000;
             int slot = calculateSlotIndex();
+            Duration bitmapTtl = Duration.ofDays(BITMAP_TTL_DAYS);
+            Duration membersTtl = Duration.ofDays(MEMBERS_TTL_DAYS);
 
+            // 预计算活跃用户 ID 和全部成员 ID，避免在 Pipeline lambda 中重复流操作
+            List<Long> activeUserIds = new ArrayList<>();
+            List<String> allMemberIds = new ArrayList<>();
             for (TornFactionMemberVO m : resp.getMembers()) {
+                if (m.getId() != null) {
+                    allMemberIds.add(String.valueOf(m.getId()));
+                }
                 if (m.getLastAction() != null
                         && (now - m.getLastAction().getTimestamp()) < POLL_INTERVAL_MINUTES * 60L) {
-                    String key = buildRedisKey(m.getId(), today);
-                    redisTemplate.opsForValue().setBit(key, slot, true);
-                    redisTemplate.expire(key, Duration.ofDays(BITMAP_TTL_DAYS));
+                    activeUserIds.add(m.getId());
                 }
             }
 
-            // 同步更新帮派成员列表缓存（供热力图查询使用）
             String membersKey = REDIS_MEMBERS_PREFIX + factionId;
-            String[] memberIds = resp.getMembers().stream()
-                    .map(TornFactionMemberVO::getId)
-                    .filter(Objects::nonNull)
-                    .map(String::valueOf)
-                    .toArray(String[]::new);
-            if (memberIds.length > 0) {
-                redisTemplate.opsForSet().add(membersKey, memberIds);
-                redisTemplate.expire(membersKey, Duration.ofDays(MEMBERS_TTL_DAYS));
-            }
+            String[] memberIdArray = allMemberIds.toArray(new String[0]);
+
+            // 单个 Pipeline 批量提交所有 Redis 命令
+            redisTemplate.executePipelined((RedisCallback<Object>) conn -> {
+                // 1. 批量写入活跃用户 Bitmap
+                for (Long userId : activeUserIds) {
+                    byte[] keyBytes = buildRedisKey(userId, today).getBytes();
+                    conn.stringCommands().setBit(keyBytes, slot, true);
+                    conn.keyCommands().expire(keyBytes, bitmapTtl.toSeconds());
+                }
+                // 2. 全量替换帮派成员列表（先删后建）
+                if (memberIdArray.length > 0) {
+                    conn.keyCommands().del(membersKey.getBytes());
+                    conn.setCommands().sAdd(membersKey.getBytes(),
+                            Arrays.stream(memberIdArray).map(String::getBytes).toArray(byte[][]::new));
+                    conn.keyCommands().expire(membersKey.getBytes(), membersTtl.toSeconds());
+                }
+                return null;
+            });
         } catch (Exception e) {
             log.warn("采集帮派 {} 失败: {}", factionId, e.getMessage());
         }

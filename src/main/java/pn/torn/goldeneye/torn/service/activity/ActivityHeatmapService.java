@@ -9,6 +9,8 @@ import pn.torn.goldeneye.torn.model.activity.ActivityHeatmapVO;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -151,6 +153,57 @@ public class ActivityHeatmapService {
     }
 
     /**
+     * 通过 Pipeline 批量执行 BITCOUNT，计算指定成员集合在每天每小时的平均活跃比例
+     * <p>
+     * 将 days × 24 × memberCount 次 BITCOUNT 命令打包到一个 Pipeline 中一次性发送，
+     * 避免原先逐条往返的 N+1 问题（28天 × 24小时 × 100成员 = 67,200 次独立 Redis 往返 → 1 次）。
+     *
+     * @param memberIds 成员 ID 列表
+     * @param days      查询天数
+     * @return [day][hour] 平均活跃比例（0~1），day=0 为今天
+     */
+    private double[][] batchComputeMemberAverages(List<String> memberIds, int days) {
+        LocalDate today = LocalDate.now();
+        int memberCount = memberIds.size();
+
+        List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) conn -> {
+            for (int d = 0; d < days; d++) {
+                LocalDate date = today.minusDays(d);
+                for (int h = 0; h < 24; h++) {
+                    long startBit = (long) h * SAMPLES_PER_HOUR;
+                    long endBit = startBit + SAMPLES_PER_HOUR - 1;
+                    for (String uid : memberIds) {
+                        String key = TornActivityCollectService.buildRedisKey(Long.parseLong(uid), date);
+                        conn.stringCommands().bitCount(key.getBytes(), startBit, endBit);
+                    }
+                }
+            }
+            return null;
+        });
+
+        double[][] avg = new double[days][24];
+        int idx = 0;
+        for (int d = 0; d < days; d++) {
+            for (int h = 0; h < 24; h++) {
+                long total = 0;
+                int count = 0;
+                for (int i = 0; i < memberCount; i++) {
+                    if (idx < results.size()) {
+                        Object result = results.get(idx);
+                        if (result instanceof Number n) {
+                            total += n.longValue();
+                            count++;
+                        }
+                    }
+                    idx++;
+                }
+                avg[d][h] = count > 0 ? (double) total / count / SAMPLES_PER_HOUR : 0;
+            }
+        }
+        return avg;
+    }
+
+    /**
      * 聚合帮派所有成员的活跃度到热力图矩阵（人均在线人数）
      *
      * @param heatmap   热力图矩阵
@@ -158,26 +211,13 @@ public class ActivityHeatmapService {
      * @param days      查询天数
      */
     private void aggregateMembers(double[][] heatmap, Set<String> memberIds, int days) {
+        List<String> memberList = new ArrayList<>(memberIds);
+        double[][] avg = batchComputeMemberAverages(memberList, days);
         LocalDate today = LocalDate.now();
         for (int d = 0; d < days; d++) {
-            LocalDate date = today.minusDays(d);
-            int dow = dowIndex(date.getDayOfWeek());
+            int dow = dowIndex(today.minusDays(d).getDayOfWeek());
             for (int h = 0; h < 24; h++) {
-                long startBit = (long) h * SAMPLES_PER_HOUR;
-                long endBit = startBit + SAMPLES_PER_HOUR - 1;
-                long total = 0;
-                int count = 0;
-                for (String uid : memberIds) {
-                    String key = TornActivityCollectService.buildRedisKey(Long.parseLong(uid), date);
-                    byte[] keyBytes = key.getBytes();
-                    Long bits = redisTemplate.execute((RedisCallback<Long>) conn ->
-                            conn.stringCommands().bitCount(keyBytes, startBit, endBit));
-                    if (bits != null) {
-                        total += bits;
-                        count++;
-                    }
-                }
-                heatmap[dow][h] += count > 0 ? (double) total / count / SAMPLES_PER_HOUR : 0;
+                heatmap[dow][h] += avg[d][h];
             }
         }
         normalizeByDow(heatmap, days);
@@ -192,44 +232,16 @@ public class ActivityHeatmapService {
      * @param days    查询天数
      */
     private void aggregateDiff(double[][] heatmap, Set<String> m1, Set<String> m2, int days) {
+        double[][] avg1 = batchComputeMemberAverages(new ArrayList<>(m1), days);
+        double[][] avg2 = batchComputeMemberAverages(new ArrayList<>(m2), days);
         LocalDate today = LocalDate.now();
         for (int d = 0; d < days; d++) {
-            LocalDate date = today.minusDays(d);
-            int dow = dowIndex(date.getDayOfWeek());
+            int dow = dowIndex(today.minusDays(d).getDayOfWeek());
             for (int h = 0; h < 24; h++) {
-                long s = (long) h * SAMPLES_PER_HOUR;
-                long e = s + SAMPLES_PER_HOUR - 1;
-                double avg1 = avgBits(m1, date, s, e);
-                double avg2 = avgBits(m2, date, s, e);
-                heatmap[dow][h] += avg1 - avg2;
+                heatmap[dow][h] += avg1[d][h] - avg2[d][h];
             }
         }
         normalizeByDow(heatmap, days);
-    }
-
-    /**
-     * 计算指定成员集合在某日某时段的平均活跃比特数
-     *
-     * @param members 成员 ID 集合
-     * @param date    日期
-     * @param start   Bitmap 起始位
-     * @param end     Bitmap 结束位
-     * @return 该时段的人均活跃采样数
-     */
-    private double avgBits(Set<String> members, LocalDate date, long start, long end) {
-        long total = 0;
-        int count = 0;
-        for (String uid : members) {
-            String key = TornActivityCollectService.buildRedisKey(Long.parseLong(uid), date);
-            byte[] keyBytes = key.getBytes();
-            Long bits = redisTemplate.execute((RedisCallback<Long>) conn ->
-                    conn.stringCommands().bitCount(keyBytes, start, end));
-            if (bits != null) {
-                total += bits;
-                count++;
-            }
-        }
-        return count > 0 ? (double) total / count / SAMPLES_PER_HOUR : 0;
     }
 
     /**
@@ -271,7 +283,10 @@ public class ActivityHeatmapService {
     }
 
     /**
-     * 统计帮派成员中至少有一天活动数据的天数
+     * 统计帮派成员中至少有一个成员有活动数据的天数
+     * <p>
+     * 通过 Pipeline 批量执行多键 EXISTS，每天只需一次 Redis 调用判断
+     * 该天是否有任意成员的 Bitmap key 存在，避免只取第一个成员导致的误判。
      *
      * @param members 帮派成员 ID 集合
      * @param days    查询天数
@@ -279,14 +294,29 @@ public class ActivityHeatmapService {
      */
     private int countAnyMemberDays(Set<String> members, int days) {
         if (members.isEmpty()) return 0;
-        String first = members.iterator().next();
+        List<String> memberList = new ArrayList<>(members);
         LocalDate today = LocalDate.now();
-        int c = 0;
-        for (int d = 0; d < days; d++) {
-            String key = TornActivityCollectService.buildRedisKey(Long.parseLong(first), today.minusDays(d));
-            Boolean hasKey = redisTemplate.hasKey(key);
-            if (Boolean.TRUE.equals(hasKey)) c++;
+
+        List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) conn -> {
+            for (int d = 0; d < days; d++) {
+                LocalDate date = today.minusDays(d);
+                byte[][] keys = new byte[memberList.size()][];
+                for (int i = 0; i < memberList.size(); i++) {
+                    String key = TornActivityCollectService.buildRedisKey(
+                            Long.parseLong(memberList.get(i)), date);
+                    keys[i] = key.getBytes();
+                }
+                conn.keyCommands().exists(keys);
+            }
+            return null;
+        });
+
+        int count = 0;
+        for (Object result : results) {
+            if (result instanceof Number n && n.longValue() > 0) {
+                count++;
+            }
         }
-        return c;
+        return count;
     }
 }
