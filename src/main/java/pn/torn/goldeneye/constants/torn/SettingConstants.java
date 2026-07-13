@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.2.9
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -92,4 +92,8 @@ public class SettingConstants {
      * 格式: SYM1:TYPE1,SYM2:TYPE2  (TYPE = DECLINER|WEAK|NARROW|RANGING|STEADY|STRONG)
      */
     public static final String KEY_STOCK_PERSONALITY = "STOCK_PERSONALITY";
+    /**
+     * 活跃度帮派列表刷新时间
+     */
+    public static final String KEY_ACTIVITY_FACTION_LOAD = "ACTIVITY_FACTION_LOAD_DATE";
 }

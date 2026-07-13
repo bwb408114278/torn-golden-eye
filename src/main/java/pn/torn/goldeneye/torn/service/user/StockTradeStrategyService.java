@@ -36,6 +36,7 @@ public class StockTradeStrategyService {
     private static final double BUY_SCORE_THRESHOLD = 50D;
     private static final double TAKE_PROFIT_SELL_SCORE_THRESHOLD = 55D;
     private static final double REBOUND_SELL_SCORE_THRESHOLD = 45D;
+    private static final double QUICK_PROFIT_SELL_SCORE_THRESHOLD = 40D;
     // 阴跌持续检测：两周跌幅阈值
     private static final double PERSISTENT_DECLINE_14D_THRESHOLD = -0.005D;
     // 窗口数据不足时额外提高的买入阈值
@@ -108,6 +109,7 @@ public class StockTradeStrategyService {
         StrategySignal bestSignal = selectBestSignal(List.of(
                 buildSwingLowBuySignal(feature),
                 buildSwingReversalBuySignal(feature),
+                buildSwingQuickProfitSellSignal(feature),
                 buildSwingTakeProfitSellSignal(feature),
                 buildSwingReboundSellSignal(feature)));
 
@@ -288,6 +290,38 @@ public class StockTradeStrategyService {
         }
 
         return new StrategySignal(StockTradeActionEnum.SELL, StockStrategyTypeEnum.SWING_REBOUND_SELL, score, reasons);
+    }
+
+    /**
+     * 构建短线快速获利卖出信号
+     */
+    private StrategySignal buildSwingQuickProfitSellSignal(StockFeature feature) {
+        List<String> reasons = new ArrayList<>();
+        double score = 0D;
+
+        if (feature.return7d() >= 0.01D) {
+            score += 35D;
+            reasons.add("近7日涨幅超1%, 短线获利了结");
+        } else if (feature.return7d() >= 0.008D) {
+            score += 25D;
+            reasons.add("近7日涨幅超0.8%, 可考虑止盈");
+        }
+
+        if (feature.zScore7d() > 0) {
+            score += 15D;
+            reasons.add("价格站上7日均线");
+        }
+
+        if (feature.return1d() > 0) {
+            score += 10D;
+            reasons.add("短线仍在上涨");
+        }
+
+        if (score < QUICK_PROFIT_SELL_SCORE_THRESHOLD) {
+            return holdSignal(StockStrategyTypeEnum.SWING_QUICK_PROFIT_SELL, score, reasons);
+        }
+
+        return new StrategySignal(StockTradeActionEnum.SELL, StockStrategyTypeEnum.SWING_QUICK_PROFIT_SELL, score, reasons);
     }
 
     /**

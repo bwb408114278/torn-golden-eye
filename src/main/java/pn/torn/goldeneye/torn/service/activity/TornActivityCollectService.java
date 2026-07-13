@@ -1,0 +1,376 @@
+package pn.torn.goldeneye.torn.service.activity;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
+
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.configuration.DynamicTaskService;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.InitOrderConstants;
+import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.model.activity.TornFactionHofDTO;
+import pn.torn.goldeneye.torn.model.activity.TornFactionHofVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
+
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.UUID;
+
+/**
+ * 活跃度数据采集服务
+ * <p>
+ * 每日 6:00 通过动态定时任务刷新黄金+帮派列表并存储成员到 Redis，
+ * 每 15 分钟轮询帮派成员 last_action 时间戳写入 Redis Bitmap。
+ *
+ * @author Bai
+ * @version 1.2.9
+ * @since 2026.07.07
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@Order(InitOrderConstants.TORN_USER_DATA)
+public class TornActivityCollectService {
+    private final TornApi tornApi;
+    private final StringRedisTemplate redisTemplate;
+    private final DynamicTaskService taskService;
+    private final SysSettingManager settingManager;
+    private final ProjectProperty projectProperty;
+    @Qualifier("activityCollectExecutor")
+    private final SimpleAsyncTaskExecutor executor;
+
+    private static final String REDIS_KEY_PREFIX = "activity:";
+    private static final String REDIS_MEMBERS_PREFIX = "faction:members:";
+    private static final int POLL_INTERVAL_MINUTES = 15;
+    private static final int COLLECTION_BATCH_SIZE = 50;
+    private static final int BITMAP_TTL_DAYS = 30;
+    private static final int MEMBERS_TTL_DAYS = 7;
+    private static final String REDIS_TRACKED_FACTIONS_KEY = "faction:tracked";
+    private static final int TRACKED_FACTIONS_TTL_DAYS = 7;
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+    private final AtomicReference<List<Long>> trackedFactionIds = new AtomicReference<>(List.of());
+    private final AtomicBoolean collecting = new AtomicBoolean(false);
+
+    /**
+     * 应用启动后初始化：检查上次刷新日期，决定是否立即补刷 + 注册次日定时任务
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void init() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
+        // 先从 Redis 恢复上次刷新的帮派列表，避免重启后数据丢失
+        loadFactionListFromRedis();
+
+        String lastRefreshStr = settingManager.getSettingValue(SettingConstants.KEY_ACTIVITY_FACTION_LOAD);
+        LocalDate lastRefresh = DateTimeUtils.convertToDate(lastRefreshStr);
+        boolean needRefresh = trackedFactionIds.get().isEmpty()
+                || lastRefresh.isBefore(LocalDate.now());
+        if (needRefresh) {
+            refreshFactionList();
+        } else {
+            log.info("帮派列表已从 Redis 恢复, 帮派数={}, 今日已刷新跳过", trackedFactionIds.get().size());
+        }
+
+        scheduleNextRefresh();
+    }
+
+    /**
+     * 每 15 分钟执行一次活跃度采集
+     */
+    @Scheduled(cron = "0 */15 * * * *")
+    public void collectActivity() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
+        if (!collecting.compareAndSet(false, true)) {
+            log.warn("上一轮活跃度采集尚未完成，跳过本次调度");
+            return;
+        }
+
+        long startTime = System.currentTimeMillis();
+        List<Long> factions = new ArrayList<>(trackedFactionIds.get());
+        int successCount = 0;
+        int failureCount = 0;
+        try {
+            if (factions.isEmpty()) {
+                log.warn("帮派列表为空，跳过本次采集");
+                return;
+            }
+
+            log.info("开始活跃度采集, 帮派数={}", factions.size());
+            for (int i = 0; i < factions.size(); i += COLLECTION_BATCH_SIZE) {
+                List<Long> batch = factions.subList(i, Math.min(i + COLLECTION_BATCH_SIZE, factions.size()));
+                BatchResult result = processBatch(batch);
+                successCount += result.successCount();
+                failureCount += result.failureCount();
+            }
+        } finally {
+            collecting.set(false);
+            log.info("活跃度采集完成, 帮派数={}, 成功={}, 失败={}, 耗时={}ms",
+                    factions.size(), successCount, failureCount, System.currentTimeMillis() - startTime);
+        }
+    }
+
+    /**
+     * 刷新黄金+帮派列表（仅获取帮派ID列表，成员信息由采集链路统一维护）
+     */
+    public void refreshFactionList() {
+        log.info("开始刷新帮派列表...");
+
+        List<Long> factions = fetchGoldPlusFactions();
+        if (factions.isEmpty()) {
+            log.warn("帮派列表刷新失败，保持现有列表");
+            scheduleNextRefresh();
+            return;
+        }
+
+        trackedFactionIds.set(new ArrayList<>(factions));
+
+        // 持久化帮派列表到 Redis，重启后可恢复（Redis 异常不影响核心流程）
+        try {
+            persistFactionListToRedis(factions);
+        } catch (Exception e) {
+            log.warn("帮派列表持久化到 Redis 失败: {}", e.getMessage());
+        }
+
+        settingManager.updateSetting(SettingConstants.KEY_ACTIVITY_FACTION_LOAD,
+                DateTimeUtils.convertToString(LocalDate.now()));
+        log.info("帮派列表刷新完成, 帮派数={}", trackedFactionIds.get().size());
+        scheduleNextRefresh();
+    }
+
+    /**
+     * 通过线程池并行处理一批帮派的活跃度采集
+     *
+     * @param batch 帮派 ID 批次
+     */
+    BatchResult processBatch(List<Long> batch) {
+        List<CompletableFuture<Boolean>> futures = new ArrayList<>(batch.size());
+        for (Long factionId : batch) {
+            try {
+                futures.add(CompletableFuture.supplyAsync(() -> collectFaction(factionId), executor));
+            } catch (RejectedExecutionException e) {
+                log.warn("活跃度采集任务提交被拒绝, 已提交={}, 未提交={}",
+                        futures.size(), batch.size() - futures.size(), e);
+                break;
+            }
+        }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        int successCount = (int) futures.stream().filter(CompletableFuture::join).count();
+        return new BatchResult(successCount, batch.size() - successCount);
+    }
+
+    /**
+     * 从 Redis 加载已持久化的帮派列表到内存
+     */
+    private void loadFactionListFromRedis() {
+        Set<String> members = redisTemplate.opsForSet().members(REDIS_TRACKED_FACTIONS_KEY);
+        if (members != null && !members.isEmpty()) {
+            List<Long> ids = members.stream().map(Long::parseLong).toList();
+            trackedFactionIds.set(new ArrayList<>(ids));
+            log.info("从 Redis 加载帮派列表, 帮派数={}", ids.size());
+        }
+    }
+
+    /**
+     * 将帮派ID列表持久化到 Redis Set，供重启恢复
+     *
+     * @param factions 帮派ID列表
+     */
+    private void persistFactionListToRedis(List<Long> factions) {
+        String[] ids = factions.stream().map(String::valueOf).toArray(String[]::new);
+        redisTemplate.delete(REDIS_TRACKED_FACTIONS_KEY);
+        redisTemplate.opsForSet().add(REDIS_TRACKED_FACTIONS_KEY, ids);
+        redisTemplate.expire(REDIS_TRACKED_FACTIONS_KEY, Duration.ofDays(TRACKED_FACTIONS_TTL_DAYS));
+        log.debug("帮派列表已持久化到 Redis, 帮派数={}", factions.size());
+    }
+
+    /**
+     * 注册次日 6:00 的刷新任务
+     */
+    private void scheduleNextRefresh() {
+        LocalDateTime nextTime = LocalDate.now().plusDays(1).atTime(6, 0, 0);
+        taskService.updateTask("activity-faction-refresh", this::refreshFactionList, nextTime);
+    }
+
+    /**
+     * 从 Torn API 分页获取所有黄金及以上等级的帮派 ID
+     *
+     * @return 黄金+帮派 ID 列表
+     */
+    private List<Long> fetchGoldPlusFactions() {
+        List<Long> result = new ArrayList<>();
+        int offset = 0;
+        boolean hasMore = true;
+
+        while (hasMore) {
+            TornFactionHofDTO dto = new TornFactionHofDTO("rank", 100, offset);
+            TornFactionHofVO resp = tornApi.sendRequest(dto, TornFactionHofVO.class);
+            if (resp == null || CollectionUtils.isEmpty(resp.getFactionHof())) {
+                break;
+            }
+            hasMore = collectGoldPlusEntries(resp, result);
+            offset += 100;
+        }
+        return result;
+    }
+
+    /**
+     * 从 factionhof 响应中收集黄金+帮派条目，遇到非黄金帮派时返回 false 停止翻页
+     *
+     * @param resp   factionhof API 响应
+     * @param result 收集结果的目标列表
+     * @return true 表示可以继续翻页，false 表示已到达黄金等级边界
+     */
+    private boolean collectGoldPlusEntries(TornFactionHofVO resp, List<Long> result) {
+        for (TornFactionHofVO.FactionHofEntry e : resp.getFactionHof()) {
+            if (!isGoldPlusRank(e.getRank())) {
+                return false;
+            }
+            result.add(e.getId());
+        }
+        return true;
+    }
+
+    /**
+     * 判断帮派等级是否为黄金及以上
+     *
+     * @param rank 帮派等级字符串
+     * @return true 表示黄金/白金/钻石等级
+     */
+    private static boolean isGoldPlusRank(String rank) {
+        return rank != null && (rank.startsWith("Diamond")
+                || rank.startsWith("Platinum")
+                || rank.startsWith("Gold"));
+    }
+
+    /**
+     * 采集单个帮派成员的活跃度，将在线状态写入 Redis Bitmap，并同步更新成员列表缓存
+     * <p>
+     * 所有 Redis 写操作（SETBIT / EXPIRE / DELETE / SADD）通过单个 Pipeline 批量提交，
+     * 将 N 次网络往返压缩为 1 次，避免在高并发下争抢 Lettuce 连接池。
+     *
+     * @param factionId 帮派 ID
+     */
+    private boolean collectFaction(long factionId) {
+        String membersKey = REDIS_MEMBERS_PREFIX + factionId;
+        String temporaryMembersKey = membersKey + ":tmp:" + UUID.randomUUID();
+        try {
+            TornFactionMemberListVO resp = tornApi.sendRequest(
+                    new TornFactionMemberDTO(factionId), TornFactionMemberListVO.class);
+            if (resp == null || resp.getMembers() == null) {
+                return false;
+            }
+
+            LocalDateTime collectionTime = LocalDateTime.now();
+            LocalDate today = collectionTime.toLocalDate();
+            ZoneId systemZone = ZoneId.systemDefault();
+            long now = collectionTime.atZone(systemZone).toEpochSecond();
+            int slot = calculateSlotIndex(collectionTime);
+            Duration bitmapTtl = Duration.ofDays(BITMAP_TTL_DAYS);
+            Duration membersTtl = Duration.ofDays(MEMBERS_TTL_DAYS);
+
+            // 预计算活跃用户 ID 和全部成员 ID，避免在 Pipeline lambda 中重复流操作
+            List<Long> activeUserIds = new ArrayList<>();
+            List<String> allMemberIds = new ArrayList<>();
+            for (TornFactionMemberVO m : resp.getMembers()) {
+                if (m.getId() != null) {
+                    allMemberIds.add(String.valueOf(m.getId()));
+                }
+                if (m.getId() != null
+                        && m.getLastAction() != null
+                        && (now - m.getLastAction().getTimestamp()) < POLL_INTERVAL_MINUTES * 60L) {
+                    activeUserIds.add(m.getId());
+                }
+            }
+
+            String[] memberIdArray = allMemberIds.toArray(new String[0]);
+
+            // 单个 Pipeline 批量提交所有 Redis 命令
+            redisTemplate.executePipelined((RedisCallback<Object>) conn -> {
+                // 1. 批量写入活跃用户 Bitmap
+                for (Long userId : activeUserIds) {
+                    byte[] keyBytes = buildRedisKey(userId, today).getBytes();
+                    conn.stringCommands().setBit(keyBytes, slot, true);
+                    conn.keyCommands().expire(keyBytes, bitmapTtl.toSeconds());
+                }
+                // 2. 通过临时集合原子替换成员快照，避免查询端观察到空集合
+                if (memberIdArray.length > 0) {
+                    conn.setCommands().sAdd(temporaryMembersKey.getBytes(),
+                            Arrays.stream(memberIdArray).map(String::getBytes).toArray(byte[][]::new));
+                    conn.keyCommands().expire(temporaryMembersKey.getBytes(), membersTtl.toSeconds());
+                    conn.keyCommands().rename(temporaryMembersKey.getBytes(), membersKey.getBytes());
+                } else {
+                    conn.keyCommands().del(membersKey.getBytes());
+                }
+                return null;
+            });
+            return true;
+        } catch (Exception e) {
+            cleanupTemporaryMembersKey(temporaryMembersKey, factionId);
+            log.warn("采集帮派 {} 失败", factionId, e);
+            return false;
+        }
+    }
+
+    private void cleanupTemporaryMembersKey(String temporaryMembersKey, long factionId) {
+        try {
+            redisTemplate.delete(temporaryMembersKey);
+        } catch (Exception cleanupException) {
+            log.warn("清理帮派 {} 临时成员集合失败", factionId, cleanupException);
+        }
+    }
+
+    /**
+     * 计算当前时间对应的 Bitmap 槽位索引（每天 96 个槽，每 15 分钟一个）
+     *
+     * @return 槽位索引 (0-95)
+     */
+    static int calculateSlotIndex(LocalDateTime collectionTime) {
+        return collectionTime.getHour() * 4 + collectionTime.getMinute() / 15;
+    }
+
+    /**
+     * 构建 Redis Bitmap Key：activity:{userId}:{yyyy-MM-dd}
+     *
+     * @param userId 用户 ID
+     * @param date   日期
+     * @return Redis Key
+     */
+    static String buildRedisKey(long userId, LocalDate date) {
+        return REDIS_KEY_PREFIX + userId + ":" + date.format(DATE_FMT);
+    }
+
+    record BatchResult(int successCount, int failureCount) {
+    }
+}

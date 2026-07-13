@@ -34,6 +34,10 @@ public enum StockStrategyTypeEnum {
      */
     SWING_REBOUND_SELL("反弹减仓"),
     /**
+     * 短线止盈
+     */
+    SWING_QUICK_PROFIT_SELL("短线止盈"),
+    /**
      * 持续下跌风险
      */
     FALLING_KNIFE_RISK("持续下跌风险"),
