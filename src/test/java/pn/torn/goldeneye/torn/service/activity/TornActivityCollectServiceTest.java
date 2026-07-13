@@ -2,7 +2,7 @@ package pn.torn.goldeneye.torn.service.activity;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
@@ -37,7 +37,7 @@ class TornActivityCollectServiceTest {
     @DisplayName("任务提交被拒绝时应等待已提交任务并将剩余任务计为失败")
     void shouldWaitSubmittedTasksWhenExecutorRejects() {
         TornApi tornApi = mock(TornApi.class);
-        ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
+        SimpleAsyncTaskExecutor executor = mock(SimpleAsyncTaskExecutor.class);
         AtomicInteger submitted = new AtomicInteger();
         doAnswer(invocation -> {
             if (submitted.getAndIncrement() == 0) {
@@ -66,7 +66,7 @@ class TornActivityCollectServiceTest {
     @Test
     @DisplayName("任务提交被拒绝后应释放单实例重入标记")
     void shouldReleaseReentryGuardAfterExecutorRejects() {
-        ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
+        SimpleAsyncTaskExecutor executor = mock(SimpleAsyncTaskExecutor.class);
         doAnswer(invocation -> {
             throw new RejectedExecutionException("executor stopped");
         }).when(executor).execute(any(Runnable.class));

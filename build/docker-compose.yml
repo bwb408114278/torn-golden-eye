@@ -25,7 +25,7 @@ services:
     volumes:
       - ${REDIS_DIR}/data:/data
       - ${REDIS_DIR}/log:/log
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy volatile-lru
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "volatile-lru", "--requirepass", "${REDIS_PASSWORD}"]
     restart: always
     networks:
       - golden-eye-net
@@ -100,7 +100,8 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://pgsql:5432/golden-eye
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-      - SPRING_DATA_REDIS_HOST=localhost
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
       - BOT_SERVER_ADDR=napcat
       - LOKI_URL=http://loki:3100/loki/api/v1/push
       - PROJECT_ENV=prod

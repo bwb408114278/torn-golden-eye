@@ -5,11 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
@@ -62,7 +63,7 @@ public class TornActivityCollectService {
     private final SysSettingManager settingManager;
     private final ProjectProperty projectProperty;
     @Qualifier("activityCollectExecutor")
-    private final ThreadPoolTaskExecutor executor;
+    private final SimpleAsyncTaskExecutor executor;
 
     private static final String REDIS_KEY_PREFIX = "activity:";
     private static final String REDIS_MEMBERS_PREFIX = "faction:members:";
@@ -107,6 +108,10 @@ public class TornActivityCollectService {
      */
     @Scheduled(cron = "0 */15 * * * *")
     public void collectActivity() {
+        if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            return;
+        }
+
         if (!collecting.compareAndSet(false, true)) {
             log.warn("上一轮活跃度采集尚未完成，跳过本次调度");
             return;
