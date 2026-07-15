@@ -1,0 +1,318 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_oc_planning_catalog
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_oc_plan_profile
+            remarks: "OC新队规划档案"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: spawn_pool
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: plan_status
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: reward_floor
+                  type: BIGINT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: min_sample_size
+                  type: INT
+                  defaultValueNumeric: 30
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: SMALLINT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_setting_oc_plan_profile
+            columnNames: rank, oc_name
+            constraintName: uk_setting_oc_plan_profile_rank_name
+        - createTable:
+            tableName: torn_setting_oc_chain
+            remarks: "OC链关系配置"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: chain_code
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: parent_oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: parent_rank
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: child_oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: child_rank
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sequence_no
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: enabled
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: SMALLINT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_setting_oc_chain
+            columnNames: chain_code, sequence_no
+            constraintName: uk_setting_oc_chain_code_sequence
+        - createTable:
+            tableName: torn_setting_faction_oc_plan
+            remarks: "帮派OC新队规划范围"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: rank
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: enabled
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: SMALLINT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_setting_faction_oc_plan
+            columnNames: faction_id, rank, oc_name
+            constraintName: uk_setting_faction_oc_plan
+        - createTable:
+            tableName: torn_setting_faction_oc_planning_policy
+            remarks: "帮派OC新队规划策略"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: evaluation_mode
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: normal_pool_reserve_percent
+                  type: INT
+                  defaultValueNumeric: 20
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: SMALLINT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_setting_faction_oc_planning_policy
+            columnNames: faction_id
+            constraintName: uk_setting_faction_oc_planning_policy
+        - createIndex:
+            tableName: torn_faction_oc
+            indexName: idx_faction_oc_planning_snapshot
+            columns:
+              - column:
+                  name: faction_id
+              - column:
+                  name: status
+              - column:
+                  name: deleted
+              - column:
+                  name: ready_time
+        - createIndex:
+            tableName: torn_faction_oc_slot
+            indexName: idx_faction_oc_slot_planning_snapshot
+            columns:
+              - column:
+                  name: oc_id
+              - column:
+                  name: deleted
+              - column:
+                  name: user_id
+        - createIndex:
+            tableName: torn_faction_oc_user
+            indexName: idx_faction_oc_user_planning_capability
+            columns:
+              - column:
+                  name: faction_id
+              - column:
+                  name: rank
+              - column:
+                  name: oc_name
+              - column:
+                  name: position
+              - column:
+                  name: user_id
+              - column:
+                  name: deleted
+        - sql:
+            sql: |
+              INSERT INTO torn_setting_oc_plan_profile
+                (id, oc_name, rank, spawn_pool, plan_status, reward_floor, min_sample_size)
+              VALUES
+                (1, 'Blast from the Past', 7, 'NORMAL_7_8', 'READY', 98046000, 30),
+                (2, 'Window of Opportunity', 7, 'NORMAL_7_8', 'READY', 0, 30),
+                (3, 'Break the Bank', 8, 'NORMAL_7_8', 'READY', 195135000, 30),
+                (4, 'Clinical Precision', 8, 'NORMAL_7_8', 'READY', 61363000, 30),
+                (5, 'Stacking the Deck', 8, 'HIGH_CHAIN_ROOT', 'READY', 0, 30),
+                (6, 'Ace in the Hole', 9, 'CHAIN_ONLY', 'READY', 280005000, 30),
+                (7, 'Lock Stock', 8, 'HIGH_CHAIN_ROOT', 'OBSERVE_ONLY', 0, 30),
+                (8, 'Manifest Cruelty', 8, 'HIGH_CHAIN_ROOT', 'OBSERVE_ONLY', 0, 30),
+                (9, 'Gone Fission', 9, 'CHAIN_ONLY', 'OBSERVE_ONLY', 0, 30),
+                (10, 'Crane Reaction', 10, 'CHAIN_ONLY', 'OBSERVE_ONLY', 0, 30);
+
+              INSERT INTO torn_setting_oc_chain
+                (id, chain_code, parent_oc_name, parent_rank, child_oc_name, child_rank, sequence_no)
+              VALUES
+                (1, 'STACKING_ACE', 'Stacking the Deck', 8, 'Ace in the Hole', 9, 1),
+                (2, 'MANIFEST_FISSION_CRANE', 'Manifest Cruelty', 8, 'Gone Fission', 9, 1),
+                (3, 'MANIFEST_FISSION_CRANE', 'Gone Fission', 9, 'Crane Reaction', 10, 2);
+
+              INSERT INTO torn_setting_faction_oc_planning_policy
+                (id, faction_id, evaluation_mode, normal_pool_reserve_percent)
+              VALUES
+                (1, 20465, 'DIFFERENTIAL_WORK_HOUR', 20),
+                (2, 27902, 'DIFFERENTIAL_WORK_HOUR', 20),
+                (3, 2095, 'DIFFERENTIAL_WORK_HOUR', 30),
+                (4, 36134, 'DIFFERENTIAL_WORK_HOUR', 20),
+                (5, 16335, 'POSITION_WEIGHT', 20),
+                (6, 11796, 'POSITION_WEIGHT', 20);
+
+              INSERT INTO torn_setting_faction_oc_plan
+                (id, faction_id, oc_name, rank, enabled)
+              VALUES
+                (1, 20465, 'Blast from the Past', 7, true),
+                (2, 20465, 'Window of Opportunity', 7, true),
+                (3, 20465, 'Break the Bank', 8, true),
+                (4, 20465, 'Clinical Precision', 8, true),
+                (5, 20465, 'Stacking the Deck', 8, true),
+                (6, 20465, 'Ace in the Hole', 9, true);
