@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.manager.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -79,7 +80,7 @@ public class TornFactionOcUserManager {
         for (TornFactionCrimeVO oc : ocList) {
             for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
                 TornFactionCrimeUserVO slotUser = slot.getUser();
-                if (!callback.checkUserCorrect(slotUser)) {
+                if (!callback.checkUserCorrect(slotUser) || !StringUtils.hasText(slot.getPosition())) {
                     continue;
                 }
 
