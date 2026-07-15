@@ -1,6 +1,7 @@
 # Java 代码规范
 
 ## 元信息
+
 - 文档类型：Java代码规范 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
@@ -90,19 +91,22 @@ com.example.orderService
 
 常见后缀：
 
-| 类型            | 命名示例                                                |
-|---------------|-----------------------------------------------------|
-| Service 类     | `UserService`                                       |
-| DAO           | `UserDao`                                           |
-| DTO           | `CreateUserDTO` / `UserQueryParam` / `UserQueryReq` |
-| VO / Response | `UserResp` / `UserDetailVO`                         |
-| DO            | `UserDO`                                            |
-| Mapper        | `UserMapper`                                        |
-| Config        | `SecurityConfig`                                    |
-| Properties    | `JwtProperty`                                       |
-| Exception     | `UserNotFoundException`                             |
-| Enum          | `OrderStatusEnum`                                   |
-| Constant      | `UserConstants`                                     |
+| 类型            | 命名示例                                                     |
+|---------------|----------------------------------------------------------|
+| Service 类     | `UserService`                                            |
+| DAO           | `UserDao`                                                |
+| DTO           | `CreateUserDTO` / `UserQueryParam` / `UserQueryReq`      |
+| VO / Response | `UserResp` / `UserDetailVO`                              |
+| DO            | `UserDO`                                                 |
+| Mapper        | `UserMapper`                                             |
+| Config        | `SecurityConfig`                                         |
+| Properties    | `JwtProperty`                                            |
+| Exception     | `UserNotFoundException`                                  |
+| Enum          | `OrderStatusEnum`                                        |
+| Constant      | `UserConstants`                                          |
+| 抽象类           | `BaseUserService` / `AbastractUserService`               |
+| 接口实现类         | `UserServiceImpl`                                        |
+| 使用了设计模式的类     | `UserDataAdapter` / `UserLoginProxy` / `UserAuthFactory` |
 
 ## 方法命名
 
@@ -171,16 +175,16 @@ private static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
 
 ```java
 isEnabled
-hasPermission
+        hasPermission
 canCancel
-shouldRetry
+        shouldRetry
 ```
 
 避免：
 
 ```java
 flag
-status
+        status
 check
 ```
 
@@ -362,8 +366,8 @@ Map<Long, User> userMap = userRepository.findByIdIn(userIds).stream()
 推荐使用：
 
 ```java
-LocalDate 
-LocalDateTime
+LocalDate
+        LocalDateTime
 ```
 
 ## 金额
@@ -384,7 +388,7 @@ double
 BigDecimal 比较应使用：
 
 ```java
-amount.compareTo(BigDecimal.ZERO) > 0
+amount.compareTo(BigDecimal.ZERO) >0
 ```
 
 不要使用：
@@ -486,11 +490,13 @@ POJO类必须使用Lombok的注释，每个POJO类在不适用`@Data`时必须�
 ```
 
 当字段在数据库或业务中为非空必填字段，应该使用基本类型而非包装类型，建议使用：
+
 ```java
 private long userId
 ```
 
 不建议使用
+
 ```java
 private Long userId
 ```
