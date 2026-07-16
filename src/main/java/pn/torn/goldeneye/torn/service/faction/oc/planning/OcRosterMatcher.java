@@ -30,11 +30,29 @@ public class OcRosterMatcher {
     private static final long COEFFICIENT_REWARD_FACTOR = 100L;
     private static final int INF_CAPACITY = 1_000_000;
 
+    /**
+     * 使用均衡模式为队伍需求匹配完整阵容。
+     *
+     * @param demand 队伍岗位需求
+     * @param candidates 当前成员时间线中的候选成员
+     * @param planningTime 规划基准时间
+     * @return 完整匹配结果；无法补齐时返回缺失岗位
+     */
     public OcRosterMatchResult match(OcTeamDemand demand, List<OcMemberCandidate> candidates,
                                      LocalDateTime planningTime) {
         return match(demand, candidates, planningTime, OcPlanMode.BALANCED, false);
     }
 
+    /**
+     * 按指定规划模式和评价策略为队伍需求匹配完整阵容。
+     *
+     * @param demand 队伍岗位需求
+     * @param candidates 当前成员时间线中的候选成员
+     * @param planningTime 规划基准时间
+     * @param mode 规划模式
+     * @param differentialWorkingHour 是否使用差异工时评价
+     * @return 完整匹配结果；无法补齐时返回缺失岗位
+     */
     public OcRosterMatchResult match(OcTeamDemand demand, List<OcMemberCandidate> candidates,
                                      LocalDateTime planningTime, OcPlanMode mode,
                                      boolean differentialWorkingHour) {

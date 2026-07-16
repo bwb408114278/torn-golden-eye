@@ -17,6 +17,12 @@ import java.util.List;
 public class OcNewTeamPlanRenderer {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
 
+    /**
+     * 将OC新队规划结果渲染为指挥可直接执行的消息文本。
+     *
+     * @param plan OC新队规划结果
+     * @return 包含容量、队伍、成员、时间和警告的消息文本
+     */
     public String render(OcNewTeamPlan plan) {
         OcPlanBranch branch = plan.recommendedBranch();
         StringBuilder result = new StringBuilder("【OC新队#")

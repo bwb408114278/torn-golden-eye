@@ -7,8 +7,12 @@ import java.util.List;
 
 /**
  * 已经启动的高阶根队及其尚待履行的后继责任。
- */
-public record CommittedChainObligation(long rootOcId,
+ *
+ * @param rootOcId 已承诺根OC ID
+ * @param chain 该根对应的完整高阶链节点
+ * @param nextNodeIndex 下一待履约节点在链中的索引
+ * @param successorAvailableAt 后继节点最早可开始时间
+ */public record CommittedChainObligation(long rootOcId,
                                        List<OcTeamDemand> chain,
                                        int nextNodeIndex,
                                        LocalDateTime successorAvailableAt) {

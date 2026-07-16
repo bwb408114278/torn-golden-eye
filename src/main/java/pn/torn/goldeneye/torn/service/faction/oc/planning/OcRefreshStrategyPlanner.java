@@ -12,6 +12,14 @@ import java.util.List;
  */
 @Component
 public class OcRefreshStrategyPlanner {
+    /**
+     * 根据规划模式、当前可执行队伍和高阶容量生成刷新建议。
+     *
+     * @param mode 规划模式
+     * @param newTeams 当前快照可执行的新队方案
+     * @param chainCapacity 高阶链安全容量证明
+     * @return 不预测随机刷新结果的可解释刷新建议
+     */
     public OcRefreshAdvice plan(OcPlanMode mode, List<OcTeamPlan> newTeams,
                                 OcSafeChainCapacityResult chainCapacity) {
         if (!newTeams.isEmpty()) {

@@ -34,6 +34,12 @@ public class OcPlanCatalogValidator {
     private final TornSettingOcCoefficientManager coefficientManager;
     private final TornSettingOcPlanningManager planningManager;
 
+    /**
+     * 校验规划档案、岗位模板、评价系数和帮派范围的一致性。
+     *
+     * @param policy 当前帮派的规划策略
+     * @return 校验警告和必须从自动规划中排除的OC键
+     */
     public OcCatalogValidationResult validate(OcFactionPlanningPolicy policy) {
         Map<String, TornSettingOcDO> templates = new HashMap<>();
         ocManager.getList().forEach(item -> templates.put(key(item.getRank(), item.getOcName()), item));

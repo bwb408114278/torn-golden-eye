@@ -26,6 +26,18 @@ public class OcNewTeamPipelinePlanner {
     private static final int EXPIRE_DAYS = 7;
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
 
+    /**
+     * 按成员时间线规划高阶根或普通空OC队伍。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @param members 当前可用成员时间线
+     * @param rescuePlans 已完成的旧队补位方案
+     * @param mode 规划模式
+     * @param maxHighChainRoots 本次最多允许启动的高阶根数量
+     * @param highRootsOnly 是否仅规划高阶根
+     * @param allowedHighRootKey 容量证明允许启动的高阶根OC键；普通队规划时为空
+     * @return 新队方案及执行后的成员时间线
+     */
     public OcPipelinePlanningResult plan(OcPlanningSnapshot snapshot,
                                          List<OcMemberCandidate> members,
                                          List<OcTeamPlan> rescuePlans, OcPlanMode mode,

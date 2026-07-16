@@ -55,6 +55,11 @@ public class TornSettingOcPlanningManager implements DataCacheManager {
         return profileDao.lambdaQuery().eq(TornSettingOcPlanProfileDO::getDeleted, 0).list();
     }
 
+    /**
+     * 查询已启用且未删除的OC高阶链配置。
+     *
+     * @return 按链编码和节点顺序排序的高阶链配置
+     */
     @Cacheable(CHAIN_CACHE)
     public List<TornSettingOcChainDO> getChains() {
         return chainDao.lambdaQuery()
@@ -65,6 +70,11 @@ public class TornSettingOcPlanningManager implements DataCacheManager {
                 .list();
     }
 
+    /**
+     * 查询已启用且未删除的帮派OC规划范围。
+     *
+     * @return 帮派OC规划范围配置
+     */
     @Cacheable(FACTION_PLAN_CACHE)
     public List<TornSettingFactionOcPlanDO> getFactionPlans() {
         return factionPlanDao.lambdaQuery()
@@ -73,6 +83,11 @@ public class TornSettingOcPlanningManager implements DataCacheManager {
                 .list();
     }
 
+    /**
+     * 查询未删除的帮派OC规划策略。
+     *
+     * @return 帮派OC规划策略配置
+     */
     @Cacheable(POLICY_CACHE)
     public List<TornSettingFactionOcPlanningPolicyDO> getPolicies() {
         return policyDao.lambdaQuery()

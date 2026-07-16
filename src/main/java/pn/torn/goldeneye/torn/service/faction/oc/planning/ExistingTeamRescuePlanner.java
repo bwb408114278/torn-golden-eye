@@ -26,6 +26,13 @@ import java.util.Set;
 public class ExistingTeamRescuePlanner {
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
 
+    /**
+     * 在保留旧队成员和岗位的前提下规划全部旧队补位。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @param mode 规划模式
+     * @return 旧队补位方案及补位后的成员时间线
+     */
     public ExistingTeamRescueResult plan(OcPlanningSnapshot snapshot, OcPlanMode mode) {
         List<TornFactionOcDO> teams = snapshot.activeOcs().stream()
                 .filter(oc -> snapshot.slotsByOcId().getOrDefault(oc.getId(), List.of()).stream()

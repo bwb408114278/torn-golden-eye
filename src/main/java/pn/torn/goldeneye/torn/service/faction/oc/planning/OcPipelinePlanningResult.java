@@ -7,8 +7,10 @@ import java.util.List;
 
 /**
  * 一段新队流水线及其执行后的成员时间线。
- */
-public record OcPipelinePlanningResult(List<OcTeamPlan> plans,
+ *
+ * @param plans 流水线生成的队伍方案
+ * @param memberTimeline 执行这些方案后的成员时间线
+ */public record OcPipelinePlanningResult(List<OcTeamPlan> plans,
                                        List<OcMemberCandidate> memberTimeline) {
     public OcPipelinePlanningResult {
         plans = List.copyOf(plans);

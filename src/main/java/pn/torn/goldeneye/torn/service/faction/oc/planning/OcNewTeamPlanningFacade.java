@@ -19,17 +19,18 @@ public class OcNewTeamPlanningFacade {
 
     public OcNewTeamPlanningFacade(OcPlanningSnapshotLoader snapshotLoader,
                                    OcRefreshStrategyPlanner refreshStrategyPlanner) {
-        this(snapshotLoader, new OcNewTeamPlanningEngine(refreshStrategyPlanner),
-                Clock.systemDefaultZone());
-    }
-
-    OcNewTeamPlanningFacade(OcPlanningSnapshotLoader snapshotLoader,
-                            OcNewTeamPlanningEngine planningEngine, Clock clock) {
         this.snapshotLoader = snapshotLoader;
-        this.planningEngine = planningEngine;
-        this.clock = clock;
+        this.planningEngine = new OcNewTeamPlanningEngine(refreshStrategyPlanner);
+        this.clock = Clock.systemDefaultZone();
     }
 
+    /**
+     * 加载同一时点快照并生成指定模式的OC新队规划。
+     *
+     * @param factionId     帮派ID
+     * @param requestedMode 用户请求的规划模式
+     * @return 包含推荐分支和备选分支的规划结果
+     */
     public OcNewTeamPlan plan(long factionId, OcPlanMode requestedMode) {
         LocalDateTime now = LocalDateTime.now(clock);
         OcPlanningSnapshot snapshot = snapshotLoader.load(factionId, now);

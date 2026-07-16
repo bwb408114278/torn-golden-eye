@@ -24,6 +24,13 @@ public class OcChainPlanningService {
     private final OcSafeConcurrentChainCapacitySolver capacitySolver =
             new OcSafeConcurrentChainCapacitySolver();
 
+    /**
+     * 优先保留已承诺后继责任并证明可新增高阶链的安全容量。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @param rescue 旧队补位结果及成员时间线
+     * @return 高阶链容量证明、后继预留和更新后的成员时间线
+     */
     public ChainPlanningResult calculate(OcPlanningSnapshot snapshot,
                                          ExistingTeamRescueResult rescue) {
         List<OcMemberCandidate> members = rescue.memberTimeline();
@@ -84,6 +91,12 @@ public class OcChainPlanningService {
                 provenRootKey, chainNames, best.memberTimeline(), best.reservedAssignments(), warnings);
     }
 
+    /**
+     * 根据快照中的有效配置构造可参与自动规划的完整高阶链。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @return 通过状态、范围和完整性校验的高阶链节点列表
+     */
     public List<List<OcTeamDemand>> buildReadyChains(OcPlanningSnapshot snapshot) {
         Map<String, List<TornSettingOcChainDO>> byCode = new LinkedHashMap<>();
         snapshot.chains().forEach(edge -> byCode.computeIfAbsent(edge.getChainCode(),

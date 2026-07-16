@@ -54,6 +54,13 @@ public class OcPlanningSnapshotLoader {
     private final OcFactionPlanningPolicyResolver policyResolver;
     private final OcPlanCatalogValidator catalogValidator;
 
+    /**
+     * 批量加载指定帮派在同一时间点的不可变规划快照。
+     *
+     * @param factionId 帮派ID
+     * @param snapshotTime 快照时间
+     * @return 包含活跃OC、岗位、成员能力和配置校验结果的规划快照
+     */
     public OcPlanningSnapshot load(long factionId, LocalDateTime snapshotTime) {
         OcFactionPlanningPolicy policy = policyResolver.resolve(factionId);
         OcCatalogValidationResult validation = catalogValidator.validate(policy);

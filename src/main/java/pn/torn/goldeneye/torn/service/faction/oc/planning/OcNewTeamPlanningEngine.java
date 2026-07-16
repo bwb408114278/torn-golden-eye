@@ -20,6 +20,13 @@ public class OcNewTeamPlanningEngine {
         this.refreshStrategyPlanner = refreshStrategyPlanner;
     }
 
+    /**
+     * 基于同一不可变快照生成三个模式分支并选择推荐分支。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @param requestedMode 用户请求优先展示的规划模式
+     * @return 包含推荐分支、备选分支和目录警告的规划结果
+     */
     public OcNewTeamPlan plan(OcPlanningSnapshot snapshot, OcPlanMode requestedMode) {
         long validKeyCount = snapshot.policy().enabledOcKeys().stream()
                 .filter(key -> !snapshot.invalidOcKeys().contains(key))

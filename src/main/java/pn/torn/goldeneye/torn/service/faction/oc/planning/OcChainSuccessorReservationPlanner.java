@@ -19,6 +19,15 @@ import java.util.Set;
 public class OcChainSuccessorReservationPlanner {
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
 
+    /**
+     * 为本次建议新增的高阶根预留完整后继阵容。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @param capacityResult 已承诺后继预留和安全容量证明
+     * @param rootPlans 已规划的新增高阶根及成员时间线
+     * @param mode 岗位匹配使用的规划模式
+     * @return 后继预留结果；无法完整预留时回滚本次新增高阶建议
+     */
     public ChainPlanningResult reserve(OcPlanningSnapshot snapshot,
                                        ChainPlanningResult capacityResult,
                                        OcPipelinePlanningResult rootPlans,

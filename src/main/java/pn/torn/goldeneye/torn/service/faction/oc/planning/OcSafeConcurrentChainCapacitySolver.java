@@ -20,6 +20,16 @@ import java.util.Map;
 public class OcSafeConcurrentChainCapacitySolver {
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
 
+    /**
+     * 先预留全部已承诺后继，再搜索指定高阶链可安全新增的数量。
+     *
+     * @param chainNodes 待评估高阶链的完整节点序列
+     * @param members 当前成员时间线
+     * @param committedObligations 已承诺高阶根的后继责任
+     * @param searchUpperBound 新增链搜索上限；达到上限只证明安全下界
+     * @param planningTime 规划基准时间
+     * @return 容量证明、后继可履约状态和预留后的成员时间线
+     */
     public OcChainCapacityPlanningResult calculate(List<OcTeamDemand> chainNodes,
                                                     List<OcMemberCandidate> members,
                                                     List<CommittedChainObligation> committedObligations,

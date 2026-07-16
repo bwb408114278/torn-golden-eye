@@ -10,59 +10,69 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  remarks: "ID"
                   constraints:
                     primaryKey: true
                     nullable: false
               - column:
                   name: oc_name
                   type: VARCHAR(64)
+                  remarks: "OC名称"
                   constraints:
                     nullable: false
               - column:
                   name: rank
                   type: INT
+                  remarks: "OC等级"
                   constraints:
                     nullable: false
               - column:
                   name: spawn_pool
                   type: VARCHAR(32)
+                  remarks: "OC刷新池类型"
                   constraints:
                     nullable: false
               - column:
                   name: plan_status
                   type: VARCHAR(32)
+                  remarks: "OC规划状态"
                   constraints:
                     nullable: false
               - column:
                   name: reward_floor
                   type: BIGINT
-                  defaultValueNumeric: 0
+                  remarks: "自动规划最低收益门槛"
+                  defaultValueNumeric: "0"
                   constraints:
                     nullable: false
               - column:
                   name: min_sample_size
                   type: INT
-                  defaultValueNumeric: 30
+                  remarks: "收益评价最小有效样本数"
+                  defaultValueNumeric: "30"
                   constraints:
                     nullable: false
               - column:
                   name: deleted
-                  type: SMALLINT
-                  defaultValueNumeric: 0
+                  type: TINYINT
+                  defaultValueComputed: '0'
                   constraints:
                     nullable: false
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "创建时间"
               - column:
                   name: update_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "更新时间"
         - addUniqueConstraint:
             tableName: torn_setting_oc_plan_profile
             columnNames: rank, oc_name
@@ -74,63 +84,74 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  remarks: "ID"
                   constraints:
                     primaryKey: true
                     nullable: false
               - column:
                   name: chain_code
                   type: VARCHAR(64)
+                  remarks: "OC链编码"
                   constraints:
                     nullable: false
               - column:
                   name: parent_oc_name
                   type: VARCHAR(64)
+                  remarks: "前置OC名称"
                   constraints:
                     nullable: false
               - column:
                   name: parent_rank
                   type: INT
+                  remarks: "前置OC等级"
                   constraints:
                     nullable: false
               - column:
                   name: child_oc_name
                   type: VARCHAR(64)
+                  remarks: "后继OC名称"
                   constraints:
                     nullable: false
               - column:
                   name: child_rank
                   type: INT
+                  remarks: "后继OC等级"
                   constraints:
                     nullable: false
               - column:
                   name: sequence_no
-                  type: INT
+                  type: INTEGER
+                  remarks: "链关系顺序号"
                   constraints:
                     nullable: false
               - column:
                   name: enabled
                   type: BOOLEAN
+                  remarks: "是否启用该链关系"
                   defaultValueBoolean: true
                   constraints:
                     nullable: false
               - column:
                   name: deleted
-                  type: SMALLINT
-                  defaultValueNumeric: 0
+                  type: TINYINT
+                  defaultValueComputed: '0'
                   constraints:
                     nullable: false
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "创建时间"
               - column:
                   name: update_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "更新时间"
         - addUniqueConstraint:
             tableName: torn_setting_oc_chain
             columnNames: chain_code, sequence_no
@@ -142,48 +163,56 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  remarks: "ID"
                   constraints:
                     primaryKey: true
                     nullable: false
               - column:
                   name: faction_id
                   type: BIGINT
+                  remarks: "帮派ID"
                   constraints:
                     nullable: false
               - column:
                   name: oc_name
                   type: VARCHAR(64)
+                  remarks: "OC名称"
                   constraints:
                     nullable: false
               - column:
                   name: rank
                   type: INT
+                  remarks: "OC等级"
                   constraints:
                     nullable: false
               - column:
                   name: enabled
                   type: BOOLEAN
+                  remarks: "是否允许该帮派自动规划此OC"
                   defaultValueBoolean: true
                   constraints:
                     nullable: false
               - column:
                   name: deleted
-                  type: SMALLINT
-                  defaultValueNumeric: 0
+                  type: TINYINT
+                  defaultValueComputed: '0'
                   constraints:
                     nullable: false
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "创建时间"
               - column:
                   name: update_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "更新时间"
         - addUniqueConstraint:
             tableName: torn_setting_faction_oc_plan
             columnNames: faction_id, rank, oc_name
@@ -195,43 +224,50 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  remarks: "ID"
                   constraints:
                     primaryKey: true
                     nullable: false
               - column:
                   name: faction_id
                   type: BIGINT
+                  remarks: "帮派ID"
                   constraints:
                     nullable: false
               - column:
                   name: evaluation_mode
                   type: VARCHAR(32)
+                  remarks: "岗位候选人评价模式"
                   constraints:
                     nullable: false
               - column:
                   name: normal_pool_reserve_percent
                   type: INT
-                  defaultValueNumeric: 20
+                  remarks: "普通队规划需保留的成员比例（百分比）"
+                  defaultValueNumeric: "20"
                   constraints:
                     nullable: false
               - column:
                   name: deleted
-                  type: SMALLINT
-                  defaultValueNumeric: 0
+                  type: TINYINT
+                  defaultValueComputed: '0'
                   constraints:
                     nullable: false
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "创建时间"
               - column:
                   name: update_time
                   type: TIMESTAMP
-                  defaultValueComputed: now()
+                  defaultValueComputed: CURRENT_TIMESTAMP
                   constraints:
                     nullable: false
+                  remarks: "更新时间"
         - addUniqueConstraint:
             tableName: torn_setting_faction_oc_planning_policy
             columnNames: faction_id

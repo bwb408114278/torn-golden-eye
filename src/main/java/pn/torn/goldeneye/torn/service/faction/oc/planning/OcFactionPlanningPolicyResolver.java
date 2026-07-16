@@ -25,6 +25,12 @@ public class OcFactionPlanningPolicyResolver {
 
     private final TornSettingOcPlanningManager planningManager;
 
+    /**
+     * 解析指定帮派的OC规划策略和显式规划范围。
+     *
+     * @param factionId 帮派ID
+     * @return 应用于该帮派的规划策略
+     */
     public OcFactionPlanningPolicy resolve(long factionId) {
         TornSettingFactionOcPlanningPolicyDO policy = planningManager.getPolicies().stream()
                 .filter(item -> item.getFactionId().equals(factionId))
