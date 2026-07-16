@@ -10,6 +10,10 @@ import java.time.LocalDateTime;
 
 /**
  * OC新队规划门面：同步刷新数据、建立一次不可变快照并委托纯规划引擎。
+ *
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.15
  */
 @Service
 public class OcNewTeamPlanningFacade {

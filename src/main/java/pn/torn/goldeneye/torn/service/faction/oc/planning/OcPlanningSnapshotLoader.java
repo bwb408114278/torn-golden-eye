@@ -26,17 +26,16 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
  * 批量加载一次规划需要的所有数据。搜索过程中不得再访问数据库。
+ *
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.15
  */
 @Component
 @RequiredArgsConstructor
@@ -57,7 +56,7 @@ public class OcPlanningSnapshotLoader {
     /**
      * 批量加载指定帮派在同一时间点的不可变规划快照。
      *
-     * @param factionId 帮派ID
+     * @param factionId    帮派ID
      * @param snapshotTime 快照时间
      * @return 包含活跃OC、岗位、成员能力和配置校验结果的规划快照
      */
@@ -104,8 +103,8 @@ public class OcPlanningSnapshotLoader {
     }
 
     private Map<Long, LocalDateTime> calculateOccupiedUntil(List<TornFactionOcDO> activeOcs,
-                                                             List<TornFactionOcSlotDO> slots,
-                                                             LocalDateTime snapshotTime) {
+                                                            List<TornFactionOcSlotDO> slots,
+                                                            LocalDateTime snapshotTime) {
         Map<Long, LocalDateTime> result = new HashMap<>();
         Map<Long, TornFactionOcDO> ocMap = activeOcs.stream()
                 .collect(Collectors.toMap(TornFactionOcDO::getId, Function.identity()));

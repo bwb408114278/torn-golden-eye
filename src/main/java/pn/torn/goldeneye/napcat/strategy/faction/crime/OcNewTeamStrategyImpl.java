@@ -19,8 +19,8 @@ import java.util.List;
  * OC新队规划指令。三个二级指令统一保留在同一个策略实现中。
  *
  * @author Bai
- * @version 1.3.0
- * @since 2025.11.04
+ * @version 1.2.10
+ * @since 2026.07.15
  */
 @Component
 @RequiredArgsConstructor

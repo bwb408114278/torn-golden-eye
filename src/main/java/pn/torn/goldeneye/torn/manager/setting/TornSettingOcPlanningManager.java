@@ -1,9 +1,12 @@
 package pn.torn.goldeneye.torn.manager.setting;
 
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.cache.DataCacheManager;
 import pn.torn.goldeneye.constants.torn.CacheConstants;
@@ -20,37 +23,43 @@ import java.util.List;
 
 /**
  * OC新队规划配置管理器。
+ *
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.15
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class TornSettingOcPlanningManager implements DataCacheManager {
-    private static final String PROFILE_CACHE = "torn:setting:oc:planning:profile";
-    private static final String CHAIN_CACHE = "torn:setting:oc:planning:chain";
-    private static final String FACTION_PLAN_CACHE = "torn:setting:oc:planning:faction";
-    private static final String POLICY_CACHE = "torn:setting:oc:planning:policy";
-
     private final TornSettingOcPlanProfileDAO profileDao;
     private final TornSettingOcChainDAO chainDao;
     private final TornSettingFactionOcPlanDAO factionPlanDao;
     private final TornSettingFactionOcPlanningPolicyDAO policyDao;
+    @Lazy
+    @Resource
+    private TornSettingOcPlanningManager planningManager;
 
     @Override
     public void warmUpCache() {
-        getProfiles();
-        getChains();
-        getFactionPlans();
-        getPolicies();
+        planningManager.getProfiles();
+        planningManager.getChains();
+        planningManager.getFactionPlans();
+        planningManager.getPolicies();
     }
 
     @Override
-    @CacheEvict(cacheNames = {PROFILE_CACHE, CHAIN_CACHE, FACTION_PLAN_CACHE, POLICY_CACHE},
-            allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConstants.KEY_OC_TEAM_PLAN_PROFILE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.KEY_OC_TEAM_PLAN_CHAIN, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.KEY_OC_TEAM_PLAN_FACTION_PLAN, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.KEY_OC_TEAM_PLAN_POLICY, allEntries = true)})
     public void refreshCache() {
         log.info("OC新队规划配置缓存已重置");
     }
 
-    @Cacheable(PROFILE_CACHE)
+
+    @Cacheable(value = CacheConstants.KEY_OC_TEAM_PLAN_PROFILE)
     public List<TornSettingOcPlanProfileDO> getProfiles() {
         return profileDao.lambdaQuery().eq(TornSettingOcPlanProfileDO::getDeleted, 0).list();
     }
@@ -60,7 +69,7 @@ public class TornSettingOcPlanningManager implements DataCacheManager {
      *
      * @return 按链编码和节点顺序排序的高阶链配置
      */
-    @Cacheable(CHAIN_CACHE)
+    @Cacheable(value = CacheConstants.KEY_OC_TEAM_PLAN_CHAIN)
     public List<TornSettingOcChainDO> getChains() {
         return chainDao.lambdaQuery()
                 .eq(TornSettingOcChainDO::getDeleted, 0)
@@ -75,7 +84,7 @@ public class TornSettingOcPlanningManager implements DataCacheManager {
      *
      * @return 帮派OC规划范围配置
      */
-    @Cacheable(FACTION_PLAN_CACHE)
+    @Cacheable(value = CacheConstants.KEY_OC_TEAM_PLAN_FACTION_PLAN)
     public List<TornSettingFactionOcPlanDO> getFactionPlans() {
         return factionPlanDao.lambdaQuery()
                 .eq(TornSettingFactionOcPlanDO::getDeleted, 0)
@@ -88,7 +97,7 @@ public class TornSettingOcPlanningManager implements DataCacheManager {
      *
      * @return 帮派OC规划策略配置
      */
-    @Cacheable(POLICY_CACHE)
+    @Cacheable(value = CacheConstants.KEY_OC_TEAM_PLAN_POLICY)
     public List<TornSettingFactionOcPlanningPolicyDO> getPolicies() {
         return policyDao.lambdaQuery()
                 .eq(TornSettingFactionOcPlanningPolicyDO::getDeleted, 0)

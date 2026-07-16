@@ -16,6 +16,10 @@ import java.util.Set;
 
 /**
  * 解析帮派的新队规划范围与岗位评价模式。
+ *
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.15
  */
 @Component
 @RequiredArgsConstructor
