@@ -60,7 +60,7 @@ public class OcRosterMatcher {
                                      LocalDateTime planningTime, OcPlanMode mode,
                                      boolean differentialWorkingHour) {
         return matchInternal(demand, candidates, planningTime, mode,
-                differentialWorkingHour, false);
+                differentialWorkingHour, false, false);
     }
 
     /**
@@ -75,7 +75,22 @@ public class OcRosterMatcher {
                                                   List<OcMemberCandidate> candidates,
                                                   LocalDateTime planningTime) {
         return matchInternal(demand, candidates, planningTime,
-                OcPlanMode.BALANCED, false, true);
+                OcPlanMode.BALANCED, false, true, false);
+    }
+
+    /**
+     * 使用确定性岗位顺序匹配不产生新增停转的完整阵容。
+     *
+     * @param demand 队伍岗位需求
+     * @param candidates 当前成员时间线中的候选成员
+     * @param planningTime 规划基准时间
+     * @return 无新增停转的完整匹配结果
+     */
+    public OcRosterMatchResult matchWithoutPause(OcTeamDemand demand,
+                                                 List<OcMemberCandidate> candidates,
+                                                 LocalDateTime planningTime) {
+        return matchInternal(demand, candidates, planningTime,
+                OcPlanMode.BALANCED, false, true, true);
     }
 
     /**
@@ -87,6 +102,7 @@ public class OcRosterMatcher {
      * @param mode 规划模式
      * @param differentialWorkingHour 是否使用差异工时评价
      * @param deterministicSchedule 是否使用确定性岗位顺序
+     * @param preventPause 是否禁止产生新的停转
      * @return 完整匹配结果
      */
     private OcRosterMatchResult matchInternal(OcTeamDemand demand,
@@ -94,7 +110,8 @@ public class OcRosterMatcher {
                                               LocalDateTime planningTime,
                                               OcPlanMode mode,
                                               boolean differentialWorkingHour,
-                                              boolean deterministicSchedule) {
+                                              boolean deterministicSchedule,
+                                              boolean preventPause) {
         List<OcPlanSlot> vacantSlots = demand.getVacantSlots();
         if (vacantSlots.isEmpty()) {
             if (!demand.fixedMemberIds().isEmpty() && demand.readyAt() == null) {
@@ -106,6 +123,8 @@ public class OcRosterMatcher {
         List<OcMemberCandidate> usableMembers = candidates.stream()
                 .filter(candidate -> !candidate.fixed())
                 .filter(candidate -> !demand.fixedMemberIds().contains(candidate.userId()))
+                .filter(candidate -> !preventPause
+                        || canJoinWithoutPause(demand, candidate, planningTime))
                 .sorted(Comparator.comparing(OcMemberCandidate::availableAt)
                         .thenComparingLong(OcMemberCandidate::userId))
                 .toList();
@@ -123,13 +142,32 @@ public class OcRosterMatcher {
         List<MatchedSlot> matches = extractMatches(graph, demand, vacantSlots, usableMembers);
         if (deterministicSchedule) {
             List<MatchedSlot> deterministic = new ArrayList<>(matches);
-            deterministic.sort(orderComparator(demand, differentialWorkingHour));
-            List<OcPlannedAssignment> schedule = buildSchedule(deterministic, demand, planningTime);
+            deterministic.sort(deterministicComparator(
+                    demand, differentialWorkingHour, preventPause));
+            List<OcPlannedAssignment> schedule = buildSchedule(
+                    deterministic, demand, planningTime, preventPause);
             return schedule.isEmpty()
                     ? OcRosterMatchResult.failure(vacantSlots.stream().map(OcPlanSlot::code).toList())
                     : OcRosterMatchResult.success(schedule, schedule.getLast().stageCompleteAt());
         }
         return buildBestSchedule(matches, demand, planningTime, differentialWorkingHour);
+    }
+
+    /**
+     * 判断候选成员能否在当前准入阶段前加入，避免新增停转。
+     *
+     * @param demand 队伍需求
+     * @param candidate 候选成员
+     * @param planningTime 规划基准时间
+     * @return 可在准入时间前加入时返回true
+     */
+    private boolean canJoinWithoutPause(OcTeamDemand demand,
+                                        OcMemberCandidate candidate,
+                                        LocalDateTime planningTime) {
+        LocalDateTime readyTime = demand.readyAt();
+        LocalDateTime latestJoinAt = readyTime == null || readyTime.isBefore(planningTime)
+                ? planningTime : readyTime;
+        return !candidate.availableAt().isAfter(latestJoinAt);
     }
 
     /**
@@ -288,6 +326,24 @@ public class OcRosterMatcher {
     }
 
     /**
+     * 构造确定性排程比较器；无停转模式优先使用最早可加入成员。
+     *
+     * @param demand 队伍需求
+     * @param differentialWorkingHour 是否使用差异工时评价
+     * @param preventPause 是否禁止产生新的停转
+     * @return 确定性排程比较器
+     */
+    private Comparator<MatchedSlot> deterministicComparator(
+            OcTeamDemand demand, boolean differentialWorkingHour, boolean preventPause) {
+        Comparator<MatchedSlot> valueComparator = orderComparator(
+                demand, differentialWorkingHour);
+        return preventPause
+                ? Comparator.comparing((MatchedSlot match) -> match.member.availableAt())
+                .thenComparing(valueComparator)
+                : valueComparator;
+    }
+
+    /**
      * 计算一组成员加入顺序的评分。
      *
      * @param order 成员岗位顺序
@@ -334,14 +390,35 @@ public class OcRosterMatcher {
      */
     private List<OcPlannedAssignment> buildSchedule(List<MatchedSlot> order, OcTeamDemand demand,
                                                     LocalDateTime planningTime) {
+        return buildSchedule(order, demand, planningTime, false);
+    }
+
+    /**
+     * 按指定成员顺序构建准备阶段时间线。
+     *
+     * @param order 成员岗位顺序
+     * @param demand 队伍需求
+     * @param planningTime 规划基准时间
+     * @param preventPause 是否禁止产生新的停转
+     * @return 成员加入安排；无法满足时间约束时返回空集合
+     */
+    private List<OcPlannedAssignment> buildSchedule(List<MatchedSlot> order,
+                                                    OcTeamDemand demand,
+                                                    LocalDateTime planningTime,
+                                                    boolean preventPause) {
         List<OcPlannedAssignment> assignments = new ArrayList<>(order.size());
         if (!demand.fixedMemberIds().isEmpty() && demand.readyAt() == null) {
             return List.of();
         }
         LocalDateTime currentReadyTime = demand.readyAt();
+        boolean firstAssignment = true;
         for (MatchedSlot match : order) {
             LocalDateTime joinAt = planningTime.isAfter(match.member.availableAt())
                     ? planningTime : match.member.availableAt();
+            if (preventPause && joinsAfterAllowedTime(
+                    joinAt, currentReadyTime, planningTime, firstAssignment)) {
+                return List.of();
+            }
             if (currentReadyTime == null && demand.expiresAt() != null
                     && joinAt.isAfter(demand.expiresAt())) {
                 return List.of();
@@ -354,8 +431,28 @@ public class OcRosterMatcher {
                     match.slot.code(), match.passRate, match.slot.requiredPassRate(),
                     joinAt, completeAt, coefficient));
             currentReadyTime = completeAt;
+            firstAssignment = false;
         }
         return assignments;
+    }
+
+    /**
+     * 判断成员加入是否会让本轮新增OC产生停转。
+     *
+     * @param joinAt 成员实际加入时间
+     * @param currentReadyTime 当前下一阶段时间
+     * @param planningTime 规划基准时间
+     * @param firstAssignment 是否为本轮首个待补岗位
+     * @return 加入时间超过允许时间时返回true
+     */
+    private boolean joinsAfterAllowedTime(LocalDateTime joinAt,
+                                          LocalDateTime currentReadyTime,
+                                          LocalDateTime planningTime,
+                                          boolean firstAssignment) {
+        boolean needsImmediateJoin = currentReadyTime == null
+                || firstAssignment && currentReadyTime.isBefore(planningTime);
+        LocalDateTime latestJoinAt = needsImmediateJoin ? planningTime : currentReadyTime;
+        return joinAt.isAfter(latestJoinAt);
     }
 
     /**
@@ -450,6 +547,7 @@ public class OcRosterMatcher {
         private final int sink;
         private final int memberOffset;
         private final int slotOffset;
+        private int flow;
 
         /**
          * 创建包含固定节点分区的空残量网络。
@@ -502,7 +600,6 @@ public class OcRosterMatcher {
          * @return 实际完成流量
          */
         private int minCostMaxFlow(int expectedFlow) {
-            int flow = 0;
             while (flow < expectedFlow) {
                 ShortestPath path = findShortestPath();
                 if (!path.reaches(sink)) {

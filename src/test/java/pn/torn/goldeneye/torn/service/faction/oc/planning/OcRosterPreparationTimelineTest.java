@@ -94,6 +94,33 @@ class OcRosterPreparationTimelineTest {
         assertFalse(result.complete());
     }
 
+    @Test
+    @DisplayName("新增空OC的首位成员不能延迟加入")
+    void shouldRejectNewEmptyOcWhenFirstMemberCannotJoinNow() {
+        OcTeamDemand demand = new OcTeamDemand(0L, "Test", 8, null,
+                SNAPSHOT.plusDays(7), false, slots(1), Set.of(), Set.of());
+        OcMemberCandidate lateMember = member(1L, SNAPSHOT.plusMinutes(1));
+
+        OcRosterMatchResult result = new OcRosterMatcher().matchWithoutPause(
+                demand, List.of(lateMember), SNAPSHOT);
+
+        assertFalse(result.complete());
+    }
+
+    @Test
+    @DisplayName("后续成员晚于当前阶段时间时应拒绝新增停转")
+    void shouldRejectNewPauseWhenMemberJoinsAfterReadyTime() {
+        LocalDateTime readyTime = SNAPSHOT.plusHours(1);
+        OcTeamDemand demand = demand(readyTime,
+                Set.of("Worker#1"), Set.of(1L), 2);
+        OcMemberCandidate lateMember = member(2L, readyTime.plusMinutes(1));
+
+        OcRosterMatchResult result = new OcRosterMatcher().matchWithoutPause(
+                demand, List.of(lateMember), SNAPSHOT);
+
+        assertFalse(result.complete());
+    }
+
     private OcTeamDemand demand(LocalDateTime readyTime, Set<String> fixedSlots,
                                 Set<Long> fixedMembers, int totalSlots) {
         return new OcTeamDemand(1L, "Test", 8, readyTime, null,

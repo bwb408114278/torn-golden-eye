@@ -2,7 +2,6 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcEvaluationMode;
@@ -45,11 +44,11 @@ class OcRefreshInstructionPlannerTest {
         OcRefreshInstructionPlan profit = planner.plan(snapshot, OcPlanMode.PROFIT);
 
         assertEquals(1, conservative.normalRefreshCount());
-        assertEquals(3, balanced.normalRefreshCount());
-        assertEquals(7, profit.normalRefreshCount());
+        assertEquals(2, balanced.normalRefreshCount());
+        assertEquals(4, profit.normalRefreshCount());
         assertEquals(0, profit.highRefreshCount());
         assertFalse(profit.lowerBound());
-        assertEquals(Map.of("8:Normal", 1), profit.plannedEmptyOcCounts());
+        assertEquals(Map.of(), profit.plannedEmptyOcCounts());
     }
 
     @Test
@@ -131,12 +130,7 @@ class OcRefreshInstructionPlannerTest {
 
     private OcPlanningSnapshot snapshot() {
         String key = OcPlanningSnapshot.ocKey(8, "Normal");
-        TornFactionOcDO oc = new TornFactionOcDO();
-        oc.setId(1L);
-        oc.setName("Normal");
-        oc.setRank(8);
-        oc.setStatus("Recruiting");
-        oc.setCreateTime(NOW);
+
         TornSettingOcPlanProfileDO profile = new TornSettingOcPlanProfileDO();
         profile.setOcName("Normal");
         profile.setRank(8);
@@ -145,10 +139,13 @@ class OcRefreshInstructionPlannerTest {
         OcFactionPlanningPolicy policy = new OcFactionPlanningPolicy(1L,
                 OcEvaluationMode.POSITION_WEIGHT, 20, 25, 50, 100,
                 Set.of(key), List.of());
-        OcMemberCandidate member = new OcMemberCandidate(10L, "member", NOW, false,
-                Map.of(OcMemberCandidate.capabilityKey(8, "Normal", "Worker"), 90), Map.of());
-        return new OcPlanningSnapshot(1L, NOW, policy, List.of(oc), Map.of(),
-                List.of(member), Map.of(key, profile), List.of(),
+        List<OcMemberCandidate> members = java.util.stream.LongStream.rangeClosed(10L, 13L)
+                .mapToObj(id -> new OcMemberCandidate(id, "member" + id, NOW, false,
+                        Map.of(OcMemberCandidate.capabilityKey(
+                                8, "Normal", "Worker"), 90), Map.of()))
+                .toList();
+        return new OcPlanningSnapshot(1L, NOW, policy, List.of(), Map.of(),
+                members, Map.of(key, profile), List.of(),
                 Map.of(key, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null))),
                 Set.of(), List.of());
     }

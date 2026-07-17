@@ -1,7 +1,7 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlannedAssignment;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -255,8 +256,11 @@ public class OcRefreshSafetySolver {
             return false;
         }
         List<OcMemberCandidate> timeline = copyMembers(baseTimeline);
-        return scheduleNormalCombination(request, normalCombination, timeline)
-                && scheduleHighCombination(request, highCombination, timeline);
+        Set<Long> reservedMemberIds = new HashSet<>();
+        return scheduleNormalCombination(
+                request, normalCombination, timeline, reservedMemberIds)
+                && scheduleHighCombination(
+                request, highCombination, timeline, reservedMemberIds);
     }
 
     /**
@@ -409,11 +413,13 @@ public class OcRefreshSafetySolver {
      * @param request 求解请求
      * @param combination 普通池各模板出现次数
      * @param timeline 当前成员时间线
+     * @param reservedMemberIds 本批次已预留成员ID
      * @return 组合可完整排程时返回true
      */
     private boolean scheduleNormalCombination(OcRefreshSafetyRequest request,
                                                int[] combination,
-                                               List<OcMemberCandidate> timeline) {
+                                               List<OcMemberCandidate> timeline,
+                                               Set<Long> reservedMemberIds) {
         List<OcTeamDemand> demands = new ArrayList<>();
         for (int index = 0; index < combination.length; index++) {
             OcTeamDemand template = request.normalTemplates().get(index);
@@ -421,7 +427,13 @@ public class OcRefreshSafetySolver {
                 demands.add(freshDemand(template, request.planningTime()));
             }
         }
-        return scheduleDemands(demands, timeline, request.planningTime());
+        for (OcTeamDemand demand : demands) {
+            if (!scheduleBatchDemand(demand, timeline,
+                    request.planningTime(), reservedMemberIds)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -481,30 +493,124 @@ public class OcRefreshSafetySolver {
      * @param request 求解请求
      * @param combination 各高阶链出现次数
      * @param timeline 当前成员时间线
+     * @param reservedMemberIds 本批次已预留成员ID
      * @return 组合可完整排程时返回true
      */
     private boolean scheduleHighCombination(OcRefreshSafetyRequest request, int[] combination,
-                                            List<OcMemberCandidate> timeline) {
+                                            List<OcMemberCandidate> timeline,
+                                            Set<Long> reservedMemberIds) {
         if (combination.length == 0) {
             return true;
         }
         for (int chainIndex = 0; chainIndex < combination.length; chainIndex++) {
             List<OcTeamDemand> chain = request.highChains().get(chainIndex);
             for (int count = 0; count < combination[chainIndex]; count++) {
-                LocalDateTime nodeStart = request.planningTime();
-                for (OcTeamDemand template : chain) {
-                    OcTeamDemand demand = freshDemand(template, nodeStart);
-                    OcRosterMatchResult match = rosterMatcher.matchDeterministic(
-                            demand, timeline, nodeStart);
-                    if (isIncomplete(match)) {
-                        return false;
-                    }
-                    updateTimeline(timeline, match, demand);
-                    nodeStart = match.completionAt();
+                if (!scheduleBatchChain(chain, timeline,
+                        request.planningTime(), reservedMemberIds)) {
+                    return false;
                 }
             }
         }
         return true;
+    }
+
+    /**
+     * 调度本轮单支新增OC，并将实际使用成员标记为本批次不可复用。
+     *
+     * @param demand 新增OC需求
+     * @param timeline 当前成员时间线
+     * @param planningTime 规划基准时间
+     * @param reservedMemberIds 本批次已预留成员ID
+     * @return 无新增停转且可形成完整阵容时返回true
+     */
+    private boolean scheduleBatchDemand(OcTeamDemand demand,
+                                        List<OcMemberCandidate> timeline,
+                                        LocalDateTime planningTime,
+                                        Set<Long> reservedMemberIds) {
+        OcRosterMatchResult match = scheduleBatchNode(
+                demand, timeline, planningTime, reservedMemberIds);
+        if (isIncomplete(match)) {
+            return false;
+        }
+        reserveAssignments(match, reservedMemberIds);
+        return true;
+    }
+
+    /**
+     * 调度本轮单条新增高阶链；链内允许成员复用，链间禁止复用。
+     *
+     * @param chain 高阶链模板
+     * @param timeline 当前成员时间线
+     * @param planningTime 规划基准时间
+     * @param reservedMemberIds 本批次其他OC或链已预留成员ID
+     * @return 整条链无新增停转且可完整排程时返回true
+     */
+    private boolean scheduleBatchChain(List<OcTeamDemand> chain,
+                                       List<OcMemberCandidate> timeline,
+                                       LocalDateTime planningTime,
+                                       Set<Long> reservedMemberIds) {
+        Set<Long> chainMemberIds = new HashSet<>();
+        LocalDateTime nodeStart = planningTime;
+        for (OcTeamDemand template : chain) {
+            OcTeamDemand demand = freshDemand(template, nodeStart);
+            OcRosterMatchResult match = scheduleBatchNode(
+                    demand, timeline, nodeStart, reservedMemberIds);
+            if (isIncomplete(match)) {
+                return false;
+            }
+            reserveAssignments(match, chainMemberIds);
+            nodeStart = match.completionAt();
+        }
+        reservedMemberIds.addAll(chainMemberIds);
+        return true;
+    }
+
+    /**
+     * 调度本批次单个OC节点并推进成员时间线。
+     *
+     * @param demand 当前节点需求
+     * @param timeline 当前成员时间线
+     * @param planningTime 节点规划基准时间
+     * @param reservedMemberIds 本批次其他OC或链已预留成员ID
+     * @return 无新增停转的岗位匹配结果
+     */
+    private OcRosterMatchResult scheduleBatchNode(OcTeamDemand demand,
+                                                  List<OcMemberCandidate> timeline,
+                                                  LocalDateTime planningTime,
+                                                  Set<Long> reservedMemberIds) {
+        List<OcMemberCandidate> candidates = availableForBatch(timeline, reservedMemberIds);
+        OcRosterMatchResult match = rosterMatcher.matchWithoutPause(
+                demand, candidates, planningTime);
+        if (!isIncomplete(match)) {
+            updateTimeline(timeline, match, demand);
+        }
+        return match;
+    }
+
+    /**
+     * 过滤本批次已被其他OC或链预留的成员。
+     *
+     * @param timeline 当前成员时间线
+     * @param reservedMemberIds 本批次已预留成员ID
+     * @return 本批次仍可使用的成员
+     */
+    private List<OcMemberCandidate> availableForBatch(
+            List<OcMemberCandidate> timeline, Set<Long> reservedMemberIds) {
+        return timeline.stream()
+                .filter(member -> !reservedMemberIds.contains(member.userId()))
+                .toList();
+    }
+
+    /**
+     * 将岗位匹配中实际使用的成员加入预留集合。
+     *
+     * @param match 岗位匹配结果
+     * @param reservedMemberIds 待更新的预留成员ID集合
+     */
+    private void reserveAssignments(OcRosterMatchResult match,
+                                    Set<Long> reservedMemberIds) {
+        match.assignments().stream().map(OcPlannedAssignment::userId)
+                .forEach(reservedMemberIds::add);
     }
 
     /**

@@ -39,21 +39,9 @@ class OcRefreshSafetySolverTest {
         OcRefreshSafetyResult result = solver(8).solve(request);
         OcRefreshSafetyResult resultWithoutBase = solver(8).solve(withoutBase);
 
-        assertTrue(isSafe(result, 7, 0), result.toString());
-        assertTrue(isUnsafe(result, 8, 0), result.toString());
-        assertTrue(isSafe(resultWithoutBase, 8, 0), resultWithoutBase.toString());
-    }
-
-    @Test
-    @DisplayName("成员仅可在前一OC完成后复用")
-    void shouldReuseMemberOnlyAfterPreviousOcCompletesOnTimeline() {
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(memberForBoth(1L)), List.of(),
-                List.of(demand("Normal")), List.of(), NOW);
-
-        OcRefreshSafetyResult result = solver(3).solve(request);
-
-        assertTrue(isSafe(result, 2, 0), result.toString());
+        assertTrue(isUnsafe(result, 1, 0), result.toString());
+        assertTrue(isSafe(resultWithoutBase, 1, 0), resultWithoutBase.toString());
+        assertTrue(isUnsafe(resultWithoutBase, 2, 0), resultWithoutBase.toString());
     }
 
     @Test
@@ -67,8 +55,8 @@ class OcRefreshSafetySolverTest {
 
         OcRefreshSafetyResult result = solver(3).solve(request);
 
-        assertTrue(isSafe(result, 2, 0), result.toString());
-        assertTrue(isUnsafe(result, 3, 0), result.toString());
+        assertTrue(isSafe(result, 1, 0), result.toString());
+        assertTrue(isUnsafe(result, 2, 0), result.toString());
     }
 
     @Test
@@ -84,8 +72,8 @@ class OcRefreshSafetySolverTest {
     }
 
     @Test
-    @DisplayName("当前计划OC完成后应释放固定成员")
-    void shouldReleaseFixedMemberAfterCurrentPlannedOcCompletes() {
+    @DisplayName("未来释放的固定成员不能支撑本轮新增OC")
+    void shouldNotUseFutureReleasedFixedMemberForCurrentBatch() {
         OcMemberCandidate fixedMember = new OcMemberCandidate(1L, "fixed",
                 NOW.plusDays(7), true,
                 Map.of(OcMemberCandidate.capabilityKey(8, "Normal", "Worker"), 90),
@@ -100,7 +88,7 @@ class OcRefreshSafetySolverTest {
 
         OcRefreshSafetyResult result = solver(1).solve(request);
 
-        assertTrue(isSafe(result, 1, 0), result.toString());
+        assertTrue(isUnsafe(result, 1, 0), result.toString());
     }
 
     @Test
@@ -118,8 +106,7 @@ class OcRefreshSafetySolverTest {
 
         OcRefreshSafetyResult result = solver(7).solve(request);
 
-        assertTrue(isSafe(result, 6, 0), result.toString());
-        assertTrue(isUnsafe(result, 7, 0), result.toString());
+        assertTrue(isUnsafe(result, 1, 0), result.toString());
     }
 
     @Test
@@ -135,8 +122,8 @@ class OcRefreshSafetySolverTest {
 
         OcRefreshSafetyResult result = solver(3).solve(request);
 
-        assertTrue(isSafe(result, 0, 2), result.toString());
-        assertTrue(isUnsafe(result, 0, 3), result.toString());
+        assertTrue(isSafe(result, 0, 1), result.toString());
+        assertTrue(isUnsafe(result, 0, 2), result.toString());
     }
 
     @Test
@@ -163,6 +150,32 @@ class OcRefreshSafetySolverTest {
         assertTrue(result.lowerBound());
         assertTrue(result.warnings().stream()
                 .anyMatch(message -> message.contains("时间预算")));
+    }
+
+    @Test
+    @DisplayName("本轮新增普通OC之间不得复用同一成员")
+    void shouldNotReuseMemberAcrossNewNormalOcsInSameBatch() {
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(member(1L, "Normal")), List.of(),
+                List.of(demand("Normal")), List.of(), NOW);
+
+        OcRefreshSafetyResult result = solver(2).solve(request);
+
+        assertTrue(isSafe(result, 1, 0), result.toString());
+        assertTrue(isUnsafe(result, 2, 0), result.toString());
+    }
+
+    @Test
+    @DisplayName("同一高阶链内部允许复用成员但不同链之间禁止复用")
+    void shouldReuseMemberInsideHighChainButNotAcrossHighChains() {
+        List<OcTeamDemand> chain = List.of(demand("Root"), demand("Child"));
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(memberForChain(1L)), List.of(), List.of(), List.of(chain), NOW);
+
+        OcRefreshSafetyResult result = solver(2).solve(request);
+
+        assertTrue(isSafe(result, 0, 1), result.toString());
+        assertTrue(isUnsafe(result, 0, 2), result.toString());
     }
 
     private OcRefreshSafetySolver solver(int maxSearch) {
