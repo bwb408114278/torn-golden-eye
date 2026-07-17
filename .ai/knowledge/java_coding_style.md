@@ -1,10 +1,11 @@
 # Java 代码规范
 
 ## 元信息
+
 - 文档类型：Java代码规范 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.06.18
+- 最后更新：2026.07.15
 - 维护人：Bai
 - 状态：有效
 
@@ -90,19 +91,22 @@ com.example.orderService
 
 常见后缀：
 
-| 类型            | 命名示例                                                |
-|---------------|-----------------------------------------------------|
-| Service 类     | `UserService`                                       |
-| DAO           | `UserDao`                                           |
-| DTO           | `CreateUserDTO` / `UserQueryParam` / `UserQueryReq` |
-| VO / Response | `UserResp` / `UserDetailVO`                         |
-| DO            | `UserDO`                                            |
-| Mapper        | `UserMapper`                                        |
-| Config        | `SecurityConfig`                                    |
-| Properties    | `JwtProperty`                                       |
-| Exception     | `UserNotFoundException`                             |
-| Enum          | `OrderStatusEnum`                                   |
-| Constant      | `UserConstants`                                     |
+| 类型            | 命名示例                                                     |
+|---------------|----------------------------------------------------------|
+| Service 类     | `UserService`                                            |
+| DAO           | `UserDao`                                                |
+| DTO           | `CreateUserDTO` / `UserQueryParam` / `UserQueryReq`      |
+| VO / Response | `UserResp` / `UserDetailVO`                              |
+| DO            | `UserDO`                                                 |
+| Mapper        | `UserMapper`                                             |
+| Config        | `SecurityConfig`                                         |
+| Properties    | `JwtProperty`                                            |
+| Exception     | `UserNotFoundException`                                  |
+| Enum          | `OrderStatusEnum`                                        |
+| Constant      | `UserConstants`                                          |
+| 抽象类           | `BaseUserService` / `AbastractUserService`               |
+| 接口实现类         | `UserServiceImpl`                                        |
+| 使用了设计模式的类     | `UserDataAdapter` / `UserLoginProxy` / `UserAuthFactory` |
 
 ## 方法命名
 
@@ -171,16 +175,16 @@ private static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
 
 ```java
 isEnabled
-hasPermission
+        hasPermission
 canCancel
-shouldRetry
+        shouldRetry
 ```
 
 避免：
 
 ```java
 flag
-status
+        status
 check
 ```
 
@@ -362,8 +366,8 @@ Map<Long, User> userMap = userRepository.findByIdIn(userIds).stream()
 推荐使用：
 
 ```java
-LocalDate 
-LocalDateTime
+LocalDate
+        LocalDateTime
 ```
 
 ## 金额
@@ -384,7 +388,7 @@ double
 BigDecimal 比较应使用：
 
 ```java
-amount.compareTo(BigDecimal.ZERO) > 0
+amount.compareTo(BigDecimal.ZERO) >0
 ```
 
 不要使用：
@@ -404,136 +408,249 @@ amount.equals(BigDecimal.ZERO)
 - 所有需要登录的接口必须校验认证。
 - 涉及用户数据时必须校验数据归属。
 - 涉及管理操作时必须校验权限。
-- 不要信任前端传入的角色、权限、金额、用户 ID。
-- SQL 查询必须使用参数绑定，禁止字符串拼接。
-- 文件上传必须校验类型、大小和路径。
-- 返回值必须过滤敏感字段。
-
-SQL 错误示例：
-
-```java
-String sql = "SELECT * FROM users WHERE name = '" + name + "'";
-```
-
-正确示例：
-
-```java
-query("SELECT * FROM users WHERE name = ?",name);
-```
+- 输入必须校验长度、格式、范围。
+- 禁止 SQL 拼接。
+- 文件上传必须校验类型和大小。
+- 禁止信任客户端传入的 userId、role、tenantId 等关键字段。
+- 禁止返回不必要的敏感字段。
 
 ---
 
 # 9. 测试规范
 
-## 测试框架
+## 单元测试
 
-优先使用项目已有测试框架，例如：
+推荐使用：
 
 - JUnit 5
 - Mockito
-- Spring Boot Test
-- Testcontainers
-- AssertJ
+
+测试命名推荐表达业务场景：
+
+```java
+createUser_success()
+createUser_userExists()
+cancelOrder_statusInvalid()
+```
 
 ## 必须覆盖
 
-- 正常路径
-- 参数非法
-- 数据不存在
-- 权限不足
-- 状态不允许
-- 外部依赖失败
-- 边界条件
-- Bug 修复对应回归测试
-
-## 单元测试规范
-
-- 必须使用`Test`作为方法名后缀，写清楚测试目的
-- 类的头部和测试方法必须添加`@DisplayName`，用中文名称写清
+- 正常流程
+- 参数边界
+- 异常流程
+- 权限校验
+- 状态流转
+- 核心计算逻辑
 
 ## 禁止
 
-- 禁止为了通过测试修改业务逻辑。
-- 禁止删除失败测试而不说明原因。
+- 禁止只测试 getter/setter。
 - 禁止依赖测试执行顺序。
-- 禁止测试访问生产环境资源。
+- 禁止测试之间共享可变状态。
+- 禁止单元测试真实调用外部支付、短信、邮件等服务。
 
 ---
 
-# 10. POJO类规范
+# 10. DTO / VO / DO 规范
 
-POJO类必须使用Lombok的注释，每个POJO类在不适用`@Data`时必须添加`@ToString`
+## DTO
 
-如果类用作业务判断/接口返回，防止代码篡改数据，必须添加函数构造函数，并使用：
+DTO 只用于数据传输，不应包含复杂业务逻辑。
+
+请求 DTO 应明确校验：
 
 ```java
-@Getter
-@ToString
+@NotBlank
+private String username;
+
+@NotNull
+private Long roleId;
 ```
 
-如果类用作接口参数/数据库映射需要写入值，使用
+## VO
 
-```java
-@Data
-```
+VO 只暴露前端需要的字段。
 
-如果类是数据库映射类，必须有一个无参构造函数
+禁止直接复用 DO 作为 VO。
 
-如果类是一个子类，必须添加
+## DO
 
-```java
-@EqualsAndHashCode
-```
+DO 只映射数据库字段，不承载复杂业务逻辑。
 
-当字段在数据库或业务中为非空必填字段，应该使用基本类型而非包装类型，建议使用：
-```java
-private long userId
-```
+DO 应与数据库字段保持清晰映射。
 
-不建议使用
-```java
-private Long userId
+---
+
+# 11. Service 规范
+
+Service 层负责业务编排和事务边界。
+
+禁止：
+
+- 在 Controller 中编写复杂业务逻辑。
+- Service 直接依赖前端对象。
+- Service 方法返回数据库 DO 给前端。
+- 一个 Service 方法包含过多职责。
+
+复杂 Service 方法应拆分为：
+
+```text
+validate
+load
+calculate
+persist
+assemble
 ```
 
 ---
 
-# 11. 依赖注入规范
+# 12. Git 提交规范
 
-普通类使用Lombok构造器注入，抽象类、接口类优先使用`@Resouce`注入
+提交前必须执行：
+
+```text
+编译检查
+单元测试
+静态检查
+敏感信息检查
+Git diff 检查
+```
+
+提交信息应简洁表达变更目的。
+
+推荐：
+
+```text
+feat: add user role management
+fix: correct order status transition
+refactor: simplify payment service
+```
+
+禁止提交：
+
+- 密码
+- Token
+- 私钥
+- `.env`
+- 临时日志
+- 编译产物
+- IDE 临时文件
+- 无关格式化修改
 
 ---
 
-# 11. 注释规范
+# 13. 注释与 Javadoc 规范
 
-要求：
+## 基本要求
 
-- 代码应优先通过命名和结构表达意图。
-- 复杂业务规则必须写注释。
-- 临时方案必须标记 TODO，并说明原因。
-- 不要写无意义注释。
-- 每个类的头部必须添加注释，写明类的用处、作者、版本、创建时间(@since)
-- POJO的每个变量要添加JavaDoc注释
-- Mapper的xml文件必须写`<!---->`注释写清楚方法的用处
-- 接口类、抽象类的方法必须写明方法的作用、变量、返回值的意义
-- 非接口类、抽象类的方法必须写明方法的作用，如果变量、返回值是基础类型必须写明意义
-- 类头部的版本号如果不是当前版本，应该改动为当前版本。版本号以`pom.xml`中的`<version>`为准
+- 注释必须解释业务语义、约束或设计原因，禁止仅重复字段名、类名或方法名。
+- 新增和修改的公开类型、数据模型和公共 API 必须提供完整、准确的 Javadoc。
+- Javadoc 内容必须与当前实现保持一致；修改字段、参数、返回值或异常契约时必须同步更新注释。
+- `@Override` 方法可省略方法 Javadoc；如果覆盖实现补充了父契约没有表达的重要限制，则应补充说明。
 
----
+## POJO、DTO、VO、DO 字段
 
-# 12. AI Agent 修改代码时的额外要求
+POJO、DTO、VO、DO 的每个业务字段必须使用 Javadoc 说明业务含义。继承自父类的字段不在子类重复注释。
 
-AI Agent 修改 Java 代码时必须遵守：
+```java
+/**
+ * 帮派ID。
+ */
+private Long factionId;
 
-1. 修改前先读取本规范。
-2. 修改前先搜索类似实现。
-3. 修改前先说明计划。
-4. 不要引入新依赖。
-5. 不要修改无关文件。
-6. 不要做无关格式化。
-7. 不要直接返回 Entity。
-8. 不要绕过权限校验。
-9. 不要吞掉异常。
-10. 修改后查看 git diff。
-11. 修改后尽量运行测试。
-12. 如果测试失败，只修复与本任务相关的问题。
-13. 如果不确定项目约定，先提问。
+/**
+ * 是否启用自动规划。
+ */
+private Boolean enabled;
+```
+
+禁止仅写无信息量注释：
+
+```java
+/**
+ * factionId。
+ */
+private Long factionId;
+```
+
+## record 组件
+
+`record` 组件必须通过类型 Javadoc 的 `@param` 逐一说明。`@param` 名称、顺序必须与 record 声明完全一致。
+
+```java
+/**
+ * OC岗位分配结果。
+ *
+ * @param userId 用户ID
+ * @param slotCode 岗位编码
+ * @param joinAt 建议加入时间
+ */
+public record OcAssignment(long userId, String slotCode, LocalDateTime joinAt) {
+}
+```
+
+## 接口和抽象类
+
+- 接口和抽象类必须提供类型 Javadoc，说明职责、使用边界和实现约束。
+- 接口或抽象类自行声明的字段和方法必须完整注释。
+- 方法 Javadoc 必须包含方法用途、全部 `@param`、非 `void` 方法的 `@return`，以及属于调用契约的 `@throws`。
+- 仅继承且未重新声明的方法无需重复注释。
+
+## 公共和受保护方法
+
+除 `@Override` 方法外，新增或修改的 `public`、`protected` 方法必须提供方法头 Javadoc。
+
+```java
+/**
+ * 根据快照生成指定模式的OC新队规划。
+ *
+ * @param snapshot 同一规划周期内的不可变快照
+ * @param mode 规划模式
+ * @return 包含推荐分支和备选分支的规划结果
+ * @throws IllegalArgumentException 模式或快照参数无效时抛出
+ */
+public OcNewTeamPlan plan(OcPlanningSnapshot snapshot, OcPlanMode mode) {
+    // ...
+}
+```
+
+私有方法在业务意图不能通过命名和结构直接表达时应补充注释，但不强制机械添加无信息量 Javadoc。
+
+## Liquibase 表和字段注释
+
+- `createTable` 必须通过 `remarks` 提供表注释。
+- `createTable.columns` 中每个 `column` 必须通过 `remarks` 提供字段注释，包括主键、逻辑删除和审计时间字段。
+- 优先使用 Liquibase 原生 `remarks`，禁止在同一变更中重复使用原生 `COMMENT ON` SQL。
+- 注释必须与 Java DO、默认值、约束和初始化数据语义一致。
+
+```yaml
+- createTable:
+    tableName: torn_setting_example
+    remarks: 示例配置表
+    columns:
+      - column:
+          name: id
+          type: BIGINT
+          remarks: 主键ID
+          constraints:
+            primaryKey: true
+            nullable: false
+      - column:
+          name: enabled
+          type: BOOLEAN
+          defaultValueBoolean: true
+          remarks: 是否启用
+          constraints:
+            nullable: false
+```
+
+## 提交前注释检查
+
+提交新增数据模型、公共 API 或 Liquibase 建表变更前，必须检查：
+
+- 表和所有字段是否都有准确的 `remarks`；
+- POJO、DTO、VO、DO 的业务字段是否都有 Javadoc；
+- record 的所有组件是否都有对应 `@param`；
+- 接口和抽象类是否完整说明职责与契约；
+- 非 `@Override` 的公共、受保护方法是否具备用途、参数、返回值和异常说明；
+- 注释是否与实际代码、数据库约束和默认值一致。

@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.2.7
+ * @version 1.2.10
  * @since 2025.11.26
  */
 @Slf4j
@@ -75,6 +75,7 @@ public class TornOcCompleteNoticeService {
         noticeFactionIdList.add(TornConstants.FACTION_HP_ID);
         noticeFactionIdList.add(TornConstants.FACTION_BSU_ID);
         noticeFactionIdList.add(TornConstants.FACTION_PTA_ID);
+        noticeFactionIdList.add(TornConstants.FACTION_CCRC_ID);
 
         for (long factionId : noticeFactionIdList) {
             TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);

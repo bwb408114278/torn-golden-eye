@@ -63,10 +63,10 @@ databaseChangeLog:
   - include:
       file: db/changelog/1.0.1-2.0.0/1.1.0/setting.yaml
   - include:
-      file: db/changelog/1.0.1-2.0.0/1.1.0/user.yaml
+      file: db/changelog/1.0.1-2.0.0/1.2.0/setting.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.2.0/faction.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.2.0/revive.yaml
   - include:
-      file: db/changelog/1.0.1-2.0.0/1.2.0/setting.yaml
+      file: db/changelog/1.0.1-2.0.0/1.2.0/oc-planning.yaml
