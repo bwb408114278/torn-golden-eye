@@ -1,108 +1,172 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcEvaluationMode;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcFactionPlanningPolicy;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 
+/**
+ * 高阶链模板构造服务测试。
+ *
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.17
+ */
+@DisplayName("高阶链模板构造")
 class OcChainPlanningServiceTest {
-    private static final LocalDateTime NOW = LocalDateTime.of(2026, 7, 15, 0, 0);
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 7, 16, 0, 0);
 
     @Test
-    void shouldRejectDifferentChainsSharingTheSameCommittedRoot() {
+    @DisplayName("应构造已启用且配置完整的高阶链")
+    void shouldBuildOnlyReadyEnabledCompleteChain() {
         String rootKey = OcPlanningSnapshot.ocKey(8, "Root");
-        String childAKey = OcPlanningSnapshot.ocKey(9, "Child A");
-        String childBKey = OcPlanningSnapshot.ocKey(9, "Child B");
+        String childKey = OcPlanningSnapshot.ocKey(9, "Child");
         OcPlanningSnapshot snapshot = new OcPlanningSnapshot(1L, NOW,
                 new OcFactionPlanningPolicy(1L, OcEvaluationMode.POSITION_WEIGHT,
-                        0, Set.of(rootKey), List.of()),
-                List.of(rootOc()), Map.of(500L, List.of(occupiedRootSlot())),
-                List.of(member()), profiles(rootKey, childAKey, childBKey),
-                List.of(chain("A", "Child A"), chain("B", "Child B")),
-                templates(rootKey, childAKey, childBKey), Set.of(), List.of());
-        ExistingTeamRescueResult rescue = new ExistingTeamRescueResult(
-                List.of(), snapshot.members());
+                        20, 25, 50, 100, Set.of(rootKey), List.of()),
+                List.of(), Map.of(), List.of(),
+                Map.of(rootKey, profile("Root", 8, "HIGH_CHAIN_ROOT"),
+                        childKey, profile("Child", 9, "CHAIN_ONLY")),
+                List.of(edge()),
+                Map.of(rootKey, List.of(slot()), childKey, List.of(slot())),
+                Set.of(), List.of());
 
-        ChainPlanningResult result = new OcChainPlanningService().calculate(snapshot, rescue);
+        List<List<OcTeamDemand>> chains = new OcChainPlanningService().buildReadyChains(snapshot);
 
-        assertFalse(result.committedObligationsFeasible());
-        assertEquals(1, result.capacity().committedCount());
-        assertEquals(0, result.capacity().provenSafeConcurrentCount());
+        assertEquals(1, chains.size());
+        assertEquals(List.of("Root", "Child"), chains.getFirst().stream()
+                .map(OcTeamDemand::ocName).toList());
     }
 
-    private TornFactionOcDO rootOc() {
-        TornFactionOcDO oc = new TornFactionOcDO();
-        oc.setId(500L);
-        oc.setName("Root");
-        oc.setRank(8);
-        oc.setStatus("Planning");
-        oc.setReadyTime(NOW.plusDays(1));
-        return oc;
+    @Test
+    @DisplayName("应拒绝父子节点不连续的高阶链")
+    void shouldRejectBrokenChain() {
+        OcPlanningSnapshot snapshot = snapshot(List.of(
+                edge("BROKEN", "Root", 8, "Child", 9, 1),
+                edge("BROKEN", "Other", 9, "Last", 10, 2)),
+                Set.of(OcPlanningSnapshot.ocKey(8, "Root")));
+
+        var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
+
+        assertEquals(0, result.chains().size());
+        assertEquals(1, result.warnings().size());
     }
 
-    private TornFactionOcSlotDO occupiedRootSlot() {
-        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
-        slot.setOcId(500L);
-        slot.setPosition("Hacker");
-        slot.setUserId(10L);
-        return slot;
+    @Test
+    @DisplayName("应拒绝同一根节点配置多条高阶链")
+    void shouldRejectMultipleChainsSharingSameRoot() {
+        OcPlanningSnapshot snapshot = snapshot(List.of(
+                edge("CHAIN_A", "Root", 8, "Child", 9, 1),
+                edge("CHAIN_B", "Root", 8, "Last", 10, 1)),
+                Set.of(OcPlanningSnapshot.ocKey(8, "Root")));
+
+        var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
+
+        assertEquals(0, result.chains().size());
+        assertEquals(1, result.warnings().size());
     }
 
-    private OcMemberCandidate member() {
-        return new OcMemberCandidate(10L, "U10", NOW.plusDays(1), true,
-                Map.of("8:Root:Hacker", 100), Map.of());
+    @Test
+    @DisplayName("应忽略不在规划范围内的断链配置")
+    void shouldIgnoreBrokenChainWhoseRootIsNotPlanned() {
+        OcPlanningSnapshot snapshot = snapshot(List.of(
+                edge("IGNORED", "Root", 8, "Child", 9, 1),
+                edge("IGNORED", "Other", 9, "Last", 10, 2)), Set.of());
+
+        var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
+
+        assertEquals(0, result.chains().size());
+        assertEquals(0, result.warnings().size());
     }
 
-    private Map<String, TornSettingOcPlanProfileDO> profiles(String... keys) {
-        Map<String, TornSettingOcPlanProfileDO> result = new HashMap<>();
-        for (String key : keys) {
-            String[] parts = key.split(":", 2);
-            TornSettingOcPlanProfileDO profile = new TornSettingOcPlanProfileDO();
-            profile.setRank(Integer.parseInt(parts[0]));
-            profile.setOcName(parts[1]);
-            profile.setPlanStatus("READY");
-            profile.setSpawnPool(parts[0].equals("8") ? "HIGH_CHAIN_ROOT" : "HIGH_CHAIN_CHILD");
-            profile.setRewardFloor(0L);
-            result.put(key, profile);
-        }
-        return result;
+    @Test
+    @DisplayName("应拒绝后继节点未就绪的计划内高阶链")
+    void shouldRejectPlannedChainWhenChildProfileIsNotReady() {
+        String rootKey = OcPlanningSnapshot.ocKey(8, "Root");
+        OcPlanningSnapshot snapshot = snapshot(List.of(
+                edge("NOT_READY", "Root", 8, "Child", 9, 1)), Set.of(rootKey));
+        snapshot.profiles().get(OcPlanningSnapshot.ocKey(9, "Child"))
+                .setPlanStatus("OBSERVE_ONLY");
+
+        var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
+
+        assertEquals(0, result.chains().size());
+        assertEquals(1, result.warnings().size());
     }
 
-    private TornSettingOcChainDO chain(String code, String childName) {
+    @Test
+    @DisplayName("应拒绝缺少链定义的计划内高阶根")
+    void shouldRejectPlannedHighRootWithoutChainDefinition() {
+        String rootKey = OcPlanningSnapshot.ocKey(8, "Root");
+        OcPlanningSnapshot snapshot = snapshot(List.of(), Set.of(rootKey));
+
+        var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
+
+        assertEquals(0, result.chains().size());
+        assertEquals(1, result.warnings().size());
+    }
+
+    private OcPlanningSnapshot snapshot(List<TornSettingOcChainDO> edges,
+                                        Set<String> enabledKeys) {
+        Map<String, TornSettingOcPlanProfileDO> profiles = Map.of(
+                OcPlanningSnapshot.ocKey(8, "Root"), profile("Root", 8, "HIGH_CHAIN_ROOT"),
+                OcPlanningSnapshot.ocKey(9, "Child"), profile("Child", 9, "CHAIN_ONLY"),
+                OcPlanningSnapshot.ocKey(9, "Other"), profile("Other", 9, "CHAIN_ONLY"),
+                OcPlanningSnapshot.ocKey(10, "Last"), profile("Last", 10, "CHAIN_ONLY"));
+        Map<String, List<OcPlanSlot>> slots = new java.util.HashMap<>();
+        profiles.keySet().forEach(key -> slots.put(key, List.of(slot())));
+        return new OcPlanningSnapshot(1L, NOW,
+                new OcFactionPlanningPolicy(1L, OcEvaluationMode.POSITION_WEIGHT,
+                        20, 25, 50, 100, enabledKeys, List.of()),
+                List.of(), Map.of(), List.of(), profiles, edges,
+                slots, Set.of(), List.of());
+    }
+
+    private TornSettingOcChainDO edge(String code, String parentName, int parentRank,
+                                      String childName, int childRank, int sequence) {
         TornSettingOcChainDO edge = new TornSettingOcChainDO();
         edge.setChainCode(code);
-        edge.setSequenceNo(1);
-        edge.setParentRank(8);
-        edge.setParentOcName("Root");
-        edge.setChildRank(9);
+        edge.setParentOcName(parentName);
+        edge.setParentRank(parentRank);
         edge.setChildOcName(childName);
-        edge.setEnabled(true);
+        edge.setChildRank(childRank);
+        edge.setSequenceNo(sequence);
         return edge;
     }
 
-    private Map<String, List<OcPlanSlot>> templates(String root, String childA, String childB) {
-        return Map.of(root, List.of(slot("Hacker#1", "Hacker")),
-                childA, List.of(slot("Driver#1", "Driver")),
-                childB, List.of(slot("Muscle#1", "Muscle")));
+    private TornSettingOcPlanProfileDO profile(String name, int rank, String pool) {
+        TornSettingOcPlanProfileDO profile = new TornSettingOcPlanProfileDO();
+        profile.setOcName(name);
+        profile.setRank(rank);
+        profile.setSpawnPool(pool);
+        profile.setPlanStatus("READY");
+        return profile;
     }
 
-    private OcPlanSlot slot(String code, String position) {
-        return new OcPlanSlot(code, position, 0, 0, BigDecimal.ONE);
+    private TornSettingOcChainDO edge() {
+        TornSettingOcChainDO edge = new TornSettingOcChainDO();
+        edge.setChainCode("ROOT_CHILD");
+        edge.setParentOcName("Root");
+        edge.setParentRank(8);
+        edge.setChildOcName("Child");
+        edge.setChildRank(9);
+        edge.setSequenceNo(1);
+        return edge;
+    }
+
+    private OcPlanSlot slot() {
+        return new OcPlanSlot("Worker#1", "Worker", 60, 1, null);
     }
 }

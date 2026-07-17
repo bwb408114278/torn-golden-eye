@@ -352,3 +352,32 @@ databaseChangeLog:
                 (4, 20465, 'Clinical Precision', 8, true),
                 (5, 20465, 'Stacking the Deck', 8, true),
                 (6, 20465, 'Ace in the Hole', 9, true);
+
+  - changeSet:
+      id: add_oc_refresh_capacity_policy
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_setting_faction_oc_planning_policy
+            columns:
+              - column:
+                  name: conservative_capacity_percent
+                  type: INTEGER
+                  defaultValueNumeric: "25"
+                  remarks: "保守模式使用的安全刷新容量比例"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: balanced_capacity_percent
+                  type: INTEGER
+                  defaultValueNumeric: "50"
+                  remarks: "均衡模式使用的安全刷新容量比例"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: profit_capacity_percent
+                  type: INTEGER
+                  defaultValueNumeric: "100"
+                  remarks: "收益模式使用的安全刷新容量比例"
+                  constraints:
+                    nullable: false

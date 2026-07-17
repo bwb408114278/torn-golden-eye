@@ -10,13 +10,17 @@ import java.util.Set;
  * @param ocId 现有OC ID；条件性新队不存在ID时为null
  * @param ocName OC名称
  * @param rank OC等级
- * @param readyAt 该队最早可开始规划的时间
- * @param expiresAt 空OC可加入的截止时间
+ * @param readyAt 当前下一准备阶段时间；尚无人加入时为null
+ * @param expiresAt 空OC首位成员最晚加入时间；已有成员时为null
  * @param chain 所属高阶链节点序列
  * @param slots 完整岗位需求
  * @param fixedSlotCodes 已有成员占用的固定岗位编码集合
  * @param fixedMemberIds 已有成员用户ID集合
- */public record OcTeamDemand(long ocId, String ocName, int rank, LocalDateTime readyAt,
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.17
+ */
+public record OcTeamDemand(long ocId, String ocName, int rank, LocalDateTime readyAt,
                            LocalDateTime expiresAt, boolean chain,
                            List<OcPlanSlot> slots, Set<String> fixedSlotCodes,
                            Set<Long> fixedMemberIds) {

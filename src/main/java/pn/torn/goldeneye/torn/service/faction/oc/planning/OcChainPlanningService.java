@@ -1,15 +1,16 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcChainTemplateResult;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,188 +18,241 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 从配置的有向链构造完整节点序列，并证明当前安全并行容量。
+ * 根据配置构造可参与刷新安全计算的完整高阶链模板。
+ *
+ * @author Bai
+ * @version 1.2.10
+ * @since 2026.07.17
  */
+@Service
 public class OcChainPlanningService {
-    private static final int MAX_CAPACITY_SEARCH = 20;
-    private final OcSafeConcurrentChainCapacitySolver capacitySolver =
-            new OcSafeConcurrentChainCapacitySolver();
+    private static final String HIGH_CHAIN_ROOT = "HIGH_CHAIN_ROOT";
+    private static final String READY = "READY";
 
     /**
-     * 优先保留已承诺后继责任并证明可新增高阶链的安全容量。
-     *
-     * @param snapshot 同一规划周期内的不可变快照
-     * @param rescue 旧队补位结果及成员时间线
-     * @return 高阶链容量证明、后继预留和更新后的成员时间线
-     */
-    public ChainPlanningResult calculate(OcPlanningSnapshot snapshot,
-                                         ExistingTeamRescueResult rescue) {
-        List<OcMemberCandidate> members = rescue.memberTimeline();
-        List<List<OcTeamDemand>> readyChains = buildReadyChains(snapshot);
-        if (readyChains.isEmpty()) {
-            return new ChainPlanningResult(new OcSafeChainCapacityResult(0, 0, 0, true), true,
-                    null, List.of(), members, List.of(), List.of());
-        }
-        CommittedObligationBuildResult committed = buildCommittedObligations(snapshot,
-                readyChains, rescue);
-        if (!committed.feasible()) {
-            String warning = "已承诺高阶根队状态不完整或链配置不唯一，无法证明后继责任可完成";
-            return new ChainPlanningResult(new OcSafeChainCapacityResult(
-                    committed.committedRootCount(), 0, 0, false),
-                    false, null, readyChains.stream()
-                    .map(chain -> chain.stream().map(OcTeamDemand::ocName)
-                            .reduce((left, right) -> left + " → " + right).orElse(""))
-                    .toList(), members, List.of(), List.of(warning));
-        }
-        List<CommittedChainObligation> obligations = committed.obligations();
-        List<String> warnings = new ArrayList<>();
-        List<String> chainNames = readyChains.stream()
-                .map(chain -> chain.stream().map(OcTeamDemand::ocName)
-                        .reduce((left, right) -> left + " → " + right).orElse(""))
-                .toList();
-        OcChainCapacityPlanningResult best = null;
-        String provenRootKey = null;
-        for (List<OcTeamDemand> chain : readyChains) {
-            int upperBound = Math.min(MAX_CAPACITY_SEARCH,
-                    obligations.size() + Math.max(0, members.size() / Math.max(1,
-                            chain.getFirst().slots().size())));
-            OcChainCapacityPlanningResult candidate = capacitySolver.calculate(chain, members,
-                    obligations, upperBound, snapshot.snapshotTime());
-            boolean betterCapacity = best == null
-                    || candidate.capacity().provenAdditionalCount()
-                    > best.capacity().provenAdditionalCount();
-            boolean betterProof = best != null
-                    && candidate.capacity().provenAdditionalCount()
-                    == best.capacity().provenAdditionalCount()
-                    && candidate.capacity().maximumProven()
-                    && !best.capacity().maximumProven();
-            if (betterCapacity || betterProof) {
-                best = candidate;
-                OcTeamDemand root = chain.getFirst();
-                provenRootKey = OcPlanningSnapshot.ocKey(root.rank(), root.ocName());
-            }
-        }
-        if (best == null) {
-            return new ChainPlanningResult(new OcSafeChainCapacityResult(0, 0, 0, true), true,
-                    null, chainNames, members, List.of(), warnings);
-        }
-        if (!best.committedObligationsFeasible()) {
-            warnings.add("当前人员时间线无法证明已承诺高阶链的全部后继可完成，请停止新增并人工检查");
-        } else if (!best.capacity().maximumProven()) {
-            warnings.add("高阶链计算达到搜索上限，仅展示已证明安全下界");
-        }
-        return new ChainPlanningResult(best.capacity(), best.committedObligationsFeasible(),
-                provenRootKey, chainNames, best.memberTimeline(), best.reservedAssignments(), warnings);
-    }
-
-    /**
-     * 根据快照中的有效配置构造可参与自动规划的完整高阶链。
+     * 根据快照中的有效配置构造完整高阶链。
      *
      * @param snapshot 同一规划周期内的不可变快照
      * @return 通过状态、范围和完整性校验的高阶链节点列表
      */
     public List<List<OcTeamDemand>> buildReadyChains(OcPlanningSnapshot snapshot) {
+        return buildReadyChainResult(snapshot).chains();
+    }
+
+    /**
+     * 构造完整高阶链，并返回被阻断的配置警告。
+     *
+     * @param snapshot 同一规划周期内的不可变快照
+     * @return 高阶链模板及配置警告
+     */
+    public OcChainTemplateResult buildReadyChainResult(OcPlanningSnapshot snapshot) {
         Map<String, List<TornSettingOcChainDO>> byCode = new LinkedHashMap<>();
         snapshot.chains().forEach(edge -> byCode.computeIfAbsent(edge.getChainCode(),
                 ignored -> new ArrayList<>()).add(edge));
-        List<List<OcTeamDemand>> result = new ArrayList<>();
-        for (List<TornSettingOcChainDO> edges : byCode.values()) {
-            edges.sort(java.util.Comparator.comparingInt(TornSettingOcChainDO::getSequenceNo));
-            List<String> keys = new ArrayList<>();
-            TornSettingOcChainDO first = edges.getFirst();
-            keys.add(OcPlanningSnapshot.ocKey(first.getParentRank(), first.getParentOcName()));
-            edges.forEach(edge -> keys.add(OcPlanningSnapshot.ocKey(edge.getChildRank(),
-                    edge.getChildOcName())));
-            boolean ready = keys.stream().allMatch(key -> {
-                TornSettingOcPlanProfileDO profile = snapshot.profiles().get(key);
-                return profile != null && "READY".equals(profile.getPlanStatus())
-                        && !snapshot.slotTemplates().getOrDefault(key, List.of()).isEmpty();
-            });
-            if (!ready || keys.stream().anyMatch(snapshot.invalidOcKeys()::contains)
-                    || !snapshot.policy().enabledOcKeys().contains(keys.getFirst())) {
-                continue;
+        List<String> warnings = new ArrayList<>();
+        validatePlannedRootsHaveChain(snapshot, byCode, warnings);
+        List<ChainCandidate> candidates = new ArrayList<>();
+        for (Map.Entry<String, List<TornSettingOcChainDO>> entry : byCode.entrySet()) {
+            List<TornSettingOcChainDO> edges = new ArrayList<>(entry.getValue());
+            edges.sort(Comparator.comparingInt(TornSettingOcChainDO::getSequenceNo));
+            if (!edges.isEmpty() && isPlannedRoot(snapshot, edges.getFirst())) {
+                collectCandidate(snapshot, entry.getKey(), edges, candidates, warnings);
             }
-            List<OcTeamDemand> chain = new ArrayList<>();
-            for (String key : keys) {
-                TornSettingOcPlanProfileDO profile = snapshot.profiles().get(key);
-                List<OcPlanSlot> slots = snapshot.slotTemplates().get(key);
-                chain.add(new OcTeamDemand(0L, profile.getOcName(), profile.getRank(),
-                        snapshot.snapshotTime(), snapshot.snapshotTime().plusDays(7), true,
-                        slots, Set.of(), Set.of()));
-            }
-            result.add(chain);
         }
-        return result;
+        Set<String> conflictedRoots = sharedRoots(candidates, warnings);
+        List<List<OcTeamDemand>> chains = candidates.stream()
+                .filter(candidate -> !conflictedRoots.contains(candidate.keys().getFirst()))
+                .map(candidate -> buildDemands(snapshot, candidate.keys()))
+                .toList();
+        return new OcChainTemplateResult(chains, warnings);
     }
 
-    private CommittedObligationBuildResult buildCommittedObligations(
-            OcPlanningSnapshot snapshot, List<List<OcTeamDemand>> readyChains,
-            ExistingTeamRescueResult rescue) {
-        Map<Long, OcMemberCandidate> memberById = rescue.memberTimeline().stream()
-                .collect(java.util.stream.Collectors.toMap(OcMemberCandidate::userId,
-                        member -> member));
-        Map<Long, pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamPlan> rescueByOcId =
-                rescue.plans().stream().collect(java.util.stream.Collectors.toMap(
-                        pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamPlan::ocId,
-                        plan -> plan));
-        List<CommittedChainObligation> obligations = new ArrayList<>();
-        Map<Long, String> chainKeyByRootOcId = new java.util.HashMap<>();
-        boolean feasible = true;
-        int committedRootCount = 0;
-        for (List<OcTeamDemand> chain : readyChains) {
-            OcTeamDemand root = chain.getFirst();
-            for (TornFactionOcDO oc : snapshot.activeOcs()) {
-                if (oc.getRank() != root.rank() || !oc.getName().equals(root.ocName())) {
-                    continue;
-                }
-                List<Long> participantIds = snapshot.slotsByOcId()
-                        .getOrDefault(oc.getId(), List.of()).stream()
-                        .map(slot -> slot.getUserId())
-                        .filter(java.util.Objects::nonNull)
-                        .toList();
-                if (participantIds.isEmpty()) {
-                    continue;
-                }
-                String chainKey = chain.stream()
-                        .map(node -> OcPlanningSnapshot.ocKey(node.rank(), node.ocName()))
-                        .collect(java.util.stream.Collectors.joining("->"));
-                String previousChainKey = chainKeyByRootOcId.putIfAbsent(oc.getId(), chainKey);
-                if (previousChainKey != null) {
-                    if (!previousChainKey.equals(chainKey)) {
-                        feasible = false;
-                    }
-                    continue;
-                }
-                committedRootCount++;
-                int occupiedSlots = participantIds.size();
-                boolean hasVacancy = occupiedSlots < root.slots().size();
-                pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamPlan rescuePlan =
-                        rescueByOcId.get(oc.getId());
-                if (hasVacancy && (rescuePlan == null || !rescuePlan.complete()
-                        || rescuePlan.completionAt() == null)) {
-                    feasible = false;
-                    continue;
-                }
-                LocalDateTime successorAvailableAt = hasVacancy
-                        ? rescuePlan.completionAt()
-                        : participantIds.stream().map(memberById::get)
-                        .filter(java.util.Objects::nonNull)
-                        .map(OcMemberCandidate::availableAt)
-                        .max(LocalDateTime::compareTo)
-                        .orElse(snapshot.snapshotTime());
-                obligations.add(new CommittedChainObligation(oc.getId(), chain, 1,
-                        successorAvailableAt));
-            }
+    /**
+     * 校验计划内链配置并收集有效候选链。
+     *
+     * @param snapshot 规划快照
+     * @param chainCode 链编码
+     * @param edges 已排序的链边
+     * @param candidates 有效候选链集合
+     * @param warnings 配置警告集合
+     */
+    private void collectCandidate(OcPlanningSnapshot snapshot, String chainCode,
+                                  List<TornSettingOcChainDO> edges,
+                                  List<ChainCandidate> candidates,
+                                  List<String> warnings) {
+        List<String> keys = validateAndBuildKeys(chainCode, edges, warnings);
+        if (!keys.isEmpty() && isReadyChain(snapshot, keys)) {
+            candidates.add(new ChainCandidate(chainCode, keys));
+        } else if (!keys.isEmpty()) {
+            warnings.add("高阶链节点配置无效，已阻断链: " + chainCode);
         }
-        return new CommittedObligationBuildResult(obligations, feasible, committedRootCount);
     }
 
-
-    private record CommittedObligationBuildResult(
-            List<CommittedChainObligation> obligations, boolean feasible,
-            int committedRootCount) {
-        private CommittedObligationBuildResult {
-            obligations = List.copyOf(obligations);
+    /**
+     * 校验链序号、父子连续性和重复节点，并生成节点键序列。
+     *
+     * @param chainCode 链编码
+     * @param edges 已排序的链边
+     * @param warnings 配置警告集合
+     * @return 合法链节点键；配置非法时返回空集合
+     */
+    private List<String> validateAndBuildKeys(String chainCode,
+                                              List<TornSettingOcChainDO> edges,
+                                              List<String> warnings) {
+        if (edges.isEmpty()) {
+            return List.of();
         }
+        List<String> keys = new ArrayList<>();
+        Set<String> nodes = new HashSet<>();
+        TornSettingOcChainDO first = edges.getFirst();
+        String rootKey = key(first.getParentRank(), first.getParentOcName());
+        keys.add(rootKey);
+        nodes.add(rootKey);
+        TornSettingOcChainDO previous = null;
+        for (int index = 0; index < edges.size(); index++) {
+            TornSettingOcChainDO edge = edges.get(index);
+            if (edge.getSequenceNo() != index + 1
+                    || previous != null && !sameNode(previous.getChildRank(),
+                    previous.getChildOcName(), edge.getParentRank(), edge.getParentOcName())) {
+                warnings.add("高阶链配置不连续，已阻断链: " + chainCode);
+                return List.of();
+            }
+            String childKey = key(edge.getChildRank(), edge.getChildOcName());
+            if (!nodes.add(childKey)) {
+                warnings.add("高阶链包含重复节点，已阻断链: " + chainCode);
+                return List.of();
+            }
+            keys.add(childKey);
+            previous = edge;
+        }
+        return keys;
+    }
+
+    /**
+     * 识别多个链编码共享同一计划内根节点的配置冲突。
+     *
+     * @param candidates 候选链集合
+     * @param warnings 配置警告集合
+     * @return 存在冲突的根节点键集合
+     */
+    private Set<String> sharedRoots(List<ChainCandidate> candidates, List<String> warnings) {
+        Map<String, List<String>> codesByRoot = new HashMap<>();
+        candidates.forEach(candidate -> codesByRoot.computeIfAbsent(candidate.keys().getFirst(),
+                ignored -> new ArrayList<>()).add(candidate.chainCode()));
+        Set<String> conflicted = new HashSet<>();
+        codesByRoot.forEach((root, codes) -> {
+            if (codes.size() > 1) {
+                conflicted.add(root);
+                warnings.add("同一高阶根配置了多条链，已阻断自动规划: "
+                        + root + " -> " + String.join(",", codes));
+            }
+        });
+        return conflicted;
+    }
+
+    /**
+     * 将链节点键转换为匿名队伍需求模板。
+     *
+     * @param snapshot 规划快照
+     * @param keys 链节点键序列
+     * @return 高阶链需求模板
+     */
+    private List<OcTeamDemand> buildDemands(OcPlanningSnapshot snapshot, List<String> keys) {
+        return keys.stream().map(key -> {
+            TornSettingOcPlanProfileDO profile = snapshot.profiles().get(key);
+            List<OcPlanSlot> slots = snapshot.slotTemplates().get(key);
+            return new OcTeamDemand(0L, profile.getOcName(), profile.getRank(),
+                    null, null, true, slots, Set.of(), Set.of());
+        }).toList();
+    }
+
+    /**
+     * 校验链内全部节点档案、状态和岗位模板是否可用于自动规划。
+     *
+     * @param snapshot 规划快照
+     * @param keys 链节点键序列
+     * @return 全部节点有效时返回true
+     */
+    private boolean isReadyChain(OcPlanningSnapshot snapshot, List<String> keys) {
+        if (keys.stream().anyMatch(snapshot.invalidOcKeys()::contains)) {
+            return false;
+        }
+        return keys.stream().allMatch(key -> {
+            TornSettingOcPlanProfileDO profile = snapshot.profiles().get(key);
+            return profile != null && READY.equals(profile.getPlanStatus())
+                    && !snapshot.slotTemplates().getOrDefault(key, List.of()).isEmpty();
+        });
+    }
+
+    /**
+     * 校验所有计划内高阶根是否配置了链定义。
+     *
+     * @param snapshot 规划快照
+     * @param byCode 按链编码分组的链边
+     * @param warnings 配置警告集合
+     */
+    private void validatePlannedRootsHaveChain(
+            OcPlanningSnapshot snapshot,
+            Map<String, List<TornSettingOcChainDO>> byCode,
+            List<String> warnings) {
+        Set<String> configuredRoots = new HashSet<>();
+        byCode.values().stream().filter(edges -> !edges.isEmpty())
+                .map(List::getFirst)
+                .map(edge -> key(edge.getParentRank(), edge.getParentOcName()))
+                .forEach(configuredRoots::add);
+        snapshot.profiles().forEach((rootKey, profile) -> {
+            if (snapshot.policy().enabledOcKeys().contains(rootKey)
+                    && READY.equals(profile.getPlanStatus())
+                    && HIGH_CHAIN_ROOT.equals(profile.getSpawnPool())
+                    && !configuredRoots.contains(rootKey)) {
+                warnings.add("计划内高阶根缺少链配置，已阻断自动规划: " + rootKey);
+            }
+        });
+    }
+
+    /**
+     * 判断链首节点是否属于当前帮派规划范围。
+     *
+     * @param snapshot 规划快照
+     * @param first 第一条链边
+     * @return 属于规划范围时返回true
+     */
+    private boolean isPlannedRoot(OcPlanningSnapshot snapshot,
+                                  TornSettingOcChainDO first) {
+        return snapshot.policy().enabledOcKeys().contains(
+                key(first.getParentRank(), first.getParentOcName()));
+    }
+
+    /**
+     * 判断两个链节点是否为相同OC。
+     *
+     * @param leftRank 左节点等级
+     * @param leftName 左节点名称
+     * @param rightRank 右节点等级
+     * @param rightName 右节点名称
+     * @return 等级和名称均相同时返回true
+     */
+    private boolean sameNode(int leftRank, String leftName, int rightRank, String rightName) {
+        return leftRank == rightRank && leftName.equals(rightName);
+    }
+
+    /**
+     * 构造OC规划键。
+     *
+     * @param rank OC等级
+     * @param name OC名称
+     * @return OC规划键
+     */
+    private String key(int rank, String name) {
+        return OcPlanningSnapshot.ocKey(rank, name);
+    }
+
+    /**
+     * 已通过结构和节点配置校验的候选链。
+     *
+     * @param chainCode 链编码
+     * @param keys 链节点键序列
+     */
+    private record ChainCandidate(String chainCode, List<String> keys) {
     }
 }
