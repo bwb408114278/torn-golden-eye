@@ -26,7 +26,7 @@ import java.util.concurrent.CompletableFuture;
  * Torn Oc逻辑层
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.2.11
  * @since 2025.07.29
  */
 @Service
@@ -36,6 +36,7 @@ public class TornFactionOcService {
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final DynamicTaskService taskService;
     private final TornOcCompleteNoticeService completeNoticeService;
+    private final OcBannedNoticeService bannedNoticeService;
     private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornSettingFactionManager settingFactionManager;
     private final SysSettingDAO settingDao;
@@ -61,7 +62,10 @@ public class TornFactionOcService {
      * 定时更新OC任务
      */
     public void scheduleOcTask(LocalDateTime last) {
-        taskService.updateTask("oc-reload", () -> refreshOc(1), last.plusHours(1));
+        taskService.updateTask("oc-reload", () -> {
+            refreshOc(1);
+            bannedNoticeService.checkAndNotice(LocalDateTime.now());
+        }, last.plusHours(1));
         settingDao.updateSetting(SettingConstants.KEY_OC_LOAD, DateTimeUtils.convertToString(last));
     }
 
