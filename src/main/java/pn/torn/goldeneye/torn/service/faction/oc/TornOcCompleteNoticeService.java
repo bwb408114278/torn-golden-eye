@@ -2,7 +2,6 @@ package pn.torn.goldeneye.torn.service.faction.oc;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.bot.Bot;
@@ -32,20 +31,20 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.faction.crime.*;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
-import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileDTO;
-import pn.torn.goldeneye.torn.model.user.profile.TornUserProfileVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2025.11.26
  */
 @Slf4j
@@ -55,7 +54,6 @@ public class TornOcCompleteNoticeService {
     private final Bot bot;
     private final TornApi tornApi;
     private final DynamicTaskService taskService;
-    private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornOcAssignService assignService;
     private final TornFactionOcRefreshManager ocRefreshManager;
     private final TornItemsManager itemsManager;
@@ -189,7 +187,7 @@ public class TornOcCompleteNoticeService {
                 faction.getFactionShortName() + " OC即将结束", ocList)));
 
         List<QqMsgParam<?>> itemWarnings = buildItemWarnings(slotMap, userMap);
-        List<QqMsgParam<?>> statusWarnings = buildStatusWarnings(userIdList, userMap);
+        List<QqMsgParam<?>> statusWarnings = buildStatusWarnings(faction.getId(), userIdList, userMap);
         if (!itemWarnings.isEmpty() || !statusWarnings.isEmpty()) {
             msgList.addAll(itemWarnings);
             msgList.addAll(statusWarnings);
@@ -229,50 +227,72 @@ public class TornOcCompleteNoticeService {
     }
 
     /**
-     * 构建用户状态异常提醒
+     * 构建用户状态异常提醒（一次帮派成员接口批量取状态）
+     *
+     * @param factionId  帮派ID
+     * @param userIdList 参与OC的用户ID列表
+     * @param userMap    用户映射
+     * @return 异常状态提醒消息列表
      */
-    private List<QqMsgParam<?>> buildStatusWarnings(List<Long> userIdList, Map<Long, TornUserDO> userMap) {
+    private List<QqMsgParam<?>> buildStatusWarnings(long factionId, List<Long> userIdList,
+                                                    Map<Long, TornUserDO> userMap) {
+        Map<Long, String> badStatusMap = findBadStatusMap(factionId, userIdList);
         List<QqMsgParam<?>> warnings = new ArrayList<>();
-        // 批量异步查询所有成员的Profile
-        Map<Long, String> badStatusMap = new HashMap<>();
-
-        List<CompletableFuture<Void>> futures = userIdList.stream()
-                .map(userId -> CompletableFuture.runAsync(() -> {
-                    try {
-                        TornUserProfileVO resp = tornApi.sendRequest(
-                                new TornUserProfileDTO(userId), TornUserProfileVO.class);
-                        if (resp != null && resp.getStatus() != null
-                                && TornUserStatusEnum.isOcNotExecutable(resp.getStatus().getState())) {
-                            badStatusMap.put(userId, resp.getStatus().getState());
-                        }
-                    } catch (Exception e) {
-                        log.warn("查询用户Profile状态失败，userId: {}", userId, e);
-                    }
-                }, virtualThreadExecutor))
-                .toList();
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
         for (Map.Entry<Long, String> entry : badStatusMap.entrySet()) {
-            long userId = entry.getKey();
-            String state = entry.getValue();
-            TornUserDO user = userMap.get(userId);
+            TornUserDO user = userMap.get(entry.getKey());
             if (user != null && !user.getQqId().equals(0L)) {
                 warnings.add(new AtQqMsg(user.getQqId()));
             }
-
-            String name = user != null ? user.getNickname() : String.valueOf(userId);
-            TornUserStatusEnum statusEnum = TornUserStatusEnum.codeOf(state);
-            String tip = statusEnum == null ? "状态异常(" + state + ")，请处理" :
-                    switch (statusEnum) {
-                        case TRAVELING -> "在旅行中，请尽快返回";
-                        case ABROAD -> "滞留国外，请尽快返回";
-                        case HOSPITAL -> "在住院中，请尽快出院";
-                        case JAIL -> "在监狱中，请尽快出狱";
-                        default -> "状态异常(" + state + ")，请处理";
-                    };
-            warnings.add(new TextQqMsg(name + " " + tip + "\n"));
+            warnings.add(new TextQqMsg(buildStatusTip(user, entry.getKey(), entry.getValue())));
         }
         return warnings;
+    }
+
+    /**
+     * 查询帮派成员中状态异常（不可执行OC）的OC参与成员
+     *
+     * @param factionId  帮派ID
+     * @param userIdList 参与OC的用户ID列表
+     * @return Key为用户ID，Value为异常状态码
+     */
+    private Map<Long, String> findBadStatusMap(long factionId, List<Long> userIdList) {
+        TornFactionMemberListVO resp = tornApi.sendRequest(
+                new TornFactionMemberDTO(factionId), TornFactionMemberListVO.class);
+        if (resp == null || CollectionUtils.isEmpty(resp.getMembers())) {
+            return Map.of();
+        }
+
+        Set<Long> ocUserIdSet = new HashSet<>(userIdList);
+        Map<Long, String> badStatusMap = new HashMap<>();
+        for (TornFactionMemberVO member : resp.getMembers()) {
+            if (ocUserIdSet.contains(member.getId()) && member.getStatus() != null
+                    && TornUserStatusEnum.isOcNotExecutable(member.getStatus().getState())) {
+                badStatusMap.put(member.getId(), member.getStatus().getState());
+            }
+        }
+        return badStatusMap;
+    }
+
+    /**
+     * 构建单个成员的状态异常提示文案
+     *
+     * @param user   用户信息，可为空
+     * @param userId 用户ID
+     * @param state  异常状态码
+     * @return 提示文案
+     */
+    private String buildStatusTip(TornUserDO user, long userId, String state) {
+        String name = user != null ? user.getNickname() : String.valueOf(userId);
+        TornUserStatusEnum statusEnum = TornUserStatusEnum.codeOf(state);
+        String tip = statusEnum == null ? "状态异常(" + state + ")，请处理" :
+                switch (statusEnum) {
+                    case TRAVELING -> "在旅行中，请尽快返回";
+                    case ABROAD -> "滞留国外，请尽快返回";
+                    case HOSPITAL -> "在住院中，请尽快出院";
+                    case JAIL -> "在监狱中，请尽快出狱";
+                    default -> "状态异常(" + state + ")，请处理";
+                };
+        return name + " " + tip + "\n";
     }
 
     /**
