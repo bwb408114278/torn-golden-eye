@@ -9,8 +9,9 @@ import java.util.List;
  * @param lowerBound 是否因时间预算或搜索上限仅得到安全下界
  * @param elapsedMillis 求解耗时毫秒数
  * @param warnings 求解警告
+
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 public record OcRefreshSafetyResult(List<OcRefreshVector> frontier,

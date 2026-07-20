@@ -112,7 +112,11 @@
 │   │   │           │       ├── recommend/                                      # OC推荐功能
 │   │   │           │       │   └── TornOcRecommendService.java                 # OC推荐逻辑层
 │   │   │           │       ├── TornFactionOcBenefitService.java                # 帮派OC收益逻辑层
-│   │   │           │       └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
+│   │   │           │       ├── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
+│   │   │           │       └── planning/                                       # OC阵容规划与安全边界算法
+│   │   │           │           ├── OcRosterMatcher.java                        # OC阵容匹配统一门面
+│   │   │           │           ├── OcFlowRosterMatcher.java                    # 最小费用最大流岗位匹配与排程
+│   │   │           │           └── OcNoPauseRosterMatcher.java                 # 无停转联合搜索匹配
 │   │   │           └── user/                                                   # 用户相关功能
 │   │   │               └── StockTradeStrategyService.java                      # 股票交易策略逻辑层
 │   │   └── resources/                                                          # 资源文件

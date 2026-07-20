@@ -22,11 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 
+
 /**
  * OC刷新指令规划器测试。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 @DisplayName("OC刷新指令规划")
@@ -49,6 +50,9 @@ class OcRefreshInstructionPlannerTest {
         assertEquals(0, profit.highRefreshCount());
         assertFalse(profit.lowerBound());
         assertEquals(Map.of(), profit.plannedEmptyOcCounts());
+        assertEquals(0, profit.occupancySummary().currentTeamCount());
+        assertEquals(4, profit.occupancySummary().qualifiedMemberCount());
+        assertEquals(4, profit.occupancySummary().idleQualifiedMemberCount());
     }
 
     @Test
@@ -125,7 +129,7 @@ class OcRefreshInstructionPlannerTest {
     private OcRefreshInstructionPlanner planner() {
         return new OcRefreshInstructionPlanner(
                 new OcRefreshSafetyRequestFactory(new OcChainPlanningService()),
-                new OcRefreshModeSelector());
+                new OcRefreshModeSelector(), new OcCurrentOccupancyCalculator());
     }
 
     private OcPlanningSnapshot snapshot() {

@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcCurrentOccupancySummary;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanMode;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
@@ -17,7 +18,7 @@ import java.util.List;
  * 基于不可变快照生成匿名刷新指令的纯规划器。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 @Component
@@ -28,7 +29,7 @@ public class OcRefreshInstructionPlanner {
 
     private final OcRefreshSafetyRequestFactory requestFactory;
     private final OcRefreshModeSelector modeSelector;
-
+    private final OcCurrentOccupancyCalculator occupancyCalculator;
 
     /**
      * 生成指定模式的刷新指令。
@@ -49,13 +50,30 @@ public class OcRefreshInstructionPlanner {
         OcRefreshVector selected = configurationValid
                 ? modeSelector.select(safety, snapshot.policy(), mode)
                 : new OcRefreshVector(0, 0);
+        OcCurrentOccupancySummary occupancySummary = occupancyCalculator.calculate(snapshot);
+        List<String> warnings = collectWarnings(snapshot, context, safety);
+        return new OcRefreshInstructionPlan(snapshot.factionId(), snapshot.snapshotTime(), mode,
+                context.plannedEmptyOcCounts(), selected.normalCount(), selected.highCount(),
+                safety.lowerBound(), reason(selected, context, configurationValid),
+                occupancySummary, warnings);
+    }
+
+    /**
+     * 合并快照、策略、上下文和求解警告。
+     *
+     * @param snapshot 规划快照
+     * @param context 刷新规划上下文
+     * @param safety 安全边界结果
+     * @return 合并后的警告
+     */
+    private List<String> collectWarnings(OcPlanningSnapshot snapshot,
+                                         OcRefreshPlanningContext context,
+                                         OcRefreshSafetyResult safety) {
         List<String> warnings = new ArrayList<>(snapshot.warnings());
         warnings.addAll(snapshot.policy().validationWarnings());
         warnings.addAll(context.warnings());
         warnings.addAll(safety.warnings());
-        return new OcRefreshInstructionPlan(snapshot.factionId(), snapshot.snapshotTime(), mode,
-                context.plannedEmptyOcCounts(), selected.normalCount(), selected.highCount(),
-                safety.lowerBound(), reason(selected, context, configurationValid), warnings);
+        return warnings;
     }
 
     /**
@@ -72,12 +90,12 @@ public class OcRefreshInstructionPlanner {
             return "规划配置存在错误，已停止自动刷新建议";
         }
         if (selected.totalCount() > 0) {
-            return "当前成员时间线可保障建议次数内的计划OC完整阵容";
+            return "已按当前OC占用、达标成员和成员释放时间证明建议次数可承接";
         }
         if (context.request().normalTemplates().isEmpty()
                 && context.request().highChains().isEmpty()) {
             return "当前没有有效的计划刷新池配置";
         }
-        return "当前成员时间线无法证明新增刷新结果可获得完整阵容";
+        return "当前剩余达标成员无法证明可安全承接新的完整阵容";
     }
 }

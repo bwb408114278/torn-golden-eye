@@ -15,9 +15,10 @@ import java.util.Map;
  * @param highRefreshCount 高阶池建议刷新次数
  * @param lowerBound 建议次数是否仅为已证明安全下界
  * @param reason 刷新建议原因
+ * @param occupancySummary 当前全部现实OC和达标成员占用摘要
  * @param warnings 配置或求解警告
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 public record OcRefreshInstructionPlan(long factionId,
@@ -28,10 +29,14 @@ public record OcRefreshInstructionPlan(long factionId,
                                        int highRefreshCount,
                                        boolean lowerBound,
                                        String reason,
+                                       OcCurrentOccupancySummary occupancySummary,
                                        List<String> warnings) {
     public OcRefreshInstructionPlan {
         plannedEmptyOcCounts = plannedEmptyOcCounts == null
                 ? Map.of() : Map.copyOf(plannedEmptyOcCounts);
+        occupancySummary = occupancySummary == null
+                ? new OcCurrentOccupancySummary(0, 0, 0, 0, 0, 0, 0)
+                : occupancySummary;
         warnings = warnings == null ? List.of() : List.copyOf(warnings);
     }
 }
