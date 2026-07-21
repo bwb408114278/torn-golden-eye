@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+
 /**
  * 在时间预算内证明普通池与高阶池的联合安全刷新边界。
  *
@@ -24,7 +25,7 @@ import java.util.Set;
  * 返回已经证明的安全下界，不推测未验证向量。</p>
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 public class OcRefreshSafetySolver {

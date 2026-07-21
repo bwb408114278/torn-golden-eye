@@ -11,17 +11,24 @@ import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
+/**
+ * 活跃度采集服务测试
+ *
+ * @author Bai
+ * @version 1.2.11
+ * @since 2026.07.10
+ */
+@DisplayName("活跃度采集服务测试")
 class TornActivityCollectServiceTest {
 
     @Test
@@ -31,6 +38,42 @@ class TornActivityCollectServiceTest {
                 LocalDateTime.of(2026, 7, 10, 23, 59, 59)));
         assertEquals(0, TornActivityCollectService.calculateSlotIndex(
                 LocalDateTime.of(2026, 7, 11, 0, 0, 0)));
+    }
+
+    @Test
+    @DisplayName("帮派槽位值在 0-255 范围内应编码为单字节")
+    void shouldEncodeSlotValueForValidRange() {
+        byte[] bytes = TornActivityCollectService.encodeSlotValue(100);
+        assertEquals(1, bytes.length);
+        assertEquals(100, bytes[0] & 0xFF);
+    }
+
+    @Test
+    @DisplayName("帮派槽位值超出 255 应抛出异常")
+    void shouldThrowForSlotValueExceeding255() {
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> TornActivityCollectService.encodeSlotValue(256));
+
+        assertEquals("帮派槽位值超出 1 字节范围: 256", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("双证据重叠成员应按用户ID并集计数")
+    void shouldCountEstimatedActiveUsersWithoutDuplicates() {
+        int count = TornActivityCollectService.countEstimatedActiveUsers(
+                List.of(1L, 2L), List.of(2L, 3L));
+
+        assertEquals(3, count);
+    }
+
+    @Test
+    @DisplayName("同一槽位重采时非活跃成员应生成 false 状态以清除旧位")
+    void shouldBuildFalseStateForInactiveMember() {
+        Map<Long, Boolean> states = TornActivityCollectService.buildEvidenceStates(
+                List.of(1L, 2L, 3L), List.of(1L, 3L));
+
+        assertEquals(Map.of(1L, true, 2L, false, 3L, true), states);
     }
 
     @Test
@@ -84,6 +127,7 @@ class TornActivityCollectServiceTest {
         service.collectActivity();
 
         AtomicBoolean collecting = (AtomicBoolean) ReflectionTestUtils.getField(service, "collecting");
-        org.junit.jupiter.api.Assertions.assertFalse(collecting.get());
+        assertNotNull(collecting, "collecting 字段不应为 null");
+        assertFalse(collecting.get(), "采集重入标记应已释放");
     }
 }

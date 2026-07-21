@@ -119,7 +119,7 @@ class TornOcBatchIncomeServiceTest {
         TornFactionOcDO nonRotationOc = createOc(null, "Manifest Cruelty", 10, TornOcStatusEnum.SUCCESSFUL,
                 LocalDateTime.of(2026, 4, 15, 11, 0), 300000L);
 
-        createSlot(rotationOc.getId(), USER_ID, "Muscle#1", 65, 20000L);
+        createSlot(rotationOc.getId(), USER_ID, "Muscle#1", 70, 20000L);
         createSlot(nonRotationOc.getId(), USER_ID, "Reviver#1", 70, 10000L);
 
         batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
@@ -142,7 +142,7 @@ class TornOcBatchIncomeServiceTest {
                 LocalDateTime.of(2026, 4, 12, 10, 0), 0L);
 
         createSlot(oc1.getId(), USER_ID, "Imitator#1", 70, 40000L);
-        createSlot(oc2.getId(), USER_ID, "Imitator#1", 65, 30000L);
+        createSlot(oc2.getId(), USER_ID, "Imitator#1", 70, 30000L);
 
         batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
 

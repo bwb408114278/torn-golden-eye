@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * OC刷新联合安全边界求解器测试。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 @DisplayName("OC刷新安全边界求解")
@@ -137,6 +137,7 @@ class OcRefreshSafetySolverTest {
         assertTrue(isUnsafe(result, 1, 0), result.toString());
         assertTrue(isUnsafe(result, 0, 1), result.toString());
     }
+
 
     @Test
     @DisplayName("时间预算耗尽时应返回已证明安全下界")

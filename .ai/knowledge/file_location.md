@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.07.01
+- 最后更新：2026.07.21
 - 维护人：Bai
 - 状态：有效
 
@@ -16,6 +16,9 @@
 ## 目录结构说明
 
 ```text
+├── .ai/                                                                        # AI协作知识库与任务规范
+│   └── knowledge/                                                              # AI知识库
+│       └── activity_heatmap_design.md                                          # 活跃度热力图完整设计、数据口径与固定RGB色板
 ├── build/                                                                      # 构建项目镜像需要的文件
 │   └── docker-compose.yml                                                      # Docker compose启动文件
 ├── src/                                                                        # 代码根目录
@@ -112,7 +115,11 @@
 │   │   │           │       ├── recommend/                                      # OC推荐功能
 │   │   │           │       │   └── TornOcRecommendService.java                 # OC推荐逻辑层
 │   │   │           │       ├── TornFactionOcBenefitService.java                # 帮派OC收益逻辑层
-│   │   │           │       └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
+│   │   │           │       ├── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
+│   │   │           │       └── planning/                                       # OC阵容规划与安全边界算法
+│   │   │           │           ├── OcRosterMatcher.java                        # OC阵容匹配统一门面
+│   │   │           │           ├── OcFlowRosterMatcher.java                    # 最小费用最大流岗位匹配与排程
+│   │   │           │           └── OcNoPauseRosterMatcher.java                 # 无停转联合搜索匹配
 │   │   │           └── user/                                                   # 用户相关功能
 │   │   │               └── StockTradeStrategyService.java                      # 股票交易策略逻辑层
 │   │   └── resources/                                                          # 资源文件

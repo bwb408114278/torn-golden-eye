@@ -1,17 +1,16 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcCurrentOccupancySummary;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
 
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
-import java.util.Map;
 
 /**
  * 将匿名安全边界结果渲染为OC指挥官可执行的刷新指令。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.17
  */
 @Component
@@ -28,24 +27,12 @@ public class OcNewTeamPlanRenderer {
         StringBuilder result = new StringBuilder("【OC新队#")
                 .append(plan.mode().getCommand()).append("】\n")
                 .append("快照时间: ").append(plan.snapshotTime().format(TIME_FORMAT));
-        appendPlannedEmptyOcs(result, plan);
+        appendCurrentOccupancy(result, plan.occupancySummary());
         appendInstruction(result, plan);
         appendWarnings(result, plan);
         return result.toString();
     }
 
-    private void appendPlannedEmptyOcs(StringBuilder result, OcRefreshInstructionPlan plan) {
-        if (plan.plannedEmptyOcCounts().isEmpty()) {
-            return;
-        }
-        result.append("\n\n【当前计划OC】");
-        plan.plannedEmptyOcCounts().entrySet().stream()
-                .filter(entry -> entry.getValue() > 0)
-                .sorted(Comparator.comparingInt((Map.Entry<String, Integer> entry) -> rank(entry.getKey()))
-                        .thenComparing(entry -> name(entry.getKey())))
-                .forEach(entry -> result.append("\n- ").append(rank(entry.getKey())).append("级 ")
-                        .append(name(entry.getKey())).append(": ").append(entry.getValue()).append("个"));
-    }
 
     private void appendInstruction(StringBuilder result, OcRefreshInstructionPlan plan) {
         result.append("\n\n【刷新指令】");
@@ -66,6 +53,26 @@ public class OcNewTeamPlanRenderer {
         }
     }
 
+    /**
+     * 追加当前现实OC和达标成员占用摘要。
+     *
+     * @param result 输出缓冲区
+     * @param summary 当前现实占用摘要
+     */
+    private void appendCurrentOccupancy(StringBuilder result,
+                                        OcCurrentOccupancySummary summary) {
+        result.append("\n\n【当前OC占用】")
+                .append("\n- 当前队伍: ").append(summary.currentTeamCount()).append("个")
+                .append("（已有人").append(summary.joinedTeamCount())
+                .append("个 / 无人").append(summary.emptyTeamCount()).append("个）")
+                .append("\n- 实际占用成员: ").append(summary.occupiedMemberCount()).append("人")
+                .append("\n- 达标成员: ").append(summary.qualifiedMemberCount()).append("人")
+                .append("\n- 已占用达标成员: ")
+                .append(summary.occupiedQualifiedMemberCount()).append("人")
+                .append("\n- 空闲达标成员: ")
+                .append(summary.idleQualifiedMemberCount()).append("人");
+    }
+
     private void appendWarnings(StringBuilder result, OcRefreshInstructionPlan plan) {
         if (plan.warnings().isEmpty()) {
             return;
@@ -75,11 +82,4 @@ public class OcNewTeamPlanRenderer {
                 .forEach(warning -> result.append("\n- ").append(warning));
     }
 
-    private int rank(String key) {
-        return Integer.parseInt(key.substring(0, key.indexOf(':')));
-    }
-
-    private String name(String key) {
-        return key.substring(key.indexOf(':') + 1);
-    }
 }
