@@ -9,7 +9,7 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.torn.model.activity.ActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -20,7 +20,7 @@ import java.util.List;
  * 活跃度对比指令
  *
  * @author Bai
- * @version 1.2.9
+ * @version 1.2.11
  * @since 2026.07.08
  */
 @Slf4j
@@ -54,7 +54,7 @@ public class ActivityCompareStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg("对比自己帮派是准备造反吗");
         }
 
-        ActivityHeatmapVO heatmap = heatmapService.compareFactions(factionId, targetFactionId, DEFAULT_DAYS);
+        ActivityComparisonHeatmapVO heatmap = heatmapService.compareFactions(factionId, targetFactionId, DEFAULT_DAYS);
         if (heatmap.isDataSufficient()) {
             return super.buildImageMsg(HeatmapImageRenderer.renderComparisonAsBase64(heatmap));
         } else {

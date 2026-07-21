@@ -17,11 +17,21 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * 活跃度采集服务测试
+ *
+ * @author Bai
+ * @version 1.2.11
+ * @since 2026.07.10
+ */
+@DisplayName("活跃度采集服务测试")
 class TornActivityCollectServiceTest {
 
     @Test
@@ -31,6 +41,24 @@ class TornActivityCollectServiceTest {
                 LocalDateTime.of(2026, 7, 10, 23, 59, 59)));
         assertEquals(0, TornActivityCollectService.calculateSlotIndex(
                 LocalDateTime.of(2026, 7, 11, 0, 0, 0)));
+    }
+
+    @Test
+    @DisplayName("帮派槽位值在 0-255 范围内应正确构建字节数组")
+    void shouldBuildSlotBytesForValidRange() {
+        byte[] bytes = TornActivityCollectService.buildSlotBytes(100);
+        assertEquals(96, bytes.length);
+    }
+
+    @Test
+    @DisplayName("帮派槽位值超出 255 应抛出异常")
+    void shouldThrowForSlotValueExceeding255() {
+        try {
+            TornActivityCollectService.buildSlotBytes(256);
+            org.junit.jupiter.api.Assertions.fail("应抛出 IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertEquals("帮派槽位值超出 1 字节范围: 256", e.getMessage());
+        }
     }
 
     @Test
@@ -84,6 +112,7 @@ class TornActivityCollectServiceTest {
         service.collectActivity();
 
         AtomicBoolean collecting = (AtomicBoolean) ReflectionTestUtils.getField(service, "collecting");
-        org.junit.jupiter.api.Assertions.assertFalse(collecting.get());
+        assertNotNull(collecting, "collecting 字段不应为 null");
+        assertFalse(collecting.get(), "采集重入标记应已释放");
     }
 }

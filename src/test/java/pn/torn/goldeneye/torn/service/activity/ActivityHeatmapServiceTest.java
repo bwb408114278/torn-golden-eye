@@ -7,14 +7,16 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * 活跃度热力图服务测试
  *
  * @author Bai
- * @version 1.2.9
+ * @version 1.2.11
  * @since 2026.07.10
  */
+@DisplayName("活跃度热力图服务测试")
 class ActivityHeatmapServiceTest {
 
     @Test
@@ -28,7 +30,7 @@ class ActivityHeatmapServiceTest {
 
         assertEquals(3, results.size());
         assertEquals(first, results.get(0));
-        assertEquals(null, results.get(1));
+        assertNull(results.get(1));
         assertEquals(third, results.get(2));
     }
 
@@ -43,20 +45,39 @@ class ActivityHeatmapServiceTest {
         setBit(bitmap, 32);
         setBit(bitmap, 95);
 
-        assertEquals(2, ActivityHeatmapService.countActiveSamples(bitmap, 0));
-        assertEquals(1, ActivityHeatmapService.countActiveSamples(bitmap, 1));
-        assertEquals(1, ActivityHeatmapService.countActiveSamples(bitmap, 7));
-        assertEquals(1, ActivityHeatmapService.countActiveSamples(bitmap, 8));
-        assertEquals(1, ActivityHeatmapService.countActiveSamples(bitmap, 23));
+        assertEquals(2, ActivityHeatmapService.countSamples(bitmap, 0));
+        assertEquals(1, ActivityHeatmapService.countSamples(bitmap, 1));
+        assertEquals(1, ActivityHeatmapService.countSamples(bitmap, 7));
+        assertEquals(1, ActivityHeatmapService.countSamples(bitmap, 8));
+        assertEquals(1, ActivityHeatmapService.countSamples(bitmap, 23));
     }
 
     @Test
     @DisplayName("缺失或截断的 Bitmap 按未活跃处理")
     void shouldTreatMissingBitmapBitsAsInactive() {
-        assertEquals(0, ActivityHeatmapService.countActiveSamples(null, 0));
-        assertEquals(0, ActivityHeatmapService.countActiveSamples(new byte[0], 0));
-        assertEquals(1, ActivityHeatmapService.countActiveSamples(new byte[]{(byte) 0x80}, 0));
-        assertEquals(0, ActivityHeatmapService.countActiveSamples(new byte[]{(byte) 0x80}, 2));
+        assertEquals(0, ActivityHeatmapService.countSamples(null, 0));
+        assertEquals(0, ActivityHeatmapService.countSamples(new byte[0], 0));
+        assertEquals(1, ActivityHeatmapService.countSamples(new byte[]{(byte) 0x80}, 0));
+        assertEquals(0, ActivityHeatmapService.countSamples(new byte[]{(byte) 0x80}, 2));
+    }
+
+    @Test
+    @DisplayName("帮派槽数据按无符号字节累加指定小时的计数值")
+    void shouldSumSlotValuesAsUnsignedBytes() {
+        byte[] slotData = new byte[96];
+        slotData[0] = (byte) 200;
+        slotData[1] = (byte) 100;
+        slotData[2] = (byte) 50;
+        slotData[3] = (byte) 5;
+
+        assertEquals(355, ActivityHeatmapService.sumSlotValues(slotData, 0));
+        assertEquals(0, ActivityHeatmapService.sumSlotValues(slotData, 1));
+    }
+
+    @Test
+    @DisplayName("null 槽数据返回 0")
+    void shouldReturnZeroForNullSlotData() {
+        assertEquals(0, ActivityHeatmapService.sumSlotValues(null, 0));
     }
 
     private static void setBit(byte[] bitmap, int offset) {

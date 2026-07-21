@@ -3,107 +3,313 @@ package pn.torn.goldeneye.torn.service.activity;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.base.exception.BizException;
-import pn.torn.goldeneye.torn.model.activity.ActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 活跃度热力图 PNG 图片渲染器
+ * <p>
+ * 负责个人活跃度热力图、帮派活跃度热力图和帮派活跃度对比图的 PNG 渲染。
+ * 普通图与对比图共用统一布局，颜色使用 {@link HeatmapColorScale} 提供的固定 RGB 连续渐变。
  *
  * @author Bai
- * @version 1.2.9
- * @since 2026.07.07
+ * @version 1.2.11
+ * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class HeatmapImageRenderer {
+
     // ============ 布局常量 ============
-    private static final int CELL_SIZE = 36;
-    private static final int HEADER_HEIGHT = 40;
-    private static final int ROW_LABEL_WIDTH = 48;
-    private static final int LEGEND_HEIGHT = 50;
+    /**
+     * 外边距
+     */
     private static final int PADDING = 16;
-
-    // 总尺寸
-    private static final int IMAGE_WIDTH = PADDING + ROW_LABEL_WIDTH + 24 * CELL_SIZE + PADDING;
-    private static final int IMAGE_HEIGHT = HEADER_HEIGHT + 7 * CELL_SIZE + LEGEND_HEIGHT + PADDING;
-
-    // 字体
-    private static final String IMAGE_FONT = "Microsoft YaHei";
-    private static final Font HEADER_FONT = new Font(IMAGE_FONT, Font.BOLD, 13);
-    private static final Font LABEL_FONT = new Font(IMAGE_FONT, Font.PLAIN, 11);
-    private static final Font CELL_FONT = new Font(IMAGE_FONT, Font.BOLD, 10);
-    private static final Font TITLE_FONT = new Font(IMAGE_FONT, Font.BOLD, 16);
-
-    private static final Color BG_COLOR = new Color(30, 30, 30);
-    private static final Color GRID_COLOR = new Color(60, 60, 60);
-    private static final Color TEXT_COLOR = new Color(220, 220, 220);
-    private static final Color EMPTY_COLOR = new Color(45, 45, 45);
-
-    // 帮派模式：8级颜色（按在线人数）
-    private static final Color[] FACTION_COLORS = {
-            new Color(45, 45, 45),      // 0
-            new Color(144, 238, 144),   // 1-5   浅绿
-            new Color(76, 175, 80),     // 6-10  绿色
-            new Color(255, 183, 77),    // 11-18 浅橙
-            new Color(255, 152, 0),     // 19-30 橙色
-            new Color(255, 87, 34),     // 31-50 橙红
-            new Color(244, 67, 54),     // 51-75 红色
-            new Color(183, 28, 28)      // 76+   深红
-    };
-    private static final int[] FACTION_THRESHOLDS = {0, 1, 6, 11, 19, 31, 51, 76, Integer.MAX_VALUE};
-
-    // 个人模式：8级颜色（按活跃比例%）
-    private static final Color[] PERSONAL_COLORS = {
-            new Color(45, 45, 45),      // 0%
-            new Color(144, 238, 144),   // 1-15%
-            new Color(76, 175, 80),     // 16-30%
-            new Color(255, 183, 77),    // 31-45%
-            new Color(255, 152, 0),     // 46-60%
-            new Color(255, 87, 34),     // 61-75%
-            new Color(244, 67, 54),     // 76-90%
-            new Color(183, 28, 28)      // 91-100%
-    };
-    private static final int[] PERSONAL_THRESHOLDS = {0, 1, 16, 31, 46, 61, 76, 91, 101};
-
-    private static final String[] DAY_LABELS = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
-    private static final String[] LEGEND_LABELS_FACTION = {"0", "1-5", "6-10", "11-18", "19-30", "31-50", "51-75", "76+"};
-    private static final String[] LEGEND_LABELS_PERSONAL = {"0%", "1-15%", "16-30%", "31-45%", "46-60%", "61-75%", "76-90%", "91-100%"};
-
-    // ============ 对比模式颜色 ============
-    // 紫色渐变：正值（我方优势）
-    private static final Color[] COMPARISON_POSITIVE_COLORS = {
-            new Color(232, 213, 245),   // 1-3    极浅紫
-            new Color(187, 143, 206),   // 4-8    中紫
-            new Color(155, 89, 182),    // 9-15   紫色
-            new Color(108, 52, 131)     // 16+    深紫
-    };
-    private static final int[] COMPARISON_POSITIVE_THRESHOLDS = {1, 4, 9, 16, Integer.MAX_VALUE};
-
-    // 蓝色渐变：负值（对方优势）
-    private static final Color[] COMPARISON_NEGATIVE_COLORS = {
-            new Color(213, 232, 245),   // 1-3    极浅蓝
-            new Color(133, 193, 233),   // 4-8    中蓝
-            new Color(52, 152, 219),    // 9-15   蓝色
-            new Color(33, 97, 140)      // 16+    深蓝
-    };
-    private static final int[] COMPARISON_NEGATIVE_THRESHOLDS = {1, 4, 9, 16, Integer.MAX_VALUE};
-
-    // 对比模式中性色（差值为0）
-    private static final Color COMPARISON_NEUTRAL_COLOR = new Color(240, 240, 240);
-
-    // 对比模式图例标签
-    private static final String[] COMPARISON_LEGEND_LABELS = {"16+", "9-15", "4-8", "1-3", "0", "1-3", "4-8", "9-15", "16+"};
+    /**
+     * 标题区高度
+     */
+    private static final int TITLE_HEIGHT = 28;
+    /**
+     * 副标题区高度
+     */
+    private static final int SUBTITLE_HEIGHT = 20;
+    /**
+     * 时间轴区高度
+     */
+    private static final int TIME_AXIS_HEIGHT = 24;
+    /**
+     * 单元格尺寸（正方形）
+     */
+    private static final int CELL_SIZE = 36;
+    /**
+     * 行标签宽度
+     */
+    private static final int ROW_LABEL_WIDTH = 48;
+    /**
+     * 图例区高度
+     */
+    private static final int LEGEND_HEIGHT = 44;
+    /**
+     * 网格行数（周一..周日）
+     */
+    private static final int GRID_ROWS = 7;
+    /**
+     * 网格列数（0..23 时）
+     */
+    private static final int GRID_COLS = 24;
 
     /**
-     * 渲染热力图 → base64 PNG
+     * 图片总宽度
      */
-    public static String renderAsBase64(ActivityHeatmapVO vo) {
-        BufferedImage image = render(vo);
+    private static final int IMAGE_WIDTH = PADDING + ROW_LABEL_WIDTH + GRID_COLS * CELL_SIZE + PADDING;
+    /**
+     * 图片总高度
+     */
+    private static final int IMAGE_HEIGHT = PADDING + TITLE_HEIGHT + SUBTITLE_HEIGHT
+            + TIME_AXIS_HEIGHT + GRID_ROWS * CELL_SIZE + LEGEND_HEIGHT + PADDING;
+
+    // ============ Y 坐标分区 ============
+    /**
+     * 标题区顶部 Y
+     */
+    private static final int TITLE_Y = PADDING;
+    /**
+     * 副标题区顶部 Y
+     */
+    private static final int SUBTITLE_Y = TITLE_Y + TITLE_HEIGHT;
+    /**
+     * 时间轴区顶部 Y
+     */
+    private static final int TIME_AXIS_Y = SUBTITLE_Y + SUBTITLE_HEIGHT;
+    /**
+     * 网格区顶部 Y
+     */
+    private static final int GRID_Y = TIME_AXIS_Y + TIME_AXIS_HEIGHT;
+    /**
+     * 图例区顶部 Y
+     */
+    private static final int LEGEND_Y = GRID_Y + GRID_ROWS * CELL_SIZE;
+
+    // ============ X 坐标 ============
+    /**
+     * 网格区左侧 X
+     */
+    private static final int GRID_X = PADDING + ROW_LABEL_WIDTH;
+    /**
+     * 网格区总宽度
+     */
+    private static final int GRID_WIDTH = GRID_COLS * CELL_SIZE;
+
+    // ============ 字体 ============
+    private static final String IMAGE_FONT = "Microsoft YaHei";
+    /**
+     * 标题字体
+     */
+    private static final Font TITLE_FONT = new Font(IMAGE_FONT, Font.BOLD, 15);
+    /**
+     * 副标题字体
+     */
+    private static final Font SUBTITLE_FONT = new Font(IMAGE_FONT, Font.PLAIN, 11);
+    /**
+     * 时间轴表头字体
+     */
+    private static final Font HEADER_FONT = new Font(IMAGE_FONT, Font.BOLD, 12);
+    /**
+     * 行标签字体
+     */
+    private static final Font LABEL_FONT = new Font(IMAGE_FONT, Font.PLAIN, 11);
+    /**
+     * 格内文字字体
+     */
+    private static final Font CELL_FONT = new Font(IMAGE_FONT, Font.BOLD, 10);
+
+    // ============ 其他常量 ============
+    /**
+     * 行标签：周一..周日
+     */
+    private static final String[] DAY_LABELS = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+    /**
+     * 数据不足提示文字颜色（橙色）
+     */
+    private static final Color INSUFFICIENT_COLOR = new Color(255, 152, 0);
+    /**
+     * 普通图图例刻度
+     */
+    private static final int[] LEGEND_TICKS = {0, 25, 50, 75, 100};
+    /**
+     * 对比图标题固定文案
+     */
+    private static final String COMPARISON_TITLE = "帮派活跃度对比";
+    /**
+     * 无数据符号
+     */
+    private static final String NO_DATA_SYMBOL = "-";
+    /**
+     * 百分号
+     */
+    private static final String PERCENT = "%";
+
+    // ==================== 个人图渲染入口 ====================
+
+    /**
+     * 渲染个人活跃度热力图为 base64 PNG 字符串
+     *
+     * @param vo 个人活跃度热力图数据
+     * @return base64 编码的 PNG 字符串
+     * @throws BizException 渲染或编码失败时抛出
+     */
+    public static String renderPersonalAsBase64(PersonalActivityHeatmapVO vo) {
+        return encodeAsBase64Png(renderPersonal(vo));
+    }
+
+    /**
+     * 渲染个人活跃度热力图为 BufferedImage
+     *
+     * @param vo 个人活跃度热力图数据
+     * @return 渲染完成的图片
+     */
+    public static BufferedImage renderPersonal(PersonalActivityHeatmapVO vo) {
+        BufferedImage image = createCanvas();
+        Graphics2D g = image.createGraphics();
+        try {
+            applyRenderingHints(g);
+            if (vo.isDataSufficient()) {
+                drawTitle(g, vo.getTitle());
+                drawSubtitle(g, buildPersonalSubtitle(vo));
+                drawTimeAxis(g);
+                drawRowLabels(g);
+                drawPersonalGrid(g, vo);
+                drawActivityLegend(g);
+            } else {
+                drawInsufficientMessage(g, vo.getInsufficientMessage());
+            }
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    // ==================== 帮派图渲染入口 ====================
+
+    /**
+     * 渲染帮派活跃度热力图为 base64 PNG 字符串
+     *
+     * @param vo 帮派活跃度热力图数据
+     * @return base64 编码的 PNG 字符串
+     * @throws BizException 渲染或编码失败时抛出
+     */
+    public static String renderFactionAsBase64(FactionActivityHeatmapVO vo) {
+        return encodeAsBase64Png(renderFaction(vo));
+    }
+
+    /**
+     * 渲染帮派活跃度热力图为 BufferedImage
+     *
+     * @param vo 帮派活跃度热力图数据
+     * @return 渲染完成的图片
+     */
+    public static BufferedImage renderFaction(FactionActivityHeatmapVO vo) {
+        BufferedImage image = createCanvas();
+        Graphics2D g = image.createGraphics();
+        try {
+            applyRenderingHints(g);
+            if (vo.isDataSufficient()) {
+                drawTitle(g, vo.getTitle());
+                drawSubtitle(g, vo.getSubtitle());
+                drawTimeAxis(g);
+                drawRowLabels(g);
+                drawFactionGrid(g, vo);
+                drawActivityLegend(g);
+            } else {
+                drawInsufficientMessage(g, vo.getInsufficientMessage());
+            }
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    // ==================== 对比图渲染入口 ====================
+
+    /**
+     * 渲染帮派活跃度对比热力图为 base64 PNG 字符串
+     *
+     * @param vo 帮派活跃度对比热力图数据
+     * @return base64 编码的 PNG 字符串
+     * @throws BizException 渲染或编码失败时抛出
+     */
+    public static String renderComparisonAsBase64(ActivityComparisonHeatmapVO vo) {
+        return encodeAsBase64Png(renderComparison(vo));
+    }
+
+    /**
+     * 渲染帮派活跃度对比热力图为 BufferedImage
+     *
+     * @param vo 帮派活跃度对比热力图数据
+     * @return 渲染完成的图片
+     */
+    public static BufferedImage renderComparison(ActivityComparisonHeatmapVO vo) {
+        BufferedImage image = createCanvas();
+        Graphics2D g = image.createGraphics();
+        try {
+            applyRenderingHints(g);
+            if (vo.isDataSufficient()) {
+                drawTitle(g, COMPARISON_TITLE);
+                drawSubtitle(g, vo.getSubtitle());
+                drawTimeAxis(g);
+                drawRowLabels(g);
+                drawComparisonGrid(g, vo);
+                drawComparisonLegend(g);
+            } else {
+                drawInsufficientMessage(g, vo.getInsufficientMessage());
+            }
+        } finally {
+            g.dispose();
+        }
+        return image;
+    }
+
+    // ==================== 画布与编码 ====================
+
+    /**
+     * 创建空画布
+     *
+     * @return 未填充背景的 BufferedImage
+     */
+    private static BufferedImage createCanvas() {
+        return new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_RGB);
+    }
+
+    /**
+     * 应用抗锯齿渲染提示并填充背景色
+     *
+     * @param g 图形上下文
+     */
+    private static void applyRenderingHints(Graphics2D g) {
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setColor(HeatmapColorScale.BG_COLOR);
+        g.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
+    }
+
+    /**
+     * 将 BufferedImage 编码为 base64 PNG 字符串
+     *
+     * @param image 待编码图片
+     * @return base64 字符串
+     * @throws BizException 编码失败时抛出
+     */
+    private static String encodeAsBase64Png(BufferedImage image) {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try {
             ImageIO.write(image, "png", bos);
@@ -113,365 +319,408 @@ public class HeatmapImageRenderer {
         return Base64.getEncoder().encodeToString(bos.toByteArray());
     }
 
+    // ==================== 通用绘制 ====================
+
     /**
-     * 渲染热力图 → BufferedImage
+     * 绘制标题（垂直居中于标题区）
+     *
+     * @param g     图形上下文
+     * @param title 标题文字
      */
-    public static BufferedImage render(ActivityHeatmapVO vo) {
-        BufferedImage image = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = image.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-        // 背景
-        g.setColor(BG_COLOR);
-        g.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
-
-        if (vo.isDataSufficient()) {
-            drawTitle(g, vo.getTitle());
-            drawHeader(g);
-            drawGrid(g, vo);
-            drawRowLabels(g);
-            drawLegend(g, !vo.isFactionMode());
-        } else {
-            drawEmptyMessage(g, vo.getInsufficientMessage());
-        }
-
-        g.dispose();
-        return image;
-    }
-
     private static void drawTitle(Graphics2D g, String title) {
         g.setFont(TITLE_FONT);
-        g.setColor(TEXT_COLOR);
+        g.setColor(HeatmapColorScale.TEXT_COLOR);
         FontMetrics fm = g.getFontMetrics();
         int x = (IMAGE_WIDTH - fm.stringWidth(title)) / 2;
-        g.drawString(title, x, 24);
+        int baselineY = TITLE_Y + (TITLE_HEIGHT + fm.getAscent() - fm.getDescent()) / 2;
+        g.drawString(title, x, baselineY);
     }
 
-    private static void drawHeader(Graphics2D g) {
+    /**
+     * 绘制副标题（垂直居中于副标题区）
+     *
+     * @param g        图形上下文
+     * @param subtitle 副标题文字
+     */
+    private static void drawSubtitle(Graphics2D g, String subtitle) {
+        g.setFont(SUBTITLE_FONT);
+        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
+        FontMetrics fm = g.getFontMetrics();
+        int x = (IMAGE_WIDTH - fm.stringWidth(subtitle)) / 2;
+        int baselineY = SUBTITLE_Y + (SUBTITLE_HEIGHT + fm.getAscent() - fm.getDescent()) / 2;
+        g.drawString(subtitle, x, baselineY);
+    }
+
+    /**
+     * 绘制时间轴：0-23 小时标签，每 6 小时使用主文字色高亮
+     *
+     * @param g 图形上下文
+     */
+    private static void drawTimeAxis(Graphics2D g) {
         g.setFont(HEADER_FONT);
         FontMetrics fm = g.getFontMetrics();
-        for (int h = 0; h < 24; h++) {
+        int baselineY = TIME_AXIS_Y + (TIME_AXIS_HEIGHT + fm.getAscent() - fm.getDescent()) / 2;
+        for (int h = 0; h < GRID_COLS; h++) {
             String label = String.valueOf(h);
-            int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE + (CELL_SIZE - fm.stringWidth(label)) / 2;
-            int y = HEADER_HEIGHT - 8;
-            g.setColor(h % 6 == 0 ? new Color(255, 255, 255) : new Color(160, 160, 160));
-            g.drawString(label, x, y);
-        }
-    }
-
-    private static void drawGrid(Graphics2D g, ActivityHeatmapVO vo) {
-        double[][] data = vo.getHeatmap();
-        Color[] colors = vo.isFactionMode() ? FACTION_COLORS : PERSONAL_COLORS;
-        int[] thresholds = vo.isFactionMode() ? FACTION_THRESHOLDS : PERSONAL_THRESHOLDS;
-
-        for (int dow = 0; dow < 7; dow++) {
-            for (int h = 0; h < 24; h++) {
-                int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE;
-                int y = HEADER_HEIGHT + dow * CELL_SIZE;
-                double val = data[dow][h];
-                Color cellColor = getCellColor(val, colors, thresholds);
-                drawCell(g, x, y, val, cellColor, vo.isFactionMode());
-            }
+            int x = GRID_X + h * CELL_SIZE + (CELL_SIZE - fm.stringWidth(label)) / 2;
+            g.setColor(h % 6 == 0 ? HeatmapColorScale.TEXT_COLOR : HeatmapColorScale.SUB_TEXT_COLOR);
+            g.drawString(label, x, baselineY);
         }
     }
 
     /**
-     * 绘制单个格子（背景色 + 数值文字）
+     * 绘制行标签：周一..周日
      *
-     * @param g             图形上下文
-     * @param x             格子左上角x坐标
-     * @param y             格子左上角y坐标
-     * @param val           格子数值
-     * @param cellColor     格子背景色
-     * @param isFactionMode 是否为帮派模式
+     * @param g 图形上下文
      */
-    private static void drawCell(Graphics2D g, int x, int y, double val, Color cellColor, boolean isFactionMode) {
-        g.setColor(cellColor);
-        g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
-        if (val > 0) {
-            drawCellText(g, x, y, formatCellValue(val, isFactionMode), cellColor);
-        }
-    }
-
-    /**
-     * 在格子中心绘制文字
-     *
-     * @param g         图形上下文
-     * @param x         格子左上角x坐标
-     * @param y         格子左上角y坐标
-     * @param text      待绘制文字
-     * @param cellColor 格子背景色（用于决定文字颜色）
-     */
-    private static void drawCellText(Graphics2D g, int x, int y, String text, Color cellColor) {
-        g.setFont(CELL_FONT);
-        g.setColor(isDarkColor(cellColor) ? Color.WHITE : Color.BLACK);
-        FontMetrics fm = g.getFontMetrics();
-        int tx = x + (CELL_SIZE - fm.stringWidth(text)) / 2;
-        int ty = y + (CELL_SIZE + fm.getAscent()) / 2 - 2;
-        g.drawString(text, tx, ty);
-    }
-
-    /**
-     * 格式化格子数值为显示文字
-     *
-     * @param val           格子数值
-     * @param isFactionMode 是否为帮派模式
-     * @return 帮派模式返回整数，个人模式返回百分比
-     */
-    private static String formatCellValue(double val, boolean isFactionMode) {
-        return isFactionMode
-                ? String.valueOf((int) Math.round(val))
-                : (int) (val * 100) + "%";
-    }
-
     private static void drawRowLabels(Graphics2D g) {
         g.setFont(LABEL_FONT);
-        for (int dow = 0; dow < 7; dow++) {
+        g.setColor(HeatmapColorScale.TEXT_COLOR);
+        FontMetrics fm = g.getFontMetrics();
+        for (int dow = 0; dow < GRID_ROWS; dow++) {
             String label = DAY_LABELS[dow];
-            FontMetrics fm = g.getFontMetrics();
             int x = PADDING + (ROW_LABEL_WIDTH - fm.stringWidth(label)) / 2;
-            int y = HEADER_HEIGHT + dow * CELL_SIZE + (CELL_SIZE + fm.getAscent()) / 2 - 2;
-            g.setColor(TEXT_COLOR);
-            g.drawString(label, x, y);
+            int baselineY = GRID_Y + dow * CELL_SIZE + (CELL_SIZE + fm.getAscent() - fm.getDescent()) / 2;
+            g.drawString(label, x, baselineY);
         }
     }
 
-    private static void drawLegend(Graphics2D g, boolean isPersonal) {
-        String[] labels = isPersonal ? LEGEND_LABELS_PERSONAL : LEGEND_LABELS_FACTION;
-        Color[] colors = isPersonal ? PERSONAL_COLORS : FACTION_COLORS;
-
-        int legendY = HEADER_HEIGHT + 7 * CELL_SIZE + 12;
-        int startX = PADDING + ROW_LABEL_WIDTH;
-        int legendCellSize = 16;
-        int labelWidth = 48;
-
-        g.setFont(new Font(IMAGE_FONT, Font.PLAIN, 10));
-
-        for (int i = 0; i < colors.length; i++) {
-            int x = startX + i * (legendCellSize + labelWidth);
-            g.setColor(colors[i]);
-            g.fillRect(x, legendY, legendCellSize, legendCellSize);
-            g.setColor(TEXT_COLOR);
-            g.drawString(labels[i], x + legendCellSize + 4, legendY + 13);
+    /**
+     * 绘制网格线（画在格子最上层，确保边界清晰）
+     *
+     * @param g 图形上下文
+     */
+    private static void drawGridLines(Graphics2D g) {
+        g.setColor(HeatmapColorScale.GRID_COLOR);
+        for (int dow = 0; dow <= GRID_ROWS; dow++) {
+            int y = GRID_Y + dow * CELL_SIZE;
+            g.drawLine(GRID_X, y, GRID_X + GRID_WIDTH, y);
+        }
+        for (int h = 0; h <= GRID_COLS; h++) {
+            int x = GRID_X + h * CELL_SIZE;
+            g.drawLine(x, GRID_Y, x, GRID_Y + GRID_ROWS * CELL_SIZE);
         }
     }
 
-    private static void drawEmptyMessage(Graphics2D g, String message) {
+    /**
+     * 绘制单个格子（背景色 + 居中文字）
+     *
+     * @param g         图形上下文
+     * @param x         格子左上角 x 坐标
+     * @param y         格子左上角 y 坐标
+     * @param text      格内文字（null 或空串表示不绘制文字）
+     * @param cellColor 格子背景色
+     * @param textColor 文字颜色
+     */
+    private static void drawCell(Graphics2D g, int x, int y, String text, Color cellColor, Color textColor) {
+        g.setColor(cellColor);
+        g.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+        if (text != null && !text.isEmpty()) {
+            g.setFont(CELL_FONT);
+            g.setColor(textColor);
+            FontMetrics fm = g.getFontMetrics();
+            int tx = x + (CELL_SIZE - fm.stringWidth(text)) / 2;
+            int ty = y + (CELL_SIZE + fm.getAscent() - fm.getDescent()) / 2;
+            g.drawString(text, tx, ty);
+        }
+    }
+
+    /**
+     * 绘制无数据格子，显示 "-" 符号
+     *
+     * @param g 图形上下文
+     * @param x 格子左上角 x 坐标
+     * @param y 格子左上角 y 坐标
+     */
+    private static void drawEmptyCell(Graphics2D g, int x, int y) {
+        drawCell(g, x, y, NO_DATA_SYMBOL,
+                HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.NO_DATA_SYMBOL_COLOR);
+    }
+
+    /**
+     * 绘制数据不足提示信息（居中橙色文字）
+     *
+     * @param g       图形上下文
+     * @param message 提示信息
+     */
+    private static void drawInsufficientMessage(Graphics2D g, String message) {
         g.setFont(TITLE_FONT);
-        g.setColor(new Color(255, 152, 0));
+        g.setColor(INSUFFICIENT_COLOR);
         FontMetrics fm = g.getFontMetrics();
         int x = (IMAGE_WIDTH - fm.stringWidth(message)) / 2;
         int y = IMAGE_HEIGHT / 2;
         g.drawString(message, x, y);
     }
 
-    // ============ 工具方法 ============
+    // ==================== 个人图格子 ====================
 
-    private static Color getCellColor(double val, Color[] colors, int[] thresholds) {
-        if (val <= 0) return EMPTY_COLOR;
-        for (int i = 0; i < thresholds.length - 1; i++) {
-            if (val >= thresholds[i] && val < thresholds[i + 1]) {
-                return colors[i];
+    /**
+     * 构建个人图副标题：覆盖率说明
+     *
+     * @param vo 个人热力图数据
+     * @return 副标题文字，格式 "有效采样覆盖率: XX%"
+     */
+    private static String buildPersonalSubtitle(PersonalActivityHeatmapVO vo) {
+        return "有效采样覆盖率: " + (int) Math.round(vo.getCoverage() * 100) + PERCENT;
+    }
+
+    /**
+     * 绘制个人图 7×24 网格
+     * <p>
+     * 无数据格显示 "-"，真实 0% 显示 "0%" 并使用渐变起点色。
+     *
+     * @param g  图形上下文
+     * @param vo 个人热力图数据
+     */
+    private static void drawPersonalGrid(Graphics2D g, PersonalActivityHeatmapVO vo) {
+        double[][] activeRate = vo.getActiveRate();
+        int[][] observed = vo.getObservedSamples();
+        for (int dow = 0; dow < GRID_ROWS; dow++) {
+            for (int h = 0; h < GRID_COLS; h++) {
+                int x = GRID_X + h * CELL_SIZE;
+                int y = GRID_Y + dow * CELL_SIZE;
+                if (observed[dow][h] == 0) {
+                    drawEmptyCell(g, x, y);
+                } else {
+                    double rate = activeRate[dow][h];
+                    Color cellColor = HeatmapColorScale.activityColor(rate);
+                    String text = formatPercent(rate);
+                    drawCell(g, x, y, text, cellColor, HeatmapColorScale.textColorFor(cellColor));
+                }
             }
         }
-        return colors[colors.length - 1];
-    }
-
-    private static boolean isDarkColor(Color c) {
-        return (c.getRed() * 0.299 + c.getGreen() * 0.587 + c.getBlue() * 0.114) < 128;
-    }
-
-    // ============ 对比模式渲染 ============
-
-    /**
-     * 渲染帮派对比热力图 → base64 PNG
-     */
-    public static String renderComparisonAsBase64(ActivityHeatmapVO vo) {
-        BufferedImage image = renderComparison(vo);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        try {
-            ImageIO.write(image, "png", bos);
-        } catch (IOException e) {
-            throw new BizException("对比热力图渲染失败", e);
-        }
-        return Base64.getEncoder().encodeToString(bos.toByteArray());
-    }
-
-    /**
-     * 渲染帮派对比热力图 → BufferedImage
-     */
-    public static BufferedImage renderComparison(ActivityHeatmapVO vo) {
-        BufferedImage image = new BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = image.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-        // 背景
-        g.setColor(BG_COLOR);
-        g.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
-
-        if (vo.isDataSufficient()) {
-            drawComparisonTitle(g, vo);
-            drawHeader(g);
-            drawComparisonGrid(g, vo);
-            drawRowLabels(g);
-            drawComparisonLegend(g);
-        } else {
-            drawEmptyMessage(g, vo.getInsufficientMessage());
-        }
-
-        g.dispose();
-        return image;
-    }
-
-    /**
-     * 对比模式标题（含副标题）
-     */
-    private static void drawComparisonTitle(Graphics2D g, ActivityHeatmapVO vo) {
-        g.setFont(TITLE_FONT);
-        g.setColor(TEXT_COLOR);
-        FontMetrics fm = g.getFontMetrics();
-        String title = "帮派活跃度对比";
-        int x = (IMAGE_WIDTH - fm.stringWidth(title)) / 2;
-        g.drawString(title, x, 16);
-
-        // 副标题：我方(紫) vs 对方(蓝)
-        g.setFont(LABEL_FONT);
-        String subtitle = vo.getFaction1Name() + "(紫) vs " + vo.getFaction2Name() + "(蓝)";
-        fm = g.getFontMetrics();
-        x = (IMAGE_WIDTH - fm.stringWidth(subtitle)) / 2;
-        g.setColor(new Color(200, 200, 200));
-        g.drawString(subtitle, x, 30);
-    }
-
-    /**
-     * 对比模式格子渲染
-     */
-    private static void drawComparisonGrid(Graphics2D g, ActivityHeatmapVO vo) {
-        double[][] data = vo.getHeatmap();
-
         drawGridLines(g);
+    }
 
-        for (int dow = 0; dow < 7; dow++) {
-            for (int h = 0; h < 24; h++) {
-                int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE;
-                int y = HEADER_HEIGHT + dow * CELL_SIZE;
-                double val = data[dow][h];
-                Color cellColor = getComparisonCellColor(val);
-                drawComparisonCell(g, x, y, val, cellColor);
+    // ==================== 帮派图格子 ====================
+
+    /**
+     * 绘制帮派图 7×24 网格
+     * <p>
+     * 格内显示平均在线人数，背景色使用在线成员比例渐变。
+     *
+     * @param g  图形上下文
+     * @param vo 帮派热力图数据
+     */
+    private static void drawFactionGrid(Graphics2D g, FactionActivityHeatmapVO vo) {
+        double[][] onlineCount = vo.getAverageOnlineCount();
+        double[][] onlineRatio = vo.getOnlineRatio();
+        int[][] observed = vo.getObservedSamples();
+        for (int dow = 0; dow < GRID_ROWS; dow++) {
+            for (int h = 0; h < GRID_COLS; h++) {
+                int x = GRID_X + h * CELL_SIZE;
+                int y = GRID_Y + dow * CELL_SIZE;
+                if (observed[dow][h] == 0) {
+                    drawEmptyCell(g, x, y);
+                } else {
+                    Color cellColor = HeatmapColorScale.activityColor(onlineRatio[dow][h]);
+                    String text = String.valueOf((int) Math.round(onlineCount[dow][h]));
+                    drawCell(g, x, y, text, cellColor, HeatmapColorScale.textColorFor(cellColor));
+                }
             }
         }
+        drawGridLines(g);
+    }
+
+    // ==================== 对比图格子 ====================
+
+    /**
+     * 绘制对比图 7×24 网格
+     * <p>
+     * 仅在 bothObserved=true 的格子计算 diff 并着色，无数据格不显示文字。
+     * scale 为 0 时所有有效格统一使用 COMPARISON_NEUTRAL_COLOR。
+     *
+     * @param g  图形上下文
+     * @param vo 对比热力图数据
+     */
+    private static void drawComparisonGrid(Graphics2D g, ActivityComparisonHeatmapVO vo) {
+        double[][] f1 = vo.getFaction1AverageOnline();
+        double[][] f2 = vo.getFaction2AverageOnline();
+        boolean[][] bothObserved = vo.getBothObserved();
+
+        double scale = calculateComparisonScale(f1, f2, bothObserved);
+        boolean useNeutral = scale == 0;
+
+        for (int dow = 0; dow < GRID_ROWS; dow++) {
+            for (int h = 0; h < GRID_COLS; h++) {
+                int x = GRID_X + h * CELL_SIZE;
+                int y = GRID_Y + dow * CELL_SIZE;
+                if (!bothObserved[dow][h]) {
+                    // 无数据格：EMPTY_COLOR，不显示文字
+                    drawCell(g, x, y, null, HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.NO_DATA_SYMBOL_COLOR);
+                    continue;
+                }
+                double diff = f1[dow][h] - f2[dow][h];
+                Color cellColor;
+                if (useNeutral) {
+                    cellColor = HeatmapColorScale.COMPARISON_NEUTRAL_COLOR;
+                } else {
+                    double normalized = HeatmapColorScale.normalizeComparisonDiff(diff, scale);
+                    cellColor = HeatmapColorScale.comparisonColor(normalized);
+                }
+                String text = formatComparisonCell(f1[dow][h], f2[dow][h]);
+                drawCell(g, x, y, text, cellColor, HeatmapColorScale.textColorFor(cellColor));
+            }
+        }
+        drawGridLines(g);
     }
 
     /**
-     * 绘制对比模式网格线
+     * 计算对比图 P95 scale
+     * <p>
+     * 收集所有 bothObserved=true 格子的 abs(diff)，排序后取第 95 百分位。
+     * 若共同有效格子数 <= 1，scale = abs(那个值)（空列表返回 0）。
+     *
+     * @param f1           帮派A 平均在线人数矩阵
+     * @param f2           帮派B 平均在线人数矩阵
+     * @param bothObserved 共同有效采样标记矩阵
+     * @return P95 scale 值
+     */
+    private static double calculateComparisonScale(double[][] f1, double[][] f2, boolean[][] bothObserved) {
+        List<Double> absDiffs = new ArrayList<>();
+        for (int dow = 0; dow < GRID_ROWS; dow++) {
+            for (int h = 0; h < GRID_COLS; h++) {
+                if (bothObserved[dow][h]) {
+                    absDiffs.add(Math.abs(f1[dow][h] - f2[dow][h]));
+                }
+            }
+        }
+        int n = absDiffs.size();
+        if (n == 0) {
+            return 0;
+        }
+        if (n == 1) {
+            return absDiffs.getFirst();
+        }
+        Collections.sort(absDiffs);
+        return p95(absDiffs);
+    }
+
+    /**
+     * 计算排序后列表的 P95（线性插值法）
+     *
+     * @param sorted 已排序的数值列表
+     * @return P95 百分位值
+     */
+    private static double p95(List<Double> sorted) {
+        int n = sorted.size();
+        if (n == 1) {
+            return sorted.getFirst();
+        }
+        double rank = 0.95 * (n - 1);
+        int lower = (int) Math.floor(rank);
+        int upper = (int) Math.ceil(rank);
+        if (lower == upper) {
+            return sorted.get(lower);
+        }
+        double fraction = rank - lower;
+        return sorted.get(lower) + fraction * (sorted.get(upper) - sorted.get(lower));
+    }
+
+    /**
+     * 格式化对比格子文字："A人数/B人数"
+     *
+     * @param a 帮派A 人数
+     * @param b 帮派B 人数
+     * @return 格式化文字，如 "23/18"
+     */
+    private static String formatComparisonCell(double a, double b) {
+        return (int) Math.round(a) + "/" + (int) Math.round(b);
+    }
+
+    // ==================== 图例 ====================
+
+    /**
+     * 绘制普通图（个人/帮派）连续渐变图例
+     * <p>
+     * 水平渐变条，每个像素调用 {@link HeatmapColorScale#activityColor} 生成；
+     * 刻度标注 0%、25%、50%、75%、100%。
      *
      * @param g 图形上下文
      */
-    private static void drawGridLines(Graphics2D g) {
-        g.setColor(GRID_COLOR);
-        for (int dow = 0; dow <= 7; dow++) {
-            int y = HEADER_HEIGHT + dow * CELL_SIZE;
-            g.drawLine(PADDING + ROW_LABEL_WIDTH, y,
-                    PADDING + ROW_LABEL_WIDTH + 24 * CELL_SIZE, y);
-        }
-        for (int h = 0; h <= 24; h++) {
-            int x = PADDING + ROW_LABEL_WIDTH + h * CELL_SIZE;
-            g.drawLine(x, HEADER_HEIGHT,
-                    x, HEADER_HEIGHT + 7 * CELL_SIZE);
+    private static void drawActivityLegend(Graphics2D g) {
+        int barX = GRID_X;
+        int barWidth = GRID_WIDTH;
+        int barY = LEGEND_Y + 6;
+        drawGradientBar(g, barX, barY, barWidth, HeatmapColorScale::activityColor);
+
+        g.setFont(LABEL_FONT);
+        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
+        FontMetrics fm = g.getFontMetrics();
+        int labelY = barY + 12 + fm.getAscent() + 2;
+        for (int tick : LEGEND_TICKS) {
+            int tickX = barX + (int) Math.round(tick / 100.0 * barWidth);
+            String label = tick + PERCENT;
+            int labelWidth = fm.stringWidth(label);
+            int lx = switch (tick) {
+                case 0 -> tickX;
+                case 100 -> tickX - labelWidth;
+                default -> tickX - labelWidth / 2;
+            };
+            g.drawString(label, lx, labelY);
         }
     }
 
     /**
-     * 绘制对比模式单个格子（背景色 + 数值文字）
+     * 绘制对比图连续渐变图例
+     * <p>
+     * 水平渐变条 B优势(蓝) ← 持平(灰) → A优势(紫)，
+     * 每个像素调用 {@link HeatmapColorScale#comparisonColor} 生成；
+     * 标签标注 B优势、持平、A优势。
      *
-     * @param g         图形上下文
-     * @param x         格子左上角x坐标
-     * @param y         格子左上角y坐标
-     * @param val       格子差值（正=我方优势，负=对方优势，0=平局）
-     * @param cellColor 格子背景色
-     */
-    private static void drawComparisonCell(Graphics2D g, int x, int y, double val, Color cellColor) {
-        g.setColor(cellColor);
-        g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
-        if (val != 0) {
-            drawCellText(g, x, y, formatComparisonValue(val), cellColor);
-        }
-    }
-
-    /**
-     * 格式化对比模式格子数值为显示文字
-     *
-     * @param val 格子差值
-     * @return 正值前加"+"号，负值直接显示
-     */
-    private static String formatComparisonValue(double val) {
-        return val > 0
-                ? "+" + (int) Math.round(val)
-                : String.valueOf((int) Math.round(val));
-    }
-
-    /**
-     * 对比模式颜色映射
-     */
-    private static Color getComparisonCellColor(double val) {
-        if (val == 0) {
-            return COMPARISON_NEUTRAL_COLOR;
-        }
-
-        if (val > 0) {
-            for (int i = 0; i < COMPARISON_POSITIVE_THRESHOLDS.length - 1; i++) {
-                if (val >= COMPARISON_POSITIVE_THRESHOLDS[i]
-                        && val < COMPARISON_POSITIVE_THRESHOLDS[i + 1]) {
-                    return COMPARISON_POSITIVE_COLORS[i];
-                }
-            }
-            return COMPARISON_POSITIVE_COLORS[COMPARISON_POSITIVE_COLORS.length - 1];
-        } else {
-            double absVal = Math.abs(val);
-            for (int i = 0; i < COMPARISON_NEGATIVE_THRESHOLDS.length - 1; i++) {
-                if (absVal >= COMPARISON_NEGATIVE_THRESHOLDS[i]
-                        && absVal < COMPARISON_NEGATIVE_THRESHOLDS[i + 1]) {
-                    return COMPARISON_NEGATIVE_COLORS[i];
-                }
-            }
-            return COMPARISON_NEGATIVE_COLORS[COMPARISON_NEGATIVE_COLORS.length - 1];
-        }
-    }
-
-    /**
-     * 对比模式图例（蓝→紫渐变）
+     * @param g 图形上下文
      */
     private static void drawComparisonLegend(Graphics2D g) {
-        Color[] legendColors = {
-                COMPARISON_NEGATIVE_COLORS[3],  // 深蓝 16+
-                COMPARISON_NEGATIVE_COLORS[2],  // 蓝色 9-15
-                COMPARISON_NEGATIVE_COLORS[1],  // 中蓝 4-8
-                COMPARISON_NEGATIVE_COLORS[0],  // 浅蓝 1-3
-                COMPARISON_NEUTRAL_COLOR,       // 中性 0
-                COMPARISON_POSITIVE_COLORS[0],  // 浅紫 1-3
-                COMPARISON_POSITIVE_COLORS[1],  // 中紫 4-8
-                COMPARISON_POSITIVE_COLORS[2],  // 紫色 9-15
-                COMPARISON_POSITIVE_COLORS[3]   // 深紫 16+
-        };
+        int barX = GRID_X;
+        int barWidth = GRID_WIDTH;
+        int barY = LEGEND_Y + 6;
+        drawGradientBar(g, barX, barY, barWidth, i -> HeatmapColorScale.comparisonColor(-1.0 + 2.0 * i));
 
-        int legendY = HEADER_HEIGHT + 7 * CELL_SIZE + 12;
-        int legendCellSize = 14;
-        int labelWidth = 36;
-        int totalLegendWidth = legendColors.length * legendCellSize
-                + (legendColors.length - 1) * (labelWidth - legendCellSize + 4);
-        int startX = PADDING + ROW_LABEL_WIDTH
-                + (24 * CELL_SIZE - totalLegendWidth) / 2;
+        g.setFont(LABEL_FONT);
+        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
+        FontMetrics fm = g.getFontMetrics();
+        int labelY = barY + 12 + fm.getAscent() + 2;
 
-        g.setFont(new Font(IMAGE_FONT, Font.PLAIN, 9));
+        String leftLabel = "B优势";
+        String midLabel = "持平";
+        String rightLabel = "A优势";
+        g.drawString(leftLabel, barX, labelY);
+        int midX = barX + barWidth / 2 - fm.stringWidth(midLabel) / 2;
+        g.drawString(midLabel, midX, labelY);
+        int rightX = barX + barWidth - fm.stringWidth(rightLabel);
+        g.drawString(rightLabel, rightX, labelY);
+    }
 
-        for (int i = 0; i < legendColors.length; i++) {
-            int x = startX + i * (legendCellSize + labelWidth - legendCellSize + 4);
-            g.setColor(legendColors[i]);
-            g.fillRect(x, legendY, legendCellSize, legendCellSize);
-            g.setColor(TEXT_COLOR);
-            g.drawString(COMPARISON_LEGEND_LABELS[i], x + legendCellSize + 3, legendY + 12);
+    /**
+     * 绘制水平渐变条（每个像素通过 colorFunction 计算颜色）
+     *
+     * @param g             图形上下文
+     * @param barX          渐变条左上角 x
+     * @param barY          渐变条左上角 y
+     * @param barWidth      渐变条宽度
+     * @param colorFunction 输入 [0,1] 归一化位置，返回对应颜色
+     */
+    private static void drawGradientBar(Graphics2D g, int barX, int barY, int barWidth,
+                                        java.util.function.DoubleFunction<Color> colorFunction) {
+        int barHeight = 12;
+        for (int i = 0; i < barWidth; i++) {
+            double ratio = (double) i / (barWidth - 1);
+            g.setColor(colorFunction.apply(ratio));
+            g.fillRect(barX + i, barY, 1, barHeight);
         }
+        g.setColor(HeatmapColorScale.GRID_COLOR);
+        g.drawRect(barX, barY, barWidth, barHeight);
+    }
+
+    // ==================== 工具方法 ====================
+
+    /**
+     * 格式化比例值为整数百分比文字
+     *
+     * @param ratio 比例值 [0, 1]
+     * @return 百分比文字，如 "38%"
+     */
+    private static String formatPercent(double ratio) {
+        return (int) Math.round(ratio * 100) + PERCENT;
     }
 }

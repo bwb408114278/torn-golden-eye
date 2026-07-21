@@ -8,7 +8,8 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
-import pn.torn.goldeneye.torn.model.activity.ActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
 import pn.torn.goldeneye.utils.NumberUtils;
@@ -19,7 +20,7 @@ import java.util.List;
  * 活跃度热力图指令
  *
  * @author Bai
- * @version 1.2.9
+ * @version 1.2.11
  * @since 2026.07.07
  */
 @Slf4j
@@ -52,23 +53,22 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
-        ActivityHeatmapVO heatmap = parseAndQuery(msgArray[0], msgArray[1]);
-        if (heatmap.isDataSufficient()) {
-            return super.buildImageMsg(HeatmapImageRenderer.renderAsBase64(heatmap));
-        } else {
-            return super.buildTextMsg(heatmap.getInsufficientMessage());
-        }
-    }
-
-    /**
-     * 查询热力图
-     */
-    private ActivityHeatmapVO parseAndQuery(String type, String idStr) {
-        long id = Long.parseLong(idStr);
+        String type = msgArray[0];
+        long id = Long.parseLong(msgArray[1]);
         if ("帮派".equals(type)) {
-            return heatmapService.queryFactionHeatmap(id, DEFAULT_DAYS);
+            FactionActivityHeatmapVO heatmap = heatmapService.queryFactionHeatmap(id, DEFAULT_DAYS);
+            if (heatmap.isDataSufficient()) {
+                return super.buildImageMsg(HeatmapImageRenderer.renderFactionAsBase64(heatmap));
+            } else {
+                return super.buildTextMsg(heatmap.getInsufficientMessage());
+            }
         } else {
-            return heatmapService.queryPersonalHeatmap(id, DEFAULT_DAYS);
+            PersonalActivityHeatmapVO heatmap = heatmapService.queryPersonalHeatmap(id, DEFAULT_DAYS);
+            if (heatmap.isDataSufficient()) {
+                return super.buildImageMsg(HeatmapImageRenderer.renderPersonalAsBase64(heatmap));
+            } else {
+                return super.buildTextMsg(heatmap.getInsufficientMessage());
+            }
         }
     }
 
