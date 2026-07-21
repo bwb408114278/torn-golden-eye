@@ -8,7 +8,7 @@ import lombok.Data;
  * 格内主数值为有效采样中的活跃比例 {@code %}，矩阵维度 [7][24]（周一=0..周日=6）。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.21
  */
 @Data

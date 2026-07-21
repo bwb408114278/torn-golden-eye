@@ -1,6 +1,9 @@
 package pn.torn.goldeneye.torn.service.activity;
 
-import java.awt.Color;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
+import java.awt.*;
 
 /**
  * 热力图固定 RGB 连续渐变色板
@@ -9,44 +12,64 @@ import java.awt.Color;
  * 所有渐变使用相邻锚点线性插值，无数据格不进入渐变函数。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.21
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class HeatmapColorScale {
-
-    private HeatmapColorScale() {
-    }
 
     // ==================== 通用界面颜色 ====================
 
-    /** 图片背景 */
+    /**
+     * 图片背景
+     */
     public static final Color BG_COLOR = new Color(30, 30, 30);
-    /** 无数据格 */
+    /**
+     * 无数据格
+     */
     public static final Color EMPTY_COLOR = new Color(45, 45, 45);
-    /** 网格线 */
+    /**
+     * 网格线
+     */
     public static final Color GRID_COLOR = new Color(60, 60, 60);
-    /** 主文字 */
+    /**
+     * 主文字
+     */
     public static final Color TEXT_COLOR = new Color(220, 220, 220);
-    /** 次文字 */
+    /**
+     * 次文字
+     */
     public static final Color SUB_TEXT_COLOR = new Color(160, 160, 160);
-    /** 无数据符号 */
+    /**
+     * 无数据符号
+     */
     public static final Color NO_DATA_SYMBOL_COLOR = new Color(138, 138, 138);
-    /** 深色背景文字 */
+    /**
+     * 深色背景文字
+     */
     public static final Color DARK_BG_TEXT_COLOR = Color.WHITE;
-    /** 浅色背景文字 */
+    /**
+     * 浅色背景文字
+     */
     public static final Color LIGHT_BG_TEXT_COLOR = new Color(16, 16, 16);
 
-    /** 文字亮度阈值 */
+    /**
+     * 文字亮度阈值
+     */
     static final double TEXT_LUMINANCE_THRESHOLD = 150;
 
     // ==================== 个人图与帮派图：8 锚点 Viridis 风格连续渐变 ====================
 
-    /** 比例锚点 */
+    /**
+     * 比例锚点
+     */
     static final double[] ACTIVITY_ANCHORS = {
             0.000, 0.143, 0.286, 0.429, 0.571, 0.714, 0.857, 1.000
     };
 
-    /** 个人活跃比例和帮派在线比例共用渐变色板 */
+    /**
+     * 个人活跃比例和帮派在线比例共用渐变色板
+     */
     static final Color[] ACTIVITY_GRADIENT = {
             new Color(68, 1, 84),
             new Color(70, 50, 126),
@@ -60,12 +83,16 @@ public final class HeatmapColorScale {
 
     // ==================== 帮派对比：9 锚点蓝-灰-紫连续渐变 ====================
 
-    /** 归一化锚点 */
+    /**
+     * 归一化锚点
+     */
     static final double[] COMPARISON_ANCHORS = {
             -1.00, -0.75, -0.50, -0.25, 0.00, 0.25, 0.50, 0.75, 1.00
     };
 
-    /** 帮派对比渐变色板（B蓝 -> 灰 -> A紫） */
+    /**
+     * 帮派对比渐变色板（B蓝 -> 灰 -> A紫）
+     */
     static final Color[] COMPARISON_GRADIENT = {
             new Color(33, 102, 172),
             new Color(67, 147, 195),
@@ -78,7 +105,9 @@ public final class HeatmapColorScale {
             new Color(118, 42, 131)
     };
 
-    /** 对比持平色 */
+    /**
+     * 对比持平色
+     */
     public static final Color COMPARISON_NEUTRAL_COLOR = new Color(242, 242, 242);
 
     // ==================== 渐变映射方法 ====================
@@ -142,9 +171,9 @@ public final class HeatmapColorScale {
     /**
      * 在锚点数组之间做线性插值
      *
-     * @param value    输入值
-     * @param anchors  锚点位置数组
-     * @param colors   锚点颜色数组
+     * @param value   输入值
+     * @param anchors 锚点位置数组
+     * @param colors  锚点颜色数组
      * @return 插值后的颜色
      */
     static Color interpolateLinear(double value, double[] anchors, Color[] colors) {

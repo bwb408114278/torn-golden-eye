@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 活跃度双证据判定纯函数测试
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.11
  * @since 2026.07.21
  */
 @DisplayName("活跃度双证据判定纯函数测试")

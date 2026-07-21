@@ -1,5 +1,8 @@
 package pn.torn.goldeneye.torn.service.activity;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
@@ -7,23 +10,24 @@ import java.time.format.DateTimeFormatter;
  * V2 活跃度 Redis Key 构造工具
  * <p>
  * V1 与 V2 数据的判定方式、分母和历史帮派口径不同，不能混用。
- * V2 所有 key 统一使用 {@code activity:v2:} 前缀，V1 key 不主动删除，按 TTL 自然过期。
+ * 个人 key 使用 {@code activity:v2:} 前缀；帮派快照因旧 V2 覆盖写损坏，使用独立的
+ * {@code activity:v2:faction-snapshot-v2:} 前缀重新积累。旧 key 不主动删除，按 TTL 自然过期。
  *
- * <h3>个人维度（每天 96 位 Bitmap，TTL 30 天）</h3>
+ * <p><strong>个人维度（每天 96 位 Bitmap，TTL 30 天）</strong></p>
  * <pre>
  * activity:v2:user:observed:{userId}:{yyyy-MM-dd}
  * activity:v2:user:status-active:{userId}:{yyyy-MM-dd}
  * activity:v2:user:recent-action:{userId}:{yyyy-MM-dd}
  * </pre>
  *
- * <h3>帮派维度（每天 96 槽，TTL 30 天）</h3>
+ * <p><strong>帮派维度（每天最多 96 字节，TTL 30 天）</strong></p>
  * <pre>
- * activity:v2:faction:online-count:{factionId}:{yyyy-MM-dd}   定长 String，每槽 1 字节
- * activity:v2:faction:member-count:{factionId}:{yyyy-MM-dd}   定长 String，每槽 1 字节
- * activity:v2:faction:observed:{factionId}:{yyyy-MM-dd}       96 位 Bitmap
+ * activity:v2:faction-snapshot-v2:online-count:{factionId}:{yyyy-MM-dd} 每槽 1 字节
+ * activity:v2:faction-snapshot-v2:member-count:{factionId}:{yyyy-MM-dd} 每槽 1 字节
+ * activity:v2:faction-snapshot-v2:observed:{factionId}:{yyyy-MM-dd}     96 位 Bitmap
  * </pre>
  *
- * <h3>名称缓存</h3>
+ * <p><strong>名称缓存</strong></p>
  * <pre>
  * activity:v2:user:names     Hash&lt;userId, latestUserName&gt;
  * activity:v2:faction:names  Hash&lt;factionId, latestFactionName&gt;
@@ -33,28 +37,34 @@ import java.time.format.DateTimeFormatter;
  * @version 1.2.11
  * @since 2026.07.21
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ActivityRedisKeys {
 
     static final String V2_PREFIX = "activity:v2:";
 
-    /** 个人维度子前缀 */
+    /**
+     * 个人维度子前缀
+     */
     private static final String USER_OBSERVED = V2_PREFIX + "user:observed:";
     private static final String USER_STATUS_ACTIVE = V2_PREFIX + "user:status-active:";
     private static final String USER_RECENT_ACTION = V2_PREFIX + "user:recent-action:";
 
-    /** 帮派维度子前缀 */
-    private static final String FACTION_ONLINE_COUNT = V2_PREFIX + "faction:online-count:";
-    private static final String FACTION_MEMBER_COUNT = V2_PREFIX + "faction:member-count:";
-    private static final String FACTION_OBSERVED = V2_PREFIX + "faction:observed:";
+    /**
+     * 帮派快照独立子前缀，隔离旧 V2 覆盖写产生的损坏数据
+     */
+    private static final String FACTION_SNAPSHOT_V2_PREFIX = V2_PREFIX + "faction-snapshot-v2:";
+    private static final String FACTION_ONLINE_COUNT = FACTION_SNAPSHOT_V2_PREFIX + "online-count:";
+    private static final String FACTION_MEMBER_COUNT = FACTION_SNAPSHOT_V2_PREFIX + "member-count:";
+    private static final String FACTION_OBSERVED = FACTION_SNAPSHOT_V2_PREFIX + "observed:";
 
-    /** 名称缓存 Hash key */
-    static final String USER_NAMES_HASH = V2_PREFIX + "user:names";
-    static final String FACTION_NAMES_HASH = V2_PREFIX + "faction:names";
+    /**
+     * 名称缓存 Hash key
+     */
+    static final String USER_NAME_CACHE_KEY = V2_PREFIX + "user:names";
+    static final String FACTION_NAME_CACHE_KEY = V2_PREFIX + "faction:names";
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private ActivityRedisKeys() {
-    }
 
     // ==================== 个人维度 ====================
 
@@ -94,7 +104,7 @@ public final class ActivityRedisKeys {
     // ==================== 帮派维度 ====================
 
     /**
-     * 构建帮派 online-count key：定长 String，每槽 1 字节保存估算在线人数
+     * 构建帮派 online-count key：最多 96 字节，按槽偏移写入估算在线人数
      *
      * @param factionId 帮派 ID
      * @param date      日期
@@ -105,7 +115,7 @@ public final class ActivityRedisKeys {
     }
 
     /**
-     * 构建帮派 member-count key：定长 String，每槽 1 字节保存该次响应的有效成员数
+     * 构建帮派 member-count key：最多 96 字节，按槽偏移写入该次响应的有效成员数
      *
      * @param factionId 帮派 ID
      * @param date      日期

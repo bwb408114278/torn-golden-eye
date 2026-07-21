@@ -48,13 +48,16 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
         }
 
         String[] msgArray = msg.split("#");
-        boolean isCommand = "帮派".equals(msgArray[0]) || "用户".equals(msgArray[0]);
-        if (msgArray.length < 2 || !isCommand || !NumberUtils.isLong(msgArray[1])) {
+        if (msgArray.length != 2) {
+            return super.buildTextMsg(buildFormatIntroMsg());
+        }
+        String type = msgArray[0].trim();
+        String idText = msgArray[1].trim();
+        if (!isValidQuery(type, idText)) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
-        String type = msgArray[0];
-        long id = Long.parseLong(msgArray[1]);
+        long id = Long.parseLong(idText);
         if ("帮派".equals(type)) {
             FactionActivityHeatmapVO heatmap = heatmapService.queryFactionHeatmap(id, DEFAULT_DAYS);
             if (heatmap.isDataSufficient()) {
@@ -69,6 +72,26 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
             } else {
                 return super.buildTextMsg(heatmap.getInsufficientMessage());
             }
+        }
+    }
+
+    /**
+     * 校验热力图查询类型和目标 ID。
+     *
+     * @param type   查询类型
+     * @param idText 目标 ID 文本
+     * @return 参数有效时返回 true
+     */
+    static boolean isValidQuery(String type, String idText) {
+        boolean isCommand = "帮派".equals(type) || "用户".equals(type);
+        if (!isCommand || !NumberUtils.isLong(idText)) {
+            return false;
+        }
+        try {
+            return Long.parseLong(idText) > 0;
+        } catch (NumberFormatException e) {
+            log.debug("活跃度热力图目标 ID 超出 long 范围: {}", idText);
+            return false;
         }
     }
 

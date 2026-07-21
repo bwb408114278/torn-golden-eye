@@ -192,9 +192,10 @@ V2：activity:v2:...
 
 上线策略：
 
-- V2 查询只读取 V2 key；
-- V1 key 不主动删除，按 TTL 自然过期；
+- V2 查询只读取当前有效 V2 key；
+- 个人 V1 key 不主动删除，按 TTL 自然过期；
 - 不迁移 V1，因为无法恢复 observed 和被漏记的证据；
+- 帮派快照使用独立的 `activity:v2:faction-snapshot-v2:*` key，隔离早期 V2 整体覆盖写产生的损坏数据；旧帮派 V2 key 不迁移、不混算并按 TTL 自然过期；
 - V2 满 7 个自然日并覆盖完整星期前，提示“V2 数据积累中”。
 
 ### 5.2 个人维度
@@ -221,9 +222,9 @@ activity:v2:user:recent-action:{userId}:{yyyy-MM-dd}
 历史帮派统计不再依赖当前成员 Set，而是在采集时保存当时的聚合快照：
 
 ```text
-activity:v2:faction:online-count:{factionId}:{yyyy-MM-dd}
-activity:v2:faction:member-count:{factionId}:{yyyy-MM-dd}
-activity:v2:faction:observed:{factionId}:{yyyy-MM-dd}
+activity:v2:faction-snapshot-v2:online-count:{factionId}:{yyyy-MM-dd}
+activity:v2:faction-snapshot-v2:member-count:{factionId}:{yyyy-MM-dd}
+activity:v2:faction-snapshot-v2:observed:{factionId}:{yyyy-MM-dd}
 ```
 
 建议数据格式：

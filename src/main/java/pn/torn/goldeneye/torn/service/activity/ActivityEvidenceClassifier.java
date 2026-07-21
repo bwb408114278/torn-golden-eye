@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.activity;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.torn.model.activity.ActivityEvidence;
 import pn.torn.goldeneye.torn.model.user.TornUserLastActionVO;
 
@@ -17,21 +19,24 @@ import pn.torn.goldeneye.torn.model.user.TornUserLastActionVO;
  * @version 1.2.11
  * @since 2026.07.21
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ActivityEvidenceClassifier {
 
-    /** 采集周期（分钟），同时作为最近动作证据窗口 */
+    /**
+     * 采集周期（分钟），同时作为最近动作证据窗口
+     */
     static final int POLL_INTERVAL_MINUTES = 15;
 
-    /** 最近动作证据窗口（秒） */
+    /**
+     * 最近动作证据窗口（秒）
+     */
     static final long RECENT_ACTION_WINDOW_SECONDS = POLL_INTERVAL_MINUTES * 60L;
 
-    private ActivityEvidenceClassifier() {
-    }
 
     /**
      * 根据成员的 last_action 信息和采集时间，判定活跃状态证据
      *
-     * @param lastAction          成员的 last_action 信息，可为 null
+     * @param lastAction             成员的 last_action 信息，可为 null
      * @param collectedAtEpochSecond 采集时刻的 epoch 秒
      * @return 活跃度证据判定结果
      */
@@ -72,7 +77,7 @@ public final class ActivityEvidenceClassifier {
      *   <li>timestamp 明显异常（远超当前时间）-> 不活跃</li>
      * </ul>
      *
-     * @param timestamp           last_action.timestamp（epoch 秒）
+     * @param timestamp              last_action.timestamp（epoch 秒）
      * @param collectedAtEpochSecond 采集时刻的 epoch 秒
      * @return true 表示在最近 15 分钟窗口内有动作
      */
