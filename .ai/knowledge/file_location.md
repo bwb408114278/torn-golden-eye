@@ -18,7 +18,8 @@
 ```text
 ├── .ai/                                                                        # AI协作知识库与任务规范
 │   └── knowledge/                                                              # AI知识库
-│       └── activity_heatmap_design.md                                          # 活跃度热力图完整设计、数据口径与固定RGB色板
+│       ├── activity_heatmap_design.md                                          # 活跃度热力图完整设计、数据口径与固定RGB色板
+│       └── automated_build_deployment_pipeline_design.md                       # 自动流水线构建部署设计方案
 ├── build/                                                                      # 构建项目镜像需要的文件
 │   └── docker-compose.yml                                                      # Docker compose启动文件
 ├── src/                                                                        # 代码根目录
