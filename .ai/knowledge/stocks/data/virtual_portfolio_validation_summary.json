@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "status": "SHADOW_CANDIDATE",
+  "data": {
+    "range": "2026-01-26/2026-07-23",
+    "stocks": 35,
+    "bars_15m": 587650,
+    "sell_fee": 0.001,
+    "history_note": "less than six months; annualized values are comparative backtest metrics"
+  },
+  "objective": {
+    "early_stage_annualized_idea": 0.20,
+    "is_upper_bound": false,
+    "principle": "seek higher risk-adjusted return without holdout tuning, higher unexplained drawdown, or degraded executability",
+    "user_reported_manual_annualized": 0.24,
+    "manual_value_verified": false,
+    "manual_log_status": "July records not updated; reference only"
+  },
+  "execution": {
+    "bar_minutes": 15,
+    "signal_fill": "next contiguous bar",
+    "slots": 5,
+    "slot_cash": 400000000,
+    "initial_cash": 2000000000,
+    "same_stock_open_batches": 1,
+    "normal_cooldown_hours": 24,
+    "risk_cooldown_hours": 48,
+    "requires_false_reset": true,
+    "equity": "cash + open positions marked at current price with sell fee"
+  },
+  "buy": {
+    "formal_families": [
+      "DEEP_MEAN_REVERSION_BUY",
+      "RANGE_LOWER_BUY",
+      "STRICT_REBOUND_CONFIRM_BUY"
+    ],
+    "deep": {
+      "styles": ["NARROW", "RANGING", "STEADY"],
+      "entry": "low30_distance<=0.3%; effectiveZ1<=-2; return7d>=-1%; MA7/MA30-1>=-2%"
+    },
+    "range": {
+      "styles": ["NARROW", "RANGING"],
+      "entry": "width30<=8%; position30<=10%; effectiveZ1<=-0.5; return6h<=0"
+    },
+    "strict_rebound": {
+      "styles": ["WEAK", "DECLINER"],
+      "entry": "low30_distance<=0.5%; return1d>0; Z1>=0.8; price<=MA30*1.002"
+    },
+    "narrow_z_adjustment": 0.6,
+    "retired_from_group": ["current wide SWING_REVERSAL_BUY"],
+    "research": ["TREND_PULLBACK_BUY", "price breakout without volume claim"]
+  },
+  "sell": {
+    "formal_baseline": {
+      "target_net_return": 0.008,
+      "risk_net_return": -0.015,
+      "max_hold_days": 14,
+      "range_profitable_upper_exit": true
+    },
+    "dynamic": {
+      "status": "SHADOW_CANDIDATE",
+      "independent_of_rotation": true,
+      "inputs": ["netReturn", "MFE", "MAE", "peakDrawdown", "Z1", "return6h", "return1d", "MA7/MA30", "position30", "width30", "holdTime", "buyFamily"],
+      "best_continuous_annualized": 0.1608
+    },
+    "bare_down_sequence_allowed": false
+  },
+  "style": {
+    "fields": ["strategyFitPrior", "maturity", "riskLevel"],
+    "personality_window_days": 365,
+    "insufficient_history": "all available history with maturity",
+    "missing_default_steady": false,
+    "risk_hard_veto_status": "RESEARCH_SHADOW",
+    "risk_veto_prior_continuous_annualized": 0.1697,
+    "legacy_continuous_annualized_same_replay": 0.1961
+  },
+  "portfolio_results": {
+    "trusted_annualized_range": [0.1961, 0.2051],
+    "trusted_period_return_range": [0.073, 0.077],
+    "trusted_mdd_range": [-0.007, -0.006],
+    "final_candidate": {
+      "trades": 96,
+      "win_rate": 0.8229,
+      "median_net_return": 0.00799,
+      "slot_utilization": 0.8706,
+      "median_hold_hours": 132.1,
+      "message_rounds_per_day": 1.32,
+      "estimated_messages_with_daily_summary": 2.32,
+      "orphan_sells": 0
+    },
+    "windows_annualized": {
+      "train": 0.2741,
+      "validation": 0.1671,
+      "holdout": 0.2184,
+      "continuous": 0.2051
+    },
+    "family_trade_stats": {
+      "deep": {"trades": 24, "mean_net_return": 0.00410, "win_rate": 0.833},
+      "range": {"trades": 44, "mean_net_return": 0.00366, "win_rate": 0.795},
+      "strict_rebound": {"trades": 28, "mean_net_return": 0.00441, "win_rate": 0.857}
+    }
+  },
+  "current_java_buy_audit": {
+    "all_buy_continuous_annualized": 0.0700,
+    "low_buy_continuous_annualized": 0.1874,
+    "wide_reversal_continuous_annualized": 0.0366,
+    "buy_bars_suppressed_by_market_sell_score": 249
+  },
+  "rotation": {
+    "enabled_by_default": false,
+    "status": "SHADOW_CANDIDATE",
+    "balanced_exploratory_annualized": 0.2214,
+    "events": 16,
+    "mean_edge": 0.00195,
+    "positive_edge_rate": 0.688,
+    "bootstrap_95": [-0.00208, 0.00542],
+    "note": "interval crosses zero; rotation is optional and never blocks natural sell"
+  },
+  "message_gates": {
+    "average_messages_per_day_max": 4,
+    "p95_messages_per_day_max": 6,
+    "sell_may_be_silently_dropped": false,
+    "buy_sell_batch_pair_required": true
+  },
+  "rule_status": {
+    "final_buy_and_wide_lifecycle": "SHADOW_CANDIDATE",
+    "dynamic_sell": "RESEARCH_SHADOW_CANDIDATE",
+    "high_risk_hard_veto": "RESEARCH",
+    "rotation": "SHADOW_CANDIDATE_DEFAULT_OFF",
+    "wide_java_reversal_buy": "RETIRED_FROM_GROUP_PORTFOLIO",
+    "trend_pullback": "RESEARCH"
+  },
+  "limitations": [
+    "history shorter than one year",
+    "all style states below M4 maturity",
+    "manual July log does not include user's reported 24% annualized state",
+    "no real volume, OHLC, orderbook, member execution delay, or slippage",
+    "annualized backtest is not a return promise or target ceiling"
+  ]
+}

@@ -18,6 +18,17 @@
 ```text
 ├── .ai/                                                                        # AI协作知识库与任务规范
 │   └── knowledge/                                                              # AI知识库
+│       ├── stocks/                                                              # Torn股票策略业务依据
+│       │   ├── data/                                                            # 长期机器可读研究摘要
+│       │   │   ├── stock_personality_2026_07.csv                                # 35支股票风格指标快照
+│       │   │   └── virtual_portfolio_validation_summary.json                    # 最终5槽策略、动态SELL、风格风险与证据等级摘要
+│       │   ├── references/                                                      # 股票业务来源资料
+│       │   │   └── Stock Market - Torncity WIKI.pdf                             # Torn股票机制Wiki PDF
+│       │   ├── stock_personality_full_history_2026_07.md                        # 2026-08候选预览（截至2026-07-23，M2）
+│       │   ├── stock_personality_monthly_calibration.md                         # 股票滚动一年风格分类、门禁、迟滞与回放规范
+│       │   ├── vip_stock_alert_strategy_background.md                           # BUY/SELL淘汰结论和动态研究方向
+│       │   ├── vip_stock_virtual_portfolio_strategy.md                          # 系统虚拟组合完整业务设计与开发主依据
+│       │   └── virtual_portfolio_research_evidence.md                           # 交易参考、冻结策略、组合与风格门禁研究证据
 │       ├── activity_heatmap_design.md                                          # 活跃度热力图完整设计、数据口径与固定RGB色板
 │       └── automated_build_deployment_pipeline_design.md                       # 自动流水线构建部署设计方案
 ├── build/                                                                      # 构建项目镜像需要的文件
