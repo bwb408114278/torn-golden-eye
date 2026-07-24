@@ -243,7 +243,32 @@ AND 当前价格 <= MA30 × 1.002
 - 当前价格版趋势回调/延续：跨窗口为负，继续研究；
 - 未支持真实成交量时，不得宣称验证“放量突破”。
 
-### 6.5 候选流程
+### 6.5 冻结候选排序
+
+同一15分钟轮次出现多个BUY并竞争有限槽位时，使用原冻结回放中的质量分降序：
+
+```text
+candidateComparator =
+  qualityScore DESC
+  → stocksId ASC
+```
+
+质量分按策略内部计算，不额外写死策略族优先级：
+
+```text
+deepScore = 100 + max(0, -effectiveZ1) × 10
+                 + max(0, 0.003 - low30Distance) × 1000
+
+rangeScore = 80 + max(0, 0.10 - position30) × 100
+                + max(0, -effectiveZ1) × 5
+
+reboundScore = 60 + Z1 × 5
+                  + max(0, 0.005 - low30Distance) × 1000
+```
+
+同一股票多策略同时命中时，先按同一qualityScore选择`primaryStrategy`，其余写入`matchedStrategies`，只创建一个候选。不得使用枚举顺序、集合遍历顺序或股票简称作为主要排序。历史冻结数据中同轮最多3个BUY候选，排序敏感性未改变5槽组合结果；仍需保留同分规则以保证生产确定性。
+
+### 6.6 候选流程
 
 ```text
 数据完整
@@ -286,10 +311,10 @@ AND 当前价格 <= MA30 × 1.002
 净收益 >= +0.8% → CLOSED_TARGET
 净收益 <= -1.5% → CLOSED_RISK
 持有 >= 14天 → CLOSED_TIME
-RANGE盈利后回到区间上部 → CLOSED_RANGE
+RANGE盈利且position30 >= 0.60 → CLOSED_RANGE
 ```
 
-这些阈值是当前可靠基线，不是长期收益上限或最终投资哲学。
+这些阈值是当前可靠基线，不是长期收益上限或最终投资哲学。`position30 = (currentPrice-low30)/(high30-low30)`；0.60来自冻结回放原实现。邻域0.50/0.55/0.60/0.65/0.70在独立复算中均为正，0.60不是事后新搜索的最高点，正式版本冻结为0.60。
 
 ### 7.3 动态自然SELL
 
@@ -351,7 +376,55 @@ AND candidateValue > holdValue + buffer
 
 ---
 
-## 8. 批次状态与生命周期
+## 8. 数据连续性与批次状态
+
+### 8.1 连续bar定义
+
+连续性按**市场时间桶**判断，不按服务器是否连续在线判断。15分钟桶记为：
+
+```text
+B0 = [T, T+15m)
+B1 = [T+15m, T+30m)
+```
+
+B1是B0的连续下一bar，只要两个桶都存在且达到可用数据标准；服务器在桶内短暂重启3～5分钟，不会自动破坏连续性，也不需要重新积累完整15分钟周期。服务恢复后应从数据库补算上次成功水位至当前时点的分钟记录和15分钟特征。
+
+首期冻结的bar可用标准：
+
+```text
+bucketSampleCount >= 10
+AND lastSampleTime >= bucketEnd - 5分钟
+```
+
+含义：一个15分钟桶最多允许缺失5个分钟采样，且桶尾最后5分钟内必须至少有一个采样；bar价格使用桶内最后一个实际价格。桶首缺失但后续样本充足可以接受，避免3～5分钟重启造成无谓停摆。
+
+若任一桶不存在或未达标准，则为断层：
+
+```text
+DATA_NOT_CONTIGUOUS
+```
+
+不得把更晚的“下一条可用记录”当成紧邻下一bar成交。冻结数据13,646个15分钟桶中，样本数低于10的只有21个（0.154%），桶尾陈旧超过5分钟的11个（0.081%）；该规则能容忍常见短重启，同时隔离长宕机。
+
+### 8.2 ENTRY_PENDING陈旧
+
+`ENTRY_PENDING`等待的是紧邻下一时间桶的数据完成，而不是要求服务连续运行：
+
+```text
+expectedEntryBarStart = signalBarStart + 15分钟
+expectedEntryBarEnd = signalBarStart + 30分钟
+staleAt = expectedEntryBarEnd + 5分钟
+```
+
+服务在线时，若到`staleAt`该桶仍不存在或不满足bar可用标准，候选以`ENTRY_DATA_STALE`取消。服务在此期间重启时，恢复后先补算历史；只要补算得到的expected entry bar满足上述标准，且恢复时刻不晚于`staleAt`，仍可建立参考批次。
+
+恢复晚于`staleAt`时，即使数据库可补出该桶，也不补发已经过时的群BUY，候选取消。换言之，从信号bar开始最多等待35分钟；参考成交仍只能属于紧邻下一桶，不能使用更晚桶。
+
+### 8.3 OPEN期间数据陈旧
+
+开放批次遇到不可用桶时进入`DATA_STALE`，暂停普通目标、动态和换仓决策，不得跨缺口模拟成交。服务重启后必须从持久化的最后成功采集/特征水位补算；补算恢复的是历史状态，不要求重新等待完整30日或15分钟窗口。数据恢复并形成一个满足可用标准的新桶后，可恢复持仓评估；风险处置由独立运维/灾难规则决定，不能伪造缺口期间价格。
+
+### 8.4 状态生命周期
 
 ```text
 CANDIDATE
@@ -368,13 +441,26 @@ OPEN
   └─ 数据过期 → DATA_STALE
 ```
 
+### 8.5 冷却与复位
+
 正常、动态、区间、时间或换仓关闭后冷却24小时；风险关闭后冷却48小时。冷却结束后必须先观察BUY条件回到false，再等待新false→true边沿。
 
 ---
 
 ## 9. 跟随窗口与群消息
 
-### 9.1 跟随窗口初值
+### 9.1 ENTRY价格偏离与成员跟随窗口
+
+系统参考成交价来自严格下一连续bar。若下一bar价格相对信号bar上涨超过0.15%，取消候选：
+
+```text
+entryDeviation = entryReferencePrice / signalReferencePrice - 1
+entryDeviation > 0.0015 → CANCELLED / ENTRY_PRICE_DEVIATION
+```
+
+只限制向上偏离；价格相同或下跌不因价格偏离取消，但仍需重新通过数据完整性和批次状态检查。冻结数据1303个连续BUY边沿中，向上偏离最大约0.1495%，99分位约0.1183%；0.15%不会删除历史样本，作为覆盖历史极值后的保守边界。该阈值与成员最高跟随价保持一致，避免系统在已经不建议成员追入的价格建立公开批次。
+
+成员跟随窗口初值：
 
 ```text
 followUntil = BUY发送后60分钟
@@ -597,6 +683,7 @@ COOLDOWN_ACTIVE
 SIGNAL_NOT_RESET
 PORTFOLIO_FULL
 DATA_NOT_CONTIGUOUS
+ENTRY_DATA_STALE
 ENTRY_PRICE_DEVIATION
 ```
 

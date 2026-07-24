@@ -9,7 +9,7 @@
     "history_note": "less than six months; annualized values are comparative backtest metrics"
   },
   "objective": {
-    "early_stage_annualized_idea": 0.20,
+    "early_stage_annualized_idea": 0.2,
     "is_upper_bound": false,
     "principle": "seek higher risk-adjusted return without holdout tuning, higher unexplained drawdown, or degraded executability",
     "user_reported_manual_annualized": 0.24,
@@ -26,7 +26,19 @@
     "normal_cooldown_hours": 24,
     "risk_cooldown_hours": 48,
     "requires_false_reset": true,
-    "equity": "cash + open positions marked at current price with sell fee"
+    "equity": "cash + open positions marked at current price with sell fee",
+    "continuous_bar_gap_minutes": 15,
+    "entry_must_use_immediate_next_bucket": true,
+    "entry_upward_deviation_cancel": 0.0015,
+    "entry_deviation_direction": "upward_only",
+    "bar_continuity_basis": "adjacent 15-minute market buckets, independent of process uptime",
+    "bar_minute_sample_minimum": 10,
+    "bar_tail_freshness_minutes": 5,
+    "max_missing_minute_samples_per_bucket": 5,
+    "restart_backfill_required": true,
+    "restart_requires_new_full_bar_window": false,
+    "entry_pending_stale_minutes_from_signal_bar_start": 35,
+    "entry_pending_expected_bucket_only": true
   },
   "buy": {
     "formal_families": [
@@ -35,38 +47,83 @@
       "STRICT_REBOUND_CONFIRM_BUY"
     ],
     "deep": {
-      "styles": ["NARROW", "RANGING", "STEADY"],
+      "styles": [
+        "NARROW",
+        "RANGING",
+        "STEADY"
+      ],
       "entry": "low30_distance<=0.3%; effectiveZ1<=-2; return7d>=-1%; MA7/MA30-1>=-2%"
     },
     "range": {
-      "styles": ["NARROW", "RANGING"],
+      "styles": [
+        "NARROW",
+        "RANGING"
+      ],
       "entry": "width30<=8%; position30<=10%; effectiveZ1<=-0.5; return6h<=0"
     },
     "strict_rebound": {
-      "styles": ["WEAK", "DECLINER"],
+      "styles": [
+        "WEAK",
+        "DECLINER"
+      ],
       "entry": "low30_distance<=0.5%; return1d>0; Z1>=0.8; price<=MA30*1.002"
     },
     "narrow_z_adjustment": 0.6,
-    "retired_from_group": ["current wide SWING_REVERSAL_BUY"],
-    "research": ["TREND_PULLBACK_BUY", "price breakout without volume claim"]
+    "retired_from_group": [
+      "current wide SWING_REVERSAL_BUY"
+    ],
+    "research": [
+      "TREND_PULLBACK_BUY",
+      "price breakout without volume claim"
+    ],
+    "candidate_ranking": {
+      "comparator": [
+        "qualityScore DESC",
+        "stocksId ASC"
+      ],
+      "family_priority": null,
+      "deep_score": "100 + max(0,-effectiveZ1)*10 + max(0,0.003-low30Distance)*1000",
+      "range_score": "80 + max(0,0.10-position30)*100 + max(0,-effectiveZ1)*5",
+      "strict_rebound_score": "60 + Z1*5 + max(0,0.005-low30Distance)*1000",
+      "historical_same_round_max_candidates": 3,
+      "ranking_sensitivity_changed_result": false
+    }
   },
   "sell": {
     "formal_baseline": {
       "target_net_return": 0.008,
       "risk_net_return": -0.015,
       "max_hold_days": 14,
-      "range_profitable_upper_exit": true
+      "range_profitable_upper_exit": true,
+      "range_upper_position30": 0.6
     },
     "dynamic": {
       "status": "SHADOW_CANDIDATE",
       "independent_of_rotation": true,
-      "inputs": ["netReturn", "MFE", "MAE", "peakDrawdown", "Z1", "return6h", "return1d", "MA7/MA30", "position30", "width30", "holdTime", "buyFamily"],
+      "inputs": [
+        "netReturn",
+        "MFE",
+        "MAE",
+        "peakDrawdown",
+        "Z1",
+        "return6h",
+        "return1d",
+        "MA7/MA30",
+        "position30",
+        "width30",
+        "holdTime",
+        "buyFamily"
+      ],
       "best_continuous_annualized": 0.1608
     },
     "bare_down_sequence_allowed": false
   },
   "style": {
-    "fields": ["strategyFitPrior", "maturity", "riskLevel"],
+    "fields": [
+      "strategyFitPrior",
+      "maturity",
+      "riskLevel"
+    ],
     "personality_window_days": 365,
     "insufficient_history": "all available history with maturity",
     "missing_default_steady": false,
@@ -75,9 +132,18 @@
     "legacy_continuous_annualized_same_replay": 0.1961
   },
   "portfolio_results": {
-    "trusted_annualized_range": [0.1961, 0.2051],
-    "trusted_period_return_range": [0.073, 0.077],
-    "trusted_mdd_range": [-0.007, -0.006],
+    "trusted_annualized_range": [
+      0.1961,
+      0.2051
+    ],
+    "trusted_period_return_range": [
+      0.073,
+      0.077
+    ],
+    "trusted_mdd_range": [
+      -0.007,
+      -0.006
+    ],
     "final_candidate": {
       "trades": 96,
       "win_rate": 0.8229,
@@ -95,13 +161,25 @@
       "continuous": 0.2051
     },
     "family_trade_stats": {
-      "deep": {"trades": 24, "mean_net_return": 0.00410, "win_rate": 0.833},
-      "range": {"trades": 44, "mean_net_return": 0.00366, "win_rate": 0.795},
-      "strict_rebound": {"trades": 28, "mean_net_return": 0.00441, "win_rate": 0.857}
+      "deep": {
+        "trades": 24,
+        "mean_net_return": 0.0041,
+        "win_rate": 0.833
+      },
+      "range": {
+        "trades": 44,
+        "mean_net_return": 0.00366,
+        "win_rate": 0.795
+      },
+      "strict_rebound": {
+        "trades": 28,
+        "mean_net_return": 0.00441,
+        "win_rate": 0.857
+      }
     }
   },
   "current_java_buy_audit": {
-    "all_buy_continuous_annualized": 0.0700,
+    "all_buy_continuous_annualized": 0.07,
     "low_buy_continuous_annualized": 0.1874,
     "wide_reversal_continuous_annualized": 0.0366,
     "buy_bars_suppressed_by_market_sell_score": 249
@@ -113,7 +191,10 @@
     "events": 16,
     "mean_edge": 0.00195,
     "positive_edge_rate": 0.688,
-    "bootstrap_95": [-0.00208, 0.00542],
+    "bootstrap_95": [
+      -0.00208,
+      0.00542
+    ],
     "note": "interval crosses zero; rotation is optional and never blocks natural sell"
   },
   "message_gates": {
@@ -136,5 +217,24 @@
     "manual July log does not include user's reported 24% annualized state",
     "no real volume, OHLC, orderbook, member execution delay, or slippage",
     "annualized backtest is not a return promise or target ceiling"
-  ]
+  ],
+  "parameter_freeze_evidence": {
+    "raw_candidate_edges": 1305,
+    "continuous_candidate_edges": 1303,
+    "entry_upward_deviation_max": 0.001495226776061287,
+    "entry_upward_deviation_p99": 0.0011831429341093726,
+    "range_position_neighborhood": [
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7
+    ],
+    "range_frozen_value": 0.6,
+    "total_15m_buckets": 13646,
+    "buckets_under_10_samples": 21,
+    "buckets_under_10_samples_rate": 0.001539,
+    "buckets_tail_stale_over_5m": 11,
+    "buckets_tail_stale_over_5m_rate": 0.000806
+  }
 }
