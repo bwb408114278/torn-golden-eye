@@ -1472,3 +1472,45 @@ databaseChangeLog:
             sql: "CREATE UNIQUE INDEX uk_stock_notice_audit_summary_date_type ON torn_stock_notice_audit (summary_date, notice_type) WHERE notice_type = 'DAILY_SUMMARY' AND deleted = 0"
         - sql:
             sql: "CREATE INDEX idx_stock_notice_audit_status_create ON torn_stock_notice_audit (send_status, create_time)"
+
+  # ========== sys_setting: VIP股票组合配置项初始化 ==========
+  - changeSet:
+      id: insert_stock_portfolio_sys_settings
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "VIP_STOCK_ALERT_ENABLED"
+              - column:
+                  name: setting_value
+                  value: "false"
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "VIP_STOCK_FORMAL_NOTICE_ENABLED"
+              - column:
+                  name: setting_value
+                  value: "false"
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "VIP_STOCK_DAILY_SUMMARY_ENABLED"
+              - column:
+                  name: setting_value
+                  value: "false"
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "VIP_STOCK_RULE_MODE"
+              - column:
+                  name: setting_value
+                  value: "SHADOW"
