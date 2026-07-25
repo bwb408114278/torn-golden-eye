@@ -15,6 +15,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRou
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,6 +75,7 @@ public class VipStockAlertScheduler {
     private final StockHistoryRebuildService historyRebuildService;
     private final StockPortfolioInitService portfolioInitService;
     private final StockMonthlyStateInitService monthlyStateInitService;
+    private final StockNoticeSendService noticeSendService;
     private final SysSettingManager sysSettingManager;
     private final ProjectProperty projectProperty;
 
@@ -111,6 +113,7 @@ public class VipStockAlertScheduler {
 
         try {
             processPendingRounds();
+            noticeSendService.sendPendingNotices();
         } finally {
             processing.set(false);
         }
