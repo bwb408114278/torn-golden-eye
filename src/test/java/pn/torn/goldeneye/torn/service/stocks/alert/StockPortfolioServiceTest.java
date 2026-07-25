@@ -52,7 +52,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("calculateQuantity: 20亿除以100元入场价,返回2000万股")
-    void calculateQuantity_20亿除以100_返回2000万股() {
+    void calculateQuantity_2BillionDividedBy100_returns20MillionShares() {
         BigDecimal availableCash = new BigDecimal("2000000000.00");
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
 
@@ -63,7 +63,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("calculateQuantity: 可用资金有余款时向下取整")
-    void calculateQuantity_有余款_向下取整() {
+    void calculateQuantity_hasRemainder_floorDown() {
         // 9999.99 / 100 = 99.9999 -> floor = 99
         BigDecimal availableCash = new BigDecimal("9999.99");
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
@@ -75,7 +75,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("calculateNetReturn: 买入100卖出100,扣除0.1%手续费后净收益为-0.1%")
-    void calculateNetReturn_买入100卖出100_扣除0_1_费后为负0_1_() {
+    void calculateNetReturn_buy100Sell100_after0p1FeeIsMinus0p1() {
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
         BigDecimal exitReferencePrice = new BigDecimal("100.00");
 
@@ -88,7 +88,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("calculateNetReturn: 买入100卖出101,扣除0.1%手续费后净收益为正")
-    void calculateNetReturn_买入100卖出101_净收益正() {
+    void calculateNetReturn_buy100Sell101_netReturnPositive() {
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
         BigDecimal exitReferencePrice = new BigDecimal("101.00");
 
@@ -102,7 +102,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("checkEntryPriceDeviation: 偏离恰好0.15%时返回false(不取消)")
-    void checkEntryPriceDeviation_偏离恰好0_15_返回false() {
+    void checkEntryPriceDeviation_deviationExactly0p15_returnsFalse() {
         // signal=100, entry=100.15 -> deviation = 0.15/100 = 0.0015 = 阈值,严格>才取消
         BigDecimal signalReferencePrice = new BigDecimal("100.0000");
         BigDecimal entryReferencePrice = new BigDecimal("100.1500");
@@ -114,7 +114,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("checkEntryPriceDeviation: 偏离略超0.15%时返回true(应取消)")
-    void checkEntryPriceDeviation_偏离略超0_15_返回true() {
+    void checkEntryPriceDeviation_deviationSlightlyExceeds0p15_returnsTrue() {
         // signal=100, entry=100.16 -> deviation = 0.0016 > 0.0015
         BigDecimal signalReferencePrice = new BigDecimal("100.0000");
         BigDecimal entryReferencePrice = new BigDecimal("100.1600");
@@ -126,7 +126,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("checkEntryPriceDeviation: 价格相同时返回false(不取消)")
-    void checkEntryPriceDeviation_价格相同_返回false() {
+    void checkEntryPriceDeviation_priceEqual_returnsFalse() {
         BigDecimal signalReferencePrice = new BigDecimal("100.00");
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
 
@@ -137,7 +137,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("checkEntryPriceDeviation: 价格下跌时返回false(不因偏离取消)")
-    void checkEntryPriceDeviation_价格下跌_返回false() {
+    void checkEntryPriceDeviation_priceDrops_returnsFalse() {
         // signal=100, entry=90 -> deviation = -0.10 < 0,不取消
         BigDecimal signalReferencePrice = new BigDecimal("100.00");
         BigDecimal entryReferencePrice = new BigDecimal("90.00");
@@ -149,7 +149,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("calculateEntryStaleAt: 信号桶10点开始,返回10点35分")
-    void calculateEntryStaleAt_信号桶10点_返回10点35分() {
+    void calculateEntryStaleAt_signalBar10Clock_returns10Clock35() {
         LocalDateTime signalBarStart = LocalDateTime.of(2026, 7, 24, 10, 0, 0);
 
         LocalDateTime staleAt = StockPortfolioService.calculateEntryStaleAt(signalBarStart);
@@ -162,7 +162,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("reserveSlot: 可用槽位预留后变为RESERVED且预留金额正确")
-    void reserveSlot_可用槽位_变为RESERVED且预留金额正确() {
+    void reserveSlot_availableSlot_becomesReservedAndAmountCorrect() {
         TornStockPortfolioSlotDO slot = buildAvailableSlot(1);
         BigDecimal reservedAmount = new BigDecimal("500000.00");
         Long batchId = 1001L;
@@ -176,7 +176,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("occupySlot: 已预留槽位建仓后变为OCCUPIED且可用现金扣减实际成本")
-    void occupySlot_已预留槽位_变为OCCUPIED且扣减可用现金() {
+    void occupySlot_reservedSlot_becomesOccupiedAndDeductAvailableCash() {
         TornStockPortfolioSlotDO slot = buildReservedSlot(1, new BigDecimal("1000000.00"));
         Long quantity = 5000L;
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
@@ -196,7 +196,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("releaseSlot: 已预留槽位释放后变为AVAILABLE且返还预留金额")
-    void releaseSlot_已预留槽位_变为AVAILABLE且返还预留金额() {
+    void releaseSlot_reservedSlot_becomesAvailableAndReturnsReservedAmount() {
         BigDecimal reservedAmount = new BigDecimal("800000.00");
         TornStockPortfolioSlotDO slot = buildReservedSlot(1, reservedAmount);
         // availableCash初始=2000000000,释放后 = 2000000000 + 800000
@@ -214,7 +214,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("settleSlot: 已占用槽位卖出结算后变为AVAILABLE且卖出所得回槽")
-    void settleSlot_已占用槽位_变为AVAILABLE且卖出所得回槽() {
+    void settleSlot_occupiedSlot_becomesAvailableAndSellProceedsReturn() {
         TornStockPortfolioSlotDO slot = buildOccupiedSlot(1, new BigDecimal("1500000000.00"));
         Long quantity = 5000L;
         BigDecimal exitReferencePrice = new BigDecimal("100.00");
@@ -234,7 +234,7 @@ class StockPortfolioServiceTest {
 
     @Test
     @DisplayName("calculateEquity: 3槽可用2槽占用,权益=现金合计+仓位市值合计")
-    void calculateEquity_3槽可用2槽占用_权益正确() {
+    void calculateEquity_3SlotsAvailable2Occupied_equityCorrect() {
         TornStockPortfolioSlotDO slot1 = buildAvailableSlot(1); // available=20亿,reserved=0
         TornStockPortfolioSlotDO slot2 = buildAvailableSlot(2); // available=20亿,reserved=0
         TornStockPortfolioSlotDO slot3 = buildAvailableSlot(3); // available=20亿,reserved=0

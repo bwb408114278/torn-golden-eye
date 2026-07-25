@@ -65,7 +65,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: 正常计算特征值正确(ma1d等)")
-    void buildFeatures_正常计算_特征值正确() {
+    void buildFeatures_normalCalc_featureValuesCorrect() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("200.00"));
         // 构造96条历史bar,价格均为100 -> ma1d = 100
@@ -97,7 +97,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: high30d等于low30d时position30为null")
-    void buildFeatures_high30等于low30_position30为null() {
+    void buildFeatures_high30EqualsLow30_position30Null() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         BigDecimal fixedPrice = new BigDecimal("100.00");
         // 所有bar价格相同 -> high30d == low30d -> position30 = null
@@ -122,7 +122,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: 历史不足2880个bar -> strategyReady为false")
-    void buildFeatures_历史不足2880个bar_strategyReady为false() {
+    void buildFeatures_historyLessThan2880Bars_strategyReadyFalse() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("100.00"));
         // 总bar数 = 2879(历史) + 1(当前) = 2880? 不,2879+1=2880刚好满足。
@@ -144,7 +144,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: 历史充足2880个bar -> strategyReady为true")
-    void buildFeatures_历史充足2880个bar_strategyReady为true() {
+    void buildFeatures_historySufficient2880Bars_strategyReadyTrue() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("100.00"));
         // 总bar数 = 2879(历史) + 1(当前) = 2880 -> 刚好满足
@@ -165,7 +165,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: 当前bar不可用 -> 返回空列表")
-    void buildFeatures_当前bar不可用_返回空列表() {
+    void buildFeatures_currentBarNotUsable_returnsEmptyList() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         // 采样数不足 -> 不可用
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("100.00"));
@@ -186,7 +186,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: return6h/1d/7d/14d计算正确")
-    void buildFeatures_return计算正确() {
+    void buildFeatures_returnCalculationCorrect() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         BigDecimal currentPrice = new BigDecimal("200.00");
         BigDecimal pastPrice = new BigDecimal("100.00");
@@ -218,7 +218,7 @@ class Stock15mFeatureBuildServiceTest {
 
     @Test
     @DisplayName("buildFeatures: width30d计算正确")
-    void buildFeatures_width30d计算正确() {
+    void buildFeatures_width30dCalculationCorrect() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         BigDecimal lowPrice = new BigDecimal("100.00");
         BigDecimal highPrice = new BigDecimal("150.00");

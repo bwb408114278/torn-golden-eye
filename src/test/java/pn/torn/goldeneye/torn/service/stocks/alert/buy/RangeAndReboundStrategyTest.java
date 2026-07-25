@@ -42,7 +42,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_所有条件满足_返回true")
-        void matches_所有条件满足_返回true() {
+        void matches_allConditionsMet_returnsTrue() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.04"),
@@ -55,7 +55,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_width30恰好8%_返回true")
-        void matches_width30恰好8pct_返回true() {
+        void matches_width30Exactly8pct_returnsTrue() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.08"),
@@ -68,7 +68,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_width30略超8%_返回false")
-        void matches_width30略超8pct_返回false() {
+        void matches_width30SlightlyExceeds8pct_returnsFalse() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.081"),
@@ -81,7 +81,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_position30恰好10%_返回true")
-        void matches_position30恰好10pct_返回true() {
+        void matches_position30Exactly10pct_returnsTrue() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.04"),
@@ -94,7 +94,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_position30略超10%_返回false")
-        void matches_position30略超10pct_返回false() {
+        void matches_position30SlightlyExceeds10pct_returnsFalse() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.04"),
@@ -107,7 +107,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_return6h恰好0_返回true")
-        void matches_return6h恰好0_返回true() {
+        void matches_return6hExactlyZero_returnsTrue() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.04"),
@@ -120,7 +120,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_return6h大于0_返回false")
-        void matches_return6h大于0_返回false() {
+        void matches_return6hGreaterThanZero_returnsFalse() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.04"),
@@ -133,7 +133,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_趋势保护不满足_返回false")
-        void matches_趋势保护不满足_返回false() {
+        void matches_trendProtectionNotMet_returnsFalse() {
             // ma7d/ma30d - 1 = 978/1000 - 1 = -0.022 < -0.02
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.RANGING,
@@ -147,7 +147,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_STEADY风格_返回false")
-        void matches_STEADY风格_返回false() {
+        void matches_steadyStyle_returnsFalse() {
             BuyContext context = buildRangeContext(
                     StockStrategyFitEnum.STEADY,
                     new BigDecimal("0.04"),
@@ -160,7 +160,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("calculateQualityScore_正确计算")
-        void calculateQualityScore_正确计算() {
+        void calculateQualityScore_correctResult() {
             // position30 = 0.05, zscore1d = -1.0 (NARROW不打折)
             // score = 80 + max(0, 0.10 - 0.05) × 100 + max(0, 1.0) × 5
             //       = 80 + 5 + 5 = 90
@@ -177,7 +177,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("getStrategyType_返回区间下沿买入策略编码")
-        void getStrategyType_返回区间下沿买入策略编码() {
+        void getStrategyType_returnsRangeLowerBuyStrategyCode() {
             assertEquals(StockBuyStrategyEnum.RANGE_LOWER_BUY, strategy.getStrategyType());
         }
     }
@@ -197,7 +197,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_所有条件满足_返回true")
-        void matches_所有条件满足_返回true() {
+        void matches_allConditionsMet_returnsTrue() {
             // DECLINER, pctAbove30dLow=0.004, return1d=0.001, zscore1d=0.9, refPrice<=ma30d×1.002
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
@@ -210,7 +210,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_距低点恰好0.5%_返回true")
-        void matches_距低点恰好0p5_返回true() {
+        void matches_lowDistanceExactlyThreshold_returnsTrue() {
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
                     new BigDecimal("0.005"),
@@ -222,7 +222,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_距低点略超0.5%_返回false")
-        void matches_距低点略超0p5_返回false() {
+        void matches_lowDistanceSlightlyExceedsThreshold_returnsFalse() {
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
                     new BigDecimal("0.0051"),
@@ -234,7 +234,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_return1d恰好0_返回false")
-        void matches_return1d恰好0_返回false() {
+        void matches_return1dExactlyZero_returnsFalse() {
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
                     new BigDecimal("0.004"),
@@ -246,7 +246,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_zscore1d恰好0.8_返回true")
-        void matches_zscore1d恰好0p8_返回true() {
+        void matches_zscore1dExactly0p8_returnsTrue() {
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
                     new BigDecimal("0.004"),
@@ -258,7 +258,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_zscore1d略低于0.8_返回false")
-        void matches_zscore1d略低于0p8_返回false() {
+        void matches_zscore1dSlightlyBelow0p8_returnsFalse() {
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
                     new BigDecimal("0.004"),
@@ -270,7 +270,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_refPrice超过ma30d乘1.002_返回false")
-        void matches_refPrice超过ma30d乘1p002_返回false() {
+        void matches_refPriceExceedsMa30dTimes1p002_returnsFalse() {
             // ma30d = 1000, 上限 = 1002, refPrice = 1002.01 超限
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.DECLINER,
@@ -283,7 +283,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("matches_STEADY风格_返回false")
-        void matches_STEADY风格_返回false() {
+        void matches_steadyStyle_returnsFalse() {
             BuyContext context = buildReboundContext(
                     StockStrategyFitEnum.STEADY,
                     new BigDecimal("0.004"),
@@ -295,7 +295,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("calculateQualityScore_正确计算")
-        void calculateQualityScore_正确计算() {
+        void calculateQualityScore_correctResult() {
             // zscore1d = 0.9, pctAbove30dLow = 0.004
             // score = 60 + 0.9 × 5 + max(0, 0.005 - 0.004) × 1000
             //       = 60 + 4.5 + 1 = 65.5
@@ -311,7 +311,7 @@ class RangeAndReboundStrategyTest {
 
         @Test
         @DisplayName("getStrategyType_返回严格反弹确认策略编码")
-        void getStrategyType_返回严格反弹确认策略编码() {
+        void getStrategyType_returnsStrictReboundConfirmStrategyCode() {
             assertEquals(StockBuyStrategyEnum.STRICT_REBOUND_CONFIRM_BUY, strategy.getStrategyType());
         }
     }

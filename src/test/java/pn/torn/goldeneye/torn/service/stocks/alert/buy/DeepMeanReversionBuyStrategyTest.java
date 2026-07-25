@@ -2,7 +2,6 @@ package pn.torn.goldeneye.torn.service.stocks.alert.buy;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBuyStrategyEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
@@ -37,7 +36,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_所有条件满足_返回true")
-    void matches_所有条件满足_返回true() {
+    void matches_allConditionsMet_returnsTrue() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.002"),
@@ -49,7 +48,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_距低点恰好0.3%_返回true")
-    void matches_距低点恰好0p3_返回true() {
+    void matches_lowDistanceExactlyThreshold_returnsTrue() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.003"),
@@ -61,7 +60,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_距低点略超0.3%_返回false")
-    void matches_距低点略超0p3_返回false() {
+    void matches_lowDistanceSlightlyExceedsThreshold_returnsFalse() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.0031"),
@@ -73,7 +72,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_effectiveZ1恰好负二_返回true")
-    void matches_effectiveZ1恰好负二_返回true() {
+    void matches_effectiveZ1ExactlyMinus2_returnsTrue() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.002"),
@@ -85,7 +84,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_effectiveZ1略高于负二_返回false")
-    void matches_effectiveZ1略高于负二_返回false() {
+    void matches_effectiveZ1SlightlyAboveMinus2_returnsFalse() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.002"),
@@ -97,7 +96,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_return7d恰好负1%_返回true")
-    void matches_return7d恰好负1pct_返回true() {
+    void matches_return7dExactlyMinus1pct_returnsTrue() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.002"),
@@ -109,7 +108,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_return7d低于负1%_返回false")
-    void matches_return7d低于负1pct_返回false() {
+    void matches_return7dBelowMinus1pct_returnsFalse() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.RANGING,
                 new BigDecimal("0.002"),
@@ -121,7 +120,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_NARROW风格Z值打0.6折后不满足_返回false")
-    void matches_NARROW风格Z值打0p6折后不满足_返回false() {
+    void matches_narrowZ1DiscountNotMet_returnsFalse() {
         // rawZ1 = -3.0, effectiveZ1 = -3.0 × 0.6 = -1.8 > -2.0
         BuyContext context = buildContext(
                 StockStrategyFitEnum.NARROW,
@@ -134,7 +133,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_NARROW风格Z值打0.6折后满足_返回true")
-    void matches_NARROW风格Z值打0p6折后满足_返回true() {
+    void matches_narrowZ1DiscountMet_returnsTrue() {
         // rawZ1 = -4.0, effectiveZ1 = -4.0 × 0.6 = -2.4 <= -2.0
         BuyContext context = buildContext(
                 StockStrategyFitEnum.NARROW,
@@ -147,7 +146,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("matches_STRONG风格_返回false")
-    void matches_STRONG风格_返回false() {
+    void matches_strongStyle_returnsFalse() {
         BuyContext context = buildContext(
                 StockStrategyFitEnum.STRONG,
                 new BigDecimal("0.002"),
@@ -161,7 +160,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("calculateQualityScore_正确计算")
-    void calculateQualityScore_正确计算() {
+    void calculateQualityScore_correctResult() {
         // effectiveZ1 = -2.5, pctAbove30dLow = 0.002
         // score = 100 + max(0, 2.5) × 10 + max(0, 0.003 - 0.002) × 1000
         //       = 100 + 25 + 1 = 126
@@ -179,7 +178,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("isApplicableStyle_NARROW_RANGING_STEADY_返回true")
-    void isApplicableStyle_NARROW_RANGING_STEADY_返回true() {
+    void isApplicableStyle_narrowRangingSteady_returnsTrue() {
         assertTrue(strategy.isApplicableStyle(StockStrategyFitEnum.NARROW));
         assertTrue(strategy.isApplicableStyle(StockStrategyFitEnum.RANGING));
         assertTrue(strategy.isApplicableStyle(StockStrategyFitEnum.STEADY));
@@ -187,7 +186,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("isApplicableStyle_WEAK_DECLINER_STRONG_返回false")
-    void isApplicableStyle_WEAK_DECLINER_STRONG_返回false() {
+    void isApplicableStyle_weakDeclinerStrong_returnsFalse() {
         assertFalse(strategy.isApplicableStyle(StockStrategyFitEnum.WEAK));
         assertFalse(strategy.isApplicableStyle(StockStrategyFitEnum.DECLINER));
         assertFalse(strategy.isApplicableStyle(StockStrategyFitEnum.STRONG));
@@ -195,7 +194,7 @@ class DeepMeanReversionBuyStrategyTest {
 
     @Test
     @DisplayName("getStrategyType_返回深度均值回归策略编码")
-    void getStrategyType_返回深度均值回归策略编码() {
+    void getStrategyType_returnsDeepMeanReversionStrategyCode() {
         assertEquals(StockBuyStrategyEnum.DEEP_MEAN_REVERSION_BUY, strategy.getStrategyType());
     }
 

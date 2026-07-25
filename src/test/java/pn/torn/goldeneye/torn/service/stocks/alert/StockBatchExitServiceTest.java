@@ -50,7 +50,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 净收益恰好+0.8%时触发目标退出")
-    void evaluateExit_净收益恰好正0_8_触发目标退出() {
+    void evaluateExit_netReturnExactlyPlus0p8_triggersTargetExit() {
         // 直接用checkTargetExit验证边界: netReturn恰好等于0.008阈值
         ExitEvaluation result = exitService.checkTargetExit(new BigDecimal("0.008"));
 
@@ -60,7 +60,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 净收益略高于+0.8%时触发目标退出")
-    void evaluateExit_净收益略高于正0_8_触发目标退出() {
+    void evaluateExit_netReturnSlightlyAbovePlus0p8_triggersTargetExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), null);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.009"));
 
@@ -72,7 +72,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 净收益略低于+0.8%时不触发目标退出")
-    void evaluateExit_净收益略低于正0_8_不触发目标退出() {
+    void evaluateExit_netReturnSlightlyBelowPlus0p8_notTriggerTargetExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), NON_RANGE_STRATEGY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.007"));
 
@@ -85,7 +85,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 净收益恰好-1.5%时触发风险退出")
-    void evaluateExit_净收益恰好负1_5_触发风险退出() {
+    void evaluateExit_netReturnExactlyMinus1p5_triggersRiskExit() {
         // 直接用checkRiskExit验证边界: netReturn恰好等于-0.015阈值
         ExitEvaluation result = exitService.checkRiskExit(new BigDecimal("-0.015"));
 
@@ -95,7 +95,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 净收益略低于-1.5%时触发风险退出")
-    void evaluateExit_净收益略低于负1_5_触发风险退出() {
+    void evaluateExit_netReturnSlightlyBelowMinus1p5_triggersRiskExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), null);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("-0.016"));
 
@@ -107,7 +107,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 净收益略高于-1.5%时不触发风险退出")
-    void evaluateExit_净收益略高于负1_5_不触发风险退出() {
+    void evaluateExit_netReturnSlightlyAboveMinus1p5_notTriggerRiskExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), NON_RANGE_STRATEGY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("-0.014"));
 
@@ -120,7 +120,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 持有恰好14天时触发时间退出")
-    void evaluateExit_持有恰好14天_触发时间退出() {
+    void evaluateExit_holdExactly14Days_triggersTimeExit() {
         // entryTime = 14天前,当前价不触发目标/风险退出
         LocalDateTime entryTime = LocalDateTime.now().minusDays(14);
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, entryTime, NON_RANGE_STRATEGY);
@@ -134,7 +134,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 持有13天时不触发时间退出")
-    void evaluateExit_持有13天_不触发时间退出() {
+    void evaluateExit_hold13Days_notTriggerTimeExit() {
         LocalDateTime entryTime = LocalDateTime.now().minusDays(13);
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, entryTime, NON_RANGE_STRATEGY);
         BigDecimal currentPrice = ENTRY_PRICE; // netReturn = -0.001
@@ -148,7 +148,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 区间策略净收益正且position30=0.60时触发区间退出")
-    void evaluateExit_区间策略净收益正且position30为0_60_触发区间退出() {
+    void evaluateExit_rangeStrategyNetReturnPositiveAndPosition30Is0p60_triggersRangeExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), RANGE_LOWER_BUY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.003")); // netReturn > 0
         BigDecimal position30 = new BigDecimal("0.60");
@@ -163,7 +163,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 区间策略净收益为0时不触发区间退出")
-    void evaluateExit_区间策略净收益为0_不触发区间退出() {
+    void evaluateExit_rangeStrategyNetReturnZero_notTriggerRangeExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), RANGE_LOWER_BUY);
         // netReturn = 0 -> currentPrice/100×0.999-1 = 0 -> currentPrice = 100/0.999
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, BigDecimal.ZERO);
@@ -178,7 +178,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 区间策略high30等于low30时不触发区间退出(fail-closed)")
-    void evaluateExit_区间策略high30等于low30_不触发区间退出() {
+    void evaluateExit_rangeStrategyHigh30EqualsLow30_notTriggerRangeExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), RANGE_LOWER_BUY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.005")); // netReturn > 0
         BigDecimal position30 = new BigDecimal("0.80");
@@ -192,7 +192,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 非区间策略不触发区间退出")
-    void evaluateExit_非区间策略_不触发区间退出() {
+    void evaluateExit_nonRangeStrategy_notTriggerRangeExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), NON_RANGE_STRATEGY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.005")); // netReturn > 0
         BigDecimal position30 = new BigDecimal("0.80");
@@ -208,7 +208,7 @@ class StockBatchExitServiceTest {
 
     @Test
     @DisplayName("evaluateExit: 无任何退出条件满足时返回shouldExit为false")
-    void evaluateExit_无退出条件满足_返回shouldExit为false() {
+    void evaluateExit_noExitConditionMet_returnsShouldExitFalse() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), NON_RANGE_STRATEGY);
         BigDecimal currentPrice = ENTRY_PRICE; // netReturn = -0.001,不触发目标/风险
         BigDecimal position30 = new BigDecimal("0.50");

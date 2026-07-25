@@ -37,22 +37,37 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class StockBatchExitService {
-
-    /** 目标退出阈值(+0.8%) */
+    /**
+     * 目标退出阈值(+0.8%)
+     */
     public static final BigDecimal TARGET_RETURN_THRESHOLD = new BigDecimal("0.008");
-    /** 风险退出阈值(-1.5%) */
+    /**
+     * 风险退出阈值(-1.5%)
+     */
     public static final BigDecimal RISK_RETURN_THRESHOLD = new BigDecimal("-0.015");
-    /** 最长持有天数 */
+    /**
+     * 最长持有天数
+     */
     public static final int MAX_HOLD_DAYS = 14;
-    /** 区间恢复退出 - position30阈值 */
+    /**
+     * 区间恢复退出 - position30阈值
+     */
     public static final BigDecimal RANGE_POSITION_THRESHOLD = new BigDecimal("0.60");
-    /** 卖出费率(0.1%手续费,实得99.9%) */
+    /**
+     * 卖出费率(0.1%手续费,实得99.9%)
+     */
     public static final BigDecimal SELL_FEE_RATE = new BigDecimal("0.999");
-    /** 卖出费率明文(仅用于Javadoc展示) */
+    /**
+     * 卖出费率明文(仅用于Javadoc展示)
+     */
     static final String SELL_FEE_RATE_TEXT = "0.1%";
-    /** 区间下沿买入策略标识 */
+    /**
+     * 区间下沿买入策略标识
+     */
     public static final String RANGE_LOWER_BUY_STRATEGY = "RANGE_LOWER_BUY";
-    /** 金额与收益率计算精度 */
+    /**
+     * 金额与收益率计算精度
+     */
     private static final int MATH_SCALE = 18;
 
     /**
@@ -248,9 +263,10 @@ public class StockBatchExitService {
 
     /**
      * 计算30日区间位置
+     * TODO 阶段B轮次处理时补充currentPrice参数，当前该方法永远返回null，由调用方预算position30
      * <p>
-     * position30 = (currentPrice - low30) / (high30 - low30),
-     * 调用前需保证 high30 != low30。当前价由调用方传入,此方法仅用高低价无法计算,
+     * position30 = (currentPrice - low30) / (high30 - low30)，
+     * 调用前需保证 high30 != low30。当前价由调用方传入,此方法仅用高低价无法计算，
      * 故返回null提示调用方传入预算好的position30。保留此方法以备内部扩展。
      *
      * @param low30d  30日最低价

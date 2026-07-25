@@ -48,7 +48,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockBuyStrategyEnum: 所有值chineseDisplay非空且不含英文")
-    void stockBuyStrategyEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockBuyStrategyEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockBuyStrategyEnum e : StockBuyStrategyEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -58,7 +58,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockBatchStatusEnum: 所有值chineseDisplay非空且不含英文")
-    void stockBatchStatusEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockBatchStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockBatchStatusEnum e : StockBatchStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -68,7 +68,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockCloseTypeEnum: 所有值chineseDisplay非空且不含英文")
-    void stockCloseTypeEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockCloseTypeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockCloseTypeEnum e : StockCloseTypeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -78,7 +78,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockSlotStatusEnum: 所有值chineseDisplay非空且不含英文")
-    void stockSlotStatusEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockSlotStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockSlotStatusEnum e : StockSlotStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -88,7 +88,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockLedgerTypeEnum: 所有值chineseDisplay非空且不含英文")
-    void stockLedgerTypeEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockLedgerTypeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockLedgerTypeEnum e : StockLedgerTypeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -98,7 +98,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockEligibilityResultEnum: 所有值chineseDisplay非空且不含英文")
-    void stockEligibilityResultEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockEligibilityResultEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockEligibilityResultEnum e : StockEligibilityResultEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -108,7 +108,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockPortfolioDecisionEnum: 所有值chineseDisplay非空且不含英文")
-    void stockPortfolioDecisionEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockPortfolioDecisionEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockPortfolioDecisionEnum e : StockPortfolioDecisionEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -118,7 +118,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockNoticeTypeEnum: 所有值chineseDisplay非空且不含英文")
-    void stockNoticeTypeEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockNoticeTypeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockNoticeTypeEnum e : StockNoticeTypeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -128,7 +128,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockNoticeStatusEnum: 所有值chineseDisplay非空且不含英文")
-    void stockNoticeStatusEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockNoticeStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockNoticeStatusEnum e : StockNoticeStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -138,7 +138,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockCancelReasonEnum: 所有值chineseDisplay非空且不含英文")
-    void stockCancelReasonEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockCancelReasonEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockCancelReasonEnum e : StockCancelReasonEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -148,7 +148,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockRuleModeEnum: 所有值chineseDisplay非空且不含英文")
-    void stockRuleModeEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockRuleModeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockRuleModeEnum e : StockRuleModeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -158,7 +158,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockStrategyFitEnum: 所有值chineseDisplay非空且不含英文")
-    void stockStrategyFitEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockStrategyFitEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockStrategyFitEnum e : StockStrategyFitEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -168,7 +168,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockRiskLevelEnum: 所有值chineseDisplay非空且不含英文")
-    void stockRiskLevelEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockRiskLevelEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockRiskLevelEnum e : StockRiskLevelEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -178,7 +178,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockMonthlyStateStatusEnum: 所有值chineseDisplay非空且不含英文")
-    void stockMonthlyStateStatusEnum_所有值_chineseDisplay非空且不含英文() {
+    void stockMonthlyStateStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockMonthlyStateStatusEnum e : StockMonthlyStateStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             assertFalse(ASCII_LETTER.matcher(e.getChineseDisplay()).find(),
@@ -188,7 +188,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockRoundStatusEnum: 所有值chineseDisplay非空且以中文为主")
-    void stockRoundStatusEnum_所有值_chineseDisplay非空() {
+    void stockRoundStatusEnum_allValues_chineseDisplayNonEmpty() {
         for (StockRoundStatusEnum e : StockRoundStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
             // BUILDING_BAR的chineseDisplay为"构建Bar中",含英文Bar属于业务术语,验证以中文开头
@@ -201,7 +201,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockBatchStatusEnum: isActive对活跃状态返回true")
-    void stockBatchStatusEnum_isActive_活跃状态返回true() {
+    void stockBatchStatusEnum_isActive_activeStatusReturnsTrue() {
         assertTrue(StockBatchStatusEnum.ENTRY_PENDING.isActive(), "ENTRY_PENDING应为活跃");
         assertTrue(StockBatchStatusEnum.OPEN.isActive(), "OPEN应为活跃");
         assertTrue(StockBatchStatusEnum.DATA_STALE.isActive(), "DATA_STALE应为活跃");
@@ -211,7 +211,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockBatchStatusEnum: isActive对关闭状态返回false")
-    void stockBatchStatusEnum_isActive_关闭状态返回false() {
+    void stockBatchStatusEnum_isActive_closedStatusReturnsFalse() {
         assertFalse(StockBatchStatusEnum.CLOSED_TARGET.isActive(), "CLOSED_TARGET应非活跃");
         assertFalse(StockBatchStatusEnum.CLOSED_RANGE.isActive(), "CLOSED_RANGE应非活跃");
         assertFalse(StockBatchStatusEnum.CLOSED_RISK.isActive(), "CLOSED_RISK应非活跃");
@@ -226,7 +226,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockMaturityEnum: isUsable对M2/M3/M4返回true")
-    void stockMaturityEnum_isUsable_M2M3M4返回true() {
+    void stockMaturityEnum_isUsable_M2M3M4ReturnsTrue() {
         assertTrue(StockMaturityEnum.M2_PROVISIONAL.isUsable(), "M2暂定应可用");
         assertTrue(StockMaturityEnum.M3_SEASONED.isUsable(), "M3较成熟应可用");
         assertTrue(StockMaturityEnum.M4_MATURE.isUsable(), "M4成熟应可用");
@@ -234,7 +234,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("StockMaturityEnum: isUsable对M0/M1返回false")
-    void stockMaturityEnum_isUsable_M0M1返回false() {
+    void stockMaturityEnum_isUsable_M0M1ReturnsFalse() {
         assertFalse(StockMaturityEnum.M0_UNMATURE.isUsable(), "M0未成熟应不可用");
         assertFalse(StockMaturityEnum.M1_EARLY.isUsable(), "M1早期应不可用");
     }
@@ -243,7 +243,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("fromCode: 有效编码返回对应枚举(覆盖全部16个枚举)")
-    void fromCode_有效编码_返回对应枚举() {
+    void fromCode_validCode_returnsCorrespondingEnum() {
         // 逐个枚举验证 fromCode 对每个值都能正确还原
         for (StockBuyStrategyEnum e : StockBuyStrategyEnum.values()) {
             assertEquals(e, StockBuyStrategyEnum.fromCode(e.getCode()));
@@ -299,7 +299,7 @@ class StockPortfolioEnumTest {
 
     @Test
     @DisplayName("fromCode: 无效编码抛出IllegalArgumentException(覆盖全部16个枚举)")
-    void fromCode_无效编码_抛出IllegalArgumentException() {
+    void fromCode_invalidCode_throwsIllegalArgumentException() {
         String invalidCode = "NON_EXISTENT_CODE";
 
         assertThrows(IllegalArgumentException.class,

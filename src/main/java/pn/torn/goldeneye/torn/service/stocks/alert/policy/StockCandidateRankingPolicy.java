@@ -24,8 +24,9 @@ import java.util.List;
 @Slf4j
 @Component
 public class StockCandidateRankingPolicy {
-
-    /** 候选排序比较器：qualityScore DESC -> stocksId ASC */
+    /**
+     * 候选排序比较器：qualityScore DESC -> stocksId ASC
+     */
     private static final Comparator<CandidateInfo> RANKING_COMPARATOR = Comparator
             .comparing(CandidateInfo::qualityScore, Comparator.reverseOrder())
             .thenComparing(CandidateInfo::stocksId, Comparator.naturalOrder());
@@ -48,8 +49,8 @@ public class StockCandidateRankingPolicy {
                 .toList();
         log.info("候选排序-完成: 输入{}个候选, 排序后首位stocksId={}, score={}",
                 candidates.size(),
-                ranked.get(0).stocksId(),
-                ranked.get(0).qualityScore());
+                ranked.getFirst().stocksId(),
+                ranked.getFirst().qualityScore());
         return ranked;
     }
 }

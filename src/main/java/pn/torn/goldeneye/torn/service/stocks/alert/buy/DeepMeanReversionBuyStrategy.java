@@ -34,41 +34,54 @@ import java.util.Set;
 @Slf4j
 @Component
 public class DeepMeanReversionBuyStrategy implements StockBuyStrategy {
-
-    /** 买入规则版本 */
+    /**
+     * 买入规则版本
+     * TODO 阶段B轮次处理时使用
+     */
     private static final String BUY_RULE_VERSION = "1.0.0";
-
-    /** NARROW风格下Z1的折扣系数 */
+    /**
+     * NARROW风格下Z1的折扣系数
+     */
     private static final BigDecimal NARROW_Z1_DISCOUNT = new BigDecimal("0.6");
-
-    /** 距30日低点的最大涨幅阈值：0.3% */
+    /**
+     * 距30日低点的最大涨幅阈值：0.3%
+     */
     private static final BigDecimal PCT_ABOVE_30D_LOW_THRESHOLD = new BigDecimal("0.003");
-
-    /** effectiveZ1下限阈值 */
+    /**
+     * effectiveZ1下限阈值
+     */
     private static final BigDecimal EFFECTIVE_Z1_THRESHOLD = new BigDecimal("-2.0");
-
-    /** 近7日收益率下限阈值：-1% */
+    /**
+     * 近7日收益率下限阈值：-1%
+     */
     private static final BigDecimal RETURN_7D_THRESHOLD = new BigDecimal("-0.01");
-
-    /** 中期趋势保护阈值：MA7/MA30 - 1 >= -2% */
+    /**
+     * 中期趋势保护阈值：MA7/MA30 - 1 >= -2%
+     */
     private static final BigDecimal TREND_PROTECT_THRESHOLD = new BigDecimal("-0.02");
-
-    /** 质量分基础分 */
+    /**
+     * 质量分基础分
+     */
     private static final BigDecimal SCORE_BASE = new BigDecimal("100");
-
-    /** 质量分Z1系数 */
+    /**
+     * 质量分Z1系数
+     */
     private static final BigDecimal SCORE_Z1_COEFFICIENT = BigDecimal.TEN;
-
-    /** 质量分低点距离系数 */
+    /**
+     * 质量分低点距离系数
+     */
     private static final BigDecimal SCORE_LOW_DISTANCE_COEFFICIENT = new BigDecimal("1000");
-
-    /** 质量分低点距离基准 */
+    /**
+     * 质量分低点距离基准
+     */
     private static final BigDecimal SCORE_LOW_DISTANCE_BASE = new BigDecimal("0.003");
-
-    /** BigDecimal运算精度 */
+    /**
+     * BigDecimal运算精度
+     */
     private static final int SCALE = 18;
-
-    /** 适用的策略适配风格集合 */
+    /**
+     * 适用的策略适配风格集合
+     */
     private static final Set<StockStrategyFitEnum> APPLICABLE_STYLES = Set.of(
             StockStrategyFitEnum.NARROW,
             StockStrategyFitEnum.RANGING,
@@ -92,7 +105,8 @@ public class DeepMeanReversionBuyStrategy implements StockBuyStrategy {
         boolean lowDistanceOk = isNear30dLow(context.pctAbove30dLow());
         boolean z1Ok = effectiveZ1.compareTo(EFFECTIVE_Z1_THRESHOLD) <= 0;
         boolean return7dOk = isReturn7dAcceptable(context.return7d());
-        boolean trendOk = isTrendProtected(context.ma7d(), context.ma30d());
+        boolean trendOk = StockStrategyUtils.isTrendProtected(context.ma7d(), context.ma30d(),
+                TREND_PROTECT_THRESHOLD, SCALE);
 
         boolean matched = lowDistanceOk && z1Ok && return7dOk && trendOk;
         if (matched) {
@@ -108,7 +122,7 @@ public class DeepMeanReversionBuyStrategy implements StockBuyStrategy {
         BigDecimal low30Distance = context.pctAbove30dLow();
 
         // deepScore = 100 + max(0, -effectiveZ1) × 10 + max(0, 0.003 - low30Distance) × 1000
-        BigDecimal z1Contribution = maxZero(effectiveZ1.negate()).multiply(SCORE_Z1_COEFFICIENT);
+        BigDecimal z1Contribution = StockStrategyUtils.maxZero(effectiveZ1.negate()).multiply(SCORE_Z1_COEFFICIENT);
 
         BigDecimal lowDistanceContribution = SCORE_LOW_DISTANCE_BASE
                 .subtract(low30Distance)
@@ -163,31 +177,5 @@ public class DeepMeanReversionBuyStrategy implements StockBuyStrategy {
      */
     private boolean isReturn7dAcceptable(BigDecimal return7d) {
         return return7d != null && return7d.compareTo(RETURN_7D_THRESHOLD) >= 0;
-    }
-
-    /**
-     * 中期趋势保护：MA7 / MA30 - 1 >= -2%。
-     *
-     * @param ma7d  近7日移动均价
-     * @param ma30d 近30日移动均价
-     * @return 趋势未破位时返回true
-     */
-    private boolean isTrendProtected(BigDecimal ma7d, BigDecimal ma30d) {
-        if (ma7d == null || ma30d == null || ma30d.compareTo(BigDecimal.ZERO) == 0) {
-            return false;
-        }
-        BigDecimal trendDeviation = ma7d.divide(ma30d, SCALE, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.ONE);
-        return trendDeviation.compareTo(TREND_PROTECT_THRESHOLD) >= 0;
-    }
-
-    /**
-     * 取BigDecimal与0的较大值。
-     *
-     * @param value 输入值
-     * @return value > 0 时返回value，否则返回0
-     */
-    private BigDecimal maxZero(BigDecimal value) {
-        return value.compareTo(BigDecimal.ZERO) > 0 ? value : BigDecimal.ZERO;
     }
 }

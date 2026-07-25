@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -43,26 +42,42 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class Stock15mBarBuildService {
+    private final TornStocksHistoryDAO stocksHistoryDao;
+    private final TornStockMarketBar15mDAO bar15mDao;
 
-    /** 产品时区文本(仅用于Javadoc展示) */
+    /**
+     * 产品时区文本(仅用于Javadoc展示)
+     */
     static final String ZONE_ID_TEXT = "Asia/Shanghai";
-    /** 产品时区 */
+    /**
+     * 产品时区
+     * TODO 阶段B轮次处理时使用，当前bar构建仅用alignToBucket对齐，不直接引用ZONE_ID
+     */
     public static final ZoneId ZONE_ID = ZoneId.of(ZONE_ID_TEXT);
-    /** 15分钟桶跨度(分钟) */
+    /**
+     * 15分钟桶跨度(分钟)
+     */
     public static final int BUCKET_MINUTES = 15;
-    /** bar可用最小采样数 */
+    /**
+     * bar可用最小采样数
+     */
     public static final int MIN_SAMPLE_COUNT = 10;
-    /** 尾部新鲜度阈值(分钟): lastSampleTime >= barEnd - 此值 */
+    /**
+     * 尾部新鲜度阈值(分钟): lastSampleTime >= barEnd - 此值
+     */
     public static final int TAIL_FRESHNESS_MINUTES = 5;
-    /** bar构建规则版本 */
+    /**
+     * bar构建规则版本
+     */
     public static final String BUILD_VERSION = "1.0.0";
-    /** 质量原因: 采样数不足 */
+    /**
+     * 质量原因: 采样数不足
+     */
     public static final String QUALITY_REASON_SAMPLE_INSUFFICIENT = "SAMPLE_INSUFFICIENT";
-    /** 质量原因: 尾部缺口过大 */
+    /**
+     * 质量原因: 尾部缺口过大
+     */
     public static final String QUALITY_REASON_TAIL_GAP_TOO_LARGE = "TAIL_GAP_TOO_LARGE";
-
-    private final TornStocksHistoryDAO stocksHistoryDAO;
-    private final TornStockMarketBar15mDAO bar15mDAO;
 
     // ==================== 桶对齐 ====================
 
@@ -101,7 +116,7 @@ public class Stock15mBarBuildService {
         boolean tailFresh = bar.getLastSampleTime() != null
                 && bar.getBarEndTime() != null
                 && !bar.getLastSampleTime().isBefore(
-                        bar.getBarEndTime().minusMinutes(TAIL_FRESHNESS_MINUTES));
+                bar.getBarEndTime().minusMinutes(TAIL_FRESHNESS_MINUTES));
         return sampleSufficient && tailFresh;
     }
 
@@ -144,7 +159,7 @@ public class Stock15mBarBuildService {
         LocalDateTime barEnd = barStart.plusMinutes(BUCKET_MINUTES);
         log.debug("开始构建15分钟bar, barStart={}, barEnd={}", barStart, barEnd);
 
-        List<StockPricePoint> points = stocksHistoryDAO.selectHistoryPointsRange(barStart, barEnd);
+        List<StockPricePoint> points = stocksHistoryDao.selectHistoryPointsRange(barStart, barEnd);
         if (CollectionUtils.isEmpty(points)) {
             log.warn("桶[{}, {})无分钟采样数据,跳过bar构建", barStart, barEnd);
             return List.of();
@@ -168,7 +183,7 @@ public class Stock15mBarBuildService {
             return List.of();
         }
 
-        bar15mDAO.saveBatch(bars);
+        bar15mDao.saveBatch(bars);
         log.info("桶[{}, {})成功构建并保存{}支股票的15分钟bar", barStart, barEnd, bars.size());
         return bars;
     }
@@ -187,16 +202,16 @@ public class Stock15mBarBuildService {
      * @return 构建完成的bar,原始数据为空时返回null
      */
     private TornStockMarketBar15mDO buildSingleBar(List<StockPricePoint> rawPoints,
-                                                    LocalDateTime barStart,
-                                                    LocalDateTime barEnd) {
+                                                   LocalDateTime barStart,
+                                                   LocalDateTime barEnd) {
         DedupResult dedup = dedupByTime(rawPoints);
         List<StockPricePoint> uniquePoints = dedup.uniquePoints();
         if (uniquePoints.isEmpty()) {
             return null;
         }
 
-        StockPricePoint first = uniquePoints.get(0);
-        StockPricePoint last = uniquePoints.get(uniquePoints.size() - 1);
+        StockPricePoint first = uniquePoints.getFirst();
+        StockPricePoint last = uniquePoints.getLast();
         BigDecimal lowPrice = uniquePoints.stream()
                 .map(StockPricePoint::price)
                 .min(BigDecimal::compareTo)
@@ -270,7 +285,7 @@ public class Stock15mBarBuildService {
         boolean tailFresh = bar.getLastSampleTime() != null
                 && bar.getBarEndTime() != null
                 && !bar.getLastSampleTime().isBefore(
-                        bar.getBarEndTime().minusMinutes(TAIL_FRESHNESS_MINUTES));
+                bar.getBarEndTime().minusMinutes(TAIL_FRESHNESS_MINUTES));
 
         if (sampleSufficient && tailFresh) {
             bar.setUsable(true);
@@ -289,8 +304,8 @@ public class Stock15mBarBuildService {
     /**
      * 去重结果值对象
      *
-     * @param uniquePoints    去重后的采样列表(按时间升序)
-     * @param duplicateCount  被去除的重复记录数量
+     * @param uniquePoints   去重后的采样列表(按时间升序)
+     * @param duplicateCount 被去除的重复记录数量
      */
     private record DedupResult(List<StockPricePoint> uniquePoints, int duplicateCount) {
     }

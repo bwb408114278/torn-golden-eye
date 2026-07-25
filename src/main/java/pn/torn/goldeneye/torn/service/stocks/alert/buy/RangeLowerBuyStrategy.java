@@ -34,38 +34,50 @@ import java.util.Set;
 @Slf4j
 @Component
 public class RangeLowerBuyStrategy implements StockBuyStrategy {
-
-    /** 买入规则版本 */
+    /**
+     * 买入规则版本
+     * TODO 阶段B轮次处理时使用
+     */
     private static final String BUY_RULE_VERSION = "1.0.0";
-
-    /** 30日通道宽度上限阈值：8% */
+    /**
+     * 30日通道宽度上限阈值：8%
+     */
     private static final BigDecimal WIDTH_30D_THRESHOLD = new BigDecimal("0.08");
-
-    /** 仓位位置上限阈值：10% */
+    /**
+     * 仓位位置上限阈值：10%
+     */
     private static final BigDecimal POSITION_30_THRESHOLD = new BigDecimal("0.10");
-
-    /** effectiveZ1上限阈值 */
+    /**
+     * effectiveZ1上限阈值
+     */
     private static final BigDecimal EFFECTIVE_Z1_THRESHOLD = new BigDecimal("-0.5");
-
-    /** 趋势保护阈值：MA7/MA30 - 1 >= -2% */
+    /**
+     * 趋势保护阈值：MA7/MA30 - 1 >= -2%
+     */
     private static final BigDecimal TREND_PROTECT_THRESHOLD = new BigDecimal("-0.02");
-
-    /** 质量分基础分 */
+    /**
+     * 质量分基础分
+     */
     private static final BigDecimal SCORE_BASE = new BigDecimal("80");
-
-    /** 质量分位置系数 */
+    /**
+     * 质量分位置系数
+     */
     private static final BigDecimal SCORE_POSITION_COEFFICIENT = new BigDecimal("100");
-
-    /** 质量分位置基准 */
+    /**
+     * 质量分位置基准
+     */
     private static final BigDecimal SCORE_POSITION_BASE = new BigDecimal("0.10");
-
-    /** 质量分Z1系数 */
+    /**
+     * 质量分Z1系数
+     */
     private static final BigDecimal SCORE_Z1_COEFFICIENT = new BigDecimal("5");
-
-    /** BigDecimal运算精度 */
+    /**
+     * BigDecimal运算精度
+     */
     private static final int SCALE = 18;
-
-    /** 适用的策略适配风格集合 */
+    /**
+     * 适用的策略适配风格集合
+     */
     private static final Set<StockStrategyFitEnum> APPLICABLE_STYLES = Set.of(
             StockStrategyFitEnum.NARROW,
             StockStrategyFitEnum.RANGING
@@ -89,7 +101,8 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
         boolean positionOk = isPositionLow(context.position30());
         boolean z1Ok = effectiveZ1.compareTo(EFFECTIVE_Z1_THRESHOLD) <= 0;
         boolean return6hOk = isReturn6hNonPositive(context.return6h());
-        boolean trendOk = isTrendProtected(context.ma7d(), context.ma30d());
+        boolean trendOk = StockStrategyUtils.isTrendProtected(context.ma7d(), context.ma30d(),
+                TREND_PROTECT_THRESHOLD, SCALE);
 
         boolean matched = widthOk && positionOk && z1Ok && return6hOk && trendOk;
         if (matched) {
@@ -109,7 +122,7 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
                 .max(BigDecimal.ZERO)
                 .multiply(SCORE_POSITION_COEFFICIENT);
 
-        BigDecimal z1Contribution = maxZero(effectiveZ1.negate())
+        BigDecimal z1Contribution = StockStrategyUtils.maxZero(effectiveZ1.negate())
                 .multiply(SCORE_Z1_COEFFICIENT);
 
         BigDecimal score = SCORE_BASE
@@ -165,31 +178,5 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
      */
     private boolean isReturn6hNonPositive(BigDecimal return6h) {
         return return6h != null && return6h.compareTo(BigDecimal.ZERO) <= 0;
-    }
-
-    /**
-     * 中期趋势保护：MA7 / MA30 - 1 >= -2%。
-     *
-     * @param ma7d  近7日移动均价
-     * @param ma30d 近30日移动均价
-     * @return 趋势未破位时返回true
-     */
-    private boolean isTrendProtected(BigDecimal ma7d, BigDecimal ma30d) {
-        if (ma7d == null || ma30d == null || ma30d.compareTo(BigDecimal.ZERO) == 0) {
-            return false;
-        }
-        BigDecimal trendDeviation = ma7d.divide(ma30d, SCALE, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.ONE);
-        return trendDeviation.compareTo(TREND_PROTECT_THRESHOLD) >= 0;
-    }
-
-    /**
-     * 取BigDecimal与0的较大值。
-     *
-     * @param value 输入值
-     * @return value > 0 时返回value，否则返回0
-     */
-    private BigDecimal maxZero(BigDecimal value) {
-        return value.compareTo(BigDecimal.ZERO) > 0 ? value : BigDecimal.ZERO;
     }
 }

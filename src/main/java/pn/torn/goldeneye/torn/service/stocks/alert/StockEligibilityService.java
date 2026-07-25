@@ -40,22 +40,38 @@ import java.util.List;
 @Slf4j
 @Service
 public class StockEligibilityService {
-
-    /** 拒绝原因编码：风格缺失或过期 */
+    /**
+     * 拒绝原因编码：风格缺失或过期
+     */
     private static final String REASON_STYLE_MISSING = "STYLE_MISSING";
-    /** 拒绝原因编码：风格不适配当前策略 */
+    /**
+     * 拒绝原因编码：风格不适配当前策略
+     * TODO 阶段B轮次处理时使用，当前资格判断由调用方通过策略的isApplicableStyle完成
+     */
     private static final String REASON_STYLE_NOT_APPLICABLE = "STYLE_NOT_APPLICABLE";
-    /** 拒绝原因编码：成熟度不足 */
+    /**
+     * 拒绝原因编码：成熟度不足
+     */
     private static final String REASON_MATURITY_INSUFFICIENT = "MATURITY_INSUFFICIENT";
-    /** 观察原因编码：高风险观察 */
+    /**
+     * 观察原因编码：高风险观察
+     */
     private static final String REASON_HIGH_RISK_OBSERVED = "HIGH_RISK_OBSERVED";
-    /** 拒绝原因编码：冷却中 */
+    /**
+     * 拒绝原因编码：冷却中
+     */
     private static final String REASON_COOLDOWN_ACTIVE = "COOLDOWN_ACTIVE";
-    /** 拒绝原因编码：未观察到复位 */
+    /**
+     * 拒绝原因编码：未观察到复位
+     */
     private static final String REASON_RESET_NOT_OBSERVED = "RESET_NOT_OBSERVED";
-    /** 拒绝原因编码：同股已有正式活跃批次 */
+    /**
+     * 拒绝原因编码：同股已有正式活跃批次
+     */
     private static final String REASON_SAME_STOCK_ACTIVE = "SAME_STOCK_ACTIVE";
-    /** 拒绝原因编码：策略特征数据未就绪 */
+    /**
+     * 拒绝原因编码：策略特征数据未就绪
+     */
     private static final String REASON_DATA_NOT_READY = "DATA_NOT_READY";
 
     /**

@@ -40,27 +40,50 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class StockPortfolioService {
-
-    /** 组合编码 - 正式VIP组合 */
+    /**
+     * 组合编码 - 正式VIP组合
+     */
     public static final String PORTFOLIO_CODE = "VIP_FORMAL";
-    /** 槽位数量 */
+    /**
+     * 槽位数量
+     */
     public static final int SLOT_COUNT = 5;
-    /** 每槽初始资金(20亿) */
+    /**
+     * 每槽初始资金(20亿)
+     */
     public static final BigDecimal INITIAL_CASH = new BigDecimal("2000000000.00");
-    /** 初始资金明文(仅用于Javadoc展示) */
+    /**
+     * 初始资金明文(仅用于Javadoc展示)
+     */
     static final String INITIAL_CASH_PLAIN = "2,000,000,000.00";
-    /** 卖出费率(0.1%手续费,实得99.9%) */
+    /**
+     * 卖出费率(0.1%手续费,实得99.9%)
+     */
     public static final BigDecimal SELL_FEE_RATE = new BigDecimal("0.999");
-    /** 卖出费率明文(仅用于Javadoc展示) */
+    /**
+     * 卖出费率明文(仅用于Javadoc展示)
+     */
     static final String SELL_FEE_RATE_TEXT = "0.1%";
-    /** 入场价格偏离阈值(0.15%),仅向上偏离超过此值时取消 */
+    /**
+     * 入场价格偏离阈值(0.15%),仅向上偏离超过此值时取消
+     */
     public static final BigDecimal ENTRY_DEVIATION_THRESHOLD = new BigDecimal("0.0015");
-    /** 最长持有天数 */
+    /**
+     * 最长持有天数
+     */
     public static final int MAX_HOLD_DAYS = 14;
-    /** 金额与收益率计算精度 */
+    /**
+     * 金额与收益率计算精度
+     */
     private static final int MATH_SCALE = 18;
-    /** 入场过期容错分钟数(staleAt = signalBarStart + 30min窗口 + 5min容错) */
+    /**
+     * 入场过期容错分钟数(staleAt = signalBarStart + 30min窗口 + 5min容错)
+     */
     private static final int ENTRY_STALE_GRACE_MINUTES = 35;
+    /**
+     * 槽位非空校验提示信息
+     */
+    private static final String SLOT_NULL_MSG = "槽位不能为空";
 
     private final TornStockPortfolioSlotDAO portfolioSlotDAO;
 
@@ -94,7 +117,7 @@ public class StockPortfolioService {
      * @param batchId        关联批次ID
      */
     public void reserveSlot(TornStockPortfolioSlotDO slot, BigDecimal reservedAmount, Long batchId) {
-        Objects.requireNonNull(slot, "槽位不能为空");
+        Objects.requireNonNull(slot, SLOT_NULL_MSG);
         Objects.requireNonNull(reservedAmount, "预留金额不能为空");
         Objects.requireNonNull(batchId, "批次ID不能为空");
 
@@ -117,7 +140,7 @@ public class StockPortfolioService {
      * @param batchId             关联批次ID
      */
     public void occupySlot(TornStockPortfolioSlotDO slot, Long quantity, BigDecimal entryReferencePrice, Long batchId) {
-        Objects.requireNonNull(slot, "槽位不能为空");
+        Objects.requireNonNull(slot, SLOT_NULL_MSG);
         Objects.requireNonNull(quantity, "股数不能为空");
         Objects.requireNonNull(entryReferencePrice, "入场参考价不能为空");
         Objects.requireNonNull(batchId, "批次ID不能为空");
@@ -140,7 +163,7 @@ public class StockPortfolioService {
      * @param slot 目标槽位(应为RESERVED状态)
      */
     public void releaseSlot(TornStockPortfolioSlotDO slot) {
-        Objects.requireNonNull(slot, "槽位不能为空");
+        Objects.requireNonNull(slot, SLOT_NULL_MSG);
 
         BigDecimal currentReserved = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
         BigDecimal currentAvailable = slot.getAvailableCash() == null ? BigDecimal.ZERO : slot.getAvailableCash();
@@ -157,12 +180,12 @@ public class StockPortfolioService {
      * 计算卖出所得(sellProceeds = quantity × exitReferencePrice × 0.999,扣除0.1%手续费),
      * 回笼到原槽可用现金,槽位状态置为 AVAILABLE,解绑当前批次ID,实现槽内复利。
      *
-     * @param slot                目标槽位(应为OCCUPIED或EXIT_PENDING关联状态)
-     * @param quantity            卖出股数(整数)
-     * @param exitReferencePrice  卖出参考价
+     * @param slot               目标槽位(应为OCCUPIED或EXIT_PENDING关联状态)
+     * @param quantity           卖出股数(整数)
+     * @param exitReferencePrice 卖出参考价
      */
     public void settleSlot(TornStockPortfolioSlotDO slot, Long quantity, BigDecimal exitReferencePrice) {
-        Objects.requireNonNull(slot, "槽位不能为空");
+        Objects.requireNonNull(slot, SLOT_NULL_MSG);
         Objects.requireNonNull(quantity, "股数不能为空");
         Objects.requireNonNull(exitReferencePrice, "卖出参考价不能为空");
 
@@ -183,7 +206,7 @@ public class StockPortfolioService {
      * <p>
      * quantity = floor(availableCash / entryReferencePrice),向下取整保证不超过可用资金。
      *
-     * @param availableCash      可用资金
+     * @param availableCash       可用资金
      * @param entryReferencePrice 入场参考价(>0)
      * @return 整数股数;可用资金不足买入1股或价格为非正数时返回0
      */

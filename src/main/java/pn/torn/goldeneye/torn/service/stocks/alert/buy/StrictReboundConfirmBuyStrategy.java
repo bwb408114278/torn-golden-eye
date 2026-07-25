@@ -32,35 +32,46 @@ import java.util.Set;
 @Slf4j
 @Component
 public class StrictReboundConfirmBuyStrategy implements StockBuyStrategy {
-
-    /** 买入规则版本 */
+    /**
+     * 买入规则版本
+     * TODO 阶段B轮次处理时使用
+     */
     private static final String BUY_RULE_VERSION = "1.0.0";
-
-    /** 距30日低点的最大涨幅阈值：0.5% */
+    /**
+     * 距30日低点的最大涨幅阈值：0.5%
+     */
     private static final BigDecimal PCT_ABOVE_30D_LOW_THRESHOLD = new BigDecimal("0.005");
-
-    /** Z1下限阈值 */
+    /**
+     * Z1下限阈值
+     */
     private static final BigDecimal Z1_THRESHOLD = new BigDecimal("0.8");
-
-    /** 价格相对MA30的上限乘数：1.002 */
+    /**
+     * 价格相对MA30的上限乘数：1.002
+     */
     private static final BigDecimal MA30_PRICE_MULTIPLIER = new BigDecimal("1.002");
-
-    /** 质量分基础分 */
+    /**
+     * 质量分基础分
+     */
     private static final BigDecimal SCORE_BASE = new BigDecimal("60");
-
-    /** 质量分Z1系数 */
+    /**
+     * 质量分Z1系数
+     */
     private static final BigDecimal SCORE_Z1_COEFFICIENT = new BigDecimal("5");
-
-    /** 质量分低点距离系数 */
+    /**
+     * 质量分低点距离系数
+     */
     private static final BigDecimal SCORE_LOW_DISTANCE_COEFFICIENT = new BigDecimal("1000");
-
-    /** 质量分低点距离基准 */
+    /**
+     * 质量分低点距离基准
+     */
     private static final BigDecimal SCORE_LOW_DISTANCE_BASE = new BigDecimal("0.005");
-
-    /** BigDecimal运算精度 */
+    /**
+     * BigDecimal运算精度
+     */
     private static final int SCALE = 18;
-
-    /** 适用的策略适配风格集合 */
+    /**
+     * 适用的策略适配风格集合
+     */
     private static final Set<StockStrategyFitEnum> APPLICABLE_STYLES = Set.of(
             StockStrategyFitEnum.WEAK,
             StockStrategyFitEnum.DECLINER

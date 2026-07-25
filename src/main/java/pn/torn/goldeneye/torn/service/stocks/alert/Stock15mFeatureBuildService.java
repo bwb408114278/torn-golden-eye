@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -46,24 +45,37 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class Stock15mFeatureBuildService {
-
-    /** 特征计算版本 */
+    /**
+     * 特征计算版本
+     */
     public static final String FEATURE_VERSION = "1.0.0";
-    /** 每日bar数量(24小时 × 4) */
+    /**
+     * 每日bar数量(24小时 × 4)
+     */
     public static final int BARS_PER_DAY = 96;
-    /** 6小时bar数量 */
+    /**
+     * 6小时bar数量
+     */
     public static final int BARS_6H = 24;
-    /** 7日bar数量 */
+    /**
+     * 7日bar数量
+     */
     public static final int BARS_7D = 672;
-    /** 14日bar数量 */
+    /**
+     * 14日bar数量
+     */
     public static final int BARS_14D = 1344;
-    /** 30日bar数量 */
+    /**
+     * 30日bar数量
+     */
     public static final int BARS_30D = 2880;
-    /** 计算精度 */
+    /**
+     * 计算精度
+     */
     private static final int CALC_SCALE = 18;
 
-    private final TornStockMarketBar15mDAO bar15mDAO;
-    private final TornStockStrategyFeature15mDAO feature15mDAO;
+    private final TornStockMarketBar15mDAO bar15mDao;
+    private final TornStockStrategyFeature15mDAO feature15mDao;
 
     /**
      * 构建指定桶的全部股票策略特征
@@ -78,14 +90,14 @@ public class Stock15mFeatureBuildService {
         LocalDateTime alignedTime = Stock15mBarBuildService.alignToBucket(barStartTime);
         log.debug("开始构建15分钟特征, barStartTime={}", alignedTime);
 
-        List<TornStockMarketBar15mDO> currentBars = bar15mDAO.selectByBarStartTime(alignedTime);
+        List<TornStockMarketBar15mDO> currentBars = bar15mDao.selectByBarStartTime(alignedTime);
         if (CollectionUtils.isEmpty(currentBars)) {
             log.warn("桶{}无可用bar,跳过特征构建", alignedTime);
             return List.of();
         }
 
         LocalDateTime historySince = alignedTime.minusDays(30).minusMinutes(15);
-        List<TornStockMarketBar15mDO> historyBars = bar15mDAO.selectByBarStartTime(historySince);
+        List<TornStockMarketBar15mDO> historyBars = bar15mDao.selectByBarStartTime(historySince);
 
         Map<Integer, List<TornStockMarketBar15mDO>> historyByStock = historyBars.stream()
                 .filter(b -> b.getBarStartTime().isBefore(alignedTime))
@@ -105,7 +117,7 @@ public class Stock15mFeatureBuildService {
             return List.of();
         }
 
-        feature15mDAO.saveBatch(features);
+        feature15mDao.saveBatch(features);
         log.info("桶{}成功构建并保存{}支股票的策略特征", alignedTime, features.size());
         return features;
     }
@@ -118,7 +130,7 @@ public class Stock15mFeatureBuildService {
      * @return 填充完整的特征DO,当前bar不可用时返回null
      */
     private TornStockStrategyFeature15mDO buildSingleFeature(TornStockMarketBar15mDO currentBar,
-                                                               List<TornStockMarketBar15mDO> historyBars) {
+                                                             List<TornStockMarketBar15mDO> historyBars) {
         if (!Stock15mBarBuildService.isUsable(currentBar)) {
             return null;
         }
@@ -236,7 +248,7 @@ public class Stock15mFeatureBuildService {
      * @return Z-Score,标准差为零或窗口不足时返回BigDecimal.ZERO
      */
     private BigDecimal calculateZScore(BigDecimal price, BigDecimal ma,
-                                        List<BigDecimal> prices, int totalBars, int window) {
+                                       List<BigDecimal> prices, int totalBars, int window) {
         if (ma == null) {
             return null;
         }
