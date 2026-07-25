@@ -1,0 +1,1474 @@
+databaseChangeLog:
+  # ========== 表1: torn_stock_market_bar_15m ==========
+  - changeSet:
+      id: create_table_stock_portfolio_market_bar_15m
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_market_bar_15m
+            remarks: "保存从分钟行情构建的标准15分钟市场bar和数据质量事实"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "股票简称快照"
+              - column:
+                  name: bar_start_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "15分钟桶开始时间"
+              - column:
+                  name: bar_end_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "15分钟桶结束时间(不含该时点)"
+              - column:
+                  name: first_sample_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "桶内第一条实际分钟采样时间"
+              - column:
+                  name: last_sample_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "桶内最后一条实际分钟采样时间"
+              - column:
+                  name: first_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "桶内第一条实际价格"
+              - column:
+                  name: last_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "桶内最后一条实际价格(决策/成交参考价)"
+              - column:
+                  name: low_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "桶内实际采样最低价"
+              - column:
+                  name: high_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "桶内实际采样最高价"
+              - column:
+                  name: sample_count
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "去重后的分钟采样数量"
+              - column:
+                  name: duplicate_count
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "构建时发现的重复分钟记录数量"
+              - column:
+                  name: tail_gap_seconds
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "桶结束到最后采样的秒数"
+              - column:
+                  name: usable
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否满足正式bar可用标准"
+              - column:
+                  name: quality_reason
+                  type: VARCHAR(64)
+                  remarks: "不可用原因编码"
+              - column:
+                  name: build_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "bar构建规则版本"
+              - column:
+                  name: source_max_history_id
+                  type: BIGINT
+                  remarks: "本桶使用的最大原始历史ID"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_market_bar_15m_stock_time_ver ON torn_stock_market_bar_15m (stocks_id, bar_start_time, build_version) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_market_bar_15m_time_usable_ver ON torn_stock_market_bar_15m (bar_start_time, usable, build_version)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_market_bar_15m_stock_time_desc ON torn_stock_market_bar_15m (stocks_id, bar_start_time DESC) WHERE deleted = 0"
+
+  # ========== 表2: torn_stock_strategy_feature_15m ==========
+  - changeSet:
+      id: create_table_stock_portfolio_strategy_feature_15m
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_strategy_feature_15m
+            remarks: "保存指定15分钟bar时点的正式策略因果特征"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "股票简称快照"
+              - column:
+                  name: bar_start_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "对应决策bar开始时间"
+              - column:
+                  name: reference_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "本bar最后一个实际价格"
+              - column:
+                  name: ma1d
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "1日bar均价"
+              - column:
+                  name: ma7d
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "7日bar均价"
+              - column:
+                  name: ma30d
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "30日bar均价"
+              - column:
+                  name: zscore1d
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "1日标准化偏离"
+              - column:
+                  name: zscore7d
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "7日标准化偏离"
+              - column:
+                  name: zscore30d
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "30日标准化偏离"
+              - column:
+                  name: return6h
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "6小时收益率"
+              - column:
+                  name: return1d
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "1日收益率"
+              - column:
+                  name: return7d
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "7日收益率"
+              - column:
+                  name: return14d
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "14日收益率"
+              - column:
+                  name: low30d
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "30日最低实际bar价格"
+              - column:
+                  name: high30d
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "30日最高实际bar价格"
+              - column:
+                  name: width30d
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "30日价格带宽"
+              - column:
+                  name: position30
+                  type: DECIMAL(18,10)
+                  remarks: "当前价格在30日区间的位置(高低价相同则空)"
+              - column:
+                  name: pct_above_30d_low
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "距30日低点涨幅"
+              - column:
+                  name: pct_below_30d_high
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "距30日高点跌幅"
+              - column:
+                  name: strategy_ready
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否具备产生新买入信号的完整窗口"
+              - column:
+                  name: data_quality_reason
+                  type: VARCHAR(64)
+                  remarks: "特征不可用于买入的原因编码"
+              - column:
+                  name: feature_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "特征计算版本"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_strategy_feature_15m_stock_time_ver ON torn_stock_strategy_feature_15m (stocks_id, bar_start_time, feature_version) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_strategy_feature_15m_time_ready_ver ON torn_stock_strategy_feature_15m (bar_start_time, strategy_ready, feature_version)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_strategy_feature_15m_stock_time_desc ON torn_stock_strategy_feature_15m (stocks_id, bar_start_time DESC) WHERE deleted = 0"
+
+  # ========== 表3: torn_stock_monthly_state ==========
+  - changeSet:
+      id: create_table_stock_portfolio_monthly_state
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_monthly_state
+            remarks: "保存每支股票按月冻结的策略风格、成熟度、风险和证据快照"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "股票简称快照"
+              - column:
+                  name: effective_month
+                  type: DATE
+                  constraints:
+                    nullable: false
+                  remarks: "生效月份(当月1日)"
+              - column:
+                  name: strategy_fit_prior
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "最终策略适配风格编码"
+              - column:
+                  name: maturity
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "成熟度编码"
+              - column:
+                  name: risk_level
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "风险等级编码"
+              - column:
+                  name: suggested_personality
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "机器建议风格"
+              - column:
+                  name: previous_personality
+                  type: VARCHAR(32)
+                  remarks: "上一期最终风格"
+              - column:
+                  name: manual_override
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否人工覆盖机器建议"
+              - column:
+                  name: override_reason
+                  type: VARCHAR(512)
+                  remarks: "人工覆盖原因"
+              - column:
+                  name: metric_snapshot
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "分类时完整指标快照(JSON文本)"
+              - column:
+                  name: personality_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "风格规则版本"
+              - column:
+                  name: risk_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "风险规则版本"
+              - column:
+                  name: evidence_start_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "证据窗口开始时间"
+              - column:
+                  name: evidence_end_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "证据窗口结束时间"
+              - column:
+                  name: state_status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "状态(DRAFT/CONFIRMED/RETIRED)"
+              - column:
+                  name: calculated_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "机器计算时间"
+              - column:
+                  name: confirmed_at
+                  type: TIMESTAMP
+                  remarks: "人工确认时间"
+              - column:
+                  name: confirmed_by
+                  type: VARCHAR(64)
+                  remarks: "确认人标识"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_monthly_state_stock_month ON torn_stock_monthly_state (stocks_id, effective_month) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_monthly_state_month_status ON torn_stock_monthly_state (effective_month, state_status)"
+
+  # ========== 表4: torn_stock_market_round ==========
+  - changeSet:
+      id: create_table_stock_portfolio_market_round
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_market_round
+            remarks: "保存15分钟组合轮次的幂等、补偿和执行状态"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: round_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "轮次对应bar开始时间"
+              - column:
+                  name: round_status
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "轮次状态编码"
+              - column:
+                  name: bar_build_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "使用的bar构建版本"
+              - column:
+                  name: feature_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "使用的特征版本"
+              - column:
+                  name: buy_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "买入规则版本"
+              - column:
+                  name: sell_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "卖出规则版本"
+              - column:
+                  name: allocation_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "资金和排序版本"
+              - column:
+                  name: message_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "消息规则版本"
+              - column:
+                  name: expected_stock_count
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "本轮预期股票数量"
+              - column:
+                  name: usable_stock_count
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "本轮可用于正式决策的股票数量"
+              - column:
+                  name: started_at
+                  type: TIMESTAMP
+                  remarks: "开始处理时间"
+              - column:
+                  name: completed_at
+                  type: TIMESTAMP
+                  remarks: "完成时间"
+              - column:
+                  name: attempt_count
+                  type: INT
+                  defaultValueNumeric: "0"
+                  constraints:
+                    nullable: false
+                  remarks: "轮次处理尝试次数"
+              - column:
+                  name: error_message
+                  type: VARCHAR(1000)
+                  remarks: "最近失败摘要"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_market_round_time ON torn_stock_market_round (round_time) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_market_round_status_time ON torn_stock_market_round (round_status, round_time)"
+
+  # ========== 表5: torn_stock_signal_state ==========
+  - changeSet:
+      id: create_table_stock_portfolio_signal_state
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_signal_state
+            remarks: "保存每支股票、每个买入策略版本的边沿、冷却和复位状态"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: strategy_type
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "买入策略编码"
+              - column:
+                  name: buy_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "买入规则版本"
+              - column:
+                  name: condition_active
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "上一轮买入条件是否为true"
+              - column:
+                  name: last_evaluated_round_time
+                  type: TIMESTAMP
+                  remarks: "最近评估轮次"
+              - column:
+                  name: last_signal_time
+                  type: TIMESTAMP
+                  remarks: "最近false->true信号时间"
+              - column:
+                  name: cooldown_until
+                  type: TIMESTAMP
+                  remarks: "冷却结束时间"
+              - column:
+                  name: reset_observed
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "关闭后是否已观察到条件恢复false"
+              - column:
+                  name: last_close_type
+                  type: VARCHAR(32)
+                  remarks: "最近关闭类型"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_signal_state_stock_strat_ver ON torn_stock_signal_state (stocks_id, strategy_type, buy_rule_version) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_signal_state_cooldown_reset ON torn_stock_signal_state (cooldown_until, reset_observed)"
+
+  # ========== 表6: torn_stock_signal_event ==========
+  - changeSet:
+      id: create_table_stock_portfolio_signal_event
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_signal_event
+            remarks: "保存全部原始信号、资格、排名、组合决定和后续研究结果"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: event_no
+                  type: VARCHAR(40)
+                  constraints:
+                    nullable: false
+                  remarks: "原始信号事件编号"
+              - column:
+                  name: round_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "信号轮次"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "股票简称快照"
+              - column:
+                  name: strategy_type
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "命中的买入策略编码"
+              - column:
+                  name: buy_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "买入规则版本"
+              - column:
+                  name: quality_score
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "质量分"
+              - column:
+                  name: feature_snapshot
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "信号特征快照(JSON文本)"
+              - column:
+                  name: style_snapshot
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "风格、成熟度、风险和版本快照(JSON文本)"
+              - column:
+                  name: eligibility_result
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "资格结果(ALLOWED/REJECTED/OBSERVED)"
+              - column:
+                  name: eligibility_reasons
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "资格原因编码列表(JSON文本)"
+              - column:
+                  name: candidate_rank
+                  type: INT
+                  remarks: "同轮候选排名"
+              - column:
+                  name: portfolio_decision
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "正式、影子或拒绝决定"
+              - column:
+                  name: reject_reason
+                  type: VARCHAR(64)
+                  remarks: "主要拒绝原因编码"
+              - column:
+                  name: formal_batch_id
+                  type: BIGINT
+                  remarks: "关联正式批次ID"
+              - column:
+                  name: shadow_batch_id
+                  type: BIGINT
+                  remarks: "关联影子批次ID"
+              - column:
+                  name: later_mfe
+                  type: DECIMAL(18,10)
+                  remarks: "后续最大有利变动"
+              - column:
+                  name: later_mae
+                  type: DECIMAL(18,10)
+                  remarks: "后续最大不利变动"
+              - column:
+                  name: resolved_at
+                  type: TIMESTAMP
+                  remarks: "研究结果解析完成时间"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_signal_event_no ON torn_stock_signal_event (event_no) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_signal_event_stock_strat_time_ver ON torn_stock_signal_event (stocks_id, strategy_type, round_time, buy_rule_version) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_signal_event_round_decision ON torn_stock_signal_event (round_time, portfolio_decision)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_signal_event_stock_round_desc ON torn_stock_signal_event (stocks_id, round_time DESC) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_signal_event_reject_round ON torn_stock_signal_event (reject_reason, round_time)"
+
+  # ========== 表7: torn_stock_portfolio_slot ==========
+  - changeSet:
+      id: create_table_stock_portfolio_portfolio_slot
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_portfolio_slot
+            remarks: "保存正式组合5个独立资金槽位"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: portfolio_code
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "组合编码(首期固定VIP_FORMAL)"
+              - column:
+                  name: slot_no
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "槽位编号1-5"
+              - column:
+                  name: initial_cash
+                  type: NUMERIC(24,2)
+                  constraints:
+                    nullable: false
+                  remarks: "槽位初始资金20亿"
+              - column:
+                  name: available_cash
+                  type: NUMERIC(24,2)
+                  constraints:
+                    nullable: false
+                  remarks: "当前可用现金"
+              - column:
+                  name: reserved_cash
+                  type: NUMERIC(24,2)
+                  constraints:
+                    nullable: false
+                  remarks: "待买批次已预留现金"
+              - column:
+                  name: current_batch_id
+                  type: BIGINT
+                  remarks: "当前占用该槽的正式批次ID"
+              - column:
+                  name: slot_status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "槽位状态(AVAILABLE/RESERVED/OCCUPIED/STALE)"
+              - column:
+                  name: lock_version
+                  type: BIGINT
+                  defaultValueNumeric: "0"
+                  constraints:
+                    nullable: false
+                  remarks: "乐观锁版本"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "ALTER TABLE torn_stock_portfolio_slot ADD CONSTRAINT chk_portfolio_slot_no CHECK (slot_no BETWEEN 1 AND 5)"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_portfolio_slot_code_no ON torn_stock_portfolio_slot (portfolio_code, slot_no) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_portfolio_slot_code_status_no ON torn_stock_portfolio_slot (portfolio_code, slot_status, slot_no)"
+
+  # ========== 表7 初始化数据: 5个槽位 ==========
+  - changeSet:
+      id: insert_stock_portfolio_portfolio_slot_init
+      author: Bai
+      changes:
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (1, 'VIP_FORMAL', 1, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (2, 'VIP_FORMAL', 2, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (3, 'VIP_FORMAL', 3, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (4, 'VIP_FORMAL', 4, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (5, 'VIP_FORMAL', 5, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+
+  # ========== 表8: torn_stock_virtual_batch ==========
+  - changeSet:
+      id: create_table_stock_portfolio_virtual_batch
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_virtual_batch
+            remarks: "统一保存正式、无限资金影子和拒绝观察批次"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: batch_no
+                  type: VARCHAR(40)
+                  constraints:
+                    nullable: false
+                  remarks: "系统批次编号"
+              - column:
+                  name: ledger_type
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "账本类型(FORMAL/UNLIMITED_SHADOW/REJECTED_OBSERVATION)"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "股票简称快照"
+              - column:
+                  name: primary_strategy
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "主买入策略编码"
+              - column:
+                  name: matched_strategies
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "同时命中的策略编码列表(JSON文本)"
+              - column:
+                  name: quality_score
+                  type: DECIMAL(18,8)
+                  constraints:
+                    nullable: false
+                  remarks: "入场候选质量分"
+              - column:
+                  name: batch_status
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "批次状态编码"
+              - column:
+                  name: signal_event_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "来源原始信号事件ID"
+              - column:
+                  name: slot_id
+                  type: BIGINT
+                  remarks: "正式批次占用槽位ID"
+              - column:
+                  name: slot_no
+                  type: INT
+                  remarks: "正式批次占用槽位编号"
+              - column:
+                  name: signal_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "买入信号时间"
+              - column:
+                  name: signal_reference_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "信号bar最后实际价格"
+              - column:
+                  name: expected_entry_bar_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "预期紧邻下一bar时间"
+              - column:
+                  name: entry_stale_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "待买过期时间"
+              - column:
+                  name: entry_time
+                  type: TIMESTAMP
+                  remarks: "实际参考买入时间"
+              - column:
+                  name: entry_reference_price
+                  type: DECIMAL(18,6)
+                  remarks: "参考买入价"
+              - column:
+                  name: quantity
+                  type: BIGINT
+                  remarks: "正式组合整数股数"
+              - column:
+                  name: invested_cash
+                  type: NUMERIC(24,2)
+                  remarks: "正式批次实际投入资金"
+              - column:
+                  name: remaining_cash
+                  type: NUMERIC(24,2)
+                  remarks: "建仓后槽位余款"
+              - column:
+                  name: style_prior
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "开仓时冻结的风格"
+              - column:
+                  name: style_maturity
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "开仓时冻结的成熟度"
+              - column:
+                  name: risk_level
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "开仓时冻结的风险等级"
+              - column:
+                  name: style_effective_month
+                  type: DATE
+                  constraints:
+                    nullable: false
+                  remarks: "冻结风格生效月份"
+              - column:
+                  name: buy_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "买入规则版本"
+              - column:
+                  name: sell_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "卖出规则版本"
+              - column:
+                  name: style_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "风格规则版本"
+              - column:
+                  name: risk_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "风险规则版本"
+              - column:
+                  name: allocation_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "资金分配版本"
+              - column:
+                  name: message_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "消息规则版本"
+              - column:
+                  name: follow_until
+                  type: TIMESTAMP
+                  remarks: "买入消息发送后60分钟"
+              - column:
+                  name: follow_max_price
+                  type: DECIMAL(18,6)
+                  remarks: "最高建议跟随价"
+              - column:
+                  name: peak_price
+                  type: DECIMAL(18,6)
+                  remarks: "持仓路径峰值"
+              - column:
+                  name: trough_price
+                  type: DECIMAL(18,6)
+                  remarks: "持仓路径谷值"
+              - column:
+                  name: current_net_return
+                  type: DECIMAL(18,10)
+                  remarks: "当前扣费后净收益"
+              - column:
+                  name: mfe
+                  type: DECIMAL(18,10)
+                  remarks: "最大有利变动"
+              - column:
+                  name: mae
+                  type: DECIMAL(18,10)
+                  remarks: "最大不利变动"
+              - column:
+                  name: peak_drawdown
+                  type: DECIMAL(18,10)
+                  remarks: "峰值回撤"
+              - column:
+                  name: dynamic_sell_state
+                  type: VARCHAR(32)
+                  remarks: "动态卖出影子状态"
+              - column:
+                  name: max_hold_until
+                  type: TIMESTAMP
+                  remarks: "最长持有截止时间"
+              - column:
+                  name: exit_signal_time
+                  type: TIMESTAMP
+                  remarks: "退出信号时间"
+              - column:
+                  name: expected_exit_bar_time
+                  type: TIMESTAMP
+                  remarks: "预期卖出参考bar"
+              - column:
+                  name: exit_time
+                  type: TIMESTAMP
+                  remarks: "参考卖出时间"
+              - column:
+                  name: exit_reference_price
+                  type: DECIMAL(18,6)
+                  remarks: "参考卖出价"
+              - column:
+                  name: exit_reason
+                  type: VARCHAR(64)
+                  remarks: "关闭原因编码"
+              - column:
+                  name: net_return
+                  type: DECIMAL(18,10)
+                  remarks: "扣费后批次净收益"
+              - column:
+                  name: sell_proceeds
+                  type: NUMERIC(24,2)
+                  remarks: "扣费后卖出所得"
+              - column:
+                  name: cooldown_until
+                  type: TIMESTAMP
+                  remarks: "关闭后冷却截止时间"
+              - column:
+                  name: reset_observed
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+                  remarks: "是否已观察到买入条件复位"
+              - column:
+                  name: cancel_reason
+                  type: VARCHAR(64)
+                  remarks: "候选取消原因"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_no ON torn_stock_virtual_batch (batch_no) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_stock ON torn_stock_virtual_batch (stocks_id) WHERE ledger_type = 'FORMAL' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_slot ON torn_stock_virtual_batch (slot_id) WHERE ledger_type = 'FORMAL' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_virtual_batch_ledger_status_signal ON torn_stock_virtual_batch (ledger_type, batch_status, signal_time)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_virtual_batch_stock_ledger_status ON torn_stock_virtual_batch (stocks_id, ledger_type, batch_status)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_virtual_batch_entry_bar_status ON torn_stock_virtual_batch (expected_entry_bar_time, batch_status)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_virtual_batch_exit_bar_status ON torn_stock_virtual_batch (expected_exit_bar_time, batch_status)"
+
+  # ========== 表9: torn_stock_batch_mark ==========
+  - changeSet:
+      id: create_table_stock_portfolio_batch_mark
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_batch_mark
+            remarks: "保存批次每轮持仓路径"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: batch_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "批次ID"
+              - column:
+                  name: round_time
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "评估轮次"
+              - column:
+                  name: reference_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "当前bar最后实际价格"
+              - column:
+                  name: current_net_return
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "当前扣费后净收益"
+              - column:
+                  name: peak_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "截至本轮峰值"
+              - column:
+                  name: trough_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "截至本轮谷值"
+              - column:
+                  name: mfe
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "截至本轮最大有利变动"
+              - column:
+                  name: mae
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "截至本轮最大不利变动"
+              - column:
+                  name: peak_drawdown
+                  type: DECIMAL(18,10)
+                  constraints:
+                    nullable: false
+                  remarks: "截至本轮峰值回撤"
+              - column:
+                  name: formal_decision
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "正式持有/退出决定"
+              - column:
+                  name: formal_reason
+                  type: VARCHAR(64)
+                  remarks: "正式决定原因编码"
+              - column:
+                  name: dynamic_shadow_decision
+                  type: VARCHAR(32)
+                  remarks: "动态卖出影子决定"
+              - column:
+                  name: dynamic_shadow_reason
+                  type: VARCHAR(64)
+                  remarks: "动态影子原因编码"
+              - column:
+                  name: feature_snapshot
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "本轮退出判断特征快照(JSON文本)"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_batch_mark_batch_round ON torn_stock_batch_mark (batch_id, round_time) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_batch_mark_round_decision ON torn_stock_batch_mark (round_time, formal_decision)"
+        - sql:
+            sql: "CREATE INDEX idx_stock_batch_mark_batch_round_desc ON torn_stock_batch_mark (batch_id, round_time DESC) WHERE deleted = 0"
+
+  # ========== 表10: torn_stock_notice_audit ==========
+  - changeSet:
+      id: create_table_stock_portfolio_notice_audit
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_stock_notice_audit
+            remarks: "保存正式买卖和每日摘要的中文消息快照及本期一次发送结果"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: notice_no
+                  type: VARCHAR(48)
+                  constraints:
+                    nullable: false
+                  remarks: "通知编号"
+              - column:
+                  name: batch_id
+                  type: BIGINT
+                  remarks: "买卖通知关联批次"
+              - column:
+                  name: notice_type
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "通知类型(BUY/SELL/DAILY_SUMMARY)"
+              - column:
+                  name: scheduled_round_time
+                  type: TIMESTAMP
+                  remarks: "买卖通知来源轮次"
+              - column:
+                  name: summary_date
+                  type: DATE
+                  remarks: "每日摘要对应日期"
+              - column:
+                  name: group_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "发送目标群ID快照"
+              - column:
+                  name: payload_hash
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "中文消息载荷SHA-256摘要"
+              - column:
+                  name: payload_snapshot
+                  type: TEXT
+                  constraints:
+                    nullable: false
+                  remarks: "消息结构和中文文本快照(JSON文本)"
+              - column:
+                  name: send_status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "发送状态(PENDING/SENT/FAILED)"
+              - column:
+                  name: send_attempt_count
+                  type: INT
+                  defaultValueNumeric: "0"
+                  constraints:
+                    nullable: false
+                  remarks: "发送尝试次数"
+              - column:
+                  name: attempted_at
+                  type: TIMESTAMP
+                  remarks: "调用Bot时间"
+              - column:
+                  name: sent_at
+                  type: TIMESTAMP
+                  remarks: "当前调用判定成功时间"
+              - column:
+                  name: error_message
+                  type: VARCHAR(1000)
+                  remarks: "调用异常摘要"
+              - column:
+                  name: message_rule_version
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+                  remarks: "中文模板和合并规则版本"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_notice_audit_no ON torn_stock_notice_audit (notice_no) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_notice_audit_batch_type ON torn_stock_notice_audit (batch_id, notice_type) WHERE batch_id IS NOT NULL AND deleted = 0"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_notice_audit_summary_date_type ON torn_stock_notice_audit (summary_date, notice_type) WHERE notice_type = 'DAILY_SUMMARY' AND deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_notice_audit_status_create ON torn_stock_notice_audit (send_status, create_time)"
