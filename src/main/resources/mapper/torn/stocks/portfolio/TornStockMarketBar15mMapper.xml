@@ -3,8 +3,61 @@
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockMarketBar15mMapper">
     <!-- 按bar开始时间批量查询全部股票bar -->
     <select id="selectByBarStartTime" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
-        SELECT * FROM torn_stock_market_bar_15m
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM torn_stock_market_bar_15m
         WHERE bar_start_time = #{barStartTime}
           AND deleted = 0
     </select>
+
+    <!-- 按时间范围批量查询全部股票bar -->
+    <select id="selectByTimeRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM torn_stock_market_bar_15m
+        WHERE bar_start_time >= #{startTime}
+          AND bar_start_time <![CDATA[<=]]> #{endTime}
+          AND build_version = #{buildVersion}
+          AND deleted = 0
+        ORDER BY stocks_id ASC, bar_start_time ASC
+    </select>
+
+    <!-- 按唯一键执行UPSERT -->
+    <insert id="upsertBar">
+        INSERT INTO torn_stock_market_bar_15m
+            (stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+             first_sample_time, last_sample_time, first_price, last_price,
+             low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+             usable, quality_reason, build_version, source_max_history_id,
+             deleted, create_time, update_time)
+        VALUES
+            (#{bar.stocksId}, #{bar.stocksShortname}, #{bar.barStartTime}, #{bar.barEndTime},
+             #{bar.firstSampleTime}, #{bar.lastSampleTime}, #{bar.firstPrice}, #{bar.lastPrice},
+             #{bar.lowPrice}, #{bar.highPrice}, #{bar.sampleCount}, #{bar.duplicateCount}, #{bar.tailGapSeconds},
+             #{bar.usable}, #{bar.qualityReason}, #{bar.buildVersion}, #{bar.sourceMaxHistoryId},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (stocks_id, bar_start_time, build_version) WHERE deleted = 0
+        DO UPDATE SET
+             stocks_shortname = EXCLUDED.stocks_shortname,
+             bar_end_time = EXCLUDED.bar_end_time,
+             first_sample_time = EXCLUDED.first_sample_time,
+             last_sample_time = EXCLUDED.last_sample_time,
+             first_price = EXCLUDED.first_price,
+             last_price = EXCLUDED.last_price,
+             low_price = EXCLUDED.low_price,
+             high_price = EXCLUDED.high_price,
+             sample_count = EXCLUDED.sample_count,
+             duplicate_count = EXCLUDED.duplicate_count,
+             tail_gap_seconds = EXCLUDED.tail_gap_seconds,
+             usable = EXCLUDED.usable,
+             quality_reason = EXCLUDED.quality_reason,
+             source_max_history_id = EXCLUDED.source_max_history_id,
+             update_time = CURRENT_TIMESTAMP
+    </insert>
 </mapper>

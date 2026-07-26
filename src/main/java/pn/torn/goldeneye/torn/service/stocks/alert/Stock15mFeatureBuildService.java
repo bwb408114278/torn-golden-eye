@@ -97,16 +97,16 @@ public class Stock15mFeatureBuildService {
         }
 
         LocalDateTime historySince = alignedTime.minusDays(30).minusMinutes(15);
-        List<TornStockMarketBar15mDO> historyBars = bar15mDao.selectByBarStartTime(historySince);
+        List<TornStockMarketBar15mDO> historyBars = bar15mDao.selectByTimeRange(
+                historySince, alignedTime.minusMinutes(15), Stock15mBarBuildService.BUILD_VERSION);
 
         Map<Integer, List<TornStockMarketBar15mDO>> historyByStock = historyBars.stream()
-                .filter(b -> b.getBarStartTime().isBefore(alignedTime))
                 .collect(Collectors.groupingBy(TornStockMarketBar15mDO::getStocksId));
 
         List<TornStockStrategyFeature15mDO> features = new ArrayList<>(currentBars.size());
         for (TornStockMarketBar15mDO currentBar : currentBars) {
             TornStockStrategyFeature15mDO feature = buildSingleFeature(currentBar,
-                    historyByStock.getOrDefault(currentBar.getStocksId(), List.of()));
+                    historyByStock.getOrDefault(currentBar.getStocksId(), List.of()), alignedTime);
             if (feature != null) {
                 features.add(feature);
             }
@@ -117,7 +117,9 @@ public class Stock15mFeatureBuildService {
             return List.of();
         }
 
-        feature15mDao.saveBatch(features);
+        for (TornStockStrategyFeature15mDO feature : features) {
+            feature15mDao.upsertFeature(feature);
+        }
         log.info("桶{}成功构建并保存{}支股票的策略特征", alignedTime, features.size());
         return features;
     }
@@ -130,7 +132,8 @@ public class Stock15mFeatureBuildService {
      * @return 填充完整的特征DO,当前bar不可用时返回null
      */
     private TornStockStrategyFeature15mDO buildSingleFeature(TornStockMarketBar15mDO currentBar,
-                                                             List<TornStockMarketBar15mDO> historyBars) {
+                                                             List<TornStockMarketBar15mDO> historyBars,
+                                                             LocalDateTime alignedTime) {
         if (!Stock15mBarBuildService.isUsable(currentBar)) {
             return null;
         }
@@ -166,8 +169,8 @@ public class Stock15mFeatureBuildService {
         BigDecimal pctAbove30dLow = calculatePctAboveLow(referencePrice, low30d);
         BigDecimal pctBelow30dHigh = calculatePctBelowHigh(referencePrice, high30d);
 
-        boolean strategyReady = checkStrategyReady(totalBars);
-        String dataQualityReason = strategyReady ? null : "INSUFFICIENT_HISTORY";
+        boolean strategyReady = checkStrategyReady(allBars, alignedTime);
+        String dataQualityReason = strategyReady ? null : resolveDataQualityReason(allBars);
 
         TornStockStrategyFeature15mDO feature = new TornStockStrategyFeature15mDO();
         feature.setStocksId(currentBar.getStocksId());
@@ -281,31 +284,31 @@ public class Stock15mFeatureBuildService {
     }
 
     /**
-     * 计算指定窗口内的最低价
+     * 计算指定窗口内的最低参考价(基于lastPrice)
      *
      * @param bars   bar列表
      * @param window 窗口大小
-     * @return 最低价
+     * @return 最低参考价
      */
     private BigDecimal calculateLow(List<TornStockMarketBar15mDO> bars, int window) {
         int start = Math.max(0, bars.size() - window);
         return bars.subList(start, bars.size()).stream()
-                .map(TornStockMarketBar15mDO::getLowPrice)
+                .map(TornStockMarketBar15mDO::getLastPrice)
                 .min(BigDecimal::compareTo)
                 .orElse(null);
     }
 
     /**
-     * 计算指定窗口内的最高价
+     * 计算指定窗口内的最高参考价(基于lastPrice)
      *
      * @param bars   bar列表
      * @param window 窗口大小
-     * @return 最高价
+     * @return 最高参考价
      */
     private BigDecimal calculateHigh(List<TornStockMarketBar15mDO> bars, int window) {
         int start = Math.max(0, bars.size() - window);
         return bars.subList(start, bars.size()).stream()
-                .map(TornStockMarketBar15mDO::getHighPrice)
+                .map(TornStockMarketBar15mDO::getLastPrice)
                 .max(BigDecimal::compareTo)
                 .orElse(null);
     }
@@ -378,14 +381,57 @@ public class Stock15mFeatureBuildService {
     }
 
     /**
+     * 质量原因: 历史不足
+     */
+    private static final String QUALITY_REASON_INSUFFICIENT = "INSUFFICIENT_HISTORY";
+    /**
+     * 质量原因: 历史不连续
+     */
+    private static final String QUALITY_REASON_NOT_CONSECUTIVE = "HISTORY_NOT_CONSECUTIVE";
+
+    /**
      * 检查策略是否就绪
      * <p>
-     * 需要30天(2880个bar)的连续数据。bar数量不足时 {@code strategyReady=false}。
+     * 需要30天(BARS_30D个bar)的连续数据,且全部bar可用、使用同一buildVersion、
+     * 按15分钟严格连续无缺口。一旦发现缺口或不可用bar,strategyReady=false。
      *
-     * @param totalBars 总bar数
+     * @param allBars     全部bar列表(含当前bar,按时间升序)
+     * @param alignedTime 当前桶时间
      * @return true表示策略就绪
      */
-    private boolean checkStrategyReady(int totalBars) {
-        return totalBars >= BARS_30D;
+    private boolean checkStrategyReady(List<TornStockMarketBar15mDO> allBars, LocalDateTime alignedTime) {
+        if (allBars.size() < BARS_30D) {
+            return false;
+        }
+        List<TornStockMarketBar15mDO> windowBars = allBars.subList(allBars.size() - BARS_30D, allBars.size());
+        return isConsecutiveWindow(windowBars);
+    }
+
+    /**
+     * 判断窗口内bar是否按15分钟严格连续且全部可用
+     *
+     * @param bars 窗口内bar列表(按时间升序)
+     * @return true表示连续且全部可用
+     */
+    private boolean isConsecutiveWindow(List<TornStockMarketBar15mDO> bars) {
+        for (int i = 1; i < bars.size(); i++) {
+            if (!Stock15mBarBuildService.isConsecutive(bars.get(i - 1), bars.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 解析数据质量原因
+     *
+     * @param allBars 全部bar列表
+     * @return 质量原因编码
+     */
+    private String resolveDataQualityReason(List<TornStockMarketBar15mDO> allBars) {
+        if (allBars.size() < BARS_30D) {
+            return QUALITY_REASON_INSUFFICIENT;
+        }
+        return QUALITY_REASON_NOT_CONSECUTIVE;
     }
 }

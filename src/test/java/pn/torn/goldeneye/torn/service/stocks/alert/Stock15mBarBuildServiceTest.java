@@ -3,7 +3,6 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -184,7 +183,7 @@ class Stock15mBarBuildServiceTest {
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(barStart);
 
         assertEquals(1, bars.size());
-        TornStockMarketBar15mDO bar = bars.get(0);
+        TornStockMarketBar15mDO bar = bars.getFirst();
         assertEquals(1, bar.getStocksId());
         assertEquals(barStart, bar.getBarStartTime());
         assertEquals(barEnd, bar.getBarEndTime());
@@ -211,7 +210,7 @@ class Stock15mBarBuildServiceTest {
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(barStart);
 
         assertEquals(1, bars.size());
-        TornStockMarketBar15mDO bar = bars.get(0);
+        TornStockMarketBar15mDO bar = bars.getFirst();
         assertEquals(13, bar.getSampleCount());
         assertEquals(barStart.plusMinutes(2), bar.getFirstSampleTime(),
                 "桶首缺失时firstSampleTime应为第一条实际采样");
@@ -244,7 +243,7 @@ class Stock15mBarBuildServiceTest {
      * @return 构造的bar
      */
     private static TornStockMarketBar15mDO buildBar(int sampleCount, LocalDateTime lastSampleTime,
-                                                     LocalDateTime barEndTime) {
+                                                    LocalDateTime barEndTime) {
         TornStockMarketBar15mDO bar = new TornStockMarketBar15mDO();
         bar.setStocksId(1);
         bar.setStocksShortname("TST");
@@ -264,15 +263,15 @@ class Stock15mBarBuildServiceTest {
     /**
      * 构造一条StockPricePoint
      *
-     * @param stocksId     股票ID
-     * @param shortname    股票简称
-     * @param price        价格
-     * @param time         采样时间
+     * @param stocksId  股票ID
+     * @param shortname 股票简称
+     * @param price     价格
+     * @param time      采样时间
      * @return 构造的价格点
      */
     private static StockPricePoint buildPoint(int stocksId, String shortname, BigDecimal price,
-                                               LocalDateTime time) {
-        return new StockPricePoint(stocksId, shortname, price, 1000, time);
+                                              LocalDateTime time) {
+        return new StockPricePoint(null, stocksId, shortname, price, 1000, time);
     }
 
     /**
@@ -286,7 +285,7 @@ class Stock15mBarBuildServiceTest {
      * @return 采样列表
      */
     private static List<StockPricePoint> buildMinutesForStock(int stocksId, String shortname,
-                                                               LocalDateTime startTime, int count, int dupCount) {
+                                                              LocalDateTime startTime, int count, int dupCount) {
         List<StockPricePoint> points = IntStream.range(0, count)
                 .mapToObj(i -> buildPoint(stocksId, shortname,
                         new BigDecimal(100 + i + ".00"),

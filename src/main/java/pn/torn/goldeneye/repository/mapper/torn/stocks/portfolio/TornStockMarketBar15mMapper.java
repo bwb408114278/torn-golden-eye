@@ -25,4 +25,24 @@ public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketB
      * @return 该时间点的全部股票bar列表
      */
     List<TornStockMarketBar15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime);
+
+    /**
+     * 按时间范围批量查询全部股票bar,避免逐桶查询产生N+1问题
+     *
+     * @param startTime    起始时间(含)
+     * @param endTime      结束时间(含)
+     * @param buildVersion bar构建版本
+     * @return 按股票ID和bar时间升序排列的bar列表
+     */
+    List<TornStockMarketBar15mDO> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
+                                                    @Param("endTime") LocalDateTime endTime,
+                                                    @Param("buildVersion") String buildVersion);
+
+    /**
+     * 按唯一键(stocks_id, bar_start_time, build_version)执行UPSERT
+     *
+     * @param bar 待插入或更新的bar
+     * @return 影响行数
+     */
+    int upsertBar(@Param("bar") TornStockMarketBar15mDO bar);
 }

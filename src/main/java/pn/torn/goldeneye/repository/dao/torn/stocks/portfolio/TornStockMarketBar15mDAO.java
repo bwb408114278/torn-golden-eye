@@ -27,4 +27,27 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
     public List<TornStockMarketBar15mDO> selectByBarStartTime(LocalDateTime barStartTime) {
         return baseMapper.selectByBarStartTime(barStartTime);
     }
+
+    /**
+     * 按时间范围批量查询全部股票bar,避免逐桶查询产生N+1问题
+     *
+     * @param startTime    起始时间(含)
+     * @param endTime      结束时间(含)
+     * @param buildVersion bar构建版本
+     * @return 按股票ID和bar时间升序排列的bar列表
+     */
+    public List<TornStockMarketBar15mDO> selectByTimeRange(LocalDateTime startTime,
+                                                           LocalDateTime endTime,
+                                                           String buildVersion) {
+        return baseMapper.selectByTimeRange(startTime, endTime, buildVersion);
+    }
+
+    /**
+     * 按唯一键执行UPSERT,支持幂等重试
+     *
+     * @param bar 待插入或更新的bar
+     */
+    public void upsertBar(TornStockMarketBar15mDO bar) {
+        baseMapper.upsertBar(bar);
+    }
 }

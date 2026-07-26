@@ -140,6 +140,12 @@ databaseChangeLog:
             sql: "CREATE INDEX idx_stock_market_bar_15m_time_usable_ver ON torn_stock_market_bar_15m (bar_start_time, usable, build_version)"
         - sql:
             sql: "CREATE INDEX idx_stock_market_bar_15m_stock_time_desc ON torn_stock_market_bar_15m (stocks_id, bar_start_time DESC) WHERE deleted = 0"
+        - sql:
+            sql: "ALTER TABLE torn_stock_market_bar_15m ADD CONSTRAINT ck_bar_end_time CHECK (bar_end_time = bar_start_time + interval '15 minutes')"
+        - sql:
+            sql: "ALTER TABLE torn_stock_market_bar_15m ADD CONSTRAINT ck_bar_sample_count CHECK (sample_count >= 0 AND duplicate_count >= 0 AND tail_gap_seconds >= 0)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_market_bar_15m ADD CONSTRAINT ck_bar_prices_positive CHECK (first_price > 0 AND last_price > 0 AND low_price > 0 AND high_price > 0)"
 
   # ========== 表2: torn_stock_strategy_feature_15m ==========
   - changeSet:
@@ -318,6 +324,12 @@ databaseChangeLog:
             sql: "CREATE INDEX idx_stock_strategy_feature_15m_time_ready_ver ON torn_stock_strategy_feature_15m (bar_start_time, strategy_ready, feature_version)"
         - sql:
             sql: "CREATE INDEX idx_stock_strategy_feature_15m_stock_time_desc ON torn_stock_strategy_feature_15m (stocks_id, bar_start_time DESC) WHERE deleted = 0"
+        - sql:
+            sql: "ALTER TABLE torn_stock_strategy_feature_15m ADD CONSTRAINT ck_feature_reference_price CHECK (reference_price > 0)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_strategy_feature_15m ADD CONSTRAINT ck_feature_low_high CHECK (low30d > 0 AND high30d > 0 AND high30d >= low30d)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_strategy_feature_15m ADD CONSTRAINT ck_feature_width CHECK (width30d >= 0)"
 
   # ========== 表3: torn_stock_monthly_state ==========
   - changeSet:
@@ -393,7 +405,7 @@ databaseChangeLog:
                   remarks: "人工覆盖原因"
               - column:
                   name: metric_snapshot
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "分类时完整指标快照(JSON文本)"
@@ -466,6 +478,12 @@ databaseChangeLog:
             sql: "CREATE UNIQUE INDEX uk_stock_monthly_state_stock_month ON torn_stock_monthly_state (stocks_id, effective_month) WHERE deleted = 0"
         - sql:
             sql: "CREATE INDEX idx_stock_monthly_state_month_status ON torn_stock_monthly_state (effective_month, state_status)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_effective_month CHECK (EXTRACT(DAY FROM effective_month) = 1)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_evidence_window CHECK (evidence_start_time <= evidence_end_time)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_at CHECK (state_status != 'CONFIRMED' OR confirmed_at IS NOT NULL)"
 
   # ========== 表4: torn_stock_market_round ==========
   - changeSet:
@@ -587,6 +605,10 @@ databaseChangeLog:
             sql: "CREATE UNIQUE INDEX uk_stock_market_round_time ON torn_stock_market_round (round_time) WHERE deleted = 0"
         - sql:
             sql: "CREATE INDEX idx_stock_market_round_status_time ON torn_stock_market_round (round_status, round_time)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_market_round ADD CONSTRAINT ck_round_attempt_count CHECK (attempt_count >= 0)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_market_round ADD CONSTRAINT ck_round_stock_count CHECK (expected_stock_count >= 0 AND usable_stock_count >= 0 AND usable_stock_count <= expected_stock_count)"
 
   # ========== 表5: torn_stock_signal_state ==========
   - changeSet:
@@ -736,13 +758,13 @@ databaseChangeLog:
                   remarks: "质量分"
               - column:
                   name: feature_snapshot
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "信号特征快照(JSON文本)"
               - column:
                   name: style_snapshot
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "风格、成熟度、风险和版本快照(JSON文本)"
@@ -754,7 +776,7 @@ databaseChangeLog:
                   remarks: "资格结果(ALLOWED/REJECTED/OBSERVED)"
               - column:
                   name: eligibility_reasons
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "资格原因编码列表(JSON文本)"
@@ -914,6 +936,10 @@ databaseChangeLog:
             sql: "CREATE UNIQUE INDEX uk_stock_portfolio_slot_code_no ON torn_stock_portfolio_slot (portfolio_code, slot_no) WHERE deleted = 0"
         - sql:
             sql: "CREATE INDEX idx_stock_portfolio_slot_code_status_no ON torn_stock_portfolio_slot (portfolio_code, slot_status, slot_no)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_portfolio_slot ADD CONSTRAINT ck_slot_cash_non_negative CHECK (initial_cash >= 0 AND available_cash >= 0 AND reserved_cash >= 0)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_portfolio_slot ADD CONSTRAINT ck_slot_lock_version CHECK (lock_version >= 0)"
 
   # ========== 表7 初始化数据: 5个槽位 ==========
   - changeSet:
@@ -979,7 +1005,7 @@ databaseChangeLog:
                   remarks: "主买入策略编码"
               - column:
                   name: matched_strategies
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "同时命中的策略编码列表(JSON文本)"
@@ -1231,6 +1257,8 @@ databaseChangeLog:
             sql: "CREATE INDEX idx_stock_virtual_batch_entry_bar_status ON torn_stock_virtual_batch (expected_entry_bar_time, batch_status)"
         - sql:
             sql: "CREATE INDEX idx_stock_virtual_batch_exit_bar_status ON torn_stock_virtual_batch (expected_exit_bar_time, batch_status)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_quantity CHECK (quantity IS NULL OR quantity > 0)"
 
   # ========== 表9: torn_stock_batch_mark ==========
   - changeSet:
@@ -1322,7 +1350,7 @@ databaseChangeLog:
                   remarks: "动态影子原因编码"
               - column:
                   name: feature_snapshot
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "本轮退出判断特征快照(JSON文本)"
@@ -1408,7 +1436,7 @@ databaseChangeLog:
                   remarks: "中文消息载荷SHA-256摘要"
               - column:
                   name: payload_snapshot
-                  type: TEXT
+                  type: JSONB
                   constraints:
                     nullable: false
                   remarks: "消息结构和中文文本快照(JSON文本)"
@@ -1472,12 +1500,20 @@ databaseChangeLog:
             sql: "CREATE UNIQUE INDEX uk_stock_notice_audit_summary_date_type ON torn_stock_notice_audit (summary_date, notice_type) WHERE notice_type = 'DAILY_SUMMARY' AND deleted = 0"
         - sql:
             sql: "CREATE INDEX idx_stock_notice_audit_status_create ON torn_stock_notice_audit (send_status, create_time)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_notice_audit ADD CONSTRAINT ck_notice_attempt_count CHECK (send_attempt_count BETWEEN 0 AND 1)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_notice_audit ADD CONSTRAINT ck_notice_batch_id CHECK (notice_type NOT IN ('BUY', 'SELL') OR batch_id IS NOT NULL)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_notice_audit ADD CONSTRAINT ck_notice_summary_date CHECK (notice_type != 'DAILY_SUMMARY' OR summary_date IS NOT NULL)"
 
-  # ========== sys_setting: VIP股票组合配置项初始化 ==========
+  # ========== sys_setting: 序列校准与VIP股票组合配置项初始化 ==========
   - changeSet:
       id: insert_stock_portfolio_sys_settings
       author: Bai
       changes:
+        - sql:
+            sql: "SELECT setval('sys_setting_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM sys_setting), 1), true)"
         - insert:
             tableName: sys_setting
             columns:

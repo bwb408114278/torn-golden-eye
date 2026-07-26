@@ -35,4 +35,12 @@ public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockS
      */
     List<TornStockStrategyFeature15mDO> selectLatestByStocksIds(@Param("stocksIds") List<Integer> stocksIds,
                                                                 @Param("maxBarStartTime") LocalDateTime maxBarStartTime);
+
+    /**
+     * 按唯一键(stocks_id, bar_start_time, feature_version)执行UPSERT
+     *
+     * @param feature 待插入或更新的特征
+     * @return 影响行数
+     */
+    int upsertFeature(@Param("feature") TornStockStrategyFeature15mDO feature);
 }

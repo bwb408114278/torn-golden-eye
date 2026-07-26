@@ -51,7 +51,6 @@ public class Stock15mBarBuildService {
     static final String ZONE_ID_TEXT = "Asia/Shanghai";
     /**
      * 产品时区
-     * TODO 阶段B轮次处理时使用，当前bar构建仅用alignToBucket对齐，不直接引用ZONE_ID
      */
     public static final ZoneId ZONE_ID = ZoneId.of(ZONE_ID_TEXT);
     /**
@@ -183,7 +182,9 @@ public class Stock15mBarBuildService {
             return List.of();
         }
 
-        bar15mDao.saveBatch(bars);
+        for (TornStockMarketBar15mDO bar : bars) {
+            bar15mDao.upsertBar(bar);
+        }
         log.info("桶[{}, {})成功构建并保存{}支股票的15分钟bar", barStart, barEnd, bars.size());
         return bars;
     }
@@ -241,30 +242,34 @@ public class Stock15mBarBuildService {
         bar.setDuplicateCount(dedup.duplicateCount());
         bar.setTailGapSeconds(tailGapSeconds);
         bar.setBuildVersion(BUILD_VERSION);
-        bar.setSourceMaxHistoryId(null);
+        bar.setSourceMaxHistoryId(dedup.maxHistoryId());
 
         evaluateUsability(bar);
         return bar;
     }
 
     /**
-     * 对同一股票的分钟采样按采集时间去重,保留每个时间的最后一条记录
+     * 对同一股票的分钟采样按采集时间去重,保留每个时间的最大ID记录
      * <p>
-     * StockPricePoint没有id字段,按time确定性去重并统计重复数量。
-     * 使用LinkedHashMap保留插入顺序,同一时间的后续记录覆盖前一条。
+     * SQL已按stocks_id, reg_date_time, id排序,同一时间的后续记录ID更大。
+     * 使用LinkedHashMap保留插入顺序,同一时间的后续(更大ID)记录覆盖前一条。
      *
-     * @param rawPoints 原始采样列表
-     * @return 去重结果(去重后列表 + 重复数量)
+     * @param rawPoints 原始采样列表(已按id升序排序)
+     * @return 去重结果(去重后列表 + 重复数量 + 最大历史ID)
      */
     private DedupResult dedupByTime(List<StockPricePoint> rawPoints) {
         int totalCount = rawPoints.size();
         LinkedHashMap<LocalDateTime, StockPricePoint> byTime = new LinkedHashMap<>();
+        Long maxHistoryId = null;
         for (StockPricePoint point : rawPoints) {
             byTime.put(point.time(), point);
+            if (point.id() != null && (maxHistoryId == null || point.id() > maxHistoryId)) {
+                maxHistoryId = point.id();
+            }
         }
         List<StockPricePoint> unique = new ArrayList<>(byTime.values());
         int duplicateCount = totalCount - unique.size();
-        return new DedupResult(unique, duplicateCount);
+        return new DedupResult(unique, duplicateCount, maxHistoryId);
     }
 
     /**
@@ -306,7 +311,8 @@ public class Stock15mBarBuildService {
      *
      * @param uniquePoints   去重后的采样列表(按时间升序)
      * @param duplicateCount 被去除的重复记录数量
+     * @param maxHistoryId   本桶使用的最大原始历史ID
      */
-    private record DedupResult(List<StockPricePoint> uniquePoints, int duplicateCount) {
+    private record DedupResult(List<StockPricePoint> uniquePoints, int duplicateCount, Long maxHistoryId) {
     }
 }

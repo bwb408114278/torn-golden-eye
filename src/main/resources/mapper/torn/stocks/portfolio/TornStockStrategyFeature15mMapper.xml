@@ -3,14 +3,28 @@
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockStrategyFeature15mMapper">
     <!-- 按bar开始时间批量查询全部股票特征 -->
     <select id="selectByBarStartTime" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO">
-        SELECT * FROM torn_stock_strategy_feature_15m
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, reference_price,
+               ma1d, ma7d, ma30d, zscore1d, zscore7d, zscore30d,
+               return6h, return1d, return7d, return14d,
+               low30d, high30d, width30d, position30,
+               pct_above_30d_low, pct_below_30d_high,
+               strategy_ready, data_quality_reason, feature_version,
+               deleted, create_time, update_time
+        FROM torn_stock_strategy_feature_15m
         WHERE bar_start_time = #{barStartTime}
           AND deleted = 0
     </select>
 
     <!-- 查询指定股票在指定时间及之前的最新特征 -->
     <select id="selectLatestByStocksIds" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO">
-        SELECT * FROM torn_stock_strategy_feature_15m
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, reference_price,
+               ma1d, ma7d, ma30d, zscore1d, zscore7d, zscore30d,
+               return6h, return1d, return7d, return14d,
+               low30d, high30d, width30d, position30,
+               pct_above_30d_low, pct_below_30d_high,
+               strategy_ready, data_quality_reason, feature_version,
+               deleted, create_time, update_time
+        FROM torn_stock_strategy_feature_15m
         WHERE deleted = 0
           AND bar_start_time <![CDATA[<=]]> #{maxBarStartTime}
           AND stocks_id IN
@@ -19,4 +33,40 @@
         </foreach>
         ORDER BY stocks_id, bar_start_time DESC
     </select>
+
+    <!-- 按唯一键执行UPSERT -->
+    <insert id="upsertFeature">
+        INSERT INTO torn_stock_strategy_feature_15m
+            (stocks_id, stocks_shortname, bar_start_time, reference_price,
+             ma1d, ma7d, ma30d, zscore1d, zscore7d, zscore30d,
+             return6h, return1d, return7d, return14d,
+             low30d, high30d, width30d, position30,
+             pct_above_30d_low, pct_below_30d_high,
+             strategy_ready, data_quality_reason, feature_version,
+             deleted, create_time, update_time)
+        VALUES
+            (#{feature.stocksId}, #{feature.stocksShortname}, #{feature.barStartTime}, #{feature.referencePrice},
+             #{feature.ma1d}, #{feature.ma7d}, #{feature.ma30d},
+             #{feature.zscore1d}, #{feature.zscore7d}, #{feature.zscore30d},
+             #{feature.return6h}, #{feature.return1d}, #{feature.return7d}, #{feature.return14d},
+             #{feature.low30d}, #{feature.high30d}, #{feature.width30d}, #{feature.position30},
+             #{feature.pctAbove30dLow}, #{feature.pctBelow30dHigh},
+             #{feature.strategyReady}, #{feature.dataQualityReason}, #{feature.featureVersion},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (stocks_id, bar_start_time, feature_version) WHERE deleted = 0
+        DO UPDATE SET
+             stocks_shortname = EXCLUDED.stocks_shortname,
+             reference_price = EXCLUDED.reference_price,
+             ma1d = EXCLUDED.ma1d, ma7d = EXCLUDED.ma7d, ma30d = EXCLUDED.ma30d,
+             zscore1d = EXCLUDED.zscore1d, zscore7d = EXCLUDED.zscore7d, zscore30d = EXCLUDED.zscore30d,
+             return6h = EXCLUDED.return6h, return1d = EXCLUDED.return1d,
+             return7d = EXCLUDED.return7d, return14d = EXCLUDED.return14d,
+             low30d = EXCLUDED.low30d, high30d = EXCLUDED.high30d,
+             width30d = EXCLUDED.width30d, position30 = EXCLUDED.position30,
+             pct_above_30d_low = EXCLUDED.pct_above_30d_low,
+             pct_below_30d_high = EXCLUDED.pct_below_30d_high,
+             strategy_ready = EXCLUDED.strategy_ready,
+             data_quality_reason = EXCLUDED.data_quality_reason,
+             update_time = CURRENT_TIMESTAMP
+    </insert>
 </mapper>

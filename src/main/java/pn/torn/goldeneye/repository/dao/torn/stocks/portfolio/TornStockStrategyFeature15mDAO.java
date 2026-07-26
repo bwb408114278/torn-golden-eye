@@ -32,12 +32,21 @@ public class TornStockStrategyFeature15mDAO
     /**
      * 查询指定股票在指定时间及之前的最新特征,避免逐股查询产生N+1问题
      *
-     * @param stocksIds        股票ID列表
-     * @param maxBarStartTime  最大bar开始时间(含)
+     * @param stocksIds       股票ID列表
+     * @param maxBarStartTime 最大bar开始时间(含)
      * @return 按股票ID与bar时间倒序排列的特征列表
      */
     public List<TornStockStrategyFeature15mDO> selectLatestByStocksIds(List<Integer> stocksIds,
                                                                        LocalDateTime maxBarStartTime) {
         return baseMapper.selectLatestByStocksIds(stocksIds, maxBarStartTime);
+    }
+
+    /**
+     * 按唯一键执行UPSERT,支持幂等重试
+     *
+     * @param feature 待插入或更新的特征
+     */
+    public void upsertFeature(TornStockStrategyFeature15mDO feature) {
+        baseMapper.upsertFeature(feature);
     }
 }
