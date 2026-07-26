@@ -24,4 +24,12 @@ public interface TornStockPortfolioSlotMapper extends BaseMapper<TornStockPortfo
      * @return 该组合的全部槽位列表(按槽位序号升序)
      */
     List<TornStockPortfolioSlotDO> selectAllByPortfolioCode(@Param("portfolioCode") String portfolioCode);
+
+    /**
+     * 查询指定组合的全部仓位槽位并加行锁(FOR UPDATE),按slot_no升序
+     *
+     * @param portfolioCode 组合编码
+     * @return 锁定的全部槽位列表
+     */
+    List<TornStockPortfolioSlotDO> selectAllByPortfolioCodeForUpdate(@Param("portfolioCode") String portfolioCode);
 }

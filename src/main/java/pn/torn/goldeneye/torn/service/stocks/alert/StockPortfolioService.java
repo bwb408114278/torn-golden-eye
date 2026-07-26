@@ -109,8 +109,8 @@ public class StockPortfolioService {
     /**
      * 预留槽位和预算(ENTRY_PENDING阶段)
      * <p>
-     * 将槽位状态置为 RESERVED,累加预留资金,绑定当前批次ID。
-     * 预留资金从可用现金中锁定但尚未扣除,取消时全额释放。
+     * 将槽位状态置为 RESERVED,从可用现金中锁定预留资金至预留现金,绑定当前批次ID。
+     * 首期每槽单批次预留,正常情况下预留全部可用现金。
      *
      * @param slot           目标槽位(应为AVAILABLE状态)
      * @param reservedAmount 预留金额(>0)
@@ -121,18 +121,21 @@ public class StockPortfolioService {
         Objects.requireNonNull(reservedAmount, "预留金额不能为空");
         Objects.requireNonNull(batchId, "批次ID不能为空");
 
+        BigDecimal currentAvailable = slot.getAvailableCash() == null ? BigDecimal.ZERO : slot.getAvailableCash();
         BigDecimal currentReserved = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
+        slot.setAvailableCash(currentAvailable.subtract(reservedAmount));
         slot.setReservedCash(currentReserved.add(reservedAmount));
         slot.setCurrentBatchId(batchId);
         slot.setSlotStatus(StockSlotStatusEnum.RESERVED.getCode());
-        log.debug("槽位[{}]预留金额{},绑定批次{}", slot.getSlotNo(), reservedAmount, batchId);
+        log.debug("槽位[{}]预留金额{},绑定批次{},可用余额{}", slot.getSlotNo(), reservedAmount, batchId, slot.getAvailableCash());
     }
 
     /**
      * 建仓占用槽位
      * <p>
-     * 计算实际成本(actualCost = quantity × entryReferencePrice),从可用现金中扣除,
-     * 清零预留资金,槽位状态置为 OCCUPIED,绑定批次ID。余款保留在原槽实现槽内复利。
+     * 计算实际成本(actualCost = quantity × entryReferencePrice),从预留资金中扣除,
+     * 余款(remainingCash = reservedCash - actualCost)转为可用现金,清零预留资金,
+     * 槽位状态置为 OCCUPIED,绑定批次ID。余款保留在原槽实现槽内复利。
      *
      * @param slot                目标槽位(应为RESERVED状态)
      * @param quantity            买入股数(整数)
@@ -146,12 +149,13 @@ public class StockPortfolioService {
         Objects.requireNonNull(batchId, "批次ID不能为空");
 
         BigDecimal actualCost = entryReferencePrice.multiply(BigDecimal.valueOf(quantity));
-        BigDecimal currentAvailable = slot.getAvailableCash() == null ? BigDecimal.ZERO : slot.getAvailableCash();
-        slot.setAvailableCash(currentAvailable.subtract(actualCost));
+        BigDecimal currentReserved = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
+        BigDecimal remainingCash = currentReserved.subtract(actualCost);
+        slot.setAvailableCash(remainingCash);
         slot.setReservedCash(BigDecimal.ZERO);
         slot.setCurrentBatchId(batchId);
         slot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
-        log.debug("槽位[{}]建仓占用,股数{},实际成本{},批次{}", slot.getSlotNo(), quantity, actualCost, batchId);
+        log.debug("槽位[{}]建仓占用,股数{},实际成本{},余款{},批次{}", slot.getSlotNo(), quantity, actualCost, remainingCash, batchId);
     }
 
     /**
@@ -178,7 +182,7 @@ public class StockPortfolioService {
      * 卖出结算
      * <p>
      * 计算卖出所得(sellProceeds = quantity × exitReferencePrice × 0.999,扣除0.1%手续费),
-     * 回笼到原槽可用现金,槽位状态置为 AVAILABLE,解绑当前批次ID,实现槽内复利。
+     * 回笼到原槽可用现金(与建仓余款累加),槽位状态置为 AVAILABLE,解绑当前批次ID,实现槽内复利。
      *
      * @param slot               目标槽位(应为OCCUPIED或EXIT_PENDING关联状态)
      * @param quantity           卖出股数(整数)
@@ -194,9 +198,10 @@ public class StockPortfolioService {
                 .multiply(SELL_FEE_RATE);
         BigDecimal currentAvailable = slot.getAvailableCash() == null ? BigDecimal.ZERO : slot.getAvailableCash();
         slot.setAvailableCash(currentAvailable.add(sellProceeds));
+        slot.setReservedCash(BigDecimal.ZERO);
         slot.setCurrentBatchId(null);
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
-        log.debug("槽位[{}]卖出结算,股数{},卖出所得{}", slot.getSlotNo(), quantity, sellProceeds);
+        log.debug("槽位[{}]卖出结算,股数{},卖出所得{},可用余额{}", slot.getSlotNo(), quantity, sellProceeds, slot.getAvailableCash());
     }
 
     // ==================== 纯计算方法(静态) ====================

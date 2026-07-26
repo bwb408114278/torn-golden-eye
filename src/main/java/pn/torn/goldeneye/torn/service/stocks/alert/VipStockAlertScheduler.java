@@ -71,11 +71,14 @@ public class VipStockAlertScheduler {
 
     private final Stock15mBarBuildService barBuildService;
     private final Stock15mFeatureBuildService featureBuildService;
-    private final TornStockMarketRoundDAO roundDAO;
+    private final TornStockMarketRoundDAO roundDao;
     private final StockHistoryRebuildService historyRebuildService;
     private final StockPortfolioInitService portfolioInitService;
     private final StockMonthlyStateInitService monthlyStateInitService;
     private final StockNoticeSendService noticeSendService;
+    private final StockMarketRoundLoader roundLoader;
+    private final StockRoundTransactionService transactionService;
+    private final StockMarketClock marketClock;
     private final SysSettingManager sysSettingManager;
     private final ProjectProperty projectProperty;
 
@@ -95,7 +98,7 @@ public class VipStockAlertScheduler {
      * </ol>
      * 通过后调用 {@link #processPendingRounds()} 处理已结束但未完成的轮次,finally释放标记。
      */
-    @Scheduled(cron = "10 * * * * ?")
+    @Scheduled(cron = "10 * * * * ?", zone = "Asia/Shanghai")
     public void executeRound() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
@@ -134,10 +137,9 @@ public class VipStockAlertScheduler {
      * 单个轮次异常时记录错误并将状态置为FAILED_RETRYABLE,不中断后续轮次。
      */
     public void processPendingRounds() {
-        LocalDateTime currentEndedBucket = Stock15mBarBuildService.alignToBucket(LocalDateTime.now())
-                .minusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
+        LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
 
-        List<TornStockMarketRoundDO> pendingRounds = roundDAO.selectPendingRoundsBefore(currentEndedBucket);
+        List<TornStockMarketRoundDO> pendingRounds = roundDao.selectPendingRoundsBefore(currentEndedBucket);
         if (CollectionUtils.isEmpty(pendingRounds)) {
             log.debug("VIP股票策略调度-无待处理轮次, currentEndedBucket={}", currentEndedBucket);
             return;
@@ -197,8 +199,7 @@ public class VipStockAlertScheduler {
         }
 
         try {
-            LocalDateTime currentEndedBucket = Stock15mBarBuildService.alignToBucket(LocalDateTime.now())
-                    .minusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
+            LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
             historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
         } catch (Exception e) {
             log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
@@ -214,17 +215,42 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 处理单个轮次: 构建bar -> 构建特征 -> 标记COMPLETED
+     * 处理单个轮次: 构建bar -> 构建特征 -> 标记READY -> 加载快照 -> 执行事务
      * <p>
      * bar构建结果为空时(无采样数据)将轮次标记为WAITING_DATA并返回,不继续构建特征。
+     * 特征构建完成后标记READY,然后事务外加载RoundSnapshot并调用TransactionService执行组合事务。
+     * 只有TransactionService成功后才标记COMPLETED。
      * 规则版本字段(buy/sell/allocation/message)在首次进入BUILDING_BAR时填充。
      *
      * @param round     待处理轮次记录
      * @param roundTime 轮次锚定的bar时间
      */
     private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime) {
-        log.info("VIP股票策略调度-开始处理轮次, roundTime={}", roundTime);
+        log.info("VIP股票策略调度-开始处理轮次, roundTime={}, 当前状态={}", roundTime, round.getRoundStatus());
 
+        boolean needsDataBuild = !StockRoundStatusEnum.READY.getCode().equals(round.getRoundStatus());
+        if (needsDataBuild) {
+            if (!buildRoundData(round, roundTime)) {
+                return;
+            }
+        } else {
+            log.info("VIP股票策略调度-轮次已是READY,跳过数据构建, roundTime={}", roundTime);
+        }
+
+        StockMarketRoundLoader.RoundSnapshot snapshot = roundLoader.loadRoundSnapshot(roundTime);
+        transactionService.executeRound(roundTime, snapshot);
+
+        log.info("VIP股票策略调度-轮次事务完成, roundTime={}", roundTime);
+    }
+
+    /**
+     * 构建轮次数据: bar -> 特征 -> READY
+     *
+     * @param round     待处理轮次记录
+     * @param roundTime 轮次锚定的bar时间
+     * @return true表示数据构建成功可继续事务;false表示无数据(WAITING_DATA)应跳过
+     */
+    private boolean buildRoundData(TornStockMarketRoundDO round, LocalDateTime roundTime) {
         round.setRoundStatus(StockRoundStatusEnum.BUILDING_BAR.getCode());
         round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
         round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
@@ -233,7 +259,7 @@ public class VipStockAlertScheduler {
         round.setAllocationRuleVersion(ALLOCATION_RULE_VERSION);
         round.setMessageRuleVersion(MESSAGE_RULE_VERSION);
         round.setStartedAt(LocalDateTime.now());
-        roundDAO.updateById(round);
+        roundDao.updateById(round);
 
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(roundTime);
         if (CollectionUtils.isEmpty(bars)) {
@@ -241,22 +267,22 @@ public class VipStockAlertScheduler {
             round.setRoundStatus(StockRoundStatusEnum.WAITING_DATA.getCode());
             round.setUsableStockCount(0);
             round.setCompletedAt(LocalDateTime.now());
-            roundDAO.updateById(round);
-            return;
+            roundDao.updateById(round);
+            return false;
         }
 
         round.setExpectedStockCount(bars.size());
         round.setRoundStatus(StockRoundStatusEnum.BUILDING_FEATURE.getCode());
-        roundDAO.updateById(round);
+        roundDao.updateById(round);
 
         int featureCount = featureBuildService.buildFeatures(roundTime).size();
         round.setUsableStockCount(featureCount);
-        round.setRoundStatus(StockRoundStatusEnum.COMPLETED.getCode());
-        round.setCompletedAt(LocalDateTime.now());
-        roundDAO.updateById(round);
 
-        log.info("VIP股票策略调度-轮次处理完成, roundTime={}, 预期股票={}, 特征股票={}",
+        round.setRoundStatus(StockRoundStatusEnum.READY.getCode());
+        roundDao.updateById(round);
+        log.info("VIP股票策略调度-轮次数据就绪, roundTime={}, 预期股票={}, 特征股票={}",
                 roundTime, bars.size(), featureCount);
+        return true;
     }
 
     /**
@@ -270,7 +296,7 @@ public class VipStockAlertScheduler {
             round.setRoundStatus(StockRoundStatusEnum.FAILED_RETRYABLE.getCode());
             round.setErrorMessage(e.getMessage());
             round.setCompletedAt(LocalDateTime.now());
-            roundDAO.updateById(round);
+            roundDao.updateById(round);
         } catch (Exception updateEx) {
             log.error("VIP股票策略调度-标记轮次失败状态异常, roundTime={}", round.getRoundTime(), updateEx);
         }

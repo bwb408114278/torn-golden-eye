@@ -156,9 +156,7 @@ public class StockRoundTransactionService {
      * @return 已锁定的轮次记录
      */
     private TornStockMarketRoundDO lockOrCreateRound(LocalDateTime roundTime, RoundSnapshot snapshot) {
-        TornStockMarketRoundDO round = marketRoundDao.lambdaQuery()
-                .eq(TornStockMarketRoundDO::getRoundTime, roundTime)
-                .one();
+        TornStockMarketRoundDO round = marketRoundDao.selectByRoundTimeForUpdate(roundTime);
 
         if (round == null) {
             round = buildNewRound(roundTime, snapshot);

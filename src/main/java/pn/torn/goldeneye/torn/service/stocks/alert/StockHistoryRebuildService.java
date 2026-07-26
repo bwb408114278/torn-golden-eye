@@ -178,7 +178,7 @@ public class StockHistoryRebuildService {
     }
 
     /**
-     * 重建单个桶: 构建bar -> 构建特征 -> 更新轮次为COMPLETED
+     * 重建单个桶: 构建bar -> 构建特征 -> 更新轮次为READY(纯数据构建不执行组合事务)
      *
      * @param bucketStartTime 桶开始时间(已对齐)
      */
@@ -198,10 +198,10 @@ public class StockHistoryRebuildService {
 
             featureBuildService.buildFeatures(bucketStartTime);
 
-            round.setRoundStatus(StockRoundStatusEnum.COMPLETED.getCode());
+            round.setRoundStatus(StockRoundStatusEnum.READY.getCode());
             round.setCompletedAt(LocalDateTime.now());
             roundDao.updateById(round);
-            log.debug("桶{}重建完成", bucketStartTime);
+            log.debug("桶{}数据构建完成(READY)", bucketStartTime);
         } catch (Exception e) {
             log.error("桶{}重建失败: {}", bucketStartTime, e.getMessage(), e);
             round.setRoundStatus(StockRoundStatusEnum.FAILED_RETRYABLE.getCode());

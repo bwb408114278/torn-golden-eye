@@ -32,4 +32,12 @@ public interface TornStockMarketRoundMapper extends BaseMapper<TornStockMarketRo
      * @return 未完成轮次列表(按轮次时间升序)
      */
     List<TornStockMarketRoundDO> selectPendingRoundsBefore(@Param("maxRoundTime") LocalDateTime maxRoundTime);
+
+    /**
+     * 按round_time查询轮次并加行锁(FOR UPDATE),用于事务内锁定
+     *
+     * @param roundTime 轮次时间
+     * @return 锁定的轮次记录,无则返回null
+     */
+    TornStockMarketRoundDO selectByRoundTimeForUpdate(@Param("roundTime") LocalDateTime roundTime);
 }

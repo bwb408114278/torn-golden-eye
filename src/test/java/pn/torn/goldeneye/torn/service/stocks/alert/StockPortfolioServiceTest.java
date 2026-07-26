@@ -4,6 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
@@ -14,14 +16,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 股票组合管理服务单元测试 - 覆盖资金模型、槽位生命周期与纯计算方法
@@ -100,51 +97,30 @@ class StockPortfolioServiceTest {
                 "净收益应为正,实际: " + netReturn);
     }
 
-    @Test
-    @DisplayName("checkEntryPriceDeviation: 偏离恰好0.15%时返回false(不取消)")
-    void checkEntryPriceDeviation_deviationExactly0p15_returnsFalse() {
-        // signal=100, entry=100.15 -> deviation = 0.15/100 = 0.0015 = 阈值,严格>才取消
-        BigDecimal signalReferencePrice = new BigDecimal("100.0000");
-        BigDecimal entryReferencePrice = new BigDecimal("100.1500");
-
-        boolean result = StockPortfolioService.checkEntryPriceDeviation(signalReferencePrice, entryReferencePrice);
-
-        assertFalse(result, "偏离恰好0.15%不应取消");
+    @ParameterizedTest
+    @DisplayName("checkEntryPriceDeviation: 偏离边界判定(恰好0.15%不取消/略超取消/价格相同不取消/下跌不取消)")
+    @MethodSource("entryPriceDeviationCases")
+    void checkEntryPriceDeviation_boundaryCases(BigDecimal signalPrice, BigDecimal entryPrice, boolean expected) {
+        boolean result = StockPortfolioService.checkEntryPriceDeviation(signalPrice, entryPrice);
+        assertEquals(expected, result);
     }
 
-    @Test
-    @DisplayName("checkEntryPriceDeviation: 偏离略超0.15%时返回true(应取消)")
-    void checkEntryPriceDeviation_deviationSlightlyExceeds0p15_returnsTrue() {
-        // signal=100, entry=100.16 -> deviation = 0.0016 > 0.0015
-        BigDecimal signalReferencePrice = new BigDecimal("100.0000");
-        BigDecimal entryReferencePrice = new BigDecimal("100.1600");
-
-        boolean result = StockPortfolioService.checkEntryPriceDeviation(signalReferencePrice, entryReferencePrice);
-
-        assertTrue(result, "偏离略超0.15%应取消");
-    }
-
-    @Test
-    @DisplayName("checkEntryPriceDeviation: 价格相同时返回false(不取消)")
-    void checkEntryPriceDeviation_priceEqual_returnsFalse() {
-        BigDecimal signalReferencePrice = new BigDecimal("100.00");
-        BigDecimal entryReferencePrice = new BigDecimal("100.00");
-
-        boolean result = StockPortfolioService.checkEntryPriceDeviation(signalReferencePrice, entryReferencePrice);
-
-        assertFalse(result, "价格相同不应取消");
-    }
-
-    @Test
-    @DisplayName("checkEntryPriceDeviation: 价格下跌时返回false(不因偏离取消)")
-    void checkEntryPriceDeviation_priceDrops_returnsFalse() {
-        // signal=100, entry=90 -> deviation = -0.10 < 0,不取消
-        BigDecimal signalReferencePrice = new BigDecimal("100.00");
-        BigDecimal entryReferencePrice = new BigDecimal("90.00");
-
-        boolean result = StockPortfolioService.checkEntryPriceDeviation(signalReferencePrice, entryReferencePrice);
-
-        assertFalse(result, "价格下跌不应因偏离取消");
+    /**
+     * 入场价格偏离边界测试数据
+     *
+     * @return 测试参数流
+     */
+    private static Stream<org.junit.jupiter.params.provider.Arguments> entryPriceDeviationCases() {
+        return Stream.of(
+                // signal=100, entry=100.15 -> deviation = 0.0015 = 阈值,严格>才取消,不取消
+                org.junit.jupiter.params.provider.Arguments.of(new BigDecimal("100.0000"), new BigDecimal("100.1500"), false),
+                // signal=100, entry=100.16 -> deviation = 0.0016 > 0.0015,应取消
+                org.junit.jupiter.params.provider.Arguments.of(new BigDecimal("100.0000"), new BigDecimal("100.1600"), true),
+                // 价格相同不取消
+                org.junit.jupiter.params.provider.Arguments.of(new BigDecimal("100.00"), new BigDecimal("100.00"), false),
+                // 价格下跌不因偏离取消
+                org.junit.jupiter.params.provider.Arguments.of(new BigDecimal("100.00"), new BigDecimal("90.00"), false)
+        );
     }
 
     @Test
@@ -175,20 +151,20 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("occupySlot: 已预留槽位建仓后变为OCCUPIED且可用现金扣减实际成本")
+    @DisplayName("occupySlot: 已预留槽位建仓后变为OCCUPIED且余款转为可用现金")
     void occupySlot_reservedSlot_becomesOccupiedAndDeductAvailableCash() {
         TornStockPortfolioSlotDO slot = buildReservedSlot(1, new BigDecimal("1000000.00"));
         Long quantity = 5000L;
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
         Long batchId = 2001L;
-        // actualCost = 5000 × 100 = 500000, availableCash = 2000000000 - 500000 = 1999500000
-        BigDecimal expectedAvailable = new BigDecimal("2000000000.00").subtract(new BigDecimal("500000.00"));
+        // actualCost = 5000 × 100 = 500000, remainingCash = 1000000 - 500000 = 500000
+        BigDecimal expectedAvailable = new BigDecimal("500000.00");
 
         portfolioService.occupySlot(slot, quantity, entryReferencePrice, batchId);
 
         assertEquals(StockSlotStatusEnum.OCCUPIED.getCode(), slot.getSlotStatus());
         assertEquals(0, expectedAvailable.compareTo(slot.getAvailableCash()),
-                "可用现金应扣减实际成本,期望: " + expectedAvailable + ",实际: " + slot.getAvailableCash());
+                "余款应转为可用现金,期望: " + expectedAvailable + ",实际: " + slot.getAvailableCash());
         assertEquals(0, BigDecimal.ZERO.compareTo(slot.getReservedCash()),
                 "预留资金应清零");
         assertEquals(batchId, slot.getCurrentBatchId());
@@ -216,7 +192,7 @@ class StockPortfolioServiceTest {
     @DisplayName("settleSlot: 已占用槽位卖出结算后变为AVAILABLE且卖出所得回槽")
     void settleSlot_occupiedSlot_becomesAvailableAndSellProceedsReturn() {
         TornStockPortfolioSlotDO slot = buildOccupiedSlot(1, new BigDecimal("1500000000.00"));
-        Long quantity = 5000L;
+        long quantity = 5000L;
         BigDecimal exitReferencePrice = new BigDecimal("100.00");
         // sellProceeds = 5000 × 100 × 0.999 = 499500
         BigDecimal expectedProceeds = exitReferencePrice

@@ -36,4 +36,14 @@ public class TornStockMarketRoundDAO extends ServiceImpl<TornStockMarketRoundMap
     public List<TornStockMarketRoundDO> selectPendingRoundsBefore(LocalDateTime maxRoundTime) {
         return baseMapper.selectPendingRoundsBefore(maxRoundTime);
     }
+
+    /**
+     * 按round_time查询轮次并加行锁(FOR UPDATE),用于事务内锁定
+     *
+     * @param roundTime 轮次时间
+     * @return 锁定的轮次记录,无则返回null
+     */
+    public TornStockMarketRoundDO selectByRoundTimeForUpdate(LocalDateTime roundTime) {
+        return baseMapper.selectByRoundTimeForUpdate(roundTime);
+    }
 }

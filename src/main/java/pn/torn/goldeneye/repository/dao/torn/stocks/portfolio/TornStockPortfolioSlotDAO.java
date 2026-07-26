@@ -26,4 +26,14 @@ public class TornStockPortfolioSlotDAO extends ServiceImpl<TornStockPortfolioSlo
     public List<TornStockPortfolioSlotDO> selectAllByPortfolioCode(String portfolioCode) {
         return baseMapper.selectAllByPortfolioCode(portfolioCode);
     }
+
+    /**
+     * 查询指定组合的全部仓位槽位并加行锁(FOR UPDATE),按slot_no升序
+     *
+     * @param portfolioCode 组合编码
+     * @return 锁定的全部槽位列表
+     */
+    public List<TornStockPortfolioSlotDO> selectAllByPortfolioCodeForUpdate(String portfolioCode) {
+        return baseMapper.selectAllByPortfolioCodeForUpdate(portfolioCode);
+    }
 }
