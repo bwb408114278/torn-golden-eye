@@ -211,6 +211,12 @@ public class VipStockAlertScheduler {
             log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
         }
 
+        try {
+            noticeSendService.sendPendingNotices();
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿投递PENDING通知失败", e);
+        }
+
         log.info("VIP股票策略调度-启动补偿完成");
     }
 

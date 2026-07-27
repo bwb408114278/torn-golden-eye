@@ -174,7 +174,7 @@ class StockEntrySettlementServiceTest {
     }
 
     @Test
-    @DisplayName("待卖出批次bar不可用_保持EXIT_PENDING")
+    @DisplayName("待卖出批次bar不可用_转为DATA_STALE_EXIT")
     void processExitPending_barNotUsable_remainsExitPending() {
         TornStockVirtualBatchDO batch = buildExitPendingBatch();
         TornStockMarketBar15mDO bar = buildBar(false);
@@ -183,8 +183,8 @@ class StockEntrySettlementServiceTest {
         List<TornStockVirtualBatchDO> result = entrySettlementService.processExitPending(
                 snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
 
-        assertEquals(0, result.size());
-        assertEquals(StockBatchStatusEnum.EXIT_PENDING.getCode(), batch.getBatchStatus());
+        assertEquals(1, result.size());
+        assertEquals(StockBatchStatusEnum.DATA_STALE_EXIT.getCode(), batch.getBatchStatus());
     }
 
     // ==================== Helper Methods ====================

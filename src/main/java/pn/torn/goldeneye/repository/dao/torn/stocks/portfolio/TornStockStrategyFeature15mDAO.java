@@ -25,8 +25,9 @@ public class TornStockStrategyFeature15mDAO
      * @param barStartTime bar开始时间
      * @return 该时间点的全部股票特征列表
      */
-    public List<TornStockStrategyFeature15mDO> selectByBarStartTime(LocalDateTime barStartTime) {
-        return baseMapper.selectByBarStartTime(barStartTime);
+    public List<TornStockStrategyFeature15mDO> selectByBarStartTime(LocalDateTime barStartTime,
+                                                                     String featureVersion) {
+        return baseMapper.selectByBarStartTime(barStartTime, featureVersion);
     }
 
     /**

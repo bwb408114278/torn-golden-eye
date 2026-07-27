@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -14,7 +15,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * 股票组合管理服务 - 维护5槽正式组合的整数股数、余款现金与槽内复利
@@ -22,7 +22,7 @@ import java.util.Optional;
  * 正式组合由 {@value #SLOT_COUNT} 个独立槽位组成,每槽初始资金 {@value #INITIAL_CASH_PLAIN} ,
  * 槽位之间资金不自动调拨。本服务封装槽位分配、预留、建仓占用、取消释放、卖出结算
  * 与组合权益计算等纯领域能力,所有金额运算使用 {@link BigDecimal}(精度18位,HALF_UP),
- * 股数一律取整数({@link Long})。卖出统一扣除 {@value #SELL_FEE_RATE_TEXT} 手续费。
+ * 股数一律取整数({@link Long})。卖出统一扣除0.1%手续费。
  *
  * <h3>核心规则</h3>
  * <ul>
@@ -62,10 +62,6 @@ public class StockPortfolioService {
      */
     public static final BigDecimal SELL_FEE_RATE = new BigDecimal("0.999");
     /**
-     * 卖出费率明文(仅用于Javadoc展示)
-     */
-    static final String SELL_FEE_RATE_TEXT = "0.1%";
-    /**
      * 入场价格偏离阈值(0.15%),仅向上偏离超过此值时取消
      */
     public static final BigDecimal ENTRY_DEVIATION_THRESHOLD = new BigDecimal("0.0015");
@@ -86,24 +82,10 @@ public class StockPortfolioService {
      */
     private static final String SLOT_NULL_MSG = "槽位不能为空";
 
-    private final TornStockPortfolioSlotDAO portfolioSlotDAO;
-
-    // ==================== 槽位查询 ====================
-
     /**
-     * 查找首个可用槽位(slotStatus == AVAILABLE)
-     * <p>
-     * 按槽位序号升序遍历正式组合的全部槽位,返回第一个状态为 AVAILABLE 的槽位。
-     * 若全部槽位均被占用/预留/陈旧,则返回 {@link Optional#empty()}。
-     *
-     * @return 首个可用槽位;无可用槽位时返回empty
+     * 组合仓位槽位持久层
      */
-    public Optional<TornStockPortfolioSlotDO> findAvailableSlot() {
-        List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(PORTFOLIO_CODE);
-        return slots.stream()
-                .filter(slot -> StockSlotStatusEnum.AVAILABLE.getCode().equals(slot.getSlotStatus()))
-                .findFirst();
-    }
+    private final TornStockPortfolioSlotDAO portfolioSlotDAO;
 
     // ==================== 槽位生命周期 ====================
 
@@ -283,15 +265,17 @@ public class StockPortfolioService {
      * entryDeviation = entryReferencePrice / signalReferencePrice - 1,
      * 仅向上偏离超过 {@link #ENTRY_DEVIATION_THRESHOLD}(0.15%)时返回true,应取消批次。
      * <br>恰好0.15%不取消;价格相同不取消;价格下跌不因偏离取消。
+     * <br>信号价或入场价为null/非正数时fail-closed返回true(取消),不得继续成交。
      *
      * @param signalReferencePrice 信号参考价(>0)
      * @param entryReferencePrice  实际入场参考价
-     * @return true表示偏离超限应取消;false表示可继续入场。信号价为非正数时返回false(不取消)
+     * @return true表示偏离超限或价格非法应取消;false表示可继续入场
      */
     public static boolean checkEntryPriceDeviation(BigDecimal signalReferencePrice, BigDecimal entryReferencePrice) {
         if (signalReferencePrice == null || entryReferencePrice == null
-                || signalReferencePrice.signum() <= 0) {
-            return false;
+                || signalReferencePrice.signum() <= 0
+                || entryReferencePrice.signum() <= 0) {
+            return true;
         }
         BigDecimal entryDeviation = entryReferencePrice
                 .divide(signalReferencePrice, MATH_SCALE, RoundingMode.HALF_UP)
@@ -313,6 +297,46 @@ public class StockPortfolioService {
             return null;
         }
         return signalBarStart.plusMinutes(ENTRY_STALE_GRACE_MINUTES);
+    }
+
+    /**
+     * 填充批次DO的公共字段(信号参考价、入场时间窗口、风格快照、规则版本、复位标记)。
+     * <p>
+     * 正式批次、影子批次和拒绝观察批次共用此方法填充与策略版本、风格冻结、入场时间窗口
+     * 相关的公共字段,消除跨类重复代码。调用方在调用前已设置batchNo/ledgerType/batchStatus/
+     * stocksId/stocksShortname/primaryStrategy等特有字段,调用后再设置slotId/slotNo等差异化字段。
+     *
+     * @param batch               待填充的批次DO(须已设置signalTime)
+     * @param signalReferencePrice 信号参考价(bar最后实际价格)
+     * @param signalTime          信号产生时间(轮次时间)
+     * @param stylePrior          风格编码(可为null)
+     * @param styleMaturity       成熟度编码(可为null)
+     * @param riskLevel           风险等级编码(可为null)
+     * @param styleEffectiveMonth 风格生效月份(可为null)
+     * @param buyRuleVersion      买入规则版本
+     */
+    public static void fillCommonBatchFields(TornStockVirtualBatchDO batch,
+                                              BigDecimal signalReferencePrice,
+                                              LocalDateTime signalTime,
+                                              String stylePrior,
+                                              String styleMaturity,
+                                              String riskLevel,
+                                              java.time.LocalDate styleEffectiveMonth,
+                                              String buyRuleVersion) {
+        batch.setSignalReferencePrice(signalReferencePrice);
+        batch.setExpectedEntryBarTime(signalTime.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
+        batch.setEntryStaleAt(calculateEntryStaleAt(signalTime));
+        batch.setStylePrior(stylePrior);
+        batch.setStyleMaturity(styleMaturity);
+        batch.setRiskLevel(riskLevel);
+        batch.setStyleEffectiveMonth(styleEffectiveMonth);
+        batch.setBuyRuleVersion(buyRuleVersion);
+        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
+        batch.setStyleRuleVersion(StockRoundTransactionService.STYLE_RULE_VERSION);
+        batch.setRiskRuleVersion(StockRoundTransactionService.RISK_RULE_VERSION);
+        batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
+        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
+        batch.setResetObserved(false);
     }
 
     /**

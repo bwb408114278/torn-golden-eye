@@ -72,18 +72,24 @@ public class StockEligibilityService {
      * 全部通过时返回ALLOWED。返回的{@link EligibilityResult}包含结果枚举与原因编码列表。
      * <p>
      * HIGH风险等级不硬否决: 仅记录风险快照日志,不改变资格结果,继续执行后续检查。
+     * <p>
+     * 冷却判断使用调用方传入的 {@code roundTime} 作为基准时间,而非 {@link LocalDateTime#now()},
+     * 保证回放与实盘口径一致,避免依赖系统时钟导致的时间漂移。
      *
      * @param context              买入评估上下文，包含特征与月度状态
      * @param signalState          信号状态记录，包含冷却与复位信息，可为null（视为无冷却、已复位）
-     * @param monthlyState         月度状态记录，可为null
+     * @param monthlyState         月度状态记录，可为null。用于校验风格是否过期(对比effectiveMonth与当前月)，
+     *                             当前尚未实现该过期校验逻辑,待P1-12月度状态业务计算完善后补充
      * @param hasActiveFormalBatch 当前股票是否已有正式活跃批次
+     * @param roundTime            本轮时间(用于冷却判断,替代LocalDateTime.now())
      * @return 资格判定结果
      */
     public EligibilityResult checkEligibility(
             BuyContext context,
             TornStockSignalStateDO signalState,
             TornStockMonthlyStateDO monthlyState,
-            boolean hasActiveFormalBatch) {
+            boolean hasActiveFormalBatch,
+            LocalDateTime roundTime) {
 
         Integer stocksId = context.stocksId();
 
@@ -106,8 +112,8 @@ public class StockEligibilityService {
             log.info("资格判断-高风险记录: stocksId={}, 风险等级HIGH,不阻断资格判断", stocksId);
         }
 
-        // 4. 冷却中
-        if (isInCooldown(signalState)) {
+        // 4. 冷却中(使用roundTime而非LocalDateTime.now())
+        if (isInCooldown(signalState, roundTime)) {
             return reject(stocksId, REASON_COOLDOWN_ACTIVE, "处于冷却期");
         }
 
@@ -135,16 +141,19 @@ public class StockEligibilityService {
 
     /**
      * 判断信号状态是否处于冷却期。
+     * <p>
+     * 使用传入的 {@code roundTime} 而非 {@link LocalDateTime#now()},保证回放一致性。
      *
      * @param signalState 信号状态记录
+     * @param roundTime   本轮时间
      * @return 冷却未结束时返回true
      */
-    private boolean isInCooldown(TornStockSignalStateDO signalState) {
+    private boolean isInCooldown(TornStockSignalStateDO signalState, LocalDateTime roundTime) {
         if (signalState == null) {
             return false;
         }
         LocalDateTime cooldownUntil = signalState.getCooldownUntil();
-        return cooldownUntil != null && cooldownUntil.isAfter(LocalDateTime.now());
+        return cooldownUntil != null && cooldownUntil.isAfter(roundTime);
     }
 
     /**

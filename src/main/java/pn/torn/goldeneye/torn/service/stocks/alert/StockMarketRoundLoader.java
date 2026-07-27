@@ -3,18 +3,8 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlyStateDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalStateDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -86,8 +76,10 @@ public class StockMarketRoundLoader {
      */
     public RoundSnapshot loadRoundSnapshot(LocalDateTime roundTime) {
         log.debug("加载本轮市场快照, roundTime={}", roundTime);
-        List<TornStockMarketBar15mDO> bars = bar15mDao.selectByBarStartTime(roundTime);
-        List<TornStockStrategyFeature15mDO> features = feature15mDao.selectByBarStartTime(roundTime);
+        List<TornStockMarketBar15mDO> bars = bar15mDao.selectByBarStartTime(roundTime,
+                Stock15mBarBuildService.BUILD_VERSION);
+        List<TornStockStrategyFeature15mDO> features = feature15mDao.selectByBarStartTime(roundTime,
+                Stock15mFeatureBuildService.FEATURE_VERSION);
         List<TornStockMonthlyStateDO> monthlyStates =
                 monthlyStateDao.selectConfirmedByMonth(roundTime.toLocalDate().withDayOfMonth(1));
         List<TornStockVirtualBatchDO> activeBatches = virtualBatchDao.selectActiveFormalBatches();

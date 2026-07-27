@@ -5,7 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockBatchMarkDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator.BuySignalResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockEntrySettlementService.EntrySettlementResult;
@@ -63,11 +66,18 @@ public class StockRoundTransactionService {
      * 消息通知规则版本
      */
     public static final String MESSAGE_RULE_VERSION = "1.0.0";
+    /**
+     * 风格分类规则版本
+     */
+    public static final String STYLE_RULE_VERSION = "1.0.0";
+    /**
+     * 风险分级规则版本
+     */
+    public static final String RISK_RULE_VERSION = "1.0.0";
 
     private final TornStockMarketRoundDAO marketRoundDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
     private final TornStockPortfolioSlotDAO portfolioSlotDao;
-    private final TornStockSignalStateDAO signalStateDao;
     private final TornStockBatchMarkDAO batchMarkDao;
 
     private final StockEntrySettlementService entrySettlementService;
@@ -124,10 +134,10 @@ public class StockRoundTransactionService {
         // 步骤7: 排序候选并预留槽位
         List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
         List<TornStockVirtualBatchDO> newFormalBatches = buySignalEvaluator.acceptCandidates(
-                rankedCandidates, snapshot, barByStock, roundTime);
+                rankedCandidates, snapshot, barByStock, monthlyStateByStock, roundTime);
 
-        // 步骤8: 写入原始信号事件、影子批次与拒绝观察批次
-        shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), roundTime);
+        // 步骤8: 写入原始信号事件、影子批次与拒绝观察批次,并回填正式批次的signalEventId
+        shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), newFormalBatches, roundTime);
 
         // 步骤9: 为已成交的买入/卖出写入PENDING通知审计
         shadowRecordWriter.writeNoticeAudits(

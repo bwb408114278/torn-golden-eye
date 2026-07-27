@@ -11,8 +11,10 @@ import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
@@ -107,8 +109,10 @@ public class StockDailySummaryService {
     private final TornStockVirtualBatchDAO virtualBatchDAO;
     private final TornStockSignalEventDAO signalEventDAO;
     private final TornStockNoticeAuditDAO noticeAuditDAO;
+    private final TornStockMarketBar15mDAO bar15mDAO;
     private final StockPortfolioService portfolioService;
     private final StockNoticeSendService noticeSendService;
+    private final StockMarketClock marketClock;
     private final ProjectProperty projectProperty;
     private final SysSettingManager sysSettingManager;
 
@@ -250,10 +254,11 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 计算组合权益(简化处理:现金+预留+开放仓位投入资金)。
+     * 计算组合权益(现金+预留+开放仓位当前市值)
      * <p>
-     * 由于每日摘要无需实时行情,开放仓位市值以投入资金(investedCash)近似替代,
-     * 调用 {@link StockPortfolioService#calculateEquity} 时传入slotId -&gt; investedCash映射。
+     * 开放仓位市值 = quantity × currentPrice × 0.999(扣除卖出手续费),
+     * 其中currentPrice取最近已结束桶的bar.lastPrice。
+     * 批量查询最新bar避免N+1,无bar数据时该仓位市值按投入资金近似。
      *
      * @param slots         全部槽位
      * @param activeBatches 活跃正式批次
@@ -262,14 +267,54 @@ public class StockDailySummaryService {
     private BigDecimal calculateEquity(List<TornStockPortfolioSlotDO> slots,
                                        List<TornStockVirtualBatchDO> activeBatches) {
         Map<Long, BigDecimal> batchMarketValues = new HashMap<>();
-        if (activeBatches != null) {
+        if (activeBatches != null && !activeBatches.isEmpty()) {
+            Map<Integer, TornStockMarketBar15mDO> latestBarByStock = loadLatestBars();
             for (TornStockVirtualBatchDO batch : activeBatches) {
-                if (batch.getSlotId() != null && batch.getInvestedCash() != null) {
-                    batchMarketValues.put(batch.getSlotId(), batch.getInvestedCash());
+                if (batch.getSlotId() == null || batch.getQuantity() == null) {
+                    continue;
                 }
+                BigDecimal marketValue = calculateBatchMarketValue(batch, latestBarByStock);
+                batchMarketValues.put(batch.getSlotId(), marketValue);
             }
         }
         return portfolioService.calculateEquity(slots, batchMarketValues);
+    }
+
+    /**
+     * 批量加载最新bar,按股票ID索引避免N+1查询。
+     *
+     * @return 按股票ID索引的最新bar映射
+     */
+    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars() {
+        LocalDateTime latestBucket = marketClock.currentEndedBucket();
+        List<TornStockMarketBar15mDO> bars = bar15mDAO.selectByBarStartTime(latestBucket, Stock15mBarBuildService.BUILD_VERSION);
+        Map<Integer, TornStockMarketBar15mDO> barByStock = new HashMap<>();
+        for (TornStockMarketBar15mDO bar : bars) {
+            barByStock.put(bar.getStocksId(), bar);
+        }
+        return barByStock;
+    }
+
+    /**
+     * 计算单个批次的当前市值。
+     * <p>
+     * marketValue = quantity × currentPrice × 0.999(扣除0.1%卖出手续费)。
+     * 无最新bar或价格非法时按投入资金(investedCash)近似。
+     *
+     * @param batch          活跃批次
+     * @param latestBarByStock 按股票ID索引的最新bar映射
+     * @return 批次当前市值
+     */
+    private BigDecimal calculateBatchMarketValue(TornStockVirtualBatchDO batch,
+                                                   Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
+        TornStockMarketBar15mDO bar = latestBarByStock.get(batch.getStocksId());
+        if (bar != null && bar.getLastPrice() != null && bar.getLastPrice().signum() > 0) {
+            return bar.getLastPrice()
+                    .multiply(BigDecimal.valueOf(batch.getQuantity()))
+                    .multiply(StockPortfolioService.SELL_FEE_RATE);
+        }
+        BigDecimal investedCash = batch.getInvestedCash();
+        return investedCash != null ? investedCash : BigDecimal.ZERO;
     }
 
     /**

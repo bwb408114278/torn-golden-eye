@@ -19,12 +19,14 @@ import java.util.List;
 public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketBar15mDO> {
 
     /**
-     * 按bar开始时间批量查询全部股票bar
+     * 按bar开始时间和构建版本批量查询全部股票bar
      *
      * @param barStartTime bar开始时间
-     * @return 该时间点的全部股票bar列表
+     * @param buildVersion bar构建版本
+     * @return 该时间点指定版本的全部股票bar列表
      */
-    List<TornStockMarketBar15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime);
+    List<TornStockMarketBar15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime,
+                                                        @Param("buildVersion") String buildVersion);
 
     /**
      * 按时间范围批量查询全部股票bar,避免逐桶查询产生N+1问题

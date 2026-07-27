@@ -11,10 +11,11 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
-                  remarks: "主键ID"
+                  remarks: "主键ID(数据库自增)"
               - column:
                   name: stocks_id
                   type: INT
@@ -159,10 +160,11 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
-                  remarks: "主键ID"
+                  remarks: "主键ID(数据库自增)"
               - column:
                   name: stocks_id
                   type: INT
@@ -368,27 +370,19 @@ databaseChangeLog:
               - column:
                   name: strategy_fit_prior
                   type: VARCHAR(32)
-                  constraints:
-                    nullable: false
-                  remarks: "最终策略适配风格编码"
+                  remarks: "最终策略适配风格编码(DRAFT允许空,CONFIRMED必须非空)"
               - column:
                   name: maturity
                   type: VARCHAR(32)
-                  constraints:
-                    nullable: false
-                  remarks: "成熟度编码"
+                  remarks: "成熟度编码(DRAFT允许空,CONFIRMED必须非空)"
               - column:
                   name: risk_level
                   type: VARCHAR(16)
-                  constraints:
-                    nullable: false
-                  remarks: "风险等级编码"
+                  remarks: "风险等级编码(DRAFT允许空,CONFIRMED必须非空)"
               - column:
                   name: suggested_personality
                   type: VARCHAR(32)
-                  constraints:
-                    nullable: false
-                  remarks: "机器建议风格"
+                  remarks: "机器建议风格(DRAFT允许空,CONFIRMED必须非空)"
               - column:
                   name: previous_personality
                   type: VARCHAR(32)
@@ -424,9 +418,7 @@ databaseChangeLog:
               - column:
                   name: evidence_start_time
                   type: TIMESTAMP
-                  constraints:
-                    nullable: false
-                  remarks: "证据窗口开始时间"
+                  remarks: "证据窗口开始时间(DRAFT允许空,CONFIRMED必须非空)"
               - column:
                   name: evidence_end_time
                   type: TIMESTAMP
@@ -481,9 +473,11 @@ databaseChangeLog:
         - sql:
             sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_effective_month CHECK (EXTRACT(DAY FROM effective_month) = 1)"
         - sql:
-            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_evidence_window CHECK (evidence_start_time <= evidence_end_time)"
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_evidence_window CHECK (evidence_start_time IS NULL OR evidence_end_time IS NULL OR evidence_start_time <= evidence_end_time)"
         - sql:
             sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_at CHECK (state_status != 'CONFIRMED' OR confirmed_at IS NOT NULL)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_complete CHECK (state_status != 'CONFIRMED' OR (strategy_fit_prior IS NOT NULL AND maturity IS NOT NULL AND risk_level IS NOT NULL AND suggested_personality IS NOT NULL AND evidence_start_time IS NOT NULL))"
 
   # ========== 表4: torn_stock_market_round ==========
   - changeSet:
@@ -1250,6 +1244,8 @@ databaseChangeLog:
         - sql:
             sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_slot ON torn_stock_virtual_batch (slot_id) WHERE ledger_type = 'FORMAL' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
         - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_shadow_stock_strat ON torn_stock_virtual_batch (stocks_id, primary_strategy) WHERE ledger_type = 'UNLIMITED_SHADOW' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
+        - sql:
             sql: "CREATE INDEX idx_stock_virtual_batch_ledger_status_signal ON torn_stock_virtual_batch (ledger_type, batch_status, signal_time)"
         - sql:
             sql: "CREATE INDEX idx_stock_virtual_batch_stock_ledger_status ON torn_stock_virtual_batch (stocks_id, ledger_type, batch_status)"
@@ -1259,6 +1255,10 @@ databaseChangeLog:
             sql: "CREATE INDEX idx_stock_virtual_batch_exit_bar_status ON torn_stock_virtual_batch (expected_exit_bar_time, batch_status)"
         - sql:
             sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_quantity CHECK (quantity IS NULL OR quantity > 0)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_formal_prices CHECK (ledger_type != 'FORMAL' OR (signal_reference_price > 0 AND (entry_reference_price IS NULL OR entry_reference_price > 0) AND (exit_reference_price IS NULL OR exit_reference_price > 0)))"
+        - sql:
+            sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_formal_cash CHECK (ledger_type != 'FORMAL' OR (batch_status NOT IN ('OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') OR (quantity IS NOT NULL AND quantity > 0 AND invested_cash IS NOT NULL AND invested_cash >= 0)))"
 
   # ========== 表9: torn_stock_batch_mark ==========
   - changeSet:
@@ -1550,3 +1550,8 @@ databaseChangeLog:
               - column:
                   name: setting_value
                   value: "SHADOW"
+      preConditions:
+        - onFail: MARK_RAN
+        - sqlCheck:
+            sql: "SELECT COUNT(*) FROM sys_setting WHERE setting_key = 'VIP_STOCK_ALERT_ENABLED'"
+            expectedResult: "0"

@@ -19,12 +19,14 @@ import java.util.List;
 public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockStrategyFeature15mDO> {
 
     /**
-     * 按bar开始时间批量查询全部股票特征
+     * 按bar开始时间和特征版本批量查询全部股票特征
      *
-     * @param barStartTime bar开始时间
-     * @return 该时间点的全部股票特征列表
+     * @param barStartTime  bar开始时间
+     * @param featureVersion 特征版本
+     * @return 该时间点指定版本的全部股票特征列表
      */
-    List<TornStockStrategyFeature15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime);
+    List<TornStockStrategyFeature15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime,
+                                                              @Param("featureVersion") String featureVersion);
 
     /**
      * 查询指定股票在指定时间及之前的最新特征

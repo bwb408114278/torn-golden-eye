@@ -11,7 +11,6 @@ import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundS
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
-import pn.torn.goldeneye.torn.service.stocks.alert.policy.StockCandidateRankingPolicy;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
@@ -67,7 +66,6 @@ public class StockBuySignalEvaluator {
     private final List<StockBuyStrategy> buyStrategies;
     private final StockEligibilityService eligibilityService;
     private final StockPortfolioService portfolioService;
-    private final StockCandidateRankingPolicy candidateRankingPolicy;
     private final TornStockVirtualBatchDAO virtualBatchDao;
 
     // ==================== 步骤6: 评估买入信号 ====================
@@ -108,7 +106,7 @@ public class StockBuySignalEvaluator {
         for (TornStockStrategyFeature15mDO feature : snapshot.features()) {
             SignalEvaluation evaluation = evaluateSingleStock(
                     feature, barByStock, monthlyStateByStock, signalStateByStock,
-                    activeFormalStockIds);
+                    activeFormalStockIds, roundTime);
             if (evaluation == null) {
                 continue;
             }
@@ -144,14 +142,15 @@ public class StockBuySignalEvaluator {
             Map<Integer, TornStockMarketBar15mDO> barByStock,
             Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
             Map<Integer, TornStockSignalStateDO> signalStateByStock,
-            Set<Integer> activeFormalStockIds) {
+            Set<Integer> activeFormalStockIds,
+            LocalDateTime roundTime) {
         if (!Boolean.TRUE.equals(feature.getStrategyReady())) {
             return null;
         }
 
         Integer stocksId = feature.getStocksId();
         TornStockMarketBar15mDO bar = barByStock.get(stocksId);
-        if (bar == null || !Stock15mBarBuildService.isUsable(bar)) {
+        if (!Stock15mBarBuildService.isUsable(bar)) {
             return null;
         }
 
@@ -182,7 +181,7 @@ public class StockBuySignalEvaluator {
 
         boolean hasActiveFormalBatch = activeFormalStockIds.contains(stocksId);
         EligibilityResult eligibility = eligibilityService.checkEligibility(
-                context, signalState, monthlyState, hasActiveFormalBatch);
+                context, signalState, monthlyState, hasActiveFormalBatch, roundTime);
         builder.eligibilityResult(eligibility);
 
         boolean accepted = StockEligibilityResultEnum.ALLOWED == eligibility.result()
@@ -375,16 +374,18 @@ public class StockBuySignalEvaluator {
      * </ol>
      * 单个候选的接纳逻辑提取为 {@link #acceptSingleCandidate},返回 null 表示该候选被跳过。
      *
-     * @param rankedCandidates 排序后的候选列表
-     * @param snapshot         轮次快照
-     * @param barByStock       按股票ID索引的bar映射
-     * @param roundTime        本轮时间
+     * @param rankedCandidates    排序后的候选列表
+     * @param snapshot            轮次快照
+     * @param barByStock          按股票ID索引的bar映射
+     * @param monthlyStateByStock 按股票ID索引的月度状态映射
+     * @param roundTime           本轮时间
      * @return 新建的正式批次列表
      */
     public List<TornStockVirtualBatchDO> acceptCandidates(
             List<CandidateInfo> rankedCandidates,
             RoundSnapshot snapshot,
             Map<Integer, TornStockMarketBar15mDO> barByStock,
+            Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
             LocalDateTime roundTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         List<TornStockVirtualBatchDO> newFormalBatches = new ArrayList<>();
@@ -402,7 +403,8 @@ public class StockBuySignalEvaluator {
             }
 
             TornStockVirtualBatchDO batch = acceptSingleCandidate(
-                    candidate, slotOpt.get(), barByStock.get(candidate.stocksId()), candidateRank, roundTime);
+                    candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
+                    monthlyStateByStock.get(candidate.stocksId()), candidateRank, roundTime);
             if (batch != null) {
                 newFormalBatches.add(batch);
             }
@@ -431,17 +433,19 @@ public class StockBuySignalEvaluator {
      *   <li>可用资金不足买入1股</li>
      * </ul>
      *
-     * @param candidate 候选信息
-     * @param slot      已分配的可用槽位
-     * @param bar       该候选股票本轮bar
-     * @param rank      候选排名(1起始)
-     * @param roundTime 本轮时间
+     * @param candidate    候选信息
+     * @param slot         已分配的可用槽位
+     * @param bar          该候选股票本轮bar
+     * @param monthlyState 该候选股票的月度状态
+     * @param rank         候选排名(1起始)
+     * @param roundTime    本轮时间
      * @return 新建的正式批次;被跳过时返回 null
      */
     private TornStockVirtualBatchDO acceptSingleCandidate(
             CandidateInfo candidate,
             TornStockPortfolioSlotDO slot,
             TornStockMarketBar15mDO bar,
+            TornStockMonthlyStateDO monthlyState,
             int rank,
             LocalDateTime roundTime) {
         if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
@@ -459,7 +463,7 @@ public class StockBuySignalEvaluator {
         }
 
         FormalBatchContext ctx = new FormalBatchContext(
-                candidate, slot, bar, signalReferencePrice, quantity, roundTime, rank);
+                candidate, slot, bar, monthlyState, signalReferencePrice, quantity, roundTime, rank);
         TornStockVirtualBatchDO batch = createFormalBatch(ctx);
 
         virtualBatchDao.save(batch);
@@ -484,6 +488,7 @@ public class StockBuySignalEvaluator {
         CandidateInfo candidate = ctx.candidate();
         TornStockPortfolioSlotDO slot = ctx.slot();
         LocalDateTime roundTime = ctx.roundTime();
+        TornStockMonthlyStateDO monthlyState = ctx.monthlyState();
 
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setBatchNo(FORMAL_BATCH_NO_PREFIX
@@ -495,18 +500,18 @@ public class StockBuySignalEvaluator {
         batch.setMatchedStrategies(JsonUtils.objToJson(candidate.matchedStrategies()));
         batch.setQualityScore(candidate.qualityScore());
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
+        // signalEventId 由 StockShadowRecordWriter.writeShadowRecords 回填(信号事件在批次后保存)
         batch.setSlotId(slot.getId());
         batch.setSlotNo(slot.getSlotNo());
         batch.setSignalTime(roundTime);
-        batch.setSignalReferencePrice(ctx.signalReferencePrice());
-        batch.setExpectedEntryBarTime(roundTime.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
-        batch.setEntryStaleAt(StockPortfolioService.calculateEntryStaleAt(roundTime));
         batch.setQuantity(ctx.quantity());
-        batch.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
-        batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
-        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
-        batch.setResetObserved(false);
+        StockPortfolioService.fillCommonBatchFields(
+                batch, ctx.signalReferencePrice(), roundTime,
+                monthlyState != null ? monthlyState.getStrategyFitPrior() : null,
+                monthlyState != null ? monthlyState.getMaturity() : null,
+                monthlyState != null ? monthlyState.getRiskLevel() : null,
+                monthlyState != null ? monthlyState.getEffectiveMonth() : null,
+                StockRoundTransactionService.BUY_RULE_VERSION);
         return batch;
     }
 
@@ -744,11 +749,12 @@ public class StockBuySignalEvaluator {
     }
 
     /**
-     * 正式批次构建上下文 - 封装 {@link #createFormalBatch} 的 7 个参数,避免超过 Sonar 方法参数上限。
+     * 正式批次构建上下文 - 封装 {@link #createFormalBatch} 的参数,避免超过 Sonar 方法参数上限。
      *
      * @param candidate            候选信息
      * @param slot                 分配的槽位
      * @param bar                  本轮bar
+     * @param monthlyState         月度状态(用于填充风格/风险字段)
      * @param signalReferencePrice 信号参考价
      * @param quantity             计划买入股数
      * @param roundTime            本轮时间
@@ -758,6 +764,7 @@ public class StockBuySignalEvaluator {
             CandidateInfo candidate,
             TornStockPortfolioSlotDO slot,
             TornStockMarketBar15mDO bar,
+            TornStockMonthlyStateDO monthlyState,
             BigDecimal signalReferencePrice,
             Long quantity,
             LocalDateTime roundTime,

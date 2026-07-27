@@ -194,7 +194,7 @@ class Stock15mBarBuildServiceTest {
         // 重复时间保留最后一条: 第1分钟价格应为999(后插入的覆盖)
         assertEquals(0, bar.getFirstPrice().compareTo(new BigDecimal("999.00")),
                 "去重后第1分钟价格应为最后插入的999");
-        verify(bar15mDAO).saveBatch(anyList());
+        verify(bar15mDAO, atLeastOnce()).upsertBar(any(TornStockMarketBar15mDO.class));
     }
 
     @Test

@@ -236,7 +236,7 @@ public class StockHistoryRebuildService {
      * @return true表示已存在bar
      */
     private boolean bucketAlreadyBuilt(LocalDateTime bucketStartTime) {
-        List<TornStockMarketBar15mDO> existing = bar15mDao.selectByBarStartTime(bucketStartTime);
+        List<TornStockMarketBar15mDO> existing = bar15mDao.selectByBarStartTime(bucketStartTime, Stock15mBarBuildService.BUILD_VERSION);
         return !CollectionUtils.isEmpty(existing);
     }
 

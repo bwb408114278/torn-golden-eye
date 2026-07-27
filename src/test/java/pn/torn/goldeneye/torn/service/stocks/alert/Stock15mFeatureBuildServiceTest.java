@@ -18,7 +18,6 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 /**
@@ -31,7 +30,7 @@ import static org.mockito.Mockito.*;
  *   <li>30日高低(low30d/high30d)取实际bar最低/最高价</li>
  *   <li>width30d = (high30d - low30d) / low30d</li>
  *   <li>position30 在 high30d == low30d 时为null(fail-closed)</li>
- *   <li>strategyReady 需总bar数 >= 2880(BARS_30D)</li>
+ *   <li>strategyReady 需总bar数 >= 2880(BARS_30D)且窗口连续可用</li>
  *   <li>当前bar不可用时不产生特征</li>
  * </ul>
  * 通过Mock DAO注入固定历史bar,验证特征输出数值。
@@ -47,10 +46,9 @@ class Stock15mFeatureBuildServiceTest {
     private static final int STOCKS_ID = 1;
     private static final String SHORTNAME = "TST";
     private static final int BARS_PER_DAY = Stock15mFeatureBuildService.BARS_PER_DAY;     // 96
-    private static final int BARS_6H = Stock15mFeatureBuildService.BARS_6H;               // 24
-    private static final int BARS_7D = Stock15mFeatureBuildService.BARS_7D;               // 672
     private static final int BARS_14D = Stock15mFeatureBuildService.BARS_14D;             // 1344
     private static final int BARS_30D = Stock15mFeatureBuildService.BARS_30D;             // 2880
+    private static final String BUILD_VERSION = Stock15mBarBuildService.BUILD_VERSION;
 
     @Mock
     private TornStockMarketBar15mDAO bar15mDAO;
@@ -77,7 +75,7 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        TornStockStrategyFeature15mDO f = features.get(0);
+        TornStockStrategyFeature15mDO f = features.getFirst();
         assertEquals(STOCKS_ID, f.getStocksId());
         assertEquals(barStart, f.getBarStartTime());
         assertEquals(0, f.getReferencePrice().compareTo(new BigDecimal("200.00")),
@@ -90,7 +88,7 @@ class Stock15mFeatureBuildServiceTest {
         assertEquals(0, f.getMa1d().compareTo(expectedMa1d), "ma1d应为最近96个bar均价");
         assertFalse(f.getStrategyReady(), "总bar数97 < 2880 -> 策略未就绪");
         assertEquals("INSUFFICIENT_HISTORY", f.getDataQualityReason());
-        verify(feature15mDAO).saveBatch(anyList());
+        verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 
     // ==================== high30 == low30 ====================
@@ -109,7 +107,7 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        TornStockStrategyFeature15mDO f = features.get(0);
+        TornStockStrategyFeature15mDO f = features.getFirst();
         assertEquals(0, f.getLow30d().compareTo(fixedPrice));
         assertEquals(0, f.getHigh30d().compareTo(fixedPrice));
         assertNull(f.getPosition30(), "高低价相同时position30应为null");
@@ -125,8 +123,7 @@ class Stock15mFeatureBuildServiceTest {
     void buildFeatures_historyLessThan2880Bars_strategyReadyFalse() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("100.00"));
-        // 总bar数 = 2879(历史) + 1(当前) = 2880? 不,2879+1=2880刚好满足。
-        // 需要 < 2880, 用 2878 历史 -> 总2879
+        // 总bar数 = 2878(历史) + 1(当前) = 2879 < 2880
         List<TornStockMarketBar15mDO> historyBars = buildHistoryBars(barStart, BARS_30D - 2,
                 new BigDecimal("100.00"));
 
@@ -135,9 +132,9 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        assertFalse(features.get(0).getStrategyReady(),
+        assertFalse(features.getFirst().getStrategyReady(),
                 "总bar数2879 < 2880 -> 策略未就绪");
-        assertEquals("INSUFFICIENT_HISTORY", features.get(0).getDataQualityReason());
+        assertEquals("INSUFFICIENT_HISTORY", features.getFirst().getDataQualityReason());
     }
 
     // ==================== 历史充足 ====================
@@ -156,9 +153,9 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        assertTrue(features.get(0).getStrategyReady(),
+        assertTrue(features.getFirst().getStrategyReady(),
                 "总bar数2880 >= 2880 -> 策略就绪");
-        assertNull(features.get(0).getDataQualityReason());
+        assertNull(features.getFirst().getDataQualityReason());
     }
 
     // ==================== 当前bar不可用 ====================
@@ -171,15 +168,15 @@ class Stock15mFeatureBuildServiceTest {
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("100.00"));
         currentBar.setSampleCount(5); // < 10 -> 不可用
 
-        // 仍然需要mock两次selectByBarStartTime
-        LocalDateTime historySince = barStart.minusDays(30).minusMinutes(15);
-        when(bar15mDAO.selectByBarStartTime(barStart)).thenReturn(List.of(currentBar));
-        when(bar15mDAO.selectByBarStartTime(historySince)).thenReturn(List.of());
+        // selectByTimeRange不会被调用(当前桶bar不可用时buildSingleFeature返回null,features为空提前返回)
+        // 仅mock当前桶查询,返回不可用bar使buildSingleFeature判定为null
+        when(bar15mDAO.selectByBarStartTime(barStart, BUILD_VERSION))
+                .thenReturn(List.of(currentBar));
 
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertTrue(features.isEmpty(), "当前bar不可用时应返回空列表");
-        verify(feature15mDAO, never()).saveBatch(any());
+        verify(feature15mDAO, never()).upsertFeature(any());
     }
 
     // ==================== return计算 ====================
@@ -201,7 +198,7 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        TornStockStrategyFeature15mDO f = features.get(0);
+        TornStockStrategyFeature15mDO f = features.getFirst();
         // return = currentPrice / pastPrice - 1 = 200/100 - 1 = 1.0
         BigDecimal expectedReturn = BigDecimal.ONE;
         assertEquals(0, f.getReturn6h().compareTo(expectedReturn),
@@ -227,7 +224,7 @@ class Stock15mFeatureBuildServiceTest {
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, currentPrice);
         currentBar.setLowPrice(currentPrice);
         currentBar.setHighPrice(currentPrice);
-        // 构造2879条历史bar: 前1439条low=100,后1440条high=150
+        // 构造2879条历史bar: 前1439条lastPrice=100,后1440条lastPrice=150
         // low30d = 100, high30d = 150, width30d = (150-100)/100 = 0.5
         List<TornStockMarketBar15mDO> historyBars = IntStream.range(0, BARS_30D - 1)
                 .mapToObj(i -> {
@@ -245,7 +242,7 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        TornStockStrategyFeature15mDO f = features.get(0);
+        TornStockStrategyFeature15mDO f = features.getFirst();
         assertEquals(0, f.getLow30d().compareTo(lowPrice), "low30d应为100");
         assertEquals(0, f.getHigh30d().compareTo(highPrice), "high30d应为150");
         BigDecimal expectedWidth = new BigDecimal("0.5");
@@ -263,8 +260,8 @@ class Stock15mFeatureBuildServiceTest {
     /**
      * 构造一个可用的bar(采样数=15,尾部新鲜)
      *
-     * @param barStart   桶开始时间
-     * @param lastPrice  收盘价(同时作为OHLC)
+     * @param barStart  桶开始时间
+     * @param lastPrice 收盘价(同时作为OHLC)
      * @return 可用的bar
      */
     private static TornStockMarketBar15mDO buildUsableBar(LocalDateTime barStart, BigDecimal lastPrice) {
@@ -283,6 +280,7 @@ class Stock15mFeatureBuildServiceTest {
         bar.setSampleCount(15);
         bar.setDuplicateCount(0);
         bar.setUsable(true);
+        bar.setBuildVersion(BUILD_VERSION);
         return bar;
     }
 
@@ -295,7 +293,7 @@ class Stock15mFeatureBuildServiceTest {
      * @return 历史bar列表(按时间升序)
      */
     private static List<TornStockMarketBar15mDO> buildHistoryBars(LocalDateTime currentBarStart,
-                                                                   int count, BigDecimal price) {
+                                                                  int count, BigDecimal price) {
         return IntStream.range(0, count)
                 .mapToObj(i -> {
                     // 第i条历史bar在 currentBarStart - (count-i)*15min 处
@@ -307,10 +305,11 @@ class Stock15mFeatureBuildServiceTest {
     }
 
     /**
-     * Mock bar15mDAO的两次selectByBarStartTime调用
+     * Mock bar15mDAO的当前桶查询与历史范围查询
      * <p>
-     * 第一次(当前桶)返回currentBar,第二次(历史窗口)返回historyBars。
-     * historyBars会被服务过滤(barStartTime < alignedTime),因此需保证时间确实早于当前桶。
+     * selectByBarStartTime(barStart, BUILD_VERSION)返回currentBar;
+     * selectByTimeRange(historySince, barStart-15min, BUILD_VERSION)返回historyBars。
+     * historyBars会被服务按股票分组后与当前bar拼接,需保证时间早于当前桶。
      *
      * @param barStart    当前桶开始时间
      * @param currentBar  当前bar
@@ -319,7 +318,9 @@ class Stock15mFeatureBuildServiceTest {
     private void mockBarDao(LocalDateTime barStart, TornStockMarketBar15mDO currentBar,
                             List<TornStockMarketBar15mDO> historyBars) {
         LocalDateTime historySince = barStart.minusDays(30).minusMinutes(15);
-        when(bar15mDAO.selectByBarStartTime(barStart)).thenReturn(List.of(currentBar));
-        when(bar15mDAO.selectByBarStartTime(historySince)).thenReturn(historyBars);
+        when(bar15mDAO.selectByBarStartTime(barStart, BUILD_VERSION))
+                .thenReturn(List.of(currentBar));
+        when(bar15mDAO.selectByTimeRange(historySince, barStart.minusMinutes(15), BUILD_VERSION))
+                .thenReturn(historyBars);
     }
 }

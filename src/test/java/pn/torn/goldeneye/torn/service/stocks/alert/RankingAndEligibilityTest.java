@@ -107,7 +107,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false);
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("STYLE_MISSING"));
@@ -126,7 +126,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false);
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
         }
@@ -140,7 +140,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false);
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("MATURITY_INSUFFICIENT"));
@@ -155,7 +155,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.HIGH,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false);
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
         }
@@ -172,7 +172,7 @@ class RankingAndEligibilityTest {
             TornStockSignalStateDO signalState = new TornStockSignalStateDO();
             signalState.setCooldownUntil(LocalDateTime.now().plusHours(2));
 
-            EligibilityResult result = service.checkEligibility(context, signalState, null, false);
+            EligibilityResult result = service.checkEligibility(context, signalState, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("COOLDOWN_ACTIVE"));
@@ -191,7 +191,7 @@ class RankingAndEligibilityTest {
             signalState.setLastCloseType("TAKE_PROFIT");
             signalState.setResetObserved(false);
 
-            EligibilityResult result = service.checkEligibility(context, signalState, null, false);
+            EligibilityResult result = service.checkEligibility(context, signalState, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("RESET_NOT_OBSERVED"));
@@ -206,7 +206,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, true);
+            EligibilityResult result = service.checkEligibility(context, null, null, true, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("SAME_STOCK_ACTIVE"));
@@ -221,7 +221,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.FALSE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false);
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("DATA_NOT_READY"));
@@ -236,7 +236,7 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false);
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
             assertTrue(result.reasons().isEmpty());

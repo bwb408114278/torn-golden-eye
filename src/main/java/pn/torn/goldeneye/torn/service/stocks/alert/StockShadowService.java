@@ -12,6 +12,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -102,6 +103,11 @@ public class StockShadowService {
         event.setStocksId(context.stocksId());
         event.setStocksShortname(context.stocksShortname());
         event.setStrategyType(context.strategyType());
+        event.setSignalReferencePrice(context.signalReferencePrice());
+        event.setStylePrior(context.stylePrior());
+        event.setStyleMaturity(context.styleMaturity());
+        event.setRiskLevel(context.riskLevel());
+        event.setStyleEffectiveMonth(context.styleEffectiveMonth());
         event.setBuyRuleVersion(context.buyRuleVersion());
         event.setQualityScore(context.qualityScore());
         event.setFeatureSnapshot(context.featureSnapshot());
@@ -275,6 +281,9 @@ public class StockShadowService {
      * <p>
      * 复用股票ID、简称、主策略、质量评分、信号事件ID、信号时间等公共字段填充逻辑,
      * 影子批次与拒绝观察批次共用此基础构建。slotId/slotNo 保持为 null(不占正式槽位)。
+     * 月度风格字段(stylePrior/styleMaturity/riskLevel/styleEffectiveMonth/styleRuleVersion/
+     * riskRuleVersion)与信号参考价、预期入场bar时间、入场超时时间、卖出/分配/消息规则版本
+     * 一并填充,保证影子与拒绝观察批次与正式批次的Schema NOT NULL字段口径一致。
      *
      * @param event 关联的信号事件
      * @return 已填充基础字段的批次DO
@@ -284,10 +293,14 @@ public class StockShadowService {
         batch.setStocksId(event.getStocksId());
         batch.setStocksShortname(event.getStocksShortname());
         batch.setPrimaryStrategy(event.getStrategyType());
+        batch.setMatchedStrategies(JsonUtils.objToJson(List.of(event.getStrategyType())));
         batch.setQualityScore(event.getQualityScore());
         batch.setSignalEventId(event.getId());
         batch.setSignalTime(event.getRoundTime());
-        batch.setBuyRuleVersion(event.getBuyRuleVersion());
+        StockPortfolioService.fillCommonBatchFields(
+                batch, event.getSignalReferencePrice(), event.getRoundTime(),
+                event.getStylePrior(), event.getStyleMaturity(), event.getRiskLevel(),
+                event.getStyleEffectiveMonth(), event.getBuyRuleVersion());
         // slotId/slotNo 保持 null: 影子与拒绝观察批次不占正式槽位
         return batch;
     }
@@ -298,19 +311,24 @@ public class StockShadowService {
      * 作为 {@link #recordSignalEvent(StockSignalEventContext)} 的入参,
      * 由调用方在策略匹配与资格评估完成后组装,保证事件记录的字段完整性。
      *
-     * @param stocksId          股票ID
-     * @param stocksShortname   股票简称快照
-     * @param strategyType      策略类型编码
-     * @param buyRuleVersion    买入规则版本
-     * @param qualityScore      信号质量评分
-     * @param featureSnapshot   特征快照(JSON文本)
-     * @param styleSnapshot     风格快照(JSON文本)
-     * @param eligibilityResult 资格审查结果编码(ALLOWED/REJECTED/OBSERVED)
+     * @param stocksId           股票ID
+     * @param stocksShortname    股票简称快照
+     * @param strategyType       策略类型编码
+     * @param signalReferencePrice 信号参考价(信号触发时bar的收盘价)
+     * @param stylePrior         风格-策略契合度(来自月度状态)
+     * @param styleMaturity      风格-成熟度等级(来自月度状态)
+     * @param riskLevel          风格-风险等级(来自月度状态)
+     * @param styleEffectiveMonth 风格生效月份(来自月度状态)
+     * @param buyRuleVersion     买入规则版本
+     * @param qualityScore       信号质量评分
+     * @param featureSnapshot    特征快照(JSON文本)
+     * @param styleSnapshot      风格快照(JSON文本)
+     * @param eligibilityResult  资格审查结果编码(ALLOWED/REJECTED/OBSERVED)
      * @param eligibilityReasons 资格审查原因编码列表,可为null
-     * @param candidateRank     候选排名,未通过资格审查时为null
-     * @param portfolioDecision 组合决策编码(FORMAL/SHADOW/REJECTED)
-     * @param rejectReason      拒绝原因编码,portfolioDecision为REJECTED时非空,可为null
-     * @param roundTime         信号产生的轮次时间
+     * @param candidateRank      候选排名,未通过资格审查时为null
+     * @param portfolioDecision  组合决策编码(FORMAL/SHADOW/REJECTED)
+     * @param rejectReason       拒绝原因编码,portfolioDecision为REJECTED时非空,可为null
+     * @param roundTime          信号产生的轮次时间
      * @author Bai
      * @version 1.2.12
      * @since 2026.07.25
@@ -319,6 +337,11 @@ public class StockShadowService {
             Integer stocksId,
             String stocksShortname,
             String strategyType,
+            BigDecimal signalReferencePrice,
+            String stylePrior,
+            String styleMaturity,
+            String riskLevel,
+            LocalDate styleEffectiveMonth,
             String buyRuleVersion,
             BigDecimal qualityScore,
             String featureSnapshot,

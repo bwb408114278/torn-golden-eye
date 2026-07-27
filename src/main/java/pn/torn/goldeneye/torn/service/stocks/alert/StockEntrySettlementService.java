@@ -119,7 +119,7 @@ public class StockEntrySettlementService {
         TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
 
         // 检查本轮bar是否可用
-        if (currentBar == null || !Stock15mBarBuildService.isUsable(currentBar)) {
+        if (!Stock15mBarBuildService.isUsable(currentBar)) {
             log.debug("待买入批次[{}]本轮bar不可用,继续等待: stocksId={}",
                     batch.getBatchNo(), batch.getStocksId());
             return;
@@ -143,7 +143,7 @@ public class StockEntrySettlementService {
         }
 
         // 成交: 状态OPEN
-        fillEntryBatch(batch, currentBar, slotById, roundTime, filledBatches);
+        fillEntryBatch(batch, currentBar, slotById, roundTime, filledBatches, cancelledBatches);
         log.info("待买入批次成交: batchNo={}, stocksId={}, entryPrice={}",
                 batch.getBatchNo(), batch.getStocksId(), entryReferencePrice);
     }
@@ -163,32 +163,46 @@ public class StockEntrySettlementService {
 
     /**
      * 成交待买入批次: 状态置为OPEN, 设置入场参考价、入场时间、股数, 占用槽位。
+     * <p>
+     * 使用槽位的 {@code reservedCash}(预留资金)而非 {@code availableCash}(已被reserveSlot扣减为0)
+     * 计算股数与实际成本。quantity &lt;= 0 时fail-closed取消并释放预留,不置为OPEN。
+     * 同时冻结跟随窗口字段(followUntil/followMaxPrice)。
      *
-     * @param batch         待成交批次
-     * @param currentBar    本轮bar
-     * @param slotById      槽位ID索引映射
-     * @param roundTime     本轮时间
-     * @param filledBatches 输出: 已成交批次列表
+     * @param batch            待成交批次
+     * @param currentBar       本轮bar
+     * @param slotById         槽位ID索引映射
+     * @param roundTime        本轮时间
+     * @param filledBatches    输出: 已成交批次列表
+     * @param cancelledBatches 输出: 已取消批次列表(供quantity<=0时使用)
      */
     private void fillEntryBatch(TornStockVirtualBatchDO batch, TornStockMarketBar15mDO currentBar,
                                 Map<Long, TornStockPortfolioSlotDO> slotById,
                                 LocalDateTime roundTime,
-                                List<TornStockVirtualBatchDO> filledBatches) {
+                                List<TornStockVirtualBatchDO> filledBatches,
+                                List<TornStockVirtualBatchDO> cancelledBatches) {
         BigDecimal entryReferencePrice = currentBar.getLastPrice();
         TornStockPortfolioSlotDO slot = batch.getSlotId() != null ? slotById.get(batch.getSlotId()) : null;
 
-        long quantity = 0L;
-        BigDecimal investedCash = BigDecimal.ZERO;
-        BigDecimal remainingCash = BigDecimal.ZERO;
-
-        if (slot != null) {
-            quantity = StockPortfolioService.calculateQuantity(slot.getAvailableCash(), entryReferencePrice);
-            if (quantity > 0) {
-                investedCash = entryReferencePrice.multiply(BigDecimal.valueOf(quantity));
-                remainingCash = slot.getAvailableCash().subtract(investedCash);
-                portfolioService.occupySlot(slot, quantity, entryReferencePrice, batch.getId());
-            }
+        if (slot == null) {
+            log.error("待买入批次[{}]槽位不存在,fail-closed取消: slotId={}",
+                    batch.getBatchNo(), batch.getSlotId());
+            cancelEntryBatch(batch, slotById, StockCancelReasonEnum.ENTRY_PRICE_DEVIATION, cancelledBatches);
+            return;
         }
+
+        BigDecimal reservedCash = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
+        long quantity = StockPortfolioService.calculateQuantity(reservedCash, entryReferencePrice);
+        if (quantity <= 0) {
+            log.warn("待买入批次[{}]预留资金不足买入1股,fail-closed取消: reservedCash={}, price={}",
+                    batch.getBatchNo(), reservedCash, entryReferencePrice);
+            cancelEntryBatch(batch, slotById, StockCancelReasonEnum.ENTRY_PRICE_DEVIATION, cancelledBatches);
+            return;
+        }
+
+        BigDecimal investedCash = entryReferencePrice.multiply(BigDecimal.valueOf(quantity));
+        BigDecimal remainingCash = reservedCash.subtract(investedCash);
+
+        portfolioService.occupySlot(slot, quantity, entryReferencePrice, batch.getId());
 
         batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
         batch.setEntryReferencePrice(entryReferencePrice);
@@ -202,6 +216,8 @@ public class StockEntrySettlementService {
         batch.setMfe(BigDecimal.ZERO);
         batch.setMae(BigDecimal.ZERO);
         batch.setPeakDrawdown(BigDecimal.ZERO);
+        batch.setFollowUntil(roundTime.plusMinutes(StockPortfolioService.MAX_HOLD_DAYS * 24 * 60L));
+        batch.setFollowMaxPrice(entryReferencePrice);
         batch.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
         batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
         batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
@@ -272,7 +288,14 @@ public class StockEntrySettlementService {
     }
 
     /**
-     * 处理单个待卖出批次: 判断bar可用性与连续性, 决定成交或等待。
+     * 处理单个待卖出批次: 判断bar可用性与连续性, 决定成交、DATA_STALE_EXIT或等待。
+     * <p>
+     * 处理规则:
+     * <ul>
+     *   <li>本轮bar不可用 -&gt; DATA_STALE_EXIT</li>
+     *   <li>本轮bar非连续(已错过预期bar) -&gt; DATA_STALE_EXIT</li>
+     *   <li>本轮bar连续且可用 -&gt; 成交(状态CLOSED_xxx)</li>
+     * </ul>
      *
      * @param batch         待卖出批次
      * @param barByStock    按股票ID索引的bar映射
@@ -288,16 +311,20 @@ public class StockEntrySettlementService {
         TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
 
         // 检查本轮bar是否可用
-        if (currentBar == null || !Stock15mBarBuildService.isUsable(currentBar)) {
-            log.debug("待卖出批次[{}]本轮bar不可用,继续等待: stocksId={}",
+        if (!Stock15mBarBuildService.isUsable(currentBar)) {
+            log.info("待卖出批次[{}]本轮bar不可用,转DATA_STALE_EXIT: stocksId={}",
                     batch.getBatchNo(), batch.getStocksId());
+            batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+            filledBatches.add(batch);
             return;
         }
 
-        // 检查bar连续性
+        // 检查bar连续性: 不连续说明已错过预期bar
         if (!isExitBarConsecutive(batch, currentBar)) {
-            log.debug("待卖出批次[{}]本轮bar非连续,继续等待: expected={}, actual={}",
+            log.info("待卖出批次[{}]本轮bar非连续(已错过预期bar),转DATA_STALE_EXIT: expected={}, actual={}",
                     batch.getBatchNo(), batch.getExpectedExitBarTime(), currentBar.getBarStartTime());
+            batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+            filledBatches.add(batch);
             return;
         }
 
@@ -393,17 +420,20 @@ public class StockEntrySettlementService {
     }
 
     /**
-     * 安全解析关闭类型枚举, 解析失败时返回CLOSED_TARGET。
+     * 安全解析关闭类型枚举, 解析失败时fail-closed抛出数据一致性异常。
+     * <p>
+     * 不再把未知编码回退为CLOSED_TARGET,避免把数据损坏伪装成"达到目标收益"。
      *
      * @param code 关闭类型编码
      * @return 关闭类型枚举
+     * @throws IllegalStateException 当编码无法解析时,表示数据一致性破坏
      */
     private StockCloseTypeEnum safeParseCloseType(String code) {
         try {
             return StockCloseTypeEnum.fromCode(code);
         } catch (IllegalArgumentException e) {
-            log.warn("关闭类型编码解析失败,使用默认值CLOSED_TARGET: code={}", code);
-            return DEFAULT_CLOSE_TYPE;
+            log.error("关闭类型编码解析失败,fail-closed: code={}", code);
+            throw new IllegalStateException("关闭类型编码无法解析,数据一致性破坏: " + code, e);
         }
     }
 

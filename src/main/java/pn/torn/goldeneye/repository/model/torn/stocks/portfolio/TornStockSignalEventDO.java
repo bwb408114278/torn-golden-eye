@@ -6,6 +6,7 @@ import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -47,6 +48,26 @@ public class TornStockSignalEventDO extends BaseDO {
      * 策略类型
      */
     private String strategyType;
+    /**
+     * 信号参考价(信号触发时bar的收盘价,从bar获取,回填至批次)
+     */
+    private BigDecimal signalReferencePrice;
+    /**
+     * 风格-策略契合度(来自月度状态,回填至批次)
+     */
+    private String stylePrior;
+    /**
+     * 风格-成熟度等级(来自月度状态,回填至批次)
+     */
+    private String styleMaturity;
+    /**
+     * 风格-风险等级(来自月度状态,回填至批次)
+     */
+    private String riskLevel;
+    /**
+     * 风格生效月份(来自月度状态,回填至批次)
+     */
+    private LocalDate styleEffectiveMonth;
     /**
      * 买入规则版本
      */

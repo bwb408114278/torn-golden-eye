@@ -19,13 +19,15 @@ import java.util.List;
 public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mMapper, TornStockMarketBar15mDO> {
 
     /**
-     * 按bar开始时间批量查询全部股票bar,避免逐股查询产生N+1问题
+     * 按bar开始时间和构建版本批量查询全部股票bar,避免逐股查询产生N+1问题
      *
      * @param barStartTime bar开始时间
-     * @return 该时间点的全部股票bar列表
+     * @param buildVersion bar构建版本
+     * @return 该时间点指定版本的全部股票bar列表
      */
-    public List<TornStockMarketBar15mDO> selectByBarStartTime(LocalDateTime barStartTime) {
-        return baseMapper.selectByBarStartTime(barStartTime);
+    public List<TornStockMarketBar15mDO> selectByBarStartTime(LocalDateTime barStartTime,
+                                                               String buildVersion) {
+        return baseMapper.selectByBarStartTime(barStartTime, buildVersion);
     }
 
     /**

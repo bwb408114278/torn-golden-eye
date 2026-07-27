@@ -90,7 +90,7 @@ public class Stock15mFeatureBuildService {
         LocalDateTime alignedTime = Stock15mBarBuildService.alignToBucket(barStartTime);
         log.debug("开始构建15分钟特征, barStartTime={}", alignedTime);
 
-        List<TornStockMarketBar15mDO> currentBars = bar15mDao.selectByBarStartTime(alignedTime);
+        List<TornStockMarketBar15mDO> currentBars = bar15mDao.selectByBarStartTime(alignedTime, Stock15mBarBuildService.BUILD_VERSION);
         if (CollectionUtils.isEmpty(currentBars)) {
             log.warn("桶{}无可用bar,跳过特征构建", alignedTime);
             return List.of();
@@ -106,7 +106,7 @@ public class Stock15mFeatureBuildService {
         List<TornStockStrategyFeature15mDO> features = new ArrayList<>(currentBars.size());
         for (TornStockMarketBar15mDO currentBar : currentBars) {
             TornStockStrategyFeature15mDO feature = buildSingleFeature(currentBar,
-                    historyByStock.getOrDefault(currentBar.getStocksId(), List.of()), alignedTime);
+                    historyByStock.getOrDefault(currentBar.getStocksId(), List.of()));
             if (feature != null) {
                 features.add(feature);
             }
@@ -132,8 +132,7 @@ public class Stock15mFeatureBuildService {
      * @return 填充完整的特征DO,当前bar不可用时返回null
      */
     private TornStockStrategyFeature15mDO buildSingleFeature(TornStockMarketBar15mDO currentBar,
-                                                             List<TornStockMarketBar15mDO> historyBars,
-                                                             LocalDateTime alignedTime) {
+                                                             List<TornStockMarketBar15mDO> historyBars) {
         if (!Stock15mBarBuildService.isUsable(currentBar)) {
             return null;
         }
@@ -169,7 +168,7 @@ public class Stock15mFeatureBuildService {
         BigDecimal pctAbove30dLow = calculatePctAboveLow(referencePrice, low30d);
         BigDecimal pctBelow30dHigh = calculatePctBelowHigh(referencePrice, high30d);
 
-        boolean strategyReady = checkStrategyReady(allBars, alignedTime);
+        boolean strategyReady = checkStrategyReady(allBars);
         String dataQualityReason = strategyReady ? null : resolveDataQualityReason(allBars);
 
         TornStockStrategyFeature15mDO feature = new TornStockStrategyFeature15mDO();
@@ -395,11 +394,10 @@ public class Stock15mFeatureBuildService {
      * 需要30天(BARS_30D个bar)的连续数据,且全部bar可用、使用同一buildVersion、
      * 按15分钟严格连续无缺口。一旦发现缺口或不可用bar,strategyReady=false。
      *
-     * @param allBars     全部bar列表(含当前bar,按时间升序)
-     * @param alignedTime 当前桶时间
+     * @param allBars 全部bar列表(含当前bar,按时间升序)
      * @return true表示策略就绪
      */
-    private boolean checkStrategyReady(List<TornStockMarketBar15mDO> allBars, LocalDateTime alignedTime) {
+    private boolean checkStrategyReady(List<TornStockMarketBar15mDO> allBars) {
         if (allBars.size() < BARS_30D) {
             return false;
         }

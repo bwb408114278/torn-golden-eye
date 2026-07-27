@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeTypeEnum;
@@ -88,54 +89,93 @@ public class StockShadowRecordWriter {
 
     private final StockShadowService shadowService;
     private final TornStockNoticeAuditDAO noticeAuditDAO;
+    private final ProjectProperty projectProperty;
 
     // ==================== 步骤8: 写入影子记录 ====================
 
     /**
-     * 为全部信号评估结果写入原始信号事件、影子批次和拒绝观察批次。
+     * 为全部信号评估结果写入原始信号事件、影子批次和拒绝观察批次,
+     * 并回填已创建正式批次的signalEventId。
      * <p>
      * 对每个边沿触发的信号评估:
      * <ul>
      *   <li>记录原始信号事件(recordSignalEvent)</li>
+     *   <li>ALLOWED且已入选正式 -&gt; 回填对应正式批次的signalEventId</li>
      *   <li>ALLOWED且未入选正式 -&gt; 创建无限资金影子批次</li>
      *   <li>REJECTED/OBSERVED -&gt; 创建拒绝观察批次</li>
      * </ul>
      *
-     * @param allEvaluations 全部信号评估结果
-     * @param roundTime      本轮时间
+     * @param allEvaluations  全部信号评估结果
+     * @param newFormalBatches 本轮新建的正式批次列表(需回填signalEventId)
+     * @param roundTime       本轮时间
      */
-    public void writeShadowRecords(List<? extends SignalEvaluationView> allEvaluations, LocalDateTime roundTime) {
+    public void writeShadowRecords(List<? extends SignalEvaluationView> allEvaluations,
+                                    List<TornStockVirtualBatchDO> newFormalBatches,
+                                    LocalDateTime roundTime) {
+        Map<Integer, TornStockVirtualBatchDO> formalBatchByStockId = indexFormalBatchesByStockId(newFormalBatches);
         for (SignalEvaluationView evaluation : allEvaluations) {
             if (!evaluation.edgeTriggered() || evaluation.primaryStrategy() == null) {
                 continue;
             }
-            writeSingleShadowRecord(evaluation, roundTime);
+            writeSingleShadowRecord(evaluation, formalBatchByStockId.get(evaluation.stocksId()), roundTime);
         }
+    }
+
+    /**
+     * 将正式批次按股票ID索引,供回填signalEventId时查找。
+     *
+     * @param newFormalBatches 新建正式批次列表
+     * @return 按股票ID索引的映射
+     */
+    private Map<Integer, TornStockVirtualBatchDO> indexFormalBatchesByStockId(
+            List<TornStockVirtualBatchDO> newFormalBatches) {
+        Map<Integer, TornStockVirtualBatchDO> map = new HashMap<>();
+        if (newFormalBatches == null) {
+            return map;
+        }
+        for (TornStockVirtualBatchDO batch : newFormalBatches) {
+            if (batch.getStocksId() != null) {
+                map.put(batch.getStocksId(), batch);
+            }
+        }
+        return map;
     }
 
     /**
      * 写入单个边沿触发信号的影子记录。
      * <p>
-     * 组装信号事件上下文并记录事件,然后根据组合决策创建对应的影子批次或拒绝观察批次。
+     * 组装信号事件上下文(含月度风格字段与信号参考价)并记录事件,然后根据组合决策:
+     * 创建对应的影子批次、拒绝观察批次,或回填正式批次的signalEventId。
      *
-     * @param evaluation 信号评估结果
-     * @param roundTime  本轮时间
+     * @param evaluation   信号评估结果
+     * @param formalBatch  对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
+     * @param roundTime    本轮时间
      */
-    private void writeSingleShadowRecord(SignalEvaluationView evaluation, LocalDateTime roundTime) {
+    private void writeSingleShadowRecord(SignalEvaluationView evaluation,
+                                          TornStockVirtualBatchDO formalBatch,
+                                          LocalDateTime roundTime) {
         EligibilityResult eligibility = evaluation.eligibilityResult();
         String eligibilityResultCode = eligibility != null ? eligibility.result().getCode() : null;
         List<String> eligibilityReasons = eligibility != null ? eligibility.reasons() : List.of();
         String portfolioDecision = determinePortfolioDecision(evaluation, eligibility);
         String rejectReason = determineRejectReason(eligibility);
 
-        StockSignalEventContext context = new StockSignalEventContext(
+        TornStockMonthlyStateDO monthlyState = evaluation.monthlyState();
+        BuyContext context = evaluation.context();
+
+        StockSignalEventContext eventContext = new StockSignalEventContext(
                 evaluation.stocksId(),
                 evaluation.stocksShortname(),
                 evaluation.primaryStrategy().getStrategyType().getCode(),
+                context != null ? context.referencePrice() : null,
+                monthlyState != null ? monthlyState.getStrategyFitPrior() : null,
+                monthlyState != null ? monthlyState.getMaturity() : null,
+                monthlyState != null ? monthlyState.getRiskLevel() : null,
+                monthlyState != null ? monthlyState.getEffectiveMonth() : null,
                 StockRoundTransactionService.BUY_RULE_VERSION,
                 evaluation.qualityScore(),
-                buildFeatureSnapshot(evaluation.context()),
-                buildStyleSnapshot(evaluation.monthlyState()),
+                buildFeatureSnapshot(context),
+                buildStyleSnapshot(monthlyState),
                 eligibilityResultCode,
                 eligibilityReasons,
                 evaluation.candidateRank(),
@@ -144,9 +184,11 @@ public class StockShadowRecordWriter {
                 roundTime
         );
 
-        TornStockSignalEventDO event = shadowService.recordSignalEvent(context);
+        TornStockSignalEventDO event = shadowService.recordSignalEvent(eventContext);
 
-        if (DECISION_SHADOW.equals(portfolioDecision)) {
+        if (DECISION_FORMAL.equals(portfolioDecision) && formalBatch != null) {
+            formalBatch.setSignalEventId(event.getId());
+        } else if (DECISION_SHADOW.equals(portfolioDecision)) {
             shadowService.createUnlimitedShadowBatch(event);
         } else if (DECISION_REJECTED.equals(portfolioDecision)) {
             shadowService.createRejectedObservationBatch(event, rejectReason);
@@ -313,6 +355,7 @@ public class StockShadowRecordWriter {
         notice.setNoticeNo(generateNoticeNo(batch, noticeType));
         notice.setBatchId(batch.getId());
         notice.setNoticeType(noticeType.getCode());
+        notice.setGroupId(projectProperty.getVipGroupId());
         notice.setScheduledRoundTime(roundTime);
         notice.setSendStatus(StockNoticeStatusEnum.PENDING.getCode());
         notice.setSendAttemptCount(0);

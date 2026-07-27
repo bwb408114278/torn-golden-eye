@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -50,10 +51,6 @@ public class StockNoticeSendService {
      * 开关启用标识(仅当配置值为"true"时启用,忽略大小写)
      */
     private static final String SETTING_ENABLED_VALUE = "true";
-    /**
-     * 消息通知规则版本
-     */
-    public static final String MESSAGE_RULE_VERSION = "1.0.0";
     /**
      * 初始发送尝试次数(PENDING通知首次发送,attemptCount从0置为1)
      */
@@ -134,11 +131,12 @@ public class StockNoticeSendService {
      *   <li>{@link ResponseEntity} 非null</li>
      *   <li>HTTP状态码为2xx({@link org.springframework.http.HttpStatusCode#is2xxSuccessful()})</li>
      *   <li>响应body非null</li>
+     *   <li>NapCat业务结果retcode == 0(解析body JSON中的retcode字段)</li>
      * </ol>
      * 发送过程中抛出的任何异常都会被捕获并记录日志,方法返回false,不向上抛出。
      *
      * @param text 待发送的中文消息文本
-     * @return true表示发送成功(2xx且body非空);false表示发送失败、响应异常或无法确认成功
+     * @return true表示发送成功(2xx且body非空且retcode=0);false表示发送失败、响应异常或无法确认成功
      */
     public boolean sendSingleMessage(String text) {
         try {
@@ -155,13 +153,41 @@ public class StockNoticeSendService {
                 log.warn("股票通知发送-HTTP状态非2xx, 发送失败, statusCode={}", response.getStatusCode());
                 return false;
             }
-            if (response.getBody() == null) {
+            String body = response.getBody();
+            if (body == null) {
                 log.warn("股票通知发送-响应body为空, 无法确认发送成功");
+                return false;
+            }
+            if (!isNapCatSuccess(body)) {
+                log.warn("股票通知发送-NapCat业务结果非成功, body={}", body);
                 return false;
             }
             return true;
         } catch (Exception e) {
             log.error("股票通知发送-单条消息发送异常", e);
+            return false;
+        }
+    }
+
+    /**
+     * 解析NapCat响应body判断业务是否成功。
+     * <p>
+     * NapCat返回JSON格式: {@code {"status":"ok","retcode":0,"data":...}},
+     * 当retcode为0且status为"ok"时视为业务成功,其他情况视为失败。
+     * 使用项目统一的 {@link JsonUtils#getNode} 解析JSON,避免暴露内部ObjectMapper。
+     *
+     * @param body NapCat响应body文本
+     * @return true表示retcode=0且status=ok;false表示业务失败或解析异常
+     */
+    private boolean isNapCatSuccess(String body) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = JsonUtils.getNode(body, "retcode");
+            int retcode = root != null ? root.asInt(-1) : -1;
+            com.fasterxml.jackson.databind.JsonNode statusNode = JsonUtils.getNode(body, "status");
+            String status = statusNode != null ? statusNode.asText() : null;
+            return retcode == 0 && "ok".equals(status);
+        } catch (Exception e) {
+            log.warn("股票通知发送-NapCat响应解析异常,视为失败: body={}", body, e);
             return false;
         }
     }
