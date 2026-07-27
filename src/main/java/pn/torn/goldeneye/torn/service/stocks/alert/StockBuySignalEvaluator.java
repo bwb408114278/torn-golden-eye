@@ -19,7 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * 股票买入信号评估器 - 执行轮次事务步骤6-7,评估买入信号(false-&gt;true边沿)与资格,
+ * 股票买入信号评估器 - 执行轮次事务步骤6-7,评估买入信号(false->true边沿)与资格,
  * 排序候选并接纳正式候选。
  * <p>
  * 从 {@link StockRoundTransactionService} 拆分而来,消除原 732 行 Brain Method。
@@ -71,14 +71,14 @@ public class StockBuySignalEvaluator {
     // ==================== 步骤6: 评估买入信号 ====================
 
     /**
-     * 评估本轮买入信号(false-&gt;true边沿)与资格,收集正式候选与全部评估结果。
+     * 评估本轮买入信号(false->true边沿)与资格,收集正式候选与全部评估结果。
      * <p>
      * 对每支 strategyReady 的股票:
      * <ol>
      *   <li>组装 {@link BuyContext}</li>
      *   <li>调用 {@link #matchStrategies} 遍历买入策略,选取主策略(质量分最高)</li>
      *   <li>按每个策略的复合键(stocksId, strategyType, buyRuleVersion)维护信号状态</li>
-     *   <li>汇总策略命中结果,判断本轮是否存在 false-&gt;true 边沿</li>
+     *   <li>汇总策略命中结果,判断本轮是否存在 false->true 边沿</li>
      *   <li>边沿触发时调用 {@link StockEligibilityService#checkEligibility}</li>
      *   <li>ALLOWED 的候选加入正式候选列表</li>
      * </ol>
@@ -171,10 +171,8 @@ public class StockBuySignalEvaluator {
                 .primaryStrategy(matchResult.primaryStrategy())
                 .matchedStrategies(matchResult.matchedStrategies())
                 .qualityScore(matchResult.bestScore())
-                .currentMatches(currentMatches)
                 .edgeTriggered(edgeTriggered)
                 .context(context)
-                .signalState(signalState)
                 .monthlyState(monthlyState);
 
         if (!edgeTriggered) {
@@ -241,13 +239,13 @@ public class StockBuySignalEvaluator {
     }
 
     /**
-     * 判断本轮是否为 false-&gt;true 边沿触发。
+     * 判断本轮是否为 false->true 边沿触发。
      * <p>
      * 当本轮命中任一策略(currentMatches)且上轮 conditionActive 不为 true 时为边沿触发。
      *
      * @param currentMatches 本轮是否命中任何策略
      * @param signalState    信号状态记录,可为 null
-     * @return true 表示本轮为 false-&gt;true 边沿触发
+     * @return true 表示本轮为 false->true 边沿触发
      */
     private boolean checkEdgeTriggered(boolean currentMatches, TornStockSignalStateDO signalState) {
         boolean previousActive = signalState != null && Boolean.TRUE.equals(signalState.getConditionActive());
@@ -565,10 +563,8 @@ public class StockBuySignalEvaluator {
      * @param primaryStrategy     主策略(质量分最高的命中策略)
      * @param matchedStrategies   全部命中策略列表
      * @param qualityScore        主策略质量分
-     * @param currentMatches      本轮是否命中任何策略
-     * @param edgeTriggered       是否为 false-&gt;true 边沿触发
+     * @param edgeTriggered       是否为 false->true 边沿触发
      * @param context             买入上下文
-     * @param signalState         信号状态记录
      * @param monthlyState        月度状态记录
      * @param eligibilityResult   资格判定结果;非边沿触发时为 null
      * @param acceptedFormal      是否被正式接纳
@@ -580,10 +576,8 @@ public class StockBuySignalEvaluator {
             StockBuyStrategy primaryStrategy,
             List<StockBuyStrategy> matchedStrategies,
             BigDecimal qualityScore,
-            boolean currentMatches,
             boolean edgeTriggered,
             BuyContext context,
-            TornStockSignalStateDO signalState,
             TornStockMonthlyStateDO monthlyState,
             EligibilityResult eligibilityResult,
             boolean acceptedFormal
@@ -610,10 +604,8 @@ public class StockBuySignalEvaluator {
             private StockBuyStrategy primaryStrategy;
             private List<StockBuyStrategy> matchedStrategies;
             private BigDecimal qualityScore;
-            private boolean currentMatches;
             private boolean edgeTriggered;
             private BuyContext context;
-            private TornStockSignalStateDO signalState;
             private TornStockMonthlyStateDO monthlyState;
             private EligibilityResult eligibilityResult;
             private boolean acceptedFormal;
@@ -667,16 +659,6 @@ public class StockBuySignalEvaluator {
                 return this;
             }
 
-            /**
-             * 设置本轮是否命中任何策略。
-             *
-             * @param currentMatches 是否命中
-             * @return 当前构建器
-             */
-            public Builder currentMatches(boolean currentMatches) {
-                this.currentMatches = currentMatches;
-                return this;
-            }
 
             /**
              * 设置是否为边沿触发。
@@ -700,16 +682,6 @@ public class StockBuySignalEvaluator {
                 return this;
             }
 
-            /**
-             * 设置信号状态记录。
-             *
-             * @param signalState 信号状态
-             * @return 当前构建器
-             */
-            public Builder signalState(TornStockSignalStateDO signalState) {
-                this.signalState = signalState;
-                return this;
-            }
 
             /**
              * 设置月度状态记录。
@@ -752,8 +724,8 @@ public class StockBuySignalEvaluator {
             public SignalEvaluation build() {
                 return new SignalEvaluation(
                         stocksId, stocksShortname, evaluatedStrategies, primaryStrategy, matchedStrategies,
-                        qualityScore, currentMatches, edgeTriggered, context,
-                        signalState, monthlyState, eligibilityResult, acceptedFormal
+                        qualityScore, edgeTriggered, context,
+                        monthlyState, eligibilityResult, acceptedFormal
                 );
             }
         }

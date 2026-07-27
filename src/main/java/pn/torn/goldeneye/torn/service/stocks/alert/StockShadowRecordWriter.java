@@ -100,9 +100,9 @@ public class StockShadowRecordWriter {
      * 对每个边沿触发的信号评估:
      * <ul>
      *   <li>记录原始信号事件(recordSignalEvent)</li>
-     *   <li>ALLOWED且已入选正式 -&gt; 回填对应正式批次的signalEventId</li>
-     *   <li>ALLOWED且未入选正式 -&gt; 创建无限资金影子批次</li>
-     *   <li>REJECTED/OBSERVED -&gt; 创建拒绝观察批次</li>
+     *   <li>ALLOWED且已入选正式 -> 回填对应正式批次的signalEventId</li>
+     *   <li>ALLOWED且未入选正式 -> 创建无限资金影子批次</li>
+     *   <li>REJECTED/OBSERVED -> 创建拒绝观察批次</li>
      * </ul>
      *
      * @param allEvaluations         全部信号评估结果
@@ -208,8 +208,8 @@ public class StockShadowRecordWriter {
     /**
      * 判定组合决策编码。
      * <p>
-     * ALLOWED且已入选正式 -&gt; FORMAL;ALLOWED但未入选(无槽位/资金不足) -&gt; SHADOW;
-     * REJECTED/OBSERVED -&gt; REJECTED。
+     * ALLOWED且已入选正式 -> FORMAL ALLOWED但未入选(无槽位/资金不足) -> SHADOW;
+     * REJECTED/OBSERVED -> REJECTED。
      *
      * @param evaluation  信号评估
      * @param eligibility 资格结果
@@ -441,9 +441,8 @@ public class StockShadowRecordWriter {
     /**
      * 信号评估结果接口 - 供影子记录写入器消费。
      * <p>
-     * 从 {@link StockRoundTransactionService} 的内部 SignalEvaluation 抽象出的只读视图,
-     * 使写入器不直接依赖事务服务的内部类,降低耦合。当后续提取
-     * StockBuySignalEvaluator.SignalEvaluation record后,可直接实现本接口。
+     * 从评估器的内部SignalEvaluation抽象出的最小只读视图,
+     * 使写入器不直接依赖评估器内部实现,降低耦合。
      *
      * @author Bai
      * @version 1.2.12
@@ -486,15 +485,9 @@ public class StockShadowRecordWriter {
          */
         BigDecimal qualityScore();
 
-        /**
-         * 本轮是否命中任何策略。
-         *
-         * @return 命中时返回true
-         */
-        boolean currentMatches();
 
         /**
-         * 是否为false-&gt;true边沿触发。
+         * 是否为false->true边沿触发。
          *
          * @return 边沿触发时返回true
          */
@@ -507,12 +500,6 @@ public class StockShadowRecordWriter {
          */
         BuyContext context();
 
-        /**
-         * 信号状态记录。
-         *
-         * @return 信号状态记录
-         */
-        TornStockSignalStateDO signalState();
 
         /**
          * 月度状态记录。
@@ -527,13 +514,6 @@ public class StockShadowRecordWriter {
          * @return 资格评估结果;未执行资格检查时为null
          */
         EligibilityResult eligibilityResult();
-
-        /**
-         * 候选排名。
-         *
-         * @return 候选排名;未入选正式时为null
-         */
-        Integer candidateRank();
 
         /**
          * 是否已被正式组合接纳。
