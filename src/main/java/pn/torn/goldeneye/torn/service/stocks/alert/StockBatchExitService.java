@@ -75,18 +75,24 @@ public class StockBatchExitService {
      * <p>
      * 按目标 -> 风险 -> 时间 -> 区间恢复的固定优先级顺序检查,返回首个命中的退出结果。
      * 若四种退出均未命中,返回 shouldExit=false 的空结果。
+     * <p>
+     * 时间退出使用调用方传入的 {@code roundTime} 作为基准时间,而非 {@link LocalDateTime#now()},
+     * 保证回放与实盘口径一致,避免依赖系统时钟导致的时间漂移。
      *
      * @param batch        待评估批次(须为OPEN状态,含entryReferencePrice与entryTime)
      * @param currentPrice 当前价格
      * @param position30   30日区间位置 (currentPrice - low30) / (high30 - low30),[0,1]
      * @param low30d       30日最低价
      * @param high30d      30日最高价
+     * @param roundTime    本轮时间(用于时间退出判断,替代LocalDateTime.now())
      * @return 退出评估结果(shouldExit=true时包含closeType与reason)
      */
     public ExitEvaluation evaluateExit(TornStockVirtualBatchDO batch, BigDecimal currentPrice,
-                                       BigDecimal position30, BigDecimal low30d, BigDecimal high30d) {
+                                       BigDecimal position30, BigDecimal low30d, BigDecimal high30d,
+                                       LocalDateTime roundTime) {
         Objects.requireNonNull(batch, "批次不能为空");
         Objects.requireNonNull(currentPrice, "当前价格不能为空");
+        Objects.requireNonNull(roundTime, "轮次时间不能为空");
 
         BigDecimal entryReferencePrice = batch.getEntryReferencePrice();
         if (entryReferencePrice == null || entryReferencePrice.signum() <= 0) {
@@ -110,10 +116,10 @@ public class StockBatchExitService {
             return riskExit;
         }
 
-        // 3. 时间退出
-        ExitEvaluation timeExit = checkTimeExit(batch.getEntryTime(), LocalDateTime.now());
+        // 3. 时间退出(使用roundTime而非LocalDateTime.now(),保证回放一致性)
+        ExitEvaluation timeExit = checkTimeExit(batch.getEntryTime(), roundTime);
         if (timeExit.shouldExit()) {
-            log.debug("批次[{}]触发时间退出,entryTime={}", batch.getBatchNo(), batch.getEntryTime());
+            log.debug("批次[{}]触发时间退出,entryTime={},roundTime={}", batch.getBatchNo(), batch.getEntryTime(), roundTime);
             return timeExit;
         }
 
@@ -198,11 +204,11 @@ public class StockBatchExitService {
      *   <li>position30 >= 0.60</li>
      * </ol>
      * 当 high30d == low30d 时 fail-closed,不触发区间退出(避免除零)。
-     * position30 = (currentPrice - low30d) / (high30d - low30d)。
+     * position30 = (currentPrice - low30d) / (high30d - low30d),由调用方预算后传入。
      *
      * @param primaryStrategy 主策略标识
      * @param netReturn       当前净收益率
-     * @param position30      30日区间位置(调用方预算好);为空时尝试用low30d/high30d重算
+     * @param position30      30日区间位置(调用方预算好);为空时不触发区间退出
      * @param low30d          30日最低价
      * @param high30d         30日最高价
      * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false
@@ -224,18 +230,13 @@ public class StockBatchExitService {
             return new ExitEvaluation(false, null, "30日高低价相等,fail-closed");
         }
 
-        // 若调用方未预算position30,则用low30d/high30d重算
-        BigDecimal effectivePosition30 = position30;
-        if (effectivePosition30 == null) {
-            effectivePosition30 = calculatePosition30(low30d, high30d);
-            if (effectivePosition30 == null) {
-                return new ExitEvaluation(false, null, "position30计算失败");
-            }
+        if (position30 == null) {
+            return new ExitEvaluation(false, null, "position30为空,由调用方预算后传入");
         }
 
-        if (effectivePosition30.compareTo(RANGE_POSITION_THRESHOLD) >= 0) {
+        if (position30.compareTo(RANGE_POSITION_THRESHOLD) >= 0) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_RANGE,
-                    "区间恢复退出: position30=" + effectivePosition30 + " >= " + RANGE_POSITION_THRESHOLD);
+                    "区间恢复退出: position30=" + position30 + " >= " + RANGE_POSITION_THRESHOLD);
         }
         return new ExitEvaluation(false, null, "position30未达区间恢复阈值");
     }
@@ -259,24 +260,6 @@ public class StockBatchExitService {
                 .divide(entryReferencePrice, MATH_SCALE, RoundingMode.HALF_UP)
                 .multiply(SELL_FEE_RATE)
                 .subtract(BigDecimal.ONE);
-    }
-
-    /**
-     * 计算30日区间位置
-     * TODO 阶段B轮次处理时补充currentPrice参数，当前该方法永远返回null，由调用方预算position30
-     * <p>
-     * position30 = (currentPrice - low30) / (high30 - low30)，
-     * 调用前需保证 high30 != low30。当前价由调用方传入,此方法仅用高低价无法计算，
-     * 故返回null提示调用方传入预算好的position30。保留此方法以备内部扩展。
-     *
-     * @param low30d  30日最低价
-     * @param high30d 30日最高价
-     * @return null(需调用方传入position30)
-     */
-    private BigDecimal calculatePosition30(BigDecimal low30d, BigDecimal high30d) {
-        // 此方法签名仅含高低价,无法独立计算position30(缺currentPrice)
-        // 保留为扩展点,当前返回null由调用方负责预算
-        return null;
     }
 
     /**

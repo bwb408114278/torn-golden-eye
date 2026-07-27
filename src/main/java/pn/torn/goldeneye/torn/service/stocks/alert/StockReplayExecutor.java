@@ -39,6 +39,9 @@ import java.time.LocalDateTime;
  *       {@link IllegalStateException} ,本执行器捕获并计入跳过桶数</li>
  * </ul>
  *
+ * <h3>回放隔离(待完善)</h3>
+ * 与生产数据混用同一组合。后续需支持独立回放组合编码 VIP_REPLAY_&lt;runId&gt; ,使回放数据与生产数据完全隔离。
+ *
  * @author Bai
  * @version 1.2.12
  * @since 2026.07.25
@@ -58,6 +61,7 @@ public class StockReplayExecutor {
     private final StockRoundTransactionService roundTransactionService;
     private final StockPortfolioInitService portfolioInitService;
     private final StockMonthlyStateInitService monthlyStateInitService;
+    private final StockMarketClock marketClock;
     private final TornStockSignalEventDAO signalEventDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
 
@@ -169,8 +173,7 @@ public class StockReplayExecutor {
         }
 
         LocalDateTime alignedStart = Stock15mBarBuildService.alignToBucket(startTime);
-        LocalDateTime endTime = Stock15mBarBuildService.alignToBucket(LocalDateTime.now())
-                .minusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
+        LocalDateTime endTime = marketClock.currentEndedBucket();
 
         log.info("全量回放-前置初始化完成, start={}, end={}", alignedStart, endTime);
         return executeReplay(alignedStart, endTime);

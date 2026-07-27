@@ -11,7 +11,6 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalS
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -23,14 +22,15 @@ import java.util.List;
  *   <li>风格缺失或过期 -> REJECTED（STYLE_MISSING）</li>
  *   <li>风格不适配当前策略 -> REJECTED（STYLE_NOT_APPLICABLE）</li>
  *   <li>成熟度不足（M0/M1） -> REJECTED（MATURITY_INSUFFICIENT）</li>
- *   <li>风险等级为HIGH -> OBSERVED（HIGH_RISK_OBSERVED）</li>
+ *   <li>风险等级为HIGH -> 记录风险快照但不阻断,继续后续检查</li>
  *   <li>冷却中（cooldownUntil > now） -> REJECTED（COOLDOWN_ACTIVE）</li>
  *   <li>未复位（resetObserved == false && lastCloseType != null） -> REJECTED（RESET_NOT_OBSERVED）</li>
  *   <li>同股已有正式活跃批次 -> REJECTED（SAME_STOCK_ACTIVE）</li>
  *   <li>strategyReady == false -> REJECTED（DATA_NOT_READY）</li>
  *   <li>以上全部通过 -> ALLOWED</li>
  * </ol>
- * 注意：风格不适配检查需要调用方明确指定待校验的策略适用风格集合，本服务仅判断
+ * 注意：HIGH风险等级不硬否决,仅记录风险快照供后续分析,不改变资格结果。
+ * 风格不适配检查需要调用方明确指定待校验的策略适用风格集合，本服务仅判断
  * context中的stylePrior是否落在该集合内；若调用方未传入策略风格集合则跳过该项检查。
  *
  * @author Bai
@@ -45,18 +45,9 @@ public class StockEligibilityService {
      */
     private static final String REASON_STYLE_MISSING = "STYLE_MISSING";
     /**
-     * 拒绝原因编码：风格不适配当前策略
-     * TODO 阶段B轮次处理时使用，当前资格判断由调用方通过策略的isApplicableStyle完成
-     */
-    private static final String REASON_STYLE_NOT_APPLICABLE = "STYLE_NOT_APPLICABLE";
-    /**
      * 拒绝原因编码：成熟度不足
      */
     private static final String REASON_MATURITY_INSUFFICIENT = "MATURITY_INSUFFICIENT";
-    /**
-     * 观察原因编码：高风险观察
-     */
-    private static final String REASON_HIGH_RISK_OBSERVED = "HIGH_RISK_OBSERVED";
     /**
      * 拒绝原因编码：冷却中
      */
@@ -77,8 +68,10 @@ public class StockEligibilityService {
     /**
      * 检查股票是否具备进入正式买入候选流程的资格。
      * <p>
-     * 按固定顺序执行全部门禁检查，命中任一拒绝/观察条件即短路返回；
+     * 按固定顺序执行全部门禁检查，命中任一拒绝条件即短路返回；
      * 全部通过时返回ALLOWED。返回的{@link EligibilityResult}包含结果枚举与原因编码列表。
+     * <p>
+     * HIGH风险等级不硬否决: 仅记录风险快照日志,不改变资格结果,继续执行后续检查。
      *
      * @param context              买入评估上下文，包含特征与月度状态
      * @param signalState          信号状态记录，包含冷却与复位信息，可为null（视为无冷却、已复位）
@@ -92,7 +85,6 @@ public class StockEligibilityService {
             TornStockMonthlyStateDO monthlyState,
             boolean hasActiveFormalBatch) {
 
-        List<String> reasons = new ArrayList<>();
         Integer stocksId = context.stocksId();
 
         // 1. 风格缺失或过期
@@ -108,10 +100,10 @@ public class StockEligibilityService {
                     "成熟度不足: " + (maturity == null ? "null" : maturity.getCode()));
         }
 
-        // 3. 风险等级为HIGH -> OBSERVED
+        // 3. 风险等级为HIGH -> 仅记录风险快照,不阻断,继续后续检查
         StockRiskLevelEnum riskLevel = context.riskLevel();
         if (StockRiskLevelEnum.HIGH == riskLevel) {
-            return observe(stocksId, REASON_HIGH_RISK_OBSERVED, "风险等级为HIGH");
+            log.info("资格判断-高风险记录: stocksId={}, 风险等级HIGH,不阻断资格判断", stocksId);
         }
 
         // 4. 冷却中
@@ -187,19 +179,6 @@ public class StockEligibilityService {
     private EligibilityResult reject(Integer stocksId, String reason, String detail) {
         log.info("资格判断-拒绝: stocksId={}, reason={}, detail={}", stocksId, reason, detail);
         return new EligibilityResult(StockEligibilityResultEnum.REJECTED, List.of(reason));
-    }
-
-    /**
-     * 构造观察结果并记录日志。
-     *
-     * @param stocksId 股票ID
-     * @param reason   观察原因编码
-     * @param detail   观察详情（仅用于日志）
-     * @return OBSERVED结果
-     */
-    private EligibilityResult observe(Integer stocksId, String reason, String detail) {
-        log.info("资格判断-观察: stocksId={}, reason={}, detail={}", stocksId, reason, detail);
-        return new EligibilityResult(StockEligibilityResultEnum.OBSERVED, List.of(reason));
     }
 
     /**

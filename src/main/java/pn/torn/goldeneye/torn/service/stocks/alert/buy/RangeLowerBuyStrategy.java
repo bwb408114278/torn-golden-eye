@@ -35,11 +35,6 @@ import java.util.Set;
 @Component
 public class RangeLowerBuyStrategy implements StockBuyStrategy {
     /**
-     * 买入规则版本
-     * TODO 阶段B轮次处理时使用
-     */
-    private static final String BUY_RULE_VERSION = "1.0.0";
-    /**
      * 30日通道宽度上限阈值：8%
      */
     private static final BigDecimal WIDTH_30D_THRESHOLD = new BigDecimal("0.08");

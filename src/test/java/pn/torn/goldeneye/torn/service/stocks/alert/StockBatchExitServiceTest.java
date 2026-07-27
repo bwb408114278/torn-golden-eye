@@ -64,7 +64,7 @@ class StockBatchExitServiceTest {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), null);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.009"));
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
 
         assertTrue(result.shouldExit(), "应触发退出");
         assertEquals(StockCloseTypeEnum.CLOSED_TARGET, result.closeType());
@@ -76,7 +76,7 @@ class StockBatchExitServiceTest {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), NON_RANGE_STRATEGY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.007"));
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "净收益低于0.8%且无其他退出条件,不应退出");
     }
@@ -99,7 +99,7 @@ class StockBatchExitServiceTest {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), null);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("-0.016"));
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
 
         assertTrue(result.shouldExit(), "应触发退出");
         assertEquals(StockCloseTypeEnum.CLOSED_RISK, result.closeType());
@@ -111,7 +111,7 @@ class StockBatchExitServiceTest {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), NON_RANGE_STRATEGY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("-0.014"));
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "净收益高于-1.5%且无其他退出条件,不应退出");
     }
@@ -126,7 +126,7 @@ class StockBatchExitServiceTest {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, entryTime, NON_RANGE_STRATEGY);
         BigDecimal currentPrice = ENTRY_PRICE; // netReturn = -0.001,不触发目标/风险
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
 
         assertTrue(result.shouldExit(), "持有14天应触发退出");
         assertEquals(StockCloseTypeEnum.CLOSED_TIME, result.closeType());
@@ -139,7 +139,7 @@ class StockBatchExitServiceTest {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, entryTime, NON_RANGE_STRATEGY);
         BigDecimal currentPrice = ENTRY_PRICE; // netReturn = -0.001
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "持有13天不应退出");
     }
@@ -155,7 +155,7 @@ class StockBatchExitServiceTest {
         BigDecimal low30d = new BigDecimal("90.00");
         BigDecimal high30d = new BigDecimal("110.00");
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
 
         assertTrue(result.shouldExit(), "应触发退出");
         assertEquals(StockCloseTypeEnum.CLOSED_RANGE, result.closeType());
@@ -171,7 +171,7 @@ class StockBatchExitServiceTest {
         BigDecimal low30d = new BigDecimal("90.00");
         BigDecimal high30d = new BigDecimal("110.00");
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "净收益为0不满足区间退出条件,不应退出");
     }
@@ -185,7 +185,7 @@ class StockBatchExitServiceTest {
         BigDecimal low30d = new BigDecimal("100.00");
         BigDecimal high30d = new BigDecimal("100.00"); // == low30d
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "high30==low30时fail-closed,不应退出");
     }
@@ -199,7 +199,7 @@ class StockBatchExitServiceTest {
         BigDecimal low30d = new BigDecimal("90.00");
         BigDecimal high30d = new BigDecimal("110.00");
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "非区间策略不触发区间退出,不应退出");
     }
@@ -215,7 +215,7 @@ class StockBatchExitServiceTest {
         BigDecimal low30d = new BigDecimal("90.00");
         BigDecimal high30d = new BigDecimal("110.00");
 
-        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d);
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
 
         assertFalse(result.shouldExit(), "无退出条件满足时不应退出");
         assertNull(result.closeType(), "shouldExit=false时closeType应为null");

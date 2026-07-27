@@ -5,14 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.base.bot.Bot;
-import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
-import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
-import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
@@ -22,6 +18,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfol
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
@@ -39,7 +36,7 @@ import java.util.*;
  *   <li>检查生产环境({@link BotConstants#ENV_PROD})</li>
  *   <li>调用 {@link #buildSummaryData(LocalDate)} 收集正式组合与影子数据</li>
  *   <li>构建中文摘要文本并写入PENDING通知审计</li>
- *   <li>调用Bot发送至VIP群,根据发送结果更新通知审计状态</li>
+ *   <li>调用 {@link StockNoticeSendService#sendSingleMessage} 发送至VIP群,根据发送结果更新通知审计状态</li>
  * </ol>
  * 摘要内容覆盖正式组合(占用槽位、权益、昨日买卖、净收益、开放批次、陈旧批次)
  * 与影子研究(信号总数、影子新批次、满仓拒绝、风格拒绝、动态卖出建议、高风险观察)。
@@ -111,7 +108,7 @@ public class StockDailySummaryService {
     private final TornStockSignalEventDAO signalEventDAO;
     private final TornStockNoticeAuditDAO noticeAuditDAO;
     private final StockPortfolioService portfolioService;
-    private final Bot bot;
+    private final StockNoticeSendService noticeSendService;
     private final ProjectProperty projectProperty;
     private final SysSettingManager sysSettingManager;
 
@@ -124,7 +121,7 @@ public class StockDailySummaryService {
      *   <li> {@link SettingConstants#KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED} 开关不为 "true" 时返回</li>
      * </ol>
      * 通过后计算摘要日期(发送日前一自然日),构建摘要数据,写入PENDING通知审计,
-     * 调用Bot发送至VIP群,并根据发送结果更新通知审计状态。任一步骤异常时记录日志不中断后续调度。
+     * 调用统一发送服务发送至VIP群,并根据发送结果更新通知审计状态。任一步骤异常时记录日志不中断后续调度。
      */
     @Scheduled(cron = "0 30 8 * * *", zone = "Asia/Shanghai")
     public void executeDailySummary() {
@@ -588,13 +585,13 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 生成载荷哈希(基于摘要日期,同一摘要日期哈希一致便于去重)。
+     * 生成载荷哈希(SHA-256,基于摘要日期,同一摘要日期哈希一致便于去重)。
      *
      * @param summaryDate 摘要日期
-     * @return 载荷哈希
+     * @return 载荷哈希(64位十六进制字符串)
      */
     private String generatePayloadHash(LocalDate summaryDate) {
-        return Integer.toHexString(("DAILY_SUMMARY_" + summaryDate.toString()).hashCode());
+        return StockHashUtils.sha256("DAILY_SUMMARY_" + summaryDate.toString());
     }
 
     /**
@@ -614,8 +611,9 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 调用Bot发送摘要至VIP群,并根据发送结果更新通知审计状态。
+     * 调用统一发送服务发送摘要至VIP群,并根据发送结果更新通知审计状态。
      * <p>
+     * 复用 {@link StockNoticeSendService#sendSingleMessage} 发送(HTTP 2xx且body非空视为成功),
      * 发送成功时更新sendStatus=SENT并记录sentAt;发送失败时更新sendStatus=FAILED并记录错误信息。
      * 发送异常时不抛出,仅记录日志并标记FAILED,等待后续重试机制处理。
      *
@@ -626,17 +624,20 @@ public class StockDailySummaryService {
         notice.setSendAttemptCount(notice.getSendAttemptCount() == null ? 1 : notice.getSendAttemptCount() + 1);
         notice.setAttemptedAt(LocalDateTime.now());
         try {
-            BotHttpReqParam param = new GroupMsgHttpBuilder()
-                    .setGroupId(projectProperty.getVipGroupId())
-                    .addMsg(new TextQqMsg(summaryText))
-                    .build();
-            bot.sendRequest(param, String.class);
-            notice.setSendStatus(StockNoticeStatusEnum.SENT.getCode());
-            notice.setSentAt(LocalDateTime.now());
-            noticeAuditDAO.updateById(notice);
-            log.info("VIP股票每日摘要-发送成功, noticeNo={}", notice.getNoticeNo());
+            boolean sent = noticeSendService.sendSingleMessage(summaryText);
+            if (sent) {
+                notice.setSendStatus(StockNoticeStatusEnum.SENT.getCode());
+                notice.setSentAt(LocalDateTime.now());
+                noticeAuditDAO.updateById(notice);
+                log.info("VIP股票每日摘要-发送成功, noticeNo={}", notice.getNoticeNo());
+            } else {
+                notice.setSendStatus(StockNoticeStatusEnum.FAILED.getCode());
+                notice.setErrorMessage("统一发送服务返回失败");
+                noticeAuditDAO.updateById(notice);
+                log.warn("VIP股票每日摘要-发送失败, noticeNo={}", notice.getNoticeNo());
+            }
         } catch (Exception e) {
-            log.error("VIP股票每日摘要-发送失败, noticeNo={}", notice.getNoticeNo(), e);
+            log.error("VIP股票每日摘要-发送异常, noticeNo={}", notice.getNoticeNo(), e);
             notice.setSendStatus(StockNoticeStatusEnum.FAILED.getCode());
             notice.setErrorMessage(e.getMessage());
             noticeAuditDAO.updateById(notice);

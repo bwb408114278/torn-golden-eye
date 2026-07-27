@@ -10,6 +10,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfol
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -312,5 +313,24 @@ public class StockPortfolioService {
             return null;
         }
         return signalBarStart.plusMinutes(ENTRY_STALE_GRACE_MINUTES);
+    }
+
+    /**
+     * 将槽位列表按ID索引为映射,避免多处重复代码
+     *
+     * @param slots 槽位列表
+     * @return 按槽位ID索引的映射;入参为null时返回空映射
+     */
+    public static Map<Long, TornStockPortfolioSlotDO> indexSlotsById(List<TornStockPortfolioSlotDO> slots) {
+        Map<Long, TornStockPortfolioSlotDO> map = new HashMap<>();
+        if (slots == null) {
+            return map;
+        }
+        for (TornStockPortfolioSlotDO slot : slots) {
+            if (slot.getId() != null) {
+                map.put(slot.getId(), slot);
+            }
+        }
+        return map;
     }
 }

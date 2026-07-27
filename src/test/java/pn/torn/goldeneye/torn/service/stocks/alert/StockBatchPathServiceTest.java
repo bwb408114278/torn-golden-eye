@@ -126,7 +126,7 @@ class StockBatchPathServiceTest {
         TornStockStrategyFeature15mDO feature = buildFeature();
 
         ExitEvaluation exitEval = new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_TARGET, "目标退出");
-        when(batchExitService.evaluateExit(any(), any(), any(), any(), any())).thenReturn(exitEval);
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(exitEval);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
         batchPathService.evaluateExits(
@@ -145,7 +145,7 @@ class StockBatchPathServiceTest {
         TornStockStrategyFeature15mDO feature = buildFeature();
 
         ExitEvaluation noExit = new ExitEvaluation(false, null, "未命中");
-        when(batchExitService.evaluateExit(any(), any(), any(), any(), any())).thenReturn(noExit);
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
         batchPathService.evaluateExits(

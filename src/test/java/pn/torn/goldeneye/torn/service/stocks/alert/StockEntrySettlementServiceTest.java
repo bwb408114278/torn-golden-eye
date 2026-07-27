@@ -133,6 +133,8 @@ class StockEntrySettlementServiceTest {
                     .thenReturn(false);
             mocked.when(() -> StockPortfolioService.calculateQuantity(any(BigDecimal.class), any(BigDecimal.class)))
                     .thenReturn(1000L);
+            mocked.when(() -> StockPortfolioService.indexSlotsById(any()))
+                    .thenReturn(Map.of(1L, slot));
 
             RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
             EntrySettlementResult result = entrySettlementService.processEntryPending(

@@ -14,7 +14,6 @@ import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundS
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,6 +40,14 @@ public class StockEntrySettlementService {
      * 默认关闭类型(无明确卖出原因时使用)
      */
     private static final StockCloseTypeEnum DEFAULT_CLOSE_TYPE = StockCloseTypeEnum.CLOSED_TARGET;
+    /**
+     * 正常关闭冷却时长(小时): 目标/区间/时间/动态/换仓/管理关闭
+     */
+    private static final int NORMAL_COOLDOWN_HOURS = 24;
+    /**
+     * 风险关闭冷却时长(小时): 风险退出关闭需更长冷却期
+     */
+    private static final int RISK_COOLDOWN_HOURS = 48;
 
     private final StockPortfolioService portfolioService;
 
@@ -77,7 +84,7 @@ public class StockEntrySettlementService {
             return new EntrySettlementResult(filledBatches, cancelledBatches);
         }
 
-        Map<Long, TornStockPortfolioSlotDO> slotById = indexSlotsById(snapshot.slots());
+        Map<Long, TornStockPortfolioSlotDO> slotById = StockPortfolioService.indexSlotsById(snapshot.slots());
 
         for (TornStockVirtualBatchDO batch : entryPendingBatches) {
             processSingleEntryBatch(batch, barByStock, slotById, roundTime, filledBatches, cancelledBatches);
@@ -256,7 +263,7 @@ public class StockEntrySettlementService {
             return filledBatches;
         }
 
-        Map<Long, TornStockPortfolioSlotDO> slotById = indexSlotsById(snapshot.slots());
+        Map<Long, TornStockPortfolioSlotDO> slotById = StockPortfolioService.indexSlotsById(snapshot.slots());
 
         for (TornStockVirtualBatchDO batch : exitPendingBatches) {
             processSingleExitBatch(batch, barByStock, slotById, roundTime, filledBatches);
@@ -314,11 +321,18 @@ public class StockEntrySettlementService {
 
     /**
      * 成交待卖出批次: 状态置为CLOSED_xxx, 设置卖出参考价、卖出时间、净收益, 结算槽位。
+     * <p>
+     * 平仓后根据关闭类型设置冷却期与复位标记:
+     * <ul>
+     *   <li>正常关闭(目标/区间/时间/动态/换仓/管理): cooldownUntil = exitTime + 24小时</li>
+     *   <li>风险关闭(CLOSED_RISK): cooldownUntil = exitTime + 48小时</li>
+     *   <li>resetObserved 置为 false,要求下一轮观察到买入条件复位后才能再次产生信号</li>
+     * </ul>
      *
      * @param batch         待成交批次
      * @param currentBar    本轮bar
      * @param slotById      槽位ID索引映射
-     * @param roundTime     本轮时间
+     * @param roundTime     本轮时间(作为平仓时间exitTime)
      * @param filledBatches 输出: 已成交批次列表
      */
     private void fillExitBatch(TornStockVirtualBatchDO batch, TornStockMarketBar15mDO currentBar,
@@ -355,8 +369,10 @@ public class StockEntrySettlementService {
         batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
         batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
 
-        // 设置冷却时间(平仓后进入冷却期)
-        batch.setCooldownUntil(roundTime.plusDays(StockPortfolioService.MAX_HOLD_DAYS));
+        // 设置冷却时间: 风险关闭48小时, 其他关闭24小时
+        batch.setCooldownUntil(calculateCooldownUntil(closeTypeEnum, roundTime));
+        // 平仓后复位标记置为false,要求观察到买入条件复位后才能再次产生信号
+        batch.setResetObserved(false);
 
         filledBatches.add(batch);
     }
@@ -409,26 +425,23 @@ public class StockEntrySettlementService {
         };
     }
 
-    // ==================== 辅助方法 ====================
-
     /**
-     * 按槽位ID索引槽位列表。
+     * 计算平仓后冷却截止时间。
+     * <p>
+     * 风险关闭(CLOSED_RISK)使用48小时冷却期,其他关闭类型使用24小时冷却期。
+     * 冷却期内同股不再产生同类买入信号。
      *
-     * @param slots 槽位列表
-     * @return 按槽位ID索引的映射
+     * @param closeType 关闭类型
+     * @param exitTime  平仓时间
+     * @return 冷却截止时间
      */
-    private Map<Long, TornStockPortfolioSlotDO> indexSlotsById(List<TornStockPortfolioSlotDO> slots) {
-        Map<Long, TornStockPortfolioSlotDO> map = new HashMap<>();
-        if (slots == null) {
-            return map;
-        }
-        for (TornStockPortfolioSlotDO slot : slots) {
-            if (slot.getId() != null) {
-                map.put(slot.getId(), slot);
-            }
-        }
-        return map;
+    private LocalDateTime calculateCooldownUntil(StockCloseTypeEnum closeType, LocalDateTime exitTime) {
+        int cooldownHours = closeType == StockCloseTypeEnum.CLOSED_RISK
+                ? RISK_COOLDOWN_HOURS : NORMAL_COOLDOWN_HOURS;
+        return exitTime.plusHours(cooldownHours);
     }
+
+    // ==================== 辅助方法 ====================
 
     // ==================== 内部值对象 ====================
 

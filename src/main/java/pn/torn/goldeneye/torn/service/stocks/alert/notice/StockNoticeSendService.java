@@ -32,8 +32,8 @@ import java.util.stream.Collectors;
  *   <li>查询全部PENDING通知 {@link TornStockNoticeAuditDAO#selectPendingNotices()}</li>
  *   <li>批量查询关联批次信息(用通知的batchId集合)</li>
  *   <li>调用 {@link StockNoticeComposeService#composeAndMergeNotices} 组合消息</li>
- *   <li>逐条构建 {@link GroupMsgHttpBuilder} + {@link TextQqMsg} 发送,正常返回更新SENT,
- *       异常或返回null更新FAILED</li>
+ *   <li>逐条构建 {@link GroupMsgHttpBuilder} + {@link TextQqMsg} 发送,HTTP 2xx且body非空时更新SENT,
+ *       异常、非2xx或body为null更新FAILED</li>
  *   <li>本期不自动重试,sendAttemptCount从0改为1</li>
  * </ol>
  * 单条通知发送异常不会中断后续通知投递,异常信息写入errorMessage字段。
@@ -79,7 +79,7 @@ public class StockNoticeSendService {
      *   <li>查询全部PENDING通知,无记录直接返回</li>
      *   <li>批量查询关联批次信息(用通知的batchId集合)</li>
      *   <li>调用 {@link StockNoticeComposeService#composeAndMergeNotices} 组合并拆分消息</li>
-     *   <li>逐条发送: 正常返回更新SENT并设置sentAt;异常或返回null更新FAILED并记录errorMessage</li>
+     *   <li>逐条发送: HTTP 2xx且body非空时更新SENT并设置sentAt;异常、非2xx或body为null更新FAILED并记录errorMessage</li>
      * </ol>
      * 单条通知发送异常不中断后续投递,整个方法不抛出异常(内部捕获并记录)。
      */
@@ -128,10 +128,17 @@ public class StockNoticeSendService {
      * <p>
      * 构建群消息请求(目标群为 {@link ProjectProperty#getVipGroupId()}),添加文本消息,
      * 调用 {@link Bot#sendRequest} 发送。返回是否发送成功。
+     * <p>
+     * 成功判定须同时满足以下条件,任一不满足即视为失败并返回false:
+     * <ol>
+     *   <li>{@link ResponseEntity} 非null</li>
+     *   <li>HTTP状态码为2xx({@link org.springframework.http.HttpStatusCode#is2xxSuccessful()})</li>
+     *   <li>响应body非null</li>
+     * </ol>
      * 发送过程中抛出的任何异常都会被捕获并记录日志,方法返回false,不向上抛出。
      *
      * @param text 待发送的中文消息文本
-     * @return true表示发送成功(Bot返回非null响应);false表示发送失败或异常
+     * @return true表示发送成功(2xx且body非空);false表示发送失败、响应异常或无法确认成功
      */
     public boolean sendSingleMessage(String text) {
         try {
@@ -140,8 +147,16 @@ public class StockNoticeSendService {
                     .addMsg(new TextQqMsg(text))
                     .build();
             ResponseEntity<String> response = bot.sendRequest(param, String.class);
-            if (response == null || response.getBody() == null) {
+            if (response == null) {
                 log.warn("股票通知发送-Bot返回null响应, 发送失败");
+                return false;
+            }
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                log.warn("股票通知发送-HTTP状态非2xx, 发送失败, statusCode={}", response.getStatusCode());
+                return false;
+            }
+            if (response.getBody() == null) {
+                log.warn("股票通知发送-响应body为空, 无法确认发送成功");
                 return false;
             }
             return true;

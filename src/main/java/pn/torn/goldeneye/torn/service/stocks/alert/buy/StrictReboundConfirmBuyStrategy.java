@@ -33,11 +33,6 @@ import java.util.Set;
 @Component
 public class StrictReboundConfirmBuyStrategy implements StockBuyStrategy {
     /**
-     * 买入规则版本
-     * TODO 阶段B轮次处理时使用
-     */
-    private static final String BUY_RULE_VERSION = "1.0.0";
-    /**
      * 距30日低点的最大涨幅阈值：0.5%
      */
     private static final BigDecimal PCT_ABOVE_30D_LOW_THRESHOLD = new BigDecimal("0.005");

@@ -35,11 +35,6 @@ import java.util.Set;
 @Component
 public class DeepMeanReversionBuyStrategy implements StockBuyStrategy {
     /**
-     * 买入规则版本
-     * TODO 阶段B轮次处理时使用
-     */
-    private static final String BUY_RULE_VERSION = "1.0.0";
-    /**
      * NARROW风格下Z1的折扣系数
      */
     private static final BigDecimal NARROW_Z1_DISCOUNT = new BigDecimal("0.6");

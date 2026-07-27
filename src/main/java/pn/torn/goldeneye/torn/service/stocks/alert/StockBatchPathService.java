@@ -4,10 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMarkDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBatchExitService.ExitEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
 
@@ -22,6 +20,8 @@ import java.util.Map;
  * 股票批次路径服务 - 更新开放批次持仓路径并评估退出条件
  * <p>
  * 步骤4: 用本轮bar价格更新OPEN批次的峰值/谷值/MFE/MAE/回撤,生成逐轮BatchMark。
+ * 同时维护 DATA_STALE 状态机: OPEN批次bar不可用时转入DATA_STALE,
+ * DATA_STALE批次bar恢复时回到OPEN,相应切换槽位的STALE/OCCUPIED状态。
  * 步骤5: 对每个OPEN批次调用退出评估,命中时置为EXIT_PENDING。
  *
  * @author Bai
@@ -49,31 +49,40 @@ public class StockBatchPathService {
     private final StockBatchExitService batchExitService;
 
     /**
-     * 更新所有OPEN批次的持仓路径并生成BatchMark。
+     * 更新所有持仓中批次的持仓路径并生成BatchMark。
      * <p>
-     * 对每个OPEN批次,用本轮bar价格更新峰值/谷值,计算MFE/MAE/回撤和当前净收益,
+     * 遍历 OPEN 与 DATA_STALE 状态批次,执行数据陈旧状态机:
+     * <ul>
+     *   <li>OPEN批次本轮bar不可用 -&gt; 状态置为 DATA_STALE, slotStatus置为 STALE,跳过路径更新</li>
+     *   <li>DATA_STALE批次本轮bar恢复可用 -&gt; 状态恢复为 OPEN, slotStatus恢复 OCCUPIED,继续路径更新</li>
+     *   <li>DATA_STALE批次本轮bar仍不可用 -&gt; 保持 DATA_STALE,跳过路径更新</li>
+     * </ul>
+     * 对OPEN(含刚恢复的)批次,用本轮bar价格更新峰值/谷值,计算MFE/MAE/回撤和当前净收益,
      * 生成BatchMark记录本轮快照。
      *
      * @param snapshot   轮次快照
      * @param barByStock 按股票ID索引的bar映射
      * @param roundTime  本轮时间
-     * @return 生成的BatchMark列表
+     * @return 生成的BatchMark列表(DATA_STALE批次不产生BatchMark)
      */
     public List<TornStockBatchMarkDO> updatePaths(RoundSnapshot snapshot,
                                                   Map<Integer, TornStockMarketBar15mDO> barByStock,
                                                   LocalDateTime roundTime) {
         List<TornStockBatchMarkDO> marks = new ArrayList<>();
-        List<TornStockVirtualBatchDO> openBatches = snapshot.activeBatches().stream()
-                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))
+        List<TornStockVirtualBatchDO> activeBatches = snapshot.activeBatches().stream()
+                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())
+                        || StockBatchStatusEnum.DATA_STALE.getCode().equals(batch.getBatchStatus()))
                 .toList();
 
-        if (openBatches.isEmpty()) {
-            log.debug("无开放批次需要更新路径");
+        if (activeBatches.isEmpty()) {
+            log.debug("无开放或数据陈旧批次需要更新路径");
             return marks;
         }
 
-        for (TornStockVirtualBatchDO batch : openBatches) {
-            TornStockBatchMarkDO mark = updateSingleBatchPath(batch, barByStock, roundTime);
+        Map<Long, TornStockPortfolioSlotDO> slotById = StockPortfolioService.indexSlotsById(snapshot.slots());
+
+        for (TornStockVirtualBatchDO batch : activeBatches) {
+            TornStockBatchMarkDO mark = updateSingleBatchPath(batch, barByStock, slotById, roundTime);
             if (mark != null) {
                 marks.add(mark);
             }
@@ -83,6 +92,9 @@ public class StockBatchPathService {
 
     /**
      * 对每个OPEN批次评估退出条件,命中则置为EXIT_PENDING。
+     * <p>
+     * 仅对 OPEN 状态批次评估退出。DATA_STALE 状态批次不评估退出,
+     * 其数据恢复由 {@link #updatePaths} 负责。
      *
      * @param snapshot       轮次快照
      * @param barByStock     按股票ID索引的bar映射
@@ -103,19 +115,41 @@ public class StockBatchPathService {
     }
 
     /**
-     * 更新单个批次的持仓路径。
+     * 更新单个批次的持仓路径,处理DATA_STALE状态机。
+     * <p>
+     * 状态机规则:
+     * <ul>
+     *   <li>OPEN批次本轮bar不可用 -&gt; 置为DATA_STALE, slotStatus置STALE, 返回null</li>
+     *   <li>DATA_STALE批次本轮bar可用 -&gt; 恢复OPEN, slotStatus恢复OCCUPIED, 继续路径更新</li>
+     *   <li>DATA_STALE批次本轮bar仍不可用 -&gt; 保持DATA_STALE, 返回null</li>
+     * </ul>
+     * bar可用且批次为OPEN(或刚恢复)时,用本轮bar价格更新峰值/谷值,计算MFE/MAE/回撤,
+     * 生成BatchMark记录本轮快照。
      *
-     * @param batch      开放批次
+     * @param batch      开放或数据陈旧批次
      * @param barByStock bar映射
+     * @param slotById   按槽位ID索引的映射(用于切换slotStatus)
      * @param roundTime  本轮时间
-     * @return BatchMark;bar不可用时返回null
+     * @return BatchMark;DATA_STALE状态或bar不可用时返回null
      */
     private TornStockBatchMarkDO updateSingleBatchPath(TornStockVirtualBatchDO batch,
                                                        Map<Integer, TornStockMarketBar15mDO> barByStock,
+                                                       Map<Long, TornStockPortfolioSlotDO> slotById,
                                                        LocalDateTime roundTime) {
         TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
-        if (currentBar == null || !Stock15mBarBuildService.isUsable(currentBar)) {
-            log.debug("开放批次[{}]本轮bar不可用,跳过路径更新", batch.getBatchNo());
+        boolean barUsable = currentBar != null && Stock15mBarBuildService.isUsable(currentBar);
+        String currentStatus = batch.getBatchStatus();
+
+        // DATA_STALE状态机: bar可用时恢复, bar不可用时保持
+        if (StockBatchStatusEnum.DATA_STALE.getCode().equals(currentStatus)) {
+            if (!barUsable) {
+                log.debug("数据陈旧批次[{}]本轮bar仍不可用,保持DATA_STALE", batch.getBatchNo());
+                return null;
+            }
+            recoverFromDataStale(batch, slotById);
+        } else if (!barUsable) {
+            // OPEN批次bar不可用 -> 转入DATA_STALE
+            transitionToDataStale(batch, slotById);
             return null;
         }
 
@@ -173,7 +207,7 @@ public class StockBatchPathService {
         BigDecimal high30d = feature != null ? feature.getHigh30d() : null;
 
         ExitEvaluation evaluation = batchExitService.evaluateExit(
-                batch, currentBar.getLastPrice(), position30, low30d, high30d);
+                batch, currentBar.getLastPrice(), position30, low30d, high30d, roundTime);
 
         if (evaluation.shouldExit()) {
             batch.setBatchStatus(StockBatchStatusEnum.EXIT_PENDING.getCode());
@@ -293,6 +327,50 @@ public class StockBatchPathService {
         return troughPrice
                 .subtract(peakPrice)
                 .divide(peakPrice, MATH_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 将OPEN批次转入DATA_STALE状态,槽位状态置为STALE。
+     * <p>
+     * 当OPEN批次本轮bar不可用时调用。批次状态置为 DATA_STALE,
+     * 关联槽位状态置为 STALE(若存在)。批次仍持有槽位,仅标记数据陈旧。
+     *
+     * @param batch    待转入DATA_STALE的批次(当前为OPEN)
+     * @param slotById 按槽位ID索引的映射
+     */
+    private void transitionToDataStale(TornStockVirtualBatchDO batch,
+                                       Map<Long, TornStockPortfolioSlotDO> slotById) {
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE.getCode());
+        if (batch.getSlotId() != null) {
+            TornStockPortfolioSlotDO slot = slotById.get(batch.getSlotId());
+            if (slot != null) {
+                slot.setSlotStatus(StockSlotStatusEnum.STALE.getCode());
+            }
+        }
+        log.info("开放批次[{}]本轮bar不可用,转入DATA_STALE, stocksId={}",
+                batch.getBatchNo(), batch.getStocksId());
+    }
+
+    /**
+     * 将DATA_STALE批次恢复为OPEN状态,槽位状态恢复为OCCUPIED。
+     * <p>
+     * 当DATA_STALE批次本轮bar恢复可用时调用。批次状态恢复为 OPEN,
+     * 关联槽位状态恢复为 OCCUPIED(若存在)。恢复后继续正常的路径更新与退出评估。
+     *
+     * @param batch    待恢复的批次(当前为DATA_STALE)
+     * @param slotById 按槽位ID索引的映射
+     */
+    private void recoverFromDataStale(TornStockVirtualBatchDO batch,
+                                      Map<Long, TornStockPortfolioSlotDO> slotById) {
+        batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
+        if (batch.getSlotId() != null) {
+            TornStockPortfolioSlotDO slot = slotById.get(batch.getSlotId());
+            if (slot != null) {
+                slot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
+            }
+        }
+        log.info("数据陈旧批次[{}]本轮bar恢复,恢复OPEN, stocksId={}",
+                batch.getBatchNo(), batch.getStocksId());
     }
 
     /**

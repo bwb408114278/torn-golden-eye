@@ -339,14 +339,14 @@ public class StockShadowRecordWriter {
     }
 
     /**
-     * 生成通知载荷哈希(简化版:用batchId+noticeType拼接哈希)。
+     * 生成通知载荷哈希(SHA-256:用batchId+noticeType拼接后计算)。
      *
      * @param batch      关联批次
      * @param noticeType 通知类型
-     * @return 载荷哈希
+     * @return 载荷哈希(64位十六进制字符串)
      */
     private String generatePayloadHash(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType) {
-        return Integer.toHexString((batch.getId() + "_" + noticeType.getCode()).hashCode());
+        return StockHashUtils.sha256(batch.getId() + "_" + noticeType.getCode());
     }
 
     /**

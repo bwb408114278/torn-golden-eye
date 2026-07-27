@@ -4,16 +4,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBuyStrategyEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockEligibilityService.EligibilityResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.StockCandidateRankingPolicy;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockEligibilityService.EligibilityResult;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -151,8 +147,8 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_风险HIGH_OBSERVED")
-        void checkEligibility_riskHigh_observed() {
+        @DisplayName("checkEligibility_风险HIGH不硬否决_继续通过检查")
+        void checkEligibility_riskHigh_notHardRejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
                     StockMaturityEnum.M3_SEASONED,
@@ -161,8 +157,7 @@ class RankingAndEligibilityTest {
 
             EligibilityResult result = service.checkEligibility(context, null, null, false);
 
-            assertEquals(StockEligibilityResultEnum.OBSERVED, result.result());
-            assertTrue(result.reasons().contains("HIGH_RISK_OBSERVED"));
+            assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
         }
 
         @Test
@@ -253,8 +248,8 @@ class RankingAndEligibilityTest {
     /**
      * 构建候选信息，使用固定的主策略与命中策略列表。
      *
-     * @param stocksId    股票ID
-     * @param shortname   股票简称
+     * @param stocksId     股票ID
+     * @param shortname    股票简称
      * @param qualityScore 质量分
      * @return 候选信息
      */
@@ -270,10 +265,10 @@ class RankingAndEligibilityTest {
     /**
      * 构建资格判断测试上下文，仅设置资格检查需要的字段，其余使用安全默认值。
      *
-     * @param style          策略适配风格
-     * @param maturity       成熟度
-     * @param riskLevel      风险等级
-     * @param strategyReady  策略特征数据是否就绪
+     * @param style         策略适配风格
+     * @param maturity      成熟度
+     * @param riskLevel     风险等级
+     * @param strategyReady 策略特征数据是否就绪
      * @return 买入评估上下文
      */
     private static BuyContext buildEligibilityContext(StockStrategyFitEnum style,
