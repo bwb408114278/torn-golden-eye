@@ -1,8 +1,10 @@
 package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.time.LocalDate;
@@ -57,6 +59,7 @@ public class TornStockNoticeAuditDO extends BaseDO {
     /**
      * 载荷快照(JSON文本,通知的完整消息体)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String payloadSnapshot;
     /**
      * 发送状态(PENDING/SENDING/SUCCESS/FAILED)

@@ -195,38 +195,6 @@ public class StockShadowService {
                 event.getEventNo(), event.getFormalBatchId(), event.getShadowBatchId());
     }
 
-    // ==================== 查询 ====================
-
-    /**
-     * 检查同一股票×策略是否已有开放的无限资金影子批次。
-     * <p>
-     * 查询 ledgerType = UNLIMITED_SHADOW 且 stocksId 等于指定股票ID 且 primaryStrategy
-     * 等于指定策略 且 batchStatus 为活跃状态(ENTRY_PENDING/OPEN/DATA_STALE/
-     * EXIT_PENDING/DATA_STALE_EXIT)的记录是否存在。用于保证同一股票×策略版本
-     * 最多一个开放影子批次。
-     *
-     * @param stocksId      股票ID
-     * @param strategyType 策略类型编码
-     * @return 已存在开放影子批次时返回true,否则返回false
-     */
-    public boolean hasOpenShadowBatch(Integer stocksId, String strategyType) {
-        Objects.requireNonNull(stocksId, "股票ID不能为空");
-        Objects.requireNonNull(strategyType, "策略类型不能为空");
-
-        Long count = virtualBatchDao.lambdaQuery()
-                .eq(TornStockVirtualBatchDO::getLedgerType, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode())
-                .eq(TornStockVirtualBatchDO::getStocksId, stocksId)
-                .eq(TornStockVirtualBatchDO::getPrimaryStrategy, strategyType)
-                .in(TornStockVirtualBatchDO::getBatchStatus,
-                        StockBatchStatusEnum.ENTRY_PENDING.getCode(),
-                        StockBatchStatusEnum.OPEN.getCode(),
-                        StockBatchStatusEnum.DATA_STALE.getCode(),
-                        StockBatchStatusEnum.EXIT_PENDING.getCode(),
-                        StockBatchStatusEnum.DATA_STALE_EXIT.getCode())
-                .count();
-        return count != null && count > 0;
-    }
-
     // ==================== 辅助方法 ====================
 
     /**

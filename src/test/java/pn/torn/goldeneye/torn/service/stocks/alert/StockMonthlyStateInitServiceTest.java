@@ -64,7 +64,7 @@ class StockMonthlyStateInitServiceTest {
     // ==================== initCurrentMonth ====================
 
     @Test
-    @DisplayName("initCurrentMonth: 当月全部股票已CONFIRMED,跳过初始化返回0")
+    @DisplayName("月度初始化_ 当月全部股票已CONFIRMED,跳过初始化返回0")
     void initCurrentMonth_allStocksConfirmed_skipAndReturnZero() {
         // 2支股票,均已在当月CONFIRMED
         List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"), buildStock(2, "MSG"));
@@ -83,7 +83,7 @@ class StockMonthlyStateInitServiceTest {
     }
 
     @Test
-    @DisplayName("initCurrentMonth: 无CONFIRMED记录,为每支股票创建DRAFT草稿")
+    @DisplayName("月度初始化_ 无CONFIRMED记录,为每支股票创建DRAFT草稿")
     void initCurrentMonth_noConfirmedRecords_createsDraftForEachStock() {
         // 2支股票,均未确认
         List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"), buildStock(2, "MSG"));
@@ -138,7 +138,7 @@ class StockMonthlyStateInitServiceTest {
     }
 
     @Test
-    @DisplayName("initCurrentMonth: 风格配置缺失,strategyFitPrior为null(fail-closed,禁止默认STEADY)")
+    @DisplayName("月度初始化_ 风格配置缺失,strategyFitPrior为null(fail-closed,禁止默认STEADY)")
     void initCurrentMonth_styleConfigMissing_strategyFitPriorIsNull() {
         List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"));
         when(tornStocksDao.list()).thenReturn(allStocks);
@@ -173,7 +173,7 @@ class StockMonthlyStateInitServiceTest {
     // ==================== confirmDraftStates ====================
 
     @Test
-    @DisplayName("confirmDraftStates: 当月存在DRAFT记录,批量转为CONFIRMED并返回确认数")
+    @DisplayName("确认草稿状态_ 当月存在DRAFT记录,批量转为CONFIRMED并返回确认数")
     void confirmDraftStates_draftRecordsExist_batchConfirmed() {
         LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
         // 2条DRAFT记录待确认
@@ -207,7 +207,7 @@ class StockMonthlyStateInitServiceTest {
     }
 
     @Test
-    @DisplayName("confirmDraftStates: 当月无DRAFT记录,返回0且不触发更新")
+    @DisplayName("确认草稿状态_ 当月无DRAFT记录,返回0且不触发更新")
     void confirmDraftStates_noDraftRecords_returnZeroWithoutUpdate() {
         LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
         LambdaQueryChainWrapper<TornStockMonthlyStateDO> query = mockLambdaQuery();

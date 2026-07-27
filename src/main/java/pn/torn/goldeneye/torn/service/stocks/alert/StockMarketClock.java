@@ -62,13 +62,4 @@ public class StockMarketClock {
     public LocalDateTime currentEndedBucket() {
         return Stock15mBarBuildService.alignToBucket(now()).minusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
     }
-
-    /**
-     * 获取时区ID
-     *
-     * @return Asia/Shanghai时区
-     */
-    public ZoneId getZoneId() {
-        return ZONE_ID;
-    }
 }

@@ -53,7 +53,7 @@ class Stock15mBarBuildServiceTest {
     // ==================== alignToBucket ====================
 
     @Test
-    @DisplayName("alignToBucket: 各种时间正确对齐到15分钟边界")
+    @DisplayName("桶对齐_各种时间正确对齐到15分钟边界")
     void alignToBucket_variousTimes_correctlyAlignTo15MinBoundary() {
         assertEquals(LocalDateTime.of(2026, 7, 24, 10, 0),
                 Stock15mBarBuildService.alignToBucket(LocalDateTime.of(2026, 7, 24, 10, 7, 23)));
@@ -68,7 +68,7 @@ class Stock15mBarBuildServiceTest {
     // ==================== isUsable ====================
 
     @Test
-    @DisplayName("isUsable: 采样数等于10且桶尾新鲜 -> 返回true")
+    @DisplayName("可用性判定_采样数等于10且桶尾新鲜 -> 返回true")
     void isUsable_sampleCount10AndFreshBarEnd_returnsTrue() {
         LocalDateTime barEnd = LocalDateTime.of(2026, 7, 24, 10, 15);
         TornStockMarketBar15mDO bar = buildBar(10, barEnd.minusMinutes(3), barEnd);
@@ -76,7 +76,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isUsable: 采样数等于9 -> 返回false")
+    @DisplayName("可用性判定_采样数等于9 -> 返回false")
     void isUsable_sampleCount9_returnsFalse() {
         LocalDateTime barEnd = LocalDateTime.of(2026, 7, 24, 10, 15);
         TornStockMarketBar15mDO bar = buildBar(9, barEnd.minusMinutes(1), barEnd);
@@ -84,7 +84,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isUsable: 采样数足够但桶尾不新鲜 -> 返回false")
+    @DisplayName("可用性判定_采样数足够但桶尾不新鲜 -> 返回false")
     void isUsable_sampleCountSufficientButBarEndNotFresh_returnsFalse() {
         LocalDateTime barEnd = LocalDateTime.of(2026, 7, 24, 10, 15);
         // lastSampleTime 比 barEnd-5min 还早 -> 不新鲜
@@ -93,7 +93,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isUsable: 最后采样恰好等于barEnd减5分钟 -> 返回true(边界包含)")
+    @DisplayName("可用性判定_最后采样恰好等于barEnd减5分钟 -> 返回true(边界包含)")
     void isUsable_lastSampleExactlyBarEndMinus5Min_returnsTrue() {
         LocalDateTime barEnd = LocalDateTime.of(2026, 7, 24, 10, 15);
         // lastSampleTime == barEnd - 5min -> isBefore(barEnd-5min) 为 false -> 满足
@@ -102,7 +102,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isUsable: null参数 -> 返回false")
+    @DisplayName("可用性判定_null参数 -> 返回false")
     void isUsable_nullArg_returnsFalse() {
         assertFalse(Stock15mBarBuildService.isUsable(null));
     }
@@ -110,7 +110,7 @@ class Stock15mBarBuildServiceTest {
     // ==================== isConsecutive ====================
 
     @Test
-    @DisplayName("isConsecutive: 紧邻且均可用 -> 返回true")
+    @DisplayName("连续性判定_紧邻且均可用 -> 返回true")
     void isConsecutive_adjacentAndBothUsable_returnsTrue() {
         LocalDateTime barStart1 = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd1 = barStart1.plusMinutes(15);
@@ -124,7 +124,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isConsecutive: 非紧邻 -> 返回false")
+    @DisplayName("连续性判定_非紧邻 -> 返回false")
     void isConsecutive_notAdjacent_returnsFalse() {
         LocalDateTime barStart1 = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd1 = barStart1.plusMinutes(15);
@@ -138,7 +138,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isConsecutive: 紧邻但前一个不可用 -> 返回false")
+    @DisplayName("连续性判定_紧邻但前一个不可用 -> 返回false")
     void isConsecutive_adjacentButPrevNotUsable_returnsFalse() {
         LocalDateTime barStart1 = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd1 = barStart1.plusMinutes(15);
@@ -153,7 +153,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("isConsecutive: null参数 -> 返回false")
+    @DisplayName("连续性判定_null参数 -> 返回false")
     void isConsecutive_nullArg_returnsFalse() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd = barStart.plusMinutes(15);
@@ -167,7 +167,7 @@ class Stock15mBarBuildServiceTest {
     // ==================== buildBars ====================
 
     @Test
-    @DisplayName("buildBars: 正常构建去重并判定可用性")
+    @DisplayName("构建bar_正常构建去重并判定可用性")
     void buildBars_normalBuild_dedupAndJudgeUsability() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd = barStart.plusMinutes(15);
@@ -198,7 +198,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("buildBars: 桶首缺失但后续满足 -> 可用")
+    @DisplayName("构建bar_桶首缺失但后续满足 -> 可用")
     void buildBars_barHeadMissingButSubsequentSatisfies_usable() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd = barStart.plusMinutes(15);
@@ -219,7 +219,7 @@ class Stock15mBarBuildServiceTest {
     }
 
     @Test
-    @DisplayName("buildBars: 无采样数据 -> 返回空列表")
+    @DisplayName("构建bar_无采样数据 -> 返回空列表")
     void buildBars_noSampleData_returnsEmptyList() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd = barStart.plusMinutes(15);

@@ -49,7 +49,7 @@ class StockPortfolioInitServiceTest {
     // ==================== verifyAndInitSlots ====================
 
     @Test
-    @DisplayName("verifyAndInitSlots: 槽位完整且金额正确,返回true且不触发写操作")
+    @DisplayName("验证并初始化槽位_ 槽位完整且金额正确,返回true且不触发写操作")
     void verifyAndInitSlots_slotsCompleteAndAmountCorrect_returnsTrue() {
         // 5个槽位全部存在,initialCash=20亿,availableCash+reservedCash=initialCash
         List<TornStockPortfolioSlotDO> slots = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
@@ -66,7 +66,7 @@ class StockPortfolioInitServiceTest {
     }
 
     @Test
-    @DisplayName("verifyAndInitSlots: 槽位全部缺失,一次性创建5个标准初始槽位并返回false")
+    @DisplayName("验证并初始化槽位_ 槽位全部缺失,一次性创建5个标准初始槽位并返回false")
     void verifyAndInitSlots_allSlotsMissing_createsFiveStandardSlotsAndReturnsFalse() {
         // 数据库无任何槽位
         when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
@@ -90,7 +90,7 @@ class StockPortfolioInitServiceTest {
     }
 
     @Test
-    @DisplayName("verifyAndInitSlots: 槽位数量不足,补建缺失序号槽位并返回false")
+    @DisplayName("验证并初始化槽位_ 槽位数量不足,补建缺失序号槽位并返回false")
     void verifyAndInitSlots_slotsInsufficient_supplementsMissingSlotsAndReturnsFalse() {
         // 仅存在槽位1、3、5,缺失2、4
         TornStockPortfolioSlotDO slot1 = buildStandardSlot(1);
@@ -125,7 +125,7 @@ class StockPortfolioInitServiceTest {
     // ==================== getSlotCount ====================
 
     @Test
-    @DisplayName("getSlotCount: 正常查询5个槽位,返回正确数量")
+    @DisplayName("获取槽位数量_ 正常查询5个槽位,返回正确数量")
     void getSlotCount_normalQuery_returnsCorrectCount() {
         List<TornStockPortfolioSlotDO> slots = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
                 .mapToObj(this::buildStandardSlot)
@@ -139,7 +139,7 @@ class StockPortfolioInitServiceTest {
     }
 
     @Test
-    @DisplayName("getSlotCount: 槽位不存在时返回0")
+    @DisplayName("获取槽位数量_ 槽位不存在时返回0")
     void getSlotCount_noSlots_returnsZero() {
         when(portfolioSlotDao.selectAllByPortfolioCode(anyString()))
                 .thenReturn(List.of());

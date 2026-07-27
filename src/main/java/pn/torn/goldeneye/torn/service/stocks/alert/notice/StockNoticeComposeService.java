@@ -51,10 +51,6 @@ public class StockNoticeComposeService {
      */
     public static final int MAX_ACTIONS_PER_MESSAGE = 3;
     /**
-     * 消息规则版本(与通知审计记录的messageRuleVersion一致)
-     */
-    public static final String MESSAGE_RULE_VERSION = "1.0.0";
-    /**
      * 组合槽位总数(仅用于Javadoc展示,实际值来自 {@code StockPortfolioService.SLOT_COUNT})
      */
     private static final int SLOT_TOTAL = 5;
@@ -70,10 +66,6 @@ public class StockNoticeComposeService {
      * 价格保留小数位
      */
     private static final int PRICE_SCALE_DIGITS = 2;
-    /**
-     * 中间运算精度
-     */
-    private static final int MATH_SCALE = 18;
     /**
      * 跟随截止时间格式(yyyy-MM-dd HH:mm)
      */
@@ -131,13 +123,14 @@ public class StockNoticeComposeService {
      * 组合买入消息文本
      * <p>
      * 使用枚举 {@code getChineseDisplay()} 将策略、风格、成熟度、风险转换为中文。
-     * 跟随截止时间 = 当前时间 + {@value #FOLLOW_MINUTES} 分钟;
-     * 最高建议跟随价 = entryReferencePrice × {@link #FOLLOW_PRICE_MULTIPLIER}。
-     * 组合槽位展示为 {@code occupiedSlots / 5}。
+     * 跟随截止时间和最高建议跟随价直接从批次冻结字段读取(followUntil/followMaxPrice),
+     * 不在组合时重新计算,确保审计快照与实际文本一致。
+     * 组合槽位展示为 {@code batch.slotNo / 5}。
      *
      * @param batch         买入批次(须含batchNo、stocksShortname、primaryStrategy、
-     *                      entryReferencePrice、stylePrior、styleMaturity、riskLevel)
-     * @param occupiedSlots 当前已占用槽位数
+     *                      entryReferencePrice、stylePrior、styleMaturity、riskLevel、
+     *                      followUntil、followMaxPrice、slotNo)
+     * @param occupiedSlots 当前已占用槽位数(未使用,槽位展示从批次slotNo读取)
      * @return 中文买入消息文本
      */
     public String composeBuyMessage(TornStockVirtualBatchDO batch, int occupiedSlots) {
@@ -149,10 +142,14 @@ public class StockNoticeComposeService {
         String maturityChinese = resolveMaturityChinese(batch.getStyleMaturity());
         String riskChinese = resolveRiskChinese(batch.getRiskLevel());
         BigDecimal entryPrice = nullSafePrice(batch.getEntryReferencePrice());
-        BigDecimal followMaxPrice = entryPrice.multiply(FOLLOW_PRICE_MULTIPLIER)
+        BigDecimal followMaxPrice = batch.getFollowMaxPrice() != null
+                ? batch.getFollowMaxPrice().setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP)
+                : entryPrice.multiply(FOLLOW_PRICE_MULTIPLIER)
                 .setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP);
-        LocalDateTime followUntil = LocalDateTime.now().plusMinutes(FOLLOW_MINUTES);
-        String slotDisplay = String.format(SLOT_DISPLAY_TEMPLATE, occupiedSlots, SLOT_TOTAL);
+        LocalDateTime followUntil = batch.getFollowUntil() != null
+                ? batch.getFollowUntil() : LocalDateTime.now().plusMinutes(FOLLOW_MINUTES);
+        int slotNo = batch.getSlotNo() != null ? batch.getSlotNo() : occupiedSlots;
+        String slotDisplay = String.format(SLOT_DISPLAY_TEMPLATE, slotNo, SLOT_TOTAL);
 
         return String.format(BUY_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +

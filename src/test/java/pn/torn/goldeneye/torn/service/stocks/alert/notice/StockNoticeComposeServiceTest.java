@@ -45,7 +45,7 @@ class StockNoticeComposeServiceTest {
     // ==================== 买入消息 ====================
 
     @Nested
-    @DisplayName("composeBuyMessage 买入消息组合")
+    @DisplayName("买入消息组合")
     class ComposeBuyMessage {
 
         @Test
@@ -105,21 +105,21 @@ class StockNoticeComposeServiceTest {
         }
 
         @Test
-        @DisplayName("验证槽位显示_格式为X/5")
+        @DisplayName("验证槽位显示_格式为batchSlotNo/5")
         void composeBuyMessage_slotDisplayFormattedAsOccupiedOverTotal() {
             TornStockVirtualBatchDO batch = buildBuyBatch();
 
             String text = service.composeBuyMessage(batch, 3);
 
-            assertTrue(text.contains("当前组合槽位：3 / 5"),
-                    "槽位显示格式应为 'X / 5' (占位3/总数5)");
+            assertTrue(text.contains("当前组合槽位：2 / 5"),
+                    "槽位显示格式应为 'batch.slotNo / 5' (批次槽位2/总数5)");
         }
     }
 
     // ==================== 卖出消息 ====================
 
     @Nested
-    @DisplayName("composeSellMessage 卖出消息组合")
+    @DisplayName("卖出消息组合")
     class ComposeSellMessage {
 
         @Test
@@ -200,7 +200,7 @@ class StockNoticeComposeServiceTest {
     // ==================== 合并与优先级排序 ====================
 
     @Nested
-    @DisplayName("composeAndMergeNotices 合并与优先级排序")
+    @DisplayName("合并与优先级排序")
     class ComposeAndMergeNotices {
 
         @Test

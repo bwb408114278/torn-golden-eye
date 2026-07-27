@@ -1,8 +1,10 @@
 package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.time.LocalDate;
@@ -69,6 +71,7 @@ public class TornStockMonthlyStateDO extends BaseDO {
     /**
      * 分类时完整指标快照(JSON文本,包含用于评定的全部输入特征)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String metricSnapshot;
     /**
      * 人格分类规则版本

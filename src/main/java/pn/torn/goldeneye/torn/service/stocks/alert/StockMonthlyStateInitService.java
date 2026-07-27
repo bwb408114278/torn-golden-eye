@@ -20,11 +20,7 @@ import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -43,7 +39,10 @@ import java.util.stream.Collectors;
  *       >= {@value #SEASONED_BAR_THRESHOLD} (7天)为M3_SEASONED,
  *       >= {@value #PROVISIONAL_BAR_THRESHOLD} (1天)为M2_PROVISIONAL,
  *       >0为M1_EARLY,无bar为M0_UNMATURE</li>
- *   <li>风险等级: 初始化阶段统一 {@link StockRiskLevelEnum#NONE}</li>
+ *   <li>风险等级: 初始化阶段统一 {@link StockRiskLevelEnum#NONE}。
+ *       完整风险计算需要全窗口日级对数趋势、连续负月比例和最大回撤等多维度指标,
+ *       当前阶段仅有15分钟bar数据,不足以支持完整风险分级。
+ *       NONE表示"暂无明显风险",CONFIRMED前需人工复核风险等级</li>
  *   <li>幂等: 当月已存在CONFIRMED状态的股票跳过,不重复初始化</li>
  *   <li>开仓批次固化: 月度状态一经CONFIRMED即作为当月开仓批次的状态基准,次月变化不回写旧批次</li>
  * </ul>

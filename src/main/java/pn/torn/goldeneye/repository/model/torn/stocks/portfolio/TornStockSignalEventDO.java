@@ -1,8 +1,10 @@
 package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.math.BigDecimal;
@@ -79,10 +81,12 @@ public class TornStockSignalEventDO extends BaseDO {
     /**
      * 信号触发时的特征快照(JSON文本,包含全部输入特征值)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String featureSnapshot;
     /**
      * 信号触发时的风格快照(JSON文本,包含人格/成熟度/风险等级等)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String styleSnapshot;
     /**
      * 资格审查结果(PASS/FAIL)
@@ -91,6 +95,7 @@ public class TornStockSignalEventDO extends BaseDO {
     /**
      * 资格审查原因明细(JSON文本数组,记录每项检查的通过与失败理由)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String eligibilityReasons;
     /**
      * 候选排名(通过资格审查后的质量分排名,未通过时为空)

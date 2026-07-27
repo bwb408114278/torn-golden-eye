@@ -1,8 +1,10 @@
 package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.math.BigDecimal;
@@ -82,5 +84,6 @@ public class TornStockBatchMarkDO extends BaseDO {
     /**
      * 本轮决策特征快照(JSON文本,记录卖出规则引擎的全部输入)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String featureSnapshot;
 }

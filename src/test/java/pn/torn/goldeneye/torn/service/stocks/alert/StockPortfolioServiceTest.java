@@ -48,7 +48,7 @@ class StockPortfolioServiceTest {
     // ==================== 纯计算方法(静态) ====================
 
     @Test
-    @DisplayName("calculateQuantity: 20亿除以100元入场价,返回2000万股")
+    @DisplayName("计算股数_20亿除以100元入场价,返回2000万股")
     void calculateQuantity_2BillionDividedBy100_returns20MillionShares() {
         BigDecimal availableCash = new BigDecimal("2000000000.00");
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
@@ -59,7 +59,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("calculateQuantity: 可用资金有余款时向下取整")
+    @DisplayName("计算股数_可用资金有余款时向下取整")
     void calculateQuantity_hasRemainder_floorDown() {
         // 9999.99 / 100 = 99.9999 -> floor = 99
         BigDecimal availableCash = new BigDecimal("9999.99");
@@ -71,7 +71,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("calculateNetReturn: 买入100卖出100,扣除0.1%手续费后净收益为-0.1%")
+    @DisplayName("净收益计算_买入100卖出100,扣除0.1%手续费后净收益为-0.1%")
     void calculateNetReturn_buy100Sell100_after0p1FeeIsMinus0p1() {
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
         BigDecimal exitReferencePrice = new BigDecimal("100.00");
@@ -84,7 +84,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("calculateNetReturn: 买入100卖出101,扣除0.1%手续费后净收益为正")
+    @DisplayName("净收益计算_买入100卖出101,扣除0.1%手续费后净收益为正")
     void calculateNetReturn_buy100Sell101_netReturnPositive() {
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
         BigDecimal exitReferencePrice = new BigDecimal("101.00");
@@ -98,7 +98,7 @@ class StockPortfolioServiceTest {
     }
 
     @ParameterizedTest
-    @DisplayName("checkEntryPriceDeviation: 偏离边界判定(恰好0.15%不取消/略超取消/价格相同不取消/下跌不取消)")
+    @DisplayName("检查入场价格偏离_偏离边界判定(恰好0.15%不取消/略超取消/价格相同不取消/下跌不取消)")
     @MethodSource("entryPriceDeviationCases")
     void checkEntryPriceDeviation_boundaryCases(BigDecimal signalPrice, BigDecimal entryPrice, boolean expected) {
         boolean result = StockPortfolioService.checkEntryPriceDeviation(signalPrice, entryPrice);
@@ -124,7 +124,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("calculateEntryStaleAt: 信号桶10点开始,返回10点35分")
+    @DisplayName("入场过期时间_信号桶10点开始,返回10点35分")
     void calculateEntryStaleAt_signalBar10Clock_returns10Clock35() {
         LocalDateTime signalBarStart = LocalDateTime.of(2026, 7, 24, 10, 0, 0);
 
@@ -137,7 +137,7 @@ class StockPortfolioServiceTest {
     // ==================== 槽位生命周期(实例方法) ====================
 
     @Test
-    @DisplayName("reserveSlot: 可用槽位预留后变为RESERVED且预留金额正确")
+    @DisplayName("预留槽位_可用槽位预留后变为RESERVED且预留金额正确")
     void reserveSlot_availableSlot_becomesReservedAndAmountCorrect() {
         TornStockPortfolioSlotDO slot = buildAvailableSlot(1);
         BigDecimal reservedAmount = new BigDecimal("500000.00");
@@ -151,7 +151,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("occupySlot: 已预留槽位建仓后变为OCCUPIED且余款转为可用现金")
+    @DisplayName("占用槽位_已预留槽位建仓后变为OCCUPIED且余款转为可用现金")
     void occupySlot_reservedSlot_becomesOccupiedAndDeductAvailableCash() {
         TornStockPortfolioSlotDO slot = buildReservedSlot(1, new BigDecimal("1000000.00"));
         Long quantity = 5000L;
@@ -171,7 +171,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("releaseSlot: 已预留槽位释放后变为AVAILABLE且返还预留金额")
+    @DisplayName("释放槽位_已预留槽位释放后变为AVAILABLE且返还预留金额")
     void releaseSlot_reservedSlot_becomesAvailableAndReturnsReservedAmount() {
         BigDecimal reservedAmount = new BigDecimal("800000.00");
         TornStockPortfolioSlotDO slot = buildReservedSlot(1, reservedAmount);
@@ -189,7 +189,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("settleSlot: 已占用槽位卖出结算后变为AVAILABLE且卖出所得回槽")
+    @DisplayName("结算槽位_已占用槽位卖出结算后变为AVAILABLE且卖出所得回槽")
     void settleSlot_occupiedSlot_becomesAvailableAndSellProceedsReturn() {
         TornStockPortfolioSlotDO slot = buildOccupiedSlot(1, new BigDecimal("1500000000.00"));
         long quantity = 5000L;
@@ -209,7 +209,7 @@ class StockPortfolioServiceTest {
     }
 
     @Test
-    @DisplayName("calculateEquity: 3槽可用2槽占用,权益=现金合计+仓位市值合计")
+    @DisplayName("组合权益计算_3槽可用2槽占用,权益=现金合计+仓位市值合计")
     void calculateEquity_3SlotsAvailable2Occupied_equityCorrect() {
         TornStockPortfolioSlotDO slot1 = buildAvailableSlot(1); // available=20亿,reserved=0
         TornStockPortfolioSlotDO slot2 = buildAvailableSlot(2); // available=20亿,reserved=0

@@ -393,7 +393,7 @@ public class StockBuySignalEvaluator {
      * <p>
      * 遍历排序后的候选列表,对每个候选:
      * <ol>
-     *   <li>查找可用槽位(findAvailableSlot);无槽位时停止接纳</li>
+     *   <li>查找可用槽位(findFirstAvailableFromSnapshot);无槽位时停止接纳</li>
      *   <li>计算股数(calculateQuantity);股数不足时跳过该候选</li>
      *   <li>创建正式批次(ENTRY_PENDING),预留槽位</li>
      * </ol>
@@ -488,7 +488,7 @@ public class StockBuySignalEvaluator {
         }
 
         FormalBatchContext ctx = new FormalBatchContext(
-                candidate, slot, bar, monthlyState, signalReferencePrice, quantity, roundTime, rank);
+                candidate, slot, monthlyState, signalReferencePrice, quantity, roundTime);
         TornStockVirtualBatchDO batch = createFormalBatch(ctx);
 
         virtualBatchDao.save(batch);
@@ -723,17 +723,6 @@ public class StockBuySignalEvaluator {
             }
 
             /**
-             * 设置候选排名。
-             *
-             * @param candidateRank 候选排名
-             * @return 当前构建器
-             */
-            public Builder candidateRank(Integer candidateRank) {
-                this.candidateRank = candidateRank;
-                return this;
-            }
-
-            /**
              * 设置是否被正式接纳。
              *
              * @param acceptedFormal 是否正式接纳
@@ -778,22 +767,18 @@ public class StockBuySignalEvaluator {
      *
      * @param candidate            候选信息
      * @param slot                 分配的槽位
-     * @param bar                  本轮bar
      * @param monthlyState         月度状态(用于填充风格/风险字段)
      * @param signalReferencePrice 信号参考价
      * @param quantity             计划买入股数
      * @param roundTime            本轮时间
-     * @param rank                 候选排名
      */
     private record FormalBatchContext(
             CandidateInfo candidate,
             TornStockPortfolioSlotDO slot,
-            TornStockMarketBar15mDO bar,
             TornStockMonthlyStateDO monthlyState,
             BigDecimal signalReferencePrice,
             Long quantity,
-            LocalDateTime roundTime,
-            int rank
+            LocalDateTime roundTime
     ) {
     }
 

@@ -43,7 +43,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("rank_质量分降序排序_正确")
+        @DisplayName("候选排序_质量分降序排序_正确")
         void rank_qualityScoreDescendingOrder_correct() {
             CandidateInfo low = buildCandidate(1001, "LOW", new BigDecimal("80"));
             CandidateInfo high = buildCandidate(1002, "HIGH", new BigDecimal("126"));
@@ -59,7 +59,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("rank_质量分相同_按股票ID升序")
+        @DisplayName("候选排序_质量分相同_按股票ID升序")
         void rank_qualityScoreEqual_orderByStocksIdAscending() {
             CandidateInfo c3 = buildCandidate(1003, "C3", new BigDecimal("100"));
             CandidateInfo c1 = buildCandidate(1001, "C1", new BigDecimal("100"));
@@ -75,7 +75,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("rank_空列表_返回空列表")
+        @DisplayName("候选排序_空列表_返回空列表")
         void rank_emptyList_returnsEmptyList() {
             List<CandidateInfo> result = policy.rank(List.of());
             assertTrue(result.isEmpty());
@@ -99,7 +99,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_风格缺失_REJECTED")
+        @DisplayName("资格判断_风格缺失_REJECTED")
         void checkEligibility_styleMissing_rejected() {
             BuyContext context = buildEligibilityContext(
                     null,
@@ -114,7 +114,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_风格不适配_不被本服务拒绝由调用方校验")
+        @DisplayName("资格判断_风格不适配_不被本服务拒绝由调用方校验")
         void checkEligibility_styleNotFit_notRejectedByThisService() {
             // 实际实现中风格不适配检查由调用方通过策略的isApplicableStyle完成，
             // 本服务仅判断style==null为缺失。传入非null但策略不适配的风格时应继续后续检查，
@@ -132,7 +132,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_成熟度M0_REJECTED")
+        @DisplayName("资格判断_成熟度M0_REJECTED")
         void checkEligibility_maturityM0_rejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
@@ -147,7 +147,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_风险HIGH不硬否决_继续通过检查")
+        @DisplayName("资格判断_风险HIGH不硬否决_继续通过检查")
         void checkEligibility_riskHigh_notHardRejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
@@ -161,7 +161,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_冷却中_REJECTED")
+        @DisplayName("资格判断_冷却中_REJECTED")
         void checkEligibility_inCooldown_rejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
@@ -179,7 +179,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_未复位_REJECTED")
+        @DisplayName("资格判断_未复位_REJECTED")
         void checkEligibility_notReset_rejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
@@ -198,7 +198,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_同股活跃批次_REJECTED")
+        @DisplayName("资格判断_同股活跃批次_REJECTED")
         void checkEligibility_sameStockActiveBatch_rejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
@@ -213,7 +213,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_strategyReady为false_REJECTED")
+        @DisplayName("资格判断_strategyReady为false_REJECTED")
         void checkEligibility_strategyReadyFalse_rejected() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,
@@ -228,7 +228,7 @@ class RankingAndEligibilityTest {
         }
 
         @Test
-        @DisplayName("checkEligibility_全部通过_ALLOWED")
+        @DisplayName("资格判断_全部通过_ALLOWED")
         void checkEligibility_allPassed_allowed() {
             BuyContext context = buildEligibilityContext(
                     StockStrategyFitEnum.RANGING,

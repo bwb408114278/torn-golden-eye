@@ -105,19 +105,23 @@ public class StockShadowRecordWriter {
      *   <li>REJECTED/OBSERVED -&gt; 创建拒绝观察批次</li>
      * </ul>
      *
-     * @param allEvaluations   全部信号评估结果
-     * @param newFormalBatches 本轮新建的正式批次列表(需回填signalEventId)
-     * @param roundTime        本轮时间
+     * @param allEvaluations         全部信号评估结果
+     * @param newFormalBatches       本轮新建的正式批次列表(需回填signalEventId)
+     * @param candidateRankByStockId 候选排名映射(stocksId -> rank),供事件回写
+     * @param roundTime              本轮时间
      */
     public void writeShadowRecords(List<? extends SignalEvaluationView> allEvaluations,
                                    List<TornStockVirtualBatchDO> newFormalBatches,
+                                   Map<Integer, Integer> candidateRankByStockId,
                                    LocalDateTime roundTime) {
         Map<Integer, TornStockVirtualBatchDO> formalBatchByStockId = indexFormalBatchesByStockId(newFormalBatches);
         for (SignalEvaluationView evaluation : allEvaluations) {
             if (!evaluation.edgeTriggered() || evaluation.primaryStrategy() == null) {
                 continue;
             }
-            writeSingleShadowRecord(evaluation, formalBatchByStockId.get(evaluation.stocksId()), roundTime);
+            Integer rank = candidateRankByStockId != null
+                    ? candidateRankByStockId.get(evaluation.stocksId()) : null;
+            writeSingleShadowRecord(evaluation, formalBatchByStockId.get(evaluation.stocksId()), rank, roundTime);
         }
     }
 
@@ -147,12 +151,14 @@ public class StockShadowRecordWriter {
      * 组装信号事件上下文(含月度风格字段与信号参考价)并记录事件,然后根据组合决策:
      * 创建对应的影子批次、拒绝观察批次,或回填正式批次的signalEventId。
      *
-     * @param evaluation  信号评估结果
-     * @param formalBatch 对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
-     * @param roundTime   本轮时间
+     * @param evaluation    信号评估结果
+     * @param formalBatch   对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
+     * @param candidateRank 候选排名;未入选正式时为null
+     * @param roundTime     本轮时间
      */
     private void writeSingleShadowRecord(SignalEvaluationView evaluation,
                                          TornStockVirtualBatchDO formalBatch,
+                                         Integer candidateRank,
                                          LocalDateTime roundTime) {
         EligibilityResult eligibility = evaluation.eligibilityResult();
         String eligibilityResultCode = eligibility != null ? eligibility.result().getCode() : null;
@@ -178,7 +184,7 @@ public class StockShadowRecordWriter {
                 buildStyleSnapshot(monthlyState),
                 eligibilityResultCode,
                 eligibilityReasons,
-                evaluation.candidateRank(),
+                candidateRank,
                 portfolioDecision,
                 rejectReason,
                 roundTime
@@ -364,8 +370,9 @@ public class StockShadowRecordWriter {
         notice.setSendStatus(StockNoticeStatusEnum.PENDING.getCode());
         notice.setSendAttemptCount(0);
         notice.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
-        notice.setPayloadHash(generatePayloadHash(batch, noticeType));
-        notice.setPayloadSnapshot(buildNoticePayload(batch, noticeType));
+        String payloadSnapshot = buildNoticePayload(batch, noticeType);
+        notice.setPayloadSnapshot(payloadSnapshot);
+        notice.setPayloadHash(generatePayloadHash(payloadSnapshot));
         return notice;
     }
 
@@ -386,14 +393,16 @@ public class StockShadowRecordWriter {
     }
 
     /**
-     * 生成通知载荷哈希(SHA-256:用batchId+noticeType拼接后计算)。
+     * 生成通知载荷哈希(SHA-256:基于payload快照JSON内容计算)。
+     * <p>
+     * hash基于确定性序列化后的业务载荷(payloadSnapshot JSON),
+     * 而非batchId_noticeType拼接,确保审计快照、实际发送文本和hash三者一致。
      *
-     * @param batch      关联批次
-     * @param noticeType 通知类型
+     * @param payloadSnapshot 载荷快照JSON文本
      * @return 载荷哈希(64位十六进制字符串)
      */
-    private String generatePayloadHash(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType) {
-        return StockHashUtils.sha256(batch.getId() + "_" + noticeType.getCode());
+    private String generatePayloadHash(String payloadSnapshot) {
+        return StockHashUtils.sha256(payloadSnapshot);
     }
 
     /**

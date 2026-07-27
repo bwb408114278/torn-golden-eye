@@ -24,9 +24,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * VIP股票策略调度器 - 每分钟驱动数据轮次构建与启动补偿
  * <p>
- * 在生产环境下每分钟第20秒检查已结束但尚未完成的15分钟轮次,按round_time升序逐个处理:
- * 先构建bar,再构建特征,状态流转 PENDING -> BUILDING_BAR -> BUILDING_FEATURE -> COMPLETED;
+ * 在生产环境下每分钟第10秒检查已结束但尚未完成的15分钟轮次,按round_time升序逐个处理:
+ * 先构建bar,再构建特征,状态流转 PENDING -> BUILDING_BAR -> BUILDING_FEATURE -> READY -> 事务 -> COMPLETED;
  * 若bar构建结果为空(无采样数据)则标记为WAITING_DATA。
+ * {@link #processSingleRound} 处理单个轮次时,若轮次已是READY状态则跳过bar与特征构建,
+ * 直接加载快照并执行事务(用于事务失败后的重试场景)。
  * <p>
  * JVM内通过 {@link AtomicBoolean#compareAndSet(boolean, boolean)} 防重入,finally释放;
  * 数据库 {@code round_time} 部分唯一索引提供最终幂等,不引入Redis锁或ShedLock等新依赖。
@@ -88,7 +90,7 @@ public class VipStockAlertScheduler {
     private final AtomicBoolean processing = new AtomicBoolean(false);
 
     /**
-     * 每分钟第20秒执行轮次调度
+     * 每分钟第10秒执行轮次调度
      * <p>
      * 执行前置检查:
      * <ol>

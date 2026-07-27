@@ -2,30 +2,11 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBuyStrategyEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCancelReasonEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockPortfolioDecisionEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 
 import java.util.regex.Pattern;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 股票组合相关枚举映射测试 - 验证全部16个枚举的中文展示与fromCode方法
@@ -41,13 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("股票组合枚举映射测试")
 class StockPortfolioEnumTest {
 
-    /** 匹配ASCII英文字母(a-zA-Z)的正则,用于校验chineseDisplay不含英文 */
+    /**
+     * 匹配ASCII英文字母(a-zA-Z)的正则,用于校验chineseDisplay不含英文
+     */
     private static final Pattern ASCII_LETTER = Pattern.compile("[a-zA-Z]");
 
     // ==================== chineseDisplay 非空且不含英文 ====================
 
     @Test
-    @DisplayName("StockBuyStrategyEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("买入策略枚举_ 所有值chineseDisplay非空且不含英文")
     void stockBuyStrategyEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockBuyStrategyEnum e : StockBuyStrategyEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -57,7 +40,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockBatchStatusEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("批次状态枚举_ 所有值chineseDisplay非空且不含英文")
     void stockBatchStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockBatchStatusEnum e : StockBatchStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -67,7 +50,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockCloseTypeEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("关闭类型枚举_ 所有值chineseDisplay非空且不含英文")
     void stockCloseTypeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockCloseTypeEnum e : StockCloseTypeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -77,7 +60,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockSlotStatusEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("槽位状态枚举_ 所有值chineseDisplay非空且不含英文")
     void stockSlotStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockSlotStatusEnum e : StockSlotStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -87,7 +70,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockLedgerTypeEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("账本类型枚举_ 所有值chineseDisplay非空且不含英文")
     void stockLedgerTypeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockLedgerTypeEnum e : StockLedgerTypeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -97,7 +80,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockEligibilityResultEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("资格结果枚举_ 所有值chineseDisplay非空且不含英文")
     void stockEligibilityResultEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockEligibilityResultEnum e : StockEligibilityResultEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -107,7 +90,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockPortfolioDecisionEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("组合决策枚举_ 所有值chineseDisplay非空且不含英文")
     void stockPortfolioDecisionEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockPortfolioDecisionEnum e : StockPortfolioDecisionEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -117,7 +100,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockNoticeTypeEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("通知类型枚举_ 所有值chineseDisplay非空且不含英文")
     void stockNoticeTypeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockNoticeTypeEnum e : StockNoticeTypeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -127,7 +110,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockNoticeStatusEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("通知状态枚举_ 所有值chineseDisplay非空且不含英文")
     void stockNoticeStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockNoticeStatusEnum e : StockNoticeStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -137,7 +120,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockCancelReasonEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("取消原因枚举_ 所有值chineseDisplay非空且不含英文")
     void stockCancelReasonEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockCancelReasonEnum e : StockCancelReasonEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -147,7 +130,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockRuleModeEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("规则模式枚举_ 所有值chineseDisplay非空且不含英文")
     void stockRuleModeEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockRuleModeEnum e : StockRuleModeEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -157,7 +140,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockStrategyFitEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("策略适配枚举_ 所有值chineseDisplay非空且不含英文")
     void stockStrategyFitEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockStrategyFitEnum e : StockStrategyFitEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -167,7 +150,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockRiskLevelEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("风险等级枚举_ 所有值chineseDisplay非空且不含英文")
     void stockRiskLevelEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockRiskLevelEnum e : StockRiskLevelEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -177,7 +160,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockMonthlyStateStatusEnum: 所有值chineseDisplay非空且不含英文")
+    @DisplayName("月度状态枚举_ 所有值chineseDisplay非空且不含英文")
     void stockMonthlyStateStatusEnum_allValues_chineseDisplayNonEmptyAndNoEnglish() {
         for (StockMonthlyStateStatusEnum e : StockMonthlyStateStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -187,7 +170,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockRoundStatusEnum: 所有值chineseDisplay非空且以中文为主")
+    @DisplayName("轮次状态枚举_ 所有值chineseDisplay非空且以中文为主")
     void stockRoundStatusEnum_allValues_chineseDisplayNonEmpty() {
         for (StockRoundStatusEnum e : StockRoundStatusEnum.values()) {
             assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
@@ -200,7 +183,7 @@ class StockPortfolioEnumTest {
     // ==================== StockBatchStatusEnum.isActive ====================
 
     @Test
-    @DisplayName("StockBatchStatusEnum: isActive对活跃状态返回true")
+    @DisplayName("批次状态枚举_ isActive对活跃状态返回true")
     void stockBatchStatusEnum_isActive_activeStatusReturnsTrue() {
         assertTrue(StockBatchStatusEnum.ENTRY_PENDING.isActive(), "ENTRY_PENDING应为活跃");
         assertTrue(StockBatchStatusEnum.OPEN.isActive(), "OPEN应为活跃");
@@ -210,7 +193,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockBatchStatusEnum: isActive对关闭状态返回false")
+    @DisplayName("批次状态枚举_ isActive对关闭状态返回false")
     void stockBatchStatusEnum_isActive_closedStatusReturnsFalse() {
         assertFalse(StockBatchStatusEnum.CLOSED_TARGET.isActive(), "CLOSED_TARGET应非活跃");
         assertFalse(StockBatchStatusEnum.CLOSED_RANGE.isActive(), "CLOSED_RANGE应非活跃");
@@ -225,7 +208,7 @@ class StockPortfolioEnumTest {
     // ==================== StockMaturityEnum.isUsable ====================
 
     @Test
-    @DisplayName("StockMaturityEnum: isUsable对M2/M3/M4返回true")
+    @DisplayName("成熟度枚举_ isUsable对M2/M3/M4返回true")
     void stockMaturityEnum_isUsable_M2M3M4ReturnsTrue() {
         assertTrue(StockMaturityEnum.M2_PROVISIONAL.isUsable(), "M2暂定应可用");
         assertTrue(StockMaturityEnum.M3_SEASONED.isUsable(), "M3较成熟应可用");
@@ -233,7 +216,7 @@ class StockPortfolioEnumTest {
     }
 
     @Test
-    @DisplayName("StockMaturityEnum: isUsable对M0/M1返回false")
+    @DisplayName("成熟度枚举_ isUsable对M0/M1返回false")
     void stockMaturityEnum_isUsable_M0M1ReturnsFalse() {
         assertFalse(StockMaturityEnum.M0_UNMATURE.isUsable(), "M0未成熟应不可用");
         assertFalse(StockMaturityEnum.M1_EARLY.isUsable(), "M1早期应不可用");
@@ -242,7 +225,7 @@ class StockPortfolioEnumTest {
     // ==================== fromCode 有效编码 ====================
 
     @Test
-    @DisplayName("fromCode: 有效编码返回对应枚举(覆盖全部16个枚举)")
+    @DisplayName("编码转换_ 有效编码返回对应枚举(覆盖全部16个枚举)")
     void fromCode_validCode_returnsCorrespondingEnum() {
         // 逐个枚举验证 fromCode 对每个值都能正确还原
         for (StockBuyStrategyEnum e : StockBuyStrategyEnum.values()) {
@@ -298,7 +281,7 @@ class StockPortfolioEnumTest {
     // ==================== fromCode 无效编码 ====================
 
     @Test
-    @DisplayName("fromCode: 无效编码抛出IllegalArgumentException(覆盖全部16个枚举)")
+    @DisplayName("编码转换_ 无效编码抛出IllegalArgumentException(覆盖全部16个枚举)")
     void fromCode_invalidCode_throwsIllegalArgumentException() {
         String invalidCode = "NON_EXISTENT_CODE";
 

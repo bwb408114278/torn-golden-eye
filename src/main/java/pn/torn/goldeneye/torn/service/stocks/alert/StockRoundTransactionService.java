@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockBatchMarkDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
@@ -86,6 +87,7 @@ public class StockRoundTransactionService {
     private final StockCandidateRankingPolicy candidateRankingPolicy;
     private final StockShadowRecordWriter shadowRecordWriter;
     private final StockSignalStateUpdater signalStateUpdater;
+    private final pn.torn.goldeneye.torn.manager.setting.SysSettingManager sysSettingManager;
 
     /**
      * 执行一轮组合决策的全部写操作。
@@ -106,6 +108,12 @@ public class StockRoundTransactionService {
         // 步骤1: 创建/锁定轮次记录
         TornStockMarketRoundDO round = lockOrCreateRound(roundTime, snapshot);
 
+        // 行锁落地: 在事务内重新锁定正式组合全部槽位(FOR UPDATE),
+        // 替换Loader在事务外读取的快照槽位,保证槽位分配与状态变更的并发安全。
+        List<TornStockPortfolioSlotDO> lockedSlots =
+                portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE);
+        log.debug("槽位行锁已获取: slotCount={}", lockedSlots.size());
+
         // 预构建索引
         Map<Integer, TornStockMarketBar15mDO> barByStock = indexBarsByStockId(snapshot.bars());
         Map<Integer, TornStockStrategyFeature15mDO> featureByStock = indexFeaturesByStockId(snapshot.features());
@@ -120,7 +128,7 @@ public class StockRoundTransactionService {
         RoundSnapshot mergedSnapshot = new RoundSnapshot(
                 snapshot.bars(), snapshot.features(), snapshot.monthlyStates(),
                 allActiveBatches, snapshot.shadowBatches(), snapshot.signalStates(),
-                snapshot.slots(), snapshot.roundTime());
+                lockedSlots, snapshot.roundTime());
 
         // 步骤2: 处理待买入批次(ENTRY_PENDING) - 含正式与影子
         EntrySettlementResult entryResult = entrySettlementService.processEntryPending(
@@ -141,13 +149,27 @@ public class StockRoundTransactionService {
         BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
                 snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
 
-        // 步骤7: 排序候选并预留槽位
+        // 步骤7: 排序候选并预留槽位(根据规则模式开关决定是否创建正式批次)
         List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
-        List<TornStockVirtualBatchDO> newFormalBatches = buySignalEvaluator.acceptCandidates(
-                rankedCandidates, snapshot, barByStock, monthlyStateByStock, roundTime);
+        List<TornStockVirtualBatchDO> newFormalBatches = List.of();
+        StockRuleModeEnum ruleMode = resolveRuleMode();
+        if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
+            newFormalBatches = buySignalEvaluator.acceptCandidates(
+                    rankedCandidates, snapshot, barByStock, monthlyStateByStock, roundTime);
+        } else {
+            log.info("规则模式[{}]不创建正式批次,跳过候选接纳: candidateCount={}",
+                    ruleMode.getCode(), rankedCandidates.size());
+        }
+
+        // 构建候选排名映射(stocksId -> rank),供信号事件回写
+        Map<Integer, Integer> candidateRankByStockId = new HashMap<>();
+        for (int i = 0; i < rankedCandidates.size(); i++) {
+            candidateRankByStockId.put(rankedCandidates.get(i).stocksId(), i + 1);
+        }
 
         // 步骤8: 写入原始信号事件、影子批次与拒绝观察批次,并回填正式批次的signalEventId
-        shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), newFormalBatches, roundTime);
+        shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), newFormalBatches,
+                candidateRankByStockId, roundTime);
 
         // 步骤9: 为已成交的买入/卖出写入PENDING通知审计
         shadowRecordWriter.writeNoticeAudits(
@@ -350,5 +372,26 @@ public class StockRoundTransactionService {
             }
         }
         return map;
+    }
+
+    /**
+     * 从系统配置读取当前规则模式。
+     * <p>
+     * 配置缺失或解析失败时默认返回SHADOW(安全降级,只写研究不创建正式批次)。
+     *
+     * @return 当前规则模式
+     */
+    private StockRuleModeEnum resolveRuleMode() {
+        String modeCode = sysSettingManager.getSettingValue(
+                pn.torn.goldeneye.constants.torn.SettingConstants.KEY_VIP_STOCK_RULE_MODE);
+        if (modeCode == null || modeCode.isBlank()) {
+            return StockRuleModeEnum.SHADOW;
+        }
+        try {
+            return StockRuleModeEnum.fromCode(modeCode);
+        } catch (IllegalArgumentException e) {
+            log.warn("规则模式编码无效,默认SHADOW: code={}", modeCode);
+            return StockRuleModeEnum.SHADOW;
+        }
     }
 }

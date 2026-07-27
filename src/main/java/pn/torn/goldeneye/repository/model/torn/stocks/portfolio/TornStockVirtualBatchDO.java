@@ -1,8 +1,10 @@
 package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
 import java.math.BigDecimal;
@@ -51,6 +53,7 @@ public class TornStockVirtualBatchDO extends BaseDO {
     /**
      * 匹配的策略列表(JSON文本,记录同时满足条件的全部策略标识)
      */
+    @TableField(typeHandler = JsonbTypeHandler.class)
     private String matchedStrategies;
     /**
      * 信号质量评分(来自关联信号事件)
