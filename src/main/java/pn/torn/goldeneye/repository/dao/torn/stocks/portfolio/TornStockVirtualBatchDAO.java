@@ -28,6 +28,15 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
+     * 查询全部活跃影子批次(UNLIMITED_SHADOW),批量获取避免N+1
+     *
+     * @return 影子活跃批次列表
+     */
+    public List<TornStockVirtualBatchDO> selectActiveShadowBatches() {
+        return baseMapper.selectActiveShadowBatches();
+    }
+
+    /**
      * 查询待买入批次(预期入场bar时间已到期),批量获取避免N+1
      *
      * @param currentTime 当前时间

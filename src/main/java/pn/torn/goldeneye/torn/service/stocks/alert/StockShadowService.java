@@ -49,7 +49,6 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class StockShadowService {
-
     /**
      * 事件编号前缀
      */
@@ -73,8 +72,9 @@ public class StockShadowService {
     /**
      * 编号时间戳格式化器
      */
-    private static final DateTimeFormatter NO_TIMESTAMP_FORMATTER =
-            DateTimeFormatter.ofPattern(NO_TIMESTAMP_PATTERN);
+    private static final DateTimeFormatter NO_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern(NO_TIMESTAMP_PATTERN);
+    private static final String MSG_SIGNAL_EVENT_NULL = "信号事件不能为空";
+    private static final String MSG_SIGNAL_EVENT_ID_NULL = "信号事件主键ID不能为空";
 
     private final TornStockSignalEventDAO signalEventDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
@@ -137,8 +137,8 @@ public class StockShadowService {
      * @return 已保存的影子批次DO(含主键ID与批次编号)
      */
     public TornStockVirtualBatchDO createUnlimitedShadowBatch(TornStockSignalEventDO event) {
-        Objects.requireNonNull(event, "信号事件不能为空");
-        Objects.requireNonNull(event.getId(), "信号事件主键ID不能为空");
+        Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
+        Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
 
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
         batch.setBatchNo(generateBatchNo(SHADOW_BATCH_NO_PREFIX, event.getStocksId()));
@@ -165,8 +165,8 @@ public class StockShadowService {
      * @return 已保存的拒绝观察批次DO(含主键ID与批次编号)
      */
     public TornStockVirtualBatchDO createRejectedObservationBatch(TornStockSignalEventDO event, String rejectReason) {
-        Objects.requireNonNull(event, "信号事件不能为空");
-        Objects.requireNonNull(event.getId(), "信号事件主键ID不能为空");
+        Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
+        Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
 
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
         batch.setBatchNo(generateBatchNo(REJECTED_BATCH_NO_PREFIX, event.getStocksId()));
@@ -178,6 +178,21 @@ public class StockShadowService {
         log.info("拒绝观察批次创建-完成: batchNo={}, stocksId={}, signalEventId={}, rejectReason={}",
                 batch.getBatchNo(), batch.getStocksId(), event.getId(), rejectReason);
         return batch;
+    }
+
+    /**
+     * 更新信号事件的正式批次ID和影子批次ID。
+     * <p>
+     * 在创建正式批次或影子批次后,将批次ID回写到信号事件,建立双向审计关联。
+     *
+     * @param event 待更新的信号事件(须已保存,含主键ID与batchId字段)
+     */
+    public void updateEventBatchIds(TornStockSignalEventDO event) {
+        Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
+        Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
+        signalEventDao.updateById(event);
+        log.info("信号事件批次ID回写: eventNo={}, formalBatchId={}, shadowBatchId={}",
+                event.getEventNo(), event.getFormalBatchId(), event.getShadowBatchId());
     }
 
     // ==================== 查询 ====================

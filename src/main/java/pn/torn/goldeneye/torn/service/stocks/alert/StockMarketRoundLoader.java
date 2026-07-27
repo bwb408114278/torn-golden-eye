@@ -83,13 +83,15 @@ public class StockMarketRoundLoader {
         List<TornStockMonthlyStateDO> monthlyStates =
                 monthlyStateDao.selectConfirmedByMonth(roundTime.toLocalDate().withDayOfMonth(1));
         List<TornStockVirtualBatchDO> activeBatches = virtualBatchDao.selectActiveFormalBatches();
+        List<TornStockVirtualBatchDO> shadowBatches = virtualBatchDao.selectActiveShadowBatches();
         List<TornStockSignalStateDO> signalStates = signalStateDao.selectAll();
         List<TornStockPortfolioSlotDO> slots =
                 portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
-        log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, activeBatches={}, signalStates={}, slots={}",
+        log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, formalBatches={}, shadowBatches={}, signalStates={}, slots={}",
                 bars.size(), features.size(), monthlyStates.size(),
-                activeBatches.size(), signalStates.size(), slots.size());
-        return new RoundSnapshot(bars, features, monthlyStates, activeBatches, signalStates, slots, roundTime);
+                activeBatches.size(), shadowBatches.size(), signalStates.size(), slots.size());
+        return new RoundSnapshot(bars, features, monthlyStates, activeBatches, shadowBatches,
+                signalStates, slots, roundTime);
     }
 
     /**
@@ -102,6 +104,7 @@ public class StockMarketRoundLoader {
      * @param features      本轮全部股票15分钟策略特征
      * @param monthlyStates 当月已确认的月度风格状态
      * @param activeBatches 所有正式活跃批次
+     * @param shadowBatches 所有活跃影子批次(UNLIMITED_SHADOW)
      * @param signalStates  所有信号边沿状态
      * @param slots         正式组合全部槽位状态
      * @param roundTime     本轮bar开始时间
@@ -111,6 +114,7 @@ public class StockMarketRoundLoader {
             List<TornStockStrategyFeature15mDO> features,
             List<TornStockMonthlyStateDO> monthlyStates,
             List<TornStockVirtualBatchDO> activeBatches,
+            List<TornStockVirtualBatchDO> shadowBatches,
             List<TornStockSignalStateDO> signalStates,
             List<TornStockPortfolioSlotDO> slots,
             LocalDateTime roundTime

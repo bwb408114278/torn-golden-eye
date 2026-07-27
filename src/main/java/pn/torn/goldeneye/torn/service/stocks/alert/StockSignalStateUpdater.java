@@ -47,17 +47,18 @@ public class StockSignalStateUpdater {
     /**
      * 更新信号边沿状态:记录本轮 matches 结果为 conditionActive,边沿触发时更新 lastSignalTime。
      * <p>
-     * 对每个有评估结果的股票,更新 {@link TornStockSignalStateDO#getConditionActive()} 为本轮
-     * matches 结果,边沿触发时更新 lastSignalTime 与 lastEvaluatedRoundTime。
+     * 对每个有评估结果的股票,按主策略的复合键(stocksId, strategyType, buyRuleVersion)查找
+     * 或新建信号状态,更新 conditionActive 为本轮 matches 结果,
+     * 边沿触发时更新 lastSignalTime 与 lastEvaluatedRoundTime。
      * 单支股票的状态更新逻辑提取为 {@link #updateSingleSignalState},返回待保存的 DO。
      *
-     * @param allEvaluations     全部信号评估结果
-     * @param signalStateByStock 按股票ID索引的信号状态映射
-     * @param roundTime          本轮时间
+     * @param allEvaluations   全部信号评估结果
+     * @param signalStateByKey 按复合键索引的信号状态映射
+     * @param roundTime        本轮时间
      */
     public void updateStates(
             List<? extends StockBuySignalEvaluator.SignalEvaluation> allEvaluations,
-            Map<Integer, TornStockSignalStateDO> signalStateByStock,
+            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
             LocalDateTime roundTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         if (allEvaluations == null || allEvaluations.isEmpty()) {
@@ -66,7 +67,7 @@ public class StockSignalStateUpdater {
 
         List<TornStockSignalStateDO> toSave = new ArrayList<>(allEvaluations.size());
         for (SignalEvaluation evaluation : allEvaluations) {
-            toSave.add(updateSingleSignalState(evaluation, signalStateByStock, roundTime));
+            toSave.add(updateSingleSignalState(evaluation, signalStateByKey, roundTime));
         }
 
         signalStateDAO.saveOrUpdateBatch(toSave);
@@ -76,27 +77,29 @@ public class StockSignalStateUpdater {
     /**
      * 更新单支股票的信号状态,返回待保存的 DO。
      * <p>
-     * 若 signalStateByStock 中不存在该股票的状态记录,则新建并初始化策略类型
-     * (由 {@link #resolveStrategyType} 解析)、买入规则版本与复位标记。
+     * 按主策略的复合键(stocksId, strategyType, buyRuleVersion)从映射中查找信号状态。
+     * 若不存在则新建并初始化策略类型、买入规则版本与复位标记。
      * 随后更新 conditionActive 为本轮 matches 结果、lastEvaluatedRoundTime 为本轮时间,
-     * 边沿触发时更新 lastSignalTime,条件从 true 变为 false 时标记复位已观察
-     * (由 {@link #isResetObserved} 判断)。
+     * 边沿触发时更新 lastSignalTime,条件从 true 变为 false 时标记复位已观察。
      *
-     * @param evaluation         单支股票的信号评估结果
-     * @param signalStateByStock 按股票ID索引的信号状态映射
-     * @param roundTime          本轮时间
+     * @param evaluation       单支股票的信号评估结果
+     * @param signalStateByKey 按复合键索引的信号状态映射
+     * @param roundTime        本轮时间
      * @return 待保存的信号状态 DO
      */
     private TornStockSignalStateDO updateSingleSignalState(
             SignalEvaluation evaluation,
-            Map<Integer, TornStockSignalStateDO> signalStateByStock,
+            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
             LocalDateTime roundTime) {
-        TornStockSignalStateDO state = signalStateByStock.get(evaluation.stocksId());
+        String strategyType = resolveStrategyType(evaluation);
+        StockSignalStateKey key = new StockSignalStateKey(
+                evaluation.stocksId(), strategyType, StockRoundTransactionService.BUY_RULE_VERSION);
+        TornStockSignalStateDO state = signalStateByKey.get(key);
 
         if (state == null) {
             state = new TornStockSignalStateDO();
             state.setStocksId(evaluation.stocksId());
-            state.setStrategyType(resolveStrategyType(evaluation));
+            state.setStrategyType(strategyType);
             state.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
             state.setResetObserved(false);
         }

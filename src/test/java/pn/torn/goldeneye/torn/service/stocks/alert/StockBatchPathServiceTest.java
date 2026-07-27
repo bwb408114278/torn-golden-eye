@@ -198,7 +198,7 @@ class StockBatchPathServiceTest {
 
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches) {
         return new RoundSnapshot(
-                List.of(), List.of(), List.of(), activeBatches, List.of(), List.of(), ROUND_TIME
+                List.of(), List.of(), List.of(), activeBatches, List.of(), List.of(), List.of(), ROUND_TIME
         );
     }
 }

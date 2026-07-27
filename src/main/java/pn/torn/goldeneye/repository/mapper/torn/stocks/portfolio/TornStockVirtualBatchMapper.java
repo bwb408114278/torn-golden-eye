@@ -26,6 +26,13 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
     List<TornStockVirtualBatchDO> selectActiveFormalBatches();
 
     /**
+     * 查询全部活跃影子批次(UNLIMITED_SHADOW)
+     *
+     * @return 影子活跃批次列表
+     */
+    List<TornStockVirtualBatchDO> selectActiveShadowBatches();
+
+    /**
      * 查询待买入批次(预期入场bar时间已到期)
      *
      * @param currentTime 当前时间

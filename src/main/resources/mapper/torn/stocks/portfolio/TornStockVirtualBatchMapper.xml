@@ -9,6 +9,14 @@
           AND deleted = 0
     </select>
 
+    <!-- 查询全部活跃影子批次 -->
+    <select id="selectActiveShadowBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'UNLIMITED_SHADOW'
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+    </select>
+
     <!-- 查询待买入批次(预期入场bar时间已到期) -->
     <select id="selectPendingEntryBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch

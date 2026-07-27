@@ -105,13 +105,13 @@ public class StockShadowRecordWriter {
      *   <li>REJECTED/OBSERVED -&gt; 创建拒绝观察批次</li>
      * </ul>
      *
-     * @param allEvaluations  全部信号评估结果
+     * @param allEvaluations   全部信号评估结果
      * @param newFormalBatches 本轮新建的正式批次列表(需回填signalEventId)
-     * @param roundTime       本轮时间
+     * @param roundTime        本轮时间
      */
     public void writeShadowRecords(List<? extends SignalEvaluationView> allEvaluations,
-                                    List<TornStockVirtualBatchDO> newFormalBatches,
-                                    LocalDateTime roundTime) {
+                                   List<TornStockVirtualBatchDO> newFormalBatches,
+                                   LocalDateTime roundTime) {
         Map<Integer, TornStockVirtualBatchDO> formalBatchByStockId = indexFormalBatchesByStockId(newFormalBatches);
         for (SignalEvaluationView evaluation : allEvaluations) {
             if (!evaluation.edgeTriggered() || evaluation.primaryStrategy() == null) {
@@ -147,13 +147,13 @@ public class StockShadowRecordWriter {
      * 组装信号事件上下文(含月度风格字段与信号参考价)并记录事件,然后根据组合决策:
      * 创建对应的影子批次、拒绝观察批次,或回填正式批次的signalEventId。
      *
-     * @param evaluation   信号评估结果
-     * @param formalBatch  对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
-     * @param roundTime    本轮时间
+     * @param evaluation  信号评估结果
+     * @param formalBatch 对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
+     * @param roundTime   本轮时间
      */
     private void writeSingleShadowRecord(SignalEvaluationView evaluation,
-                                          TornStockVirtualBatchDO formalBatch,
-                                          LocalDateTime roundTime) {
+                                         TornStockVirtualBatchDO formalBatch,
+                                         LocalDateTime roundTime) {
         EligibilityResult eligibility = evaluation.eligibilityResult();
         String eligibilityResultCode = eligibility != null ? eligibility.result().getCode() : null;
         List<String> eligibilityReasons = eligibility != null ? eligibility.reasons() : List.of();
@@ -188,8 +188,12 @@ public class StockShadowRecordWriter {
 
         if (DECISION_FORMAL.equals(portfolioDecision) && formalBatch != null) {
             formalBatch.setSignalEventId(event.getId());
+            event.setFormalBatchId(formalBatch.getId());
+            shadowService.updateEventBatchIds(event);
         } else if (DECISION_SHADOW.equals(portfolioDecision)) {
-            shadowService.createUnlimitedShadowBatch(event);
+            TornStockVirtualBatchDO shadowBatch = shadowService.createUnlimitedShadowBatch(event);
+            event.setShadowBatchId(shadowBatch.getId());
+            shadowService.updateEventBatchIds(event);
         } else if (DECISION_REJECTED.equals(portfolioDecision)) {
             shadowService.createRejectedObservationBatch(event, rejectReason);
         }

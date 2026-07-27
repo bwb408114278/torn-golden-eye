@@ -77,6 +77,7 @@ public class StockBuySignalEvaluator {
      * <ol>
      *   <li>组装 {@link BuyContext}</li>
      *   <li>调用 {@link #matchStrategies} 遍历买入策略,选取主策略(质量分最高)</li>
+     *   <li>按主策略的复合键(stocksId, strategyType, buyRuleVersion)查找信号状态</li>
      *   <li>比较 signalState.conditionActive 与本轮 matches 结果,判断 false-&gt;true 边沿</li>
      *   <li>边沿触发时调用 {@link StockEligibilityService#checkEligibility}</li>
      *   <li>ALLOWED 的候选加入正式候选列表</li>
@@ -86,7 +87,7 @@ public class StockBuySignalEvaluator {
      * @param snapshot            轮次快照
      * @param barByStock          按股票ID索引的bar映射
      * @param monthlyStateByStock 按股票ID索引的月度状态映射
-     * @param signalStateByStock  按股票ID索引的信号状态映射
+     * @param signalStateByKey    按复合键(stocksId,strategyType,buyRuleVersion)索引的信号状态映射
      * @param roundTime           本轮bar开始时间(决策锚点)
      * @return 买入信号评估结果,包含正式候选列表与全部评估结果
      */
@@ -94,7 +95,7 @@ public class StockBuySignalEvaluator {
             RoundSnapshot snapshot,
             Map<Integer, TornStockMarketBar15mDO> barByStock,
             Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
-            Map<Integer, TornStockSignalStateDO> signalStateByStock,
+            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
             LocalDateTime roundTime) {
         Objects.requireNonNull(snapshot, "轮次快照不能为空");
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
@@ -105,7 +106,7 @@ public class StockBuySignalEvaluator {
 
         for (TornStockStrategyFeature15mDO feature : snapshot.features()) {
             SignalEvaluation evaluation = evaluateSingleStock(
-                    feature, barByStock, monthlyStateByStock, signalStateByStock,
+                    feature, barByStock, monthlyStateByStock, signalStateByKey,
                     activeFormalStockIds, roundTime);
             if (evaluation == null) {
                 continue;
@@ -133,7 +134,6 @@ public class StockBuySignalEvaluator {
      * @param feature              该股票的策略特征
      * @param barByStock           按股票ID索引的bar映射
      * @param monthlyStateByStock  按股票ID索引的月度状态映射
-     * @param signalStateByStock   按股票ID索引的信号状态映射
      * @param activeFormalStockIds 已有正式活跃批次的股票ID集合
      * @return 信号评估结果;被跳过时返回 null
      */
@@ -141,7 +141,7 @@ public class StockBuySignalEvaluator {
             TornStockStrategyFeature15mDO feature,
             Map<Integer, TornStockMarketBar15mDO> barByStock,
             Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
-            Map<Integer, TornStockSignalStateDO> signalStateByStock,
+            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
             Set<Integer> activeFormalStockIds,
             LocalDateTime roundTime) {
         if (!Boolean.TRUE.equals(feature.getStrategyReady())) {
@@ -162,7 +162,8 @@ public class StockBuySignalEvaluator {
 
         StrategyMatchResult matchResult = matchStrategies(context);
         boolean currentMatches = !matchResult.matchedStrategies().isEmpty();
-        TornStockSignalStateDO signalState = signalStateByStock.get(stocksId);
+        TornStockSignalStateDO signalState = resolveSignalState(
+                stocksId, matchResult.primaryStrategy(), signalStateByKey);
         boolean edgeTriggered = checkEdgeTriggered(currentMatches, signalState);
 
         SignalEvaluation.Builder builder = SignalEvaluation.builder(stocksId, context.stocksShortname())
@@ -250,6 +251,30 @@ public class StockBuySignalEvaluator {
     private boolean checkEdgeTriggered(boolean currentMatches, TornStockSignalStateDO signalState) {
         boolean previousActive = signalState != null && Boolean.TRUE.equals(signalState.getConditionActive());
         return currentMatches && !previousActive;
+    }
+
+    /**
+     * 按主策略的复合键(stocksId, strategyType, buyRuleVersion)从映射中查找信号状态。
+     * <p>
+     * 主策略为null时返回null(无命中策略,无需查找状态)。
+     *
+     * @param stocksId         股票ID
+     * @param primaryStrategy  主策略;为null时返回null
+     * @param signalStateByKey 按复合键索引的信号状态映射
+     * @return 对应策略的信号状态;不存在时返回null
+     */
+    private TornStockSignalStateDO resolveSignalState(
+            Integer stocksId,
+            StockBuyStrategy primaryStrategy,
+            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey) {
+        if (primaryStrategy == null) {
+            return null;
+        }
+        StockSignalStateKey key = new StockSignalStateKey(
+                stocksId,
+                primaryStrategy.getStrategyType().getCode(),
+                StockRoundTransactionService.BUY_RULE_VERSION);
+        return signalStateByKey.get(key);
     }
 
     /**

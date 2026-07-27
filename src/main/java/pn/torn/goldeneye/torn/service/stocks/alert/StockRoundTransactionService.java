@@ -110,26 +110,36 @@ public class StockRoundTransactionService {
         Map<Integer, TornStockMarketBar15mDO> barByStock = indexBarsByStockId(snapshot.bars());
         Map<Integer, TornStockStrategyFeature15mDO> featureByStock = indexFeaturesByStockId(snapshot.features());
         Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock = indexMonthlyStatesByStockId(snapshot.monthlyStates());
-        Map<Integer, TornStockSignalStateDO> signalStateByStock = indexSignalStatesByStockId(snapshot.signalStates());
+        Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey = indexSignalStatesByKey(snapshot.signalStates());
 
-        // 步骤2: 处理待买入批次(ENTRY_PENDING)
+        // 合并正式与影子活跃批次,统一参与入场/路径/退出处理
+        List<TornStockVirtualBatchDO> allActiveBatches = new ArrayList<>(snapshot.activeBatches());
+        if (snapshot.shadowBatches() != null) {
+            allActiveBatches.addAll(snapshot.shadowBatches());
+        }
+        RoundSnapshot mergedSnapshot = new RoundSnapshot(
+                snapshot.bars(), snapshot.features(), snapshot.monthlyStates(),
+                allActiveBatches, snapshot.shadowBatches(), snapshot.signalStates(),
+                snapshot.slots(), snapshot.roundTime());
+
+        // 步骤2: 处理待买入批次(ENTRY_PENDING) - 含正式与影子
         EntrySettlementResult entryResult = entrySettlementService.processEntryPending(
-                snapshot, barByStock, roundTime);
+                mergedSnapshot, barByStock, roundTime);
 
-        // 步骤3: 处理待卖出批次(EXIT_PENDING)
+        // 步骤3: 处理待卖出批次(EXIT_PENDING) - 含正式与影子
         List<TornStockVirtualBatchDO> exitFilledBatches = entrySettlementService.processExitPending(
-                snapshot, barByStock, roundTime);
+                mergedSnapshot, barByStock, roundTime);
 
-        // 步骤4: 更新开放批次路径
+        // 步骤4: 更新开放批次路径 - 含正式与影子
         List<TornStockBatchMarkDO> marks = batchPathService.updatePaths(
-                snapshot, barByStock, roundTime);
+                mergedSnapshot, barByStock, roundTime);
 
-        // 步骤5: 评估退出条件
-        batchPathService.evaluateExits(snapshot, barByStock, featureByStock, roundTime);
+        // 步骤5: 评估退出条件 - 含正式与影子
+        batchPathService.evaluateExits(mergedSnapshot, barByStock, featureByStock, roundTime);
 
         // 步骤6: 评估买入信号与资格
         BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
-                snapshot, barByStock, monthlyStateByStock, signalStateByStock, roundTime);
+                snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
 
         // 步骤7: 排序候选并预留槽位
         List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
@@ -145,13 +155,13 @@ public class StockRoundTransactionService {
 
         // 步骤10: 更新信号边沿状态
         signalStateUpdater.updateStates(
-                signalResult.allEvaluations(), signalStateByStock, roundTime);
+                signalResult.allEvaluations(), signalStateByKey, roundTime);
 
-        // 批量保存变更
-        batchSaveChanges(snapshot, marks, newFormalBatches);
+        // 批量保存变更(含影子批次的路径/状态变更)
+        batchSaveChanges(mergedSnapshot, marks, newFormalBatches);
 
         // 步骤11: 更新轮次为COMPLETED
-        completeRound(round, snapshot);
+        completeRound(round, mergedSnapshot);
 
         log.info("轮次事务完成: roundTime={}, entryFilled={}, entryCancelled={}, exitFilled={}, newFormal={}, marks={}",
                 roundTime, entryResult.filledBatches().size(), entryResult.cancelledBatches().size(),
@@ -320,17 +330,23 @@ public class StockRoundTransactionService {
     }
 
     /**
-     * 按股票ID索引信号状态列表。
+     * 按复合键(stocksId, strategyType, buyRuleVersion)索引信号状态列表。
+     * <p>
+     * 替代原按单股票ID索引的方式,避免同股多策略的信号状态互相覆盖。
+     * 对应数据库唯一索引 uk_stock_signal_state_stock_strat_ver。
      *
      * @param signalStates 信号状态列表
-     * @return 按股票ID索引的映射
+     * @return 按复合键索引的映射
      */
-    private Map<Integer, TornStockSignalStateDO> indexSignalStatesByStockId(
+    private Map<StockSignalStateKey, TornStockSignalStateDO> indexSignalStatesByKey(
             List<TornStockSignalStateDO> signalStates) {
-        Map<Integer, TornStockSignalStateDO> map = new HashMap<>();
+        Map<StockSignalStateKey, TornStockSignalStateDO> map = new HashMap<>();
         if (signalStates != null) {
             for (TornStockSignalStateDO state : signalStates) {
-                map.put(state.getStocksId(), state);
+                StockSignalStateKey key = StockSignalStateKey.of(state);
+                if (key != null) {
+                    map.put(key, state);
+                }
             }
         }
         return map;
