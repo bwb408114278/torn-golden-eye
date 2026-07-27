@@ -10,6 +10,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -37,15 +38,11 @@ import java.util.Map;
 public class StockEntrySettlementService {
 
     /**
-     * 默认关闭类型(无明确卖出原因时使用)
-     */
-    private static final StockCloseTypeEnum DEFAULT_CLOSE_TYPE = StockCloseTypeEnum.CLOSED_TARGET;
-    /**
-     * 正常关闭冷却时长(小时): 目标/区间/时间/动态/换仓/管理关闭
+     * 正常关闭冷却时长(小时): 目标、区间、时间、动态、换仓和管理关闭。
      */
     private static final int NORMAL_COOLDOWN_HOURS = 24;
     /**
-     * 风险关闭冷却时长(小时): 风险退出关闭需更长冷却期
+     * 风险关闭冷却时长(小时): 风险退出关闭需更长冷却期。
      */
     private static final int RISK_COOLDOWN_HOURS = 48;
 
@@ -109,7 +106,7 @@ public class StockEntrySettlementService {
                                          List<TornStockVirtualBatchDO> filledBatches,
                                          List<TornStockVirtualBatchDO> cancelledBatches) {
         // 检查是否超过过期时间
-        if (batch.getEntryStaleAt() != null && roundTime.isAfter(batch.getEntryStaleAt())) {
+        if (batch.getEntryStaleAt() != null && !roundTime.isBefore(batch.getEntryStaleAt())) {
             cancelEntryBatch(batch, slotById, StockCancelReasonEnum.ENTRY_DATA_STALE, cancelledBatches);
             log.info("待买入批次过期取消: batchNo={}, stocksId={}, staleAt={}, roundTime={}",
                     batch.getBatchNo(), batch.getStocksId(), batch.getEntryStaleAt(), roundTime);
@@ -216,8 +213,8 @@ public class StockEntrySettlementService {
         batch.setMfe(BigDecimal.ZERO);
         batch.setMae(BigDecimal.ZERO);
         batch.setPeakDrawdown(BigDecimal.ZERO);
-        batch.setFollowUntil(roundTime.plusMinutes(StockPortfolioService.MAX_HOLD_DAYS * 24 * 60L));
-        batch.setFollowMaxPrice(entryReferencePrice);
+        batch.setFollowUntil(roundTime.plusMinutes(StockNoticeComposeService.FOLLOW_MINUTES));
+        batch.setFollowMaxPrice(entryReferencePrice.multiply(StockNoticeComposeService.FOLLOW_PRICE_MULTIPLIER));
         batch.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
         batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
         batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
@@ -252,18 +249,15 @@ public class StockEntrySettlementService {
     // ==================== 步骤3: 处理待卖出批次 ====================
 
     /**
-     * 处理EXIT_PENDING批次: 检查本轮bar是否为紧邻下一连续bar, 成交则关闭批次并释放槽位。
+     * 处理待卖出批次: 检查本轮bar是否为紧邻下一连续bar, 成交则关闭批次并释放槽位。
      * <p>
-     * 处理规则:
-     * <ul>
-     *   <li>本轮bar与预期平仓bar连续 -&gt; 成交(状态CLOSED_xxx, 设置exitReferencePrice/exitTime/netReturn)</li>
-     *   <li>本轮bar不可用或非连续 -&gt; 保持EXIT_PENDING等待下一轮</li>
-     * </ul>
+     * 结果仅返回真实完成参考卖出的CLOSED_*批次。DATA_STALE_EXIT只更新批次状态,
+     * 不进入通知发送列表,避免生成没有成交价格的SELL通知。
      *
      * @param snapshot   轮次快照
      * @param barByStock 按股票ID索引的bar映射
      * @param roundTime  本轮时间
-     * @return 已成交的卖出批次列表
+     * @return 已完成真实卖出的批次列表
      */
     public List<TornStockVirtualBatchDO> processExitPending(RoundSnapshot snapshot,
                                                             Map<Integer, TornStockMarketBar15mDO> barByStock,
@@ -273,7 +267,6 @@ public class StockEntrySettlementService {
                 .toList();
 
         List<TornStockVirtualBatchDO> filledBatches = new ArrayList<>();
-
         if (exitPendingBatches.isEmpty()) {
             log.debug("无待卖出批次需要处理");
             return filledBatches;
@@ -315,7 +308,6 @@ public class StockEntrySettlementService {
             log.info("待卖出批次[{}]本轮bar不可用,转DATA_STALE_EXIT: stocksId={}",
                     batch.getBatchNo(), batch.getStocksId());
             batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
-            filledBatches.add(batch);
             return;
         }
 
@@ -324,7 +316,6 @@ public class StockEntrySettlementService {
             log.info("待卖出批次[{}]本轮bar非连续(已错过预期bar),转DATA_STALE_EXIT: expected={}, actual={}",
                     batch.getBatchNo(), batch.getExpectedExitBarTime(), currentBar.getBarStartTime());
             batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
-            filledBatches.add(batch);
             return;
         }
 
@@ -405,29 +396,19 @@ public class StockEntrySettlementService {
     }
 
     /**
-     * 解析关闭类型枚举, 为空时使用默认值, 解析失败时回退到默认值。
-     * <p>
-     * 提取自原fillExitBatch中的嵌套三元表达式, 降低认知复杂度。
+     * 解析关闭类型枚举,空值或未知编码均视为数据一致性错误。
      *
-     * @param exitReason 卖出原因编码(可为null)
+     * @param exitReason 卖出原因编码
      * @return 关闭类型枚举
+     * @throws IllegalStateException 关闭原因为空或无法解析时抛出
      */
     private StockCloseTypeEnum resolveCloseTypeEnum(String exitReason) {
-        if (exitReason == null) {
-            return DEFAULT_CLOSE_TYPE;
+        if (exitReason == null || exitReason.isBlank()) {
+            throw new IllegalStateException("关闭类型编码为空,数据一致性破坏");
         }
         return safeParseCloseType(exitReason);
     }
 
-    /**
-     * 安全解析关闭类型枚举, 解析失败时fail-closed抛出数据一致性异常。
-     * <p>
-     * 不再把未知编码回退为CLOSED_TARGET,避免把数据损坏伪装成"达到目标收益"。
-     *
-     * @param code 关闭类型编码
-     * @return 关闭类型枚举
-     * @throws IllegalStateException 当编码无法解析时,表示数据一致性破坏
-     */
     private StockCloseTypeEnum safeParseCloseType(String code) {
         try {
             return StockCloseTypeEnum.fromCode(code);

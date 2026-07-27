@@ -345,6 +345,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -422,9 +423,7 @@ databaseChangeLog:
               - column:
                   name: evidence_end_time
                   type: TIMESTAMP
-                  constraints:
-                    nullable: false
-                  remarks: "证据窗口结束时间"
+                  remarks: "证据窗口结束时间(DRAFT允许空,CONFIRMED必须非空)"
               - column:
                   name: state_status
                   type: VARCHAR(16)
@@ -477,7 +476,7 @@ databaseChangeLog:
         - sql:
             sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_at CHECK (state_status != 'CONFIRMED' OR confirmed_at IS NOT NULL)"
         - sql:
-            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_complete CHECK (state_status != 'CONFIRMED' OR (strategy_fit_prior IS NOT NULL AND maturity IS NOT NULL AND risk_level IS NOT NULL AND suggested_personality IS NOT NULL AND evidence_start_time IS NOT NULL))"
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_complete CHECK (state_status != 'CONFIRMED' OR (strategy_fit_prior IS NOT NULL AND maturity IS NOT NULL AND risk_level IS NOT NULL AND suggested_personality IS NOT NULL AND evidence_start_time IS NOT NULL AND evidence_end_time IS NOT NULL))"
 
   # ========== 表4: torn_stock_market_round ==========
   - changeSet:
@@ -491,6 +490,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -616,6 +616,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -704,6 +705,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -738,6 +740,28 @@ databaseChangeLog:
                   constraints:
                     nullable: false
                   remarks: "命中的买入策略编码"
+              - column:
+                  name: signal_reference_price
+                  type: DECIMAL(18,6)
+                  constraints:
+                    nullable: false
+                  remarks: "信号bar最后实际价格"
+              - column:
+                  name: style_prior
+                  type: VARCHAR(32)
+                  remarks: "信号时冻结的策略适配风格"
+              - column:
+                  name: style_maturity
+                  type: VARCHAR(32)
+                  remarks: "信号时冻结的成熟度"
+              - column:
+                  name: risk_level
+                  type: VARCHAR(32)
+                  remarks: "信号时冻结的风险等级"
+              - column:
+                  name: style_effective_month
+                  type: DATE
+                  remarks: "信号时冻结的风格生效月份"
               - column:
                   name: buy_rule_version
                   type: VARCHAR(32)
@@ -852,6 +876,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -963,6 +988,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -1244,7 +1270,7 @@ databaseChangeLog:
         - sql:
             sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_slot ON torn_stock_virtual_batch (slot_id) WHERE ledger_type = 'FORMAL' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
         - sql:
-            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_shadow_stock_strat ON torn_stock_virtual_batch (stocks_id, primary_strategy) WHERE ledger_type = 'UNLIMITED_SHADOW' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_shadow_stock_strat_ver ON torn_stock_virtual_batch (stocks_id, primary_strategy, buy_rule_version) WHERE ledger_type = 'UNLIMITED_SHADOW' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
         - sql:
             sql: "CREATE INDEX idx_stock_virtual_batch_ledger_status_signal ON torn_stock_virtual_batch (ledger_type, batch_status, signal_time)"
         - sql:
@@ -1272,6 +1298,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -1394,6 +1421,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
+                  autoIncrement: true
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -1551,7 +1579,8 @@ databaseChangeLog:
                   name: setting_value
                   value: "SHADOW"
       preConditions:
-        - onFail: MARK_RAN
+        - onFail: HALT
+        - onError: HALT
         - sqlCheck:
-            sql: "SELECT COUNT(*) FROM sys_setting WHERE setting_key = 'VIP_STOCK_ALERT_ENABLED'"
+            sql: "SELECT COUNT(*) FROM sys_setting WHERE setting_key IN ('VIP_STOCK_ALERT_ENABLED', 'VIP_STOCK_FORMAL_NOTICE_ENABLED', 'VIP_STOCK_DAILY_SUMMARY_ENABLED', 'VIP_STOCK_RULE_MODE')"
             expectedResult: "0"

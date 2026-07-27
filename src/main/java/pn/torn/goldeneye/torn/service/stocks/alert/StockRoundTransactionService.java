@@ -155,7 +155,7 @@ public class StockRoundTransactionService {
         StockRuleModeEnum ruleMode = resolveRuleMode();
         if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
             newFormalBatches = buySignalEvaluator.acceptCandidates(
-                    rankedCandidates, snapshot, barByStock, monthlyStateByStock, roundTime);
+                    rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock, roundTime);
         } else {
             log.info("规则模式[{}]不创建正式批次,跳过候选接纳: candidateCount={}",
                     ruleMode.getCode(), rankedCandidates.size());
@@ -274,6 +274,9 @@ public class StockRoundTransactionService {
     private void batchSaveChanges(RoundSnapshot snapshot, List<TornStockBatchMarkDO> marks,
                                   List<TornStockVirtualBatchDO> newFormalBatches) {
         List<TornStockVirtualBatchDO> allBatches = new ArrayList<>(snapshot.activeBatches());
+        if (snapshot.shadowBatches() != null) {
+            allBatches.addAll(snapshot.shadowBatches());
+        }
         allBatches.addAll(newFormalBatches);
         if (!allBatches.isEmpty()) {
             virtualBatchDao.saveOrUpdateBatch(allBatches);

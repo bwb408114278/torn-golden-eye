@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator.SignalEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
 
 import java.time.LocalDateTime;
@@ -17,23 +16,11 @@ import java.util.Objects;
 /**
  * 股票信号状态更新器 - 执行轮次事务步骤10,更新信号边沿状态。
  * <p>
- * 从 {@link StockRoundTransactionService} 拆分而来,消除原 {@code updateSignalStates}
- * 方法(认知复杂度16,含嵌套三元)的 Sonar 问题。职责仅包含:对每个有评估结果的股票,
- * 更新 {@link TornStockSignalStateDO#getConditionActive()} 为本轮 matches 结果,
- * 边沿触发时更新 lastSignalTime 与 lastEvaluatedRoundTime,
- * 条件从 true 变为 false 时标记复位已观察。
- *
- * <h3>Sonar修复要点</h3>
- * <ul>
- *   <li>原方法循环体提取为 {@link #updateSingleSignalState},降低认知复杂度(16 -&gt; 合规)</li>
- *   <li>嵌套三元 {@code primaryStrategy != null ? ... : matchedStrategies.isEmpty() ? null : ...}
- *       拆分为独立方法 {@link #resolveStrategyType}</li>
- *   <li>复位判断逻辑提取为 {@link #isResetObserved},消除循环内复杂条件</li>
- * </ul>
+ * 本服务按股票与策略分别维护条件状态,避免主策略切换时覆盖其他策略的边沿、复位和冷却数据。
  *
  * @author Bai
  * @version 1.2.12
- * @since 2026.07.25
+ * @since 2026.07.27
  */
 @Slf4j
 @Service
@@ -42,22 +29,15 @@ public class StockSignalStateUpdater {
 
     private final TornStockSignalStateDAO signalStateDAO;
 
-    // ==================== 步骤10: 更新信号边沿状态 ====================
-
     /**
-     * 更新信号边沿状态:记录本轮 matches 结果为 conditionActive,边沿触发时更新 lastSignalTime。
-     * <p>
-     * 对每个有评估结果的股票,按主策略的复合键(stocksId, strategyType, buyRuleVersion)查找
-     * 或新建信号状态,更新 conditionActive 为本轮 matches 结果,
-     * 边沿触发时更新 lastSignalTime 与 lastEvaluatedRoundTime。
-     * 单支股票的状态更新逻辑提取为 {@link #updateSingleSignalState},返回待保存的 DO。
+     * 更新全部策略信号状态。
      *
      * @param allEvaluations   全部信号评估结果
-     * @param signalStateByKey 按复合键索引的信号状态映射
+     * @param signalStateByKey 按股票、策略和规则版本索引的状态
      * @param roundTime        本轮时间
      */
     public void updateStates(
-            List<? extends StockBuySignalEvaluator.SignalEvaluation> allEvaluations,
+            List<? extends SignalStateEvaluationView> allEvaluations,
             Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
             LocalDateTime roundTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
@@ -65,97 +45,111 @@ public class StockSignalStateUpdater {
             return;
         }
 
-        List<TornStockSignalStateDO> toSave = new ArrayList<>(allEvaluations.size());
-        for (SignalEvaluation evaluation : allEvaluations) {
-            toSave.add(updateSingleSignalState(evaluation, signalStateByKey, roundTime));
+        List<TornStockSignalStateDO> toSave = new ArrayList<>();
+        for (SignalStateEvaluationView evaluation : allEvaluations) {
+            appendStrategyStates(evaluation, signalStateByKey, roundTime, toSave);
         }
-
-        signalStateDAO.saveOrUpdateBatch(toSave);
+        if (!toSave.isEmpty()) {
+            signalStateDAO.saveOrUpdateBatch(toSave);
+        }
         log.debug("信号边沿状态更新: count={}", toSave.size());
     }
 
     /**
-     * 更新单支股票的信号状态,返回待保存的 DO。
-     * <p>
-     * 按主策略的复合键(stocksId, strategyType, buyRuleVersion)从映射中查找信号状态。
-     * 若不存在则新建并初始化策略类型、买入规则版本与复位标记。
-     * 随后更新 conditionActive 为本轮 matches 结果、lastEvaluatedRoundTime 为本轮时间,
-     * 边沿触发时更新 lastSignalTime,条件从 true 变为 false 时标记复位已观察。
+     * 按评估结果中的全部策略更新状态。
      *
-     * @param evaluation       单支股票的信号评估结果
-     * @param signalStateByKey 按复合键索引的信号状态映射
+     * @param evaluation       股票评估结果
+     * @param signalStateByKey 状态索引
      * @param roundTime        本轮时间
-     * @return 待保存的信号状态 DO
+     * @param toSave           待保存状态
      */
-    private TornStockSignalStateDO updateSingleSignalState(
-            SignalEvaluation evaluation,
-            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
-            LocalDateTime roundTime) {
-        String strategyType = resolveStrategyType(evaluation);
-        StockSignalStateKey key = new StockSignalStateKey(
-                evaluation.stocksId(), strategyType, StockRoundTransactionService.BUY_RULE_VERSION);
-        TornStockSignalStateDO state = signalStateByKey.get(key);
-
-        if (state == null) {
-            state = new TornStockSignalStateDO();
-            state.setStocksId(evaluation.stocksId());
-            state.setStrategyType(strategyType);
-            state.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-            state.setResetObserved(false);
+    private void appendStrategyStates(SignalStateEvaluationView evaluation,
+                                      Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
+                                      LocalDateTime roundTime,
+                                      List<TornStockSignalStateDO> toSave) {
+        List<StockBuyStrategy> strategies = evaluation.evaluatedStrategies();
+        for (StockBuyStrategy strategy : strategies) {
+            StockSignalStateKey key = new StockSignalStateKey(
+                    evaluation.stocksId(), strategy.getStrategyType().getCode(),
+                    StockRoundTransactionService.BUY_RULE_VERSION);
+            TornStockSignalStateDO state = signalStateByKey.get(key);
+            boolean currentActive = evaluation.isStrategyMatched(strategy);
+            toSave.add(updateState(state, evaluation, strategy, currentActive, roundTime));
         }
-
-        boolean previousActive = Boolean.TRUE.equals(state.getConditionActive());
-        state.setConditionActive(evaluation.currentMatches());
-        state.setLastEvaluatedRoundTime(roundTime);
-
-        if (evaluation.edgeTriggered()) {
-            state.setLastSignalTime(roundTime);
-        }
-
-        if (isResetObserved(evaluation, previousActive)) {
-            state.setResetObserved(true);
-        }
-        return state;
     }
 
     /**
-     * 解析信号评估结果对应的策略类型编码。
-     * <p>
-     * 优先取主策略(primaryStrategy)的类型编码;主策略为空且无命中策略时返回 null;
-     * 否则取首个命中策略的类型编码。
-     * <p>
-     * 此方法将原 {@code updateSingleSignalState} 中的嵌套三元
-     * {@code primaryStrategy != null ? ... : matchedStrategies.isEmpty() ? null : ...}
-     * 拆分为独立方法,消除 Sonar 嵌套三元告警。
+     * 更新单个股票策略状态。
      *
-     * @param evaluation 信号评估结果
-     * @return 策略类型编码;无策略命中时返回 null
+     * @param state         已有状态,不存在时可为null
+     * @param evaluation    股票评估结果
+     * @param strategy      目标策略
+     * @param currentActive 本轮策略是否命中
+     * @param roundTime     本轮时间
+     * @return 更新后的状态
      */
-    private String resolveStrategyType(SignalEvaluation evaluation) {
-        if (evaluation.primaryStrategy() != null) {
-            return evaluation.primaryStrategy().getStrategyType().getCode();
+    private TornStockSignalStateDO updateState(TornStockSignalStateDO state,
+                                               SignalStateEvaluationView evaluation,
+                                               StockBuyStrategy strategy,
+                                               boolean currentActive,
+                                               LocalDateTime roundTime) {
+        TornStockSignalStateDO target = state == null ? new TornStockSignalStateDO() : state;
+        boolean previousActive = Boolean.TRUE.equals(target.getConditionActive());
+        target.setStocksId(evaluation.stocksId());
+        target.setStrategyType(strategy.getStrategyType().getCode());
+        target.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
+        target.setConditionActive(currentActive);
+        target.setLastEvaluatedRoundTime(roundTime);
+        if (currentActive && !previousActive) {
+            target.setLastSignalTime(roundTime);
         }
-        if (evaluation.matchedStrategies().isEmpty()) {
-            return null;
+        if (!currentActive && previousActive) {
+            target.setResetObserved(true);
         }
-        StockBuyStrategy firstMatched = evaluation.matchedStrategies().getFirst();
-        return firstMatched.getStrategyType().getCode();
+        if (target.getResetObserved() == null) {
+            target.setResetObserved(false);
+        }
+        return target;
     }
 
     /**
-     * 判断是否应标记复位已观察。
-     * <p>
-     * 当本轮条件不再满足(currentMatches 为 false)且上轮条件处于激活状态(previousActive 为 true)
-     * 时,表示条件从 true 变为 false,应标记复位已观察。
-     * <p>
-     * 此方法从 {@code updateSingleSignalState} 提取,消除循环内复杂条件判断,
-     * 降低认知复杂度。
+     * 股票策略评估状态视图。
      *
-     * @param evaluation     信号评估结果
-     * @param previousActive 上轮 conditionActive 是否为 true
-     * @return true 表示应标记复位已观察
+     * @author Bai
+     * @version 1.2.12
+     * @since 2026.07.27
      */
-    private boolean isResetObserved(SignalEvaluation evaluation, boolean previousActive) {
-        return !evaluation.currentMatches() && previousActive;
+    public interface SignalStateEvaluationView {
+
+        /**
+         * 获取股票ID。
+         *
+         * @return 股票ID
+         */
+        Integer stocksId();
+
+        /**
+         * 获取本轮已评估策略。
+         *
+         * @return 策略列表
+         */
+        List<StockBuyStrategy> evaluatedStrategies();
+
+        /**
+         * 获取本轮命中的策略。
+         *
+         * @return 命中策略列表
+         */
+        List<StockBuyStrategy> matchedStrategies();
+
+        /**
+         * 判断指定策略本轮是否命中。
+         *
+         * @param strategy 目标策略
+         * @return 命中时返回true
+         */
+        default boolean isStrategyMatched(StockBuyStrategy strategy) {
+            return matchedStrategies().contains(strategy);
+        }
     }
 }
