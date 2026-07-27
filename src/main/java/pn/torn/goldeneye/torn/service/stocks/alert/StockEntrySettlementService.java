@@ -45,6 +45,13 @@ public class StockEntrySettlementService {
      * 风险关闭冷却时长(小时): 风险退出关闭需更长冷却期。
      */
     private static final int RISK_COOLDOWN_HOURS = 48;
+    /**
+     * 真实关闭状态编码
+     */
+    private static final String[] FILLED_CLOSE_STATUSES = {
+            "CLOSED_TARGET", "CLOSED_RANGE", "CLOSED_RISK", "CLOSED_TIME",
+            "CLOSED_DYNAMIC", "CLOSED_ROTATION", "ADMIN_CLOSED"
+    };
 
     private final StockPortfolioService portfolioService;
 
@@ -283,12 +290,7 @@ public class StockEntrySettlementService {
     /**
      * 处理单个待卖出批次: 判断bar可用性与连续性, 决定成交、DATA_STALE_EXIT或等待。
      * <p>
-     * 处理规则:
-     * <ul>
-     *   <li>本轮bar不可用 -&gt; DATA_STALE_EXIT</li>
-     *   <li>本轮bar非连续(已错过预期bar) -&gt; DATA_STALE_EXIT</li>
-     *   <li>本轮bar连续且可用 -&gt; 成交(状态CLOSED_xxx)</li>
-     * </ul>
+     * 只有退出原因已通过fail-closed校验后才会结算槽位和写入CLOSED状态。
      *
      * @param batch         待卖出批次
      * @param barByStock    按股票ID索引的bar映射
@@ -360,6 +362,9 @@ public class StockEntrySettlementService {
         BigDecimal exitReferencePrice = currentBar.getLastPrice();
         long quantity = batch.getQuantity() != null ? batch.getQuantity() : 0L;
 
+        StockCloseTypeEnum closeTypeEnum = resolveCloseTypeEnum(batch.getExitReason());
+        StockBatchStatusEnum closeStatus = mapCloseTypeToBatchStatus(closeTypeEnum);
+
         // 结算槽位
         if (batch.getSlotId() != null && quantity > 0) {
             TornStockPortfolioSlotDO slot = slotById.get(batch.getSlotId());
@@ -375,10 +380,6 @@ public class StockEntrySettlementService {
                 ? exitReferencePrice.multiply(BigDecimal.valueOf(quantity)).multiply(StockPortfolioService.SELL_FEE_RATE)
                 : BigDecimal.ZERO;
 
-        // 确定关闭状态(根据exitReason映射到CLOSED_xxx)
-        StockCloseTypeEnum closeTypeEnum = resolveCloseTypeEnum(batch.getExitReason());
-        StockBatchStatusEnum closeStatus = mapCloseTypeToBatchStatus(closeTypeEnum);
-
         batch.setBatchStatus(closeStatus.getCode());
         batch.setExitReferencePrice(exitReferencePrice);
         batch.setExitTime(roundTime);
@@ -392,6 +393,9 @@ public class StockEntrySettlementService {
         // 平仓后复位标记置为false,要求观察到买入条件复位后才能再次产生信号
         batch.setResetObserved(false);
 
+        if (!isFilledCloseStatus(batch.getBatchStatus())) {
+            return;
+        }
         filledBatches.add(batch);
     }
 
@@ -409,6 +413,15 @@ public class StockEntrySettlementService {
         return safeParseCloseType(exitReason);
     }
 
+    /**
+     * 安全解析关闭类型枚举,解析失败时fail-closed抛出数据一致性异常。
+     * <p>
+     * 不把未知编码回退为CLOSED_TARGET,避免把数据损坏伪装成目标退出。
+     *
+     * @param code 关闭类型编码
+     * @return 关闭类型枚举
+     * @throws IllegalStateException 编码无法解析时抛出
+     */
     private StockCloseTypeEnum safeParseCloseType(String code) {
         try {
             return StockCloseTypeEnum.fromCode(code);
@@ -416,6 +429,19 @@ public class StockEntrySettlementService {
             log.error("关闭类型编码解析失败,fail-closed: code={}", code);
             throw new IllegalStateException("关闭类型编码无法解析,数据一致性破坏: " + code, e);
         }
+    }
+
+    /**
+     * 判断批次是否为真实关闭状态。
+     *
+     * @param batchStatus 批次状态编码
+     * @return CLOSED_*或ADMIN_CLOSED时返回true
+     */
+    private boolean isFilledCloseStatus(String batchStatus) {
+        if (batchStatus == null) {
+            return false;
+        }
+        return List.of(FILLED_CLOSE_STATUSES).contains(batchStatus);
     }
 
     /**

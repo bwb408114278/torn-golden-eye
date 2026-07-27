@@ -30,7 +30,7 @@ public class StockSignalStateUpdater {
     private final TornStockSignalStateDAO signalStateDAO;
 
     /**
-     * 更新全部策略信号状态。
+     * 处理全部策略状态,每个股票和策略使用独立状态键。
      *
      * @param allEvaluations   全部信号评估结果
      * @param signalStateByKey 按股票、策略和规则版本索引的状态
@@ -45,14 +45,16 @@ public class StockSignalStateUpdater {
             return;
         }
 
+        Map<StockSignalStateKey, TornStockSignalStateDO> states = signalStateByKey == null
+                ? Map.of() : signalStateByKey;
         List<TornStockSignalStateDO> toSave = new ArrayList<>();
         for (SignalStateEvaluationView evaluation : allEvaluations) {
-            appendStrategyStates(evaluation, signalStateByKey, roundTime, toSave);
+            appendStrategyStates(evaluation, states, roundTime, toSave);
         }
         if (!toSave.isEmpty()) {
             signalStateDAO.saveOrUpdateBatch(toSave);
         }
-        log.debug("信号边沿状态更新: count={}", toSave.size());
+        log.debug("信号状态按策略更新完成: count={}", toSave.size());
     }
 
     /**
@@ -68,6 +70,9 @@ public class StockSignalStateUpdater {
                                       LocalDateTime roundTime,
                                       List<TornStockSignalStateDO> toSave) {
         List<StockBuyStrategy> strategies = evaluation.evaluatedStrategies();
+        if (strategies == null || strategies.isEmpty()) {
+            return;
+        }
         for (StockBuyStrategy strategy : strategies) {
             StockSignalStateKey key = new StockSignalStateKey(
                     evaluation.stocksId(), strategy.getStrategyType().getCode(),

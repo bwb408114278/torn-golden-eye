@@ -77,8 +77,8 @@ public class StockBuySignalEvaluator {
      * <ol>
      *   <li>组装 {@link BuyContext}</li>
      *   <li>调用 {@link #matchStrategies} 遍历买入策略,选取主策略(质量分最高)</li>
-     *   <li>按主策略的复合键(stocksId, strategyType, buyRuleVersion)查找信号状态</li>
-     *   <li>比较 signalState.conditionActive 与本轮 matches 结果,判断 false-&gt;true 边沿</li>
+     *   <li>按每个策略的复合键(stocksId, strategyType, buyRuleVersion)维护信号状态</li>
+     *   <li>汇总策略命中结果,判断本轮是否存在 false-&gt;true 边沿</li>
      *   <li>边沿触发时调用 {@link StockEligibilityService#checkEligibility}</li>
      *   <li>ALLOWED 的候选加入正式候选列表</li>
      * </ol>
@@ -167,6 +167,7 @@ public class StockBuySignalEvaluator {
         boolean edgeTriggered = checkEdgeTriggered(currentMatches, signalState);
 
         SignalEvaluation.Builder builder = SignalEvaluation.builder(stocksId, context.stocksShortname())
+                .evaluatedStrategies(buyStrategies)
                 .primaryStrategy(matchResult.primaryStrategy())
                 .matchedStrategies(matchResult.matchedStrategies())
                 .qualityScore(matchResult.bestScore())
@@ -429,7 +430,7 @@ public class StockBuySignalEvaluator {
 
             TornStockVirtualBatchDO batch = acceptSingleCandidate(
                     candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
-                    monthlyStateByStock.get(candidate.stocksId()), candidateRank, roundTime);
+                    monthlyStateByStock.get(candidate.stocksId()), roundTime);
             if (batch != null) {
                 newFormalBatches.add(batch);
             }
@@ -462,7 +463,6 @@ public class StockBuySignalEvaluator {
      * @param slot         已分配的可用槽位
      * @param bar          该候选股票本轮bar
      * @param monthlyState 该候选股票的月度状态
-     * @param rank         候选排名(1起始)
      * @param roundTime    本轮时间
      * @return 新建的正式批次;被跳过时返回 null
      */
@@ -471,7 +471,6 @@ public class StockBuySignalEvaluator {
             TornStockPortfolioSlotDO slot,
             TornStockMarketBar15mDO bar,
             TornStockMonthlyStateDO monthlyState,
-            int rank,
             LocalDateTime roundTime) {
         if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
             log.warn("候选[{}]本轮bar无效,跳过", candidate.stocksId());
@@ -495,8 +494,8 @@ public class StockBuySignalEvaluator {
 
         portfolioService.reserveSlot(slot, reservedAmount, batch.getId());
 
-        log.info("正式候选接纳: stocksId={}, rank={}, slotNo={}, signalPrice={}, quantity={}, reserved={}, batchId={}",
-                candidate.stocksId(), rank, slot.getSlotNo(),
+        log.info("正式候选接纳: stocksId={}, slotNo={}, signalPrice={}, quantity={}, reserved={}, batchId={}",
+                candidate.stocksId(), slot.getSlotNo(),
                 signalReferencePrice, quantity, reservedAmount, batch.getId());
         return batch;
     }
@@ -525,7 +524,7 @@ public class StockBuySignalEvaluator {
         batch.setMatchedStrategies(JsonUtils.objToJson(candidate.matchedStrategies()));
         batch.setQualityScore(candidate.qualityScore());
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
-        // signalEventId 由 StockShadowRecordWriter.writeShadowRecords 回填(信号事件在批次后保存)
+        // signalEventId在信号事件保存后回填;正式批次尚未进入持久化批量写入。
         batch.setSlotId(slot.getId());
         batch.setSlotNo(slot.getSlotNo());
         batch.setSignalTime(roundTime);
@@ -557,26 +556,27 @@ public class StockBuySignalEvaluator {
     /**
      * 信号评估结果 - 封装单支股票本轮买入信号评估的全部中间结果。
      * <p>
-     * 使用 record + Builder 模式消除原 10 参数构造器的 Sonar 问题。
-     * 由 {@link #evaluateSingleStock} 生成,供后续影子记录、通知审计与信号状态更新消费。
+     * 使用 record + Builder 模式封装跨步骤只读事实,由 {@link #evaluateSingleStock} 生成,
+     * 供后续影子记录、通知审计与信号状态更新消费。
      *
-     * @param stocksId          股票ID
-     * @param stocksShortname   股票简称
-     * @param primaryStrategy   主策略(质量分最高的命中策略)
-     * @param matchedStrategies 全部命中策略列表
-     * @param qualityScore      主策略质量分
-     * @param currentMatches    本轮是否命中任何策略
-     * @param edgeTriggered     是否为 false-&gt;true 边沿触发
-     * @param context           买入上下文
-     * @param signalState       信号状态记录
-     * @param monthlyState      月度状态记录
-     * @param eligibilityResult 资格判定结果;非边沿触发时为 null
-     * @param candidateRank     候选排名;未进入候选时为 null
-     * @param acceptedFormal    是否被正式接纳
+     * @param stocksId            股票ID
+     * @param stocksShortname     股票简称
+     * @param evaluatedStrategies 本轮实际评估的全部买入策略
+     * @param primaryStrategy     主策略(质量分最高的命中策略)
+     * @param matchedStrategies   全部命中策略列表
+     * @param qualityScore        主策略质量分
+     * @param currentMatches      本轮是否命中任何策略
+     * @param edgeTriggered       是否为 false-&gt;true 边沿触发
+     * @param context             买入上下文
+     * @param signalState         信号状态记录
+     * @param monthlyState        月度状态记录
+     * @param eligibilityResult   资格判定结果;非边沿触发时为 null
+     * @param acceptedFormal      是否被正式接纳
      */
     public record SignalEvaluation(
             Integer stocksId,
             String stocksShortname,
+            List<StockBuyStrategy> evaluatedStrategies,
             StockBuyStrategy primaryStrategy,
             List<StockBuyStrategy> matchedStrategies,
             BigDecimal qualityScore,
@@ -586,9 +586,9 @@ public class StockBuySignalEvaluator {
             TornStockSignalStateDO signalState,
             TornStockMonthlyStateDO monthlyState,
             EligibilityResult eligibilityResult,
-            Integer candidateRank,
             boolean acceptedFormal
-    ) implements StockShadowRecordWriter.SignalEvaluationView {
+    ) implements StockShadowRecordWriter.SignalEvaluationView,
+            StockSignalStateUpdater.SignalStateEvaluationView {
         /**
          * 创建可变构建器。
          *
@@ -606,6 +606,7 @@ public class StockBuySignalEvaluator {
         public static class Builder {
             private final Integer stocksId;
             private final String stocksShortname;
+            private List<StockBuyStrategy> evaluatedStrategies = List.of();
             private StockBuyStrategy primaryStrategy;
             private List<StockBuyStrategy> matchedStrategies;
             private BigDecimal qualityScore;
@@ -615,12 +616,22 @@ public class StockBuySignalEvaluator {
             private TornStockSignalStateDO signalState;
             private TornStockMonthlyStateDO monthlyState;
             private EligibilityResult eligibilityResult;
-            private Integer candidateRank;
             private boolean acceptedFormal;
 
             private Builder(Integer stocksId, String stocksShortname) {
                 this.stocksId = stocksId;
                 this.stocksShortname = stocksShortname;
+            }
+
+            /**
+             * 设置本轮实际评估的全部买入策略。
+             *
+             * @param evaluatedStrategies 已评估策略
+             * @return 当前构建器
+             */
+            public Builder evaluatedStrategies(List<StockBuyStrategy> evaluatedStrategies) {
+                this.evaluatedStrategies = evaluatedStrategies == null ? List.of() : evaluatedStrategies;
+                return this;
             }
 
             /**
@@ -740,9 +751,9 @@ public class StockBuySignalEvaluator {
              */
             public SignalEvaluation build() {
                 return new SignalEvaluation(
-                        stocksId, stocksShortname, primaryStrategy, matchedStrategies,
+                        stocksId, stocksShortname, evaluatedStrategies, primaryStrategy, matchedStrategies,
                         qualityScore, currentMatches, edgeTriggered, context,
-                        signalState, monthlyState, eligibilityResult, candidateRank, acceptedFormal
+                        signalState, monthlyState, eligibilityResult, acceptedFormal
                 );
             }
         }
