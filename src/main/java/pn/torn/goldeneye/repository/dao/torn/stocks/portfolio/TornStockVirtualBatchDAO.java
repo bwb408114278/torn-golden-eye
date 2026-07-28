@@ -28,12 +28,30 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
+     * 查询全部正式活跃批次并加事务行锁。
+     *
+     * @return 已锁定的正式活跃批次列表
+     */
+    public List<TornStockVirtualBatchDO> selectActiveFormalBatchesForUpdate() {
+        return baseMapper.selectActiveFormalBatchesForUpdate();
+    }
+
+    /**
      * 查询全部活跃影子批次(UNLIMITED_SHADOW),批量获取避免N+1
      *
      * @return 影子活跃批次列表
      */
     public List<TornStockVirtualBatchDO> selectActiveShadowBatches() {
         return baseMapper.selectActiveShadowBatches();
+    }
+
+    /**
+     * 查询全部无限资金影子活跃批次并加事务行锁。
+     *
+     * @return 已锁定的影子活跃批次列表
+     */
+    public List<TornStockVirtualBatchDO> selectActiveShadowBatchesForUpdate() {
+        return baseMapper.selectActiveShadowBatchesForUpdate();
     }
 
 

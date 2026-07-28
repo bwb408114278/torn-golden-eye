@@ -35,6 +35,7 @@
             FROM torn_stock_strategy_feature_15m f
             WHERE f.deleted = 0
               AND f.bar_start_time <![CDATA[<=]]> #{maxBarStartTime}
+              AND f.feature_version = #{featureVersion}
               AND f.stocks_id IN
             <foreach collection="stocksIds" item="id" open="(" separator="," close=")">
                 #{id}

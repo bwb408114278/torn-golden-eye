@@ -26,7 +26,7 @@ public class TornStockStrategyFeature15mDAO
      * @return 该时间点的全部股票特征列表
      */
     public List<TornStockStrategyFeature15mDO> selectByBarStartTime(LocalDateTime barStartTime,
-                                                                     String featureVersion) {
+                                                                    String featureVersion) {
         return baseMapper.selectByBarStartTime(barStartTime, featureVersion);
     }
 
@@ -35,11 +35,13 @@ public class TornStockStrategyFeature15mDAO
      *
      * @param stocksIds       股票ID列表
      * @param maxBarStartTime 最大bar开始时间(含)
+     * @param featureVersion  特征计算版本
      * @return 按股票ID与bar时间倒序排列的特征列表
      */
     public List<TornStockStrategyFeature15mDO> selectLatestByStocksIds(List<Integer> stocksIds,
-                                                                       LocalDateTime maxBarStartTime) {
-        return baseMapper.selectLatestByStocksIds(stocksIds, maxBarStartTime);
+                                                                       LocalDateTime maxBarStartTime,
+                                                                       String featureVersion) {
+        return baseMapper.selectLatestByStocksIds(stocksIds, maxBarStartTime, featureVersion);
     }
 
     /**

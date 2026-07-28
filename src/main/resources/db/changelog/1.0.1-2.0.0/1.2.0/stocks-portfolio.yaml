@@ -966,15 +966,15 @@ databaseChangeLog:
       author: Bai
       changes:
         - sql:
-            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (1, 'VIP_FORMAL', 1, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_FORMAL', 1, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
         - sql:
-            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (2, 'VIP_FORMAL', 2, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_FORMAL', 2, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
         - sql:
-            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (3, 'VIP_FORMAL', 3, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_FORMAL', 3, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
         - sql:
-            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (4, 'VIP_FORMAL', 4, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_FORMAL', 4, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
         - sql:
-            sql: "INSERT INTO torn_stock_portfolio_slot (id, portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES (5, 'VIP_FORMAL', 5, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_FORMAL', 5, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
 
   # ========== 表8: torn_stock_virtual_batch ==========
   - changeSet:

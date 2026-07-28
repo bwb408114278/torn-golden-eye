@@ -9,12 +9,32 @@
           AND deleted = 0
     </select>
 
+    <!-- 查询全部正式活跃批次并加事务行锁 -->
+    <select id="selectActiveFormalBatchesForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'FORMAL'
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+        ORDER BY id ASC
+        FOR UPDATE
+    </select>
+
     <!-- 查询全部活跃影子批次 -->
     <select id="selectActiveShadowBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
         WHERE ledger_type = 'UNLIMITED_SHADOW'
           AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
           AND deleted = 0
+    </select>
+
+    <!-- 查询全部无限资金影子活跃批次并加事务行锁 -->
+    <select id="selectActiveShadowBatchesForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'UNLIMITED_SHADOW'
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+        ORDER BY id ASC
+        FOR UPDATE
     </select>
 
 

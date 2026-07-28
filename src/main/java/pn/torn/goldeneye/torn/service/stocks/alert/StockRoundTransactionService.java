@@ -116,6 +116,14 @@ public class StockRoundTransactionService {
                 portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE);
         log.debug("槽位行锁已获取: slotCount={}", lockedSlots.size());
 
+        // 活跃批次必须在同一事务内重新读取并加行锁,不能继续使用事务外快照。
+        List<TornStockVirtualBatchDO> lockedFormalBatches =
+                virtualBatchDao.selectActiveFormalBatchesForUpdate();
+        List<TornStockVirtualBatchDO> lockedShadowBatches =
+                virtualBatchDao.selectActiveShadowBatchesForUpdate();
+        log.debug("活跃批次行锁已获取: formalCount={}, shadowCount={}",
+                lockedFormalBatches.size(), lockedShadowBatches.size());
+
         // 预构建索引
         Map<Integer, TornStockMarketBar15mDO> barByStock = indexBarsByStockId(snapshot.bars());
         Map<Integer, TornStockStrategyFeature15mDO> featureByStock = indexFeaturesByStockId(snapshot.features());
@@ -124,7 +132,7 @@ public class StockRoundTransactionService {
 
         // 合并正式与影子活跃批次,按批次ID去重后统一参与入场/路径/退出处理
         List<TornStockVirtualBatchDO> allActiveBatches = mergeActiveBatches(
-                snapshot.activeBatches(), snapshot.shadowBatches());
+                lockedFormalBatches, lockedShadowBatches);
         List<TornStockVirtualBatchDO> shadowBatches = filterLedgerBatches(
                 allActiveBatches, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
         RoundSnapshot mergedSnapshot = new RoundSnapshot(
