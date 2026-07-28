@@ -301,6 +301,17 @@ entryDeviation > 0.0015
 strategyFitPrior + maturity + riskLevel
 ```
 
+完整指标、六类阈值、风险投票、NARROW/RANGING迟滞、人工覆盖和确认语义统一以`stock_personality_monthly_calibration.md`的`PERSONALITY_RULE_V1 / RISK_RULE_V1_SHADOW`为准，不得从当前CSV或`sys_setting.STOCK_PERSONALITY`反推。
+
+关键边界：
+
+- 成熟度按证据自然日60/120/240/365计算，不按15分钟bar数量的1/7/30天阈值；
+- `suggestedPersonality`是机器原始分类应用月度迟滞后的建议；
+- `strategyFitPrior`是最终确认值，人工覆盖时不改写机器建议；
+- previous只读取最近一个更早生效且`CONFIRMED`的月份；
+- 人工确认必须传入真实`confirmedBy`；`SYSTEM`只允许完整性校验通过的自动确认入口；
+- 风格、风险或证据不完整时保持DRAFT并fail-closed。
+
 - 风格决定策略适配，不是独立买卖信号；
 - 成熟度表达历史长度和不确定性；
 - 风险等级用于解释、降权和影子观察；
@@ -484,14 +495,18 @@ netReturn = exitReferencePrice / entryReferencePrice × 0.999 - 1
 - 用于判断信号本身是否有优势；
 - 不发即时群消息。
 
-### 7.3 拒绝观察批次
+### 7.3 拒绝观察事件
 
-跟踪因风格、风险观察、趋势保护、同股、冷却、未复位、满仓、数据不连续或价格偏离被拒绝的机会。
+拒绝观察批次始终保持`REJECTED_OBSERVATION / CANCELLED`，不进入正式或无限资金持仓状态。独立观察器按以下规则回写信号事件：
 
-- 不占正式槽位；
-- 不发正式买入；
-- 可以继续跟踪理论路径；
-- 不产生需要群消息关闭的正式卖出。
+- 可观察拒绝原因使用信号后的紧邻下一连续bar作为理论入场；
+- 理论入场同样受0.15%向上偏离限制；失败不等待更晚bar，立即结算为`NO_THEORETICAL_ENTRY`；
+- 成功入场后观察14个自然日，按纯价格路径计算laterMfe/laterMae；
+- 同时模拟正式冻结生命周期，但不发BUY/SELL、不占槽位、不预留资金；
+- 数据缺口不插值、不延长日历窗口；
+- 数据/风格缺失、ENTRY陈旧或价格偏离拒绝不建立理论路径。
+
+完整原因分组、`resolvedAt`和数据不足规则以业务主文档`vip_stock_virtual_portfolio_strategy.md`第4.3节为准。
 
 ### 7.4 正式5槽组合
 
@@ -1229,14 +1244,16 @@ zone = Asia/Shanghai
 
 ### 12.5 每日摘要
 
-每天08:30发送，至少包含：
+每天08:30发送。正式组合权益遵循全量可计算原则：任一开放正式仓位缺少满足新鲜度要求的实际行情时，`equity=null`且显示“暂无法计算（行情数据不足）”；同时列出缺失股票和可用现金/预留资金。禁止回退投入成本或把部分权益展示为完整权益。
 
 ```text
 【VIP股票组合日报｜2026-07-23】
 
 正式组合
 - 当前占用槽位：3 / 5
-- 当前组合权益：...
+- 当前组合权益：暂无法计算（行情数据不足）
+- 缺失行情：TCC、MUN
+- 可用现金及预留资金：...
 - 昨日买入：2批
 - 昨日卖出：1批
 - 昨日已实现净收益：...
@@ -1501,7 +1518,20 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 - 高风险观察；
 - 当前Java原始买入对照。
 
-回放和生产共用同一bar质量、特征、买入、排序、成交、资金和退出实现，禁止维护两套逻辑。
+回放只读生产输入，`runId/portfolioId`仅存在于内存和产物文件，不写业务表、不新增首期回放表。必须复用正式纯领域策略/Policy/计算器，但不得调用写DAO、发送消息或读取系统当前时间的编排Service。
+
+强制输出：
+
+```text
+<runId>-summary.json
+<runId>-trades.csv
+<runId>-rejections.csv
+<runId>-equity-curve.csv
+```
+
+不要求持久化每bar事件流水；逐bar净值在内存计算并输出净值曲线。失败/中断产物标记`FAILED/INCOMPLETE`，不续跑中间状态，使用相同输入和版本从头重跑。
+
+回放和生产共用同一bar质量、特征、买入、排序、成交、资金和退出纯领域实现，禁止维护两套逻辑。
 
 ---
 

@@ -239,5 +239,80 @@
     "buckets_under_10_samples_rate": 0.001539,
     "buckets_tail_stale_over_5m": 11,
     "buckets_tail_stale_over_5m_rate": 0.000806
+  },
+  "monthly_state_rule_v1": {
+    "personality_order": [
+      "DECLINER",
+      "WEAK",
+      "NARROW",
+      "RANGING",
+      "STRONG",
+      "STEADY"
+    ],
+    "maturity_days": {
+      "M0_UNMATURE": "<60",
+      "M1_EARLY": "60-119",
+      "M2_PROVISIONAL": "120-239",
+      "M3_SEASONED": "240-364",
+      "M4_MATURE": ">=365"
+    },
+    "decliner": "(annualized<=-8% AND trend30<=-0.6% AND half<=-1%) OR (negativeStreak>=3 AND quarter<=-1.5%)",
+    "weak": "(annualized<=-2.5% AND trend30<=-0.25%) OR (negativeRatio>=60% AND half<0) OR (half<=-2.5% AND trend30<0)",
+    "narrow": "band<=4.5% AND abs(annualized)<=5% AND abs(trend30)<=0.4%",
+    "ranging": "band<=10% AND abs(annualized)<=7% AND abs(trend30)<=0.6%",
+    "strong": "annualized>=8% AND trend30>=0.6% AND half>=0",
+    "risk_high": "highVotes>=2 OR (trend30High<-0.6% AND quarter<0)",
+    "risk_medium": "not HIGH AND mediumVotes>=2",
+    "risk_release": "two consecutive effective-month raw NONE observations",
+    "confirmation": "manual caller identity required; SYSTEM only through validated auto-confirm path"
+  },
+  "rejected_observation": {
+    "batch_status": "CANCELLED",
+    "ledger_type": "REJECTED_OBSERVATION",
+    "formal_position": false,
+    "entry": "immediate next contiguous usable 15m bar; upward deviation <=0.15%",
+    "entry_failure": "resolve NO_THEORETICAL_ENTRY; do not wait later bar",
+    "window_days": 14,
+    "mfe_mae_fee_adjusted": false,
+    "data_gap": "no interpolation; calendar deadline not extended",
+    "path_reasons": [
+      "STYLE_NOT_FIT",
+      "RISK_HIGH_SHADOW_REJECT",
+      "ABSOLUTE_TREND_GUARD_FAILED",
+      "SAME_STOCK_OPEN",
+      "COOLDOWN_ACTIVE",
+      "SIGNAL_NOT_RESET",
+      "PORTFOLIO_FULL"
+    ],
+    "no_entry_reasons": [
+      "STYLE_MISSING",
+      "STYLE_STALE",
+      "DATA_NOT_CONTIGUOUS",
+      "ENTRY_DATA_STALE",
+      "ENTRY_PRICE_DEVIATION"
+    ]
+  },
+  "isolated_replay": {
+    "database": "read_only_input_only",
+    "run_id": "memory_and_output_only",
+    "new_replay_tables": false,
+    "writes_business_tables": false,
+    "engine": "reuse pure domain strategies/policies; no DAO-writing or messaging orchestration services",
+    "required_outputs": [
+      "summary.json",
+      "trades.csv",
+      "rejections.csv",
+      "equity-curve.csv"
+    ],
+    "bar_journal_required": false,
+    "resume": "restart from beginning after failure"
+  },
+  "daily_summary_missing_market": {
+    "rule": "any open formal position missing fresh actual price makes total equity unavailable",
+    "equity_status": "DATA_INSUFFICIENT",
+    "equity": null,
+    "cash_may_display_separately": true,
+    "cost_fallback_allowed": false,
+    "partial_equity_allowed": false
   }
 }

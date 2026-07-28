@@ -94,18 +94,105 @@ netReturn = exitReferencePrice / entryReferencePrice × 0.999 - 1
 
 该层回答“信号本身是否有优势”。
 
-### 4.3 拒绝观察批次
+### 4.3 拒绝观察事件
 
-跟踪因以下原因未进入正式组合的候选：
+拒绝观察用于衡量正式门禁和容量约束的机会成本。它不是正式持仓，也不是无限资金影子持仓。
 
-- 风格不适配或风险观察；
-- BUY时点绝对趋势保护失败；
-- 同股已有批次；
-- 冷却或尚未false复位；
-- 组合满仓；
-- 数据不连续或参考价格偏离。
+#### 状态与账本
 
-该层不占正式槽位、不发BUY，也不产生需要群SELL关闭的正式批次。
+- 拒绝观察批次始终保持`CANCELLED`和`REJECTED_OBSERVATION`；
+- 不进入`ENTRY_PENDING/OPEN/EXIT_PENDING`；
+- 不占槽位、不预留资金、不发BUY、不产生正式SELL；
+- 通过独立观察器回写信号事件的理论路径字段。
+
+#### 统一理论入场
+
+可观察的拒绝原因统一使用原信号后的紧邻下一连续15分钟bar：
+
+```text
+theoreticalEntryBar = signalBar + 15分钟
+```
+
+该bar必须满足正式bar可用标准，且：
+
+```text
+theoreticalEntryPrice / signalReferencePrice - 1 <= 0.0015
+```
+
+只限制向上偏离。理论入场失败时不等待更晚bar，直接结束观察：
+
+```text
+resolvedAt = expectedEntryBarEnd + 5分钟
+observationResult = NO_THEORETICAL_ENTRY
+laterMfe = null
+laterMae = null
+```
+
+#### 观察窗口
+
+成功获得理论入场后：
+
+```text
+observationStart = theoreticalEntryBarEnd
+observationDeadline = theoreticalEntryTime + 14天
+```
+
+从理论入场价开始，使用之后所有可用15分钟bar更新：
+
+```text
+laterMfe = max(observedPrice / theoreticalEntryPrice - 1)
+laterMae = min(observedPrice / theoreticalEntryPrice - 1)
+```
+
+MFE/MAE不扣卖出费，表示纯价格路径；另行计算理论正式生命周期结果时，净收益扣0.1%卖出费。
+
+观察器并行运行与正式批次相同的冻结退出规则：
+
+```text
++0.8%目标 / -1.5%风险 / RANGE position30>=0.60且盈利 / 14天
+```
+
+首次命中退出规则时，以紧邻下一连续bar作为理论退出；成功成交后：
+
+```text
+resolvedAt = theoreticalExitTime
+```
+
+若直到14天仍无退出，`resolvedAt=observationDeadline`，使用截止前最后可用bar记录路径和理论期末净收益，但不生成SELL消息。
+
+#### 数据缺口
+
+- 缺口期间不插值、不更新MFE/MAE；
+- 观察日历时钟继续前进，不因缺口延长14天窗口；
+- 退出信号后的紧邻成交bar不可用时，不跨缺口成交；继续观察到下一条正式退出事实或14天截止；
+- 截止前没有任何理论入场后的可用bar时，结果标记`OBSERVATION_DATA_INSUFFICIENT`，MFE/MAE保持null；
+- 截止时有部分可用bar则保留已观测MFE/MAE，并标记`observationDataIncomplete=true`。
+
+#### 原因口径
+
+以下拒绝原因使用同一套理论入场和14天窗口：
+
+```text
+STYLE_NOT_FIT
+RISK_HIGH_SHADOW_REJECT
+ABSOLUTE_TREND_GUARD_FAILED
+SAME_STOCK_OPEN
+COOLDOWN_ACTIVE
+SIGNAL_NOT_RESET
+PORTFOLIO_FULL
+```
+
+以下数据/执行拒绝只记录“无法理论入场”，不建立14天路径：
+
+```text
+STYLE_MISSING
+STYLE_STALE
+DATA_NOT_CONTIGUOUS
+ENTRY_DATA_STALE
+ENTRY_PRICE_DEVIATION
+```
+
+原因是这些事件缺少合法或及时的参考成交，不能事后用更晚价格伪造机会。
 
 ### 4.4 5槽正式系统虚拟组合
 
@@ -620,7 +707,9 @@ RESEARCH → SHADOW_CANDIDATE → PROVISIONAL → VALIDATED → RETIRED
 
 ---
 
-## 13. 收益与质量验收
+## 13. 收益、隔离回放与质量验收
+
+### 13.1 组合收益
 
 组合收益必须来自精确净值：
 
@@ -640,7 +729,88 @@ MDD约-0.6%～-0.7%
 
 标记为`SHORT_HISTORY_ANNUALIZED_BACKTEST`，不得写成长期目标上限或收益承诺。未来研究应以提高风险调整后收益为目标，并与用户人工操作、动态SELL和新增BUY策略做冻结前向比较。
 
-生产硬门禁：
+### 13.2 隔离回放边界
+
+隔离回放属于研究验证，不得污染正式业务状态：
+
+```text
+只读加载生产bar/feature/月度状态
+→ 生成内存runId与各轨道portfolioId
+→ 复用正式纯领域规则和Policy
+→ 内存中运行状态机与资金账本
+→ 输出JSON摘要和CSV逐笔审计
+```
+
+冻结边界：
+
+- `runId/portfolioId`只存在于回放进程和输出文件，不写正式业务表；
+- 首期不新增回放业务表，不写本地或生产数据库；
+- 输入数据库连接必须只读，禁止INSERT/UPDATE/DELETE/DDL；
+- 可以复用正式的纯领域引擎、策略、Policy和计算器；
+- 禁止调用会写DAO、发送消息、获取系统当前时间或更新全局水位的正式编排Service；
+- 时间、价格、规则版本、月度状态和资金必须由回放上下文显式注入；
+- 每条轨道独立状态，禁止轨道间共享持仓、槽位或冷却。
+
+强制输出：
+
+```text
+<runId>-summary.json
+<runId>-trades.csv
+<runId>-rejections.csv
+```
+
+JSON至少包含输入范围、数据版本、全部规则版本、轨道、资金、收益、MDD、利用率、消息频率、错误和完成状态。CSV保存逐笔交易与拒绝事件，不强制保存每个bar流水；逐bar只需在内存计算净值，并输出压缩后的每日或15分钟净值曲线CSV用于MDD复核：
+
+```text
+<runId>-equity-curve.csv
+```
+
+失败或中断：
+
+- 本次run标记`FAILED/INCOMPLETE`，已输出文件不得冒充完成结果；
+- 不从中间状态续跑；
+- 修复后使用相同输入和规则版本从头重跑；
+- 输出采用临时文件，全部成功后原子重命名为正式文件名；
+- 同一runId不得覆盖既有完成产物。
+
+未来若回放规模需要持久化，可另行设计研究专用Schema，但不得复用正式event/batch/slot/notice表。
+
+### 13.3 日报权益数据不足
+
+正式组合权益必须是全量可计算值。只要任一开放正式仓位在摘要时点没有满足新鲜度要求的实际行情：
+
+```text
+equityStatus = DATA_INSUFFICIENT
+equity = null
+```
+
+禁止：
+
+- 用投入成本代替缺失行情；
+- 只计算现金部分并显示为组合权益；
+- 用部分股票市值拼成看似完整的权益。
+
+日报展示：
+
+```text
+- 当前组合权益：暂无法计算（行情数据不足）
+- 缺失行情：TCC、MUN
+- 可用现金及预留资金：$...
+```
+
+现金可以单独展示，但必须标记为`cashOnly`，不能命名为权益。数据结构至少包含：
+
+```text
+equityStatus: COMPLETE | DATA_INSUFFICIENT
+equity: number | null
+cashAndReserved: number
+missingPriceStocks: [symbol...]
+priceAsOf: timestamp | null
+```
+
+如果没有开放仓位，权益可以完整计算为全部现金，此时`equityStatus=COMPLETE`。缺失股票按`stocksId`确定性排序。日报其他买卖、已实现收益和影子统计仍正常显示。
+
+### 13.4 质量门禁
 
 ```text
 孤儿SELL=0
