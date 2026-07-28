@@ -9,6 +9,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCancelReasonEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
@@ -48,7 +49,7 @@ class StockEntrySettlementServiceTest {
 
     @BeforeEach
     void setUp() {
-        entrySettlementService = new StockEntrySettlementService(new StockPortfolioService(null));
+        entrySettlementService = new StockEntrySettlementService(new StockPortfolioService());
     }
 
     @Test
@@ -147,6 +148,56 @@ class StockEntrySettlementServiceTest {
             assertEquals(ENTRY_PRICE, filled.getEntryReferencePrice());
             assertEquals(ROUND_TIME, filled.getEntryTime());
             assertEquals(1000L, filled.getQuantity());
+        }
+    }
+
+    @Test
+    @DisplayName("Shadow待买入批次成交_不读取正式槽位且使用理论单位")
+    void processEntryPending_shadowBatch_filledWithoutFormalSlot() {
+        TornStockVirtualBatchDO batch = buildEntryPendingBatch();
+        batch.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
+
+        try (MockedStatic<StockPortfolioService> mocked = mockStatic(StockPortfolioService.class)) {
+            mocked.when(() -> StockPortfolioService.checkEntryPriceDeviation(SIGNAL_PRICE, ENTRY_PRICE))
+                    .thenReturn(false);
+            EntrySettlementResult result = entrySettlementService.processEntryPending(
+                    snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
+
+            assertEquals(1, result.filledBatches().size());
+            TornStockVirtualBatchDO filled = result.filledBatches().getFirst();
+            assertEquals(StockBatchStatusEnum.OPEN.getCode(), filled.getBatchStatus());
+            assertEquals(1L, filled.getQuantity());
+            assertEquals(ENTRY_PRICE, filled.getEntryReferencePrice());
+            assertEquals(ENTRY_PRICE, filled.getInvestedCash());
+            mocked.verify(() -> StockPortfolioService.indexSlotsById(any()));
+            mocked.verify(() -> StockPortfolioService.checkEntryPriceDeviation(SIGNAL_PRICE, ENTRY_PRICE));
+            mocked.verifyNoMoreInteractions();
+        }
+    }
+
+    @Test
+    @DisplayName("Shadow待卖出批次成交_不结算正式槽位资金")
+    void processExitPending_shadowBatch_filledWithoutFormalSettlement() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        batch.setQuantity(1L);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.00"));
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
+
+        try (MockedStatic<StockPortfolioService> mocked = mockStatic(StockPortfolioService.class)) {
+            List<TornStockVirtualBatchDO> result = entrySettlementService.processExitPending(
+                    snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
+
+            assertEquals(1, result.size());
+            TornStockVirtualBatchDO filled = result.getFirst();
+            assertEquals(StockBatchStatusEnum.CLOSED_TARGET.getCode(), filled.getBatchStatus());
+            assertEquals(new BigDecimal("101.00"), filled.getExitReferencePrice());
+            mocked.verify(() -> StockPortfolioService.indexSlotsById(any()));
+            mocked.verify(() -> StockPortfolioService.calculateNetReturn(ENTRY_PRICE, new BigDecimal("101.00")));
+            mocked.verifyNoMoreInteractions();
         }
     }
 

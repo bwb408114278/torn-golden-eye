@@ -6,11 +6,12 @@ import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCancelReasonEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchEntryFields;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -184,6 +185,11 @@ public class StockEntrySettlementService {
                                 LocalDateTime roundTime,
                                 List<TornStockVirtualBatchDO> filledBatches,
                                 List<TornStockVirtualBatchDO> cancelledBatches) {
+        if (StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode().equals(batch.getLedgerType())) {
+            fillShadowEntryBatch(batch, currentBar, roundTime, filledBatches);
+            return;
+        }
+
         BigDecimal entryReferencePrice = currentBar.getLastPrice();
         TornStockPortfolioSlotDO slot = batch.getSlotId() != null ? slotById.get(batch.getSlotId()) : null;
 
@@ -208,25 +214,42 @@ public class StockEntrySettlementService {
 
         portfolioService.occupySlot(slot, quantity, entryReferencePrice, batch.getId());
 
-        batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
-        batch.setEntryReferencePrice(entryReferencePrice);
-        batch.setEntryTime(roundTime);
-        batch.setQuantity(quantity);
-        batch.setInvestedCash(investedCash);
-        batch.setRemainingCash(remainingCash);
-        batch.setPeakPrice(entryReferencePrice);
-        batch.setTroughPrice(entryReferencePrice);
-        batch.setCurrentNetReturn(BigDecimal.ZERO);
-        batch.setMfe(BigDecimal.ZERO);
-        batch.setMae(BigDecimal.ZERO);
-        batch.setPeakDrawdown(BigDecimal.ZERO);
-        batch.setFollowUntil(roundTime.plusMinutes(StockNoticeComposeService.FOLLOW_MINUTES));
-        batch.setFollowMaxPrice(entryReferencePrice.multiply(StockNoticeComposeService.FOLLOW_PRICE_MULTIPLIER));
-        batch.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
-        batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
-        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
+        TornStockVirtualBatchEntryFields fields = new TornStockVirtualBatchEntryFields();
+        fields.setEntryReferencePrice(entryReferencePrice);
+        fields.setEntryTime(roundTime);
+        fields.setQuantity(quantity);
+        fields.setInvestedCash(investedCash);
+        fields.setRemainingCash(remainingCash);
+        batch.applyFilledEntryFields(fields);
 
+        filledBatches.add(batch);
+    }
+
+    /**
+     * 成交无限资金影子批次,不读取、不修改正式槽位。
+     *
+     * @param batch         待成交影子批次
+     * @param currentBar    当前连续bar
+     * @param roundTime     本轮时间
+     * @param filledBatches 输出: 已成交批次列表
+     */
+    private void fillShadowEntryBatch(TornStockVirtualBatchDO batch,
+                                      TornStockMarketBar15mDO currentBar,
+                                      LocalDateTime roundTime,
+                                      List<TornStockVirtualBatchDO> filledBatches) {
+        BigDecimal entryReferencePrice = currentBar.getLastPrice();
+        if (entryReferencePrice == null || entryReferencePrice.signum() <= 0) {
+            batch.setBatchStatus(StockBatchStatusEnum.CANCELLED.getCode());
+            batch.setCancelReason(StockCancelReasonEnum.ENTRY_PRICE_DEVIATION.getCode());
+            return;
+        }
+        TornStockVirtualBatchEntryFields fields = new TornStockVirtualBatchEntryFields();
+        fields.setEntryReferencePrice(entryReferencePrice);
+        fields.setEntryTime(roundTime);
+        fields.setQuantity(1L);
+        fields.setInvestedCash(entryReferencePrice);
+        fields.setRemainingCash(BigDecimal.ZERO);
+        batch.applyFilledEntryFields(fields);
         filledBatches.add(batch);
     }
 
@@ -321,6 +344,11 @@ public class StockEntrySettlementService {
             return;
         }
 
+        if (StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode().equals(batch.getLedgerType())) {
+            fillShadowExitBatch(batch, currentBar, roundTime, filledBatches);
+            return;
+        }
+
         fillExitBatch(batch, currentBar, slotById, roundTime, filledBatches);
         log.info("待卖出批次成交: batchNo={}, stocksId={}, exitPrice={}, closeType={}",
                 batch.getBatchNo(), batch.getStocksId(), currentBar.getLastPrice(), batch.getExitReason());
@@ -340,20 +368,41 @@ public class StockEntrySettlementService {
     }
 
     /**
-     * 成交待卖出批次: 状态置为CLOSED_xxx, 设置卖出参考价、卖出时间、净收益, 结算槽位。
-     * <p>
-     * 平仓后根据关闭类型设置冷却期与复位标记:
-     * <ul>
-     *   <li>正常关闭(目标/区间/时间/动态/换仓/管理): cooldownUntil = exitTime + 24小时</li>
-     *   <li>风险关闭(CLOSED_RISK): cooldownUntil = exitTime + 48小时</li>
-     *   <li>resetObserved 置为 false,要求下一轮观察到买入条件复位后才能再次产生信号</li>
-     * </ul>
+     * 成交无限资金影子批次的理论平仓,不结算正式槽位。
+     *
+     * @param batch         待成交影子批次
+     * @param currentBar    当前连续bar
+     * @param roundTime     本轮时间
+     * @param filledBatches 输出: 已成交影子批次列表
+     */
+    private void fillShadowExitBatch(TornStockVirtualBatchDO batch,
+                                     TornStockMarketBar15mDO currentBar,
+                                     LocalDateTime roundTime,
+                                     List<TornStockVirtualBatchDO> filledBatches) {
+        BigDecimal exitReferencePrice = currentBar.getLastPrice();
+        BigDecimal netReturn = StockPortfolioService.calculateNetReturn(
+                batch.getEntryReferencePrice(), exitReferencePrice);
+        batch.setBatchStatus(resolveCloseStatus(batch.getExitReason()).getCode());
+        batch.setExitReferencePrice(exitReferencePrice);
+        batch.setExitTime(roundTime);
+        batch.setNetReturn(netReturn);
+        batch.setSellProceeds(exitReferencePrice);
+        batch.setCooldownUntil(calculateCooldownUntil(
+                resolveCloseTypeEnum(batch.getExitReason()), roundTime));
+        batch.setResetObserved(false);
+        if (isFilledCloseStatus(batch.getBatchStatus())) {
+            filledBatches.add(batch);
+        }
+    }
+
+    /**
+     * 平仓后根据关闭类型设置冷却期与复位标记。
      *
      * @param batch         待成交批次
-     * @param currentBar    本轮bar
-     * @param slotById      槽位ID索引映射
-     * @param roundTime     本轮时间(作为平仓时间exitTime)
-     * @param filledBatches 输出: 已成交批次列表
+     * @param currentBar    当前bar
+     * @param slotById      槽位索引
+     * @param roundTime     平仓时间
+     * @param filledBatches 已成交批次列表
      */
     private void fillExitBatch(TornStockVirtualBatchDO batch, TornStockMarketBar15mDO currentBar,
                                Map<Long, TornStockPortfolioSlotDO> slotById,
@@ -397,6 +446,10 @@ public class StockEntrySettlementService {
             return;
         }
         filledBatches.add(batch);
+    }
+
+    private StockBatchStatusEnum resolveCloseStatus(String exitReason) {
+        return mapCloseTypeToBatchStatus(resolveCloseTypeEnum(exitReason));
     }
 
     /**

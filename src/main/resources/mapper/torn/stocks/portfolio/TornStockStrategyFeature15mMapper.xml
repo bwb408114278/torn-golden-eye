@@ -26,14 +26,22 @@
                pct_above_30d_low, pct_below_30d_high,
                strategy_ready, data_quality_reason, feature_version,
                deleted, create_time, update_time
-        FROM torn_stock_strategy_feature_15m
-        WHERE deleted = 0
-          AND bar_start_time <![CDATA[<=]]> #{maxBarStartTime}
-          AND stocks_id IN
-        <foreach collection="stocksIds" item="id" open="(" separator="," close=")">
-            #{id}
-        </foreach>
-        ORDER BY stocks_id, bar_start_time DESC
+        FROM (
+            SELECT f.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY f.stocks_id
+                       ORDER BY f.bar_start_time DESC, f.id DESC
+                   ) AS row_num
+            FROM torn_stock_strategy_feature_15m f
+            WHERE f.deleted = 0
+              AND f.bar_start_time <![CDATA[<=]]> #{maxBarStartTime}
+              AND f.stocks_id IN
+            <foreach collection="stocksIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        ) latest
+        WHERE row_num = 1
+        ORDER BY stocks_id
     </select>
 
     <!-- 按唯一键执行UPSERT -->

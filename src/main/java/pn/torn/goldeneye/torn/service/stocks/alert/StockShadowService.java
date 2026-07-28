@@ -9,6 +9,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEve
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchSignalFields;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
@@ -280,10 +281,15 @@ public class StockShadowService {
         batch.setQualityScore(event.getQualityScore());
         batch.setSignalEventId(event.getId());
         batch.setSignalTime(event.getRoundTime());
-        StockPortfolioService.fillCommonBatchFields(
-                batch, event.getSignalReferencePrice(), event.getRoundTime(),
-                event.getStylePrior(), event.getStyleMaturity(), event.getRiskLevel(),
-                event.getStyleEffectiveMonth(), event.getBuyRuleVersion());
+        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
+        fields.setSignalReferencePrice(event.getSignalReferencePrice());
+        fields.setSignalTime(event.getRoundTime());
+        fields.setStylePrior(event.getStylePrior());
+        fields.setStyleMaturity(event.getStyleMaturity());
+        fields.setRiskLevel(event.getRiskLevel());
+        fields.setStyleEffectiveMonth(event.getStyleEffectiveMonth());
+        fields.setBuyRuleVersion(event.getBuyRuleVersion());
+        batch.applySignalFields(fields);
         // slotId/slotNo 保持 null: 影子与拒绝观察批次不占正式槽位
         return batch;
     }

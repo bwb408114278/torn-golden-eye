@@ -9,7 +9,6 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -70,10 +69,7 @@ public class StockNoticeComposeService {
      * 跟随截止时间格式(yyyy-MM-dd HH:mm)
      */
     private static final DateTimeFormatter FOLLOW_UNTIL_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    /**
-     * 每日摘要日期格式(yyyy-MM-dd)
-     */
-    private static final DateTimeFormatter SUMMARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
     /**
      * 小时换算分钟
      */
@@ -102,10 +98,7 @@ public class StockNoticeComposeService {
      * 卖出消息标题模板
      */
     private static final String SELL_TITLE_TEMPLATE = "【VIP股票卖出｜批次 %s】";
-    /**
-     * 每日摘要标题模板
-     */
-    private static final String SUMMARY_TITLE_TEMPLATE = "【VIP股票组合日报｜%s】";
+
     /**
      * 正数符号前缀
      */
@@ -142,12 +135,12 @@ public class StockNoticeComposeService {
         String maturityChinese = resolveMaturityChinese(batch.getStyleMaturity());
         String riskChinese = resolveRiskChinese(batch.getRiskLevel());
         BigDecimal entryPrice = nullSafePrice(batch.getEntryReferencePrice());
-        BigDecimal followMaxPrice = batch.getFollowMaxPrice() != null
-                ? batch.getFollowMaxPrice().setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP)
-                : entryPrice.multiply(FOLLOW_PRICE_MULTIPLIER)
+        LocalDateTime followUntil = batch.getFollowUntil();
+        if (followUntil == null || batch.getFollowMaxPrice() == null) {
+            throw new IllegalStateException("买入批次跟随字段缺失,禁止生成通知: batchNo=" + batch.getBatchNo());
+        }
+        BigDecimal followMaxPrice = batch.getFollowMaxPrice()
                 .setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP);
-        LocalDateTime followUntil = batch.getFollowUntil() != null
-                ? batch.getFollowUntil() : LocalDateTime.now().plusMinutes(FOLLOW_MINUTES);
         int slotNo = batch.getSlotNo() != null ? batch.getSlotNo() : occupiedSlots;
         String slotDisplay = String.format(SLOT_DISPLAY_TEMPLATE, slotNo, SLOT_TOTAL);
 
@@ -207,45 +200,6 @@ public class StockNoticeComposeService {
                 "未跟随该批次买入的成员无需操作。";
     }
 
-    /**
-     * 组合每日摘要消息文本
-     * <p>
-     * 参数通过 {@link DailySummaryData} 值对象封装,避免方法参数超过7个。
-     * 包含正式组合与影子研究两个板块,以及研究数据提示语。
-     *
-     * @param data 每日摘要数据值对象
-     * @return 中文每日摘要消息文本
-     */
-    public String composeDailySummary(DailySummaryData data) {
-        Objects.requireNonNull(data, "摘要数据不能为空");
-
-        String dateText = data.summaryDate() != null
-                ? data.summaryDate().format(SUMMARY_DATE_FORMATTER) : "";
-        String slotDisplay = String.format(SLOT_DISPLAY_TEMPLATE, data.occupiedSlots(), SLOT_TOTAL);
-        String openBatchesText = data.openBatchStocks() == null || data.openBatchStocks().isEmpty()
-                ? "无" : String.join("、", data.openBatchStocks());
-
-        return String.format(SUMMARY_TITLE_TEMPLATE, dateText) + "\n" +
-                "\n" +
-                "正式组合" + "\n" +
-                "- 当前占用槽位：" + slotDisplay + "\n" +
-                "- 当前组合权益：" + formatAmount(data.equity()) + "\n" +
-                "- 昨日买入：" + data.yesterdayBuyCount() + "批" + "\n" +
-                "- 昨日卖出：" + data.yesterdaySellCount() + "批" + "\n" +
-                "- 昨日已实现净收益：" + formatAmount(data.yesterdayNetReturn()) + "\n" +
-                "- 当前开放批次：" + openBatchesText + "\n" +
-                "- 数据陈旧批次：" + data.staleBatchCount() + "\n" +
-                "\n" +
-                "影子研究" + "\n" +
-                "- 原始买入信号：" + data.signalCount() + "个" + "\n" +
-                "- 无限资金影子新批次：" + data.shadowNewCount() + "个" + "\n" +
-                "- 满仓拒绝：" + data.fullRejectCount() + "个" + "\n" +
-                "- 风格/趋势拒绝：" + data.styleRejectCount() + "个" + "\n" +
-                "- 动态卖出影子建议：" + data.dynamicSellCount() + "个" + "\n" +
-                "- 高风险观察：" + data.highRiskCount() + "个" + "\n" +
-                "\n" +
-                "提示：影子数据仅用于策略研究，不代表正式操作建议。";
-    }
 
     /**
      * 组合并合并同轮待发送通知,执行优先级排序与拆分续报
@@ -518,20 +472,6 @@ public class StockNoticeComposeService {
         return price.setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP).toPlainString();
     }
 
-    /**
-     * 格式化金额为带千分位的字符串。
-     * <p>
-     * 入参为null时返回占位文本。使用 {@link Locale#US} 保证千分位为逗号。
-     *
-     * @param amount 金额
-     * @return 格式化后的金额文本
-     */
-    private String formatAmount(BigDecimal amount) {
-        if (amount == null) {
-            return "未知";
-        }
-        return amount.setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP).toPlainString();
-    }
 
     /**
      * 返回null安全的价格值,为null时返回0。
@@ -553,44 +493,6 @@ public class StockNoticeComposeService {
         return text == null ? "" : text;
     }
 
-    /**
-     * 每日摘要数据值对象。
-     * <p>
-     * 封装每日摘要所需的全部数据,避免 {@link #composeDailySummary(DailySummaryData)}
-     * 方法参数超过7个。包含正式组合与影子研究两个板块的字段。
-     *
-     * @param occupiedSlots      当前已占用槽位数
-     * @param equity             当前组合权益
-     * @param yesterdayBuyCount  昨日买入批次数
-     * @param yesterdaySellCount 昨日卖出批次数
-     * @param yesterdayNetReturn 昨日已实现净收益
-     * @param openBatchStocks    当前开放批次的股票简称列表
-     * @param staleBatchCount    数据陈旧批次数
-     * @param signalCount        原始买入信号数
-     * @param shadowNewCount     无限资金影子新批次数
-     * @param fullRejectCount    满仓拒绝数
-     * @param styleRejectCount   风格/趋势拒绝数
-     * @param dynamicSellCount   动态卖出影子建议数
-     * @param highRiskCount      高风险观察数
-     * @param summaryDate        摘要归属日期
-     */
-    public record DailySummaryData(
-            int occupiedSlots,
-            BigDecimal equity,
-            int yesterdayBuyCount,
-            int yesterdaySellCount,
-            BigDecimal yesterdayNetReturn,
-            List<String> openBatchStocks,
-            int staleBatchCount,
-            int signalCount,
-            int shadowNewCount,
-            int fullRejectCount,
-            int styleRejectCount,
-            int dynamicSellCount,
-            int highRiskCount,
-            LocalDate summaryDate
-    ) {
-    }
 
     /**
      * 组合后的消息值对象。

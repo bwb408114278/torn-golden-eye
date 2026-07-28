@@ -317,6 +317,8 @@ class StockNoticeComposeServiceTest {
         batch.setQuantity(100L);
         batch.setInvestedCash(new BigDecimal("10000.00"));
         batch.setSlotNo(2);
+        batch.setFollowUntil(LocalDateTime.of(2026, 7, 25, 10, 0));
+        batch.setFollowMaxPrice(new BigDecimal("100.15"));
         return batch;
     }
 

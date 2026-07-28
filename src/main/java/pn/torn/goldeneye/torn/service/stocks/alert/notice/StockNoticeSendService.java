@@ -9,7 +9,6 @@ import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeStatusEnum;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
@@ -19,7 +18,6 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.utils.JsonUtils;
 
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -52,9 +50,9 @@ public class StockNoticeSendService {
      */
     private static final String SETTING_ENABLED_VALUE = "true";
     /**
-     * 初始发送尝试次数(PENDING通知首次发送,attemptCount从0置为1)
+     * Bot发送失败时的统一失败原因。
      */
-    private static final int INITIAL_SEND_ATTEMPT_COUNT = 1;
+    private static final String BOT_SEND_FAILURE_MESSAGE = "Bot返回null响应";
     /**
      * 错误信息最大长度(截断超长异常信息避免库字段溢出)
      */
@@ -96,9 +94,17 @@ public class StockNoticeSendService {
         log.info("股票通知发送-发现{}条待发送通知", pendingNotices.size());
 
         Map<Long, TornStockVirtualBatchDO> batchMap = loadBatchMap(pendingNotices);
+        List<TornStockNoticeAuditDO> validNotices = filterNoticesWithBatches(pendingNotices, batchMap);
+        if (validNotices.size() < pendingNotices.size()) {
+            markMissingBatchNoticesFailed(pendingNotices, batchMap);
+        }
+        if (validNotices.isEmpty()) {
+            log.warn("股票通知发送-无有效批次关联, pendingNotices={}", pendingNotices.size());
+            return;
+        }
 
         List<StockNoticeComposeService.ComposedMessage> composedMessages =
-                stockNoticeComposeService.composeAndMergeNotices(pendingNotices, batchMap);
+                stockNoticeComposeService.composeAndMergeNotices(validNotices, batchMap);
         if (CollectionUtils.isEmpty(composedMessages)) {
             log.warn("股票通知发送-消息组合结果为空,待发送通知数={}", pendingNotices.size());
             return;
@@ -113,7 +119,7 @@ public class StockNoticeSendService {
                 markNoticesSent(composedMessage.noticeIds());
             } else {
                 failedCount++;
-                markNoticesFailed(composedMessage.noticeIds(), "Bot返回null响应");
+                markNoticesFailed(composedMessage.noticeIds());
             }
         }
 
@@ -218,26 +224,56 @@ public class StockNoticeSendService {
     }
 
     /**
-     * 将一批通知标记为已发送(SENT)并设置发送成功时间
+     * 过滤没有关联批次的通知。
+     *
+     * @param notices  待发送通知
+     * @param batchMap 批次索引
+     * @return 存在关联批次的通知
+     */
+    private List<TornStockNoticeAuditDO> filterNoticesWithBatches(
+            List<TornStockNoticeAuditDO> notices,
+            Map<Long, TornStockVirtualBatchDO> batchMap) {
+        return notices.stream()
+                .filter(notice -> notice.getBatchId() != null
+                        && batchMap.containsKey(notice.getBatchId()))
+                .toList();
+    }
+
+    /**
+     * 批量终止无法关联批次的PENDING通知,避免永久重复扫描。
+     *
+     * @param notices  待发送通知
+     * @param batchMap 已加载的批次索引
+     */
+    private void markMissingBatchNoticesFailed(List<TornStockNoticeAuditDO> notices,
+                                               Map<Long, TornStockVirtualBatchDO> batchMap) {
+        List<Long> missingNoticeIds = notices.stream()
+                .filter(notice -> notice.getBatchId() == null
+                        || !batchMap.containsKey(notice.getBatchId()))
+                .map(TornStockNoticeAuditDO::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!missingNoticeIds.isEmpty()) {
+            noticeAuditDAO.markFailedByIds(missingNoticeIds, "关联虚拟交易批次不存在");
+            log.warn("股票通知发送-无关联批次通知已标记FAILED: count={}", missingNoticeIds.size());
+        }
+    }
+
+    /**
+     * 将一批通知标记为已发送(SENT)并设置发送成功时间。
      * <p>
      * 单条更新异常不影响其他通知,异常被捕获并记录日志。
      *
      * @param noticeIds 本批次组合消息对应的通知ID列表
      */
     private void markNoticesSent(List<Long> noticeIds) {
-        LocalDateTime now = LocalDateTime.now();
-        for (Long noticeId : noticeIds) {
-            try {
-                TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-                notice.setId(noticeId);
-                notice.setSendStatus(StockNoticeStatusEnum.SENT.getCode());
-                notice.setSentAt(now);
-                notice.setAttemptedAt(now);
-                notice.setSendAttemptCount(INITIAL_SEND_ATTEMPT_COUNT);
-                noticeAuditDAO.updateById(notice);
-            } catch (Exception e) {
-                log.error("股票通知发送-标记SENT状态异常, noticeId={}", noticeId, e);
-            }
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return;
+        }
+        try {
+            noticeAuditDAO.markSentByIds(noticeIds);
+        } catch (Exception e) {
+            log.error("股票通知发送-批量标记SENT状态异常, noticeCount={}", noticeIds.size(), e);
         }
     }
 
@@ -247,40 +283,16 @@ public class StockNoticeSendService {
      * 超长错误信息会被截断到 {@link #MAX_ERROR_MESSAGE_LENGTH} 以避免库字段溢出。
      * 单条更新异常不影响其他通知,异常被捕获并记录日志。
      *
-     * @param noticeIds    本批次组合消息对应的通知ID列表
-     * @param errorMessage 失败错误信息
+     * @param noticeIds 本批次组合消息对应的通知ID列表
      */
-    private void markNoticesFailed(List<Long> noticeIds, String errorMessage) {
-        String truncatedError = truncateErrorMessage(errorMessage);
-        LocalDateTime now = LocalDateTime.now();
-        for (Long noticeId : noticeIds) {
-            try {
-                TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-                notice.setId(noticeId);
-                notice.setSendStatus(StockNoticeStatusEnum.FAILED.getCode());
-                notice.setAttemptedAt(now);
-                notice.setSendAttemptCount(INITIAL_SEND_ATTEMPT_COUNT);
-                notice.setErrorMessage(truncatedError);
-                noticeAuditDAO.updateById(notice);
-            } catch (Exception e) {
-                log.error("股票通知发送-标记FAILED状态异常, noticeId={}", noticeId, e);
-            }
+    private void markNoticesFailed(List<Long> noticeIds) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return;
         }
-    }
-
-    /**
-     * 截断错误信息到最大长度
-     *
-     * @param errorMessage 原始错误信息
-     * @return 截断后的错误信息;入参为null时返回null
-     */
-    private String truncateErrorMessage(String errorMessage) {
-        if (errorMessage == null) {
-            return null;
+        try {
+            noticeAuditDAO.markSendFailedByIds(noticeIds, StockNoticeSendService.BOT_SEND_FAILURE_MESSAGE);
+        } catch (Exception e) {
+            log.error("股票通知发送-批量标记FAILED状态异常, noticeCount={}", noticeIds.size(), e);
         }
-        if (errorMessage.length() <= MAX_ERROR_MESSAGE_LENGTH) {
-            return errorMessage;
-        }
-        return errorMessage.substring(0, MAX_ERROR_MESSAGE_LENGTH);
     }
 }

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockBatchMarkDAO;
@@ -19,6 +20,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.policy.StockCandidateRankingP
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 股票轮次事务服务 - 短事务内编排12步组合决策流程
@@ -120,14 +122,14 @@ public class StockRoundTransactionService {
         Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock = indexMonthlyStatesByStockId(snapshot.monthlyStates());
         Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey = indexSignalStatesByKey(snapshot.signalStates());
 
-        // 合并正式与影子活跃批次,统一参与入场/路径/退出处理
-        List<TornStockVirtualBatchDO> allActiveBatches = new ArrayList<>(snapshot.activeBatches());
-        if (snapshot.shadowBatches() != null) {
-            allActiveBatches.addAll(snapshot.shadowBatches());
-        }
+        // 合并正式与影子活跃批次,按批次ID去重后统一参与入场/路径/退出处理
+        List<TornStockVirtualBatchDO> allActiveBatches = mergeActiveBatches(
+                snapshot.activeBatches(), snapshot.shadowBatches());
+        List<TornStockVirtualBatchDO> shadowBatches = filterLedgerBatches(
+                allActiveBatches, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
         RoundSnapshot mergedSnapshot = new RoundSnapshot(
                 snapshot.bars(), snapshot.features(), snapshot.monthlyStates(),
-                allActiveBatches, snapshot.shadowBatches(), snapshot.signalStates(),
+                allActiveBatches, shadowBatches, snapshot.signalStates(),
                 lockedSlots, snapshot.roundTime());
 
         // 步骤2: 处理待买入批次(ENTRY_PENDING) - 含正式与影子
@@ -149,38 +151,56 @@ public class StockRoundTransactionService {
         BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
                 snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
 
-        // 步骤7: 排序候选并预留槽位(根据规则模式开关决定是否创建正式批次)
-        List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
-        List<TornStockVirtualBatchDO> newFormalBatches = List.of();
+        // 步骤7: 读取规则模式后再进行候选编排
         StockRuleModeEnum ruleMode = resolveRuleMode();
+        List<CandidateInfo> rankedCandidates = ruleMode == StockRuleModeEnum.OFF
+                ? List.of()
+                : candidateRankingPolicy.rank(signalResult.formalCandidates());
+        Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evaluationByStockId = ruleMode == StockRuleModeEnum.OFF
+                ? Map.of()
+                : signalResult.allEvaluations().stream()
+                .filter(Objects::nonNull)
+                .filter(evaluation -> evaluation.stocksId() != null)
+                .collect(Collectors.toMap(StockBuySignalEvaluator.SignalEvaluation::stocksId,
+                        evaluation -> evaluation, (left, right) -> left));
+        List<TornStockVirtualBatchDO> newFormalBatches = List.of();
         if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
             newFormalBatches = buySignalEvaluator.acceptCandidates(
-                    rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock, roundTime);
+                    rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                    evaluationByStockId, roundTime);
         } else {
             log.info("规则模式[{}]不创建正式批次,跳过候选接纳: candidateCount={}",
                     ruleMode.getCode(), rankedCandidates.size());
         }
 
-        // 构建候选排名映射(stocksId -> rank),供信号事件回写
-        Map<Integer, Integer> candidateRankByStockId = new HashMap<>();
-        for (int i = 0; i < rankedCandidates.size(); i++) {
-            candidateRankByStockId.put(rankedCandidates.get(i).stocksId(), i + 1);
-        }
+        // 构建候选排名映射(stocksId -> rank),供事件回写
+        Map<Integer, Integer> candidateRankByStockId = ruleMode == StockRuleModeEnum.OFF
+                ? Map.of()
+                : buildCandidateRankByStockId(rankedCandidates);
 
-        // 步骤8: 写入原始信号事件、影子批次与拒绝观察批次,并回填正式批次的signalEventId
-        shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), newFormalBatches,
-                candidateRankByStockId, roundTime);
+        // 步骤8: OFF模式不写入买入研究事件和Shadow批次
+        if (ruleMode != StockRuleModeEnum.OFF) {
+            shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), newFormalBatches,
+                    candidateRankByStockId, roundTime);
+        } else {
+            log.info("规则模式OFF,跳过信号事件和影子批次写入");
+        }
 
         // 步骤9: 为已成交的买入/卖出写入PENDING通知审计
         shadowRecordWriter.writeNoticeAudits(
                 entryResult.filledBatches(), exitFilledBatches, roundTime);
 
-        // 步骤10: 更新信号边沿状态
-        signalStateUpdater.updateStates(
-                signalResult.allEvaluations(), signalStateByKey, roundTime);
+        // 步骤10: OFF模式不推进新的买入信号边沿状态,避免重新启用时丢失边沿
+        if (ruleMode != StockRuleModeEnum.OFF) {
+            signalStateUpdater.updateStates(
+                    signalResult.allEvaluations(), signalStateByKey, roundTime);
+        } else {
+            log.info("规则模式OFF,跳过买入信号状态更新");
+        }
+        signalStateUpdater.updateCloseStates(exitFilledBatches, signalStateByKey);
 
         // 批量保存变更(含影子批次的路径/状态变更)
-        batchSaveChanges(mergedSnapshot, marks, newFormalBatches);
+        batchSaveChanges(mergedSnapshot, marks);
 
         // 步骤11: 更新轮次为COMPLETED
         completeRound(round, mergedSnapshot);
@@ -188,6 +208,78 @@ public class StockRoundTransactionService {
         log.info("轮次事务完成: roundTime={}, entryFilled={}, entryCancelled={}, exitFilled={}, newFormal={}, marks={}",
                 roundTime, entryResult.filledBatches().size(), entryResult.cancelledBatches().size(),
                 exitFilledBatches.size(), newFormalBatches.size(), marks.size());
+    }
+
+    /**
+     * 构建候选排名索引。
+     *
+     * @param rankedCandidates 已排序候选
+     * @return 股票ID到候选排名的映射
+     */
+    private Map<Integer, Integer> buildCandidateRankByStockId(List<CandidateInfo> rankedCandidates) {
+        Map<Integer, Integer> rankByStockId = new HashMap<>();
+        if (rankedCandidates == null) {
+            return rankByStockId;
+        }
+        for (int i = 0; i < rankedCandidates.size(); i++) {
+            CandidateInfo candidate = rankedCandidates.get(i);
+            if (candidate != null && candidate.stocksId() != null) {
+                rankByStockId.putIfAbsent(candidate.stocksId(), i + 1);
+            }
+        }
+        return rankByStockId;
+    }
+
+    /**
+     * 合并正式与Shadow活跃批次,按主键去重。
+     *
+     * @param formalBatches 正式活跃批次
+     * @param shadowBatches Shadow活跃批次
+     * @return 去重后的活跃批次
+     */
+    private List<TornStockVirtualBatchDO> mergeActiveBatches(
+            List<TornStockVirtualBatchDO> formalBatches,
+            List<TornStockVirtualBatchDO> shadowBatches) {
+        Map<Long, TornStockVirtualBatchDO> batchesById = new LinkedHashMap<>();
+        addBatchesById(batchesById, formalBatches);
+        addBatchesById(batchesById, shadowBatches);
+        return new ArrayList<>(batchesById.values());
+    }
+
+    /**
+     * 将批次加入主键索引;无主键对象不参与合并。
+     *
+     * @param batchesById 批次索引
+     * @param batches     待加入批次
+     */
+    private void addBatchesById(Map<Long, TornStockVirtualBatchDO> batchesById,
+                                List<TornStockVirtualBatchDO> batches) {
+        if (batches == null) {
+            return;
+        }
+        for (TornStockVirtualBatchDO batch : batches) {
+            if (batch != null && batch.getId() != null) {
+                batchesById.putIfAbsent(batch.getId(), batch);
+            }
+        }
+    }
+
+    /**
+     * 按账本类型过滤批次。
+     *
+     * @param batches    批次列表
+     * @param ledgerType 账本类型
+     * @return 指定账本类型批次
+     */
+    private List<TornStockVirtualBatchDO> filterLedgerBatches(
+            List<TornStockVirtualBatchDO> batches, String ledgerType) {
+        if (batches == null || batches.isEmpty()) {
+            return List.of();
+        }
+        return batches.stream()
+                .filter(Objects::nonNull)
+                .filter(batch -> ledgerType.equals(batch.getLedgerType()))
+                .toList();
     }
 
     /**
@@ -266,18 +358,14 @@ public class StockRoundTransactionService {
 
     /**
      * 批量保存全部变更的DO(批次、槽位、标记)。
+     * <p>
+     * mergedSnapshot.activeBatches已包含正式和Shadow活跃批次,本方法再次按批次ID去重后保存。
      *
-     * @param snapshot         轮次快照(含变更后的批次与槽位)
-     * @param marks            生成的BatchMark列表
-     * @param newFormalBatches 新建的正式批次列表
+     * @param snapshot 轮次快照(含变更后的正式与Shadow批次、槽位)
+     * @param marks    生成的BatchMark列表
      */
-    private void batchSaveChanges(RoundSnapshot snapshot, List<TornStockBatchMarkDO> marks,
-                                  List<TornStockVirtualBatchDO> newFormalBatches) {
-        List<TornStockVirtualBatchDO> allBatches = new ArrayList<>(snapshot.activeBatches());
-        if (snapshot.shadowBatches() != null) {
-            allBatches.addAll(snapshot.shadowBatches());
-        }
-        allBatches.addAll(newFormalBatches);
+    private void batchSaveChanges(RoundSnapshot snapshot, List<TornStockBatchMarkDO> marks) {
+        List<TornStockVirtualBatchDO> allBatches = mergeActiveBatches(snapshot.activeBatches(), null);
         if (!allBatches.isEmpty()) {
             virtualBatchDao.saveOrUpdateBatch(allBatches);
         }
@@ -380,7 +468,7 @@ public class StockRoundTransactionService {
     /**
      * 从系统配置读取当前规则模式。
      * <p>
-     * 配置缺失或解析失败时默认返回SHADOW(安全降级,只写研究不创建正式批次)。
+     * 配置缺失或解析失败时默认返回SHADOW(安全降级,只写研究不创建正式批次)。OFF模式由轮次编排层跳过买入研究写入与信号状态推进。
      *
      * @return 当前规则模式
      */

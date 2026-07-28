@@ -7,4 +7,52 @@
         WHERE send_status = 'PENDING'
           AND deleted = 0
     </select>
+
+    <!-- 批量标记无关联批次的通知为FAILED -->
+    <update id="markFailedByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'FAILED',
+            attempted_at = CURRENT_TIMESTAMP,
+            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
+            error_message = #{errorMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'PENDING'
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 批量标记通知发送成功 -->
+    <update id="markSentByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'SENT',
+            sent_at = CURRENT_TIMESTAMP,
+            attempted_at = CURRENT_TIMESTAMP,
+            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'PENDING'
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 批量标记通知发送失败 -->
+    <update id="markSendFailedByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'FAILED',
+            attempted_at = CURRENT_TIMESTAMP,
+            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
+            error_message = #{errorMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'PENDING'
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
 </mapper>

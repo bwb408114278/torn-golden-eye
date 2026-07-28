@@ -17,19 +17,24 @@
           AND deleted = 0
     </select>
 
-    <!-- 查询待买入批次(预期入场bar时间已到期) -->
-    <select id="selectPendingEntryBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+
+    <!-- 查询正式账本指定时间范围内有入场或出场动作的批次 -->
+    <select id="selectFormalActionBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
-        WHERE batch_status = 'ENTRY_PENDING'
-          AND expected_entry_bar_time <![CDATA[<=]]> #{currentTime}
+        WHERE ledger_type = 'FORMAL'
           AND deleted = 0
+          AND ((entry_time <![CDATA[>=]]> #{startTime} AND entry_time <![CDATA[<]]> #{endTime})
+            OR (exit_time <![CDATA[>=]]> #{startTime} AND exit_time <![CDATA[<]]> #{endTime}))
+        ORDER BY id ASC
     </select>
 
-    <!-- 查询待卖出批次(预期平仓bar时间已到期) -->
-    <select id="selectPendingExitBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+    <!-- 查询影子账本指定时间范围内有信号或出场动作的批次 -->
+    <select id="selectShadowActionBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
-        WHERE batch_status = 'EXIT_PENDING'
-          AND expected_exit_bar_time <![CDATA[<=]]> #{currentTime}
+        WHERE ledger_type IN ('UNLIMITED_SHADOW', 'REJECTED_OBSERVATION')
           AND deleted = 0
+          AND ((signal_time <![CDATA[>=]]> #{startTime} AND signal_time <![CDATA[<]]> #{endTime})
+            OR (exit_time <![CDATA[>=]]> #{startTime} AND exit_time <![CDATA[<]]> #{endTime}))
+        ORDER BY id ASC
     </select>
 </mapper>

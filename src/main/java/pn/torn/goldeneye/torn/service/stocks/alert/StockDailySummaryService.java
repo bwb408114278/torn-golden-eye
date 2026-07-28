@@ -9,16 +9,8 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 import pn.torn.goldeneye.utils.JsonUtils;
@@ -28,6 +20,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * VIP股票每日摘要服务 - 每天08:30汇总正式组合与影子研究数据并发送中文摘要
@@ -226,8 +220,8 @@ public class StockDailySummaryService {
 
         List<TornStockSignalEventDO> signalEvents = querySignalEventsByTimeRange(dayStart, dayEnd);
         int signalCount = signalEvents.size();
-        int shadowNewCount = countByDecision(signalEvents, StockPortfolioDecisionEnum.SHADOW);
-        int fullRejectCount = countByRejectReason(signalEvents, StockCancelReasonEnum.NO_AVAILABLE_SLOT);
+        int shadowNewCount = countShadowDecisions(signalEvents);
+        int fullRejectCount = countNoAvailableSlotRejections(signalEvents);
         int styleRejectCount = countStyleReject(signalEvents);
 
         List<TornStockVirtualBatchDO> shadowBatches = queryShadowBatchesByTimeRange(dayStart, dayEnd);
@@ -289,8 +283,13 @@ public class StockDailySummaryService {
         LocalDateTime latestBucket = marketClock.currentEndedBucket();
         List<TornStockMarketBar15mDO> bars = bar15mDAO.selectByBarStartTime(latestBucket, Stock15mBarBuildService.BUILD_VERSION);
         Map<Integer, TornStockMarketBar15mDO> barByStock = new HashMap<>();
+        if (CollectionUtils.isEmpty(bars)) {
+            return barByStock;
+        }
         for (TornStockMarketBar15mDO bar : bars) {
-            barByStock.put(bar.getStocksId(), bar);
+            if (Boolean.TRUE.equals(bar.getUsable()) && bar.getStocksId() != null) {
+                barByStock.put(bar.getStocksId(), bar);
+            }
         }
         return barByStock;
     }
@@ -301,14 +300,15 @@ public class StockDailySummaryService {
      * marketValue = quantity × currentPrice × 0.999(扣除0.1%卖出手续费)。
      * 无最新bar或价格非法时按投入资金(investedCash)近似。
      *
-     * @param batch          活跃批次
+     * @param batch            活跃批次
      * @param latestBarByStock 按股票ID索引的最新bar映射
-     * @return 批次当前市值
+     * @return 批次当前市值;行情缺失或不可用时返回投入资金近似值
      */
     private BigDecimal calculateBatchMarketValue(TornStockVirtualBatchDO batch,
-                                                   Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
+                                                 Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
         TornStockMarketBar15mDO bar = latestBarByStock.get(batch.getStocksId());
-        if (bar != null && bar.getLastPrice() != null && bar.getLastPrice().signum() > 0) {
+        if (bar != null && Boolean.TRUE.equals(bar.getUsable())
+                && bar.getLastPrice() != null && bar.getLastPrice().signum() > 0) {
             return bar.getLastPrice()
                     .multiply(BigDecimal.valueOf(batch.getQuantity()))
                     .multiply(StockPortfolioService.SELL_FEE_RATE);
@@ -320,26 +320,22 @@ public class StockDailySummaryService {
     /**
      * 查询指定时间范围内入场的正式批次。
      * <p>
-     * 使用MyBatis-Plus lambdaQuery按ledgerType=FORMAL与entryTime/exitTime范围过滤,
-     * 一次性查询昨日有入场或出场动作的正式批次,避免逐条查询。
+     * 使用单次SQL按(entry_time范围 OR exit_time范围)查询,并按批次ID确定性去重。
      *
      * @param dayStart 摘要日期起始(含)
      * @param dayEnd   摘要日期结束(不含)
      * @return 昨日有动作的正式批次列表
      */
     private List<TornStockVirtualBatchDO> queryFormalBatchesByTimeRange(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        List<TornStockVirtualBatchDO> byEntry = virtualBatchDAO.lambdaQuery()
-                .eq(TornStockVirtualBatchDO::getLedgerType, StockLedgerTypeEnum.FORMAL.getCode())
-                .ge(TornStockVirtualBatchDO::getEntryTime, dayStart)
-                .lt(TornStockVirtualBatchDO::getEntryTime, dayEnd)
-                .list();
-        List<TornStockVirtualBatchDO> byExit = virtualBatchDAO.lambdaQuery()
-                .eq(TornStockVirtualBatchDO::getLedgerType, StockLedgerTypeEnum.FORMAL.getCode())
-                .ge(TornStockVirtualBatchDO::getExitTime, dayStart)
-                .lt(TornStockVirtualBatchDO::getExitTime, dayEnd)
-                .list();
-        byEntry.addAll(byExit);
-        return byEntry.stream().distinct().toList();
+        List<TornStockVirtualBatchDO> batches = virtualBatchDAO.selectFormalActionBatches(dayStart, dayEnd);
+        return batches.stream()
+                .filter(batch -> batch.getId() != null)
+                .collect(Collectors.toMap(
+                        TornStockVirtualBatchDO::getId,
+                        Function.identity(),
+                        (first, duplicate) -> first,
+                        LinkedHashMap::new))
+                .values().stream().toList();
     }
 
     /**
@@ -440,15 +436,14 @@ public class StockDailySummaryService {
      * 按组合决策统计信号事件数。
      *
      * @param signalEvents 信号事件列表
-     * @param decision     组合决策
      * @return 匹配的事件数
      */
-    private int countByDecision(List<TornStockSignalEventDO> signalEvents, StockPortfolioDecisionEnum decision) {
+    private int countShadowDecisions(List<TornStockSignalEventDO> signalEvents) {
         if (CollectionUtils.isEmpty(signalEvents)) {
             return 0;
         }
         return (int) signalEvents.stream()
-                .filter(event -> decision.getCode().equals(event.getPortfolioDecision()))
+                .filter(event -> StockPortfolioDecisionEnum.SHADOW.getCode().equals(event.getPortfolioDecision()))
                 .count();
     }
 
@@ -456,15 +451,14 @@ public class StockDailySummaryService {
      * 按拒绝原因统计信号事件数。
      *
      * @param signalEvents 信号事件列表
-     * @param reason       取消原因枚举
      * @return 匹配的事件数
      */
-    private int countByRejectReason(List<TornStockSignalEventDO> signalEvents, StockCancelReasonEnum reason) {
+    private int countNoAvailableSlotRejections(List<TornStockSignalEventDO> signalEvents) {
         if (CollectionUtils.isEmpty(signalEvents)) {
             return 0;
         }
         return (int) signalEvents.stream()
-                .filter(event -> reason.getCode().equals(event.getRejectReason()))
+                .filter(event -> StockCancelReasonEnum.NO_AVAILABLE_SLOT.getCode().equals(event.getRejectReason()))
                 .count();
     }
 
@@ -499,30 +493,22 @@ public class StockDailySummaryService {
     /**
      * 查询指定时间范围内的影子批次。
      * <p>
-     * 使用MyBatis-Plus lambdaQuery按ledgerType=UNLIMITED_SHADOW或REJECTED_OBSERVATION,
-     * 以及signalTime或exitTime范围过滤,一次性获取昨日有动作的影子批次。
+     * 使用单次SQL按(signal_time范围 OR exit_time范围)查询,并按批次ID确定性去重。
      *
      * @param dayStart 摘要日期起始(含)
      * @param dayEnd   摘要日期结束(不含)
      * @return 昨日有动作的影子批次列表
      */
     private List<TornStockVirtualBatchDO> queryShadowBatchesByTimeRange(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        List<TornStockVirtualBatchDO> bySignal = virtualBatchDAO.lambdaQuery()
-                .in(TornStockVirtualBatchDO::getLedgerType,
-                        StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode(),
-                        StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode())
-                .ge(TornStockVirtualBatchDO::getSignalTime, dayStart)
-                .lt(TornStockVirtualBatchDO::getSignalTime, dayEnd)
-                .list();
-        List<TornStockVirtualBatchDO> byExit = virtualBatchDAO.lambdaQuery()
-                .in(TornStockVirtualBatchDO::getLedgerType,
-                        StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode(),
-                        StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode())
-                .ge(TornStockVirtualBatchDO::getExitTime, dayStart)
-                .lt(TornStockVirtualBatchDO::getExitTime, dayEnd)
-                .list();
-        bySignal.addAll(byExit);
-        return bySignal.stream().distinct().toList();
+        List<TornStockVirtualBatchDO> batches = virtualBatchDAO.selectShadowActionBatches(dayStart, dayEnd);
+        return batches.stream()
+                .filter(batch -> batch.getId() != null)
+                .collect(Collectors.toMap(
+                        TornStockVirtualBatchDO::getId,
+                        Function.identity(),
+                        (first, duplicate) -> first,
+                        LinkedHashMap::new))
+                .values().stream().toList();
     }
 
     /**
@@ -612,7 +598,7 @@ public class StockDailySummaryService {
         notice.setSendAttemptCount(0);
         notice.setMessageRuleVersion(MESSAGE_RULE_VERSION);
         notice.setPayloadSnapshot(buildPayloadSnapshot(summaryDate, summaryText));
-        notice.setPayloadHash(generatePayloadHash(summaryDate));
+        notice.setPayloadHash(generatePayloadHash(notice.getPayloadSnapshot()));
         noticeAuditDAO.save(notice);
         return notice;
     }
@@ -630,17 +616,17 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 生成载荷哈希(SHA-256,基于摘要日期,同一摘要日期哈希一致便于去重)。
+     * 生成载荷哈希(SHA-256,基于完整摘要载荷快照)。
      *
-     * @param summaryDate 摘要日期
-     * @return 载荷哈希(64位十六进制字符串)
+     * @param payloadSnapshot 完整载荷快照JSON
+     * @return 载荷哈希
      */
-    private String generatePayloadHash(LocalDate summaryDate) {
-        return StockHashUtils.sha256("DAILY_SUMMARY_" + summaryDate.toString());
+    private String generatePayloadHash(String payloadSnapshot) {
+        return StockHashUtils.sha256(payloadSnapshot);
     }
 
     /**
-     * 构建载荷快照JSON。
+     * 生成载荷快照JSON。
      *
      * @param summaryDate 摘要日期
      * @param summaryText 摘要文本

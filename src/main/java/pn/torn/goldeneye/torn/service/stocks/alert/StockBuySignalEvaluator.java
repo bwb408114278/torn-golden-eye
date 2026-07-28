@@ -67,6 +67,7 @@ public class StockBuySignalEvaluator {
     private final StockEligibilityService eligibilityService;
     private final StockPortfolioService portfolioService;
     private final TornStockVirtualBatchDAO virtualBatchDao;
+    private final StockShadowRecordWriter shadowRecordWriter;
 
     // ==================== 步骤6: 评估买入信号 ====================
 
@@ -161,10 +162,10 @@ public class StockBuySignalEvaluator {
         }
 
         StrategyMatchResult matchResult = matchStrategies(context);
-        boolean currentMatches = !matchResult.matchedStrategies().isEmpty();
         TornStockSignalStateDO signalState = resolveSignalState(
                 stocksId, matchResult.primaryStrategy(), signalStateByKey);
-        boolean edgeTriggered = checkEdgeTriggered(currentMatches, signalState);
+        boolean edgeTriggered = checkEdgeTriggered(
+                stocksId, matchResult.matchedStrategies(), signalStateByKey);
 
         SignalEvaluation.Builder builder = SignalEvaluation.builder(stocksId, context.stocksShortname())
                 .evaluatedStrategies(buyStrategies)
@@ -239,18 +240,36 @@ public class StockBuySignalEvaluator {
     }
 
     /**
-     * 判断本轮是否为 false->true 边沿触发。
+     * 判断命中策略是否存在false->true边沿。
      * <p>
-     * 当本轮命中任一策略(currentMatches)且上轮 conditionActive 不为 true 时为边沿触发。
+     * 同一股票命中多个策略时,每个策略读取自己的复合状态键;任一策略首次命中即触发本轮信号事件。
      *
-     * @param currentMatches 本轮是否命中任何策略
-     * @param signalState    信号状态记录,可为 null
-     * @return true 表示本轮为 false->true 边沿触发
+     * @param stocksId          股票ID
+     * @param matchedStrategies 本轮命中的策略
+     * @param signalStateByKey  按股票、策略和规则版本索引的状态
+     * @return 存在策略边沿时返回true
      */
-    private boolean checkEdgeTriggered(boolean currentMatches, TornStockSignalStateDO signalState) {
-        boolean previousActive = signalState != null && Boolean.TRUE.equals(signalState.getConditionActive());
-        return currentMatches && !previousActive;
+    private boolean checkEdgeTriggered(Integer stocksId,
+                                       List<StockBuyStrategy> matchedStrategies,
+                                       Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey) {
+        if (stocksId == null || matchedStrategies == null || matchedStrategies.isEmpty()) {
+            return false;
+        }
+        for (StockBuyStrategy strategy : matchedStrategies) {
+            if (strategy == null || strategy.getStrategyType() == null) {
+                continue;
+            }
+            StockSignalStateKey key = new StockSignalStateKey(
+                    stocksId, strategy.getStrategyType().getCode(),
+                    StockRoundTransactionService.BUY_RULE_VERSION);
+            TornStockSignalStateDO state = signalStateByKey == null ? null : signalStateByKey.get(key);
+            if (state == null || !Boolean.TRUE.equals(state.getConditionActive())) {
+                return true;
+            }
+        }
+        return false;
     }
+
 
     /**
      * 按主策略的复合键(stocksId, strategyType, buyRuleVersion)从映射中查找信号状态。
@@ -273,7 +292,7 @@ public class StockBuySignalEvaluator {
                 stocksId,
                 primaryStrategy.getStrategyType().getCode(),
                 StockRoundTransactionService.BUY_RULE_VERSION);
-        return signalStateByKey.get(key);
+        return signalStateByKey == null ? null : signalStateByKey.get(key);
     }
 
     /**
@@ -410,6 +429,7 @@ public class StockBuySignalEvaluator {
             RoundSnapshot snapshot,
             Map<Integer, TornStockMarketBar15mDO> barByStock,
             Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
+            Map<Integer, SignalEvaluation> evaluationByStockId,
             LocalDateTime roundTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         List<TornStockVirtualBatchDO> newFormalBatches = new ArrayList<>();
@@ -428,7 +448,8 @@ public class StockBuySignalEvaluator {
 
             TornStockVirtualBatchDO batch = acceptSingleCandidate(
                     candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
-                    monthlyStateByStock.get(candidate.stocksId()), roundTime);
+                    monthlyStateByStock.get(candidate.stocksId()),
+                    evaluationByStockId.get(candidate.stocksId()), candidateRank, roundTime);
             if (batch != null) {
                 newFormalBatches.add(batch);
             }
@@ -457,11 +478,13 @@ public class StockBuySignalEvaluator {
      *   <li>可用资金不足买入1股</li>
      * </ul>
      *
-     * @param candidate    候选信息
-     * @param slot         已分配的可用槽位
-     * @param bar          该候选股票本轮bar
-     * @param monthlyState 该候选股票的月度状态
-     * @param roundTime    本轮时间
+     * @param candidate     候选信息
+     * @param slot          已分配的可用槽位
+     * @param bar           该候选股票本轮bar
+     * @param monthlyState  该候选股票的月度状态
+     * @param evaluation    该候选对应的完整信号评估事实
+     * @param candidateRank 候选排名(1起始)
+     * @param roundTime     本轮时间
      * @return 新建的正式批次;被跳过时返回 null
      */
     private TornStockVirtualBatchDO acceptSingleCandidate(
@@ -469,6 +492,8 @@ public class StockBuySignalEvaluator {
             TornStockPortfolioSlotDO slot,
             TornStockMarketBar15mDO bar,
             TornStockMonthlyStateDO monthlyState,
+            SignalEvaluation evaluation,
+            int candidateRank,
             LocalDateTime roundTime) {
         if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
             log.warn("候选[{}]本轮bar无效,跳过", candidate.stocksId());
@@ -486,9 +511,14 @@ public class StockBuySignalEvaluator {
 
         FormalBatchContext ctx = new FormalBatchContext(
                 candidate, slot, monthlyState, signalReferencePrice, quantity, roundTime);
+        TornStockSignalEventDO event = shadowRecordWriter.recordFormalSignalEvent(
+                evaluation, candidateRank, roundTime);
         TornStockVirtualBatchDO batch = createFormalBatch(ctx);
+        batch.setSignalEventId(event.getId());
 
         virtualBatchDao.save(batch);
+        event.setFormalBatchId(batch.getId());
+        shadowRecordWriter.updateSignalEventBatchIds(event);
 
         portfolioService.reserveSlot(slot, reservedAmount, batch.getId());
 
@@ -527,13 +557,15 @@ public class StockBuySignalEvaluator {
         batch.setSlotNo(slot.getSlotNo());
         batch.setSignalTime(roundTime);
         batch.setQuantity(ctx.quantity());
-        StockPortfolioService.fillCommonBatchFields(
-                batch, ctx.signalReferencePrice(), roundTime,
-                monthlyState != null ? monthlyState.getStrategyFitPrior() : null,
-                monthlyState != null ? monthlyState.getMaturity() : null,
-                monthlyState != null ? monthlyState.getRiskLevel() : null,
-                monthlyState != null ? monthlyState.getEffectiveMonth() : null,
-                StockRoundTransactionService.BUY_RULE_VERSION);
+        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
+        fields.setSignalReferencePrice(ctx.signalReferencePrice());
+        fields.setSignalTime(roundTime);
+        fields.setStylePrior(monthlyState != null ? monthlyState.getStrategyFitPrior() : null);
+        fields.setStyleMaturity(monthlyState != null ? monthlyState.getMaturity() : null);
+        fields.setRiskLevel(monthlyState != null ? monthlyState.getRiskLevel() : null);
+        fields.setStyleEffectiveMonth(monthlyState != null ? monthlyState.getEffectiveMonth() : null);
+        fields.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
+        batch.applySignalFields(fields);
         return batch;
     }
 

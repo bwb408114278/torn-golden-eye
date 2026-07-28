@@ -25,4 +25,45 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
     public List<TornStockNoticeAuditDO> selectPendingNotices() {
         return baseMapper.selectPendingNotices();
     }
+
+    /**
+     * 批量标记无关联批次的通知为FAILED。
+     *
+     * @param noticeIds    通知ID列表
+     * @param errorMessage 错误信息
+     * @return 更新行数
+     */
+    public int markFailedByIds(List<Long> noticeIds, String errorMessage) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.markFailedByIds(noticeIds, errorMessage);
+    }
+
+    /**
+     * 批量标记通知发送成功。
+     *
+     * @param noticeIds 通知ID列表
+     * @return 更新行数
+     */
+    public int markSentByIds(List<Long> noticeIds) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.markSentByIds(noticeIds);
+    }
+
+    /**
+     * 批量标记通知发送失败。
+     *
+     * @param noticeIds    通知ID列表
+     * @param errorMessage 失败原因
+     * @return 更新行数
+     */
+    public int markSendFailedByIds(List<Long> noticeIds, String errorMessage) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.markSendFailedByIds(noticeIds, errorMessage);
+    }
 }

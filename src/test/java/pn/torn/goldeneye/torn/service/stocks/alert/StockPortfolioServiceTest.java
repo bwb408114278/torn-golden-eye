@@ -42,7 +42,7 @@ class StockPortfolioServiceTest {
 
     @BeforeEach
     void setUp() {
-        portfolioService = new StockPortfolioService(portfolioSlotDAO);
+        portfolioService = new StockPortfolioService();
     }
 
     // ==================== 纯计算方法(静态) ====================

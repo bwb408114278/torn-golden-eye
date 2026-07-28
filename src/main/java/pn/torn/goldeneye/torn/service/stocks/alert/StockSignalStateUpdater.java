@@ -5,13 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * 股票信号状态更新器 - 执行轮次事务步骤10,更新信号边沿状态。
@@ -30,7 +28,64 @@ public class StockSignalStateUpdater {
     private final TornStockSignalStateDAO signalStateDAO;
 
     /**
-     * 处理全部策略状态,每个股票和策略使用独立状态键。
+     * 将已成交平仓批次的冷却与复位事实回写到策略状态。
+     * <p>
+     * 同一轮已有状态优先,随后回写平仓冷却与复位字段,避免旧快照覆盖本轮边沿状态。
+     * <p>
+     * 每个平仓批次按股票、主策略和买入规则版本更新对应状态。
+     *
+     * @param signalStateByKey 按股票、策略和规则版本索引的状态
+     */
+    public void updateCloseStates(List<TornStockVirtualBatchDO> closedBatches,
+                                  Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey) {
+        if (closedBatches == null || closedBatches.isEmpty()) {
+            return;
+        }
+        Map<StockSignalStateKey, TornStockSignalStateDO> toSaveByKey = new LinkedHashMap<>();
+        for (TornStockVirtualBatchDO batch : closedBatches) {
+            appendCloseState(batch, signalStateByKey, toSaveByKey);
+        }
+        List<TornStockSignalStateDO> toSave = new ArrayList<>(toSaveByKey.values());
+        if (!toSave.isEmpty()) {
+            signalStateDAO.saveOrUpdateBatch(toSave);
+        }
+        log.debug("平仓冷却状态回写完成: count={}", toSave.size());
+    }
+
+    /**
+     * 将单个平仓批次映射到对应策略状态。
+     *
+     * @param batch            已成交平仓批次
+     * @param signalStateByKey 状态索引
+     */
+    private void appendCloseState(TornStockVirtualBatchDO batch,
+                                  Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
+                                  Map<StockSignalStateKey, TornStockSignalStateDO> toSaveByKey) {
+        if (batch == null || batch.getStocksId() == null
+                || batch.getPrimaryStrategy() == null || batch.getBuyRuleVersion() == null) {
+            log.warn("平仓批次缺少状态键,跳过冷却回写: batchId={}", batch == null ? null : batch.getId());
+            return;
+        }
+        StockSignalStateKey key = new StockSignalStateKey(
+                batch.getStocksId(), batch.getPrimaryStrategy(), batch.getBuyRuleVersion());
+        TornStockSignalStateDO state = toSaveByKey.get(key);
+        if (state == null && signalStateByKey != null) {
+            state = signalStateByKey.get(key);
+        }
+        if (state == null) {
+            state = new TornStockSignalStateDO();
+        }
+        state.setStocksId(batch.getStocksId());
+        state.setStrategyType(batch.getPrimaryStrategy());
+        state.setBuyRuleVersion(batch.getBuyRuleVersion());
+        state.setCooldownUntil(batch.getCooldownUntil());
+        state.setLastCloseType(batch.getExitReason());
+        state.setResetObserved(false);
+        toSaveByKey.put(key, state);
+    }
+
+    /**
+     * 更新全部策略信号状态。
      *
      * @param allEvaluations   全部信号评估结果
      * @param signalStateByKey 按股票、策略和规则版本索引的状态
@@ -46,11 +101,12 @@ public class StockSignalStateUpdater {
         }
 
         Map<StockSignalStateKey, TornStockSignalStateDO> states = signalStateByKey == null
-                ? Map.of() : signalStateByKey;
-        List<TornStockSignalStateDO> toSave = new ArrayList<>();
+                ? new LinkedHashMap<>() : signalStateByKey;
+        Map<StockSignalStateKey, TornStockSignalStateDO> toSaveByKey = new LinkedHashMap<>();
         for (SignalStateEvaluationView evaluation : allEvaluations) {
-            appendStrategyStates(evaluation, states, roundTime, toSave);
+            appendStrategyStates(evaluation, states, toSaveByKey, roundTime);
         }
+        List<TornStockSignalStateDO> toSave = new ArrayList<>(toSaveByKey.values());
         if (!toSave.isEmpty()) {
             signalStateDAO.saveOrUpdateBatch(toSave);
         }
@@ -62,24 +118,33 @@ public class StockSignalStateUpdater {
      *
      * @param evaluation       股票评估结果
      * @param signalStateByKey 状态索引
+     * @param toSaveByKey      本轮已合并的待保存状态
      * @param roundTime        本轮时间
-     * @param toSave           待保存状态
      */
     private void appendStrategyStates(SignalStateEvaluationView evaluation,
                                       Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
-                                      LocalDateTime roundTime,
-                                      List<TornStockSignalStateDO> toSave) {
+                                      Map<StockSignalStateKey, TornStockSignalStateDO> toSaveByKey,
+                                      LocalDateTime roundTime) {
+        if (evaluation == null || evaluation.stocksId() == null) {
+            return;
+        }
         List<StockBuyStrategy> strategies = evaluation.evaluatedStrategies();
         if (strategies == null || strategies.isEmpty()) {
             return;
         }
         for (StockBuyStrategy strategy : strategies) {
+            if (strategy == null || strategy.getStrategyType() == null) {
+                continue;
+            }
             StockSignalStateKey key = new StockSignalStateKey(
                     evaluation.stocksId(), strategy.getStrategyType().getCode(),
                     StockRoundTransactionService.BUY_RULE_VERSION);
-            TornStockSignalStateDO state = signalStateByKey.get(key);
+            TornStockSignalStateDO state = toSaveByKey.get(key);
+            if (state == null && signalStateByKey != null) {
+                state = signalStateByKey.get(key);
+            }
             boolean currentActive = evaluation.isStrategyMatched(strategy);
-            toSave.add(updateState(state, evaluation, strategy, currentActive, roundTime));
+            toSaveByKey.put(key, updateState(state, evaluation, strategy, currentActive, roundTime));
         }
     }
 

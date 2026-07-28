@@ -4,9 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -65,10 +63,7 @@ public class StockPortfolioService {
      * 入场价格偏离阈值(0.15%),仅向上偏离超过此值时取消
      */
     public static final BigDecimal ENTRY_DEVIATION_THRESHOLD = new BigDecimal("0.0015");
-    /**
-     * 最长持有天数
-     */
-    public static final int MAX_HOLD_DAYS = 14;
+
     /**
      * 金额与收益率计算精度
      */
@@ -82,10 +77,6 @@ public class StockPortfolioService {
      */
     private static final String SLOT_NULL_MSG = "槽位不能为空";
 
-    /**
-     * 组合仓位槽位持久层
-     */
-    private final TornStockPortfolioSlotDAO portfolioSlotDAO;
 
     // ==================== 槽位生命周期 ====================
 
@@ -299,45 +290,6 @@ public class StockPortfolioService {
         return signalBarStart.plusMinutes(ENTRY_STALE_GRACE_MINUTES);
     }
 
-    /**
-     * 填充批次DO的公共字段(信号参考价、入场时间窗口、风格快照、规则版本、复位标记)。
-     * <p>
-     * 正式批次、影子批次和拒绝观察批次共用此方法填充与策略版本、风格冻结、入场时间窗口
-     * 相关的公共字段,消除跨类重复代码。调用方在调用前已设置batchNo/ledgerType/batchStatus/
-     * stocksId/stocksShortname/primaryStrategy等特有字段,调用后再设置slotId/slotNo等差异化字段。
-     *
-     * @param batch               待填充的批次DO(须已设置signalTime)
-     * @param signalReferencePrice 信号参考价(bar最后实际价格)
-     * @param signalTime          信号产生时间(轮次时间)
-     * @param stylePrior          风格编码(可为null)
-     * @param styleMaturity       成熟度编码(可为null)
-     * @param riskLevel           风险等级编码(可为null)
-     * @param styleEffectiveMonth 风格生效月份(可为null)
-     * @param buyRuleVersion      买入规则版本
-     */
-    public static void fillCommonBatchFields(TornStockVirtualBatchDO batch,
-                                              BigDecimal signalReferencePrice,
-                                              LocalDateTime signalTime,
-                                              String stylePrior,
-                                              String styleMaturity,
-                                              String riskLevel,
-                                              java.time.LocalDate styleEffectiveMonth,
-                                              String buyRuleVersion) {
-        batch.setSignalReferencePrice(signalReferencePrice);
-        batch.setExpectedEntryBarTime(signalTime.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
-        batch.setEntryStaleAt(calculateEntryStaleAt(signalTime));
-        batch.setStylePrior(stylePrior);
-        batch.setStyleMaturity(styleMaturity);
-        batch.setRiskLevel(riskLevel);
-        batch.setStyleEffectiveMonth(styleEffectiveMonth);
-        batch.setBuyRuleVersion(buyRuleVersion);
-        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
-        batch.setStyleRuleVersion(StockRoundTransactionService.STYLE_RULE_VERSION);
-        batch.setRiskRuleVersion(StockRoundTransactionService.RISK_RULE_VERSION);
-        batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
-        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
-        batch.setResetObserved(false);
-    }
 
     /**
      * 将槽位列表按ID索引为映射,避免多处重复代码

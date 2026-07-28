@@ -32,19 +32,24 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
      */
     List<TornStockVirtualBatchDO> selectActiveShadowBatches();
 
-    /**
-     * 查询待买入批次(预期入场bar时间已到期)
-     *
-     * @param currentTime 当前时间
-     * @return 待买入批次列表
-     */
-    List<TornStockVirtualBatchDO> selectPendingEntryBatches(@Param("currentTime") LocalDateTime currentTime);
 
     /**
-     * 查询待卖出批次(预期平仓bar时间已到期)
+     * 查询正式账本指定时间范围内有入场或出场动作的批次。
      *
-     * @param currentTime 当前时间
-     * @return 待卖出批次列表
+     * @param startTime 时间范围起点(含)
+     * @param endTime   时间范围终点(不含)
+     * @return 正式批次
      */
-    List<TornStockVirtualBatchDO> selectPendingExitBatches(@Param("currentTime") LocalDateTime currentTime);
+    List<TornStockVirtualBatchDO> selectFormalActionBatches(@Param("startTime") LocalDateTime startTime,
+                                                            @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 查询影子账本指定时间范围内有信号或出场动作的批次。
+     *
+     * @param startTime 时间范围起点(含)
+     * @param endTime   时间范围终点(不含)
+     * @return 影子批次
+     */
+    List<TornStockVirtualBatchDO> selectShadowActionBatches(@Param("startTime") LocalDateTime startTime,
+                                                            @Param("endTime") LocalDateTime endTime);
 }
