@@ -4,10 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeTypeEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
@@ -89,7 +86,7 @@ public class StockShadowRecordWriter {
             DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
 
     private final StockShadowService shadowService;
-    private final TornStockNoticeAuditDAO noticeAuditDAO;
+    private final TornStockNoticeAuditDAO noticeAuditDao;
     private final ProjectProperty projectProperty;
 
     // ==================== 步骤8: 写入影子记录 ====================
@@ -107,14 +104,16 @@ public class StockShadowRecordWriter {
      *   <li>REJECTED/OBSERVED -> 创建拒绝观察批次</li>
      * </ul>
      *
-     * @param allEvaluations         全部信号评估结果
-     * @param newFormalBatches       本轮新建的正式批次列表(需回填signalEventId)
-     * @param candidateRankByStockId 候选排名映射(stocksId -> rank),供事件回写
-     * @param roundTime              本轮时间
+     * @param allEvaluations            全部信号评估结果
+     * @param newFormalBatches          本轮新建的正式批次列表(需回填signalEventId)
+     * @param candidateRankByStockId    候选排名映射(stocksId -> rank),供事件回写
+     * @param allocationResultByStockId 候选实际接纳结果,供拒绝原因回写
+     * @param roundTime                 本轮时间
      */
     public void writeShadowRecords(List<? extends SignalEvaluationView> allEvaluations,
                                    List<TornStockVirtualBatchDO> newFormalBatches,
                                    Map<Integer, Integer> candidateRankByStockId,
+                                   Map<Integer, StockCandidateAllocationResultEnum> allocationResultByStockId,
                                    LocalDateTime roundTime) {
         if (allEvaluations == null || allEvaluations.isEmpty()) {
             return;
@@ -127,7 +126,8 @@ public class StockShadowRecordWriter {
                 if (writtenSignalKeys.add(signalKey)) {
                     Integer rank = candidateRankByStockId != null
                             ? candidateRankByStockId.get(evaluation.stocksId()) : null;
-                    writeSingleShadowRecord(evaluation, formalBatchByStockId.get(evaluation.stocksId()), rank, roundTime);
+                    writeSingleShadowRecord(evaluation, formalBatchByStockId.get(evaluation.stocksId()), rank,
+                            allocationResultByStockId, roundTime);
                 } else {
                     log.debug("同轮重复信号评估已跳过: key={}", signalKey);
                 }
@@ -216,11 +216,13 @@ public class StockShadowRecordWriter {
     private void writeSingleShadowRecord(SignalEvaluationView evaluation,
                                          TornStockVirtualBatchDO formalBatch,
                                          Integer candidateRank,
+                                         Map<Integer, StockCandidateAllocationResultEnum> allocationResultByStockId,
                                          LocalDateTime roundTime) {
         EligibilityResult eligibility = evaluation.eligibilityResult();
         String portfolioDecision = determinePortfolioDecision(
                 evaluation, eligibility, formalBatch);
-        String rejectReason = determineRejectReason(eligibility);
+        String rejectReason = determineRejectReason(
+                eligibility, allocationResultByStockId == null ? null : allocationResultByStockId.get(evaluation.stocksId()));
 
         if (DECISION_FORMAL.equals(portfolioDecision)
                 && formalBatch != null && formalBatch.getSignalEventId() != null) {
@@ -316,7 +318,11 @@ public class StockShadowRecordWriter {
      * @param eligibility 资格结果
      * @return 拒绝原因编码;非拒绝时返回null
      */
-    private String determineRejectReason(EligibilityResult eligibility) {
+    private String determineRejectReason(EligibilityResult eligibility,
+                                         StockCandidateAllocationResultEnum allocationResult) {
+        if (allocationResult != null && allocationResult != StockCandidateAllocationResultEnum.FORMAL_ALLOCATED) {
+            return allocationResult.getCode();
+        }
         if (eligibility == null || StockEligibilityResultEnum.ALLOWED == eligibility.result()) {
             return null;
         }
@@ -398,7 +404,7 @@ public class StockShadowRecordWriter {
         collectSellNotices(formalExitBatches, roundTime, notices);
 
         if (!notices.isEmpty()) {
-            noticeAuditDAO.saveBatch(notices);
+            noticeAuditDao.saveBatch(notices);
             log.info("通知审计写入完成: buyNotices={}, sellNotices={}",
                     formalEntryBatches.size(), formalExitBatches.size());
         }

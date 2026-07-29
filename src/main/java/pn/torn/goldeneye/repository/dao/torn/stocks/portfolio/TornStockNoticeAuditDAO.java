@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockNoticeAuditMapper;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -65,5 +66,21 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
             return 0;
         }
         return baseMapper.markSendFailedByIds(noticeIds, errorMessage);
+    }
+
+    /**
+     * 在发送前冻结最终文本、载荷哈希和实际发送尝试时间。
+     *
+     * @param noticeIds       通知ID列表
+     * @param payloadSnapshot 最终载荷快照
+     * @param payloadHash     最终载荷哈希
+     * @param attemptedAt     实际发送尝试时间
+     */
+    public void finalizePayload(List<Long> noticeIds, String payloadSnapshot,
+                                String payloadHash, LocalDateTime attemptedAt) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return;
+        }
+        baseMapper.finalizePayload(noticeIds, payloadSnapshot, payloadHash, attemptedAt);
     }
 }

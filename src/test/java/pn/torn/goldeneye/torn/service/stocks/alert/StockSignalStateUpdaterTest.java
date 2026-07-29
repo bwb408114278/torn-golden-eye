@@ -38,7 +38,6 @@ class StockSignalStateUpdaterTest {
     private TornStockSignalStateDAO signalStateDAO;
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("重复评估_同一复合键只批量保存一条状态")
     void updateStates_duplicateEvaluation_savesOneStatePerCompositeKey() {
         StockSignalStateUpdater updater = new StockSignalStateUpdater(signalStateDAO);
@@ -48,7 +47,8 @@ class StockSignalStateUpdaterTest {
 
         updater.updateStates(List.of(evaluation, evaluation), Map.of(), ROUND_TIME);
 
-        ArgumentCaptor<List<TornStockSignalStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<TornStockSignalStateDO>> captor =
+                ArgumentCaptor.forClass((Class<List<TornStockSignalStateDO>>) (Class<?>) List.class);
         verify(signalStateDAO).saveOrUpdateBatch(captor.capture());
         List<TornStockSignalStateDO> saved = captor.getValue();
         assertEquals(1, saved.size());
@@ -58,7 +58,6 @@ class StockSignalStateUpdaterTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("重复评估_优先使用本轮最新状态计算复位")
     void updateStates_duplicateEvaluation_usesCurrentRoundStateForReset() {
         StockSignalStateUpdater updater = new StockSignalStateUpdater(signalStateDAO);
@@ -70,7 +69,8 @@ class StockSignalStateUpdaterTest {
 
         updater.updateStates(List.of(activeEvaluation, inactiveEvaluation), Map.of(), ROUND_TIME);
 
-        ArgumentCaptor<List<TornStockSignalStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<TornStockSignalStateDO>> captor =
+                ArgumentCaptor.forClass((Class<List<TornStockSignalStateDO>>) (Class<?>) List.class);
         verify(signalStateDAO).saveOrUpdateBatch(captor.capture());
         TornStockSignalStateDO saved = captor.getValue().getFirst();
         assertFalse(saved.getConditionActive());
@@ -79,7 +79,6 @@ class StockSignalStateUpdaterTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("平仓回写_复用本轮状态并保留边沿字段")
     void updateCloseStates_reusesCurrentStateAndPreservesEdgeFields() {
         StockSignalStateUpdater updater = new StockSignalStateUpdater(signalStateDAO);
@@ -102,7 +101,8 @@ class StockSignalStateUpdaterTest {
 
         updater.updateCloseStates(List.of(batch), Map.of(key, state));
 
-        ArgumentCaptor<List<TornStockSignalStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<TornStockSignalStateDO>> captor =
+                ArgumentCaptor.forClass((Class<List<TornStockSignalStateDO>>) (Class<?>) List.class);
         verify(signalStateDAO).saveOrUpdateBatch(captor.capture());
         TornStockSignalStateDO saved = captor.getValue().getFirst();
         assertSame(state, saved);

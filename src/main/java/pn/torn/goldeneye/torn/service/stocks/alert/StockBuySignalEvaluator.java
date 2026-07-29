@@ -422,9 +422,9 @@ public class StockBuySignalEvaluator {
      * @param barByStock          按股票ID索引的bar映射
      * @param monthlyStateByStock 按股票ID索引的月度状态映射
      * @param roundTime           本轮时间
-     * @return 新建的正式批次列表
+     * @return 正式批次与每个候选的实际接纳结果
      */
-    public List<TornStockVirtualBatchDO> acceptCandidates(
+    public StockCandidateAllocationResult acceptCandidates(
             List<CandidateInfo> rankedCandidates,
             RoundSnapshot snapshot,
             Map<Integer, TornStockMarketBar15mDO> barByStock,
@@ -433,8 +433,9 @@ public class StockBuySignalEvaluator {
             LocalDateTime roundTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         List<TornStockVirtualBatchDO> newFormalBatches = new ArrayList<>();
+        Map<Integer, StockCandidateAllocationResultEnum> resultByStockId = new LinkedHashMap<>();
         if (rankedCandidates == null || rankedCandidates.isEmpty()) {
-            return newFormalBatches;
+            return StockCandidateAllocationResult.empty();
         }
 
         int candidateRank = 0;
@@ -442,19 +443,21 @@ public class StockBuySignalEvaluator {
             candidateRank++;
             Optional<TornStockPortfolioSlotDO> slotOpt = findFirstAvailableFromSnapshot(snapshot);
             if (slotOpt.isEmpty()) {
-                log.info("无可用槽位,停止接纳候选: stocksId={}, rank={}", candidate.stocksId(), candidateRank);
-                break;
+                log.info("无可用槽位,拒绝正式接纳候选: stocksId={}, rank={}", candidate.stocksId(), candidateRank);
+                resultByStockId.put(candidate.stocksId(), StockCandidateAllocationResultEnum.NO_AVAILABLE_SLOT);
+                continue;
             }
 
-            TornStockVirtualBatchDO batch = acceptSingleCandidate(
+            CandidateAcceptance acceptance = acceptSingleCandidate(
                     candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
                     monthlyStateByStock.get(candidate.stocksId()),
                     evaluationByStockId.get(candidate.stocksId()), candidateRank, roundTime);
-            if (batch != null) {
-                newFormalBatches.add(batch);
+            resultByStockId.put(candidate.stocksId(), acceptance.result());
+            if (acceptance.batch() != null) {
+                newFormalBatches.add(acceptance.batch());
             }
         }
-        return newFormalBatches;
+        return new StockCandidateAllocationResult(newFormalBatches, resultByStockId);
     }
 
     /**
@@ -485,9 +488,9 @@ public class StockBuySignalEvaluator {
      * @param evaluation    该候选对应的完整信号评估事实
      * @param candidateRank 候选排名(1起始)
      * @param roundTime     本轮时间
-     * @return 新建的正式批次;被跳过时返回 null
+     * @return 单个候选的正式批次与接纳结果
      */
-    private TornStockVirtualBatchDO acceptSingleCandidate(
+    private CandidateAcceptance acceptSingleCandidate(
             CandidateInfo candidate,
             TornStockPortfolioSlotDO slot,
             TornStockMarketBar15mDO bar,
@@ -497,7 +500,7 @@ public class StockBuySignalEvaluator {
             LocalDateTime roundTime) {
         if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
             log.warn("候选[{}]本轮bar无效,跳过", candidate.stocksId());
-            return null;
+            return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.DATA_NOT_READY);
         }
 
         BigDecimal signalReferencePrice = bar.getLastPrice();
@@ -506,7 +509,7 @@ public class StockBuySignalEvaluator {
         if (quantity <= 0) {
             log.info("候选[{}]可用资金不足买入1股,跳过: availableCash={}, price={}",
                     candidate.stocksId(), reservedAmount, signalReferencePrice);
-            return null;
+            return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.INSUFFICIENT_FUNDS);
         }
 
         FormalBatchContext ctx = new FormalBatchContext(
@@ -525,7 +528,7 @@ public class StockBuySignalEvaluator {
         log.info("正式候选接纳: stocksId={}, slotNo={}, signalPrice={}, quantity={}, reserved={}, batchId={}",
                 candidate.stocksId(), slot.getSlotNo(),
                 signalReferencePrice, quantity, reservedAmount, batch.getId());
-        return batch;
+        return new CandidateAcceptance(batch, StockCandidateAllocationResultEnum.FORMAL_ALLOCATED);
     }
 
     /**
@@ -567,6 +570,18 @@ public class StockBuySignalEvaluator {
         fields.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
         batch.applySignalFields(fields);
         return batch;
+    }
+
+    /**
+     * 单个候选的正式接纳结果。
+     *
+     * @param batch  已创建正式批次，失败时为空
+     * @param result 实际接纳结果
+     */
+    private record CandidateAcceptance(
+            TornStockVirtualBatchDO batch,
+            StockCandidateAllocationResultEnum result
+    ) {
     }
 
     // ==================== 内部值对象 ====================

@@ -55,4 +55,20 @@
             #{id}
         </foreach>
     </update>
+
+    <!-- 发送前冻结最终载荷和实际发送尝试时间 -->
+    <update id="finalizePayload">
+        UPDATE torn_stock_notice_audit
+        SET payload_snapshot = CAST(#{payloadSnapshot} AS jsonb),
+            payload_hash = #{payloadHash},
+            attempted_at = #{attemptedAt},
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'PENDING'
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
 </mapper>

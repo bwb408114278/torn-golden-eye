@@ -43,6 +43,10 @@ public class StockSignalStateUpdater {
         }
         Map<StockSignalStateKey, TornStockSignalStateDO> toSaveByKey = new LinkedHashMap<>();
         for (TornStockVirtualBatchDO batch : closedBatches) {
+            if (!pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum.FORMAL.getCode()
+                    .equals(batch == null ? null : batch.getLedgerType())) {
+                continue;
+            }
             appendCloseState(batch, signalStateByKey, toSaveByKey);
         }
         List<TornStockSignalStateDO> toSave = new ArrayList<>(toSaveByKey.values());

@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -51,4 +52,18 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
      */
     int markSendFailedByIds(@Param("noticeIds") List<Long> noticeIds,
                             @Param("errorMessage") String errorMessage);
+
+    /**
+     * 在发送前冻结最终文本、载荷哈希和实际发送尝试时间。
+     *
+     * @param noticeIds       通知ID列表
+     * @param payloadSnapshot 最终载荷快照
+     * @param payloadHash     最终载荷哈希
+     * @param attemptedAt     实际发送尝试时间
+     * @return 更新行数
+     */
+    int finalizePayload(@Param("noticeIds") List<Long> noticeIds,
+                        @Param("payloadSnapshot") String payloadSnapshot,
+                        @Param("payloadHash") String payloadHash,
+                        @Param("attemptedAt") LocalDateTime attemptedAt);
 }

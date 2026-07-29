@@ -171,9 +171,9 @@ public class StockRoundTransactionService {
                 .filter(evaluation -> evaluation.stocksId() != null)
                 .collect(Collectors.toMap(StockBuySignalEvaluator.SignalEvaluation::stocksId,
                         evaluation -> evaluation, (left, right) -> left));
-        List<TornStockVirtualBatchDO> newFormalBatches = List.of();
+        StockCandidateAllocationResult allocationResult = StockCandidateAllocationResult.empty();
         if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
-            newFormalBatches = buySignalEvaluator.acceptCandidates(
+            allocationResult = buySignalEvaluator.acceptCandidates(
                     rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
                     evaluationByStockId, roundTime);
         } else {
@@ -188,8 +188,9 @@ public class StockRoundTransactionService {
 
         // 步骤8: OFF模式不写入买入研究事件和Shadow批次
         if (ruleMode != StockRuleModeEnum.OFF) {
-            shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(), newFormalBatches,
-                    candidateRankByStockId, roundTime);
+            shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(),
+                    allocationResult.formalBatches(), candidateRankByStockId,
+                    allocationResult.resultByStockId(), roundTime);
         } else {
             log.info("规则模式OFF,跳过信号事件和影子批次写入");
         }
@@ -215,7 +216,7 @@ public class StockRoundTransactionService {
 
         log.info("轮次事务完成: roundTime={}, entryFilled={}, entryCancelled={}, exitFilled={}, newFormal={}, marks={}",
                 roundTime, entryResult.filledBatches().size(), entryResult.cancelledBatches().size(),
-                exitFilledBatches.size(), newFormalBatches.size(), marks.size());
+                exitFilledBatches.size(), allocationResult.formalBatches().size(), marks.size());
     }
 
     /**

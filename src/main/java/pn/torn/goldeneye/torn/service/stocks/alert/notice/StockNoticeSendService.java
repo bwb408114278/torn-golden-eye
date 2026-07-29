@@ -16,8 +16,10 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockHashUtils;
 import pn.torn.goldeneye.utils.JsonUtils;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,16 +55,12 @@ public class StockNoticeSendService {
      * Bot发送失败时的统一失败原因。
      */
     private static final String BOT_SEND_FAILURE_MESSAGE = "Bot返回null响应";
-    /**
-     * 错误信息最大长度(截断超长异常信息避免库字段溢出)
-     */
-    private static final int MAX_ERROR_MESSAGE_LENGTH = 500;
 
     private final Bot bot;
     private final ProjectProperty projectProperty;
     private final SysSettingManager sysSettingManager;
-    private final TornStockNoticeAuditDAO noticeAuditDAO;
-    private final TornStockVirtualBatchDAO virtualBatchDAO;
+    private final TornStockNoticeAuditDAO noticeAuditDao;
+    private final TornStockVirtualBatchDAO virtualBatchDao;
     private final StockNoticeComposeService stockNoticeComposeService;
 
     /**
@@ -85,7 +83,7 @@ public class StockNoticeSendService {
             return;
         }
 
-        List<TornStockNoticeAuditDO> pendingNotices = noticeAuditDAO.selectPendingNotices();
+        List<TornStockNoticeAuditDO> pendingNotices = noticeAuditDao.selectPendingNotices();
         if (CollectionUtils.isEmpty(pendingNotices)) {
             log.debug("股票通知发送-无待发送通知");
             return;
@@ -104,7 +102,7 @@ public class StockNoticeSendService {
         }
 
         List<StockNoticeComposeService.ComposedMessage> composedMessages =
-                stockNoticeComposeService.composeAndMergeNotices(validNotices, batchMap);
+                composePendingMessages(validNotices, batchMap);
         if (CollectionUtils.isEmpty(composedMessages)) {
             log.warn("股票通知发送-消息组合结果为空,待发送通知数={}", pendingNotices.size());
             return;
@@ -113,7 +111,10 @@ public class StockNoticeSendService {
         int successCount = 0;
         int failedCount = 0;
         for (StockNoticeComposeService.ComposedMessage composedMessage : composedMessages) {
-            boolean sent = sendSingleMessage(composedMessage.text());
+            LocalDateTime attemptedAt = LocalDateTime.now();
+            String frozenPayload = getFrozenMessageText(composedMessage);
+            finalizePayload(composedMessage.noticeIds(), frozenPayload, attemptedAt);
+            boolean sent = sendSingleMessage(frozenPayload);
             if (sent) {
                 successCount++;
                 markNoticesSent(composedMessage.noticeIds());
@@ -124,6 +125,79 @@ public class StockNoticeSendService {
         }
 
         log.info("股票通知发送-完成, 成功={}条, 失败={}条", successCount, failedCount);
+    }
+
+    /**
+     * 获取本次发送的最终文本。
+     *
+     * @param composedMessage 已组合消息
+     * @return 最终发送文本
+     */
+    private String getFrozenMessageText(StockNoticeComposeService.ComposedMessage composedMessage) {
+        return composedMessage.text();
+    }
+
+    /**
+     * 组合尚未冻结的通知，并复用进程中断前已经冻结的通知文本。
+     *
+     * @param notices  有效待发送通知
+     * @param batchMap 批次索引
+     * @return 待发送的最终消息列表
+     */
+    private List<StockNoticeComposeService.ComposedMessage> composePendingMessages(
+            List<TornStockNoticeAuditDO> notices,
+            Map<Long, TornStockVirtualBatchDO> batchMap) {
+        Map<String, List<Long>> frozenNoticeIdsByText = new LinkedHashMap<>();
+        List<TornStockNoticeAuditDO> noticesToCompose = new ArrayList<>();
+        for (TornStockNoticeAuditDO notice : notices) {
+            String frozenText = extractFrozenMessageText(notice.getPayloadSnapshot());
+            if (frozenText == null || frozenText.isBlank()) {
+                noticesToCompose.add(notice);
+            } else {
+                frozenNoticeIdsByText.computeIfAbsent(frozenText, ignored -> new ArrayList<>())
+                        .add(notice.getId());
+            }
+        }
+
+        List<StockNoticeComposeService.ComposedMessage> messages = new ArrayList<>();
+        frozenNoticeIdsByText.forEach((text, noticeIds) ->
+                messages.add(new StockNoticeComposeService.ComposedMessage(noticeIds, text)));
+        messages.addAll(stockNoticeComposeService.composeAndMergeNotices(noticesToCompose, batchMap));
+        return messages;
+    }
+
+    /**
+     * 从通知载荷中读取已冻结的最终文本。
+     *
+     * @param payloadSnapshot 通知载荷JSON
+     * @return 冻结文本；不存在时返回null
+     */
+    private String extractFrozenMessageText(String payloadSnapshot) {
+        if (payloadSnapshot == null || payloadSnapshot.isBlank()) {
+            return null;
+        }
+        com.fasterxml.jackson.databind.JsonNode messageNode =
+                JsonUtils.getNode(payloadSnapshot, "messageText");
+        if (messageNode == null || messageNode.isNull()) {
+            return null;
+        }
+        return messageNode.asText();
+    }
+
+    /**
+     * 在发送前冻结最终消息载荷。
+     *
+     * @param noticeIds   通知ID列表
+     * @param messageText 最终消息文本
+     * @param attemptedAt 实际发送尝试时间
+     */
+    private void finalizePayload(List<Long> noticeIds, String messageText, LocalDateTime attemptedAt) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("messageText", messageText);
+        payload.put("frozenAt", attemptedAt.toString());
+        String payloadSnapshot = JsonUtils.objToJson(payload);
+        noticeAuditDao.finalizePayload(noticeIds, payloadSnapshot,
+                StockHashUtils.sha256(payloadSnapshot), attemptedAt);
     }
 
     /**
@@ -215,7 +289,7 @@ public class StockNoticeSendService {
         if (batchIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<TornStockVirtualBatchDO> batches = virtualBatchDAO.listByIds(batchIds);
+        List<TornStockVirtualBatchDO> batches = virtualBatchDao.listByIds(batchIds);
         if (CollectionUtils.isEmpty(batches)) {
             return Collections.emptyMap();
         }
@@ -254,7 +328,7 @@ public class StockNoticeSendService {
                 .filter(Objects::nonNull)
                 .toList();
         if (!missingNoticeIds.isEmpty()) {
-            noticeAuditDAO.markFailedByIds(missingNoticeIds, "关联虚拟交易批次不存在");
+            noticeAuditDao.markFailedByIds(missingNoticeIds, "关联虚拟交易批次不存在");
             log.warn("股票通知发送-无关联批次通知已标记FAILED: count={}", missingNoticeIds.size());
         }
     }
@@ -271,7 +345,7 @@ public class StockNoticeSendService {
             return;
         }
         try {
-            noticeAuditDAO.markSentByIds(noticeIds);
+            noticeAuditDao.markSentByIds(noticeIds);
         } catch (Exception e) {
             log.error("股票通知发送-批量标记SENT状态异常, noticeCount={}", noticeIds.size(), e);
         }
@@ -290,7 +364,7 @@ public class StockNoticeSendService {
             return;
         }
         try {
-            noticeAuditDAO.markSendFailedByIds(noticeIds, StockNoticeSendService.BOT_SEND_FAILURE_MESSAGE);
+            noticeAuditDao.markSendFailedByIds(noticeIds, StockNoticeSendService.BOT_SEND_FAILURE_MESSAGE);
         } catch (Exception e) {
             log.error("股票通知发送-批量标记FAILED状态异常, noticeCount={}", noticeIds.size(), e);
         }

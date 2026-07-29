@@ -268,6 +268,9 @@ public class StockDailySummaryService {
                     continue;
                 }
                 BigDecimal marketValue = calculateBatchMarketValue(batch, latestBarByStock);
+                if (marketValue == null) {
+                    return null;
+                }
                 batchMarketValues.put(batch.getSlotId(), marketValue);
             }
         }
@@ -302,7 +305,7 @@ public class StockDailySummaryService {
      *
      * @param batch            活跃批次
      * @param latestBarByStock 按股票ID索引的最新bar映射
-     * @return 批次当前市值;行情缺失或不可用时返回投入资金近似值
+     * @return 批次当前市值;行情缺失或不可用时返回null
      */
     private BigDecimal calculateBatchMarketValue(TornStockVirtualBatchDO batch,
                                                  Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
@@ -313,8 +316,7 @@ public class StockDailySummaryService {
                     .multiply(BigDecimal.valueOf(batch.getQuantity()))
                     .multiply(StockPortfolioService.SELL_FEE_RATE);
         }
-        BigDecimal investedCash = batch.getInvestedCash();
-        return investedCash != null ? investedCash : BigDecimal.ZERO;
+        return null;
     }
 
     /**
@@ -412,7 +414,8 @@ public class StockDailySummaryService {
             return 0;
         }
         return (int) activeBatches.stream()
-                .filter(batch -> StockBatchStatusEnum.DATA_STALE.getCode().equals(batch.getBatchStatus()))
+                .filter(batch -> StockBatchStatusEnum.DATA_STALE.getCode().equals(batch.getBatchStatus())
+                        || StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus()))
                 .count();
     }
 
@@ -567,7 +570,7 @@ public class StockDailySummaryService {
                         + "- 高风险观察：%d个%n%n%s",
                 dateText,
                 formal.occupiedSlots(), StockPortfolioService.SLOT_COUNT,
-                formal.equity().toPlainString(),
+                formatEquity(formal.equity()),
                 formal.yesterdayBuyCount(), formal.yesterdaySellCount(),
                 formal.yesterdayNetReturn().toPlainString(),
                 openStocks, formal.staleBatchCount(),
@@ -576,6 +579,16 @@ public class StockDailySummaryService {
                 shadow.dynamicSellCount(), shadow.highRiskCount(),
                 SHADOW_DISCLAIMER
         );
+    }
+
+    /**
+     * 格式化日报权益，行情不足时明确展示数据不足。
+     *
+     * @param equity 完整权益
+     * @return 权益文本
+     */
+    private String formatEquity(BigDecimal equity) {
+        return equity == null ? "行情数据不足，暂无法计算完整权益" : equity.toPlainString();
     }
 
     /**
