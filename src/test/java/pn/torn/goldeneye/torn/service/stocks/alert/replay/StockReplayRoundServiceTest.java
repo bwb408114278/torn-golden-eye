@@ -23,11 +23,7 @@ import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
 
 /**
@@ -161,9 +157,6 @@ class StockReplayRoundServiceTest {
         return bar;
     }
 
-    private TornStockStrategyFeature15mDO feature(LocalDateTime time) {
-        return feature(time, true);
-    }
 
     private TornStockStrategyFeature15mDO feature(LocalDateTime time, boolean ready) {
         TornStockStrategyFeature15mDO feature = new TornStockStrategyFeature15mDO();
@@ -202,6 +195,7 @@ class StockReplayRoundServiceTest {
         feature.setFeatureVersion("FEATURE_V1");
         return feature;
     }
+
     private TornStockMonthlyStateDO monthlyState() {
         TornStockMonthlyStateDO state = new TornStockMonthlyStateDO();
         state.setStocksId(1001);

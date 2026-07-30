@@ -39,8 +39,8 @@ public class StockRejectedObservationService {
     /**
      * 结算指定时间范围内已经到达观察结算点的拒绝事件。
      *
-     * @param startTime 事件轮次起点(含)
-     * @param endTime 事件轮次终点(不含)
+     * @param startTime  事件轮次起点(含)
+     * @param endTime    事件轮次终点(不含)
      * @param observedAt 观察器当前时间
      * @return 本次结算事件数
      */
@@ -57,7 +57,24 @@ public class StockRejectedObservationService {
 
         List<TornStockSignalEventDO> events = signalEventDao
                 .selectPendingRejectedObservationEvents(startTime, endTime);
-        if (events.isEmpty()) {
+        return resolveEvents(events, observedAt, startTime);
+    }
+
+    /**
+     * 结算全部已到期的未结算拒绝观察事件,用于启动补偿和定时任务。
+     *
+     * @param observedAt 观察器当前时间
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void resolveAllDueObservations(LocalDateTime observedAt) {
+        Objects.requireNonNull(observedAt, "观察时间不能为空");
+        List<TornStockSignalEventDO> events = signalEventDao.selectAllPendingRejectedObservationEvents();
+        resolveEvents(events, observedAt, observedAt);
+    }
+
+    private int resolveEvents(List<TornStockSignalEventDO> events, LocalDateTime observedAt,
+                              LocalDateTime fallbackBarStart) {
+        if (events == null || events.isEmpty()) {
             return 0;
         }
         List<Long> eventIds = events.stream().map(TornStockSignalEventDO::getId)
@@ -73,67 +90,11 @@ public class StockRejectedObservationService {
         if (batchByEventId.isEmpty()) {
             return 0;
         }
-
-        LocalDateTime barStart = events.stream()
-                .map(batchEvent -> batchByEventId.get(batchEvent.getId()))
-                .filter(Objects::nonNull)
-                .map(TornStockVirtualBatchDO::getExpectedEntryBarTime)
-                .filter(Objects::nonNull)
-                .min(LocalDateTime::compareTo).orElse(startTime);
-        LocalDateTime barEnd = observedAt.plusMinutes(15);
-        List<Integer> stocksIds = events.stream().map(TornStockSignalEventDO::getStocksId)
-                .filter(Objects::nonNull).distinct().toList();
-        List<TornStockMarketBar15mDO> bars = stocksIds.isEmpty()
-                ? List.of()
-                : barDao.selectByStocksAndTimeRange(stocksIds, barStart, barEnd,
-                Stock15mBarBuildService.BUILD_VERSION);
-        Map<Integer, List<TornStockMarketBar15mDO>> barsByStockId = bars.stream()
-                .filter(bar -> bar.getStocksId() != null)
-                .collect(Collectors.groupingBy(TornStockMarketBar15mDO::getStocksId));
-
-        List<TornStockSignalEventDO> resolved = events.stream()
-                .map(event -> resolveIfDue(event, batchByEventId.get(event.getId()),
-                        barsByStockId.getOrDefault(event.getStocksId(), List.of()), observedAt))
-                .filter(Objects::nonNull)
-                .toList();
-        if (!resolved.isEmpty()) {
-            signalEventDao.updateObservationResultsByIds(resolved);
-        }
-        return resolved.size();
-    }
-
-    /**
-     * 结算全部已到期的未结算拒绝观察事件,用于启动补偿和定时任务。
-     *
-     * @param observedAt 观察器当前时间
-     * @return 本次结算事件数
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public int resolveAllDueObservations(LocalDateTime observedAt) {
-        Objects.requireNonNull(observedAt, "观察时间不能为空");
-        List<TornStockSignalEventDO> events = signalEventDao.selectAllPendingRejectedObservationEvents();
-        return resolveEvents(events, observedAt);
-    }
-
-    private int resolveEvents(List<TornStockSignalEventDO> events, LocalDateTime observedAt) {
-        if (events == null || events.isEmpty()) {
-            return 0;
-        }
-        List<Long> eventIds = events.stream().map(TornStockSignalEventDO::getId)
-                .filter(Objects::nonNull).toList();
-        if (eventIds.isEmpty()) {
-            return 0;
-        }
-        Map<Long, TornStockVirtualBatchDO> batchByEventId = virtualBatchDao
-                .selectRejectedObservationBatches(eventIds).stream()
-                .filter(batch -> batch.getSignalEventId() != null)
-                .collect(Collectors.toMap(TornStockVirtualBatchDO::getSignalEventId,
-                        Function.identity(), (left, right) -> left));
         List<Integer> stocksIds = events.stream().map(TornStockSignalEventDO::getStocksId)
                 .filter(Objects::nonNull).distinct().toList();
         LocalDateTime barStart = events.stream().map(event -> batchByEventId.get(event.getId()))
                 .filter(Objects::nonNull).map(TornStockVirtualBatchDO::getExpectedEntryBarTime)
-                .filter(Objects::nonNull).min(LocalDateTime::compareTo).orElse(observedAt);
+                .filter(Objects::nonNull).min(LocalDateTime::compareTo).orElse(fallbackBarStart);
         List<TornStockMarketBar15mDO> bars = stocksIds.isEmpty() ? List.of()
                 : barDao.selectByStocksAndTimeRange(stocksIds, barStart, observedAt.plusMinutes(15),
                 Stock15mBarBuildService.BUILD_VERSION);

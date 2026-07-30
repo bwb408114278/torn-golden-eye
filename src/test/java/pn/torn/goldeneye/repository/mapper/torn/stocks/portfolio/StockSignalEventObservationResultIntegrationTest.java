@@ -14,9 +14,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 拒绝观察结果码和数据缺口字段的PostgreSQL持久化集成测试。
@@ -77,20 +75,19 @@ class StockSignalEventObservationResultIntegrationTest {
     }
 
     private long insertEvent() {
-        Long id = jdbcTemplate.queryForObject("""
-                INSERT INTO torn_stock_signal_event
-                    (event_no, round_time, stocks_id, stocks_shortname, strategy_type,
-                     signal_reference_price, buy_rule_version, quality_score,
-                     feature_snapshot, style_snapshot, eligibility_result,
-                     eligibility_reasons, portfolio_decision, reject_reason,
-                     deleted, create_time, update_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?,
-                        0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                RETURNING id
-                """, Long.class, EVENT_NO, Timestamp.valueOf(ROUND_TIME), TEST_STOCKS_ID,
+        return jdbcTemplate.queryForObject("""
+                        INSERT INTO torn_stock_signal_event
+                            (event_no, round_time, stocks_id, stocks_shortname, strategy_type,
+                             signal_reference_price, buy_rule_version, quality_score,
+                             feature_snapshot, style_snapshot, eligibility_result,
+                             eligibility_reasons, portfolio_decision, reject_reason,
+                             deleted, create_time, update_time)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?,
+                                0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        RETURNING id
+                        """, Long.class, EVENT_NO, Timestamp.valueOf(ROUND_TIME), TEST_STOCKS_ID,
                 "IT", "TEST_BUY", new BigDecimal("100.00"), "TEST_RULE", new BigDecimal("1.00"),
                 "{}", "{}", "REJECTED", "{}", "REJECTED", "NO_AVAILABLE_SLOT");
-        return id;
     }
 
     private TornStockSignalEventDO event(long id, String resultCode, boolean incomplete,

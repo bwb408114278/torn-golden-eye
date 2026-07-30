@@ -160,6 +160,8 @@ public class StockMonthlyStateInitService {
      * @param effectiveMonth 生效月份
      * @param confirmedBy    实际确认人
      * @return 本次确认的记录数量
+     *
+     * TODO 阶段管理端接入时使用，必须由人工操作入口传入真实确认人。
      */
     public int confirmDraftStates(LocalDate effectiveMonth, String confirmedBy) {
         if (confirmedBy == null || confirmedBy.isBlank()) {

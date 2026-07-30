@@ -542,7 +542,6 @@ public class StockBuySignalEvaluator {
         CandidateInfo candidate = ctx.candidate();
         TornStockPortfolioSlotDO slot = ctx.slot();
         LocalDateTime roundTime = ctx.roundTime();
-        TornStockMonthlyStateDO monthlyState = ctx.monthlyState();
 
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setBatchNo(FORMAL_BATCH_NO_PREFIX
@@ -559,14 +558,8 @@ public class StockBuySignalEvaluator {
         batch.setSlotNo(slot.getSlotNo());
         batch.setSignalTime(roundTime);
         batch.setQuantity(ctx.quantity());
-        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
-        fields.setSignalReferencePrice(ctx.signalReferencePrice());
-        fields.setSignalTime(roundTime);
-        fields.setStylePrior(monthlyState != null ? monthlyState.getStrategyFitPrior() : null);
-        fields.setStyleMaturity(monthlyState != null ? monthlyState.getMaturity() : null);
-        fields.setRiskLevel(monthlyState != null ? monthlyState.getRiskLevel() : null);
-        fields.setStyleEffectiveMonth(monthlyState != null ? monthlyState.getEffectiveMonth() : null);
-        fields.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
+        TornStockVirtualBatchSignalFields fields = StockVirtualBatchAssembler.buildSignalFields(
+                ctx.signalReferencePrice(), roundTime, ctx.monthlyState());
         StockVirtualBatchAssembler.applySignalFields(batch, fields);
         return batch;
     }
@@ -744,22 +737,18 @@ public class StockBuySignalEvaluator {
              * 设置资格判定结果。
              *
              * @param eligibilityResult 资格结果
-             * @return 当前构建器
              */
-            public Builder eligibilityResult(EligibilityResult eligibilityResult) {
+            public void eligibilityResult(EligibilityResult eligibilityResult) {
                 this.eligibilityResult = eligibilityResult;
-                return this;
             }
 
             /**
              * 设置是否被正式接纳。
              *
              * @param acceptedFormal 是否正式接纳
-             * @return 当前构建器
              */
-            public Builder acceptedFormal(boolean acceptedFormal) {
+            public void acceptedFormal(boolean acceptedFormal) {
                 this.acceptedFormal = acceptedFormal;
-                return this;
             }
 
             /**

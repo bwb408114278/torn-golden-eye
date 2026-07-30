@@ -14,25 +14,30 @@ import java.util.Objects;
  * @since 2026.07.30
  */
 public class StockReplayPortfolioEngine {
-    /** 卖出后实际保留比例。 */
+    /**
+     * 卖出后实际保留比例。
+     */
     public static final BigDecimal SELL_PROCEEDS_RATE = new BigDecimal("0.999");
-    /** 权益无法完整计算。 */
+    /**
+     * 权益无法完整计算。
+     */
     public static final String DATA_INSUFFICIENT = "DATA_INSUFFICIENT";
     private static final int SCALE = 18;
+    private static final String STATE_REQUIRED_MESSAGE = "组合状态不能为空";
 
     /**
      * 在指定槽位建立内存持仓。
      *
-     * @param state 当前状态
-     * @param slotNo 槽位编号
-     * @param stocksId 股票ID
-     * @param entryPrice 入场价格
+     * @param state         当前状态
+     * @param slotNo        槽位编号
+     * @param stocksId      股票ID
+     * @param entryPrice    入场价格
      * @param availableCash 用于本次分配的资金
      * @return 入场结果
      */
     public EntryResult enter(StockReplayPortfolioState state, int slotNo, Integer stocksId,
                              BigDecimal entryPrice, BigDecimal availableCash) {
-        Objects.requireNonNull(state, "组合状态不能为空");
+        Objects.requireNonNull(state, STATE_REQUIRED_MESSAGE);
         Objects.requireNonNull(stocksId, "股票ID不能为空");
         validatePositive(entryPrice, "entryPrice");
         validatePositive(availableCash, "availableCash");
@@ -55,12 +60,12 @@ public class StockReplayPortfolioEngine {
     /**
      * 为待买入订单预留整个槽位预算。
      *
-     * @param state 当前状态
+     * @param state  当前状态
      * @param slotNo 槽位编号
      * @return 预留后的状态
      */
     public StockReplayPortfolioState reserve(StockReplayPortfolioState state, int slotNo) {
-        Objects.requireNonNull(state, "组合状态不能为空");
+        Objects.requireNonNull(state, STATE_REQUIRED_MESSAGE);
         StockReplaySlotState slot = findSlot(state, slotNo);
         if (slot.stocksId() != null || slot.reservedCash().signum() > 0) {
             throw new IllegalStateException("槽位不可预留: " + slotNo);
@@ -73,15 +78,15 @@ public class StockReplayPortfolioEngine {
     /**
      * 使用已预留预算成交待买入订单。
      *
-     * @param state 当前状态
-     * @param slotNo 槽位编号
-     * @param stocksId 股票ID
+     * @param state      当前状态
+     * @param slotNo     槽位编号
+     * @param stocksId   股票ID
      * @param entryPrice 入场价格
      * @return 入场结果
      */
     public EntryResult enterReserved(StockReplayPortfolioState state, int slotNo,
                                      Integer stocksId, BigDecimal entryPrice) {
-        Objects.requireNonNull(state, "组合状态不能为空");
+        Objects.requireNonNull(state, STATE_REQUIRED_MESSAGE);
         Objects.requireNonNull(stocksId, "股票ID不能为空");
         validatePositive(entryPrice, "entryPrice");
         StockReplaySlotState slot = findSlot(state, slotNo);
@@ -101,12 +106,12 @@ public class StockReplayPortfolioEngine {
     /**
      * 取消待买入订单并释放预留预算。
      *
-     * @param state 当前状态
+     * @param state  当前状态
      * @param slotNo 槽位编号
      * @return 释放后的状态
      */
     public StockReplayPortfolioState releaseReserved(StockReplayPortfolioState state, int slotNo) {
-        Objects.requireNonNull(state, "组合状态不能为空");
+        Objects.requireNonNull(state, STATE_REQUIRED_MESSAGE);
         StockReplaySlotState slot = findSlot(state, slotNo);
         validateReservedSlot(slot, slotNo);
         StockReplaySlotState available = StockReplaySlotState.available(slotNo,
@@ -117,14 +122,14 @@ public class StockReplayPortfolioEngine {
     /**
      * 释放指定槽位持仓并结算卖出所得。
      *
-     * @param state 当前状态
-     * @param slotNo 槽位编号
+     * @param state     当前状态
+     * @param slotNo    槽位编号
      * @param exitPrice 卖出价格
      * @return 结算后状态
      */
     public StockReplayPortfolioState exit(StockReplayPortfolioState state, int slotNo,
                                           BigDecimal exitPrice) {
-        Objects.requireNonNull(state, "组合状态不能为空");
+        Objects.requireNonNull(state, STATE_REQUIRED_MESSAGE);
         validatePositive(exitPrice, "exitPrice");
         StockReplaySlotState slot = findSlot(state, slotNo);
         if (slot.stocksId() == null || slot.quantity() <= 0) {
@@ -140,18 +145,17 @@ public class StockReplayPortfolioEngine {
     /**
      * 计算当前组合权益。只要任一持仓缺少对应价格，就返回数据不足。
      *
-     * @param state 当前状态
+     * @param state  当前状态
      * @param prices 当前股票价格，顺序与持仓股票匹配
      * @return 权益结果
      */
     public EquityResult calculateEquity(StockReplayPortfolioState state,
                                         List<PricePoint> prices) {
-        Objects.requireNonNull(state, "组合状态不能为空");
+        Objects.requireNonNull(state, STATE_REQUIRED_MESSAGE);
         List<PricePoint> points = prices == null ? List.of() : prices;
-        BigDecimal cash = state.slots().stream()
+        BigDecimal equity = state.slots().stream()
                 .map(slot -> slot.availableCash().add(slot.reservedCash()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal equity = cash;
         for (StockReplaySlotState slot : state.slots()) {
             if (slot.stocksId() == null) {
                 continue;
@@ -179,7 +183,7 @@ public class StockReplayPortfolioEngine {
     }
 
     private StockReplayPortfolioState replaceSlot(StockReplayPortfolioState state,
-                                                   StockReplaySlotState replacement) {
+                                                  StockReplaySlotState replacement) {
         List<StockReplaySlotState> slots = new ArrayList<>(state.slots());
         for (int index = 0; index < slots.size(); index++) {
             if (slots.get(index).slotNo() == replacement.slotNo()) {
@@ -197,15 +201,21 @@ public class StockReplayPortfolioEngine {
         }
     }
 
-    /** 入场结果。 */
+    /**
+     * 入场结果。
+     */
     public record EntryResult(StockReplayPortfolioState state, long quantity, BigDecimal actualCost) {
     }
 
-    /** 当前价格点。 */
+    /**
+     * 当前价格点。
+     */
     public record PricePoint(Integer stocksId, BigDecimal price) {
     }
 
-    /** 权益结果。 */
+    /**
+     * 权益结果。
+     */
     public record EquityResult(BigDecimal equity, String status) {
     }
 }

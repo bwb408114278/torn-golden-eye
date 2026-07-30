@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -46,9 +45,10 @@ class StockReplayArtifactWriterTest {
     void write_existingCompletedArtifact_rejectsOverwrite() throws Exception {
         StockReplayBoundary boundary = StockReplayBoundary.create("VIP_FORMAL");
         StockReplaySummary summary = StockReplaySummary.completed(boundary, 0);
-        new StockReplayArtifactWriter().write(summary, List.of(), List.of(), List.of(), outputDirectory);
+        StockReplayArtifactWriter writer = new StockReplayArtifactWriter();
+        writer.write(summary, List.of(), List.of(), List.of(), outputDirectory);
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> new StockReplayArtifactWriter().write(summary, List.of(), List.of(), List.of(), outputDirectory));
+                () -> writer.write(summary, List.of(), List.of(), List.of(), outputDirectory));
     }
 }

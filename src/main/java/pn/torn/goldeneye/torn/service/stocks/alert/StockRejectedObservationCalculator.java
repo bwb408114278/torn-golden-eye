@@ -26,18 +26,30 @@ import java.util.stream.Collectors;
  */
 public final class StockRejectedObservationCalculator {
 
-    /** 向上价格偏离阈值。 */
+    /**
+     * 向上价格偏离阈值。
+     */
     static final BigDecimal ENTRY_DEVIATION_THRESHOLD = new BigDecimal("0.0015");
-    /** 观察天数。 */
+    /**
+     * 观察天数。
+     */
     static final int OBSERVATION_DAYS = 14;
-    /** 收益计算精度。 */
+    /**
+     * 收益计算精度。
+     */
     private static final int SCALE = 18;
-    /** 无法理论入场结果。 */
+    /**
+     * 无法理论入场结果。
+     */
     static final String NO_THEORETICAL_ENTRY = StockObservationResultEnum.NO_THEORETICAL_ENTRY.getCode();
-    /** 观察数据不足结果。 */
+    /**
+     * 观察数据不足结果。
+     */
     static final String OBSERVATION_DATA_INSUFFICIENT =
             StockObservationResultEnum.OBSERVATION_DATA_INSUFFICIENT.getCode();
-    /** 观察完成结果。 */
+    /**
+     * 观察完成结果。
+     */
     static final String OBSERVATION_COMPLETED = StockObservationResultEnum.OBSERVATION_COMPLETED.getCode();
 
     private StockRejectedObservationCalculator() {
@@ -48,7 +60,7 @@ public final class StockRejectedObservationCalculator {
      *
      * @param event 原始信号事件
      * @param batch 拒绝观察批次
-     * @param bars 已批量加载的相关bar
+     * @param bars  已批量加载的相关bar
      * @return 理论观察结果
      */
     public static Result calculate(TornStockSignalEventDO event,
@@ -56,9 +68,10 @@ public final class StockRejectedObservationCalculator {
                                    List<TornStockMarketBar15mDO> bars) {
         Objects.requireNonNull(event, "信号事件不能为空");
         Objects.requireNonNull(batch, "拒绝观察批次不能为空");
+        Objects.requireNonNull(bars, "行情bar不能为空");
         LocalDateTime expectedEntryTime = batch.getExpectedEntryBarTime();
         TornStockMarketBar15mDO entryBar = findBar(bars, expectedEntryTime);
-        if (entryBar == null || !Stock15mBarBuildService.isUsable(entryBar)
+        if (!Stock15mBarBuildService.isUsable(entryBar)
                 || event.getSignalReferencePrice() == null || entryBar.getLastPrice() == null) {
             return unresolved(NO_THEORETICAL_ENTRY, batch.getEntryStaleAt(), false);
         }
@@ -70,14 +83,10 @@ public final class StockRejectedObservationCalculator {
 
         LocalDateTime observationStart = entryBar.getBarEndTime();
         LocalDateTime deadline = entryBar.getBarStartTime().plusDays(OBSERVATION_DAYS);
-        List<TornStockMarketBar15mDO> observedBars = bars == null ? List.of() : bars.stream()
-                .filter(Objects::nonNull)
-                .filter(bar -> bar.getBarStartTime() != null)
-                .filter(bar -> !bar.getBarStartTime().isBefore(observationStart)
-                        && !bar.getBarStartTime().isAfter(deadline))
+        List<TornStockMarketBar15mDO> observedBars = findBarsInObservationWindow(
+                bars, observationStart, deadline).stream()
                 .filter(Stock15mBarBuildService::isUsable)
                 .filter(bar -> bar.getLastPrice() != null)
-                .sorted(Comparator.comparing(TornStockMarketBar15mDO::getBarStartTime))
                 .toList();
         if (observedBars.isEmpty()) {
             return unresolved(OBSERVATION_DATA_INSUFFICIENT, deadline, true);
@@ -98,12 +107,8 @@ public final class StockRejectedObservationCalculator {
     private static boolean hasObservationDataGap(List<TornStockMarketBar15mDO> bars,
                                                  LocalDateTime observationStart,
                                                  LocalDateTime deadline) {
-        Map<LocalDateTime, TornStockMarketBar15mDO> barsByStart = bars == null ? Map.of()
-                : bars.stream()
-                .filter(Objects::nonNull)
-                .filter(bar -> bar.getBarStartTime() != null)
-                .filter(bar -> !bar.getBarStartTime().isBefore(observationStart)
-                        && !bar.getBarStartTime().isAfter(deadline))
+        Map<LocalDateTime, TornStockMarketBar15mDO> barsByStart = findBarsInObservationWindow(
+                bars, observationStart, deadline).stream()
                 .collect(Collectors.toMap(TornStockMarketBar15mDO::getBarStartTime,
                         Function.identity(), (left, right) -> left));
         for (LocalDateTime cursor = observationStart;
@@ -119,7 +124,7 @@ public final class StockRejectedObservationCalculator {
 
     private static TornStockMarketBar15mDO findBar(List<TornStockMarketBar15mDO> bars,
                                                    LocalDateTime expectedTime) {
-        if (bars == null || expectedTime == null) {
+        if (expectedTime == null) {
             return null;
         }
         return bars.stream()
@@ -127,6 +132,27 @@ public final class StockRejectedObservationCalculator {
                 .filter(bar -> expectedTime.equals(bar.getBarStartTime()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * 筛选观察窗口内具有时间锚点的行情bar。
+     *
+     * @param bars             原始行情bar
+     * @param observationStart 观察窗口开始时间
+     * @param deadline         观察窗口截止时间
+     * @return 按bar开始时间排序的窗口行情bar
+     */
+    private static List<TornStockMarketBar15mDO> findBarsInObservationWindow(
+            List<TornStockMarketBar15mDO> bars,
+            LocalDateTime observationStart,
+            LocalDateTime deadline) {
+        return bars.stream()
+                .filter(Objects::nonNull)
+                .filter(bar -> bar.getBarStartTime() != null)
+                .filter(bar -> !bar.getBarStartTime().isBefore(observationStart)
+                        && !bar.getBarStartTime().isAfter(deadline))
+                .sorted(Comparator.comparing(TornStockMarketBar15mDO::getBarStartTime))
+                .toList();
     }
 
     private static boolean isUpwardDeviationExceeded(BigDecimal signalPrice, BigDecimal entryPrice) {
@@ -148,10 +174,10 @@ public final class StockRejectedObservationCalculator {
     /**
      * 拒绝观察计算结果。
      *
-     * @param laterMfe 后续最大有利偏移
-     * @param laterMae 后续最大不利偏移
-     * @param resolvedAt 结算时间
-     * @param resultCode 结果编码
+     * @param laterMfe                  后续最大有利偏移
+     * @param laterMae                  后续最大不利偏移
+     * @param resolvedAt                结算时间
+     * @param resultCode                结果编码
      * @param observationDataIncomplete 是否存在观察数据缺口
      */
     public record Result(BigDecimal laterMfe, BigDecimal laterMae, LocalDateTime resolvedAt,

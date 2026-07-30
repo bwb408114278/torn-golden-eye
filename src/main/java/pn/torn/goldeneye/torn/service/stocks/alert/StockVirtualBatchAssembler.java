@@ -1,12 +1,11 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchEntryFields;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchSignalFields;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 虚拟批次字段组装器，将服务层事实转换为数据库批次字段。
@@ -50,6 +49,47 @@ public final class StockVirtualBatchAssembler {
         batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
         batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
         batch.setResetObserved(false);
+    }
+
+    /**
+     * 根据正式候选的冻结月度状态构建信号字段。
+     *
+     * @param signalReferencePrice 信号参考价
+     * @param signalTime           信号时间
+     * @param monthlyState         月度状态，可为空
+     * @return 批次信号字段
+     */
+    public static TornStockVirtualBatchSignalFields buildSignalFields(
+            BigDecimal signalReferencePrice,
+            LocalDateTime signalTime,
+            TornStockMonthlyStateDO monthlyState) {
+        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
+        fields.setSignalReferencePrice(signalReferencePrice);
+        fields.setSignalTime(signalTime);
+        fields.setStylePrior(monthlyState == null ? null : monthlyState.getStrategyFitPrior());
+        fields.setStyleMaturity(monthlyState == null ? null : monthlyState.getMaturity());
+        fields.setRiskLevel(monthlyState == null ? null : monthlyState.getRiskLevel());
+        fields.setStyleEffectiveMonth(monthlyState == null ? null : monthlyState.getEffectiveMonth());
+        fields.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
+        return fields;
+    }
+
+    /**
+     * 根据已保存信号事件构建批次信号字段。
+     *
+     * @param event 已保存的信号事件
+     * @return 批次信号字段
+     */
+    public static TornStockVirtualBatchSignalFields buildSignalFields(TornStockSignalEventDO event) {
+        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
+        fields.setSignalReferencePrice(event.getSignalReferencePrice());
+        fields.setSignalTime(event.getRoundTime());
+        fields.setStylePrior(event.getStylePrior());
+        fields.setStyleMaturity(event.getStyleMaturity());
+        fields.setRiskLevel(event.getRiskLevel());
+        fields.setStyleEffectiveMonth(event.getStyleEffectiveMonth());
+        fields.setBuyRuleVersion(event.getBuyRuleVersion());
+        return fields;
     }
 
     /**

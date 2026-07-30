@@ -163,9 +163,8 @@ public class StockShadowService {
      *
      * @param event        关联的信号事件(须已保存,含主键ID)
      * @param rejectReason 拒绝原因编码
-     * @return 已保存的拒绝观察批次DO(含主键ID与批次编号)
      */
-    public TornStockVirtualBatchDO createRejectedObservationBatch(TornStockSignalEventDO event, String rejectReason) {
+    public void createRejectedObservationBatch(TornStockSignalEventDO event, String rejectReason) {
         Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
         Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
 
@@ -178,7 +177,6 @@ public class StockShadowService {
         virtualBatchDao.save(batch);
         log.info("拒绝观察批次创建-完成: batchNo={}, stocksId={}, signalEventId={}, rejectReason={}",
                 batch.getBatchNo(), batch.getStocksId(), event.getId(), rejectReason);
-        return batch;
     }
 
     /**
@@ -301,14 +299,7 @@ public class StockShadowService {
         batch.setQualityScore(event.getQualityScore());
         batch.setSignalEventId(event.getId());
         batch.setSignalTime(event.getRoundTime());
-        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
-        fields.setSignalReferencePrice(event.getSignalReferencePrice());
-        fields.setSignalTime(event.getRoundTime());
-        fields.setStylePrior(event.getStylePrior());
-        fields.setStyleMaturity(event.getStyleMaturity());
-        fields.setRiskLevel(event.getRiskLevel());
-        fields.setStyleEffectiveMonth(event.getStyleEffectiveMonth());
-        fields.setBuyRuleVersion(event.getBuyRuleVersion());
+        TornStockVirtualBatchSignalFields fields = StockVirtualBatchAssembler.buildSignalFields(event);
         StockVirtualBatchAssembler.applySignalFields(batch, fields);
         // slotId/slotNo 保持 null: 影子与拒绝观察批次不占正式槽位
         return batch;
@@ -320,24 +311,24 @@ public class StockShadowService {
      * 作为 {@link #recordSignalEvent(StockSignalEventContext)} 的入参,
      * 由调用方在策略匹配与资格评估完成后组装,保证事件记录的字段完整性。
      *
-     * @param stocksId           股票ID
-     * @param stocksShortname    股票简称快照
-     * @param strategyType       策略类型编码
+     * @param stocksId             股票ID
+     * @param stocksShortname      股票简称快照
+     * @param strategyType         策略类型编码
      * @param signalReferencePrice 信号参考价(信号触发时bar的收盘价)
-     * @param stylePrior         风格-策略契合度(来自月度状态)
-     * @param styleMaturity      风格-成熟度等级(来自月度状态)
-     * @param riskLevel          风格-风险等级(来自月度状态)
-     * @param styleEffectiveMonth 风格生效月份(来自月度状态)
-     * @param buyRuleVersion     买入规则版本
-     * @param qualityScore       信号质量评分
-     * @param featureSnapshot    特征快照(JSON文本)
-     * @param styleSnapshot      风格快照(JSON文本)
-     * @param eligibilityResult  资格审查结果编码(ALLOWED/REJECTED/OBSERVED)
-     * @param eligibilityReasons 资格审查原因编码列表,可为null
-     * @param candidateRank      候选排名,未通过资格审查时为null
-     * @param portfolioDecision  组合决策编码(FORMAL/SHADOW/REJECTED)
-     * @param rejectReason       拒绝原因编码,portfolioDecision为REJECTED时非空,可为null
-     * @param roundTime          信号产生的轮次时间
+     * @param stylePrior           风格-策略契合度(来自月度状态)
+     * @param styleMaturity        风格-成熟度等级(来自月度状态)
+     * @param riskLevel            风格-风险等级(来自月度状态)
+     * @param styleEffectiveMonth  风格生效月份(来自月度状态)
+     * @param buyRuleVersion       买入规则版本
+     * @param qualityScore         信号质量评分
+     * @param featureSnapshot      特征快照(JSON文本)
+     * @param styleSnapshot        风格快照(JSON文本)
+     * @param eligibilityResult    资格审查结果编码(ALLOWED/REJECTED/OBSERVED)
+     * @param eligibilityReasons   资格审查原因编码列表,可为null
+     * @param candidateRank        候选排名,未通过资格审查时为null
+     * @param portfolioDecision    组合决策编码(FORMAL/SHADOW/REJECTED)
+     * @param rejectReason         拒绝原因编码,portfolioDecision为REJECTED时非空,可为null
+     * @param roundTime            信号产生的轮次时间
      * @author Bai
      * @version 1.2.12
      * @since 2026.07.25
