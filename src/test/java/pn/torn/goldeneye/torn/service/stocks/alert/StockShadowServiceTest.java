@@ -100,6 +100,22 @@ class StockShadowServiceTest {
                 () -> service.createUnlimitedShadowBatch(event));
     }
 
+    @Test
+    @DisplayName("拒绝观察结果回写_保存MFE和MAE并记录结算时间")
+    void resolveRejectedObservation_updatesResultAndResolutionTime() {
+        StockShadowService service = new StockShadowService(signalEventDAO, virtualBatchDAO);
+        TornStockSignalEventDO event = buildEvent(14L);
+        BigDecimal laterMfe = new BigDecimal("0.12");
+        BigDecimal laterMae = new BigDecimal("-0.08");
+
+        service.resolveRejectedObservation(event, laterMfe, laterMae, ROUND_TIME.plusDays(14));
+
+        assertEquals(laterMfe, event.getLaterMfe());
+        assertEquals(laterMae, event.getLaterMae());
+        assertEquals(ROUND_TIME.plusDays(14), event.getResolvedAt());
+        verify(signalEventDAO).updateById(event);
+    }
+
     private TornStockSignalEventDO buildEvent(Long id) {
         TornStockSignalEventDO event = new TornStockSignalEventDO();
         event.setId(id);

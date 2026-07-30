@@ -3,8 +3,62 @@
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockSignalEventMapper">
     <!-- 按轮次时间批量查询全部信号事件 -->
     <select id="selectByRoundTime" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
-        SELECT * FROM torn_stock_signal_event
+        SELECT * FROM torn_stock_signal_event event
         WHERE round_time = #{roundTime}
           AND deleted = 0
     </select>
+
+    <!-- 批量查询未结算拒绝观察事件 -->
+    <select id="selectPendingRejectedObservationEvents" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
+        SELECT event.* FROM torn_stock_signal_event event
+        WHERE round_time &gt;= #{startTime}
+          AND round_time &lt; #{endTime}
+          AND portfolio_decision = 'REJECTED'
+          AND EXISTS (
+              SELECT 1 FROM torn_stock_virtual_batch batch
+              WHERE batch.signal_event_id = event.id
+                AND batch.ledger_type = 'REJECTED_OBSERVATION'
+                AND batch.deleted = 0
+          )
+          AND resolved_at IS NULL
+          AND deleted = 0
+        ORDER BY round_time ASC, id ASC
+    </select>
+
+    <!-- 批量查询全部未结算拒绝观察事件,用于停机补偿 -->
+    <select id="selectAllPendingRejectedObservationEvents" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
+        SELECT event.* FROM torn_stock_signal_event event
+        WHERE portfolio_decision = 'REJECTED'
+          AND EXISTS (
+              SELECT 1 FROM torn_stock_virtual_batch batch
+              WHERE batch.signal_event_id = event.id
+                AND batch.ledger_type = 'REJECTED_OBSERVATION'
+                AND batch.deleted = 0
+          )
+          AND resolved_at IS NULL
+          AND deleted = 0
+        ORDER BY round_time ASC, id ASC
+    </select>
+
+    <!-- 只回写尚未结算的拒绝观察结果,避免并发调度覆盖已完成结果 -->
+    <update id="updateObservationResultsByIds">
+        UPDATE torn_stock_signal_event
+        SET later_mfe = source.later_mfe,
+            later_mae = source.later_mae,
+            resolved_at = source.resolved_at,
+            observation_result = source.observation_result,
+            observation_data_incomplete = source.observation_data_incomplete,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+            <foreach collection="events" item="event" separator=",">
+                (CAST(#{event.id} AS BIGINT), CAST(#{event.laterMfe} AS NUMERIC(18,10)),
+                 CAST(#{event.laterMae} AS NUMERIC(18,10)), CAST(#{event.resolvedAt} AS TIMESTAMP),
+                 CAST(#{event.observationResult} AS VARCHAR(64)),
+                 CAST(#{event.observationDataIncomplete} AS BOOLEAN))
+            </foreach>
+        ) AS source(id, later_mfe, later_mae, resolved_at, observation_result,
+                    observation_data_incomplete)
+        WHERE torn_stock_signal_event.id = source.id
+          AND torn_stock_signal_event.resolved_at IS NULL
+    </update>
 </mapper>

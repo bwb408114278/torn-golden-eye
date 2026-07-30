@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
  *   <li>批量查询关联批次信息(用通知的batchId集合)</li>
  *   <li>调用 {@link StockNoticeComposeService#composeAndMergeNotices} 组合消息</li>
  *   <li>逐条构建 {@link GroupMsgHttpBuilder} + {@link TextQqMsg} 发送,HTTP 2xx且body非空时更新SENT,
- *       异常、非2xx或body为null更新FAILED</li>
+ *       异常、非2xx、body为空或NapCat业务失败更新FAILED</li>
  *   <li>本期不自动重试,sendAttemptCount从0改为1</li>
  * </ol>
  * 单条通知发送异常不会中断后续通知投递,异常信息写入errorMessage字段。
@@ -114,13 +114,13 @@ public class StockNoticeSendService {
             LocalDateTime attemptedAt = LocalDateTime.now();
             String frozenPayload = getFrozenMessageText(composedMessage);
             finalizePayload(composedMessage.noticeIds(), frozenPayload, attemptedAt);
-            boolean sent = sendSingleMessage(frozenPayload);
-            if (sent) {
+            SendResult sendResult = sendMessage(frozenPayload);
+            if (sendResult.success()) {
                 successCount++;
                 markNoticesSent(composedMessage.noticeIds());
             } else {
                 failedCount++;
-                markNoticesFailed(composedMessage.noticeIds());
+                markNoticesFailed(composedMessage.noticeIds(), sendResult.failureReason());
             }
         }
 
@@ -219,6 +219,16 @@ public class StockNoticeSendService {
      * @return true表示发送成功(2xx且body非空且retcode=0);false表示发送失败、响应异常或无法确认成功
      */
     public boolean sendSingleMessage(String text) {
+        return sendMessage(text).success();
+    }
+
+    /**
+     * 发送单条消息并返回可审计的失败原因。
+     *
+     * @param text 待发送文本
+     * @return 发送结果
+     */
+    private SendResult sendMessage(String text) {
         try {
             BotHttpReqParam param = new GroupMsgHttpBuilder()
                     .setGroupId(projectProperty.getVipGroupId())
@@ -227,25 +237,25 @@ public class StockNoticeSendService {
             ResponseEntity<String> response = bot.sendRequest(param, String.class);
             if (response == null) {
                 log.warn("股票通知发送-Bot返回null响应, 发送失败");
-                return false;
+                return SendResult.failure(BOT_SEND_FAILURE_MESSAGE);
             }
             if (!response.getStatusCode().is2xxSuccessful()) {
                 log.warn("股票通知发送-HTTP状态非2xx, 发送失败, statusCode={}", response.getStatusCode());
-                return false;
+                return SendResult.failure("HTTP状态非2xx: " + response.getStatusCode());
             }
             String body = response.getBody();
             if (body == null) {
                 log.warn("股票通知发送-响应body为空, 无法确认发送成功");
-                return false;
+                return SendResult.failure("响应body为空");
             }
             if (!isNapCatSuccess(body)) {
                 log.warn("股票通知发送-NapCat业务结果非成功, body={}", body);
-                return false;
+                return SendResult.failure("NapCat业务结果非成功");
             }
-            return true;
+            return SendResult.successful();
         } catch (Exception e) {
             log.error("股票通知发送-单条消息发送异常", e);
-            return false;
+            return SendResult.failure("发送异常: " + e.getClass().getSimpleName());
         }
     }
 
@@ -352,21 +362,33 @@ public class StockNoticeSendService {
     }
 
     /**
-     * 将一批通知标记为发送失败(FAILED)并记录错误信息
+     * 将一批通知标记为发送失败(FAILED)并记录实际错误信息
      * <p>
-     * 超长错误信息会被截断到 {@link #MAX_ERROR_MESSAGE_LENGTH} 以避免库字段溢出。
      * 单条更新异常不影响其他通知,异常被捕获并记录日志。
      *
-     * @param noticeIds 本批次组合消息对应的通知ID列表
+     * @param noticeIds     本批次组合消息对应的通知ID列表
+     * @param failureReason 实际发送失败原因
      */
-    private void markNoticesFailed(List<Long> noticeIds) {
+    private void markNoticesFailed(List<Long> noticeIds, String failureReason) {
         if (noticeIds == null || noticeIds.isEmpty()) {
             return;
         }
         try {
-            noticeAuditDao.markSendFailedByIds(noticeIds, StockNoticeSendService.BOT_SEND_FAILURE_MESSAGE);
+            noticeAuditDao.markSendFailedByIds(noticeIds,
+                    failureReason == null || failureReason.isBlank()
+                            ? BOT_SEND_FAILURE_MESSAGE : failureReason);
         } catch (Exception e) {
             log.error("股票通知发送-批量标记FAILED状态异常, noticeCount={}", noticeIds.size(), e);
+        }
+    }
+
+    private record SendResult(boolean success, String failureReason) {
+        private static SendResult successful() {
+            return new SendResult(true, null);
+        }
+
+        private static SendResult failure(String reason) {
+            return new SendResult(false, reason);
         }
     }
 }

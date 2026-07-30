@@ -97,8 +97,8 @@ class StockMonthlyStateInitServiceTest {
                         "TCS", StockPersonalityEnum.STEADY,
                         "MSG", StockPersonalityEnum.STRONG
                 ));
-        // bar数量为0 -> 成熟度M0_UNMATURE
-        mockBar15mCount(0L);
+        // 无证据bar -> 成熟度M0_UNMATURE
+        when(bar15mDao.selectEvidenceRanges(any(), any())).thenReturn(List.of());
 
         int result = monthlyStateInitService.initCurrentMonth();
 
@@ -148,7 +148,7 @@ class StockMonthlyStateInitServiceTest {
         // 风格配置为空Map(fail-closed)
         when(sysSettingManager.getStockPersonalities())
                 .thenReturn(Map.of());
-        mockBar15mCount(0L);
+        when(bar15mDao.selectEvidenceRanges(any(), any())).thenReturn(List.of());
 
         int result = monthlyStateInitService.initCurrentMonth();
 
@@ -179,6 +179,8 @@ class StockMonthlyStateInitServiceTest {
         // 2条DRAFT记录待确认
         TornStockMonthlyStateDO draft1 = buildDraftState(1, "TCS", effectiveMonth);
         TornStockMonthlyStateDO draft2 = buildDraftState(2, "MSG", effectiveMonth);
+        completeDraftState(draft1);
+        completeDraftState(draft2);
         List<TornStockMonthlyStateDO> drafts = List.of(draft1, draft2);
 
         // mock lambdaQuery链式调用
@@ -222,21 +224,26 @@ class StockMonthlyStateInitServiceTest {
         verify(monthlyStateDao, never()).updateBatchById(any());
     }
 
+    @Test
+    @DisplayName("确认草稿状态_不完整记录保留草稿且不更新数据库")
+    void confirmDraftStates_incompleteDraft_keepsDraftWithoutUpdate() {
+        LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", effectiveMonth);
+        LambdaQueryChainWrapper<TornStockMonthlyStateDO> query = mockLambdaQuery();
+        when(monthlyStateDao.lambdaQuery()).thenReturn(query);
+        when(query.eq(any(), eq(effectiveMonth))).thenReturn(query);
+        when(query.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(query);
+        when(query.list()).thenReturn(List.of(draft));
+
+        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth);
+
+        assertEquals(0, result);
+        assertEquals(StockMonthlyStateStatusEnum.DRAFT.getCode(), draft.getStateStatus());
+        verify(monthlyStateDao, never()).updateBatchById(any());
+    }
+
     // ==================== Helper方法 ====================
 
-    /**
-     * mock bar15mDao.lambdaQuery().count() 链,返回指定bar数量
-     *
-     * @param barCount bar数量
-     */
-    @SuppressWarnings("unchecked")
-    private void mockBar15mCount(long barCount) {
-        LambdaQueryChainWrapper<TornStockMarketBar15mDO> query = org.mockito.Mockito.mock(
-                LambdaQueryChainWrapper.class);
-        when(bar15mDao.lambdaQuery()).thenReturn(query);
-        when(query.eq(any(), any())).thenReturn(query);
-        when(query.count()).thenReturn(barCount);
-    }
 
     /**
      * 创建一个LambdaQueryChainWrapper的mock实例
@@ -310,5 +317,11 @@ class StockMonthlyStateInitServiceTest {
         state.setStateStatus(StockMonthlyStateStatusEnum.DRAFT.getCode());
         state.setCalculatedAt(java.time.LocalDateTime.now());
         return state;
+    }
+
+    private void completeDraftState(TornStockMonthlyStateDO state) {
+        state.setSuggestedPersonality(state.getStrategyFitPrior());
+        state.setEvidenceStartTime(java.time.LocalDateTime.of(2025, 1, 1, 0, 0));
+        state.setEvidenceEndTime(java.time.LocalDateTime.of(2026, 1, 1, 0, 0));
     }
 }

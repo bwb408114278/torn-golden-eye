@@ -57,4 +57,16 @@
             OR (exit_time <![CDATA[>=]]> #{startTime} AND exit_time <![CDATA[<]]> #{endTime}))
         ORDER BY id ASC
     </select>
+    <!-- 按信号事件ID批量查询拒绝观察批次 -->
+    <select id="selectRejectedObservationBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'REJECTED_OBSERVATION'
+          AND batch_status = 'CANCELLED'
+          AND deleted = 0
+          AND signal_event_id IN
+        <foreach collection="signalEventIds" item="signalEventId" open="(" separator="," close=")">
+            #{signalEventId}
+        </foreach>
+        ORDER BY signal_event_id ASC, id ASC
+    </select>
 </mapper>

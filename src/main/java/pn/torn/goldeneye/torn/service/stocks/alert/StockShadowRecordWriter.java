@@ -161,6 +161,21 @@ public class StockShadowRecordWriter {
     }
 
     /**
+     * 回写拒绝观察结果,不改变正式槽位、冷却和通知。
+     *
+     * @param event      拒绝观察事件
+     * @param laterMfe   最大有利偏移
+     * @param laterMae   最大不利偏移
+     * @param resolvedAt 结算时间
+     */
+    public void resolveRejectedObservation(TornStockSignalEventDO event,
+                                           BigDecimal laterMfe,
+                                           BigDecimal laterMae,
+                                           LocalDateTime resolvedAt) {
+        shadowService.resolveRejectedObservation(event, laterMfe, laterMae, resolvedAt);
+    }
+
+    /**
      * 回写正式批次ID到已保存的信号事件。
      *
      * @param event 已保存的信号事件
@@ -500,8 +515,8 @@ public class StockShadowRecordWriter {
     /**
      * 生成通知载荷哈希(SHA-256:基于payload快照JSON内容计算)。
      * <p>
-     * hash基于确定性序列化后的业务载荷(payloadSnapshot JSON),
-     * 而非batchId_noticeType拼接,确保审计快照、实际发送文本和hash三者一致。
+     * 载荷快照记录的是通知创建时的业务字段和当时的消息文本;
+     * 实际发送文本由发送服务在发送前冻结到payloadSnapshot.messageText,两者在发送成功前保持可审计。
      *
      * @param payloadSnapshot 载荷快照JSON文本
      * @return 载荷哈希(64位十六进制字符串)

@@ -26,7 +26,7 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
      * @return 该时间点指定版本的全部股票bar列表
      */
     public List<TornStockMarketBar15mDO> selectByBarStartTime(LocalDateTime barStartTime,
-                                                               String buildVersion) {
+                                                              String buildVersion) {
         return baseMapper.selectByBarStartTime(barStartTime, buildVersion);
     }
 
@@ -42,6 +42,31 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
                                                            LocalDateTime endTime,
                                                            String buildVersion) {
         return baseMapper.selectByTimeRange(startTime, endTime, buildVersion);
+    }
+
+    /**
+     * 批量查询指定截止时间前每支股票的证据首尾bar时间。
+     *
+     * @param endTime      证据截止时间(不含)
+     * @param buildVersion bar构建版本
+     * @return 每支股票一条证据首尾时间记录
+     */
+    public List<TornStockMarketBar15mDO> selectEvidenceRanges(LocalDateTime endTime, String buildVersion) {
+        return baseMapper.selectEvidenceRanges(endTime, buildVersion);
+    }
+
+    /**
+     * 按股票集合和时间范围批量查询bar。
+     *
+     * @param stocksIds    股票ID列表
+     * @param startTime    起始时间(含)
+     * @param endTime      结束时间(含)
+     * @param buildVersion 构建版本
+     * @return bar列表
+     */
+    public List<TornStockMarketBar15mDO> selectByStocksAndTimeRange(
+            List<Integer> stocksIds, LocalDateTime startTime, LocalDateTime endTime, String buildVersion) {
+        return baseMapper.selectByStocksAndTimeRange(stocksIds, startTime, endTime, buildVersion);
     }
 
     /**

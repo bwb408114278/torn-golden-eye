@@ -4,11 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.*;
 import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.repository.model.BaseDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockRoundTransactionService;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -235,63 +231,4 @@ public class TornStockVirtualBatchDO extends BaseDO {
      */
     private String cancelReason;
 
-    /**
-     * 入场超时宽限分钟数
-     */
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private static final int ENTRY_STALE_GRACE_MINUTES = 35;
-
-    /**
-     * 应用信号阶段字段转换对象。
-     *
-     * @param fields 信号字段
-     */
-    public void applySignalFields(TornStockVirtualBatchSignalFields fields) {
-        this.signalReferencePrice = fields.getSignalReferencePrice();
-        this.signalTime = fields.getSignalTime();
-        this.expectedEntryBarTime = fields.getSignalTime() == null
-                ? null : fields.getSignalTime().plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
-        this.entryStaleAt = fields.getSignalTime() == null
-                ? null : fields.getSignalTime().plusMinutes(ENTRY_STALE_GRACE_MINUTES);
-        this.stylePrior = fields.getStylePrior();
-        this.styleMaturity = fields.getStyleMaturity();
-        this.riskLevel = fields.getRiskLevel();
-        this.styleEffectiveMonth = fields.getStyleEffectiveMonth();
-        this.buyRuleVersion = fields.getBuyRuleVersion();
-        this.sellRuleVersion = StockRoundTransactionService.SELL_RULE_VERSION;
-        this.styleRuleVersion = StockRoundTransactionService.STYLE_RULE_VERSION;
-        this.riskRuleVersion = StockRoundTransactionService.RISK_RULE_VERSION;
-        this.allocationRuleVersion = StockRoundTransactionService.ALLOCATION_RULE_VERSION;
-        this.messageRuleVersion = StockRoundTransactionService.MESSAGE_RULE_VERSION;
-        this.resetObserved = false;
-    }
-
-    /**
-     * 应用成交入场字段转换对象。
-     *
-     * @param fields 成交入场字段
-     */
-    public void applyFilledEntryFields(TornStockVirtualBatchEntryFields fields) {
-        this.batchStatus = StockBatchStatusEnum.OPEN.getCode();
-        this.entryReferencePrice = fields.getEntryReferencePrice();
-        this.entryTime = fields.getEntryTime();
-        this.quantity = fields.getQuantity();
-        this.investedCash = fields.getInvestedCash();
-        this.remainingCash = fields.getRemainingCash();
-        this.peakPrice = fields.getEntryReferencePrice();
-        this.troughPrice = fields.getEntryReferencePrice();
-        this.currentNetReturn = BigDecimal.ZERO;
-        this.mfe = BigDecimal.ZERO;
-        this.mae = BigDecimal.ZERO;
-        this.peakDrawdown = BigDecimal.ZERO;
-        this.followUntil = fields.getEntryTime() == null
-                ? null : fields.getEntryTime().plusMinutes(StockNoticeComposeService.FOLLOW_MINUTES);
-        this.followMaxPrice = fields.getEntryReferencePrice() == null
-                ? null : fields.getEntryReferencePrice().multiply(StockNoticeComposeService.FOLLOW_PRICE_MULTIPLIER);
-        this.buyRuleVersion = StockRoundTransactionService.BUY_RULE_VERSION;
-        this.sellRuleVersion = StockRoundTransactionService.SELL_RULE_VERSION;
-        this.allocationRuleVersion = StockRoundTransactionService.ALLOCATION_RULE_VERSION;
-        this.messageRuleVersion = StockRoundTransactionService.MESSAGE_RULE_VERSION;
-    }
 }

@@ -66,4 +66,13 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
      */
     List<TornStockVirtualBatchDO> selectShadowActionBatches(@Param("startTime") LocalDateTime startTime,
                                                             @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 按信号事件ID批量查询拒绝观察批次。
+     *
+     * @param signalEventIds 信号事件ID列表
+     * @return 拒绝观察批次
+     */
+    List<TornStockVirtualBatchDO> selectRejectedObservationBatches(
+            @Param("signalEventIds") List<Long> signalEventIds);
 }

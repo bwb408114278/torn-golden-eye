@@ -18,33 +18,30 @@ import java.util.List;
 @Mapper
 public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketBar15mDO> {
 
-    /**
-     * 按bar开始时间和构建版本批量查询全部股票bar
-     *
-     * @param barStartTime bar开始时间
-     * @param buildVersion bar构建版本
-     * @return 该时间点指定版本的全部股票bar列表
-     */
     List<TornStockMarketBar15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime,
                                                         @Param("buildVersion") String buildVersion);
 
-    /**
-     * 按时间范围批量查询全部股票bar,避免逐桶查询产生N+1问题
-     *
-     * @param startTime    起始时间(含)
-     * @param endTime      结束时间(含)
-     * @param buildVersion bar构建版本
-     * @return 按股票ID和bar时间升序排列的bar列表
-     */
     List<TornStockMarketBar15mDO> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
                                                     @Param("endTime") LocalDateTime endTime,
                                                     @Param("buildVersion") String buildVersion);
 
+    List<TornStockMarketBar15mDO> selectEvidenceRanges(@Param("endTime") LocalDateTime endTime,
+                                                       @Param("buildVersion") String buildVersion);
+
     /**
-     * 按唯一键(stocks_id, bar_start_time, build_version)执行UPSERT
+     * 按股票集合和时间范围批量查询bar。
      *
-     * @param bar 待插入或更新的bar
-     * @return 影响行数
+     * @param stocksIds 股票ID列表
+     * @param startTime 起始时间(含)
+     * @param endTime 结束时间(含)
+     * @param buildVersion 构建版本
+     * @return bar列表
      */
+    List<TornStockMarketBar15mDO> selectByStocksAndTimeRange(
+            @Param("stocksIds") List<Integer> stocksIds,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("buildVersion") String buildVersion);
+
     int upsertBar(@Param("bar") TornStockMarketBar15mDO bar);
 }

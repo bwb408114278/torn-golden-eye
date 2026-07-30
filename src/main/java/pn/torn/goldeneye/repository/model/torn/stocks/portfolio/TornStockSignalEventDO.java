@@ -129,4 +129,12 @@ public class TornStockSignalEventDO extends BaseDO {
      * 事件结算时间(MFE/MAE观察窗口结束或批次平仓的时刻)
      */
     private LocalDateTime resolvedAt;
+    /**
+     * 拒绝观察理论结果编码
+     */
+    private String observationResult;
+    /**
+     * 观察窗口是否存在数据缺口
+     */
+    private Boolean observationDataIncomplete;
 }

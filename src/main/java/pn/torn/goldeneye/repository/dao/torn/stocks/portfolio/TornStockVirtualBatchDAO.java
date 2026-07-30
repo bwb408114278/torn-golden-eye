@@ -54,12 +54,11 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
         return baseMapper.selectActiveShadowBatchesForUpdate();
     }
 
-
     /**
      * 查询正式账本指定时间范围内有入场或出场动作的批次。
      *
      * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
+     * @param endTime 时间范围终点(不含)
      * @return 正式批次
      */
     public List<TornStockVirtualBatchDO> selectFormalActionBatches(
@@ -71,11 +70,21 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
      * 查询影子账本指定时间范围内有信号或出场动作的批次。
      *
      * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
+     * @param endTime 时间范围终点(不含)
      * @return 影子批次
      */
     public List<TornStockVirtualBatchDO> selectShadowActionBatches(
             LocalDateTime startTime, LocalDateTime endTime) {
         return baseMapper.selectShadowActionBatches(startTime, endTime);
+    }
+
+    /**
+     * 按信号事件ID批量查询拒绝观察批次。
+     *
+     * @param signalEventIds 信号事件ID列表
+     * @return 拒绝观察批次
+     */
+    public List<TornStockVirtualBatchDO> selectRejectedObservationBatches(List<Long> signalEventIds) {
+        return baseMapper.selectRejectedObservationBatches(signalEventIds);
     }
 }

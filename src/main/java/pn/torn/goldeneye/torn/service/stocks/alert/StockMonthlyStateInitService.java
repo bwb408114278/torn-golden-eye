@@ -28,17 +28,14 @@ import java.util.stream.Collectors;
  * <p>
  * 每月初(或阶段B冷启动)调用 {@link #initCurrentMonth()} 为全部股票构建当月
  * {@link TornStockMonthlyStateDO} 草稿,基于 {@link SysSettingManager#getStockPersonalities()}
- * 映射风格、按15分钟bar数量判定成熟度、风险等级默认NONE,完成人工或流程确认后由
- * {@link #confirmDraftStates(LocalDate)} 批量转CONFIRMED。
+ * 映射风格、按证据自然日跨度判定成熟度、风险等级默认NONE,完成人工或流程确认后由
+ * {@link #confirmDraftStates(LocalDate, String)} 批量转CONFIRMED。
  *
  * <h3>核心规则</h3>
  * <ul>
  *   <li>风格来源: sys_setting.STOCK_PERSONALITY 配置, StockPersonalityEnum编码与
  *       {@link StockStrategyFitEnum} 一致,直接valueOf映射;配置缺失时stylePrior=null(fail-closed,禁止默认STEADY)</li>
- *   <li>成熟度: 按15分钟bar数量分级,>= {@value #MATURE_BAR_THRESHOLD} (30天)为M4_MATURE,
- *       >= {@value #SEASONED_BAR_THRESHOLD} (7天)为M3_SEASONED,
- *       >= {@value #PROVISIONAL_BAR_THRESHOLD} (1天)为M2_PROVISIONAL,
- *       >0为M1_EARLY,无bar为M0_UNMATURE</li>
+ *   <li>成熟度: 按证据首尾时间的自然日跨度分级,不使用bar数量换算</li>
  *   <li>风险等级: 初始化阶段统一 {@link StockRiskLevelEnum#NONE}。
  *       完整风险计算需要全窗口日级对数趋势、连续负月比例和最大回撤等多维度指标,
  *       当前阶段仅有15分钟bar数据,不足以支持完整风险分级。
@@ -68,21 +65,21 @@ public class StockMonthlyStateInitService {
      */
     private static final String CONFIRMED_BY_SYSTEM = "SYSTEM";
     /**
-     * 成熟度阈值: 30天bar数(30天 * 24小时 * 4桶/小时)
+     * 成熟度最高等级的自然日边界
      */
-    static final int MATURE_BAR_THRESHOLD = 2880;
+    static final int MATURE_DAYS = 365;
     /**
-     * 成熟度阈值: 7天bar数(7天 * 24小时 * 4桶/小时)
+     * 成熟度较成熟等级的自然日边界
      */
-    static final int SEASONED_BAR_THRESHOLD = 672;
+    static final int SEASONED_DAYS = 240;
     /**
-     * 成熟度阈值: 1天bar数(24小时 * 4桶/小时)
+     * 成熟度暂定等级的自然日边界
      */
-    static final int PROVISIONAL_BAR_THRESHOLD = 96;
+    static final int PROVISIONAL_DAYS = 120;
     /**
-     * 无bar计数
+     * 成熟度早期等级的自然日边界
      */
-    private static final int ZERO_BAR = 0;
+    static final int EARLY_DAYS = 60;
 
     private final TornStocksDAO tornStocksDao;
     private final TornStockMonthlyStateDAO monthlyStateDao;
@@ -100,7 +97,7 @@ public class StockMonthlyStateInitService {
      *   <li>查询当月已CONFIRMED状态的月度状态,这些股票将跳过初始化(幂等保护)</li>
      *   <li>从sys_setting读取STOCK_PERSONALITY配置,构建股票简称 -> 风格映射</li>
      *   <li>对每支未确认的股票构建DRAFT状态月度记录: 风格来自配置(fail-closed)、
-     *       成熟度按bar数量分级、风险等级NONE、metricSnapshot存JSON快照</li>
+     *       成熟度按证据自然日跨度分级、风险等级NONE、metricSnapshot存JSON快照</li>
      *   <li>批量保存草稿记录</li>
      * </ol>
      * 风格缺失时stylePrior=null,后续资格判断会拒绝该股票正式买入,禁止默认STEADY。
@@ -124,9 +121,12 @@ public class StockMonthlyStateInitService {
 
         Map<String, StockStrategyFitEnum> styleMap = loadStyleMap();
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime evidenceEnd = effectiveMonth.atStartOfDay();
+        Map<Integer, TornStockMarketBar15mDO> evidenceRanges = loadEvidenceRanges(evidenceEnd);
         List<TornStockMonthlyStateDO> draftStates = allStocks.stream()
                 .filter(stock -> !confirmedStockIds.contains(stock.getId()))
-                .map(stock -> buildDraftState(stock, effectiveMonth, styleMap, now))
+                .map(stock -> buildDraftState(stock, effectiveMonth, styleMap,
+                        evidenceRanges.get(stock.getId()), now, evidenceEnd))
                 .toList();
 
         if (draftStates.isEmpty()) {
@@ -151,6 +151,34 @@ public class StockMonthlyStateInitService {
      * @return 本次确认的记录数量;无DRAFT记录时返回0
      */
     public int confirmDraftStates(LocalDate effectiveMonth) {
+        return autoConfirmDraftStates(effectiveMonth);
+    }
+
+    /**
+     * 人工确认指定月份的草稿状态。
+     *
+     * @param effectiveMonth 生效月份
+     * @param confirmedBy    实际确认人
+     * @return 本次确认的记录数量
+     */
+    public int confirmDraftStates(LocalDate effectiveMonth, String confirmedBy) {
+        if (confirmedBy == null || confirmedBy.isBlank()) {
+            throw new IllegalArgumentException("确认人不能为空");
+        }
+        return confirmDraftStatesInternal(effectiveMonth, confirmedBy);
+    }
+
+    /**
+     * 系统自动确认指定月份的草稿状态。
+     *
+     * @param effectiveMonth 生效月份
+     * @return 本次确认的记录数量
+     */
+    public int autoConfirmDraftStates(LocalDate effectiveMonth) {
+        return confirmDraftStatesInternal(effectiveMonth, CONFIRMED_BY_SYSTEM);
+    }
+
+    private int confirmDraftStatesInternal(LocalDate effectiveMonth, String confirmedBy) {
         List<TornStockMonthlyStateDO> draftStates = monthlyStateDao.lambdaQuery()
                 .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
                 .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
@@ -162,13 +190,41 @@ public class StockMonthlyStateInitService {
 
         LocalDateTime now = LocalDateTime.now();
         for (TornStockMonthlyStateDO state : draftStates) {
+            if (!isConfirmable(state)) {
+                log.warn("月度状态确认-记录不完整,保留DRAFT: stocksId={}, effectiveMonth={}",
+                        state.getStocksId(), effectiveMonth);
+                continue;
+            }
             state.setStateStatus(StockMonthlyStateStatusEnum.CONFIRMED.getCode());
             state.setConfirmedAt(now);
-            state.setConfirmedBy(CONFIRMED_BY_SYSTEM);
+            state.setConfirmedBy(confirmedBy);
         }
-        monthlyStateDao.updateBatchById(draftStates);
-        log.info("月度状态确认-完成, effectiveMonth={}, 确认DRAFT记录={}", effectiveMonth, draftStates.size());
-        return draftStates.size();
+        List<TornStockMonthlyStateDO> confirmableStates = draftStates.stream()
+                .filter(state -> StockMonthlyStateStatusEnum.CONFIRMED.getCode().equals(state.getStateStatus()))
+                .toList();
+        if (confirmableStates.isEmpty()) {
+            log.warn("月度状态确认-没有满足完整性要求的DRAFT, effectiveMonth={}", effectiveMonth);
+            return 0;
+        }
+        monthlyStateDao.updateBatchById(confirmableStates);
+        log.info("月度状态确认-完成, effectiveMonth={}, 确认DRAFT记录={}", effectiveMonth, confirmableStates.size());
+        return confirmableStates.size();
+    }
+
+    /**
+     * 校验月度状态是否满足CONFIRMED落库完整性要求。
+     *
+     * @param state 待确认状态
+     * @return 满足完整性要求返回true
+     */
+    private boolean isConfirmable(TornStockMonthlyStateDO state) {
+        return state.getStrategyFitPrior() != null && !state.getStrategyFitPrior().isBlank()
+                && state.getMaturity() != null && !state.getMaturity().isBlank()
+                && state.getRiskLevel() != null && !state.getRiskLevel().isBlank()
+                && state.getSuggestedPersonality() != null && !state.getSuggestedPersonality().isBlank()
+                && state.getEvidenceStartTime() != null
+                && state.getEvidenceEndTime() != null
+                && !state.getEvidenceStartTime().isAfter(state.getEvidenceEndTime());
     }
 
     // ==================== 私有方法: 风格映射 ====================
@@ -203,34 +259,37 @@ public class StockMonthlyStateInitService {
     // ==================== 私有方法: 成熟度判定 ====================
 
     /**
-     * 按股票的15分钟bar数量判定成熟度
+     * 按证据首尾时间的自然日跨度判定成熟度
      * <p>
      * 分级规则:
      * <ul>
-     *   <li>>= {@value #MATURE_BAR_THRESHOLD} (30天): {@link StockMaturityEnum#M4_MATURE}</li>
-     *   <li>>= {@value #SEASONED_BAR_THRESHOLD} (7天): {@link StockMaturityEnum#M3_SEASONED}</li>
-     *   <li>>= {@value #PROVISIONAL_BAR_THRESHOLD} (1天): {@link StockMaturityEnum#M2_PROVISIONAL}</li>
-     *   <li>>0: {@link StockMaturityEnum#M1_EARLY}</li>
-     *   <li>无bar: {@link StockMaturityEnum#M0_UNMATURE}</li>
+     *   <li>>= {@value #MATURE_DAYS}: {@link StockMaturityEnum#M4_MATURE}</li>
+     *   <li>>= {@value #SEASONED_DAYS}: {@link StockMaturityEnum#M3_SEASONED}</li>
+     *   <li>>= {@value #PROVISIONAL_DAYS}: {@link StockMaturityEnum#M2_PROVISIONAL}</li>
+     *   <li>>= {@value #EARLY_DAYS}: {@link StockMaturityEnum#M1_EARLY}</li>
+     *   <li>不足{@value #EARLY_DAYS}天或无bar: {@link StockMaturityEnum#M0_UNMATURE}</li>
      * </ul>
      *
-     * @param stocksId 股票ID
+     * @param evidenceRange 股票证据首尾bar时间
      * @return 成熟度枚举
      */
-    private StockMaturityEnum determineMaturity(Integer stocksId) {
-        long barCount = bar15mDao.lambdaQuery()
-                .eq(TornStockMarketBar15mDO::getStocksId, stocksId)
-                .count();
-        if (barCount >= MATURE_BAR_THRESHOLD) {
+    private StockMaturityEnum determineMaturity(TornStockMarketBar15mDO evidenceRange) {
+        if (evidenceRange == null || evidenceRange.getFirstSampleTime() == null
+                || evidenceRange.getLastSampleTime() == null) {
+            return StockMaturityEnum.M0_UNMATURE;
+        }
+        long evidenceDays = java.time.Duration.between(
+                evidenceRange.getFirstSampleTime(), evidenceRange.getLastSampleTime()).toDays();
+        if (evidenceDays >= MATURE_DAYS) {
             return StockMaturityEnum.M4_MATURE;
         }
-        if (barCount >= SEASONED_BAR_THRESHOLD) {
+        if (evidenceDays >= SEASONED_DAYS) {
             return StockMaturityEnum.M3_SEASONED;
         }
-        if (barCount >= PROVISIONAL_BAR_THRESHOLD) {
+        if (evidenceDays >= PROVISIONAL_DAYS) {
             return StockMaturityEnum.M2_PROVISIONAL;
         }
-        if (barCount > ZERO_BAR) {
+        if (evidenceDays >= EARLY_DAYS) {
             return StockMaturityEnum.M1_EARLY;
         }
         return StockMaturityEnum.M0_UNMATURE;
@@ -244,7 +303,7 @@ public class StockMonthlyStateInitService {
      * 字段填充规则:
      * <ul>
      *   <li>stylePrior: 从styleMap按股票简称大写查找,缺失时null(fail-closed)</li>
-     *   <li>maturity: 按15分钟bar数量分级</li>
+     *   <li>maturity: 按证据首尾时间的自然日跨度分级</li>
      *   <li>riskLevel: {@link StockRiskLevelEnum#NONE}</li>
      *   <li>metricSnapshot: JSON文本,记录分类时的stocksId/简称/风格来源/barCount/成熟度/初始化时间</li>
      *   <li>personalityRuleVersion/riskRuleVersion: 固定版本号</li>
@@ -261,12 +320,14 @@ public class StockMonthlyStateInitService {
     private TornStockMonthlyStateDO buildDraftState(TornStocksDO stock,
                                                     LocalDate effectiveMonth,
                                                     Map<String, StockStrategyFitEnum> styleMap,
-                                                    LocalDateTime now) {
+                                                    TornStockMarketBar15mDO evidenceRange,
+                                                    LocalDateTime now,
+                                                    LocalDateTime evidenceEnd) {
         Integer stocksId = stock.getId();
         String shortname = stock.getStocksShortname();
         String shortnameUpper = shortname == null ? "" : shortname.toUpperCase();
         StockStrategyFitEnum style = styleMap.get(shortnameUpper);
-        StockMaturityEnum maturity = determineMaturity(stocksId);
+        StockMaturityEnum maturity = determineMaturity(evidenceRange);
 
         TornStockMonthlyStateDO state = new TornStockMonthlyStateDO();
         state.setStocksId(stocksId);
@@ -275,15 +336,15 @@ public class StockMonthlyStateInitService {
         state.setStrategyFitPrior(style == null ? null : style.getCode());
         state.setMaturity(maturity.getCode());
         state.setRiskLevel(StockRiskLevelEnum.NONE.getCode());
-        state.setSuggestedPersonality(null);
+        state.setSuggestedPersonality(style == null ? null : style.getCode());
         state.setPreviousPersonality(null);
         state.setManualOverride(false);
         state.setOverrideReason(null);
         state.setMetricSnapshot(buildMetricSnapshot(stock, style, maturity, now));
         state.setPersonalityRuleVersion(PERSONALITY_RULE_VERSION);
         state.setRiskRuleVersion(RISK_RULE_VERSION);
-        state.setEvidenceStartTime(null);
-        state.setEvidenceEndTime(now);
+        state.setEvidenceStartTime(evidenceRange == null ? null : evidenceRange.getFirstSampleTime());
+        state.setEvidenceEndTime(evidenceRange == null ? null : min(evidenceRange.getLastSampleTime(), evidenceEnd));
         state.setStateStatus(StockMonthlyStateStatusEnum.DRAFT.getCode());
         state.setCalculatedAt(now);
         state.setConfirmedAt(null);
@@ -316,6 +377,41 @@ public class StockMonthlyStateInitService {
         snapshot.put("styleSource", style == null ? "MISSING_FAIL_CLOSED" : "STOCK_PERSONALITY_CONFIG");
         snapshot.put("snapshotTime", now.toString());
         return JsonUtils.objToJson(snapshot);
+    }
+
+    /**
+     * 批量加载每支股票的证据首尾bar时间。
+     *
+     * @param evidenceEnd 证据截止时间
+     * @return 股票ID到证据首尾bar的映射
+     */
+    private Map<Integer, TornStockMarketBar15mDO> loadEvidenceRanges(LocalDateTime evidenceEnd) {
+        List<TornStockMarketBar15mDO> ranges = bar15mDao.selectEvidenceRanges(
+                evidenceEnd, Stock15mBarBuildService.BUILD_VERSION);
+        if (CollectionUtils.isEmpty(ranges)) {
+            return Map.of();
+        }
+        return ranges.stream()
+                .filter(range -> range.getStocksId() != null)
+                .collect(Collectors.toMap(TornStockMarketBar15mDO::getStocksId,
+                        value -> value, (left, right) -> left, LinkedHashMap::new));
+    }
+
+    /**
+     * 返回两个时间中的较早值。
+     *
+     * @param left  左侧时间
+     * @param right 右侧时间
+     * @return 较早时间
+     */
+    private LocalDateTime min(LocalDateTime left, LocalDateTime right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.isBefore(right) ? left : right;
     }
 
     // ==================== 私有方法: 已确认股票加载 ====================

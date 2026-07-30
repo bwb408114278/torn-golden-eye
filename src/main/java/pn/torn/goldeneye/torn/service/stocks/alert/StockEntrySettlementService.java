@@ -220,7 +220,7 @@ public class StockEntrySettlementService {
         fields.setQuantity(quantity);
         fields.setInvestedCash(investedCash);
         fields.setRemainingCash(remainingCash);
-        batch.applyFilledEntryFields(fields);
+        StockVirtualBatchAssembler.applyFilledEntryFields(batch, fields);
 
         filledBatches.add(batch);
     }
@@ -249,7 +249,7 @@ public class StockEntrySettlementService {
         fields.setQuantity(1L);
         fields.setInvestedCash(entryReferencePrice);
         fields.setRemainingCash(BigDecimal.ZERO);
-        batch.applyFilledEntryFields(fields);
+        StockVirtualBatchAssembler.applyFilledEntryFields(batch, fields);
         filledBatches.add(batch);
     }
 

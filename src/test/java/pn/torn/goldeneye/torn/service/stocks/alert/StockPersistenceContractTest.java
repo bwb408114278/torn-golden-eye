@@ -68,6 +68,19 @@ class StockPersistenceContractTest {
     }
 
     @Test
+    @DisplayName("轮次事务_必须声明异常回滚并按事件批次通知顺序编排")
+    void roundTransaction_declaresRollbackAndPersistenceOrder() throws Exception {
+        String source = Files.readString(ROUND_SERVICE_PATH, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("@Transactional(rollbackFor = Exception.class)"),
+                "轮次事务必须对异常执行回滚");
+        assertTrue(source.indexOf("writeShadowRecords") < source.indexOf("writeNoticeAudits"),
+                "信号事件和批次写入必须先于通知审计");
+        assertTrue(source.indexOf("writeNoticeAudits") < source.indexOf("completeRound"),
+                "通知审计必须先于轮次完成");
+    }
+
+    @Test
     @DisplayName("槽位初始化_不得显式写入主键")
     void portfolioSlotInitialization_usesDatabaseGeneratedId() throws Exception {
         String source = Files.readString(PORTFOLIO_CHANGELOG_PATH, StandardCharsets.UTF_8);

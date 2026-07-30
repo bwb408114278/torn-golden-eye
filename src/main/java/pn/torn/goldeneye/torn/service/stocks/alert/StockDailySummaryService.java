@@ -252,7 +252,7 @@ public class StockDailySummaryService {
      * <p>
      * 开放仓位市值 = quantity × currentPrice × 0.999(扣除卖出手续费),
      * 其中currentPrice取最近已结束桶的bar.lastPrice。
-     * 批量查询最新bar避免N+1,无bar数据时该仓位市值按投入资金近似。
+     * 批量查询最新bar避免N+1,无bar或价格不可用时返回数据不足,不使用投入资金近似。
      *
      * @param slots         全部槽位
      * @param activeBatches 活跃正式批次
@@ -301,7 +301,7 @@ public class StockDailySummaryService {
      * 计算单个批次的当前市值。
      * <p>
      * marketValue = quantity × currentPrice × 0.999(扣除0.1%卖出手续费)。
-     * 无最新bar或价格非法时按投入资金(investedCash)近似。
+     * 无最新bar或价格非法时返回null,由上层按数据不足处理,不回退到投入资金近似。
      *
      * @param batch            活跃批次
      * @param latestBarByStock 按股票ID索引的最新bar映射

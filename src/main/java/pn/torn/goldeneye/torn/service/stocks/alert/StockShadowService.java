@@ -182,9 +182,29 @@ public class StockShadowService {
     }
 
     /**
+     * 回写拒绝观察的理论结果并标记事件已结算。
+     *
+     * @param event      已保存的拒绝观察事件
+     * @param laterMfe   后续观察窗口最大有利偏移
+     * @param laterMae   后续观察窗口最大不利偏移
+     * @param resolvedAt 观察结果结算时间
+     */
+    public void resolveRejectedObservation(TornStockSignalEventDO event,
+                                           BigDecimal laterMfe,
+                                           BigDecimal laterMae,
+                                           LocalDateTime resolvedAt) {
+        Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
+        Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
+        Objects.requireNonNull(resolvedAt, "观察结果结算时间不能为空");
+        event.setLaterMfe(laterMfe);
+        event.setLaterMae(laterMae);
+        event.setResolvedAt(resolvedAt);
+        signalEventDao.updateById(event);
+        log.info("拒绝观察结果回写-完成: eventNo={}, resolvedAt={}", event.getEventNo(), resolvedAt);
+    }
+
+    /**
      * 更新信号事件的正式批次ID和影子批次ID。
-     * <p>
-     * 在创建正式批次或影子批次后,将批次ID回写到信号事件,建立双向审计关联。
      *
      * @param event 待更新的信号事件(须已保存,含主键ID与batchId字段)
      */
@@ -289,7 +309,7 @@ public class StockShadowService {
         fields.setRiskLevel(event.getRiskLevel());
         fields.setStyleEffectiveMonth(event.getStyleEffectiveMonth());
         fields.setBuyRuleVersion(event.getBuyRuleVersion());
-        batch.applySignalFields(fields);
+        StockVirtualBatchAssembler.applySignalFields(batch, fields);
         // slotId/slotNo 保持 null: 影子与拒绝观察批次不占正式槽位
         return batch;
     }

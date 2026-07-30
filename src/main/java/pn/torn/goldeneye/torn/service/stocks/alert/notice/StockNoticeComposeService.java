@@ -123,7 +123,7 @@ public class StockNoticeComposeService {
      * @param batch         买入批次(须含batchNo、stocksShortname、primaryStrategy、
      *                      entryReferencePrice、stylePrior、styleMaturity、riskLevel、
      *                      followUntil、followMaxPrice、slotNo)
-     * @param occupiedSlots 当前已占用槽位数(未使用,槽位展示从批次slotNo读取)
+     * @param occupiedSlots 当前已占用槽位数,仅在批次slotNo缺失时作为兼容性回退
      * @return 中文买入消息文本
      */
     public String composeBuyMessage(TornStockVirtualBatchDO batch, int occupiedSlots) {

@@ -129,8 +129,7 @@ public class StockBuySignalEvaluator {
      *   <li>本轮 bar 缺失或不可用</li>
      *   <li>风格缺失导致 {@link BuyContext} 构建失败</li>
      * </ul>
-     * 边沿触发且资格 ALLOWED 时,将 {@link SignalEvaluation.Builder#acceptedFormal(boolean)}
-     * 置为 true 并填充 {@link SignalEvaluation.Builder#eligibilityResult(EligibilityResult)}。
+     * 该字段表示“本轮评估后具备正式候选资格”的事实,不代表已经分配正式槽位或已创建正式批次。
      *
      * @param feature              该股票的策略特征
      * @param barByStock           按股票ID索引的bar映射
@@ -568,7 +567,7 @@ public class StockBuySignalEvaluator {
         fields.setRiskLevel(monthlyState != null ? monthlyState.getRiskLevel() : null);
         fields.setStyleEffectiveMonth(monthlyState != null ? monthlyState.getEffectiveMonth() : null);
         fields.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-        batch.applySignalFields(fields);
+        StockVirtualBatchAssembler.applySignalFields(batch, fields);
         return batch;
     }
 

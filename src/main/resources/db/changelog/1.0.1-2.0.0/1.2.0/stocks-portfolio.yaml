@@ -1,4 +1,20 @@
 databaseChangeLog:
+  - changeSet:
+      id: create_sequence_stock_market_bar_15m
+      author: Bai
+      changes:
+        - createSequence:
+            sequenceName: torn_stock_market_bar_15m_id_seq
+            startValue: 1
+            incrementBy: 1
+  - changeSet:
+      id: create_sequence_stock_strategy_feature_15m
+      author: Bai
+      changes:
+        - createSequence:
+            sequenceName: torn_stock_strategy_feature_15m_id_seq
+            startValue: 1
+            incrementBy: 1
   # ========== 表1: torn_stock_market_bar_15m ==========
   - changeSet:
       id: create_table_stock_portfolio_market_bar_15m
@@ -11,7 +27,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
-                  autoIncrement: true
+                  defaultValueComputed: "nextval('torn_stock_market_bar_15m_id_seq'::regclass)"
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -160,7 +176,7 @@ databaseChangeLog:
               - column:
                   name: id
                   type: BIGINT
-                  autoIncrement: true
+                  defaultValueComputed: "nextval('torn_stock_strategy_feature_15m_id_seq'::regclass)"
                   constraints:
                     primaryKey: true
                     nullable: false
@@ -832,6 +848,17 @@ databaseChangeLog:
                   name: resolved_at
                   type: TIMESTAMP
                   remarks: "研究结果解析完成时间"
+              - column:
+                  name: observation_result
+                  type: VARCHAR(64)
+                  remarks: "拒绝观察理论结果编码"
+              - column:
+                  name: observation_data_incomplete
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+                  remarks: "观察窗口是否存在数据缺口"
               - column:
                   name: deleted
                   type: TINYINT

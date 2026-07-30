@@ -7,6 +7,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBuyStrategyEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
@@ -96,6 +97,7 @@ class StockSignalStateUpdaterTest {
         batch.setStocksId(STOCKS_ID);
         batch.setPrimaryStrategy(key.strategyType());
         batch.setBuyRuleVersion(BUY_RULE_VERSION);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         batch.setCooldownUntil(ROUND_TIME.plusHours(24));
         batch.setExitReason("CLOSED_TARGET");
 

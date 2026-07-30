@@ -78,6 +78,7 @@ public class VipStockAlertScheduler {
     private final StockPortfolioInitService portfolioInitService;
     private final StockMonthlyStateInitService monthlyStateInitService;
     private final StockNoticeSendService noticeSendService;
+    private final StockRejectedObservationService rejectedObservationService;
     private final StockMarketRoundLoader roundLoader;
     private final StockRoundTransactionService transactionService;
     private final StockMarketClock marketClock;
@@ -117,6 +118,7 @@ public class VipStockAlertScheduler {
         }
 
         try {
+            rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
             processPendingRounds();
             noticeSendService.sendPendingNotices();
         } finally {
@@ -205,6 +207,12 @@ public class VipStockAlertScheduler {
             historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
         } catch (Exception e) {
             log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
+        }
+
+        try {
+            rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
         }
 
         try {

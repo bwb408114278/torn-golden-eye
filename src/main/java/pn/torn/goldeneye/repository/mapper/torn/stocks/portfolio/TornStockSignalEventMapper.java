@@ -25,4 +25,29 @@ public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEv
      * @return 该轮次的全部信号事件列表
      */
     List<TornStockSignalEventDO> selectByRoundTime(@Param("roundTime") LocalDateTime roundTime);
+
+    /**
+     * 批量查询未结算拒绝观察事件。
+     *
+     * @param startTime 轮次起点(含)
+     * @param endTime 轮次终点(不含)
+     * @return 未结算拒绝观察事件
+     */
+    List<TornStockSignalEventDO> selectPendingRejectedObservationEvents(
+            @Param("startTime") LocalDateTime startTime, @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 批量查询全部未结算拒绝观察事件,用于停机补偿。
+     *
+     * @return 未结算拒绝观察事件
+     */
+    List<TornStockSignalEventDO> selectAllPendingRejectedObservationEvents();
+
+    /**
+     * 批量回写拒绝观察结果,只更新尚未结算的事件。
+     *
+     * @param events 拒绝观察结果列表
+     * @return 实际更新行数
+     */
+    int updateObservationResultsByIds(@Param("events") List<TornStockSignalEventDO> events);
 }
