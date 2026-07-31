@@ -114,6 +114,7 @@
                 #{stocksId}
             </foreach>
               AND b.bar_start_time <![CDATA[<=]]> #{cutoffTime}
+              AND b.bar_end_time <![CDATA[>=]]> #{minBarEndTime}
               AND b.build_version = #{buildVersion}
               AND b.usable = true
               AND b.last_price > 0

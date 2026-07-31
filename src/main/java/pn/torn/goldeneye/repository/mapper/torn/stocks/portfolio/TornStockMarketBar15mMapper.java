@@ -17,44 +17,71 @@ import java.util.List;
  */
 @Mapper
 public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketBar15mDO> {
-
+    /**
+     * 按bar开始时间与构建版本批量查询全部股票bar。
+     *
+     * @param barStartTime bar开始时间
+     * @param buildVersion bar构建版本
+     * @return 指定时间点和版本的股票bar列表
+     */
     List<TornStockMarketBar15mDO> selectByBarStartTime(@Param("barStartTime") LocalDateTime barStartTime,
-                                                        @Param("buildVersion") String buildVersion);
+                                                       @Param("buildVersion") String buildVersion);
 
+    /**
+     * 按时间范围与构建版本批量查询全部股票bar。
+     *
+     * @param startTime    起始时间(含)
+     * @param endTime      结束时间(含)
+     * @param buildVersion bar构建版本
+     * @return 按股票ID和bar时间升序排列的bar列表
+     */
     List<TornStockMarketBar15mDO> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
                                                     @Param("endTime") LocalDateTime endTime,
                                                     @Param("buildVersion") String buildVersion);
 
+    /**
+     * 批量查询指定截止时间前每支股票的证据首尾bar时间。
+     *
+     * @param endTime      证据截止时间(不含)
+     * @param buildVersion bar构建版本
+     * @return 每支股票一条证据首尾时间记录
+     */
     List<TornStockMarketBar15mDO> selectEvidenceRanges(@Param("endTime") LocalDateTime endTime,
                                                        @Param("buildVersion") String buildVersion);
 
     /**
      * 按股票集合和时间范围批量查询bar。
      *
-     * @param stocksIds 股票ID列表
-     * @param startTime 起始时间(含)
-     * @param endTime 结束时间(含)
+     * @param stocksIds    股票ID列表
+     * @param startTime    起始时间(含)
+     * @param endTime      结束时间(含)
      * @param buildVersion 构建版本
      * @return bar列表
      */
-    List<TornStockMarketBar15mDO> selectByStocksAndTimeRange(
-            @Param("stocksIds") List<Integer> stocksIds,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime,
-            @Param("buildVersion") String buildVersion);
+    List<TornStockMarketBar15mDO> selectByStocksAndTimeRange(@Param("stocksIds") List<Integer> stocksIds,
+                                                             @Param("startTime") LocalDateTime startTime,
+                                                             @Param("endTime") LocalDateTime endTime,
+                                                             @Param("buildVersion") String buildVersion);
 
     /**
      * 查询指定时点前每支股票最新可用bar。
      *
-     * @param stocksIds 股票ID列表
-     * @param cutoffTime 摘要时点对应的已结束bar时间
-     * @param buildVersion 构建版本
+     * @param stocksIds     股票ID列表
+     * @param cutoffTime    摘要允许参与估值的最新bar开始时间
+     * @param minBarEndTime 摘要允许参与估值的最早bar结束时间(含)
+     * @param buildVersion  构建版本
      * @return 每支股票至多一条最新可用bar
      */
-    List<TornStockMarketBar15mDO> selectLatestUsableByStocks(
-            @Param("stocksIds") List<Integer> stocksIds,
-            @Param("cutoffTime") LocalDateTime cutoffTime,
-            @Param("buildVersion") String buildVersion);
+    List<TornStockMarketBar15mDO> selectLatestUsableByStocks(@Param("stocksIds") List<Integer> stocksIds,
+                                                             @Param("cutoffTime") LocalDateTime cutoffTime,
+                                                             @Param("minBarEndTime") LocalDateTime minBarEndTime,
+                                                             @Param("buildVersion") String buildVersion);
 
+    /**
+     * 按逻辑唯一键插入或更新股票bar。
+     *
+     * @param bar 待插入或更新的bar
+     * @return 受影响行数
+     */
     int upsertBar(@Param("bar") TornStockMarketBar15mDO bar);
 }

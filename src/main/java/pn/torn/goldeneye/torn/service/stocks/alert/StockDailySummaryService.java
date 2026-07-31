@@ -81,6 +81,10 @@ public class StockDailySummaryService {
      */
     private static final String DYNAMIC_EXIT_KEYWORD = "DYNAMIC";
     /**
+     * 日报完整权益允许的最大行情滞后分钟数。
+     */
+    private static final long MAX_PRICE_AGE_MINUTES = 30L;
+    /**
      * 摘要标题模板
      */
     private static final String SUMMARY_TITLE_TEMPLATE = "【VIP股票组合日报｜%s】";
@@ -252,8 +256,9 @@ public class StockDailySummaryService {
      * 计算组合权益(现金+预留+开放仓位当前市值)
      * <p>
      * 开放仓位市值 = quantity × currentPrice × 0.999(扣除卖出手续费),
-     * 其中currentPrice取最近已结束桶的bar.lastPrice。
-     * 批量查询最新bar避免N+1,无bar或价格不可用时返回数据不足,不使用投入资金近似。
+     * 其中currentPrice取生成时点前30分钟内、最近完整桶的bar.lastPrice。
+     * 批量查询最新bar避免N+1;无bar、价格不可用或行情过期时返回数据不足，
+     * 不使用投入资金近似。
      *
      * @param slots         全部槽位
      * @param activeBatches 活跃正式批次
@@ -267,8 +272,10 @@ public class StockDailySummaryService {
             return new EquityResult(cashAndReserved, cashAndReserved, List.of(), null);
         }
 
-        Map<Integer, TornStockMarketBar15mDO> latestBarByStock = loadLatestBars(openPositionBatches);
-        List<String> missingPriceStocks = collectMissingPriceStocks(openPositionBatches, latestBarByStock);
+        LocalDateTime summaryGeneratedAt = marketClock.now();
+        Map<Integer, TornStockMarketBar15mDO> latestBarByStock = loadLatestBars(openPositionBatches, summaryGeneratedAt);
+        List<String> missingPriceStocks = collectMissingPriceStocks(
+                openPositionBatches, latestBarByStock, summaryGeneratedAt);
         if (!missingPriceStocks.isEmpty()) {
             return new EquityResult(null, cashAndReserved, missingPriceStocks, null);
         }
@@ -277,7 +284,7 @@ public class StockDailySummaryService {
             batchMarketValues.put(batch.getSlotId(), calculateBatchMarketValue(batch, latestBarByStock));
         }
         return new EquityResult(portfolioService.calculateEquity(slots, batchMarketValues), cashAndReserved,
-                List.of(), marketClock.currentEndedBucket());
+                List.of(), findEarliestPriceAsOf(latestBarByStock));
     }
 
     /**
@@ -304,12 +311,15 @@ public class StockDailySummaryService {
      *
      * @param openPositionBatches 开放正式仓位
      * @param latestBarByStock    每股最新可用bar
+     * @param summaryGeneratedAt  日报生成时点
      * @return 缺失行情股票简称
      */
     private List<String> collectMissingPriceStocks(List<TornStockVirtualBatchDO> openPositionBatches,
-                                                   Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
+                                                   Map<Integer, TornStockMarketBar15mDO> latestBarByStock,
+                                                   LocalDateTime summaryGeneratedAt) {
         return openPositionBatches.stream()
-                .filter(batch -> calculateBatchMarketValue(batch, latestBarByStock) == null)
+                .filter(batch -> calculateBatchMarketValue(batch, latestBarByStock) == null
+                        || !isFreshPrice(latestBarByStock.get(batch.getStocksId()), summaryGeneratedAt))
                 .sorted(Comparator.comparing(TornStockVirtualBatchDO::getStocksId))
                 .map(TornStockVirtualBatchDO::getStocksShortname)
                 .filter(Objects::nonNull)
@@ -318,11 +328,14 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 批量加载最新bar,按股票ID索引避免N+1查询。
+     * 批量加载最新且处于新鲜度窗口内的bar，按股票ID索引避免N+1查询。
      *
+     * @param openPositionBatches 开放正式仓位
+     * @param summaryGeneratedAt  日报生成时点
      * @return 按股票ID索引的最新bar映射
      */
-    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars(List<TornStockVirtualBatchDO> openPositionBatches) {
+    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars(List<TornStockVirtualBatchDO> openPositionBatches,
+                                                                 LocalDateTime summaryGeneratedAt) {
         List<Integer> stocksIds = openPositionBatches.stream()
                 .map(TornStockVirtualBatchDO::getStocksId)
                 .filter(Objects::nonNull)
@@ -331,9 +344,11 @@ public class StockDailySummaryService {
         if (stocksIds.isEmpty()) {
             return Map.of();
         }
-        LocalDateTime latestBucket = marketClock.currentEndedBucket();
+        LocalDateTime latestAllowedBarStart = marketClock.currentEndedBucket()
+                .minusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
+        LocalDateTime minBarEndTime = summaryGeneratedAt.minusMinutes(MAX_PRICE_AGE_MINUTES);
         List<TornStockMarketBar15mDO> bars = bar15mDAO.selectLatestUsableByStocks(
-                stocksIds, latestBucket, Stock15mBarBuildService.BUILD_VERSION);
+                stocksIds, latestAllowedBarStart, minBarEndTime, Stock15mBarBuildService.BUILD_VERSION);
         Map<Integer, TornStockMarketBar15mDO> barByStock = new HashMap<>();
         if (CollectionUtils.isEmpty(bars)) {
             return barByStock;
@@ -344,6 +359,35 @@ public class StockDailySummaryService {
             }
         }
         return barByStock;
+    }
+
+    /**
+     * 校验参与日报估值的行情是否处于允许的新鲜度窗口。
+     *
+     * @param bar                实际选中的行情bar
+     * @param summaryGeneratedAt 日报生成时点
+     * @return bar结束时点位于生成时点前30分钟内时返回true
+     */
+    private boolean isFreshPrice(TornStockMarketBar15mDO bar, LocalDateTime summaryGeneratedAt) {
+        if (bar == null || bar.getBarEndTime() == null) {
+            return false;
+        }
+        LocalDateTime minBarEndTime = summaryGeneratedAt.minusMinutes(MAX_PRICE_AGE_MINUTES);
+        return !bar.getBarEndTime().isBefore(minBarEndTime) && !bar.getBarEndTime().isAfter(summaryGeneratedAt);
+    }
+
+    /**
+     * 获取完整权益中所有实际估值行情的最早结束时点。
+     *
+     * @param latestBarByStock 每股实际参与估值的行情
+     * @return 最早行情结束时点
+     */
+    private LocalDateTime findEarliestPriceAsOf(Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
+        return latestBarByStock.values().stream()
+                .map(TornStockMarketBar15mDO::getBarEndTime)
+                .filter(Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
     }
 
     /**
@@ -603,7 +647,7 @@ public class StockDailySummaryService {
      * @param data 摘要数据
      * @return 中文摘要文本
      */
-    private String buildSummaryText(DailySummaryData data) {
+    String buildSummaryText(DailySummaryData data) {
         FormalSummary formal = data.formal();
         ShadowSummary shadow = data.shadow();
         String dateText = formal.summaryDate().format(SUMMARY_DATE_FORMATTER);
@@ -650,8 +694,8 @@ public class StockDailySummaryService {
         if (formal.equity() != null) {
             return "";
         }
-        return "- 缺失行情：" + String.join("、", formal.missingPriceStocks()) + "%n"
-                + "- 可用现金及预留资金：" + formal.cashAndReserved().toPlainString() + "%n";
+        return "- 缺失行情：" + String.join("、", formal.missingPriceStocks()) + System.lineSeparator()
+                + "- 可用现金及预留资金：" + formal.cashAndReserved().toPlainString() + System.lineSeparator();
     }
 
     /**
@@ -769,7 +813,7 @@ public class StockDailySummaryService {
      * @param equity             完整组合权益；任一开放仓位缺行情时为null
      * @param cashAndReserved    可用现金与待买预留资金，不代表完整权益
      * @param missingPriceStocks 缺失有效行情的股票简称，按股票ID升序
-     * @param priceAsOf          完整权益使用的最新行情时点；行情不足时为null
+     * @param priceAsOf          完整权益实际使用行情中的最早结束时点；行情不足时为null
      * @param yesterdayBuyCount  昨日买入批次数
      * @param yesterdaySellCount 昨日卖出批次数
      * @param yesterdayNetReturn 昨日已实现净收益合计
@@ -789,7 +833,7 @@ public class StockDailySummaryService {
      * @param equity             完整组合权益；缺行情时为null
      * @param cashAndReserved    可用现金与预留资金
      * @param missingPriceStocks 缺失有效行情的股票简称
-     * @param priceAsOf          完整权益使用的行情时点
+     * @param priceAsOf          完整权益实际使用行情中的最早结束时点
      */
     private record EquityResult(BigDecimal equity, BigDecimal cashAndReserved,
                                 List<String> missingPriceStocks, LocalDateTime priceAsOf) {

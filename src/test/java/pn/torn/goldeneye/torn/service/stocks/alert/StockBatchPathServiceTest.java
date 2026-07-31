@@ -81,6 +81,7 @@ class StockBatchPathServiceTest {
         assertEquals(1, marks.size());
         assertEquals(new BigDecimal("110.00"), batch.getPeakPrice());
         assertEquals(new BigDecimal("98.00"), batch.getTroughPrice());
+        assertEquals("{}", marks.getFirst().getFeatureSnapshot());
     }
 
     @Test

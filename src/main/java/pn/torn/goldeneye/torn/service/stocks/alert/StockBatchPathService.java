@@ -42,6 +42,10 @@ public class StockBatchPathService {
      */
     private static final String FORMAL_REASON_HOLDING = "持仓跟踪中";
     /**
+     * 空特征快照，标记路径追踪阶段没有额外卖出特征输入。
+     */
+    private static final String EMPTY_FEATURE_SNAPSHOT = "{}";
+    /**
      * BigDecimal运算精度
      */
     private static final int MATH_SCALE = 18;
@@ -137,7 +141,7 @@ public class StockBatchPathService {
                                                        Map<Long, TornStockPortfolioSlotDO> slotById,
                                                        LocalDateTime roundTime) {
         TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
-        boolean barUsable = currentBar != null && Stock15mBarBuildService.isUsable(currentBar);
+        boolean barUsable = Stock15mBarBuildService.isUsable(currentBar);
         String currentStatus = batch.getBatchStatus();
 
         // DATA_STALE状态机: bar可用时恢复, bar不可用时保持
@@ -197,7 +201,7 @@ public class StockBatchPathService {
                                          Map<Integer, TornStockStrategyFeature15mDO> featureByStock,
                                          LocalDateTime roundTime) {
         TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
-        if (currentBar == null || !Stock15mBarBuildService.isUsable(currentBar)) {
+        if (!Stock15mBarBuildService.isUsable(currentBar)) {
             return;
         }
 
@@ -272,6 +276,7 @@ public class StockBatchPathService {
         mark.setPeakDrawdown(metrics.peakDrawdown());
         mark.setFormalDecision(FORMAL_DECISION_HOLD);
         mark.setFormalReason(FORMAL_REASON_HOLDING);
+        mark.setFeatureSnapshot(EMPTY_FEATURE_SNAPSHOT);
         return mark;
     }
 
