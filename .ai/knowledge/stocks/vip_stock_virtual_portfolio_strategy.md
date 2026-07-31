@@ -775,9 +775,40 @@ JSON至少包含输入范围、数据版本、全部规则版本、轨道、资�
 
 未来若回放规模需要持久化，可另行设计研究专用Schema，但不得复用正式event/batch/slot/notice表。
 
-### 13.3 日报权益数据不足
+### 13.3 日报权益行情新鲜度
 
-正式组合权益必须是全量可计算值。只要任一开放正式仓位在摘要时点没有满足新鲜度要求的实际行情：
+日报行情最大允许滞后冻结为：
+
+```text
+MAX_DAILY_EQUITY_PRICE_AGE = 30分钟
+```
+
+对每个开放正式仓位，实际用于估值的bar必须满足：
+
+```text
+bar.usable = true
+AND bar.lastPrice > 0
+AND bar.buildVersion = 当前冻结版本
+AND bar.barEndTime <= summaryGeneratedAt
+AND summaryGeneratedAt - bar.barEndTime <= 30分钟
+```
+
+边界规则：
+
+```text
+价格年龄 = 30分钟 → 可用
+价格年龄 > 30分钟 → 行情数据不足
+```
+
+该阈值按bar结束时间而不是`barStartTime`、入库时间或任务处理时间计算。日报08:30执行时，正常情况下最新已稳定构建的bar可能是`[08:00,08:15)`，价格年龄15分钟；30分钟阈值还允许一个15分钟桶构建延迟或不可用，但不允许使用更早的长期陈旧行情。
+
+不同股票使用的最新bar时间可以不同；组合`priceAsOf`必须取所有实际参与估值bar的最早`barEndTime`：
+
+```text
+priceAsOf = min(usedBar.barEndTime)
+```
+
+正式组合权益必须是全量可计算值。只要任一开放正式仓位没有满足上述新鲜度要求的实际行情：
 
 ```text
 equityStatus = DATA_INSUFFICIENT

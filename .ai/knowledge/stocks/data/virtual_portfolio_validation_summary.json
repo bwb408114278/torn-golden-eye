@@ -313,6 +313,12 @@
     "equity": null,
     "cash_may_display_separately": true,
     "cost_fallback_allowed": false,
-    "partial_equity_allowed": false
+    "partial_equity_allowed": false,
+    "max_price_age_minutes": 30,
+    "age_basis": "summaryGeneratedAt - actual barEndTime",
+    "inclusive_boundary": true,
+    "price_as_of": "minimum barEndTime among all bars used for complete equity",
+    "normal_0830_expected_latest_bar_end": "08:15",
+    "one_missing_15m_bucket_tolerated": true
   }
 }
