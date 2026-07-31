@@ -70,6 +70,19 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
     }
 
     /**
+     * 查询指定时点前每支股票最新可用bar，供日报一次性计算开放仓位市值。
+     *
+     * @param stocksIds    股票ID列表
+     * @param cutoffTime   摘要时点对应的已结束bar时间
+     * @param buildVersion 构建版本
+     * @return 每支股票至多一条最新可用bar
+     */
+    public List<TornStockMarketBar15mDO> selectLatestUsableByStocks(
+            List<Integer> stocksIds, LocalDateTime cutoffTime, String buildVersion) {
+        return baseMapper.selectLatestUsableByStocks(stocksIds, cutoffTime, buildVersion);
+    }
+
+    /**
      * 按唯一键执行UPSERT,支持幂等重试
      *
      * @param bar 待插入或更新的bar

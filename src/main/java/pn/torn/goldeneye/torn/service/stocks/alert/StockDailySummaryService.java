@@ -182,7 +182,7 @@ public class StockDailySummaryService {
         List<TornStockVirtualBatchDO> activeBatches = virtualBatchDAO.selectActiveFormalBatches();
 
         int occupiedSlots = countOccupiedSlots(slots);
-        BigDecimal equity = calculateEquity(slots, activeBatches);
+        EquityResult equityResult = calculateEquity(slots, activeBatches);
 
         LocalDateTime dayStart = summaryDate.atStartOfDay();
         LocalDateTime dayEnd = summaryDate.plusDays(1).atStartOfDay();
@@ -195,7 +195,8 @@ public class StockDailySummaryService {
         List<String> openBatchStocks = extractOpenBatchStocks(activeBatches);
         int staleBatchCount = countStaleBatches(activeBatches);
 
-        return new FormalSummary(occupiedSlots, equity, yesterdayBuyCount, yesterdaySellCount,
+        return new FormalSummary(occupiedSlots, equityResult.equity(), equityResult.cashAndReserved(),
+                equityResult.missingPriceStocks(), equityResult.priceAsOf(), yesterdayBuyCount, yesterdaySellCount,
                 yesterdayNetReturn, openBatchStocks, staleBatchCount, summaryDate);
     }
 
@@ -258,23 +259,62 @@ public class StockDailySummaryService {
      * @param activeBatches 活跃正式批次
      * @return 组合权益总额
      */
-    private BigDecimal calculateEquity(List<TornStockPortfolioSlotDO> slots,
-                                       List<TornStockVirtualBatchDO> activeBatches) {
-        Map<Long, BigDecimal> batchMarketValues = new HashMap<>();
-        if (activeBatches != null && !activeBatches.isEmpty()) {
-            Map<Integer, TornStockMarketBar15mDO> latestBarByStock = loadLatestBars();
-            for (TornStockVirtualBatchDO batch : activeBatches) {
-                if (batch.getSlotId() == null || batch.getQuantity() == null) {
-                    continue;
-                }
-                BigDecimal marketValue = calculateBatchMarketValue(batch, latestBarByStock);
-                if (marketValue == null) {
-                    return null;
-                }
-                batchMarketValues.put(batch.getSlotId(), marketValue);
-            }
+    private EquityResult calculateEquity(List<TornStockPortfolioSlotDO> slots,
+                                         List<TornStockVirtualBatchDO> activeBatches) {
+        BigDecimal cashAndReserved = portfolioService.calculateCashAndReserved(slots);
+        List<TornStockVirtualBatchDO> openPositionBatches = extractOpenPositionBatches(activeBatches);
+        if (openPositionBatches.isEmpty()) {
+            return new EquityResult(cashAndReserved, cashAndReserved, List.of(), null);
         }
-        return portfolioService.calculateEquity(slots, batchMarketValues);
+
+        Map<Integer, TornStockMarketBar15mDO> latestBarByStock = loadLatestBars(openPositionBatches);
+        List<String> missingPriceStocks = collectMissingPriceStocks(openPositionBatches, latestBarByStock);
+        if (!missingPriceStocks.isEmpty()) {
+            return new EquityResult(null, cashAndReserved, missingPriceStocks, null);
+        }
+        Map<Long, BigDecimal> batchMarketValues = new HashMap<>();
+        for (TornStockVirtualBatchDO batch : openPositionBatches) {
+            batchMarketValues.put(batch.getSlotId(), calculateBatchMarketValue(batch, latestBarByStock));
+        }
+        return new EquityResult(portfolioService.calculateEquity(slots, batchMarketValues), cashAndReserved,
+                List.of(), marketClock.currentEndedBucket());
+    }
+
+    /**
+     * 提取需要当前行情估值的开放正式仓位。
+     *
+     * @param activeBatches 活跃正式批次
+     * @return 具备槽位和持仓数量的开放仓位
+     */
+    private List<TornStockVirtualBatchDO> extractOpenPositionBatches(List<TornStockVirtualBatchDO> activeBatches) {
+        if (CollectionUtils.isEmpty(activeBatches)) {
+            return List.of();
+        }
+        return activeBatches.stream()
+                .filter(batch -> batch.getSlotId() != null && batch.getQuantity() != null)
+                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())
+                        || StockBatchStatusEnum.DATA_STALE.getCode().equals(batch.getBatchStatus())
+                        || StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus())
+                        || StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus()))
+                .toList();
+    }
+
+    /**
+     * 收集缺失有效行情的股票简称，并按股票ID保证展示顺序确定。
+     *
+     * @param openPositionBatches 开放正式仓位
+     * @param latestBarByStock    每股最新可用bar
+     * @return 缺失行情股票简称
+     */
+    private List<String> collectMissingPriceStocks(List<TornStockVirtualBatchDO> openPositionBatches,
+                                                   Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
+        return openPositionBatches.stream()
+                .filter(batch -> calculateBatchMarketValue(batch, latestBarByStock) == null)
+                .sorted(Comparator.comparing(TornStockVirtualBatchDO::getStocksId))
+                .map(TornStockVirtualBatchDO::getStocksShortname)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     /**
@@ -282,9 +322,18 @@ public class StockDailySummaryService {
      *
      * @return 按股票ID索引的最新bar映射
      */
-    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars() {
+    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars(List<TornStockVirtualBatchDO> openPositionBatches) {
+        List<Integer> stocksIds = openPositionBatches.stream()
+                .map(TornStockVirtualBatchDO::getStocksId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (stocksIds.isEmpty()) {
+            return Map.of();
+        }
         LocalDateTime latestBucket = marketClock.currentEndedBucket();
-        List<TornStockMarketBar15mDO> bars = bar15mDAO.selectByBarStartTime(latestBucket, Stock15mBarBuildService.BUILD_VERSION);
+        List<TornStockMarketBar15mDO> bars = bar15mDAO.selectLatestUsableByStocks(
+                stocksIds, latestBucket, Stock15mBarBuildService.BUILD_VERSION);
         Map<Integer, TornStockMarketBar15mDO> barByStock = new HashMap<>();
         if (CollectionUtils.isEmpty(bars)) {
             return barByStock;
@@ -563,14 +612,15 @@ public class StockDailySummaryService {
 
         return String.format(
                 SUMMARY_TITLE_TEMPLATE + "%n%n正式组合%n- 当前占用槽位：%d / %d%n"
-                        + "- 当前组合权益：%s%n- 昨日买入：%d批%n- 昨日卖出：%d批%n"
+                        + "- 当前组合权益：%s%n%s- 昨日买入：%d批%n- 昨日卖出：%d批%n"
                         + "- 昨日已实现净收益：%s%n- 当前开放批次：%s%n- 数据陈旧批次：%d%n%n"
                         + "影子研究%n- 原始买入信号：%d个%n- 无限资金影子新批次：%d个%n"
                         + "- 满仓拒绝：%d个%n- 风格/趋势拒绝：%d个%n- 动态卖出影子建议：%d个%n"
                         + "- 高风险观察：%d个%n%n%s",
                 dateText,
                 formal.occupiedSlots(), StockPortfolioService.SLOT_COUNT,
-                formatEquity(formal.equity()),
+                formatEquity(formal),
+                formatDataInsufficientDetails(formal),
                 formal.yesterdayBuyCount(), formal.yesterdaySellCount(),
                 formal.yesterdayNetReturn().toPlainString(),
                 openStocks, formal.staleBatchCount(),
@@ -584,11 +634,24 @@ public class StockDailySummaryService {
     /**
      * 格式化日报权益，行情不足时明确展示数据不足。
      *
-     * @param equity 完整权益
      * @return 权益文本
      */
-    private String formatEquity(BigDecimal equity) {
-        return equity == null ? "行情数据不足，暂无法计算完整权益" : equity.toPlainString();
+    private String formatEquity(FormalSummary formal) {
+        return formal.equity() == null ? "暂无法计算（行情数据不足）" : formal.equity().toPlainString();
+    }
+
+    /**
+     * 构建行情不足时必须展示的缺失股票与现金明细。
+     *
+     * @param formal 正式组合摘要
+     * @return 行情完整时为空字符串，缺失时返回两行详情
+     */
+    private String formatDataInsufficientDetails(FormalSummary formal) {
+        if (formal.equity() != null) {
+            return "";
+        }
+        return "- 缺失行情：" + String.join("、", formal.missingPriceStocks()) + "%n"
+                + "- 可用现金及预留资金：" + formal.cashAndReserved().toPlainString() + "%n";
     }
 
     /**
@@ -703,7 +766,10 @@ public class StockDailySummaryService {
      * 正式组合摘要数据。
      *
      * @param occupiedSlots      占用槽位数(非AVAILABLE)
-     * @param equity             组合权益(现金+预留+开放仓位投入资金)
+     * @param equity             完整组合权益；任一开放仓位缺行情时为null
+     * @param cashAndReserved    可用现金与待买预留资金，不代表完整权益
+     * @param missingPriceStocks 缺失有效行情的股票简称，按股票ID升序
+     * @param priceAsOf          完整权益使用的最新行情时点；行情不足时为null
      * @param yesterdayBuyCount  昨日买入批次数
      * @param yesterdaySellCount 昨日卖出批次数
      * @param yesterdayNetReturn 昨日已实现净收益合计
@@ -711,10 +777,22 @@ public class StockDailySummaryService {
      * @param staleBatchCount    数据陈旧批次数
      * @param summaryDate        摘要日期
      */
-    public record FormalSummary(int occupiedSlots, BigDecimal equity, int yesterdayBuyCount,
-                                int yesterdaySellCount, BigDecimal yesterdayNetReturn,
-                                List<String> openBatchStocks, int staleBatchCount,
-                                LocalDate summaryDate) {
+    public record FormalSummary(int occupiedSlots, BigDecimal equity, BigDecimal cashAndReserved,
+                                List<String> missingPriceStocks, LocalDateTime priceAsOf,
+                                int yesterdayBuyCount, int yesterdaySellCount, BigDecimal yesterdayNetReturn,
+                                List<String> openBatchStocks, int staleBatchCount, LocalDate summaryDate) {
+    }
+
+    /**
+     * 正式组合权益计算结果。
+     *
+     * @param equity             完整组合权益；缺行情时为null
+     * @param cashAndReserved    可用现金与预留资金
+     * @param missingPriceStocks 缺失有效行情的股票简称
+     * @param priceAsOf          完整权益使用的行情时点
+     */
+    private record EquityResult(BigDecimal equity, BigDecimal cashAndReserved,
+                                List<String> missingPriceStocks, LocalDateTime priceAsOf) {
     }
 
     /**

@@ -60,10 +60,7 @@ public class StockMonthlyStateInitService {
      * 风险分级规则版本
      */
     private static final String RISK_RULE_VERSION = "1.0.0";
-    /**
-     * 系统确认人标识
-     */
-    private static final String CONFIRMED_BY_SYSTEM = "SYSTEM";
+
     /**
      * 成熟度最高等级的自然日边界
      */
@@ -140,19 +137,6 @@ public class StockMonthlyStateInitService {
         return draftStates.size();
     }
 
-    /**
-     * 将指定月份的全部DRAFT状态月度记录批量转为CONFIRMED
-     * <p>
-     * 用于 {@link #initCurrentMonth()} 完成后由人工或流程触发确认。将stateStatus从DRAFT
-     * 改为CONFIRMED,并填充confirmedAt为当前时间、confirmedBy为 {@value #CONFIRMED_BY_SYSTEM}。
-     * 已CONFIRMED或RETIRED的记录不受影响。
-     *
-     * @param effectiveMonth 待确认的生效月份(当月1日)
-     * @return 本次确认的记录数量;无DRAFT记录时返回0
-     */
-    public int confirmDraftStates(LocalDate effectiveMonth) {
-        return autoConfirmDraftStates(effectiveMonth);
-    }
 
     /**
      * 人工确认指定月份的草稿状态。
@@ -161,7 +145,6 @@ public class StockMonthlyStateInitService {
      * @param confirmedBy    实际确认人
      * @return 本次确认的记录数量
      *
-     * TODO 阶段管理端接入时使用，必须由人工操作入口传入真实确认人。
      */
     public int confirmDraftStates(LocalDate effectiveMonth, String confirmedBy) {
         if (confirmedBy == null || confirmedBy.isBlank()) {
@@ -170,15 +153,6 @@ public class StockMonthlyStateInitService {
         return confirmDraftStatesInternal(effectiveMonth, confirmedBy);
     }
 
-    /**
-     * 系统自动确认指定月份的草稿状态。
-     *
-     * @param effectiveMonth 生效月份
-     * @return 本次确认的记录数量
-     */
-    public int autoConfirmDraftStates(LocalDate effectiveMonth) {
-        return confirmDraftStatesInternal(effectiveMonth, CONFIRMED_BY_SYSTEM);
-    }
 
     private int confirmDraftStatesInternal(LocalDate effectiveMonth, String confirmedBy) {
         List<TornStockMonthlyStateDO> draftStates = monthlyStateDao.lambdaQuery()

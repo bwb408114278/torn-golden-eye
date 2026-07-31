@@ -43,5 +43,18 @@ public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketB
             @Param("endTime") LocalDateTime endTime,
             @Param("buildVersion") String buildVersion);
 
+    /**
+     * 查询指定时点前每支股票最新可用bar。
+     *
+     * @param stocksIds 股票ID列表
+     * @param cutoffTime 摘要时点对应的已结束bar时间
+     * @param buildVersion 构建版本
+     * @return 每支股票至多一条最新可用bar
+     */
+    List<TornStockMarketBar15mDO> selectLatestUsableByStocks(
+            @Param("stocksIds") List<Integer> stocksIds,
+            @Param("cutoffTime") LocalDateTime cutoffTime,
+            @Param("buildVersion") String buildVersion);
+
     int upsertBar(@Param("bar") TornStockMarketBar15mDO bar);
 }

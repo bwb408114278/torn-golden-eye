@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -16,7 +17,6 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlyStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 
@@ -57,6 +57,10 @@ class StockMonthlyStateInitServiceTest {
     private TornStockMarketBar15mDAO bar15mDao;
     @Mock
     private SysSettingManager sysSettingManager;
+    @Mock
+    private LambdaQueryChainWrapper<TornStockMonthlyStateDO> monthlyStateQuery;
+    @Captor
+    private ArgumentCaptor<List<TornStockMonthlyStateDO>> monthlyStatesCaptor;
 
     @InjectMocks
     private StockMonthlyStateInitService monthlyStateInitService;
@@ -104,10 +108,8 @@ class StockMonthlyStateInitServiceTest {
 
         assertEquals(2, result, "应为2支股票创建草稿");
         // 验证批量保存的草稿字段
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
-        verify(monthlyStateDao).saveBatch(captor.capture());
-        List<TornStockMonthlyStateDO> saved = captor.getValue();
+        verify(monthlyStateDao).saveBatch(monthlyStatesCaptor.capture());
+        List<TornStockMonthlyStateDO> saved = monthlyStatesCaptor.getValue();
         assertEquals(2, saved.size(), "应保存2条草稿记录");
 
         // 验证每条草稿字段填充正确
@@ -153,10 +155,8 @@ class StockMonthlyStateInitServiceTest {
         int result = monthlyStateInitService.initCurrentMonth();
 
         assertEquals(1, result, "应为1支股票创建草稿");
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
-        verify(monthlyStateDao).saveBatch(captor.capture());
-        List<TornStockMonthlyStateDO> saved = captor.getValue();
+        verify(monthlyStateDao).saveBatch(monthlyStatesCaptor.capture());
+        List<TornStockMonthlyStateDO> saved = monthlyStatesCaptor.getValue();
         assertEquals(1, saved.size(), "应保存1条草稿记录");
 
         TornStockMonthlyStateDO state = saved.getFirst();
@@ -184,27 +184,24 @@ class StockMonthlyStateInitServiceTest {
         List<TornStockMonthlyStateDO> drafts = List.of(draft1, draft2);
 
         // mock lambdaQuery链式调用
-        LambdaQueryChainWrapper<TornStockMonthlyStateDO> query = mockLambdaQuery();
-        when(monthlyStateDao.lambdaQuery()).thenReturn(query);
-        when(query.eq(any(), eq(effectiveMonth))).thenReturn(query);
-        when(query.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(query);
-        when(query.list()).thenReturn(drafts);
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(effectiveMonth))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(drafts);
 
-        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth);
+        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth, "Bai");
 
         assertEquals(2, result, "应确认2条记录");
         // 验证updateBatchById被调用
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
-        verify(monthlyStateDao).updateBatchById(captor.capture());
-        List<TornStockMonthlyStateDO> updated = captor.getValue();
+        verify(monthlyStateDao).updateBatchById(monthlyStatesCaptor.capture());
+        List<TornStockMonthlyStateDO> updated = monthlyStatesCaptor.getValue();
         assertEquals(2, updated.size(), "应更新2条记录");
         // 验证状态流转与确认字段填充
         for (TornStockMonthlyStateDO state : updated) {
             assertEquals(StockMonthlyStateStatusEnum.CONFIRMED.getCode(), state.getStateStatus(),
                     "状态应流转为CONFIRMED");
             assertNotNull(state.getConfirmedAt(), "confirmedAt不应为null");
-            assertEquals("SYSTEM", state.getConfirmedBy(), "确认人应为SYSTEM");
+            assertEquals("Bai", state.getConfirmedBy(), "确认人应为实际确认人");
         }
     }
 
@@ -212,13 +209,12 @@ class StockMonthlyStateInitServiceTest {
     @DisplayName("确认草稿状态_ 当月无DRAFT记录,返回0且不触发更新")
     void confirmDraftStates_noDraftRecords_returnZeroWithoutUpdate() {
         LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
-        LambdaQueryChainWrapper<TornStockMonthlyStateDO> query = mockLambdaQuery();
-        when(monthlyStateDao.lambdaQuery()).thenReturn(query);
-        when(query.eq(any(), eq(effectiveMonth))).thenReturn(query);
-        when(query.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(query);
-        when(query.list()).thenReturn(List.of());
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(effectiveMonth))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of());
 
-        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth);
+        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth, "Bai");
 
         assertEquals(0, result, "无DRAFT记录时应返回0");
         verify(monthlyStateDao, never()).updateBatchById(any());
@@ -229,31 +225,16 @@ class StockMonthlyStateInitServiceTest {
     void confirmDraftStates_incompleteDraft_keepsDraftWithoutUpdate() {
         LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
         TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", effectiveMonth);
-        LambdaQueryChainWrapper<TornStockMonthlyStateDO> query = mockLambdaQuery();
-        when(monthlyStateDao.lambdaQuery()).thenReturn(query);
-        when(query.eq(any(), eq(effectiveMonth))).thenReturn(query);
-        when(query.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(query);
-        when(query.list()).thenReturn(List.of(draft));
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(effectiveMonth))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
 
-        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth);
+        int result = monthlyStateInitService.confirmDraftStates(effectiveMonth, "Bai");
 
         assertEquals(0, result);
         assertEquals(StockMonthlyStateStatusEnum.DRAFT.getCode(), draft.getStateStatus());
         verify(monthlyStateDao, never()).updateBatchById(any());
-    }
-
-    // ==================== Helper方法 ====================
-
-
-    /**
-     * 创建一个LambdaQueryChainWrapper的mock实例
-     *
-     * @param <T> DO类型
-     * @return mock实例
-     */
-    @SuppressWarnings("unchecked")
-    private <T> LambdaQueryChainWrapper<T> mockLambdaQuery() {
-        return org.mockito.Mockito.mock(LambdaQueryChainWrapper.class);
     }
 
     /**

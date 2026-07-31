@@ -164,6 +164,7 @@ public class StockRoundTransactionService {
         List<CandidateInfo> rankedCandidates = ruleMode == StockRuleModeEnum.OFF
                 ? List.of()
                 : candidateRankingPolicy.rank(signalResult.formalCandidates());
+        rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
         Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evaluationByStockId = ruleMode == StockRuleModeEnum.OFF
                 ? Map.of()
                 : signalResult.allEvaluations().stream()

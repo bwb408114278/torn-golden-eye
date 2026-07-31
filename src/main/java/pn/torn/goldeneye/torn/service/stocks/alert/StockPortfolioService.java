@@ -233,13 +233,7 @@ public class StockPortfolioService {
         if (slots == null || slots.isEmpty()) {
             return BigDecimal.ZERO;
         }
-        BigDecimal cashEquity = slots.stream()
-                .map(slot -> {
-                    BigDecimal available = slot.getAvailableCash() == null ? BigDecimal.ZERO : slot.getAvailableCash();
-                    BigDecimal reserved = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
-                    return available.add(reserved);
-                })
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cashEquity = calculateCashAndReserved(slots);
 
         BigDecimal positionEquity = BigDecimal.ZERO;
         if (batchMarketValues != null && !batchMarketValues.isEmpty()) {
@@ -248,6 +242,25 @@ public class StockPortfolioService {
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
         return cashEquity.add(positionEquity);
+    }
+
+    /**
+     * 计算全部槽位的可用现金与待买预留资金。
+     *
+     * @param slots 全部槽位列表
+     * @return 可用现金与预留资金总额；入参为空时返回0
+     */
+    public BigDecimal calculateCashAndReserved(List<TornStockPortfolioSlotDO> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return slots.stream()
+                .map(slot -> {
+                    BigDecimal available = slot.getAvailableCash() == null ? BigDecimal.ZERO : slot.getAvailableCash();
+                    BigDecimal reserved = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
+                    return available.add(reserved);
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
