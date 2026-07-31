@@ -33,8 +33,7 @@ import java.util.stream.Collectors;
  *   <li>创建/锁定轮次记录,状态置为PROCESSING</li>
  *   <li>处理上一轮待买入批次(成交/取消/过期)</li>
  *   <li>处理上一轮待卖出批次(成交并释放槽位)</li>
- *   <li>更新开放批次峰谷、MFE/MAE、回撤与逐轮mark</li>
- *   <li>评估开放批次退出条件,命中则置为EXIT_PENDING</li>
+ *   <li>更新开放批次峰谷、MFE/MAE、回撤，评估退出条件并写入逐轮mark</li>
  *   <li>评估本轮买入信号(false->true边沿)与资格</li>
  *   <li>按qualityScore DESC排序候选并预留槽位</li>
  *   <li>写入原始信号事件、无限资金影子与拒绝观察批次</li>
@@ -148,12 +147,9 @@ public class StockRoundTransactionService {
         List<TornStockVirtualBatchDO> exitFilledBatches = entrySettlementService.processExitPending(
                 mergedSnapshot, barByStock, roundTime);
 
-        // 步骤4: 更新开放批次路径 - 含正式与影子
-        List<TornStockBatchMarkDO> marks = batchPathService.updatePaths(
-                mergedSnapshot, barByStock, roundTime);
-
-        // 步骤5: 评估退出条件 - 含正式与影子
-        batchPathService.evaluateExits(mergedSnapshot, barByStock, featureByStock, roundTime);
+        // 步骤4-5: 更新开放批次路径、评估退出并生成包含实际决定的mark - 含正式与影子
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                mergedSnapshot, barByStock, featureByStock, roundTime);
 
         // 步骤6: 评估买入信号与资格
         BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(

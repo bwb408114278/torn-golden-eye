@@ -8,21 +8,23 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEn
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBatchExitService.ExitEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 股票批次路径服务 - 更新开放批次持仓路径并评估退出条件
  * <p>
- * 步骤4: 用本轮bar价格更新OPEN批次的峰值/谷值/MFE/MAE/回撤,生成逐轮BatchMark。
+ * 步骤4-5: 用本轮bar价格更新OPEN批次的峰值/谷值/MFE/MAE/回撤，评估退出后生成逐轮BatchMark。
  * 同时维护 DATA_STALE 状态机: OPEN批次bar不可用时转入DATA_STALE,
  * DATA_STALE批次bar恢复时回到OPEN,相应切换槽位的STALE/OCCUPIED状态。
- * 步骤5: 对每个OPEN批次调用退出评估,命中时置为EXIT_PENDING。
+ * 对每个OPEN批次调用退出评估，命中时置为EXIT_PENDING，并将实际决定与规则输入固化到BatchMark。
  *
  * @author Bai
  * @version 1.2.12
@@ -38,13 +40,9 @@ public class StockBatchPathService {
      */
     private static final String FORMAL_DECISION_HOLD = "HOLD";
     /**
-     * 正式决策原因-持仓跟踪中
+     * 正式决策-卖出
      */
-    private static final String FORMAL_REASON_HOLDING = "持仓跟踪中";
-    /**
-     * 空特征快照，标记路径追踪阶段没有额外卖出特征输入。
-     */
-    private static final String EMPTY_FEATURE_SNAPSHOT = "{}";
+    private static final String FORMAL_DECISION_SELL = "SELL";
     /**
      * BigDecimal运算精度
      */
@@ -53,7 +51,7 @@ public class StockBatchPathService {
     private final StockBatchExitService batchExitService;
 
     /**
-     * 更新所有持仓中批次的持仓路径并生成BatchMark。
+     * 更新所有持仓中批次的持仓路径，评估退出条件后生成BatchMark。
      * <p>
      * 遍历 OPEN 与 DATA_STALE 状态批次,执行数据陈旧状态机:
      * <ul>
@@ -62,16 +60,20 @@ public class StockBatchPathService {
      *   <li>DATA_STALE批次本轮bar仍不可用 -&gt; 保持 DATA_STALE,跳过路径更新</li>
      * </ul>
      * 对OPEN(含刚恢复的)批次,用本轮bar价格更新峰值/谷值,计算MFE/MAE/回撤和当前净收益,
-     * 生成BatchMark记录本轮快照。
+     * 对OPEN(含刚恢复的)批次，先用本轮bar价格更新峰值/谷值，随后评估退出条件，
+     * 最后生成包含实际退出输入与正式决定的BatchMark记录。
      *
-     * @param snapshot   轮次快照
-     * @param barByStock 按股票ID索引的bar映射
-     * @param roundTime  本轮时间
+     * @param snapshot       轮次快照
+     * @param barByStock     按股票ID索引的bar映射
+     * @param featureByStock 按股票ID索引的退出特征映射
+     * @param roundTime      本轮时间
      * @return 生成的BatchMark列表(DATA_STALE批次不产生BatchMark)
      */
-    public List<TornStockBatchMarkDO> updatePaths(RoundSnapshot snapshot,
-                                                  Map<Integer, TornStockMarketBar15mDO> barByStock,
-                                                  LocalDateTime roundTime) {
+    public List<TornStockBatchMarkDO> updatePathsAndEvaluateExits(
+            RoundSnapshot snapshot,
+            Map<Integer, TornStockMarketBar15mDO> barByStock,
+            Map<Integer, TornStockStrategyFeature15mDO> featureByStock,
+            LocalDateTime roundTime) {
         List<TornStockBatchMarkDO> marks = new ArrayList<>();
         List<TornStockVirtualBatchDO> activeBatches = snapshot.activeBatches().stream()
                 .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())
@@ -86,36 +88,14 @@ public class StockBatchPathService {
         Map<Long, TornStockPortfolioSlotDO> slotById = StockPortfolioService.indexSlotsById(snapshot.slots());
 
         for (TornStockVirtualBatchDO batch : activeBatches) {
-            TornStockBatchMarkDO mark = updateSingleBatchPath(batch, barByStock, slotById, roundTime);
-            if (mark != null) {
-                marks.add(mark);
+            BatchPathMetrics metrics = updateSingleBatchPath(batch, barByStock, slotById);
+            if (metrics != null) {
+                TornStockStrategyFeature15mDO feature = featureByStock.get(batch.getStocksId());
+                ExitEvaluation evaluation = evaluateSingleBatchExit(batch, metrics.currentPrice(), feature, roundTime);
+                marks.add(buildBatchMark(batch, metrics, feature, evaluation, roundTime));
             }
         }
         return marks;
-    }
-
-    /**
-     * 对每个OPEN批次评估退出条件,命中则置为EXIT_PENDING。
-     * <p>
-     * 仅对 OPEN 状态批次评估退出。DATA_STALE 状态批次不评估退出,
-     * 其数据恢复由 {@link #updatePaths} 负责。
-     *
-     * @param snapshot       轮次快照
-     * @param barByStock     按股票ID索引的bar映射
-     * @param featureByStock 按股票ID索引的特征映射
-     * @param roundTime      本轮时间
-     */
-    public void evaluateExits(RoundSnapshot snapshot,
-                              Map<Integer, TornStockMarketBar15mDO> barByStock,
-                              Map<Integer, TornStockStrategyFeature15mDO> featureByStock,
-                              LocalDateTime roundTime) {
-        List<TornStockVirtualBatchDO> openBatches = snapshot.activeBatches().stream()
-                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))
-                .toList();
-
-        for (TornStockVirtualBatchDO batch : openBatches) {
-            evaluateSingleBatchExit(batch, barByStock, featureByStock, roundTime);
-        }
     }
 
     /**
@@ -128,18 +108,16 @@ public class StockBatchPathService {
      *   <li>DATA_STALE批次本轮bar仍不可用 -&gt; 保持DATA_STALE, 返回null</li>
      * </ul>
      * bar可用且批次为OPEN(或刚恢复)时,用本轮bar价格更新峰值/谷值,计算MFE/MAE/回撤,
-     * 生成BatchMark记录本轮快照。
+     * 退出评估完成后，由调用方据此生成BatchMark记录本轮快照。
      *
      * @param batch      开放或数据陈旧批次
      * @param barByStock bar映射
      * @param slotById   按槽位ID索引的映射(用于切换slotStatus)
-     * @param roundTime  本轮时间
-     * @return BatchMark;DATA_STALE状态或bar不可用时返回null
+     * @return 路径指标；DATA_STALE状态、bar不可用或入场价无效时返回null
      */
-    private TornStockBatchMarkDO updateSingleBatchPath(TornStockVirtualBatchDO batch,
-                                                       Map<Integer, TornStockMarketBar15mDO> barByStock,
-                                                       Map<Long, TornStockPortfolioSlotDO> slotById,
-                                                       LocalDateTime roundTime) {
+    private BatchPathMetrics updateSingleBatchPath(TornStockVirtualBatchDO batch,
+                                                   Map<Integer, TornStockMarketBar15mDO> barByStock,
+                                                   Map<Long, TornStockPortfolioSlotDO> slotById) {
         TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
         boolean barUsable = Stock15mBarBuildService.isUsable(currentBar);
         String currentStatus = batch.getBatchStatus();
@@ -181,37 +159,31 @@ public class StockBatchPathService {
 
         BatchPathMetrics metrics = new BatchPathMetrics(
                 currentPrice, currentNetReturn, newPeak, newTrough, mfe, mae, peakDrawdown);
-        TornStockBatchMarkDO mark = buildBatchMark(batch, metrics, roundTime);
 
         log.debug("开放批次路径更新: batchNo={}, price={}, peak={}, trough={}, mfe={}, mae={}, netReturn={}",
                 batch.getBatchNo(), currentPrice, newPeak, newTrough, mfe, mae, currentNetReturn);
-        return mark;
+        return metrics;
     }
 
     /**
      * 评估单个批次的退出条件。
      *
-     * @param batch          开放批次
-     * @param barByStock     bar映射
-     * @param featureByStock 特征映射
-     * @param roundTime      本轮时间
+     * @param batch        开放批次
+     * @param currentPrice 本轮bar实际价格
+     * @param feature      本轮退出特征，可为空
+     * @param roundTime    本轮时间
+     * @return 本轮退出评估结果
      */
-    private void evaluateSingleBatchExit(TornStockVirtualBatchDO batch,
-                                         Map<Integer, TornStockMarketBar15mDO> barByStock,
-                                         Map<Integer, TornStockStrategyFeature15mDO> featureByStock,
-                                         LocalDateTime roundTime) {
-        TornStockMarketBar15mDO currentBar = barByStock.get(batch.getStocksId());
-        if (!Stock15mBarBuildService.isUsable(currentBar)) {
-            return;
-        }
-
-        TornStockStrategyFeature15mDO feature = featureByStock.get(batch.getStocksId());
+    private ExitEvaluation evaluateSingleBatchExit(TornStockVirtualBatchDO batch,
+                                                   BigDecimal currentPrice,
+                                                   TornStockStrategyFeature15mDO feature,
+                                                   LocalDateTime roundTime) {
         BigDecimal position30 = feature != null ? feature.getPosition30() : null;
         BigDecimal low30d = feature != null ? feature.getLow30d() : null;
         BigDecimal high30d = feature != null ? feature.getHigh30d() : null;
 
         ExitEvaluation evaluation = batchExitService.evaluateExit(
-                batch, currentBar.getLastPrice(), position30, low30d, high30d, roundTime);
+                batch, currentPrice, position30, low30d, high30d, roundTime);
 
         if (evaluation.shouldExit()) {
             batch.setBatchStatus(StockBatchStatusEnum.EXIT_PENDING.getCode());
@@ -223,6 +195,7 @@ public class StockBatchPathService {
                     batch.getBatchNo(), batch.getStocksId(),
                     evaluation.closeType(), evaluation.reason());
         }
+        return evaluation;
     }
 
     /**
@@ -256,13 +229,17 @@ public class StockBatchPathService {
     /**
      * 构建批次标记记录。
      *
-     * @param batch     批次
-     * @param metrics   路径指标
-     * @param roundTime 本轮时间
+     * @param batch      批次
+     * @param metrics    路径指标
+     * @param feature    本轮退出特征，可为空
+     * @param evaluation 本轮退出评估结果
+     * @param roundTime  本轮时间
      * @return 批次标记DO
      */
     private TornStockBatchMarkDO buildBatchMark(TornStockVirtualBatchDO batch,
                                                 BatchPathMetrics metrics,
+                                                TornStockStrategyFeature15mDO feature,
+                                                ExitEvaluation evaluation,
                                                 LocalDateTime roundTime) {
         TornStockBatchMarkDO mark = new TornStockBatchMarkDO();
         mark.setBatchId(batch.getId());
@@ -274,10 +251,36 @@ public class StockBatchPathService {
         mark.setMfe(metrics.mfe());
         mark.setMae(metrics.mae());
         mark.setPeakDrawdown(metrics.peakDrawdown());
-        mark.setFormalDecision(FORMAL_DECISION_HOLD);
-        mark.setFormalReason(FORMAL_REASON_HOLDING);
-        mark.setFeatureSnapshot(EMPTY_FEATURE_SNAPSHOT);
+        boolean shouldExit = evaluation.shouldExit();
+        mark.setFormalDecision(shouldExit ? FORMAL_DECISION_SELL : FORMAL_DECISION_HOLD);
+        mark.setFormalReason(shouldExit && evaluation.closeType() != null
+                ? evaluation.closeType().getCode() : evaluation.reason());
+        mark.setFeatureSnapshot(buildFeatureSnapshot(batch, metrics.currentPrice(), feature));
         return mark;
+    }
+
+    /**
+     * 固化实际传入退出规则引擎的输入和当前卖出规则版本，供审计与回放使用。
+     *
+     * @param batch        当前批次
+     * @param currentPrice 本轮bar实际价格
+     * @param feature      本轮退出特征，可为空
+     * @return JSON格式的退出输入快照
+     */
+    private String buildFeatureSnapshot(TornStockVirtualBatchDO batch,
+                                        BigDecimal currentPrice,
+                                        TornStockStrategyFeature15mDO feature) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("currentPrice", currentPrice);
+        snapshot.put("entryReferencePrice", batch.getEntryReferencePrice());
+        snapshot.put("entryTime", batch.getEntryTime());
+        snapshot.put("primaryStrategy", batch.getPrimaryStrategy());
+        snapshot.put("position30", feature == null ? null : feature.getPosition30());
+        snapshot.put("low30d", feature == null ? null : feature.getLow30d());
+        snapshot.put("high30d", feature == null ? null : feature.getHigh30d());
+        snapshot.put("featureVersion", feature == null ? null : feature.getFeatureVersion());
+        snapshot.put("sellRuleVersion", StockRoundTransactionService.SELL_RULE_VERSION);
+        return JsonUtils.objToJson(snapshot);
     }
 
     /**

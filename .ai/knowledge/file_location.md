@@ -73,6 +73,13 @@
 │   │   │   │   │   │       └── TornFactionOcSlotDAO.java                       # OC岗位相关DAO
 │   │   │   │   │   └── torn/                                                   # Torn相关DAO
 │   │   │   │   │       ├── stocks/                                             # 股票相关DAO
+│   │   │   │   │       │   ├── portfolio/                                      # VIP股票组合相关DAO
+│   │   │   │   │       │   │   ├── TornStockVirtualBatchDAO.java               # 虚拟交易批次DAO(含活跃正式/影子批次行锁查询)
+│   │   │   │   │       │   │   ├── TornStockBatchMarkDAO.java                  # 批次逐轮标记DAO
+│   │   │   │   │       │   │   ├── TornStockPortfolioSlotDAO.java              # 组合槽位DAO
+│   │   │   │   │       │   │   ├── TornStockMarketRoundDAO.java                # 轮次记录DAO
+│   │   │   │   │       │   │   ├── TornStockSignalEventDAO.java                # 信号事件DAO
+│   │   │   │   │       │   │   └── TornStockSignalStateDAO.java                # 信号边沿状态DAO
 │   │   │   │   │       │   └── TornStocksHistoryDAO.java                       # 股票历史DAO
 │   │   │   │   │       └── TornAttackLogDAO.java                               # 攻击日志DAO
 │   │   │   │   ├── mapper/                                                     # Mapper相关
@@ -82,18 +89,33 @@
 │   │   │   │   │   │       └── TornFactionOcSlotMapper.java                    # OC岗位相关Mapper
 │   │   │   │   │   └── torn/                                                   # Torn相关Mapper
 │   │   │   │   │       ├── stocks/                                             # 股票相关Mapper
-│   │   │   │   │       │   └── TornStocksHistoryMapper.java                    # 股票历史Mapper
+│   │   │   │   │       │   ├── portfolio/                                      # VIP股票组合相关Mapper
+│   │   │   │   │       │   │   └── TornStockVirtualBatchMapper.xml             # 虚拟批次表Mapper(含UPSERT与行锁查询)
+│   │   │   │   │       │   └── TornStocksHistoryMapper.xml                    # 股票历史表Mapper
 │   │   │   │   │       └── TornAttackLogMapper.java                            # 攻击日志Mapper
 │   │   │   │   └── model/                                                      # 数据对应模型
-│   │   │   │       └── faction/                                                # 帮派相关功能
-│   │   │   │           ├── attack/                                             # 帮派攻击相关功能
-│   │   │   │           │   ├── AttackTimeWindowDO.java                         # 对冲时间窗口
-│   │   │   │           │   └── TornFactionRwReviveDO.java                      # RW复活记录
-│   │   │   │           └── oc/                                                 # OC相关功能
-│   │   │   │               ├── OcSuccessRankDO.java                            # OC成功率排行
-│   │   │   │               ├── TornFactionOcDO.java                            # 帮派OC表
-│   │   │   │               ├── TornFactionOcIdleRankDO.java                    # OC空转榜查询结果
-│   │   │   │               └── TornFactionOcSlotDO.java                        # 帮派OC岗位表
+│   │   │   │       ├── faction/                                                # 帮派相关功能
+│   │   │   │       │   ├── attack/                                             # 帮派攻击相关功能
+│   │   │   │       │   │   ├── AttackTimeWindowDO.java                         # 对冲时间窗口
+│   │   │   │       │   │   └── TornFactionRwReviveDO.java                      # RW复活记录
+│   │   │   │       │   └── oc/                                                 # OC相关功能
+│   │   │   │       │       ├── OcSuccessRankDO.java                            # OC成功率排行
+│   │   │   │       │       ├── TornFactionOcDO.java                            # 帮派OC表
+│   │   │   │       │       ├── TornFactionOcIdleRankDO.java                    # OC空转榜查询结果
+│   │   │   │       │       └── TornFactionOcSlotDO.java                        # 帮派OC岗位表
+│   │   │   │       └── torn/                                                   # Torn相关模型
+│   │   │   │           └── stocks/                                             # 股票相关模型
+│   │   │   │               └── portfolio/                                      # VIP股票组合相关DO
+│   │   │   │                   ├── TornStockVirtualBatchDO.java                # 虚拟交易批次DO
+│   │   │   │                   ├── TornStockBatchMarkDO.java                   # 批次逐轮标记DO
+│   │   │   │                   ├── TornStockPortfolioSlotDO.java               # 组合槽位DO
+│   │   │   │                   ├── TornStockMarketRoundDO.java                 # 轮次记录DO
+│   │   │   │                   ├── TornStockMarketBar15mDO.java                # 15分钟bar DO
+│   │   │   │                   ├── TornStockStrategyFeature15mDO.java          # 15分钟策略特征DO
+│   │   │   │                   ├── TornStockSignalEventDO.java                 # 信号事件DO
+│   │   │   │                   ├── TornStockSignalStateDO.java                 # 信号边沿状态DO
+│   │   │   │                   ├── TornStockMonthlyStateDO.java                # 月度风格状态DO
+│   │   │   │                   └── TornStockNoticeAuditDO.java                 # 通知审计DO
 │   │   │   └── torn/                                                           # Torn相关
 │   │   │       ├── manager/                                                    # 公共逻辑层
 │   │   │       │   ├── faction/                                                # 帮派相关功能
@@ -133,6 +155,22 @@
 │   │   │           │           ├── OcRosterMatcher.java                        # OC阵容匹配统一门面
 │   │   │           │           ├── OcFlowRosterMatcher.java                    # 最小费用最大流岗位匹配与排程
 │   │   │           │           └── OcNoPauseRosterMatcher.java                 # 无停转联合搜索匹配
+│   │   │           ├── torn/                                                   # 股票相关功能
+│   │   │           │   └── stocks/                                             # VIP股票虚拟组合与消息提醒
+│   │   │           │       └── alert/                                          # 股票提醒核心服务
+│   │   │           │           ├── StockMarketRoundLoader.java                 # 轮次快照批量加载(事务外)
+│   │   │           │           ├── StockRoundTransactionService.java           # 轮次12步事务编排
+│   │   │           │           ├── StockBatchPathService.java                  # 持仓路径更新与退出评估
+│   │   │           │           ├── StockBatchExitService.java                  # 退出规则引擎
+│   │   │           │           ├── StockEntrySettlementService.java            # 待买/待卖批次结算
+│   │   │           │           ├── StockRoundExitGuard.java                    # 同轮平仓股票候选过滤
+│   │   │           │           ├── StockPortfolioService.java                  # 5槽组合槽位资金管理
+│   │   │           │           ├── StockVirtualBatchAssembler.java             # 批次字段组装器
+│   │   │           │           ├── Stock15mBarBuildService.java                # 15分钟bar构建
+│   │   │           │           ├── Stock15mFeatureBuildService.java            # 15分钟策略特征构建
+│   │   │           │           ├── StockDailySummaryService.java               # 每日权益摘要
+│   │   │           │           └── notice/                                     # 通知组装与发送
+│   │   │           │               └── StockNoticeSendService.java             # NapCat消息投递
 │   │   │           └── user/                                                   # 用户相关功能
 │   │   │               └── StockTradeStrategyService.java                      # 股票交易策略逻辑层
 │   │   └── resources/                                                          # 资源文件
@@ -140,7 +178,8 @@
 │   │       │   └── 1.0.1-2.0.0/                                                # 1.0.1到2.0.0版本的改动
 │   │       │       └── 1.2.0/                                                  # 1.2.0后的版本改动
 │   │       │           ├── faction.yml                                         # 帮派相关改动
-│   │       │           └── setting.yml                                         # 配置相关改动
+│   │       │           ├── setting.yml                                         # 配置相关改动
+│   │       │           └── stocks-portfolio.yaml                               # VIP股票组合建表与索引改动
 │   │       └── mapper/                                                         # Mapper文件
 │   │           ├── faction/                                                    # 帮派相关
 │   │           │   └── oc/                                                     # OC相关
@@ -148,17 +187,26 @@
 │   │           │       └── TornFactionOcSlotMapper.xml                         # 帮派OC岗位表Mapper
 │   │           └── torn/                                                       # Torn相关
 │   │               ├── stocks/                                                 # 股票相关Mapper
+│   │               │   ├── portfolio/                                          # VIP股票组合相关Mapper
+│   │               │   │   └── TornStockVirtualBatchMapper.xml                 # 虚拟批次表Mapper(含UPSERT与行锁查询)
 │   │               │   └── TornStocksHistoryMapper.xml                         # 股票历史表Mapper
 │   │               └── TornAttackLogMapper.xml                                 # 攻击日志表Mapper
 │   └── test/                                                                   # 测试功能
 │       └── java.pn.torn.goldeneye/                                             # 测试代码根目录
 │           └── torn/                                                           # Torn相关
 │               └── service/                                                    # 业务逻辑层
-│                   └── faction/                                                # 帮派相关功能
-│                       └── oc                                                  # Crime相关功能
-│                           ├── recommend/                                      # OC推荐功能
-│                           │   └── TornOcRecommendServiceTest.java             # OC推荐功能测试
-│                           └── TornFactionOcBenefitServiceTest.java            # 帮派OC收益功能测试
+│                   ├── faction/                                                # 帮派相关功能
+│                   │   └── oc                                                  # Crime相关功能
+│                   │       ├── recommend/                                      # OC推荐功能
+│                   │       │   └── TornOcRecommendServiceTest.java             # OC推荐功能测试
+│                   │       └── TornFactionOcBenefitServiceTest.java            # 帮派OC收益功能测试
+│                   └── stocks/                                                 # 股票相关功能
+│                       └── alert/                                              # VIP股票提醒测试
+│                           ├── StockRoundTransactionServiceTest.java           # 轮次12步事务编排测试
+│                           ├── StockBatchPathServiceTest.java                  # 持仓路径更新与退出评估测试
+│                           ├── StockBatchExitServiceTest.java                  # 退出规则引擎测试
+│                           ├── StockEntrySettlementServiceTest.java            # 待买/待卖批次结算测试
+│                           └── StockRoundExitGuardTest.java                    # 同轮平仓候选过滤测试
 ├── pom.xml                                                                     # Maven构建项目依赖
 └── README.md                                                                   # 项目说明文档
 ```

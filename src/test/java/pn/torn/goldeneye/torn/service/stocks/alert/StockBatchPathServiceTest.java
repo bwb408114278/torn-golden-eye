@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,14 +16,14 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrateg
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBatchExitService.ExitEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -59,29 +60,41 @@ class StockBatchPathServiceTest {
         TornStockMarketBar15mDO bar = buildBar(false);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        List<TornStockBatchMarkDO> marks = batchPathService.updatePaths(
-                snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(), ROUND_TIME);
 
         assertTrue(marks.isEmpty());
     }
 
     @Test
-    @DisplayName("路径更新_正常更新_peakPrice和troughPrice正确更新")
-    void updatePaths_normalUpdate_peakAndTroughCorrect() {
+    @DisplayName("路径更新_未命中退出_记录真实HOLD决定和特征快照")
+    void updatePathsAndEvaluateExits_noExit_recordsHoldDecisionAndFeatureSnapshot() {
         TornStockVirtualBatchDO batch = buildOpenBatch();
         batch.setPeakPrice(new BigDecimal("105.00"));
         batch.setTroughPrice(new BigDecimal("98.00"));
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(new BigDecimal("110.00"));
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        ExitEvaluation noExit = new ExitEvaluation(false, null, "未命中任何退出规则");
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        List<TornStockBatchMarkDO> marks = batchPathService.updatePaths(
-                snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
 
         assertEquals(1, marks.size());
         assertEquals(new BigDecimal("110.00"), batch.getPeakPrice());
         assertEquals(new BigDecimal("98.00"), batch.getTroughPrice());
-        assertEquals("{}", marks.getFirst().getFeatureSnapshot());
+        TornStockBatchMarkDO mark = marks.getFirst();
+        assertEquals("HOLD", mark.getFormalDecision());
+        assertEquals("未命中任何退出规则", mark.getFormalReason());
+        assertFeatureDecimal(mark.getFeatureSnapshot(), "currentPrice", new BigDecimal("110.00"));
+        assertFeatureDecimal(mark.getFeatureSnapshot(), "position30", new BigDecimal("0.50"));
+        assertFeatureDecimal(mark.getFeatureSnapshot(), "low30d", new BigDecimal("90.00"));
+        assertFeatureDecimal(mark.getFeatureSnapshot(), "high30d", new BigDecimal("110.00"));
+        assertFeatureText(mark.getFeatureSnapshot(), "featureVersion", "feature-1");
+        assertFeatureText(mark.getFeatureSnapshot(), "sellRuleVersion",
+                StockRoundTransactionService.SELL_RULE_VERSION);
     }
 
     @Test
@@ -91,9 +104,10 @@ class StockBatchPathServiceTest {
         batch.setPeakPrice(ENTRY_PRICE);
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(new BigDecimal("105.00"));
+        stubNoExit();
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        batchPathService.updatePaths(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
+        batchPathService.updatePathsAndEvaluateExits(snapshot, Map.of(STOCKS_ID, bar), Map.of(), ROUND_TIME);
 
         BigDecimal expectedMfe = new BigDecimal("105.00")
                 .subtract(ENTRY_PRICE)
@@ -108,9 +122,10 @@ class StockBatchPathServiceTest {
         batch.setTroughPrice(ENTRY_PRICE);
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(new BigDecimal("95.00"));
+        stubNoExit();
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        batchPathService.updatePaths(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
+        batchPathService.updatePathsAndEvaluateExits(snapshot, Map.of(STOCKS_ID, bar), Map.of(), ROUND_TIME);
 
         BigDecimal expectedMae = new BigDecimal("95.00")
                 .subtract(ENTRY_PRICE)
@@ -119,8 +134,8 @@ class StockBatchPathServiceTest {
     }
 
     @Test
-    @DisplayName("退出评估_命中目标退出_状态置为EXIT_PENDING")
-    void evaluateExits_targetExitHit_statusSetToExitPending() {
+    @DisplayName("路径更新_命中目标退出_记录真实SELL决定和特征快照")
+    void updatePathsAndEvaluateExits_targetExit_recordsSellDecisionAndFeatureSnapshot() {
         TornStockVirtualBatchDO batch = buildOpenBatch();
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(new BigDecimal("101.00"));
@@ -130,32 +145,49 @@ class StockBatchPathServiceTest {
         when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(exitEval);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        batchPathService.evaluateExits(
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
                 snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
 
         assertEquals(StockBatchStatusEnum.EXIT_PENDING.getCode(), batch.getBatchStatus());
         assertEquals(ROUND_TIME, batch.getExitSignalTime());
         assertEquals(StockCloseTypeEnum.CLOSED_TARGET.getCode(), batch.getExitReason());
-    }
-
-    @Test
-    @DisplayName("退出评估_未命中退出_保持OPEN")
-    void evaluateExits_noExitHit_remainsOpen() {
-        TornStockVirtualBatchDO batch = buildOpenBatch();
-        TornStockMarketBar15mDO bar = buildBar(true);
-        TornStockStrategyFeature15mDO feature = buildFeature();
-
-        ExitEvaluation noExit = new ExitEvaluation(false, null, "未命中");
-        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
-
-        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        batchPathService.evaluateExits(
-                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
-
-        assertEquals(StockBatchStatusEnum.OPEN.getCode(), batch.getBatchStatus());
+        TornStockBatchMarkDO mark = marks.getFirst();
+        assertEquals("SELL", mark.getFormalDecision());
+        assertEquals(StockCloseTypeEnum.CLOSED_TARGET.getCode(), mark.getFormalReason());
+        assertFeatureDecimal(mark.getFeatureSnapshot(), "currentPrice", new BigDecimal("101.00"));
+        assertFeatureDecimal(mark.getFeatureSnapshot(), "position30", new BigDecimal("0.50"));
+        assertFeatureText(mark.getFeatureSnapshot(), "sellRuleVersion",
+                StockRoundTransactionService.SELL_RULE_VERSION);
     }
 
     // ==================== Helper Methods ====================
+
+    /**
+     * 断言特征快照中的数值字段，先校验节点存在再取值，避免空指针。
+     *
+     * @param json     特征快照JSON
+     * @param field    字段名
+     * @param expected 期望值
+     */
+    private static void assertFeatureDecimal(String json, String field, BigDecimal expected) {
+        JsonNode node = JsonUtils.getNode(json, field);
+        assertNotNull(node, "特征快照缺少字段: " + field);
+        assertEquals(0, node.decimalValue().compareTo(expected));
+    }
+
+    /**
+     * 断言特征快照中的文本字段，先校验节点存在再取值，避免空指针。
+     *
+     * @param json     特征快照JSON
+     * @param field    字段名
+     * @param expected 期望值
+     */
+    private static void assertFeatureText(String json, String field, String expected) {
+        JsonNode node = JsonUtils.getNode(json, field);
+        assertNotNull(node, "特征快照缺少字段: " + field);
+        assertEquals(expected, node.asText());
+    }
+
 
     private TornStockVirtualBatchDO buildOpenBatch() {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
@@ -194,7 +226,13 @@ class StockBatchPathServiceTest {
         feature.setPosition30(new BigDecimal("0.50"));
         feature.setLow30d(new BigDecimal("90.00"));
         feature.setHigh30d(new BigDecimal("110.00"));
+        feature.setFeatureVersion("feature-1");
         return feature;
+    }
+
+    private void stubNoExit() {
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new ExitEvaluation(false, null, "未命中任何退出规则"));
     }
 
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches) {
