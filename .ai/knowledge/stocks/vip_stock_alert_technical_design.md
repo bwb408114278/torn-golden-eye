@@ -7,12 +7,16 @@
 - 适用版本：1.2.12及以上
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 设计状态：已审核通过，待专人实施
+- 设计状态：第九轮修复实施基线（技术方案已修订，待用户确认后由工程师实施）
+- 当前实现基线：`d9bd257fb1be9b88a0b1ec5cb1142cafcf288533`
+- 技术验收状态：未通过；仅允许继续Shadow，正式买卖提醒保持关闭
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后确认日期：2026-07-24
+- 最后修订日期：2026-08-01
 
-本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文负责将业务规则映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案。
+本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
+
+当前代码已完成主体功能，但第八轮Review确认灾难关闭账实原子性、管理关闭审计、通知最终快照和存量持仓开关语义仍未满足本文最终设计。第九轮工程师必须以本文修订后的契约为准修复代码和测试，不得以当前实现反向覆盖本文。
 
 > 本文冻结的实施资金口径为5槽、每槽初始20亿、总初始资金100亿。该口径是用户在技术方案审核阶段对原研究口径“每槽4亿”的明确覆盖。历史研究收益基于每槽4亿，正式实施前必须按每槽20亿重新执行整数股数、余款现金和逐bar净值回放。
 
@@ -445,7 +449,7 @@ netReturn <= -1.5%
 - 冷却结束后必须先观察条件回到false，再等待新的false→true边沿；
 - 同股已有正式活跃批次时仍记录原始信号和拒绝原因，但不建立第二个正式批次。
 
-### 6.5 正式退出
+### 6.6 正式退出
 
 #### 目标退出
 
@@ -485,7 +489,7 @@ AND position30 >= 0.60
 position30 = (currentPrice - low30) / (high30 - low30)
 ```
 
-`high30 == low30`时fail-closed，不触发区间退出。
+仅当目标、硬风险和最长持有均未命中后，RANGE批次才评估区间恢复。此时`position30/low30d/high30d`任一缺失，或`high30d <= low30d`，均表示区间规则不可评估：返回`DATA_INSUFFICIENT / EXIT_RANGE_FEATURE_MISSING`，批次转`DATA_STALE`并继续占槽；本轮不得生成`HOLD_NO_EXIT_TRIGGERED`或普通HOLD BatchMark。非RANGE批次不要求区间特征。
 
 #### 卖出费
 
@@ -495,7 +499,7 @@ netReturn = exitReferencePrice / entryReferencePrice × 0.999 - 1
 
 所有群消息、账本、收益统计和关闭判断统一使用扣除0.1%卖出费后的净收益。
 
-### 6.6 影子规则
+### 6.7 影子规则
 
 首期并行记录但不影响正式关闭：
 
@@ -604,7 +608,7 @@ OPEN
 
 DATA_STALE
   ├─ 新的可用桶形成 → OPEN
-  └─ 管理关闭 → ADMIN_CLOSED
+  └─ 仍无可用数据/必要特征 → 保持DATA_STALE并继续占槽
 
 EXIT_PENDING
   ├─ 紧邻下一连续bar成交 → CLOSED_TARGET/CLOSED_RANGE/CLOSED_RISK/CLOSED_TIME
@@ -615,7 +619,125 @@ DATA_STALE_EXIT
   └─ 首个恢复可用bar → ADMIN_CLOSED / SELL_DATA_ADMIN_CLOSE
 ```
 
-`DATA_STALE_EXIT`灾难处置使用首个恢复可用bar的`lastPrice`作为管理关闭参考价，不声称为原退出策略的准时成交。按0.1%卖出费真实回笼资金并在同一事务释放槽位；冷却48小时且`resetObserved=false`。正式批次发送配对的“数据异常关闭”消息，保留原退出原因和预期成交时间，但不得使用普通目标/区间/风险/时间SELL原因码或“止盈”文案。没有恢复价格时禁止用成本、最后旧价或零价强制结算。
+`DATA_STALE_EXIT`灾难处置使用首个恢复可用bar的`lastPrice`作为管理关闭参考价，不声称为原退出策略的准时成交。没有恢复价格时禁止用成本、最后旧价或零价强制结算。
+
+`DATA_STALE`不自动进入`ADMIN_CLOSED`。它尚未形成确定退出决策，数据恢复后回到`OPEN`重新评估；如需人工管理关闭，必须先取得可验证实际价格，并另行记录人工原因后复用本节正式账本校验、原子结算和`ADMIN_CLOSED`审计契约，禁止无价格注销。
+
+#### 8.1.1 恢复bar判定
+
+恢复bar必须同时满足：
+
+```text
+bar != null
+AND bar.usable = true
+AND sampleCount/尾部新鲜度满足正式bar质量
+AND buildVersion = 当前正式BUILD_VERSION
+AND lastPrice > 0
+AND barStartTime/EndTime完整
+```
+
+不要求与`expectedExitBarTime`连续。每轮只加载该股票当前轮次的正式bar，因此第一次满足上述条件的轮次就是“首个恢复可用bar”。批次进入`DATA_STALE_EXIT`后，在每个已结束轮次按时间升序处理，禁止跳过更早恢复bar选择更晚价格。
+
+#### 8.1.2 正式账本结算前置条件
+
+正式批次关闭前必须一次性校验：
+
+```text
+ledgerType = FORMAL
+AND batchStatus = DATA_STALE_EXIT
+AND batch.id/slotId/slotNo/stocksId完整
+AND quantity > 0
+AND entryReferencePrice > 0
+AND exitSignalTime != null
+AND expectedExitBarTime != null
+AND slot存在
+AND slot.slotNo = batch.slotNo
+AND slot.currentBatchId = batch.id
+AND slot.status IN (OCCUPIED, STALE)
+AND slot.availableCash/reservedCash非负
+AND slot.reservedCash = 0
+AND slot.availableCash = batch.remainingCash（按BigDecimal数值比较）
+```
+
+任一条件不满足即视为正式账本一致性破坏，抛出`IllegalStateException`使整个轮次事务回滚。不得跳过`settleSlot`后继续写`ADMIN_CLOSED`；不得返回“成交批次”；不得生成通知或冷却状态。错误日志必须包含`batchId/batchNo/slotId/slotNo`，但不得包含敏感配置。
+
+影子批次必须显式满足`ledgerType = UNLIMITED_SHADOW`，不访问正式槽位，仅计算理论收益。未知或空`ledgerType`同样fail-closed，禁止按“非Shadow即正式”推断。
+
+#### 8.1.3 原子结算与终态
+
+正式灾难关闭与正常正式卖出共用同一个“校验并结算正式槽位”领域方法，避免两套资金逻辑。该方法在`StockRoundTransactionService`短事务内完成：
+
+```text
+sellProceeds = quantity × recoveryBar.lastPrice × 0.999
+slot.availableCash = batch.remainingCash + sellProceeds
+slot.reservedCash = 0
+slot.currentBatchId = null
+slot.slotStatus = AVAILABLE
+
+batch.batchStatus = ADMIN_CLOSED
+batch.exitReferencePrice = recoveryBar.lastPrice
+batch.exitTime = recoveryBar.barEndTime
+batch.netReturn = recoveryBar.lastPrice / entryReferencePrice × 0.999 - 1
+batch.sellProceeds = sellProceeds
+batch.cooldownUntil = recoveryBar.barEndTime + 48小时
+batch.resetObserved = false
+```
+
+批次、槽位、信号冷却、管理关闭审计、SELL通知审计及轮次状态必须在同一数据库事务提交；任一持久化失败全部回滚。NapCat调用继续位于事务提交后。
+
+#### 8.1.4 管理关闭审计模型
+
+第九轮采用**批次独立字段 + 通知完整payload**方案，不新增管理关闭专表，低侵入补齐现有`TornStockVirtualBatchDO`：
+
+| 字段 | 类型 | 空值 | 写入规则 |
+|---|---|---:|---|
+| `original_exit_reason` | VARCHAR(64) | 是 | `EXIT_PENDING → DATA_STALE_EXIT`时复制当时`exit_reason`；之后不可覆盖 |
+| `admin_close_reason` | VARCHAR(64) | 是 | 灾难关闭固定`DATA_STALE_EXIT_RECOVERY_CLOSE` |
+| `recovery_bar_start_time` | TIMESTAMP | 是 | 恢复bar开始时间 |
+| `recovery_bar_end_time` | TIMESTAMP | 是 | 恢复bar结束时间，必须等于`exit_time` |
+| `stale_exit_duration_seconds` | BIGINT | 是 | `max(0, recoveryBarEnd - (expectedExitBarTime + 15分钟))`秒数；从原预期bar结束到恢复bar结束 |
+
+字段约束：
+
+```text
+batch_status = ADMIN_CLOSED
+AND admin_close_reason = DATA_STALE_EXIT_RECOVERY_CLOSE
+→ original_exit_reason、expected_exit_bar_time、recovery_bar_start_time、
+  recovery_bar_end_time、stale_exit_duration_seconds必须非空
+
+recovery_bar_end_time > recovery_bar_start_time
+stale_exit_duration_seconds >= 0
+exit_time = recovery_bar_end_time
+```
+
+`staleExitDuration`的单位由技术方案统一冻结为**秒**；Java字段名使用`staleExitDurationSeconds`，数据库字段使用`stale_exit_duration_seconds`，通知可格式化为“X天Y小时Z分钟”。
+
+`exit_reason`在进入`EXIT_PENDING`后仍保留原策略关闭类型，用于历史兼容和原决策追踪；`admin_close_reason`表达最终管理关闭原因。对外稳定正式原因码由通知payload使用`SELL_DATA_ADMIN_CLOSE`，不能把该编码写入`exit_reason`冒充原策略原因。
+
+`EXIT_PENDING → DATA_STALE_EXIT`迁移必须通过统一方法完成，并在**首次迁移**时执行：
+
+```text
+originalExitReason = exitReason
+batchStatus = DATA_STALE_EXIT
+```
+
+若批次已经是`DATA_STALE_EXIT`，后续轮次不得再次覆盖`originalExitReason`。历史异常数据若`originalExitReason`为空但`exitReason`是合法`CLOSED_*`，迁移脚本允许一次性回填；无法确定原原因时不得自动管理关闭，应保持待人工核对。
+
+如果股票功能changeSet尚未在正式环境执行，工程师可按项目约定直接改写原`stocks-portfolio.yaml`；若已在任一正式环境执行，则必须追加changeSet，禁止修改旧checksum。实施前必须核实部署事实并在修复记录中写明选择。
+
+#### 8.1.5 长时间未恢复与运维告警
+
+没有合法恢复bar时：
+
+```text
+保持DATA_STALE_EXIT
+保持槽位占用/STALE
+不写退出价/退出时间/管理关闭审计
+不生成SELL通知
+每轮记录结构化WARN
+```
+
+首期不新增告警平台或强制注销期限。“进入运维告警”实现为结构化WARN日志，字段至少包含`batchId/batchNo/stocksId/expectedExitBarTime/staleDurationMinutes`；同一批次每小时最多输出一次WARN，避免15分钟轮次日志噪声。人工关闭也必须取得可验证实际价格并复用相同`ADMIN_CLOSED`结算与审计契约。
 
 ### 8.2 轮次状态
 
@@ -952,7 +1074,12 @@ slot_status = AVAILABLE
 | `expected_exit_bar_time` | TIMESTAMP | 是 | 预期卖出参考bar |
 | `exit_time` | TIMESTAMP | 是 | 参考卖出时间 |
 | `exit_reference_price` | DECIMAL(18,6) | 是 | 参考卖出价 |
-| `exit_reason` | VARCHAR(64) | 是 | 关闭原因编码 |
+| `exit_reason` | VARCHAR(64) | 是 | 原策略退出类型，如`CLOSED_TARGET/CLOSED_RANGE/CLOSED_RISK/CLOSED_TIME`；灾难关闭时保留原值 |
+| `original_exit_reason` | VARCHAR(64) | 是 | 进入`DATA_STALE_EXIT`时冻结的原策略退出类型，灾难关闭后不可覆盖 |
+| `admin_close_reason` | VARCHAR(64) | 是 | 管理关闭原因；灾难恢复固定`DATA_STALE_EXIT_RECOVERY_CLOSE` |
+| `recovery_bar_start_time` | TIMESTAMP | 是 | 灾难关闭所用首个恢复bar开始时间 |
+| `recovery_bar_end_time` | TIMESTAMP | 是 | 灾难关闭所用首个恢复bar结束时间，与`exit_time`一致 |
+| `stale_exit_duration_seconds` | BIGINT | 是 | 从原预期卖出bar到恢复bar结束的陈旧秒数 |
 | `net_return` | DECIMAL(18,10) | 是 | 扣费后批次净收益 |
 | `sell_proceeds` | NUMERIC(24,2) | 是 | 扣费后卖出所得 |
 | `cooldown_until` | TIMESTAMP | 是 | 关闭后冷却截止时间 |
@@ -974,6 +1101,10 @@ slot_status = AVAILABLE
 索引：(expected_entry_bar_time, batch_status)
 索引：(expected_exit_bar_time, batch_status)
 检查：价格和资金非负；quantity为空或大于0；已OPEN必须存在entry字段
+检查：stale_exit_duration_seconds为空或大于等于0
+检查：admin_close_reason='DATA_STALE_EXIT_RECOVERY_CLOSE'时，original_exit_reason、expected_exit_bar_time、
+      recovery_bar_start_time、recovery_bar_end_time、stale_exit_duration_seconds、exit_time、exit_reference_price均非空
+检查：recovery_bar_end_time为空，或同时满足recovery_bar_start_time非空、end>start且exit_time=end
 ```
 
 ### 9.10 `torn_stock_batch_mark`
@@ -1017,8 +1148,8 @@ slot_status = AVAILABLE
 | `scheduled_round_time` | TIMESTAMP | 是 | 买卖通知来源轮次 |
 | `summary_date` | DATE | 是 | 每日摘要对应日期 |
 | `group_id` | BIGINT | 否 | 发送目标，使用当前`vipGroupId`快照 |
-| `payload_hash` | VARCHAR(64) | 否 | 中文消息载荷SHA-256摘要 |
-| `payload_snapshot` | JSONB | 否 | 消息结构和中文文本快照 |
+| `payload_hash` | VARCHAR(64) | 否 | 最终完整payload规范化JSON的SHA-256摘要 |
+| `payload_snapshot` | JSONB | 否 | 不可丢失的业务字段、最终中文文本和冻结时间的完整快照 |
 | `send_status` | VARCHAR(16) | 否 | `PENDING/SENT/FAILED` |
 | `send_attempt_count` | INT | 否 | 本期固定最多1次，保留扩展字段 |
 | `attempted_at` | TIMESTAMP | 是 | 调用Bot时间 |
@@ -1037,6 +1168,49 @@ slot_status = AVAILABLE
 检查：send_attempt_count BETWEEN 0 AND 1（首期）
 检查：BUY/SELL必须有batch_id；DAILY_SUMMARY必须有summary_date
 ```
+
+通知payload采用“创建时业务事实 + 发送前最终文本”的单一完整JSON，不拆成两份互相覆盖的快照。
+
+BUY最少字段：
+
+```text
+noticeType/batchId/batchNo/stocksId/stocksShortname
+entryReferencePrice/quantity/investedCash/slotNo
+buyRuleVersion/messageRuleVersion
+messageText/frozenAt
+```
+
+普通SELL最少字段：
+
+```text
+noticeType/batchId/batchNo/stocksId/stocksShortname
+entryReferencePrice/exitReferencePrice/quantity/sellProceeds/netReturn
+exitReason/formalReason/exitTime
+sellRuleVersion/messageRuleVersion
+messageText/frozenAt
+```
+
+灾难关闭SELL还必须包含：
+
+```text
+formalReason = SELL_DATA_ADMIN_CLOSE
+originalExitReason
+adminCloseReason = DATA_STALE_EXIT_RECOVERY_CLOSE
+expectedExitBarTime
+recoveryBarStartTime/recoveryBarEndTime
+staleExitDurationSeconds
+```
+
+发送前不得用仅含`messageText/frozenAt`的新JSON覆盖原payload。`payloadHash`必须在合并完成后基于最终完整payload计算；同一合并消息中的每条通知保留各自业务字段，但可共享相同`messageText/frozenAt`。
+
+实现细则：
+
+- `StockNoticeSendService`对每个`ComposedMessage.noticeIds`找到对应通知对象，分别解析各自原`payloadSnapshot`；
+- 使用Jackson `ObjectNode`或`LinkedHashMap<String,Object>`复制原字段，再写入`messageText/frozenAt`，不得新建空Map后只写两个字段；
+- 对每条通知分别生成最终JSON和hash；因此DAO/Mapper改为接收`List<NoticePayloadFinalizeCommand>`逐条批量更新，不能继续用一份payload覆盖一组通知；
+- `NoticePayloadFinalizeCommand`至少包含`noticeId/payloadSnapshot/payloadHash/attemptedAt`，可用record并补齐Javadoc；
+- 最终payload冻结成功后才调用Bot。冻结UPDATE影响行数必须等于通知数，否则停止本条合并消息发送并将错误上抛/记录为FAILED，禁止发送不可审计消息；
+- 本期仍不建设自动重试，`sendAttemptCount`只在实际Bot调用结果落库时增加，不在单纯冻结payload时增加。
 
 ### 9.12 表关系
 
@@ -1104,7 +1278,7 @@ torn_stock_virtual_batch
 1. 锁定本轮记录，确认尚未完成；
 2. 锁定5个正式槽位和待变化的正式批次；
 3. 使用本轮bar处理上一轮待买参考成交；
-4. 使用本轮bar处理上一轮待卖参考成交，成交后释放槽位；
+4. 使用本轮bar处理`EXIT_PENDING`及`DATA_STALE_EXIT`；正式关闭前严格校验批次—槽位绑定、数量、资金和审计输入，成功后原子结算并释放槽位；
 5. 更新开放批次峰值、谷值、MFE、MAE、回撤和逐轮mark；
 6. 将本轮正式退出候选置为`EXIT_PENDING`；
 7. 重新校验同股、冷却、复位、月度状态和槽位；
@@ -1116,11 +1290,23 @@ torn_stock_virtual_batch
 
 NapCat调用不进入数据库事务。
 
+锁顺序固定为：
+
+```text
+marketRound
+→ 5个portfolioSlot按slotNo ASC
+→ 正式活跃batch按id ASC
+→ 影子活跃batch按id ASC
+```
+
+正式卖出与灾难关闭不得使用事务外槽位或批次对象完成结算；所有校验、金额计算和状态更新必须基于锁后对象。`IllegalStateException`、唯一约束、通知审计写入失败或批量保存失败均向上抛出，轮次保持可重试失败，不允许提交部分资金状态。
+
 ### 10.4 事务提交后
 
 - 查询本次新建的`PENDING`通知；
 - 按风险卖出、其他卖出、买入的顺序构建群消息；
 - 同轮同类型最多展示3个动作，超过时拆为续报；
+- 对每条通知读取创建时`payload_snapshot`，合并最终`messageText/frozenAt`，保留全部业务字段并重新计算完整payload哈希；
 - 调用现有`Bot.sendRequest(..., String.class)`一次；
 - 正常返回更新`SENT`，异常或返回`null`更新`FAILED`；
 - 本期不自动重试。
@@ -1131,7 +1317,7 @@ NapCat调用不进入数据库事务。
 
 ### 11.1 bar与特征补偿调度
 
-建议每分钟第20秒执行：
+当前实现每分钟第10秒执行；第九轮保持该Cron不变：
 
 ```text
 检查已经结束但未构建的15分钟桶
@@ -1281,6 +1467,29 @@ zone = Asia/Shanghai
 - 管理关闭或研究期末清算不能伪装为普通策略卖出；
 - 卖出消息必须携带原买入批次号。
 
+#### 数据异常关闭消息
+
+`ADMIN_CLOSED + SELL_DATA_ADMIN_CLOSE`必须使用独立模板，不进入普通目标/区间/风险/时间文案：
+
+```text
+【系统虚拟组合｜数据异常关闭】#B20260724-001
+
+股票：TCC
+原买入策略：区间下沿买入
+原退出原因：达到目标收益
+原预期卖出bar：2026-07-24 16:15
+恢复参考bar：2026-07-24 16:45～17:00
+数据陈旧持续：30分钟
+系统参考买价：$123.45
+系统异常关闭参考价：$124.10
+扣除0.1%卖出费后净收益：+0.43%
+
+本次为系统风险/管理关闭，不代表原策略在该价格准时成交。
+本关闭仅对应批次 B20260724-001；未跟随原BUY者无需操作。
+```
+
+消息必须由批次持久化审计字段生成，不允许从日志推断；`formalReason=SELL_DATA_ADMIN_CLOSE`只存在于结构化payload，不直接向用户展示英文编码。
+
 ### 12.5 每日摘要
 
 每天08:30发送。日报生成时点记为`summaryGeneratedAt`，开放正式仓位的估值行情最大允许滞后30分钟，按实际bar的`barEndTime`计算：
@@ -1372,6 +1581,43 @@ repository/mapper/torn/stocks/portfolio/
 resources/mapper/torn/stocks/portfolio/
 ```
 
+第九轮修复预计修改/新增：
+
+```text
+src/main/java/pn/torn/goldeneye/constants/torn/SettingConstants.java
+src/main/java/pn/torn/goldeneye/repository/model/torn/stocks/portfolio/TornStockVirtualBatchDO.java
+src/main/java/pn/torn/goldeneye/repository/model/torn/stocks/portfolio/TornStockNoticeAuditDO.java
+src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockVirtualBatchDAO.java
+src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockNoticeAuditDAO.java
+src/main/java/pn/torn/goldeneye/repository/mapper/torn/stocks/portfolio/TornStockVirtualBatchMapper.java
+src/main/java/pn/torn/goldeneye/repository/mapper/torn/stocks/portfolio/TornStockNoticeAuditMapper.java
+src/main/resources/mapper/torn/stocks/portfolio/TornStockVirtualBatchMapper.xml
+src/main/resources/mapper/torn/stocks/portfolio/TornStockNoticeAuditMapper.xml
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockEntrySettlementService.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockPortfolioService.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockRoundTransactionService.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockShadowRecordWriter.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/VipStockAlertScheduler.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockAlertRuntimeGate.java（新增）
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticeSendService.java
+src/main/resources/db/changelog/1.0.1-2.0.0/1.2.0/stocks-portfolio.yaml
+```
+
+对应测试至少修改/新增：
+
+```text
+StockEntrySettlementServiceTest.java
+StockBatchPathServiceTest.java
+StockRoundTransactionServiceTest.java
+StockSignalStateUpdaterTest.java
+StockShadowRecordWriterDecisionTest.java（可扩展或新增专用writer测试）
+StockNoticeComposeServiceTest.java
+StockNoticeSendServiceTest.java
+VipStockAlertSchedulerTest.java（新增）
+StockAlertRuntimeGateTest.java（新增）
+当前HEAD隔离PostgreSQL集成测试（临时资产，验证后按用户要求清理并保留可归属报告）
+```
+
 枚举建议集中在：
 
 ```text
@@ -1394,20 +1640,21 @@ src/main/resources/db/changelog/db.changelog-master.yaml
 
 现有文件原则上只做必要改动：
 
-- `SettingConstants.java`：增加总开关、模式和日报开关；
+- `SettingConstants.java`：维护总开关、新买入开关、规则模式、正式消息和日报开关；
 - 不增加新群配置，继续读取`ProjectProperty.vipGroupId`；
 - 原`StockTradeStrategyService`和`VipStocksStrategyImpl`保持行为不变；
 - `TornStocksManager`不接入组合状态机。
 
 ---
 
-## 14. 配置建议
+## 14. 配置设计
 
 使用`sys_setting`增加：
 
 | Key | 默认值 | 含义 |
 |---|---|---|
-| `VIP_STOCK_ALERT_ENABLED` | `false` | 是否启用股票组合轮次处理 |
+| `VIP_STOCK_ALERT_ENABLED` | `false` | 是否启用轮次数据构建和存量批次生命周期管理；已有活跃批次时不得因该值关闭而停止管理，见兼容规则 |
+| `VIP_STOCK_NEW_ENTRY_ENABLED` | `false` | 是否允许创建新的正式/候选影子批次；紧急回滚时关闭此项即可停止新买入 |
 | `VIP_STOCK_FORMAL_NOTICE_ENABLED` | `false` | 是否向VIP群发送正式买卖消息 |
 | `VIP_STOCK_DAILY_SUMMARY_ENABLED` | `false` | 是否发送08:30日报 |
 | `VIP_STOCK_RULE_MODE` | `SHADOW` | `OFF/SHADOW/PROVISIONAL/FORMAL` |
@@ -1423,6 +1670,37 @@ src/main/resources/db/changelog/db.changelog-master.yaml
 ```
 
 Shadow模式也维护一套5槽“正式候选影子组合”，但不发即时买卖消息；日报可按用户确认包含Shadow汇总。
+
+### 14.1 开关判定矩阵
+
+| 场景 | 数据构建 | 管理存量批次 | 新建批次 | 写通知审计 | 发送正式消息 |
+|---|---:|---:|---:|---:|---:|
+| 无活跃批次，`ALERT=false` | 否 | 不适用 | 否 | 否 | 仅发送历史PENDING时由正式消息开关决定 |
+| 有活跃批次，`ALERT=false` | 只构建完成存量管理所需轮次 | 是 | 否 | 是 | 由正式消息开关决定 |
+| `ALERT=true, NEW_ENTRY=false` | 是 | 是 | 否 | 是 | 由正式消息开关决定 |
+| `ALERT=true, NEW_ENTRY=true` | 是 | 是 | 按`RULE_MODE` | 是 | 由正式消息开关决定 |
+
+兼容现有部署：新增`VIP_STOCK_NEW_ENTRY_ENABLED`后，若配置缺失必须按`false`处理，不能从旧总开关推导为true。调度器入口不得只因`VIP_STOCK_ALERT_ENABLED=false`直接返回；应先批量查询是否存在活跃批次或PENDING通知。有存量批次时继续数据构建、退出、恢复、结算和通知审计，但候选评估与新批次接纳必须关闭。
+
+`VIP_STOCK_RULE_MODE=OFF`只禁止买入研究事件、Shadow新批次和正式接纳，不阻断已存在批次的路径更新、退出成交、灾难关闭、冷却和通知审计。
+
+实现采用低侵入方式：
+
+- `TornStockVirtualBatchDAO`新增`existsActiveBatches()`，SQL使用`SELECT EXISTS(...)`同时检查正式和无限资金影子活跃状态，禁止先加载全量列表只为判断存在性；
+- `TornStockNoticeAuditDAO`新增`existsPendingNotices()`，SQL使用`SELECT EXISTS(...)`；
+- 新增`StockAlertRuntimeGate`纯服务，集中返回`shouldBuildRounds/manageExistingBatches/allowNewEntry/shouldSendPendingNotices`，定时入口与启动补偿必须复用；
+- `StockRoundTransactionService`新增`allowNewEntry`参数或上下文；无论值为何都执行ENTRY/EXIT结算和存量路径管理，仅在买入信号评估、事件/影子创建、候选接纳和买入边沿推进阶段应用该开关；
+- 不新增分布式锁、不改变现有`AtomicBoolean`单实例防重入。
+
+调度器每次触发时按以下顺序执行，确保历史PENDING通知不被轮次开关阻断：
+
+```text
+读取RuntimeGate
+→ shouldBuildRounds=true时抢占processing并处理轮次
+→ 无论是否构建轮次，只要shouldSendPendingNotices=true就调用sendPendingNotices
+```
+
+启动补偿使用相同顺序。通知发送仍受`VIP_STOCK_FORMAL_NOTICE_ENABLED`控制，但不受`VIP_STOCK_ALERT_ENABLED`和`VIP_STOCK_NEW_ENTRY_ENABLED`控制。
 
 ---
 
@@ -1518,7 +1796,8 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 - 持有恰好14天触发时间退出；
 - 区间策略`netReturn > 0`且`position30 >= 0.60`触发；
 - `netReturn == 0`不触发区间退出；
-- `high30 == low30`不触发区间退出；
+- 非RANGE批次缺少区间特征仍可正常评估目标/风险/时间并产生HOLD；
+- RANGE批次先评估目标/风险/时间；前三项均未命中后，缺少`position30/low30d/high30d`或`high30d <= low30d`必须返回不可评估、转`DATA_STALE`且不生成HOLD mark；
 - 裸连续下跌不触发独立卖出；
 - 卖出只能关闭原买入批次。
 
@@ -1529,6 +1808,8 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 - 冷却结束但未复位不重入；
 - 正常关闭冷却24小时；
 - 风险关闭冷却48小时；
+- 灾难关闭冷却48小时且`resetObserved=false`；
+- `DATA_STALE_EXIT`无恢复bar时保持活跃和占槽；首个恢复可用bar才允许`ADMIN_CLOSED`；
 - 部分唯一索引阻止同股多活跃批次；
 - 批次mark同轮不重复；
 - 通知审计同批次同类型不重复。
@@ -1544,17 +1825,42 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 - 同轮超过3个动作正确拆分；
 - 卖出不会因消息预算被删除。
 
-### 16.9 数据库
+### 16.9 灾难关闭与通知审计
+
+- 完整FORMAL批次、OCCUPIED/STALE槽位和`currentBatchId`绑定成功时，精确断言`quantity × recoveryPrice × 0.999`、最终`availableCash`、槽位解绑和`ADMIN_CLOSED`；
+- 正式批次缺少`ledgerType/slotId/slotNo/quantity/entryReferencePrice/expectedExitBarTime`任一字段时抛异常并回滚；
+- 槽位不存在、slotNo不一致、`currentBatchId != batch.id`、状态非法、`reservedCash != 0`或余款不一致时抛异常并回滚；
+- 影子批次显式`UNLIMITED_SHADOW`，只计算理论收益，不读取/修改正式槽位，不创建正式通知；
+- 恢复bar不可用、版本不符、价格非正或时间字段缺失时保持`DATA_STALE_EXIT`；
+- 持久化并精确断言`originalExitReason/adminCloseReason/recoveryBarStart/End/staleExitDurationSeconds`；
+- 使用真实`StockBatchExitService + StockBatchPathService`验证RANGE缺特征转`DATA_STALE`，禁止mock不可评估结果代替生产链；
+- 覆盖`锁后5槽 + DATA_STALE_EXIT → 资金结算 → 冷却 → 批次/槽位保存 → SELL通知审计 → 轮次完成`生产编排链；
+- 在通知审计保存、批量Batch保存和轮次完成位置分别注入异常，验证批次、槽位、冷却和通知全部回滚；
+- 捕获`finalizePayload`参数并解析JSON，验证创建时业务字段全部保留，新增`messageText/frozenAt`，`payloadHash = sha256(最终完整JSON)`；
+- 灾难关闭最终中文文本使用精确快照断言，不得只用`contains`验证局部片段。
+
+### 16.10 数据库
 
 - Liquibase YAML语法；
 - 每张表和每列均有中文remarks；
 - 部分唯一索引在PostgreSQL 17.5可执行；
-- 使用隔离schema真实执行changelog；
+- 使用隔离PostgreSQL数据库或隔离schema真实执行changelog；
 - 读取`obj_description/col_description`核对注释；
-- 执行后删除隔离schema；
+- 执行当前生产Mapper/DAO，验证新增管理关闭列、JSONB最终payload、正式资金回笼和事务回滚；
+- 留存当前HEAD、完整命令、`SELECT version()`、测试源码和Surefire XML；执行后按用户要求删除临时数据库/schema；
 - 所有DO字段Javadoc和表字段语义一致。
 
-### 16.10 回放
+### 16.11 开关与存量生命周期
+
+- `ALERT=false`且无活跃批次时不构建新轮次；
+- `ALERT=false`但存在`OPEN/DATA_STALE/EXIT_PENDING/DATA_STALE_EXIT`时继续管理并禁止新批次；
+- `NEW_ENTRY=false`时不产生新正式/Shadow/拒绝观察批次，但存量批次继续退出和结算；
+- `RULE_MODE=OFF`不阻断存量批次管理；
+- 启动补偿与定时入口使用相同判定；
+- 正式消息关闭只阻止发送，不阻止通知审计落库和存量资金结算；
+- 历史PENDING通知不依赖轮次总开关，可由正式消息开关独立发送。
+
+### 16.12 回放
 
 必须使用每槽20亿重跑：
 
@@ -1598,6 +1904,10 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 卖出因消息合并被删除 = 0
 跨越非紧邻bar成交 = 0
 晚于staleAt补发买入 = 0
+正式批次已关闭但槽位未释放 = 0
+正式批次关闭但资金未回笼 = 0
+灾难关闭缺失完整审计字段 = 0
+关闭新买入后存量批次停止管理 = 0
 ```
 
 ### 17.2 数据门禁
@@ -1617,6 +1927,9 @@ bar唯一冲突造成重复计算 = 0
 卖出缺失原买入批次号 = 0
 风险退出被称为止盈 = 0
 每日摘要缺失Shadow汇总 = 0
+最终payload丢失创建时业务字段 = 0
+payload_hash与最终完整payload不一致 = 0
+灾难关闭使用普通SELL原因码或止盈文案 = 0
 平均消息 <= 4条/日
 P95消息 <= 6条/日
 ```
@@ -1700,42 +2013,40 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 | 同股或槽位竞争 | 行锁复核+PostgreSQL部分唯一索引 |
 | 风格缺失 | fail-closed，只记原始信号，不建立正式候选 |
 | 数据缺口 | OPEN转DATA_STALE并继续占槽，不伪造成交 |
+| DATA_STALE_EXIT长期无价格 | 保持占槽，按小时限频结构化WARN，不使用成本/旧价/零价注销 |
+| 正式槽位或批次绑定损坏 | fail-closed并回滚整个轮次，不允许仅关闭批次 |
+| 停止新买入 | 关闭`VIP_STOCK_NEW_ENTRY_ENABLED`，存量持仓管理继续运行 |
+| 通知最终冻结 | 合并完整业务payload后追加文本并重算hash，禁止覆盖 |
 | NapCat失败 | 本期记录FAILED但不自动重试，后续专题治理 |
 | 中文映射遗漏 | 统一消息字典和“无英文编码”测试门禁 |
 
 ### 19.2 回滚原则
 
 - 所有新表为新增表，不改动现有股票采集和旧建议表结构，回滚侵入性低。
-- 功能回滚优先关闭`VIP_STOCK_ALERT_ENABLED`和正式消息开关，不删除数据。
+- 功能回滚优先关闭`VIP_STOCK_NEW_ENTRY_ENABLED`和正式消息开关，不删除数据；只在确认不存在活跃批次和PENDING通知后，才允许关闭`VIP_STOCK_ALERT_ENABLED`停止轮次构建。
 - 已执行Liquibase changeSet不得修改；修正使用追加changeSet。
 - 未经单独确认不删除bar、特征、批次、Shadow或失败构建数据。
-- 已发布批次即使关闭新买入，也必须继续管理其卖出生命周期；禁止通过关闭总开关遗弃开放正式批次。实现时应将“停止新买入”和“停止持仓管理”分为不同开关或明确保证总开关只停止新轮次中的买入。
+- 已发布批次即使关闭新买入，也必须继续管理其卖出生命周期；`VIP_STOCK_NEW_ENTRY_ENABLED=false`是标准回滚入口，`VIP_STOCK_ALERT_ENABLED`不得作为遗弃存量批次的快捷开关。
 
 ---
 
-## 20. 实施者检查清单
+## 20. 下一轮工程师实施检查清单
 
-- [ ] 先读取本文件和全部股票业务知识库。
-- [ ] 不直接复用现有分钟特征作为正式输入。
-- [ ] 不修改`StockTradeStrategyService`旧指令行为。
-- [ ] 所有正式用户消息使用中文映射。
-- [ ] 5槽每槽初始化20亿。
-- [ ] 仅使用紧邻下一连续bar的最后实际价格成交。
-- [ ] bar允许最多缺5个分钟采样，并满足桶尾5分钟新鲜度。
-- [ ] ENTRY从信号桶开始最多等待35分钟。
-- [ ] ENTRY只取消向上偏离大于0.15%的情况。
-- [ ] 候选排序为质量分降序、股票ID升序。
-- [ ] RANGE退出要求净收益大于0且位置不低于0.60。
-- [ ] DATA_STALE继续占槽。
-- [ ] Shadow只写库，即时群消息只来自正式批次。
-- [ ] 每天08:30摘要包含正式和Shadow数据。
-- [ ] 使用现有`vipGroupId`，不新增专用群配置。
-- [ ] NapCat本期保持现有调用，不实现自动重试和ACK对账。
-- [ ] 数据库表和字段全部有准确中文remarks。
-- [ ] Java DO字段、record组件和公共API满足项目Javadoc规范。
-- [ ] 数据查询和写入无N+1。
-- [ ] 事务内不调用NapCat。
-- [ ] 编译、聚焦测试、Liquibase隔离schema验证和回放全部通过。
+- [x] 主体15分钟bar、特征、5槽、Shadow和通知框架已存在；本轮不重复建设。
+- [x] RANGE不可评估转`DATA_STALE`的规则层实现已存在；本轮补真实编排测试。
+- [ ] 明确核实股票changeSet是否在正式环境执行，决定改写原changelog或追加changeSet，并记录证据。
+- [ ] 为虚拟批次新增5个管理关闭审计字段及约束，Liquibase每列均有准确中文remarks。
+- [ ] 更新DO字段和状态/原因Javadoc，禁止继续使用旧`TAKE_PROFIT/STOP_LOSS`示例。
+- [ ] 抽取正式批次—槽位一致性校验，正常SELL与灾难关闭共用资金结算逻辑。
+- [ ] 正式批次缺字段、缺槽位、绑定错误、状态错误、余款不一致时抛异常回滚。
+- [ ] 影子批次必须显式`UNLIMITED_SHADOW`，未知ledgerType不得进入结算。
+- [ ] 灾难关闭持久化完整审计字段并使用48小时冷却、`resetObserved=false`。
+- [ ] 通知payload采用合并模式，最终hash对应完整最终JSON；禁止覆盖创建时业务字段。
+- [ ] 新增`VIP_STOCK_NEW_ENTRY_ENABLED`并按缺失=false处理；存量批次管理不得被总开关或RULE_MODE阻断。
+- [ ] 定时入口和启动补偿共用同一开关判定服务/方法，避免双套判断。
+- [ ] 完成规则层、服务层、真实编排层、通知链和隔离PostgreSQL测试。
+- [ ] 先完成Sonar/IDEA/Javadoc/Liquibase Schema清理，再运行聚焦、股票包和全量测试。
+- [ ] 更新本技术方案“当前实现基线/技术验收状态”，确保最终文档与代码一致后再提交Review。
 
 ---
 
@@ -1756,4 +2067,4 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文为最终技术方案，不代表已执行代码、Liquibase、历史重建、Shadow启动或正式群发布。后续实施必须按阶段获得相应授权，并在每个阶段完成真实验证。
+本文是当前第九轮修复的最终技术实施基线。主体代码、Liquibase和Shadow能力已经部分实现，但本文新增或修订的账实原子性、管理关闭审计、最终payload和开关拆分尚未实施。普通工程师必须按第20节完成修复并取得真实验证；在技术方案与代码逐项一致、Review通过及正式发布单独审批前，仅允许继续Shadow，禁止开启正式买卖提醒。
