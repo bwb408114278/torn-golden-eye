@@ -888,24 +888,54 @@ ENTRY_DATA_STALE
 ENTRY_PRICE_DEVIATION
 ```
 
-SELL/HOLD：
+SELL/HOLD原因码必须按下列语义冻结，不得互换：
 
 ```text
 SELL_TARGET_REACHED
+  = 扣费后netReturn >= +0.8%的首期固定目标退出
+
 SELL_RANGE_RECOVERED
+  = RANGE批次盈利且position30 >= 0.60的区间恢复退出
+
+SELL_HARD_RISK
+  = 扣费后netReturn <= -1.5%的首期硬性收益底线退出
+
+SELL_STRUCTURAL_RISK
+  = 未来结构风险状态机确认退出；必须由多项趋势/动量/低点恶化证据共同触发，首期固定退出引擎不得使用
+
+SELL_MAX_HOLD
+  = 持有达到14天的时间退出
+
 SELL_DYNAMIC_STRENGTH
 SELL_PROFIT_PROTECT
-SELL_STRUCTURAL_RISK
-SELL_HARD_RISK
-SELL_MAX_HOLD
+  = 动态SELL规则正式化后的原因，首期只作shadow
+
 SELL_OPTIONAL_ROTATION
+  = 可选换仓关闭，默认关闭
+
 SELL_DATA_ADMIN_CLOSE
+  = 数据/管理关闭，不得伪装为普通策略SELL
+
+HOLD_NO_EXIT_TRIGGERED
+  = 当前bar数据完整、批次可评估，但首期四种正式退出规则均未命中时的通用HOLD
+
 HOLD_RECOVERY_IN_PROGRESS
 HOLD_TREND_STILL_SUPPORTIVE
 HOLD_NO_RISK_CONFIRMATION
+  = 动态/结构风险状态机的特定解释；只有相应事实实际计算成立时才能使用，不作为首期固定规则的通用回退
 ```
 
-研究期末清算或管理关闭不得作为普通策略SELL群发。
+首期固定退出映射唯一确定：
+
+```text
+CLOSED_TARGET → SELL_TARGET_REACHED
+CLOSED_RANGE  → SELL_RANGE_RECOVERED
+CLOSED_RISK   → SELL_HARD_RISK
+CLOSED_TIME   → SELL_MAX_HOLD
+未命中退出   → HOLD_NO_EXIT_TRIGGERED
+```
+
+若入场参考价、当前价格、时间或必要特征缺失，不能记为`HOLD_NO_EXIT_TRIGGERED`；应先进入数据不足/不可评估路径，例如`DATA_STALE`，避免把“无法判断”记录成“已判断且继续持有”。
 
 ---
 

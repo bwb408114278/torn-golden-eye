@@ -398,7 +398,32 @@ qualityScore DESC
 
 禁止使用枚举遍历顺序、集合顺序、股票简称或未来收益排序。
 
-### 6.4 false→true边沿
+### 6.4 正式原因码映射
+
+首期固定退出和HOLD使用以下唯一映射：
+
+```text
+netReturn >= +0.8%
+→ CLOSED_TARGET / SELL_TARGET_REACHED
+
+RANGE且netReturn>0且position30>=0.60
+→ CLOSED_RANGE / SELL_RANGE_RECOVERED
+
+netReturn <= -1.5%
+→ CLOSED_RISK / SELL_HARD_RISK
+
+持有时间 >= 14天
+→ CLOSED_TIME / SELL_MAX_HOLD
+
+四种退出均未命中且输入完整
+→ HOLD / HOLD_NO_EXIT_TRIGGERED
+```
+
+`SELL_STRUCTURAL_RISK`保留给未来多证据结构风险状态机，首期-1.5%固定底线不得使用该编码。`HOLD_RECOVERY_IN_PROGRESS`、`HOLD_TREND_STILL_SUPPORTIVE`和`HOLD_NO_RISK_CONFIRMATION`只有动态/结构状态机实际证明对应事实时才允许使用，不是通用HOLD回退。
+
+输入或必要特征不完整属于不可评估，必须进入数据不足状态，不得使用`HOLD_NO_EXIT_TRIGGERED`。
+
+### 6.5 false→true边沿
 
 - 原始信号只在买入条件从false变为true时生成；
 - 持续为true期间不重复生成高度相关机会；

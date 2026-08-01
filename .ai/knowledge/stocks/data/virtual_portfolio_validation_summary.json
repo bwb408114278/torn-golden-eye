@@ -320,5 +320,14 @@
     "price_as_of": "minimum barEndTime among all bars used for complete equity",
     "normal_0830_expected_latest_bar_end": "08:15",
     "one_missing_15m_bucket_tolerated": true
+  },
+  "formal_reason_codes": {
+    "CLOSED_TARGET": "SELL_TARGET_REACHED",
+    "CLOSED_RANGE": "SELL_RANGE_RECOVERED",
+    "CLOSED_RISK": "SELL_HARD_RISK",
+    "CLOSED_TIME": "SELL_MAX_HOLD",
+    "HOLD": "HOLD_NO_EXIT_TRIGGERED",
+    "SELL_STRUCTURAL_RISK": "reserved for future multi-evidence structural-risk state machine; not used by initial fixed -1.5% rule",
+    "hold_generic_precondition": "all required inputs complete and all initial formal exit rules evaluated without trigger"
   }
 }
