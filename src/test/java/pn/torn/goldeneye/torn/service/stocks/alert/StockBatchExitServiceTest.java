@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockFormalReasonEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBatchExitService.ExitEvaluation;
 
@@ -58,6 +59,7 @@ class StockBatchExitServiceTest {
 
         assertTrue(result.shouldExit(), "净收益恰好+0.8%应触发目标退出");
         assertEquals(StockCloseTypeEnum.CLOSED_TARGET, result.closeType());
+        assertEquals(StockFormalReasonEnum.SELL_TARGET_REACHED.getCode(), result.reasonCode());
     }
 
     @Test
@@ -93,6 +95,7 @@ class StockBatchExitServiceTest {
 
         assertTrue(result.shouldExit(), "净收益恰好-1.5%应触发风险退出");
         assertEquals(StockCloseTypeEnum.CLOSED_RISK, result.closeType());
+        assertEquals(StockFormalReasonEnum.SELL_HARD_RISK.getCode(), result.reasonCode());
     }
 
     @Test
@@ -131,6 +134,7 @@ class StockBatchExitServiceTest {
 
         assertTrue(result.shouldExit(), "持有14天应触发退出");
         assertEquals(StockCloseTypeEnum.CLOSED_TIME, result.closeType());
+        assertEquals(StockFormalReasonEnum.SELL_MAX_HOLD.getCode(), result.reasonCode());
     }
 
     @Test
@@ -159,6 +163,7 @@ class StockBatchExitServiceTest {
 
         assertTrue(result.shouldExit(), "应触发退出");
         assertEquals(StockCloseTypeEnum.CLOSED_RANGE, result.closeType());
+        assertEquals(StockFormalReasonEnum.SELL_RANGE_RECOVERED.getCode(), result.reasonCode());
     }
 
     @Test
@@ -219,6 +224,7 @@ class StockBatchExitServiceTest {
 
         assertFalse(result.shouldExit(), "无退出条件满足时不应退出");
         assertNull(result.closeType(), "shouldExit=false时closeType应为null");
+        assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode());
         assertNotNull(result.reason(), "reason应描述未退出原因");
     }
 

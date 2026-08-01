@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockFormalReasonEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
@@ -97,7 +98,7 @@ public class StockBatchExitService {
         BigDecimal entryReferencePrice = batch.getEntryReferencePrice();
         if (entryReferencePrice == null || entryReferencePrice.signum() <= 0) {
             log.warn("批次[{}]入场参考价缺失或非正,跳过退出评估", batch.getBatchNo());
-            return new ExitEvaluation(false, null, "入场参考价缺失");
+            return hold("入场参考价缺失");
         }
 
         BigDecimal netReturn = calculateNetReturn(entryReferencePrice, currentPrice);
@@ -130,7 +131,7 @@ public class StockBatchExitService {
             return rangeExit;
         }
 
-        return new ExitEvaluation(false, null, "未命中任何退出规则");
+        return hold("未命中任何退出规则");
     }
 
     // ==================== 四种退出规则 ====================
@@ -145,13 +146,14 @@ public class StockBatchExitService {
      */
     public ExitEvaluation checkTargetExit(BigDecimal netReturn) {
         if (netReturn == null) {
-            return new ExitEvaluation(false, null, "净收益率为空");
+            return hold("净收益率为空");
         }
         if (netReturn.compareTo(TARGET_RETURN_THRESHOLD) >= 0) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_TARGET,
+                    StockFormalReasonEnum.SELL_TARGET_REACHED.getCode(),
                     "目标退出: netReturn=" + netReturn + " >= " + TARGET_RETURN_THRESHOLD);
         }
-        return new ExitEvaluation(false, null, "未达到目标退出阈值");
+        return hold("未达到目标退出阈值");
     }
 
     /**
@@ -164,13 +166,14 @@ public class StockBatchExitService {
      */
     public ExitEvaluation checkRiskExit(BigDecimal netReturn) {
         if (netReturn == null) {
-            return new ExitEvaluation(false, null, "净收益率为空");
+            return hold("净收益率为空");
         }
         if (netReturn.compareTo(RISK_RETURN_THRESHOLD) <= 0) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_RISK,
+                    StockFormalReasonEnum.SELL_HARD_RISK.getCode(),
                     "风险退出: netReturn=" + netReturn + " <= " + RISK_RETURN_THRESHOLD);
         }
-        return new ExitEvaluation(false, null, "未达到风险退出阈值");
+        return hold("未达到风险退出阈值");
     }
 
     /**
@@ -184,14 +187,15 @@ public class StockBatchExitService {
      */
     public ExitEvaluation checkTimeExit(LocalDateTime entryTime, LocalDateTime currentTime) {
         if (entryTime == null || currentTime == null) {
-            return new ExitEvaluation(false, null, "入场时间或当前时间为空");
+            return hold("入场时间或当前时间为空");
         }
         long holdDays = Duration.between(entryTime, currentTime).toDays();
         if (holdDays >= MAX_HOLD_DAYS) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_TIME,
+                    StockFormalReasonEnum.SELL_MAX_HOLD.getCode(),
                     "时间退出: 持有" + holdDays + "天 >= " + MAX_HOLD_DAYS + "天");
         }
-        return new ExitEvaluation(false, null, "未达到最长持有时间");
+        return hold("未达到最长持有时间");
     }
 
     /**
@@ -216,29 +220,30 @@ public class StockBatchExitService {
     public ExitEvaluation checkRangeExit(String primaryStrategy, BigDecimal netReturn,
                                          BigDecimal position30, BigDecimal low30d, BigDecimal high30d) {
         if (!RANGE_LOWER_BUY_STRATEGY.equals(primaryStrategy)) {
-            return new ExitEvaluation(false, null, "主策略非区间下沿买入");
+            return hold("主策略非区间下沿买入");
         }
         if (netReturn == null || netReturn.signum() <= 0) {
-            return new ExitEvaluation(false, null, "净收益率非正");
+            return hold("净收益率非正");
         }
 
         // fail-closed: high30 == low30 时不触发
         if (low30d == null || high30d == null) {
-            return new ExitEvaluation(false, null, "30日高低价为空");
+            return hold("30日高低价为空");
         }
         if (high30d.compareTo(low30d) == 0) {
-            return new ExitEvaluation(false, null, "30日高低价相等,fail-closed");
+            return hold("30日高低价相等,fail-closed");
         }
 
         if (position30 == null) {
-            return new ExitEvaluation(false, null, "position30为空,由调用方预算后传入");
+            return hold("position30为空,由调用方预算后传入");
         }
 
         if (position30.compareTo(RANGE_POSITION_THRESHOLD) >= 0) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_RANGE,
+                    StockFormalReasonEnum.SELL_RANGE_RECOVERED.getCode(),
                     "区间恢复退出: position30=" + position30 + " >= " + RANGE_POSITION_THRESHOLD);
         }
-        return new ExitEvaluation(false, null, "position30未达区间恢复阈值");
+        return hold("position30未达区间恢复阈值");
     }
 
     // ==================== 内部计算方法 ====================
@@ -263,15 +268,33 @@ public class StockBatchExitService {
     }
 
     /**
+     * 构建未触发退出的评估结果。
+     * <p>
+     * 未触发任何退出规则时,正式决定为HOLD,使用冻结的通用HOLD原因编码
+     * {@link StockFormalReasonEnum#HOLD_NO_EXIT_TRIGGERED}。说明文本仅用于日志与调试,
+     * 不复用BatchMark.formal_reason字段。
+     *
+     * @param reason 未退出原因描述(仅日志用途)
+     * @return shouldExit=false的评估结果
+     */
+    private static ExitEvaluation hold(String reason) {
+        return new ExitEvaluation(false, null,
+                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), reason);
+    }
+
+    /**
      * 退出评估结果
      * <p>
-     * 封装退出评估的判定输出。shouldExit为true时closeType与reason必有值;
-     * shouldExit为false时closeType为null,reason描述未命中原因。
+     * 封装退出评估的判定输出。shouldExit为true时closeType与reasonCode必有值,
+     * reasonCode为冻结的SELL原因编码;shouldExit为false时closeType为null,
+     * reasonCode为冻结的HOLD通用编码,reason描述未命中原因(仅日志用途)。
      *
      * @param shouldExit 是否应退出
      * @param closeType  关闭类型(shouldExit=true时非空)
-     * @param reason     退出/未退出原因描述
+     * @param reasonCode 冻结的正式决定原因编码(SELL_* 或 HOLD_* 前缀编码)
+     * @param reason     退出/未退出原因描述(仅日志用途)
      */
-    public record ExitEvaluation(boolean shouldExit, StockCloseTypeEnum closeType, String reason) {
+    public record ExitEvaluation(boolean shouldExit, StockCloseTypeEnum closeType,
+                                 String reasonCode, String reason) {
     }
 }

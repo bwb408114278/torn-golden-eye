@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockFormalReasonEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMarkDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
@@ -75,7 +76,8 @@ class StockBatchPathServiceTest {
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(new BigDecimal("110.00"));
         TornStockStrategyFeature15mDO feature = buildFeature();
-        ExitEvaluation noExit = new ExitEvaluation(false, null, "未命中任何退出规则");
+        ExitEvaluation noExit = new ExitEvaluation(false, null,
+                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "未命中任何退出规则");
         when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
@@ -87,7 +89,7 @@ class StockBatchPathServiceTest {
         assertEquals(new BigDecimal("98.00"), batch.getTroughPrice());
         TornStockBatchMarkDO mark = marks.getFirst();
         assertEquals("HOLD", mark.getFormalDecision());
-        assertEquals("未命中任何退出规则", mark.getFormalReason());
+        assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), mark.getFormalReason());
         assertFeatureDecimal(mark.getFeatureSnapshot(), "currentPrice", new BigDecimal("110.00"));
         assertFeatureDecimal(mark.getFeatureSnapshot(), "position30", new BigDecimal("0.50"));
         assertFeatureDecimal(mark.getFeatureSnapshot(), "low30d", new BigDecimal("90.00"));
@@ -141,7 +143,8 @@ class StockBatchPathServiceTest {
         bar.setLastPrice(new BigDecimal("101.00"));
         TornStockStrategyFeature15mDO feature = buildFeature();
 
-        ExitEvaluation exitEval = new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_TARGET, "目标退出");
+        ExitEvaluation exitEval = new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_TARGET,
+                StockFormalReasonEnum.SELL_TARGET_REACHED.getCode(), "目标退出");
         when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(exitEval);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch));
@@ -153,7 +156,7 @@ class StockBatchPathServiceTest {
         assertEquals(StockCloseTypeEnum.CLOSED_TARGET.getCode(), batch.getExitReason());
         TornStockBatchMarkDO mark = marks.getFirst();
         assertEquals("SELL", mark.getFormalDecision());
-        assertEquals(StockCloseTypeEnum.CLOSED_TARGET.getCode(), mark.getFormalReason());
+        assertEquals(StockFormalReasonEnum.SELL_TARGET_REACHED.getCode(), mark.getFormalReason());
         assertFeatureDecimal(mark.getFeatureSnapshot(), "currentPrice", new BigDecimal("101.00"));
         assertFeatureDecimal(mark.getFeatureSnapshot(), "position30", new BigDecimal("0.50"));
         assertFeatureText(mark.getFeatureSnapshot(), "sellRuleVersion",
@@ -232,7 +235,8 @@ class StockBatchPathServiceTest {
 
     private void stubNoExit() {
         when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any()))
-                .thenReturn(new ExitEvaluation(false, null, "未命中任何退出规则"));
+                .thenReturn(new ExitEvaluation(false, null,
+                        StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "未命中任何退出规则"));
     }
 
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches) {

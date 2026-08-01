@@ -38,7 +38,7 @@ import static org.mockito.Mockito.when;
  * 股票轮次事务编排测试，验证本轮正式平仓股票不会重新进入正式候选接纳。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.12
  * @since 2026.07.17
  */
 @ExtendWith(MockitoExtension.class)
@@ -88,14 +88,15 @@ class StockRoundTransactionServiceTest {
                 12L, 1002, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode(), null, roundTime);
         TornStockVirtualBatchDO externalSnapshotBatch = exitPendingBatch(
                 99L, 9999, StockLedgerTypeEnum.FORMAL.getCode(), 9L, roundTime);
-        TornStockPortfolioSlotDO lockedSlot = occupiedSlot(1L, formalExitPendingBatch.getId());
-        TornStockPortfolioSlotDO externalSnapshotSlot = occupiedSlot(9L, externalSnapshotBatch.getId());
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(formalExitPendingBatch);
+        TornStockPortfolioSlotDO externalSnapshotSlot = formalSlot(
+                9L, StockSlotStatusEnum.OCCUPIED, externalSnapshotBatch.getId());
         List<CandidateInfo> candidates = List.of(candidate(1001), candidate(1002));
         RoundSnapshot snapshot = new RoundSnapshot(
                 List.of(usableBar(1001, roundTime), usableBar(1002, roundTime)), List.of(), List.of(),
                 List.of(externalSnapshotBatch), List.of(), List.of(), List.of(externalSnapshotSlot), roundTime);
 
-        stubRoundExecution(roundTime, formalExitPendingBatch, shadowExitPendingBatch, lockedSlot, candidates);
+        stubRoundExecution(roundTime, formalExitPendingBatch, shadowExitPendingBatch, lockedSlots, candidates);
 
         transactionService.executeRound(roundTime, snapshot);
 
@@ -116,7 +117,8 @@ class StockRoundTransactionServiceTest {
         assertSame(formalExitPendingBatch, capturedSnapshot.activeBatches().getFirst());
         assertSame(shadowExitPendingBatch, capturedSnapshot.activeBatches().get(1));
         assertEquals(List.of(shadowExitPendingBatch), capturedSnapshot.shadowBatches());
-        assertEquals(List.of(lockedSlot), capturedSnapshot.slots());
+        assertEquals(5, capturedSnapshot.slots().size());
+        assertSlotSettlement(capturedSnapshot.slots());
     }
 
     /**
@@ -125,18 +127,18 @@ class StockRoundTransactionServiceTest {
      * @param roundTime              轮次时间
      * @param formalExitPendingBatch 事务内锁定的待卖出正式批次
      * @param shadowExitPendingBatch 事务内锁定的待卖出影子批次
-     * @param lockedSlot             事务内锁定的正式槽位
+     * @param lockedSlots            事务内锁定的完整5槽正式槽位列表
      * @param candidates             评估得到的正式候选
      */
     private void stubRoundExecution(LocalDateTime roundTime,
                                     TornStockVirtualBatchDO formalExitPendingBatch,
                                     TornStockVirtualBatchDO shadowExitPendingBatch,
-                                    TornStockPortfolioSlotDO lockedSlot,
+                                    List<TornStockPortfolioSlotDO> lockedSlots,
                                     List<CandidateInfo> candidates) {
         TornStockMarketRoundDO round = new TornStockMarketRoundDO();
         when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(round);
         when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
-                .thenReturn(List.of(lockedSlot));
+                .thenReturn(lockedSlots);
         when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of(formalExitPendingBatch));
         when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of(shadowExitPendingBatch));
         when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime))).thenReturn(List.of());
@@ -185,15 +187,70 @@ class StockRoundTransactionServiceTest {
         return batch;
     }
 
-    private TornStockPortfolioSlotDO occupiedSlot(Long id, Long batchId) {
+    /**
+     * 构建生产形状的5槽正式组合: 1个OCCUPIED槽位关联正式批次, 其余4个AVAILABLE槽位。
+     * <p>
+     * 冻结设计正式组合固定为5槽, 每槽初始资金 {@link StockPortfolioService#INITIAL_CASH}。
+     * 占用槽位携带建仓后真实余款, 用于验证平仓结算仅释放占用槽位而其余槽位不变。
+     *
+     * @param occupiedBatch 关联到1号占用槽位的正式批次
+     * @return 5个字段合法的正式组合槽位
+     */
+    private List<TornStockPortfolioSlotDO> buildFiveFormalSlots(TornStockVirtualBatchDO occupiedBatch) {
+        TornStockPortfolioSlotDO occupied = formalSlot(1L, StockSlotStatusEnum.OCCUPIED, occupiedBatch.getId());
+        occupied.setAvailableCash(new BigDecimal("1999990000.00"));
+        return List.of(
+                occupied,
+                formalSlot(2L, StockSlotStatusEnum.AVAILABLE, null),
+                formalSlot(3L, StockSlotStatusEnum.AVAILABLE, null),
+                formalSlot(4L, StockSlotStatusEnum.AVAILABLE, null),
+                formalSlot(5L, StockSlotStatusEnum.AVAILABLE, null));
+    }
+
+    /**
+     * 构建字段合法的正式组合槽位。
+     *
+     * @param id             槽位ID
+     * @param status         槽位状态
+     * @param currentBatchId 当前批次ID(空仓为null)
+     * @return 槽位DO
+     */
+    private TornStockPortfolioSlotDO formalSlot(Long id, StockSlotStatusEnum status, Long currentBatchId) {
         TornStockPortfolioSlotDO slot = new TornStockPortfolioSlotDO();
         slot.setId(id);
+        slot.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         slot.setSlotNo(id.intValue());
-        slot.setAvailableCash(BigDecimal.ZERO);
+        slot.setInitialCash(StockPortfolioService.INITIAL_CASH);
+        slot.setAvailableCash(StockPortfolioService.INITIAL_CASH);
         slot.setReservedCash(BigDecimal.ZERO);
-        slot.setCurrentBatchId(batchId);
-        slot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
+        slot.setCurrentBatchId(currentBatchId);
+        slot.setSlotStatus(status.getCode());
+        slot.setLockVersion(1L);
         return slot;
+    }
+
+    /**
+     * 断言平仓后槽位结算形状: 1号占用槽位已释放为AVAILABLE并回笼卖出所得,
+     * 其余4个AVAILABLE槽位字段保持不变。
+     *
+     * @param slots 锁后传入候选接纳的槽位列表
+     */
+    private void assertSlotSettlement(List<TornStockPortfolioSlotDO> slots) {
+        TornStockPortfolioSlotDO settledSlot = slots.stream()
+                .filter(slot -> slot.getId() == 1L)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("缺少1号占用槽位"));
+        assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), settledSlot.getSlotStatus());
+        assertNull(settledSlot.getCurrentBatchId());
+        assertEquals(0, new BigDecimal("2000000089.90").compareTo(settledSlot.getAvailableCash()));
+
+        slots.stream()
+                .filter(slot -> slot.getId() != 1L)
+                .forEach(slot -> {
+                    assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus());
+                    assertNull(slot.getCurrentBatchId());
+                    assertEquals(0, StockPortfolioService.INITIAL_CASH.compareTo(slot.getAvailableCash()));
+                });
     }
 
     private TornStockMarketBar15mDO usableBar(int stocksId, LocalDateTime roundTime) {

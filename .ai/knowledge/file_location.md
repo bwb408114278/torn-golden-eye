@@ -36,7 +36,7 @@
 │   └── docker-compose.yml                                                      # Docker compose启动文件
 ├── src/                                                                        # 代码根目录
 │   ├── main/                                                                   # 功能代码
-│   │   ├── java.pn.torn.goldeneye/                                             # java代码根目录
+│   │   ├── java/pn/torn/goldeneye/                                            # java代码根目录
 │   │   │   ├── configuration/                                                  # 项目配置
 │   │   │   │   └── DynamicTaskService.java                                     # 动态定时任务
 │   │   │   ├── constants/                                                      # 常量
@@ -78,8 +78,12 @@
 │   │   │   │   │       │   │   ├── TornStockBatchMarkDAO.java                  # 批次逐轮标记DAO
 │   │   │   │   │       │   │   ├── TornStockPortfolioSlotDAO.java              # 组合槽位DAO
 │   │   │   │   │       │   │   ├── TornStockMarketRoundDAO.java                # 轮次记录DAO
+│   │   │   │   │       │   │   ├── TornStockMarketBar15mDAO.java               # 15分钟bar DAO
+│   │   │   │   │       │   │   ├── TornStockStrategyFeature15mDAO.java         # 15分钟策略特征DAO
 │   │   │   │   │       │   │   ├── TornStockSignalEventDAO.java                # 信号事件DAO
-│   │   │   │   │       │   │   └── TornStockSignalStateDAO.java                # 信号边沿状态DAO
+│   │   │   │   │       │   │   ├── TornStockSignalStateDAO.java                # 信号边沿状态DAO
+│   │   │   │   │       │   │   ├── TornStockMonthlyStateDAO.java               # 月度风格状态DAO
+│   │   │   │   │       │   │   └── TornStockNoticeAuditDAO.java                # 通知审计DAO
 │   │   │   │   │       │   └── TornStocksHistoryDAO.java                       # 股票历史DAO
 │   │   │   │   │       └── TornAttackLogDAO.java                               # 攻击日志DAO
 │   │   │   │   ├── mapper/                                                     # Mapper相关
@@ -88,10 +92,19 @@
 │   │   │   │   │   │       ├── TornFactionOcMapper.java                        # OC Mapper
 │   │   │   │   │   │       └── TornFactionOcSlotMapper.java                    # OC岗位相关Mapper
 │   │   │   │   │   └── torn/                                                   # Torn相关Mapper
-│   │   │   │   │       ├── stocks/                                             # 股票相关Mapper
+│   │   │   │   │       ├── stocks/                                             # 股票相关Mapper(Java接口)
 │   │   │   │   │       │   ├── portfolio/                                      # VIP股票组合相关Mapper
-│   │   │   │   │       │   │   └── TornStockVirtualBatchMapper.xml             # 虚拟批次表Mapper(含UPSERT与行锁查询)
-│   │   │   │   │       │   └── TornStocksHistoryMapper.xml                    # 股票历史表Mapper
+│   │   │   │   │       │   │   ├── TornStockVirtualBatchMapper.java            # 虚拟批次表Mapper(含UPSERT与行锁查询)
+│   │   │   │   │       │   │   ├── TornStockBatchMarkMapper.java               # 批次逐轮标记Mapper
+│   │   │   │   │       │   │   ├── TornStockPortfolioSlotMapper.java           # 组合槽位Mapper
+│   │   │   │   │       │   │   ├── TornStockMarketRoundMapper.java             # 轮次记录Mapper
+│   │   │   │   │       │   │   ├── TornStockMarketBar15mMapper.java            # 15分钟bar Mapper
+│   │   │   │   │       │   │   ├── TornStockStrategyFeature15mMapper.java      # 15分钟策略特征Mapper
+│   │   │   │   │       │   │   ├── TornStockSignalEventMapper.java             # 信号事件Mapper
+│   │   │   │   │       │   │   ├── TornStockSignalStateMapper.java             # 信号边沿状态Mapper
+│   │   │   │   │       │   │   ├── TornStockMonthlyStateMapper.java            # 月度风格状态Mapper
+│   │   │   │   │       │   │   └── TornStockNoticeAuditMapper.java             # 通知审计Mapper
+│   │   │   │   │       │   └── TornStocksHistoryMapper.java                    # 股票历史表Mapper
 │   │   │   │   │       └── TornAttackLogMapper.java                            # 攻击日志Mapper
 │   │   │   │   └── model/                                                      # 数据对应模型
 │   │   │   │       ├── faction/                                                # 帮派相关功能
@@ -121,13 +134,13 @@
 │   │   │       │   ├── faction/                                                # 帮派相关功能
 │   │   │       │   │   ├── attack/                                             # 攻击记录相关
 │   │   │       │   │   │   └── TornRwReviveManager.java                        # RW复活公共逻辑
-│   │   │       │   │   ├── crime/                                              # OC相关功能
-│   │   │       │   │   │   ├── recommend/                                      # OC推荐相关功能
-│   │   │       │   │   │   │   └── TornOcRecommendManager.java                 # OC推荐公共逻辑
-│   │   │       │   │   │   └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
-│   │   │       │   │   └── torn/                                               # Torn相关功能
-│   │   │       │   │       └── stocks                                          # 股票相关功能
-│   │   │       │   │           └── StockRollingFeatureEngine.java              # 股票滚动窗口设置特征值引擎
+│   │   │       │   │   └── crime/                                              # OC相关功能
+│   │   │       │   │       ├── recommend/                                      # OC推荐相关功能
+│   │   │       │   │       │   └── TornOcRecommendManager.java                 # OC推荐公共逻辑
+│   │   │       │   │       └── TornFactionOcSlotManager.java                   # 帮派OC岗位公共逻辑
+│   │   │       │   ├── torn/                                                   # Torn相关功能
+│   │   │       │   │   └── stocks                                              # 股票相关功能
+│   │   │       │   │       └── StockRollingFeatureEngine.java                  # 股票滚动窗口设置特征值引擎
 │   │   │       │   └── setting/                                                # 配置相关功能
 │   │   │       │       └── SysSettingManager.java                              # 系统配置公共逻辑、缓存
 │   │   │       ├── model/                                                      # Torn相关模型
@@ -155,22 +168,21 @@
 │   │   │           │           ├── OcRosterMatcher.java                        # OC阵容匹配统一门面
 │   │   │           │           ├── OcFlowRosterMatcher.java                    # 最小费用最大流岗位匹配与排程
 │   │   │           │           └── OcNoPauseRosterMatcher.java                 # 无停转联合搜索匹配
-│   │   │           ├── torn/                                                   # 股票相关功能
-│   │   │           │   └── stocks/                                             # VIP股票虚拟组合与消息提醒
-│   │   │           │       └── alert/                                          # 股票提醒核心服务
-│   │   │           │           ├── StockMarketRoundLoader.java                 # 轮次快照批量加载(事务外)
-│   │   │           │           ├── StockRoundTransactionService.java           # 轮次12步事务编排
-│   │   │           │           ├── StockBatchPathService.java                  # 持仓路径更新与退出评估
-│   │   │           │           ├── StockBatchExitService.java                  # 退出规则引擎
-│   │   │           │           ├── StockEntrySettlementService.java            # 待买/待卖批次结算
-│   │   │           │           ├── StockRoundExitGuard.java                    # 同轮平仓股票候选过滤
-│   │   │           │           ├── StockPortfolioService.java                  # 5槽组合槽位资金管理
-│   │   │           │           ├── StockVirtualBatchAssembler.java             # 批次字段组装器
-│   │   │           │           ├── Stock15mBarBuildService.java                # 15分钟bar构建
-│   │   │           │           ├── Stock15mFeatureBuildService.java            # 15分钟策略特征构建
-│   │   │           │           ├── StockDailySummaryService.java               # 每日权益摘要
-│   │   │           │           └── notice/                                     # 通知组装与发送
-│   │   │           │               └── StockNoticeSendService.java             # NapCat消息投递
+│   │   │           ├── stocks/                                                 # VIP股票虚拟组合与消息提醒
+│   │   │           │   └── alert/                                              # 股票提醒核心服务
+│   │   │           │       ├── StockMarketRoundLoader.java                     # 轮次快照批量加载(事务外)
+│   │   │           │       ├── StockRoundTransactionService.java               # 轮次12步事务编排
+│   │   │           │       ├── StockBatchPathService.java                      # 持仓路径更新与退出评估
+│   │   │           │       ├── StockBatchExitService.java                      # 退出规则引擎
+│   │   │           │       ├── StockEntrySettlementService.java                # 待买/待卖批次结算
+│   │   │           │       ├── StockRoundExitGuard.java                        # 同轮平仓股票候选过滤
+│   │   │           │       ├── StockPortfolioService.java                      # 5槽组合槽位资金管理
+│   │   │           │       ├── StockVirtualBatchAssembler.java                 # 批次字段组装器
+│   │   │           │       ├── Stock15mBarBuildService.java                    # 15分钟bar构建
+│   │   │           │       ├── Stock15mFeatureBuildService.java                # 15分钟策略特征构建
+│   │   │           │       ├── StockDailySummaryService.java                   # 每日权益摘要
+│   │   │           │       └── notice/                                         # 通知组装与发送
+│   │   │           │           └── StockNoticeSendService.java                 # NapCat消息投递
 │   │   │           └── user/                                                   # 用户相关功能
 │   │   │               └── StockTradeStrategyService.java                      # 股票交易策略逻辑层
 │   │   └── resources/                                                          # 资源文件
@@ -188,11 +200,20 @@
 │   │           └── torn/                                                       # Torn相关
 │   │               ├── stocks/                                                 # 股票相关Mapper
 │   │               │   ├── portfolio/                                          # VIP股票组合相关Mapper
-│   │               │   │   └── TornStockVirtualBatchMapper.xml                 # 虚拟批次表Mapper(含UPSERT与行锁查询)
+│   │               │   │   ├── TornStockVirtualBatchMapper.xml                 # 虚拟批次表Mapper(含UPSERT与行锁查询)
+│   │               │   │   ├── TornStockBatchMarkMapper.xml                    # 批次逐轮标记Mapper
+│   │               │   │   ├── TornStockPortfolioSlotMapper.xml                # 组合槽位Mapper
+│   │               │   │   ├── TornStockMarketRoundMapper.xml                  # 轮次记录Mapper
+│   │               │   │   ├── TornStockMarketBar15mMapper.xml                 # 15分钟bar Mapper
+│   │               │   │   ├── TornStockStrategyFeature15mMapper.xml           # 15分钟策略特征Mapper
+│   │               │   │   ├── TornStockSignalEventMapper.xml                  # 信号事件Mapper
+│   │               │   │   ├── TornStockSignalStateMapper.xml                  # 信号边沿状态Mapper
+│   │               │   │   ├── TornStockMonthlyStateMapper.xml                 # 月度风格状态Mapper
+│   │               │   │   └── TornStockNoticeAuditMapper.xml                  # 通知审计Mapper
 │   │               │   └── TornStocksHistoryMapper.xml                         # 股票历史表Mapper
 │   │               └── TornAttackLogMapper.xml                                 # 攻击日志表Mapper
 │   └── test/                                                                   # 测试功能
-│       └── java.pn.torn.goldeneye/                                             # 测试代码根目录
+│       └── java/pn/torn/goldeneye/                                            # 测试代码根目录
 │           └── torn/                                                           # Torn相关
 │               └── service/                                                    # 业务逻辑层
 │                   ├── faction/                                                # 帮派相关功能

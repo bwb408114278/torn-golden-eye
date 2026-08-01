@@ -253,8 +253,7 @@ public class StockBatchPathService {
         mark.setPeakDrawdown(metrics.peakDrawdown());
         boolean shouldExit = evaluation.shouldExit();
         mark.setFormalDecision(shouldExit ? FORMAL_DECISION_SELL : FORMAL_DECISION_HOLD);
-        mark.setFormalReason(shouldExit && evaluation.closeType() != null
-                ? evaluation.closeType().getCode() : evaluation.reason());
+        mark.setFormalReason(evaluation.reasonCode());
         mark.setFeatureSnapshot(buildFeatureSnapshot(batch, metrics.currentPrice(), feature));
         return mark;
     }
