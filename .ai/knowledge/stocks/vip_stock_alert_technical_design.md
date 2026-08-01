@@ -667,6 +667,8 @@ AND slot.availableCash = batch.remainingCash（按BigDecimal数值比较）
 
 正式灾难关闭与正常正式卖出共用同一个“校验并结算正式槽位”领域方法，避免两套资金逻辑。该方法在`StockRoundTransactionService`短事务内完成：
 
+共用范围仅包含批次—槽位绑定、数量/价格/余款校验和资金结算。调用方必须先校验各自来源状态：正常卖出要求`EXIT_PENDING`且成交bar连续；灾难关闭要求`DATA_STALE_EXIT`且恢复bar满足8.1.1。共用方法不得把来源状态统一写死为`DATA_STALE_EXIT`，也不得自行决定最终关闭状态。
+
 ```text
 sellProceeds = quantity × recoveryBar.lastPrice × 0.999
 slot.availableCash = batch.remainingCash + sellProceeds
@@ -1171,6 +1173,19 @@ slot_status = AVAILABLE
 
 通知payload采用“创建时业务事实 + 发送前最终文本”的单一完整JSON，不拆成两份互相覆盖的快照。
 
+“规范化JSON”冻结为以下确定性算法，避免JSONB重排对象键后无法复核哈希：
+
+```text
+1. 将payload解析为JsonNode
+2. Object字段按UTF-8字典序递归排序
+3. Array保持业务顺序，不排序
+4. 数值使用Jackson标准JSON数值，不转科学计数法字符串；时间字段预先使用ISO-8601字符串
+5. 不输出空白和换行
+6. SHA-256(canonicalJson UTF-8 bytes)，输出64位小写十六进制
+```
+
+应新增无状态工具`StockNoticePayloadCanonicalizer`或等价私有组件，创建payload、发送前合并和审计复核统一调用，禁止各处自行拼接JSON。数据库读取`payload_snapshot`后重新规范化，必须得到相同hash。
+
 BUY最少字段：
 
 ```text
@@ -1589,6 +1604,7 @@ src/main/java/pn/torn/goldeneye/repository/model/torn/stocks/portfolio/TornStock
 src/main/java/pn/torn/goldeneye/repository/model/torn/stocks/portfolio/TornStockNoticeAuditDO.java
 src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockVirtualBatchDAO.java
 src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockNoticeAuditDAO.java
+src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockSignalEventDAO.java
 src/main/java/pn/torn/goldeneye/repository/mapper/torn/stocks/portfolio/TornStockVirtualBatchMapper.java
 src/main/java/pn/torn/goldeneye/repository/mapper/torn/stocks/portfolio/TornStockNoticeAuditMapper.java
 src/main/resources/mapper/torn/stocks/portfolio/TornStockVirtualBatchMapper.xml
@@ -1600,6 +1616,7 @@ src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockShadowRecordWrite
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/VipStockAlertScheduler.java
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockAlertRuntimeGate.java（新增）
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticeSendService.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticePayloadCanonicalizer.java（新增）
 src/main/resources/db/changelog/1.0.1-2.0.0/1.2.0/stocks-portfolio.yaml
 ```
 
@@ -1687,8 +1704,9 @@ Shadow模式也维护一套5槽“正式候选影子组合”，但不发即时�
 实现采用低侵入方式：
 
 - `TornStockVirtualBatchDAO`新增`existsActiveBatches()`，SQL使用`SELECT EXISTS(...)`同时检查正式和无限资金影子活跃状态，禁止先加载全量列表只为判断存在性；
+- `TornStockSignalEventDAO`新增`existsPendingRejectedObservationEvents()`，检查`portfolio_decision='REJECTED' AND resolved_at IS NULL`且存在`REJECTED_OBSERVATION`批次；拒绝观察批次本身是`CANCELLED`，不能依赖活跃批次查询发现；
 - `TornStockNoticeAuditDAO`新增`existsPendingNotices()`，SQL使用`SELECT EXISTS(...)`；
-- 新增`StockAlertRuntimeGate`纯服务，集中返回`shouldBuildRounds/manageExistingBatches/allowNewEntry/shouldSendPendingNotices`，定时入口与启动补偿必须复用；
+- 新增`StockAlertRuntimeGate`纯服务，集中返回`shouldBuildRounds/manageExistingBatches/manageResearchObligations/allowNewEntry/shouldSendPendingNotices`，定时入口与启动补偿必须复用；
 - `StockRoundTransactionService`新增`allowNewEntry`参数或上下文；无论值为何都执行ENTRY/EXIT结算和存量路径管理，仅在买入信号评估、事件/影子创建、候选接纳和买入边沿推进阶段应用该开关；
 - 不新增分布式锁、不改变现有`AtomicBoolean`单实例防重入。
 
@@ -1697,10 +1715,11 @@ Shadow模式也维护一套5槽“正式候选影子组合”，但不发即时�
 ```text
 读取RuntimeGate
 → shouldBuildRounds=true时抢占processing并处理轮次
+→ manageResearchObligations=true时结算到期拒绝观察
 → 无论是否构建轮次，只要shouldSendPendingNotices=true就调用sendPendingNotices
 ```
 
-启动补偿使用相同顺序。通知发送仍受`VIP_STOCK_FORMAL_NOTICE_ENABLED`控制，但不受`VIP_STOCK_ALERT_ENABLED`和`VIP_STOCK_NEW_ENTRY_ENABLED`控制。
+启动补偿使用相同顺序。只要存在未结算拒绝观察，必须继续构建其14天观察窗口所需bar并执行`resolveAllDueObservations`，即使没有正式/无限资金影子活跃批次且新买入已关闭。通知发送仍受`VIP_STOCK_FORMAL_NOTICE_ENABLED`控制，但不受`VIP_STOCK_ALERT_ENABLED`和`VIP_STOCK_NEW_ENTRY_ENABLED`控制。
 
 ---
 
@@ -1854,6 +1873,7 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 
 - `ALERT=false`且无活跃批次时不构建新轮次；
 - `ALERT=false`但存在`OPEN/DATA_STALE/EXIT_PENDING/DATA_STALE_EXIT`时继续管理并禁止新批次；
+- 没有活跃持仓但存在未结算拒绝观察时，继续构建观察所需bar并按14天日历窗口结算；
 - `NEW_ENTRY=false`时不产生新正式/Shadow/拒绝观察批次，但存量批次继续退出和结算；
 - `RULE_MODE=OFF`不阻断存量批次管理；
 - 启动补偿与定时入口使用相同判定；
