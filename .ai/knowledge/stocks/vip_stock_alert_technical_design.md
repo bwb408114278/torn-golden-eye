@@ -400,7 +400,25 @@ qualityScore DESC
 
 ### 6.4 正式原因码映射
 
-首期固定退出和HOLD使用以下唯一映射：
+首期固定退出和HOLD使用以下唯一映射。退出必要输入按**适用规则**判断，不要求所有策略都具备RANGE特征：
+
+```text
+所有批次基础输入：
+  entryReferencePrice>0, currentPrice>0, entryTime及roundTime非空
+
+非RANGE批次：
+  仅评估目标、硬风险、时间
+  三项均未命中 → HOLD_NO_EXIT_TRIGGERED
+  position30/low30d/high30d不属于必要输入
+
+RANGE_LOWER_BUY批次：
+  先评估目标、硬风险、时间
+  均未命中后必须评估RANGE恢复
+  区间特征完整且未命中 → HOLD_NO_EXIT_TRIGGERED
+  区间特征缺失/无效 → DATA_INSUFFICIENT / EXIT_RANGE_FEATURE_MISSING → DATA_STALE
+```
+
+正式退出映射：
 
 ```text
 netReturn >= +0.8%
@@ -414,14 +432,9 @@ netReturn <= -1.5%
 
 持有时间 >= 14天
 → CLOSED_TIME / SELL_MAX_HOLD
-
-四种退出均未命中且输入完整
-→ HOLD / HOLD_NO_EXIT_TRIGGERED
 ```
 
-`SELL_STRUCTURAL_RISK`保留给未来多证据结构风险状态机，首期-1.5%固定底线不得使用该编码。`HOLD_RECOVERY_IN_PROGRESS`、`HOLD_TREND_STILL_SUPPORTIVE`和`HOLD_NO_RISK_CONFIRMATION`只有动态/结构状态机实际证明对应事实时才允许使用，不是通用HOLD回退。
-
-输入或必要特征不完整属于不可评估，必须进入数据不足状态，不得使用`HOLD_NO_EXIT_TRIGGERED`。
+`SELL_STRUCTURAL_RISK`保留给未来多证据结构风险状态机。输入或该策略必要特征不完整属于不可评估，不得使用`HOLD_NO_EXIT_TRIGGERED`。RANGE批次若已先命中目标、硬风险或时间退出，则区间特征缺失不阻止该确定性退出。
 
 ### 6.5 false→true边沿
 
@@ -598,10 +611,11 @@ EXIT_PENDING
   └─ 成交桶不可用 → DATA_STALE_EXIT
 
 DATA_STALE_EXIT
-  └─ 恢复后的首个合法处理点按独立灾难处置规则处理
+  ├─ 无合法恢复价格 → 保持DATA_STALE_EXIT、占槽并告警
+  └─ 首个恢复可用bar → ADMIN_CLOSED / SELL_DATA_ADMIN_CLOSE
 ```
 
-首期不得跨缺口伪造卖出参考价格。`DATA_STALE_EXIT`的灾难关闭不是普通策略卖出，不能伪装为止盈消息。
+`DATA_STALE_EXIT`灾难处置使用首个恢复可用bar的`lastPrice`作为管理关闭参考价，不声称为原退出策略的准时成交。按0.1%卖出费真实回笼资金并在同一事务释放槽位；冷却48小时且`resetObserved=false`。正式批次发送配对的“数据异常关闭”消息，保留原退出原因和预期成交时间，但不得使用普通目标/区间/风险/时间SELL原因码或“止盈”文案。没有恢复价格时禁止用成本、最后旧价或零价强制结算。
 
 ### 8.2 轮次状态
 

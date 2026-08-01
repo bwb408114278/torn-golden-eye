@@ -509,9 +509,102 @@ staleAt = expectedEntryBarEnd + 5分钟
 
 ### 8.3 OPEN期间数据陈旧
 
-开放批次遇到不可用桶时进入`DATA_STALE`，暂停普通目标、动态和换仓决策，不得跨缺口模拟成交。服务重启后必须从持久化的最后成功采集/特征水位补算；补算恢复的是历史状态，不要求重新等待完整30日或15分钟窗口。数据恢复并形成一个满足可用标准的新桶后，可恢复持仓评估；风险处置由独立运维/灾难规则决定，不能伪造缺口期间价格。
+开放批次遇到不可用行情桶时进入`DATA_STALE`。RANGE批次在目标、硬风险和时间退出均未命中后，如缺少`position30/low30d/high30d`或区间无效，也以`EXIT_RANGE_FEATURE_MISSING`进入`DATA_STALE`。该状态暂停普通目标、动态和换仓决策，不得跨缺口模拟成交。服务重启后必须从持久化的最后成功采集/特征水位补算；补算恢复的是历史状态，不要求重新等待完整30日或15分钟窗口。数据与该策略必要特征恢复后，批次返回OPEN并重新评估；不能把“无法评估”写成通用HOLD。
 
-### 8.4 状态生命周期
+### 8.4 EXIT_PENDING成交失败与灾难处置
+
+当正式批次已经在决策bar确定退出并进入`EXIT_PENDING`，但预期紧邻下一成交bar不可用或已错过时：
+
+```text
+EXIT_PENDING → DATA_STALE_EXIT
+```
+
+进入该状态时必须保留原始：
+
+```text
+exitSignalTime
+expectedExitBarTime
+exitReason（原目标/风险/时间/区间关闭类型）
+```
+
+不得用更晚bar伪造成原策略的准时成交。灾难处置冻结如下：
+
+#### 处置触发点
+
+从`DATA_STALE_EXIT`进入后，等待该股票恢复后的**首个可用15分钟bar**。不要求该bar与原预期成交bar连续，但必须满足正式bar质量、价格为正、构建版本匹配。该bar只作为灾难处置参考价，不再声称是原退出信号的策略成交价。
+
+#### 价格与终态
+
+```text
+disasterExitPrice = 首个恢复可用bar.lastPrice
+batchStatus = ADMIN_CLOSED
+closeType = ADMIN_CLOSED
+formalReason = SELL_DATA_ADMIN_CLOSE
+exitReferencePrice = disasterExitPrice
+exitTime = disasterBar.barEndTime
+netReturn = disasterExitPrice / entryReferencePrice × 0.999 - 1
+```
+
+批次还应保留原`exitReason`，并在独立审计字段或快照记录：
+
+```text
+adminCloseReason = DATA_STALE_EXIT_RECOVERY_CLOSE
+originalExitReason
+expectedExitBarTime
+recoveryBarStart/End
+staleExitDuration
+```
+
+若现有Schema没有独立`adminCloseReason`，首期允许将`exitReason`改为`ADMIN_CLOSED`，但必须在通知payload和批次审计快照保留`originalExitReason`，不得丢失原触发原因。
+
+#### 资金与槽位
+
+正式批次按灾难参考价真实结算：
+
+```text
+sellProceeds = quantity × disasterExitPrice × 0.999
+slot.availableCash = slot.remainingCash + sellProceeds
+slotStatus = AVAILABLE
+```
+
+槽位必须在同一事务中释放，避免永久占用。影子批次只计算理论收益，不操作正式槽位。
+
+#### 冷却与复位
+
+灾难关闭使用保守口径：
+
+```text
+cooldownUntil = exitTime + 48小时
+resetObserved = false
+```
+
+无论原信号是目标、区间、时间还是风险退出，都使用48小时冷却，因为系统已失去计划成交点，风险不确定性高于普通关闭。
+
+#### 群消息
+
+正式批次完成灾难结算后必须发送配对消息，防止群成员永久不知道系统批次已经关闭，但它不是普通策略SELL，也不计入普通目标/区间/时间SELL绩效。
+
+消息类型和标题：
+
+```text
+【系统虚拟组合｜数据异常关闭】#原batchNo
+```
+
+必须说明：
+
+- 原退出信号已产生，但预期成交bar缺失；
+- 当前价格是数据恢复后的首个可用参考价；
+- 本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出；
+- 扣费后最终系统批次收益；
+- 未跟随原BUY者无需操作。
+
+通知审计仍使用SELL类配对通知，但原因码为`SELL_DATA_ADMIN_CLOSE`，不得使用`SELL_TARGET_REACHED/SELL_RANGE_RECOVERED/SELL_HARD_RISK/SELL_MAX_HOLD`，消息标题不得写止盈或普通卖出。
+
+#### 长时间未恢复
+
+没有合法恢复价格时，不允许用成本、最后旧价或零价结算，批次保持`DATA_STALE_EXIT`并继续占槽，同时进入运维告警。首期不冻结无价格强制注销期限；人工关闭也必须在取得可验证实际价格后使用同一`ADMIN_CLOSED / SELL_DATA_ADMIN_CLOSE`口径。
+
+### 8.5 状态生命周期
 
 ```text
 CANDIDATE
@@ -917,7 +1010,7 @@ SELL_DATA_ADMIN_CLOSE
   = 数据/管理关闭，不得伪装为普通策略SELL
 
 HOLD_NO_EXIT_TRIGGERED
-  = 当前bar数据完整、批次可评估，但首期四种正式退出规则均未命中时的通用HOLD
+  = 当前bar行情可用，批次基础输入完整，且对该批次**适用的**首期正式退出规则均完成评估而未命中时的通用HOLD
 
 HOLD_RECOVERY_IN_PROGRESS
 HOLD_TREND_STILL_SUPPORTIVE
@@ -928,14 +1021,47 @@ HOLD_NO_RISK_CONFIRMATION
 首期固定退出映射唯一确定：
 
 ```text
-CLOSED_TARGET → SELL_TARGET_REACHED
-CLOSED_RANGE  → SELL_RANGE_RECOVERED
-CLOSED_RISK   → SELL_HARD_RISK
-CLOSED_TIME   → SELL_MAX_HOLD
-未命中退出   → HOLD_NO_EXIT_TRIGGERED
+所有批次：
+  CLOSED_TARGET → SELL_TARGET_REACHED
+  CLOSED_RISK   → SELL_HARD_RISK
+  CLOSED_TIME   → SELL_MAX_HOLD
+
+仅primaryStrategy=RANGE_LOWER_BUY：
+  CLOSED_RANGE  → SELL_RANGE_RECOVERED
+
+适用规则均未命中 → HOLD_NO_EXIT_TRIGGERED
 ```
 
-若入场参考价、当前价格、时间或必要特征缺失，不能记为`HOLD_NO_EXIT_TRIGGERED`；应先进入数据不足/不可评估路径，例如`DATA_STALE`，避免把“无法判断”记录成“已判断且继续持有”。
+### 14.1 退出必要输入按策略冻结
+
+所有批次评估目标、硬风险和时间退出所需的基础输入：
+
+```text
+entryReferencePrice > 0
+currentPrice > 0
+entryTime != null
+roundTime != null
+```
+
+非RANGE批次，包括`DEEP_MEAN_REVERSION_BUY`和`STRICT_REBOUND_CONFIRM_BUY`：
+
+- RANGE恢复规则不适用，视为`NOT_APPLICABLE`，不是“评估失败”；
+- 不要求`position30/low30d/high30d`；
+- 基础输入完整且目标、风险、时间退出均未命中时，允许写`HOLD_NO_EXIT_TRIGGERED`。
+
+`RANGE_LOWER_BUY`批次：
+
+- 目标、硬风险和时间退出仍优先评估；
+- 若前三项均未命中，必须继续评估RANGE恢复规则；
+- 此时`position30/low30d/high30d`全部属于必要特征；
+- 任一为空、`high30d <= low30d`、`position30`无法计算或非有限数时，本轮退出评估结果为`DATA_INSUFFICIENT / EXIT_RANGE_FEATURE_MISSING`；
+- 批次转为`DATA_STALE`，槽位继续占用；
+- 本轮不得写`HOLD_NO_EXIT_TRIGGERED`，不得发SELL，也不得把缺失解释为区间规则未命中；
+- 后续可用bar和完整区间特征恢复后，批次返回`OPEN`并重新按全部适用规则评估。
+
+如果RANGE批次当前已经命中目标、硬风险或14天时间退出，则按优先规则退出，不因区间特征缺失阻止已确定的更高优先级退出。
+
+若所有批次缺少基础输入，统一属于不可评估，进入数据不足或一致性异常路径，不得写通用HOLD。
 
 ---
 

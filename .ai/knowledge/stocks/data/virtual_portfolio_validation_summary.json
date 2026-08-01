@@ -329,5 +329,58 @@
     "HOLD": "HOLD_NO_EXIT_TRIGGERED",
     "SELL_STRUCTURAL_RISK": "reserved for future multi-evidence structural-risk state machine; not used by initial fixed -1.5% rule",
     "hold_generic_precondition": "all required inputs complete and all initial formal exit rules evaluated without trigger"
+  },
+  "exit_evaluation_contract": {
+    "base_inputs": [
+      "entryReferencePrice>0",
+      "currentPrice>0",
+      "entryTime!=null",
+      "roundTime!=null"
+    ],
+    "non_range": {
+      "applicable_rules": [
+        "TARGET",
+        "HARD_RISK",
+        "MAX_HOLD"
+      ],
+      "range_features_required": false,
+      "hold_allowed_when_applicable_rules_miss": true
+    },
+    "range": {
+      "applicable_rules": [
+        "TARGET",
+        "HARD_RISK",
+        "MAX_HOLD",
+        "RANGE_RECOVERY"
+      ],
+      "range_features_required_after_first_three_miss": true,
+      "missing_feature_result": "DATA_INSUFFICIENT/EXIT_RANGE_FEATURE_MISSING",
+      "batch_transition": "DATA_STALE",
+      "hold_allowed": false
+    },
+    "priority_note": "RANGE missing features do not block TARGET/HARD_RISK/MAX_HOLD already determined earlier in priority order"
+  },
+  "data_stale_exit_disaster_close": {
+    "trigger": "first usable 15m bar after DATA_STALE_EXIT",
+    "requires_contiguous_with_expected_exit_bar": false,
+    "price": "recoveryBar.lastPrice",
+    "batch_status": "ADMIN_CLOSED",
+    "close_type": "ADMIN_CLOSED",
+    "formal_reason": "SELL_DATA_ADMIN_CLOSE",
+    "net_return": "price/entryReferencePrice*0.999-1",
+    "sell_proceeds": "quantity*price*0.999",
+    "release_slot_same_transaction": true,
+    "cooldown_hours": 48,
+    "reset_observed": false,
+    "formal_notice": true,
+    "notice_title": "数据异常关闭",
+    "ordinary_sell_performance": false,
+    "preserve": [
+      "originalExitReason",
+      "expectedExitBarTime",
+      "recoveryBarStart/End",
+      "staleExitDuration"
+    ],
+    "no_recovery_price": "remain DATA_STALE_EXIT, occupy slot, alert; no cost/old/zero price settlement"
   }
 }
