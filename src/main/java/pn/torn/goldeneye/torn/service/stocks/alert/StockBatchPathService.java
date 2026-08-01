@@ -24,6 +24,8 @@ import java.util.Map;
  * 步骤4-5: 用本轮bar价格更新OPEN批次的峰值/谷值/MFE/MAE/回撤，评估退出后生成逐轮BatchMark。
  * 同时维护 DATA_STALE 状态机: OPEN批次bar不可用时转入DATA_STALE,
  * DATA_STALE批次bar恢复时回到OPEN,相应切换槽位的STALE/OCCUPIED状态。
+ * RANGE批次在本轮缺少必要区间特征(position30/low30d/high30d)时,退出评估返回不可评估,
+ * 同样转入DATA_STALE且本轮不生成mark,避免把“无法判断”审计成“已判断且继续持有”。
  * 对每个OPEN批次调用退出评估，命中时置为EXIT_PENDING，并将实际决定与规则输入固化到BatchMark。
  *
  * @author Bai
@@ -92,6 +94,13 @@ public class StockBatchPathService {
             if (metrics != null) {
                 TornStockStrategyFeature15mDO feature = featureByStock.get(batch.getStocksId());
                 ExitEvaluation evaluation = evaluateSingleBatchExit(batch, metrics.currentPrice(), feature, roundTime);
+                if (evaluation.dataInsufficient()) {
+                    // 不可评估: RANGE批次缺少必要区间特征时转入DATA_STALE,不生成mark,不写通用HOLD
+                    log.warn("批次[{}]退出评估不可评估,转入DATA_STALE: reason={}",
+                            batch.getBatchNo(), evaluation.reason());
+                    transitionToDataStale(batch, slotById);
+                    continue;
+                }
                 marks.add(buildBatchMark(batch, metrics, feature, evaluation, roundTime));
             }
         }

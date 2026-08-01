@@ -195,6 +195,29 @@ class StockNoticeComposeServiceTest {
             assertTrue(text.contains("系统持有时间：3天5小时"),
                     "持有时间应格式化为 '3天5小时'");
         }
+
+        @Test
+        @DisplayName("数据异常关闭_使用独立标题且不使用普通SELL原因或止盈文案")
+        void composeSellMessage_adminClose_usesDisasterTitle() {
+            TornStockVirtualBatchDO batch = buildSellBatch(StockCloseTypeEnum.CLOSED_TARGET.getCode(),
+                    new BigDecimal("0.008"));
+            batch.setBatchStatus(StockBatchStatusEnum.ADMIN_CLOSED.getCode());
+            batch.setExpectedExitBarTime(LocalDateTime.of(2026, 7, 25, 12, 0));
+
+            String text = service.composeSellMessage(batch);
+
+            assertTrue(text.startsWith("【系统虚拟组合｜数据异常关闭】#B-2026-001"),
+                    "数据异常关闭应使用独立标题");
+            assertTrue(text.contains("原退出信号已触发，但预期成交bar缺失"), "应说明预期成交bar缺失");
+            assertTrue(text.contains("原退出原因：达到目标收益"), "应保留原退出原因");
+            assertTrue(text.contains("数据恢复后首个可用参考价：$100.80"), "应展示恢复后首个可用参考价");
+            assertTrue(text.contains("本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出"),
+                    "应说明不代表原策略准时卖出");
+            assertTrue(text.contains("未跟随原BUY的成员无需操作"), "应包含未跟随无需操作声明");
+            assertFalse(text.contains("系统参考卖价"), "灾难关闭消息不应伪装成普通策略卖出");
+            assertFalse(text.contains("本卖出仅对应批次"), "灾难关闭消息不应使用普通SELL模板");
+            assertFalse(text.contains("止盈"), "灾难关闭消息不得使用止盈文案");
+        }
     }
 
     // ==================== 合并与优先级排序 ====================

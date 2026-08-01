@@ -163,6 +163,47 @@ class StockBatchPathServiceTest {
                 StockRoundTransactionService.SELL_RULE_VERSION);
     }
 
+    @Test
+    @DisplayName("路径更新_RANGE批次缺少区间特征_转入DATA_STALE且不生成mark")
+    void updatePathsAndEvaluateExits_rangeBatchMissingFeatures_transitionsToDataStaleWithoutMark() {
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setPrimaryStrategy(StockBatchExitService.RANGE_LOWER_BUY_STRATEGY);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        feature.setPosition30(null);
+        ExitEvaluation dataInsufficient = new ExitEvaluation(false, null, null, "position30为空,区间必要特征缺失");
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(dataInsufficient);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertTrue(marks.isEmpty(), "不可评估不得生成BatchMark");
+        assertEquals(StockBatchStatusEnum.DATA_STALE.getCode(), batch.getBatchStatus(),
+                "RANGE批次缺少必要特征应转入DATA_STALE");
+    }
+
+    @Test
+    @DisplayName("路径更新_RANGE批次特征完整且未命中_生成通用HOLD mark")
+    void updatePathsAndEvaluateExits_rangeBatchCompleteFeatures_holdMarkAllowed() {
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setPrimaryStrategy(StockBatchExitService.RANGE_LOWER_BUY_STRATEGY);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        ExitEvaluation noExit = new ExitEvaluation(false, null,
+                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "区间未命中");
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertEquals(1, marks.size(), "特征完整时不可评估不应拦截mark");
+        assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), marks.getFirst().getFormalReason());
+        assertEquals(StockBatchStatusEnum.OPEN.getCode(), batch.getBatchStatus(),
+                "特征完整且未命中时批次应保持OPEN");
+    }
+
     // ==================== Helper Methods ====================
 
     /**

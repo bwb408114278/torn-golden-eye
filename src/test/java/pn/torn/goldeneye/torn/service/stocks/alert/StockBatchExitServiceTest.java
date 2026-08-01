@@ -182,7 +182,7 @@ class StockBatchExitServiceTest {
     }
 
     @Test
-    @DisplayName("退出评估_区间策略high30等于low30时不触发区间退出(fail-closed)")
+    @DisplayName("退出评估_区间策略high30等于low30_返回不可评估而非通用HOLD")
     void evaluateExit_rangeStrategyHigh30EqualsLow30_notTriggerRangeExit() {
         TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now(), RANGE_LOWER_BUY);
         BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.005")); // netReturn > 0
@@ -192,7 +192,9 @@ class StockBatchExitServiceTest {
 
         ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
 
-        assertFalse(result.shouldExit(), "high30==low30时fail-closed,不应退出");
+        assertTrue(result.dataInsufficient(), "high30==low30时区间无效,应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode(),
+                "区间无效不得写成通用HOLD");
     }
 
     @Test
@@ -228,6 +230,123 @@ class StockBatchExitServiceTest {
         assertNotNull(result.reason(), "reason应描述未退出原因");
     }
 
+    // ==================== 输入完整性契约(HOLD前置条件) ====================
+
+    @Test
+    @DisplayName("退出评估_入场参考价缺失_返回不可评估而非通用HOLD")
+    void evaluateExit_entryReferencePriceMissing_returnsDataInsufficient() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(null, LocalDateTime.now().minusDays(5), NON_RANGE_STRATEGY);
+
+        ExitEvaluation result = exitService.evaluateExit(batch, ENTRY_PRICE, null, null, null, LocalDateTime.now());
+
+        assertTrue(result.dataInsufficient(), "入场参考价缺失应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode(),
+                "不可评估不得写成通用HOLD");
+        assertNull(result.reasonCode(), "不可评估结果reasonCode应为null");
+    }
+
+    @Test
+    @DisplayName("退出评估_入场时间缺失_返回不可评估而非通用HOLD")
+    void evaluateExit_entryTimeMissing_returnsDataInsufficient() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, null, NON_RANGE_STRATEGY);
+        // 当前价不触发目标/风险(netReturn=-0.001),必须走到时间规则才能暴露entryTime缺失
+        BigDecimal currentPrice = ENTRY_PRICE;
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
+
+        assertTrue(result.dataInsufficient(), "入场时间缺失应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode(),
+                "不可评估不得写成通用HOLD");
+    }
+
+    @Test
+    @DisplayName("退出评估_非区间批次缺特征_仍允许写通用HOLD")
+    void evaluateExit_nonRangeMissingFeatures_allowsGenericHold() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), NON_RANGE_STRATEGY);
+        // feature完全缺失(position30/low30d/high30d全部为null)
+        BigDecimal currentPrice = ENTRY_PRICE;
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, null, null, LocalDateTime.now());
+
+        assertFalse(result.dataInsufficient(), "非区间批次区间特征不属于必要输入,不应不可评估");
+        assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode(),
+                "非区间批次三项规则均未命中时允许写通用HOLD");
+    }
+
+    @Test
+    @DisplayName("退出评估_RANGE批次缺少low30d_返回不可评估而非通用HOLD")
+    void evaluateExit_rangeBatchMissingLow30_returnsDataInsufficient() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), RANGE_LOWER_BUY);
+        BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.003")); // netReturn > 0
+        BigDecimal position30 = new BigDecimal("0.80");
+        BigDecimal high30d = new BigDecimal("110.00");
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, null, high30d, LocalDateTime.now());
+
+        assertTrue(result.dataInsufficient(), "RANGE批次缺少low30d应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode(),
+                "RANGE批次特征缺失不得写成通用HOLD");
+    }
+
+    @Test
+    @DisplayName("退出评估_RANGE批次缺少high30d_返回不可评估而非通用HOLD")
+    void evaluateExit_rangeBatchMissingHigh30_returnsDataInsufficient() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), RANGE_LOWER_BUY);
+        BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.003"));
+        BigDecimal position30 = new BigDecimal("0.80");
+        BigDecimal low30d = new BigDecimal("90.00");
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, null, LocalDateTime.now());
+
+        assertTrue(result.dataInsufficient(), "RANGE批次缺少high30d应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode());
+    }
+
+    @Test
+    @DisplayName("退出评估_RANGE批次缺少position30_返回不可评估而非通用HOLD")
+    void evaluateExit_rangeBatchMissingPosition30_returnsDataInsufficient() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), RANGE_LOWER_BUY);
+        BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.003"));
+        BigDecimal low30d = new BigDecimal("90.00");
+        BigDecimal high30d = new BigDecimal("110.00");
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, null, low30d, high30d, LocalDateTime.now());
+
+        assertTrue(result.dataInsufficient(), "RANGE批次缺少position30应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode());
+    }
+
+    @Test
+    @DisplayName("退出评估_RANGE批次high30等于low30_返回不可评估而非通用HOLD")
+    void evaluateExit_rangeBatchHigh30EqualsLow30_returnsDataInsufficient() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), RANGE_LOWER_BUY);
+        BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.005"));
+        BigDecimal position30 = new BigDecimal("0.80");
+        BigDecimal low30d = new BigDecimal("100.00");
+        BigDecimal high30d = new BigDecimal("100.00");
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
+
+        assertTrue(result.dataInsufficient(), "high30<=low30时区间无效,应视为不可评估");
+        assertNotEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode());
+    }
+
+    @Test
+    @DisplayName("退出评估_RANGE批次特征完整但未命中_允许写通用HOLD")
+    void evaluateExit_rangeBatchFeaturesCompleteAndNoHit_allowsGenericHold() {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, LocalDateTime.now().minusDays(5), RANGE_LOWER_BUY);
+        BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.003")); // netReturn > 0
+        BigDecimal position30 = new BigDecimal("0.50");
+        BigDecimal low30d = new BigDecimal("90.00");
+        BigDecimal high30d = new BigDecimal("110.00");
+
+        ExitEvaluation result = exitService.evaluateExit(batch, currentPrice, position30, low30d, high30d, LocalDateTime.now());
+
+        assertFalse(result.dataInsufficient(), "特征完整时不应不可评估");
+        assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode(),
+                "RANGE批次特征完整且区间未命中时允许写通用HOLD");
+    }
+
     // ==================== Helper方法 ====================
 
     /**
@@ -252,7 +371,9 @@ class StockBatchExitServiceTest {
         batch.setEntryTime(entryTime);
         batch.setEntryReferencePrice(entryReferencePrice);
         batch.setQuantity(10000L);
-        batch.setInvestedCash(entryReferencePrice.multiply(BigDecimal.valueOf(10000L)));
+        if (entryReferencePrice != null) {
+            batch.setInvestedCash(entryReferencePrice.multiply(BigDecimal.valueOf(10000L)));
+        }
         return batch;
     }
 

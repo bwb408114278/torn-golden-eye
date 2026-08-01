@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.07.21
+- 最后更新：2026.08.01
 - 维护人：Bai
 - 状态：有效
 
@@ -12,6 +12,9 @@
 
 本文档用于帮助 AI 快速理解本项目的代码结构、关键文件位置和用途。  
 当需要功能开发、排查问题、重构或生成代码时，可优先参考本文档。
+
+> 注意：下方目录树为**选择性摘要**，仅列出核心与常用文件，不保证完整覆盖全部源码；
+> 实际以 `src/main` 与 `src/test` 目录内容为准。
 
 ## 目录结构说明
 
@@ -144,17 +147,17 @@
 │   │   │       │   └── setting/                                                # 配置相关功能
 │   │   │       │       └── SysSettingManager.java                              # 系统配置公共逻辑、缓存
 │   │   │       ├── model/                                                      # Torn相关模型
-│   │   │       │   └── faction/                                                # 帮派相关功能
-│   │   │       │       ├── crime/                                              # Crime相关功能
-│   │   │       │       │   ├── TornFactionCrimeRequireItemVO.java              # OC岗位需要物品响应参数
-│   │   │       │       │   └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位响应参数
-│   │   │       │       ├── revive/                                             # 复活相关功能
-│   │   │       │       │   ├── TornFactionReviveVO.java                        # 帮派复活数据响应参数
-│   │   │       │       │   └── TornFactionReviveDTO.java                       # 帮派复活请求参数
-│   │   │       │       └── torn/                                               # Torn相关参数
-│   │   │       │           └── stocks/                                         # 股票相关参数
-│   │   │       │               └── trade/                                      # 股票交易相关参数
-│   │   │       │                   └── StockRollingState.java                  # 股票滚动窗口状态参数
+│   │   │       │   ├── faction/                                                # 帮派相关模型
+│   │   │       │   │   ├── crime/                                              # Crime相关模型
+│   │   │       │   │   │   ├── TornFactionCrimeRequireItemVO.java              # OC岗位需要物品响应参数
+│   │   │       │   │   │   └── TornFactionCrimeSlotVO.java                     # 帮派OC岗位响应参数
+│   │   │       │   │   └── revive/                                             # 复活相关模型
+│   │   │       │   │       ├── TornFactionReviveVO.java                        # 帮派复活数据响应参数
+│   │   │       │   │       └── TornFactionReviveDTO.java                       # 帮派复活请求参数
+│   │   │       │   └── torn/                                                   # Torn模型
+│   │   │       │       └── stocks/                                             # 股票相关模型
+│   │   │       │           └── trade/                                          # 股票交易相关模型
+│   │   │       │               └── StockRollingState.java                      # 股票滚动窗口状态参数
 │   │   │       └── service/                                                    # 业务逻辑层
 │   │   │           ├── data/                                                   # 数据相关功能
 │   │   │           │   └── TornRwDataService.java                              # RW数据逻辑
@@ -186,11 +189,11 @@
 │   │   │           └── user/                                                   # 用户相关功能
 │   │   │               └── StockTradeStrategyService.java                      # 股票交易策略逻辑层
 │   │   └── resources/                                                          # 资源文件
-│   │       ├── db.changelog/                                                   # Liquibase的数据库修改日志
+│   │       ├── db/changelog/                                                   # Liquibase的数据库修改日志
 │   │       │   └── 1.0.1-2.0.0/                                                # 1.0.1到2.0.0版本的改动
 │   │       │       └── 1.2.0/                                                  # 1.2.0后的版本改动
-│   │       │           ├── faction.yml                                         # 帮派相关改动
-│   │       │           ├── setting.yml                                         # 配置相关改动
+│   │       │           ├── faction.yaml                                        # 帮派相关改动
+│   │       │           ├── setting.yaml                                        # 配置相关改动
 │   │       │           └── stocks-portfolio.yaml                               # VIP股票组合建表与索引改动
 │   │       └── mapper/                                                         # Mapper文件
 │   │           ├── faction/                                                    # 帮派相关

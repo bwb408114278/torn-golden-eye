@@ -161,21 +161,6 @@ public class StockShadowRecordWriter {
     }
 
     /**
-     * 回写拒绝观察结果,不改变正式槽位、冷却和通知。
-     *
-     * @param event      拒绝观察事件
-     * @param laterMfe   最大有利偏移
-     * @param laterMae   最大不利偏移
-     * @param resolvedAt 结算时间
-     */
-    public void resolveRejectedObservation(TornStockSignalEventDO event,
-                                           BigDecimal laterMfe,
-                                           BigDecimal laterMae,
-                                           LocalDateTime resolvedAt) {
-        shadowService.resolveRejectedObservation(event, laterMfe, laterMae, resolvedAt);
-    }
-
-    /**
      * 回写正式批次ID到已保存的信号事件。
      *
      * @param event 已保存的信号事件
@@ -530,6 +515,8 @@ public class StockShadowRecordWriter {
      * <p>
      * BUY类型包含入场参考价、股数、投入资金和槽位编号;
      * SELL类型包含卖出参考价、净收益、卖出收入和退出原因。
+     * 数据/管理关闭批次(ADMIN_CLOSED)额外固化 originalExitReason、expectedExitBarTime
+     * 与冻结的 SELL_DATA_ADMIN_CLOSE 正式原因编码,便于审计区分灾难处置与普通策略卖出。
      *
      * @param batch      关联批次
      * @param noticeType 通知类型
@@ -552,6 +539,11 @@ public class StockShadowRecordWriter {
             payload.put("netReturn", batch.getNetReturn());
             payload.put("sellProceeds", batch.getSellProceeds());
             payload.put("exitReason", batch.getExitReason());
+            if (StockBatchStatusEnum.ADMIN_CLOSED.getCode().equals(batch.getBatchStatus())) {
+                payload.put("formalReason", StockFormalReasonEnum.SELL_DATA_ADMIN_CLOSE.getCode());
+                payload.put("originalExitReason", batch.getExitReason());
+                payload.put("expectedExitBarTime", batch.getExpectedExitBarTime());
+            }
         }
         return JsonUtils.objToJson(payload);
     }

@@ -47,6 +47,10 @@ public class StockEntrySettlementService {
      */
     private static final int RISK_COOLDOWN_HOURS = 48;
     /**
+     * 数据异常关闭冷却时长(小时): DATA_STALE_EXIT灾难处置统一使用48小时保守冷却。
+     */
+    private static final int DISASTER_COOLDOWN_HOURS = 48;
+    /**
      * 真实关闭状态编码
      */
     private static final String[] FILLED_CLOSE_STATUSES = {
@@ -283,11 +287,14 @@ public class StockEntrySettlementService {
      * <p>
      * 结果仅返回真实完成参考卖出的CLOSED_*批次。DATA_STALE_EXIT只更新批次状态,
      * 不进入通知发送列表,避免生成没有成交价格的SELL通知。
+     * <p>
+     * 同时处理上一轮遗留的 {@code DATA_STALE_EXIT} 批次: 等待该股票恢复后的首个可用bar,
+     * 按冻结的独立灾难处置规则以管理关闭参考价结算并释放槽位。
      *
      * @param snapshot   轮次快照
      * @param barByStock 按股票ID索引的bar映射
      * @param roundTime  本轮时间
-     * @return 已完成真实卖出的批次列表
+     * @return 已完成真实卖出或灾难关闭的批次列表
      */
     public List<TornStockVirtualBatchDO> processExitPending(RoundSnapshot snapshot,
                                                             Map<Integer, TornStockMarketBar15mDO> barByStock,
@@ -295,10 +302,13 @@ public class StockEntrySettlementService {
         List<TornStockVirtualBatchDO> exitPendingBatches = snapshot.activeBatches().stream()
                 .filter(batch -> StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus()))
                 .toList();
+        List<TornStockVirtualBatchDO> staleExitBatches = snapshot.activeBatches().stream()
+                .filter(batch -> StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus()))
+                .toList();
 
         List<TornStockVirtualBatchDO> filledBatches = new ArrayList<>();
-        if (exitPendingBatches.isEmpty()) {
-            log.debug("无待卖出批次需要处理");
+        if (exitPendingBatches.isEmpty() && staleExitBatches.isEmpty()) {
+            log.debug("无待卖出或数据陈旧卖出批次需要处理");
             return filledBatches;
         }
 
@@ -306,6 +316,9 @@ public class StockEntrySettlementService {
 
         for (TornStockVirtualBatchDO batch : exitPendingBatches) {
             processSingleExitBatch(batch, barByStock, slotById, roundTime, filledBatches);
+        }
+        for (TornStockVirtualBatchDO batch : staleExitBatches) {
+            processSingleStaleExitBatch(batch, barByStock, slotById, filledBatches);
         }
         return filledBatches;
     }
@@ -365,6 +378,112 @@ public class StockEntrySettlementService {
         return batch.getExpectedExitBarTime() != null
                 && currentBar.getBarStartTime() != null
                 && currentBar.getBarStartTime().equals(batch.getExpectedExitBarTime());
+    }
+
+    /**
+     * 处理单个数据陈旧卖出批次: 等待首个恢复可用bar并按独立灾难处置规则关闭。
+     * <p>
+     * 冻结的灾难处置口径:
+     * <ul>
+     *   <li>恢复bar必须是可用且价格为正的正式bar,不要求与原预期成交bar连续</li>
+     *   <li>disasterExitPrice = 恢复bar.lastPrice,批次终态 ADMIN_CLOSED</li>
+     *   <li>按0.1%卖出费真实回笼资金并在同一事务释放槽位</li>
+     *   <li>冷却48小时且 resetObserved=false</li>
+     *   <li>保留原 exitReason 与 expectedExitBarTime,不得把恢复bar伪装成原策略准时成交</li>
+     * </ul>
+     * 没有合法恢复价格时保持DATA_STALE_EXIT继续占槽并告警,禁止用成本、旧价或零价结算。
+     *
+     * @param batch         数据陈旧卖出批次
+     * @param barByStock    按股票ID索引的bar映射
+     * @param slotById      槽位ID索引映射
+     * @param filledBatches 输出: 已完成灾难关闭的批次列表
+     */
+    private void processSingleStaleExitBatch(TornStockVirtualBatchDO batch,
+                                             Map<Integer, TornStockMarketBar15mDO> barByStock,
+                                             Map<Long, TornStockPortfolioSlotDO> slotById,
+                                             List<TornStockVirtualBatchDO> filledBatches) {
+        TornStockMarketBar15mDO recoveryBar = barByStock.get(batch.getStocksId());
+        if (!isUsableRecoveryBar(recoveryBar)) {
+            log.warn("数据陈旧卖出批次[{}]无合法恢复bar,保持DATA_STALE_EXIT继续占槽并告警: stocksId={}",
+                    batch.getBatchNo(), batch.getStocksId());
+            return;
+        }
+        disasterCloseBatch(batch, recoveryBar, slotById, filledBatches);
+    }
+
+    /**
+     * 判断bar是否为可用的灾难处置恢复bar。
+     * <p>
+     * 要求bar非空、满足正式可用标准、构建版本匹配且最后价格为正值。
+     * 不要求该bar与原预期成交bar连续。
+     *
+     * @param recoveryBar 恢复bar
+     * @return 可作为灾难处置参考价的bar返回true
+     */
+    private boolean isUsableRecoveryBar(TornStockMarketBar15mDO recoveryBar) {
+        if (!Stock15mBarBuildService.isUsable(recoveryBar)) {
+            return false;
+        }
+        if (recoveryBar.getLastPrice() == null || recoveryBar.getLastPrice().signum() <= 0) {
+            return false;
+        }
+        return Stock15mBarBuildService.BUILD_VERSION.equals(recoveryBar.getBuildVersion());
+    }
+
+    /**
+     * 执行数据陈旧卖出批次的灾难关闭结算。
+     * <p>
+     * 按冻结口径将批次终态置为 ADMIN_CLOSED,以恢复bar.lastPrice作为管理关闭参考价。
+     * 正式批次真实回笼资金并释放槽位,影子批次只计算理论收益不操作正式槽位。
+     * 冷却统一48小时,resetObserved=false,保留原exitReason与expectedExitBarTime。
+     *
+     * @param batch         数据陈旧卖出批次
+     * @param recoveryBar   恢复bar
+     * @param slotById      槽位ID索引映射
+     * @param filledBatches 输出: 已完成灾难关闭的批次列表
+     */
+    private void disasterCloseBatch(TornStockVirtualBatchDO batch,
+                                    TornStockMarketBar15mDO recoveryBar,
+                                    Map<Long, TornStockPortfolioSlotDO> slotById,
+                                    List<TornStockVirtualBatchDO> filledBatches) {
+        BigDecimal disasterExitPrice = recoveryBar.getLastPrice();
+        long quantity = batch.getQuantity() != null ? batch.getQuantity() : 0L;
+        boolean isShadow = StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode().equals(batch.getLedgerType());
+
+        if (!isShadow && batch.getSlotId() != null && quantity > 0) {
+            TornStockPortfolioSlotDO slot = slotById.get(batch.getSlotId());
+            if (slot != null) {
+                portfolioService.settleSlot(slot, quantity, disasterExitPrice);
+            }
+        }
+
+        BigDecimal netReturn = StockPortfolioService.calculateNetReturn(
+                batch.getEntryReferencePrice(), disasterExitPrice);
+        BigDecimal sellProceeds;
+        if (isShadow) {
+            sellProceeds = disasterExitPrice;
+        } else if (quantity > 0) {
+            sellProceeds = disasterExitPrice.multiply(BigDecimal.valueOf(quantity))
+                    .multiply(StockPortfolioService.SELL_FEE_RATE);
+        } else {
+            sellProceeds = BigDecimal.ZERO;
+        }
+
+        // 保留原exitReason与expectedExitBarTime,仅切换终态并落灾难参考价
+        batch.setBatchStatus(StockBatchStatusEnum.ADMIN_CLOSED.getCode());
+        batch.setExitReferencePrice(disasterExitPrice);
+        batch.setExitTime(recoveryBar.getBarEndTime());
+        batch.setNetReturn(netReturn);
+        batch.setSellProceeds(sellProceeds);
+        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
+        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
+        batch.setCooldownUntil(recoveryBar.getBarEndTime().plusHours(DISASTER_COOLDOWN_HOURS));
+        batch.setResetObserved(false);
+
+        filledBatches.add(batch);
+        log.info("数据陈旧卖出批次灾难关闭: batchNo={}, disasterExitPrice={}, exitTime={}, originalExitReason={}, expectedExitBarTime={}",
+                batch.getBatchNo(), disasterExitPrice, recoveryBar.getBarEndTime(),
+                batch.getExitReason(), batch.getExpectedExitBarTime());
     }
 
     /**

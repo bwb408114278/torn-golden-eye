@@ -98,6 +98,10 @@ public class StockNoticeComposeService {
      * 卖出消息标题模板
      */
     private static final String SELL_TITLE_TEMPLATE = "【VIP股票卖出｜批次 %s】";
+    /**
+     * 数据异常关闭消息标题模板
+     */
+    private static final String DISASTER_CLOSE_TITLE_TEMPLATE = "【系统虚拟组合｜数据异常关闭】#%s";
 
     /**
      * 正数符号前缀
@@ -169,6 +173,9 @@ public class StockNoticeComposeService {
      * 关闭原因通过 {@link StockCloseTypeEnum#fromCode(String)} 转换为中文;
      * 风险退出不称为止盈,按"风险退出"原文展示。
      * 卖出消息必须携带原买入批次号。
+     * <p>
+     * 当批次为 {@link StockBatchStatusEnum#ADMIN_CLOSED}(数据/管理关闭)时,
+     * 组合独立的"数据异常关闭"消息,不使用普通SELL原因码或"止盈"文案。
      *
      * @param batch 卖出批次(须含batchNo、stocksShortname、primaryStrategy、
      *              entryReferencePrice、exitReferencePrice、netReturn、
@@ -178,6 +185,10 @@ public class StockNoticeComposeService {
     public String composeSellMessage(TornStockVirtualBatchDO batch) {
         Objects.requireNonNull(batch, "批次不能为空");
         Objects.requireNonNull(batch.getBatchNo(), "批次编号不能为空");
+
+        if (StockBatchStatusEnum.ADMIN_CLOSED.getCode().equals(batch.getBatchStatus())) {
+            return composeDisasterCloseMessage(batch);
+        }
 
         String strategyChinese = resolveStrategyChinese(batch.getPrimaryStrategy());
         String closeTypeChinese = resolveCloseTypeChinese(batch.getExitReason());
@@ -198,6 +209,41 @@ public class StockNoticeComposeService {
                 "\n" +
                 "本卖出仅对应批次 " + batch.getBatchNo() + "。" + "\n" +
                 "未跟随该批次买入的成员无需操作。";
+    }
+
+    /**
+     * 组合数据异常关闭消息文本
+     * <p>
+     * DATA_STALE_EXIT 恢复后的独立灾难处置消息。说明原退出信号已产生但预期成交bar缺失,
+     * 当前价格为数据恢复后的首个可用参考价,本次为系统风险/管理关闭,不代表在该价格
+     * 形成了原策略的准时卖出。保留原退出原因与预期成交时间,不使用普通SELL原因码或"止盈"文案。
+     *
+     * @param batch 数据异常关闭批次(须含batchNo、stocksShortname、primaryStrategy、
+     *              entryReferencePrice、exitReferencePrice、netReturn、exitReason、expectedExitBarTime)
+     * @return 中文数据异常关闭消息文本
+     */
+    private String composeDisasterCloseMessage(TornStockVirtualBatchDO batch) {
+        String strategyChinese = resolveStrategyChinese(batch.getPrimaryStrategy());
+        String originalExitReasonChinese = resolveCloseTypeChinese(batch.getExitReason());
+        BigDecimal entryPrice = nullSafePrice(batch.getEntryReferencePrice());
+        BigDecimal exitPrice = nullSafePrice(batch.getExitReferencePrice());
+        String netReturnText = formatNetReturn(batch.getNetReturn());
+        String expectedExitText = batch.getExpectedExitBarTime() != null
+                ? batch.getExpectedExitBarTime().format(FOLLOW_UNTIL_FORMATTER) : "未知";
+
+        return String.format(DISASTER_CLOSE_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
+                "\n" +
+                "股票：" + nullSafeText(batch.getStocksShortname()) + "\n" +
+                "原买入策略：" + strategyChinese + "\n" +
+                "系统参考买价：$" + formatPrice(entryPrice) + "\n" +
+                "原退出信号已触发，但预期成交bar缺失。" + "\n" +
+                "原退出原因：" + originalExitReasonChinese + "\n" +
+                "预期成交时间：" + expectedExitText + "\n" +
+                "数据恢复后首个可用参考价：$" + formatPrice(exitPrice) + "\n" +
+                "扣除0.1%卖出费后系统批次收益：" + netReturnText + "\n" +
+                "\n" +
+                "本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出。" + "\n" +
+                "未跟随原BUY的成员无需操作。";
     }
 
 

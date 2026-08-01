@@ -36,6 +36,10 @@ public enum StockFormalReasonEnum {
      */
     SELL_HARD_RISK("SELL_HARD_RISK", "硬性风险止损退出"),
     /**
+     * 数据/管理关闭 - DATA_STALE_EXIT恢复后的独立灾难处置,非普通策略卖出
+     */
+    SELL_DATA_ADMIN_CLOSE("SELL_DATA_ADMIN_CLOSE", "数据异常/管理关闭"),
+    /**
      * 未触发任何退出规则,保持持有
      */
     HOLD_NO_EXIT_TRIGGERED("HOLD_NO_EXIT_TRIGGERED", "未触发任何退出规则,保持持有"),

@@ -87,14 +87,15 @@ class StockRoundTransactionServiceTest {
         TornStockVirtualBatchDO shadowExitPendingBatch = exitPendingBatch(
                 12L, 1002, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode(), null, roundTime);
         TornStockVirtualBatchDO externalSnapshotBatch = exitPendingBatch(
-                99L, 9999, StockLedgerTypeEnum.FORMAL.getCode(), 9L, roundTime);
+                99L, 9999, StockLedgerTypeEnum.FORMAL.getCode(), 1L, roundTime);
         List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(formalExitPendingBatch);
-        TornStockPortfolioSlotDO externalSnapshotSlot = formalSlot(
-                9L, StockSlotStatusEnum.OCCUPIED, externalSnapshotBatch.getId());
+        // 事务外快照: 合法5槽形状(slotNo 1~5),槽1被陈旧外部批次占用,
+        // 事务内会被锁后数据替换,证明编排不信任事务外快照。
+        List<TornStockPortfolioSlotDO> externalSlots = buildFiveFormalSlots(externalSnapshotBatch);
         List<CandidateInfo> candidates = List.of(candidate(1001), candidate(1002));
         RoundSnapshot snapshot = new RoundSnapshot(
                 List.of(usableBar(1001, roundTime), usableBar(1002, roundTime)), List.of(), List.of(),
-                List.of(externalSnapshotBatch), List.of(), List.of(), List.of(externalSnapshotSlot), roundTime);
+                List.of(externalSnapshotBatch), List.of(), List.of(), externalSlots, roundTime);
 
         stubRoundExecution(roundTime, formalExitPendingBatch, shadowExitPendingBatch, lockedSlots, candidates);
 
@@ -117,7 +118,7 @@ class StockRoundTransactionServiceTest {
         assertSame(formalExitPendingBatch, capturedSnapshot.activeBatches().getFirst());
         assertSame(shadowExitPendingBatch, capturedSnapshot.activeBatches().get(1));
         assertEquals(List.of(shadowExitPendingBatch), capturedSnapshot.shadowBatches());
-        assertEquals(5, capturedSnapshot.slots().size());
+        assertSlotSetCompleteness(capturedSnapshot.slots(), lockedSlots);
         assertSlotSettlement(capturedSnapshot.slots());
     }
 
@@ -230,6 +231,28 @@ class StockRoundTransactionServiceTest {
     }
 
     /**
+     * 断言锁后槽位列表完整性与对象一致性。
+     * <p>
+     * 锁后列表必须恰好5槽、ID与slotNo均为1~5且无重复、顺序正确,
+     * 且每个元素与锁查询返回对象逐槽 assertSame,证明事务使用锁后对象而非事务外快照。
+     *
+     * @param slots       锁后传入候选接纳的槽位列表
+     * @param lockedSlots 锁查询返回的槽位列表
+     */
+    private void assertSlotSetCompleteness(List<TornStockPortfolioSlotDO> slots,
+                                           List<TornStockPortfolioSlotDO> lockedSlots) {
+        assertEquals(5, slots.size(), "锁后槽位列表应为5槽");
+        List<Long> ids = slots.stream().map(TornStockPortfolioSlotDO::getId).toList();
+        assertEquals(List.of(1L, 2L, 3L, 4L, 5L), ids, "槽位ID应恰好为1~5且无重复");
+        List<Integer> slotNos = slots.stream().map(TornStockPortfolioSlotDO::getSlotNo).toList();
+        assertEquals(List.of(1, 2, 3, 4, 5), slotNos, "slotNo应恰好为1~5且无重复顺序正确");
+        assertEquals(5, ids.stream().distinct().count(), "槽位ID不应重复");
+        for (int i = 0; i < slots.size(); i++) {
+            assertSame(lockedSlots.get(i), slots.get(i), "锁后槽位应为锁查询返回对象");
+        }
+    }
+
+    /**
      * 断言平仓后槽位结算形状: 1号占用槽位已释放为AVAILABLE并回笼卖出所得,
      * 其余4个AVAILABLE槽位字段保持不变。
      *
@@ -243,6 +266,11 @@ class StockRoundTransactionServiceTest {
         assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), settledSlot.getSlotStatus());
         assertNull(settledSlot.getCurrentBatchId());
         assertEquals(0, new BigDecimal("2000000089.90").compareTo(settledSlot.getAvailableCash()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(settledSlot.getReservedCash()));
+        assertEquals(0, StockPortfolioService.INITIAL_CASH.compareTo(settledSlot.getInitialCash()));
+        assertEquals(1L, settledSlot.getLockVersion());
+        assertEquals(StockPortfolioService.PORTFOLIO_CODE, settledSlot.getPortfolioCode());
+        assertEquals(1, settledSlot.getSlotNo());
 
         slots.stream()
                 .filter(slot -> slot.getId() != 1L)
@@ -250,6 +278,11 @@ class StockRoundTransactionServiceTest {
                     assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus());
                     assertNull(slot.getCurrentBatchId());
                     assertEquals(0, StockPortfolioService.INITIAL_CASH.compareTo(slot.getAvailableCash()));
+                    assertEquals(0, BigDecimal.ZERO.compareTo(slot.getReservedCash()));
+                    assertEquals(0, StockPortfolioService.INITIAL_CASH.compareTo(slot.getInitialCash()));
+                    assertEquals(1L, slot.getLockVersion());
+                    assertEquals(StockPortfolioService.PORTFOLIO_CODE, slot.getPortfolioCode());
+                    assertEquals(slot.getId().intValue(), slot.getSlotNo(), "slotNo应等于槽位ID");
                 });
     }
 

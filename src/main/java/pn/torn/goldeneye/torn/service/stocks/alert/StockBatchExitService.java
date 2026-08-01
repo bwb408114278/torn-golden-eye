@@ -86,7 +86,7 @@ public class StockBatchExitService {
      * @param low30d       30日最低价
      * @param high30d      30日最高价
      * @param roundTime    本轮时间(用于时间退出判断,替代LocalDateTime.now())
-     * @return 退出评估结果(shouldExit=true时包含closeType与reason)
+     * @return 退出评估结果(shouldExit=true时包含closeType与reason;输入或必要特征不完整时返回dataInsufficient=true的结果)
      */
     public ExitEvaluation evaluateExit(TornStockVirtualBatchDO batch, BigDecimal currentPrice,
                                        BigDecimal position30, BigDecimal low30d, BigDecimal high30d,
@@ -97,8 +97,8 @@ public class StockBatchExitService {
 
         BigDecimal entryReferencePrice = batch.getEntryReferencePrice();
         if (entryReferencePrice == null || entryReferencePrice.signum() <= 0) {
-            log.warn("批次[{}]入场参考价缺失或非正,跳过退出评估", batch.getBatchNo());
-            return hold("入场参考价缺失");
+            log.warn("批次[{}]入场参考价缺失或非正,返回不可评估", batch.getBatchNo());
+            return dataInsufficient("入场参考价缺失");
         }
 
         BigDecimal netReturn = calculateNetReturn(entryReferencePrice, currentPrice);
@@ -109,11 +109,19 @@ public class StockBatchExitService {
             log.debug("批次[{}]触发目标退出,netReturn={}", batch.getBatchNo(), netReturn);
             return targetExit;
         }
+        if (targetExit.dataInsufficient()) {
+            log.warn("批次[{}]目标退出不可评估,netReturn={}", batch.getBatchNo(), netReturn);
+            return targetExit;
+        }
 
         // 2. 风险退出
         ExitEvaluation riskExit = checkRiskExit(netReturn);
         if (riskExit.shouldExit()) {
             log.debug("批次[{}]触发风险退出,netReturn={}", batch.getBatchNo(), netReturn);
+            return riskExit;
+        }
+        if (riskExit.dataInsufficient()) {
+            log.warn("批次[{}]风险退出不可评估,netReturn={}", batch.getBatchNo(), netReturn);
             return riskExit;
         }
 
@@ -123,11 +131,20 @@ public class StockBatchExitService {
             log.debug("批次[{}]触发时间退出,entryTime={},roundTime={}", batch.getBatchNo(), batch.getEntryTime(), roundTime);
             return timeExit;
         }
+        if (timeExit.dataInsufficient()) {
+            log.warn("批次[{}]时间退出不可评估,entryTime={}", batch.getBatchNo(), batch.getEntryTime());
+            return timeExit;
+        }
 
         // 4. 区间恢复退出
         ExitEvaluation rangeExit = checkRangeExit(batch.getPrimaryStrategy(), netReturn, position30, low30d, high30d);
         if (rangeExit.shouldExit()) {
             log.debug("批次[{}]触发区间恢复退出,netReturn={},position30={}", batch.getBatchNo(), netReturn, position30);
+            return rangeExit;
+        }
+        if (rangeExit.dataInsufficient()) {
+            log.warn("批次[{}]区间退出不可评估,primaryStrategy={},position30={},low30d={},high30d={}",
+                    batch.getBatchNo(), batch.getPrimaryStrategy(), position30, low30d, high30d);
             return rangeExit;
         }
 
@@ -142,11 +159,11 @@ public class StockBatchExitService {
      * netReturn >= +0.8%({@link #TARGET_RETURN_THRESHOLD})时触发,关闭类型为 CLOSED_TARGET。
      *
      * @param netReturn 当前净收益率
-     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false
+     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false;净收益率为空(基础输入缺失)时返回dataInsufficient=true
      */
     public ExitEvaluation checkTargetExit(BigDecimal netReturn) {
         if (netReturn == null) {
-            return hold("净收益率为空");
+            return dataInsufficient("净收益率为空,基础输入缺失");
         }
         if (netReturn.compareTo(TARGET_RETURN_THRESHOLD) >= 0) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_TARGET,
@@ -162,11 +179,11 @@ public class StockBatchExitService {
      * netReturn <= -1.5%({@link #RISK_RETURN_THRESHOLD})时触发,关闭类型为 CLOSED_RISK。
      *
      * @param netReturn 当前净收益率
-     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false
+     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false;净收益率为空(基础输入缺失)时返回dataInsufficient=true
      */
     public ExitEvaluation checkRiskExit(BigDecimal netReturn) {
         if (netReturn == null) {
-            return hold("净收益率为空");
+            return dataInsufficient("净收益率为空,基础输入缺失");
         }
         if (netReturn.compareTo(RISK_RETURN_THRESHOLD) <= 0) {
             return new ExitEvaluation(true, StockCloseTypeEnum.CLOSED_RISK,
@@ -183,11 +200,11 @@ public class StockBatchExitService {
      *
      * @param entryTime   入场时间
      * @param currentTime 当前时间
-     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false
+     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false;入场或当前时间为空(基础输入缺失)时返回dataInsufficient=true
      */
     public ExitEvaluation checkTimeExit(LocalDateTime entryTime, LocalDateTime currentTime) {
         if (entryTime == null || currentTime == null) {
-            return hold("入场时间或当前时间为空");
+            return dataInsufficient("入场时间或当前时间为空,基础输入缺失");
         }
         long holdDays = Duration.between(entryTime, currentTime).toDays();
         if (holdDays >= MAX_HOLD_DAYS) {
@@ -207,7 +224,10 @@ public class StockBatchExitService {
      *   <li>netReturn > 0</li>
      *   <li>position30 >= 0.60</li>
      * </ol>
-     * 当 high30d == low30d 时 fail-closed,不触发区间退出(避免除零)。
+     * 对RANGE批次,该策略区间特征属于必要输入: {@code low30d/high30d/position30}
+     * 任一为空或 {@code high30d <= low30d} 时视为不可评估,返回 dataInsufficient=true,
+     * 不得把缺失解释为区间规则未命中。非RANGE批次区间规则不适用(NOT_APPLICABLE),
+     * 返回普通hold,由上层允许写通用HOLD。
      * position30 = (currentPrice - low30d) / (high30d - low30d),由调用方预算后传入。
      *
      * @param primaryStrategy 主策略标识
@@ -215,27 +235,27 @@ public class StockBatchExitService {
      * @param position30      30日区间位置(调用方预算好);为空时不触发区间退出
      * @param low30d          30日最低价
      * @param high30d         30日最高价
-     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false
+     * @return 命中时返回shouldExit=true的评估结果;未命中返回shouldExit=false;RANGE必要特征缺失/无效时返回dataInsufficient=true
      */
     public ExitEvaluation checkRangeExit(String primaryStrategy, BigDecimal netReturn,
                                          BigDecimal position30, BigDecimal low30d, BigDecimal high30d) {
         if (!RANGE_LOWER_BUY_STRATEGY.equals(primaryStrategy)) {
             return hold("主策略非区间下沿买入");
         }
+
+        // RANGE批次: 区间特征属于必要输入,缺失或无效视为不可评估(fail-closed)
+        if (low30d == null || high30d == null) {
+            return dataInsufficient("30日高低价为空,区间必要特征缺失");
+        }
+        if (high30d.compareTo(low30d) <= 0) {
+            return dataInsufficient("30日高低价无效(high30<=low30)");
+        }
+        if (position30 == null) {
+            return dataInsufficient("position30为空,区间必要特征缺失");
+        }
+
         if (netReturn == null || netReturn.signum() <= 0) {
             return hold("净收益率非正");
-        }
-
-        // fail-closed: high30 == low30 时不触发
-        if (low30d == null || high30d == null) {
-            return hold("30日高低价为空");
-        }
-        if (high30d.compareTo(low30d) == 0) {
-            return hold("30日高低价相等,fail-closed");
-        }
-
-        if (position30 == null) {
-            return hold("position30为空,由调用方预算后传入");
         }
 
         if (position30.compareTo(RANGE_POSITION_THRESHOLD) >= 0) {
@@ -283,18 +303,45 @@ public class StockBatchExitService {
     }
 
     /**
+     * 构建不可评估的评估结果。
+     * <p>
+     * 输入或该策略必要特征不完整时返回,表示当前无法完成有效评估,禁止写成通用HOLD
+     * ({@link StockFormalReasonEnum#HOLD_NO_EXIT_TRIGGERED}),应由上层转入数据不足/不可评估路径(如DATA_STALE)。
+     *
+     * @param reason 不可评估原因描述(仅日志用途)
+     * @return dataInsufficient=true且shouldExit=false的评估结果
+     */
+    private static ExitEvaluation dataInsufficient(String reason) {
+        return new ExitEvaluation(false, null, null, reason);
+    }
+
+    /**
      * 退出评估结果
      * <p>
-     * 封装退出评估的判定输出。shouldExit为true时closeType与reasonCode必有值,
-     * reasonCode为冻结的SELL原因编码;shouldExit为false时closeType为null,
-     * reasonCode为冻结的HOLD通用编码,reason描述未命中原因(仅日志用途)。
+     * 封装退出评估的判定输出。
+     * <ul>
+     *   <li>shouldExit=true时closeType与reasonCode必有值,reasonCode为冻结的SELL原因编码;</li>
+     *   <li>shouldExit=false且dataInsufficient=false时closeType为null,
+     *       reasonCode为冻结的HOLD通用编码,reason描述未命中原因(仅日志用途);</li>
+     *   <li>shouldExit=false且dataInsufficient=true时closeType与reasonCode均为null,
+     *       reason描述不可评估原因,禁止写成通用HOLD。</li>
+     * </ul>
      *
      * @param shouldExit 是否应退出
      * @param closeType  关闭类型(shouldExit=true时非空)
-     * @param reasonCode 冻结的正式决定原因编码(SELL_* 或 HOLD_* 前缀编码)
-     * @param reason     退出/未退出原因描述(仅日志用途)
+     * @param reasonCode 冻结的正式决定原因编码(SELL_* 或 HOLD_* 前缀编码;不可评估时为null)
+     * @param reason     退出/未退出/不可评估原因描述(仅日志用途)
      */
     public record ExitEvaluation(boolean shouldExit, StockCloseTypeEnum closeType,
                                  String reasonCode, String reason) {
+
+        /**
+         * 是否为不可评估结果(输入或必要特征不完整)。
+         *
+         * @return 不可评估时返回true
+         */
+        public boolean dataInsufficient() {
+            return !shouldExit && reasonCode == null;
+        }
     }
 }
