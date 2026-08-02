@@ -5,9 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 股票通知payload规范化工具测试,验证确定性键序、合并保留业务字段与哈希可复核。
@@ -77,15 +75,17 @@ class StockNoticePayloadCanonicalizerTest {
     @Test
     @DisplayName("原payload为空_合并抛异常")
     void mergeAndCanonicalize_emptyOriginal_throws() {
+        LocalDateTime frozenAt = LocalDateTime.now();
         assertThrows(IllegalStateException.class,
-                () -> StockNoticePayloadCanonicalizer.mergeAndCanonicalize("", "文本", LocalDateTime.now()));
+                () -> StockNoticePayloadCanonicalizer.mergeAndCanonicalize("", "文本", frozenAt));
     }
 
     @Test
     @DisplayName("原payload非JSON对象_合并抛异常")
     void mergeAndCanonicalize_nonObject_throws() {
+        LocalDateTime frozenAt = LocalDateTime.now();
         assertThrows(IllegalStateException.class,
-                () -> StockNoticePayloadCanonicalizer.mergeAndCanonicalize("[1,2,3]", "文本", LocalDateTime.now()));
+                () -> StockNoticePayloadCanonicalizer.mergeAndCanonicalize("[1,2,3]", "文本", frozenAt));
     }
 
     @Test

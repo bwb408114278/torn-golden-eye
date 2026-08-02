@@ -92,7 +92,7 @@ public final class StockNoticePayloadCanonicalizer {
             if (!root.isObject()) {
                 throw new IllegalStateException("创建时业务payload不是JSON对象,无法合并");
             }
-            ObjectNode merged = (ObjectNode) root.deepCopy();
+            ObjectNode merged = root.deepCopy();
             merged.put("messageText", messageText);
             merged.put("frozenAt", frozenAt.toString());
             return canonicalize(merged.toString());
@@ -114,7 +114,7 @@ public final class StockNoticePayloadCanonicalizer {
         }
         if (node.isObject()) {
             TreeMap<String, Object> sorted = new TreeMap<>(Comparator.naturalOrder());
-            node.fields().forEachRemaining(entry -> sorted.put(entry.getKey(), normalize(entry.getValue())));
+            node.properties().forEach(entry -> sorted.put(entry.getKey(), normalize(entry.getValue())));
             return sorted;
         }
         if (node.isArray()) {

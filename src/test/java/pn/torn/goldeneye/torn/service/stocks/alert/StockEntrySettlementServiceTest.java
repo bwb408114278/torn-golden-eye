@@ -22,10 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
 
@@ -267,8 +264,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "未知或空ledgerType必须fail-closed,禁止非Shadow即正式");
     }
 
@@ -281,8 +279,9 @@ class StockEntrySettlementServiceTest {
         bar.setLastPrice(new BigDecimal("101.50"));
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "正式批次槽位缺失必须抛异常,不得仅关闭批次");
     }
 
@@ -296,8 +295,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 2, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "槽位slotNo不一致必须抛异常");
     }
 
@@ -311,8 +311,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, 999L);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "槽位currentBatchId必须等于批次id,否则抛异常");
     }
 
@@ -327,8 +328,9 @@ class StockEntrySettlementServiceTest {
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "槽位状态非法必须抛异常");
     }
 
@@ -343,8 +345,9 @@ class StockEntrySettlementServiceTest {
         slot.setReservedCash(new BigDecimal("100.00"));
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "槽位仍有预留资金必须抛异常");
     }
 
@@ -359,8 +362,9 @@ class StockEntrySettlementServiceTest {
         slot.setAvailableCash(new BigDecimal("999.00"));
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "槽位可用现金与批次余款不一致必须抛异常");
     }
 
@@ -375,8 +379,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "正式批次股数非正必须抛异常");
     }
 

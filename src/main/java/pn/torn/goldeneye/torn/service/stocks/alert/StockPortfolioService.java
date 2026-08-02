@@ -191,8 +191,8 @@ public class StockPortfolioService {
      * 解绑批次ID。本方法不负责写批次终态与冷却,由调用方按各自入口状态(DATA_STALE_EXIT
      * 灾难关闭或 EXIT_PENDING 正常卖出)完成。
      *
-     * @param batch             正式批次(ledgerType必须为FORMAL)
-     * @param slot              锁后正式槽位
+     * @param batch              正式批次(ledgerType必须为FORMAL)
+     * @param slot               锁后正式槽位
      * @param exitReferencePrice 卖出参考价(>0)
      * @return 扣费后卖出所得(sellProceeds)
      * @throws IllegalStateException 正式账本一致性校验失败时抛出
@@ -231,12 +231,23 @@ public class StockPortfolioService {
     private void validateFormalSettlement(TornStockVirtualBatchDO batch,
                                           TornStockPortfolioSlotDO slot,
                                           BigDecimal exitReferencePrice) {
+        validateBatchIdentity(batch);
+        validateFormalLedgerType(batch);
+        validateExitPriceReference(batch, exitReferencePrice);
+        validateSlotNotNull(batch, slot);
+        validateSlotBinding(batch, slot);
+        validateSlotCashConsistency(batch, slot);
+    }
+
+    /**
+     * 校验正式批次关键标识、数量、价格与预期卖出bar。
+     *
+     * @param batch 正式批次
+     * @throws IllegalStateException 校验失败时抛出
+     */
+    private void validateBatchIdentity(TornStockVirtualBatchDO batch) {
         if (batch == null) {
             throw new IllegalStateException("正式关闭批次为空,账本一致性破坏");
-        }
-        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
-            throw new IllegalStateException("正式批次账本类型非法,禁止非Shadow即正式: batchNo="
-                    + batch.getBatchNo() + ", ledgerType=" + batch.getLedgerType());
         }
         if (batch.getId() == null || batch.getSlotId() == null || batch.getSlotNo() == null
                 || batch.getStocksId() == null) {
@@ -252,10 +263,56 @@ public class StockPortfolioService {
         if (batch.getExpectedExitBarTime() == null) {
             throw new IllegalStateException("正式批次预期卖出bar缺失,账本一致性破坏: batchNo=" + batch.getBatchNo());
         }
+    }
+
+    /**
+     * 校验正式批次账本类型必须为FORMAL,禁止"非Shadow即正式"宽松判断。
+     *
+     * @param batch 正式批次
+     * @throws IllegalStateException 账本类型非法时抛出
+     */
+    private void validateFormalLedgerType(TornStockVirtualBatchDO batch) {
+        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
+            throw new IllegalStateException("正式批次账本类型非法,禁止非Shadow即正式: batchNo="
+                    + batch.getBatchNo() + ", ledgerType=" + batch.getLedgerType());
+        }
+    }
+
+    /**
+     * 校验卖出参考价必须为正数。
+     *
+     * @param batch              正式批次
+     * @param exitReferencePrice 卖出参考价
+     * @throws IllegalStateException 卖出参考价非法时抛出
+     */
+    private void validateExitPriceReference(TornStockVirtualBatchDO batch, BigDecimal exitReferencePrice) {
+        if (exitReferencePrice == null || exitReferencePrice.signum() <= 0) {
+            throw new IllegalStateException("正式批次卖出参考价非法,账本一致性破坏: batchNo=" + batch.getBatchNo());
+        }
+    }
+
+    /**
+     * 校验正式批次槽位存在。
+     *
+     * @param batch 正式批次
+     * @param slot  锁后正式槽位
+     * @throws IllegalStateException 槽位不存在时抛出
+     */
+    private void validateSlotNotNull(TornStockVirtualBatchDO batch, TornStockPortfolioSlotDO slot) {
         if (slot == null) {
             throw new IllegalStateException("正式批次槽位不存在,账本一致性破坏: batchNo=" + batch.getBatchNo()
                     + ", slotId=" + batch.getSlotId());
         }
+    }
+
+    /**
+     * 校验槽位编号、当前批次绑定与槽位状态。
+     *
+     * @param batch 正式批次
+     * @param slot  锁后正式槽位
+     * @throws IllegalStateException 绑定关系不一致或状态非法时抛出
+     */
+    private void validateSlotBinding(TornStockVirtualBatchDO batch, TornStockPortfolioSlotDO slot) {
         if (slot.getSlotNo() == null || !slot.getSlotNo().equals(batch.getSlotNo())) {
             throw new IllegalStateException("正式批次槽位编号不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
                     + ", batchSlotNo=" + batch.getSlotNo() + ", slotNo=" + slot.getSlotNo());
@@ -270,6 +327,16 @@ public class StockPortfolioService {
             throw new IllegalStateException("正式批次槽位状态非法,账本一致性破坏: batchNo=" + batch.getBatchNo()
                     + ", slotStatus=" + slotStatus);
         }
+    }
+
+    /**
+     * 校验槽位预留资金为零且可用现金与批次余款一致。
+     *
+     * @param batch 正式批次
+     * @param slot  锁后正式槽位
+     * @throws IllegalStateException 资金不一致时抛出
+     */
+    private void validateSlotCashConsistency(TornStockVirtualBatchDO batch, TornStockPortfolioSlotDO slot) {
         BigDecimal reservedCash = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
         if (reservedCash.compareTo(BigDecimal.ZERO) != 0) {
             throw new IllegalStateException("正式批次槽位仍有预留资金,账本一致性破坏: batchNo=" + batch.getBatchNo()
@@ -281,9 +348,6 @@ public class StockPortfolioService {
                 || availableCash.compareTo(remainingCash) != 0) {
             throw new IllegalStateException("正式批次槽位余款不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
                     + ", slotAvailableCash=" + availableCash + ", batchRemainingCash=" + remainingCash);
-        }
-        if (exitReferencePrice == null || exitReferencePrice.signum() <= 0) {
-            throw new IllegalStateException("正式批次卖出参考价非法,账本一致性破坏: batchNo=" + batch.getBatchNo());
         }
     }
 

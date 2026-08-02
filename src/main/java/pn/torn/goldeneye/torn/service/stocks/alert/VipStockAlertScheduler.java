@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>验证VIP组合槽位完整性</li>
  *   <li>初始化当月风格/成熟度/风险草稿记录</li>
  *   <li>从最后已完成轮次之后重建历史bar与特征至当前已结束桶</li>
- *   <li>重建完成后调用 {@link #processPendingRounds()} 处理未完成轮次</li>
+ *   <li>重建完成后调用 {@link #processPendingRounds(boolean)} 处理未完成轮次</li>
  * </ol>
  * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续。
  *
