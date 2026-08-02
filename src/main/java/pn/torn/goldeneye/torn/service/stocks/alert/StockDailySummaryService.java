@@ -12,6 +12,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 import pn.torn.goldeneye.utils.JsonUtils;
 
@@ -736,13 +737,16 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 生成载荷哈希(SHA-256,基于完整摘要载荷快照)。
+     * 生成载荷哈希(SHA-256,基于完整摘要载荷快照的规范化JSON)。
+     * <p>
+     * 使用 {@link StockNoticePayloadCanonicalizer} 做确定性规范化后计算,与创建、发送合并、
+     * 数据库复核共用同一canonicalizer,保证JSONB读回后哈希可复核。
      *
      * @param payloadSnapshot 完整载荷快照JSON
      * @return 载荷哈希
      */
     private String generatePayloadHash(String payloadSnapshot) {
-        return StockHashUtils.sha256(payloadSnapshot);
+        return StockNoticePayloadCanonicalizer.sha256(payloadSnapshot);
     }
 
     /**

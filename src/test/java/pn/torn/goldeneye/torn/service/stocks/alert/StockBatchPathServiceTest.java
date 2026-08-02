@@ -204,6 +204,67 @@ class StockBatchPathServiceTest {
                 "特征完整且未命中时批次应保持OPEN");
     }
 
+    @Test
+    @DisplayName("真实退出链_RANGE批次position30缺失_转DATA_STALE且不生成mark")
+    void updatePathsAndEvaluateExits_realExitServiceRangeMissingPosition_transitionsToDataStale() {
+        // 使用真实StockBatchExitService而非Mock不可评估结果,证明生产可达链
+        StockBatchPathService realPathService = new StockBatchPathService(new StockBatchExitService());
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setPrimaryStrategy(StockBatchExitService.RANGE_LOWER_BUY_STRATEGY);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        feature.setPosition30(null);
+        feature.setLow30d(new BigDecimal("90.00"));
+        feature.setHigh30d(new BigDecimal("110.00"));
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = realPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertTrue(marks.isEmpty(), "RANGE必要特征缺失不得生成HOLD mark");
+        assertEquals(StockBatchStatusEnum.DATA_STALE.getCode(), batch.getBatchStatus(),
+                "RANGE批次缺少position30应转DATA_STALE");
+    }
+
+    @Test
+    @DisplayName("真实退出链_RANGE批次high30等于low30_转DATA_STALE且不生成mark")
+    void updatePathsAndEvaluateExits_realExitServiceRangeFlatRange_transitionsToDataStale() {
+        StockBatchPathService realPathService = new StockBatchPathService(new StockBatchExitService());
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setPrimaryStrategy(StockBatchExitService.RANGE_LOWER_BUY_STRATEGY);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        feature.setPosition30(new BigDecimal("0.50"));
+        feature.setLow30d(new BigDecimal("100.00"));
+        feature.setHigh30d(new BigDecimal("100.00"));
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = realPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertTrue(marks.isEmpty(), "high30<=low30时不得生成HOLD mark");
+        assertEquals(StockBatchStatusEnum.DATA_STALE.getCode(), batch.getBatchStatus(),
+                "RANGE批次high30<=low30应转DATA_STALE");
+    }
+
+    @Test
+    @DisplayName("真实退出链_非RANGE批次缺区间特征_不转DATA_STALE且生成HOLD mark")
+    void updatePathsAndEvaluateExits_realExitServiceNonRangeMissingFeatures_holdAllowed() {
+        StockBatchPathService realPathService = new StockBatchPathService(new StockBatchExitService());
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setPrimaryStrategy("DEEP_MEAN_REVERSION_BUY");
+        TornStockMarketBar15mDO bar = buildBar(true);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = realPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(), ROUND_TIME);
+
+        assertEquals(1, marks.size(), "非RANGE批次不要求区间特征,应正常生成mark");
+        assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), marks.getFirst().getFormalReason());
+        assertEquals(StockBatchStatusEnum.OPEN.getCode(), batch.getBatchStatus(),
+                "非RANGE批次应保持OPEN");
+    }
+
     // ==================== Helper Methods ====================
 
     /**

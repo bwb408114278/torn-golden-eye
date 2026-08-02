@@ -14,6 +14,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.StockEligibilityService.Eligi
 import pn.torn.goldeneye.torn.service.stocks.alert.StockShadowService.StockSignalEventContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
@@ -498,33 +499,36 @@ public class StockShadowRecordWriter {
     }
 
     /**
-     * 生成通知载荷哈希(SHA-256:基于payload快照JSON内容计算)。
+     * 生成通知载荷哈希(SHA-256:基于payload规范化JSON内容计算)。
      * <p>
-     * 载荷快照记录的是通知创建时的业务字段和当时的消息文本;
-     * 实际发送文本由发送服务在发送前冻结到payloadSnapshot.messageText,两者在发送成功前保持可审计。
+     * 使用 {@link StockNoticePayloadCanonicalizer} 做确定性规范化后再计算哈希,
+     * 创建、发送前合并与数据库复核共用同一canonicalizer,保证JSONB读回后哈希可复核。
      *
      * @param payloadSnapshot 载荷快照JSON文本
      * @return 载荷哈希(64位十六进制字符串)
      */
     private String generatePayloadHash(String payloadSnapshot) {
-        return StockHashUtils.sha256(payloadSnapshot);
+        return StockNoticePayloadCanonicalizer.sha256(payloadSnapshot);
     }
 
     /**
-     * 构建通知载荷快照JSON。
+     * 构建通知载荷快照JSON(规范化)。
      * <p>
-     * BUY类型包含入场参考价、股数、投入资金和槽位编号;
-     * SELL类型包含卖出参考价、净收益、卖出收入和退出原因。
-     * 数据/管理关闭批次(ADMIN_CLOSED)额外固化 originalExitReason、expectedExitBarTime
-     * 与冻结的 SELL_DATA_ADMIN_CLOSE 正式原因编码,便于审计区分灾难处置与普通策略卖出。
+     * BUY类型包含批次、股票、入场参考价、股数、投入资金、槽位与规则版本;
+     * SELL类型包含批次、股票、买卖参考价、股数、净收益、卖出收入、正式原因与规则版本。
+     * 数据/管理关闭批次(ADMIN_CLOSED)额外固化 originalExitReason、adminCloseReason、
+     * expectedExitBarTime、recoveryBarStart/EndTime 与 staleExitDurationSeconds,
+     * 便于审计区分灾难处置与普通策略卖出。
+     * 载荷通过 {@link StockNoticePayloadCanonicalizer} 规范化后落库,键序确定。
      *
      * @param batch      关联批次
      * @param noticeType 通知类型
      * @return 载荷快照JSON文本
      */
     private String buildNoticePayload(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType) {
-        Map<String, Object> payload = new HashMap<>();
+        Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("noticeType", noticeType.getCode());
+        payload.put("batchId", batch.getId());
         payload.put("batchNo", batch.getBatchNo());
         payload.put("stocksId", batch.getStocksId());
         payload.put("stocksShortname", batch.getStocksShortname());
@@ -534,18 +538,54 @@ public class StockShadowRecordWriter {
             payload.put("quantity", batch.getQuantity());
             payload.put("investedCash", batch.getInvestedCash());
             payload.put("slotNo", batch.getSlotNo());
+            payload.put("buyRuleVersion", batch.getBuyRuleVersion());
+            payload.put("messageRuleVersion", batch.getMessageRuleVersion());
         } else {
+            payload.put("entryReferencePrice", batch.getEntryReferencePrice());
             payload.put("exitReferencePrice", batch.getExitReferencePrice());
+            payload.put("quantity", batch.getQuantity());
             payload.put("netReturn", batch.getNetReturn());
             payload.put("sellProceeds", batch.getSellProceeds());
             payload.put("exitReason", batch.getExitReason());
+            payload.put("exitTime", batch.getExitTime());
+            payload.put("sellRuleVersion", batch.getSellRuleVersion());
+            payload.put("messageRuleVersion", batch.getMessageRuleVersion());
             if (StockBatchStatusEnum.ADMIN_CLOSED.getCode().equals(batch.getBatchStatus())) {
                 payload.put("formalReason", StockFormalReasonEnum.SELL_DATA_ADMIN_CLOSE.getCode());
-                payload.put("originalExitReason", batch.getExitReason());
+                payload.put("originalExitReason", batch.getOriginalExitReason() != null
+                        ? batch.getOriginalExitReason() : batch.getExitReason());
+                payload.put("adminCloseReason", batch.getAdminCloseReason());
                 payload.put("expectedExitBarTime", batch.getExpectedExitBarTime());
+                payload.put("recoveryBarStartTime", batch.getRecoveryBarStartTime());
+                payload.put("recoveryBarEndTime", batch.getRecoveryBarEndTime());
+                payload.put("staleExitDurationSeconds", batch.getStaleExitDurationSeconds());
+            } else {
+                payload.put("formalReason", resolveFormalReason(batch.getExitReason()));
             }
         }
-        return JsonUtils.objToJson(payload);
+        return StockNoticePayloadCanonicalizer.canonicalize(JsonUtils.objToJson(payload));
+    }
+
+    /**
+     * 将原策略退出类型映射为正式卖出原因编码。
+     * <p>
+     * 普通策略卖出(非数据/管理关闭)使用稳定正式原因码;未知编码回退为原退出类型本身,
+     * 不在此处抛异常,避免通知审计写入被未知编码阻塞。
+     *
+     * @param exitReason 原策略退出类型编码
+     * @return 正式卖出原因编码
+     */
+    private String resolveFormalReason(String exitReason) {
+        if (exitReason == null) {
+            return null;
+        }
+        return switch (exitReason) {
+            case "CLOSED_TARGET" -> StockFormalReasonEnum.SELL_TARGET_REACHED.getCode();
+            case "CLOSED_RANGE" -> StockFormalReasonEnum.SELL_RANGE_RECOVERED.getCode();
+            case "CLOSED_RISK" -> StockFormalReasonEnum.SELL_HARD_RISK.getCode();
+            case "CLOSED_TIME" -> StockFormalReasonEnum.SELL_MAX_HOLD.getCode();
+            default -> exitReason;
+        };
     }
 
     // ==================== 信号评估视图接口 ====================

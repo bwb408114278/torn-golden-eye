@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticePayloadFinalizeCommand;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -54,16 +54,19 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
                             @Param("errorMessage") String errorMessage);
 
     /**
-     * 在发送前冻结最终文本、载荷哈希和实际发送尝试时间。
+     * 在发送前逐条冻结最终文本、载荷哈希和实际发送尝试时间。
+     * <p>
+     * 每条通知业务payload不同,必须逐条更新,禁止用一份payload覆盖整个noticeIds集合。
      *
-     * @param noticeIds       通知ID列表
-     * @param payloadSnapshot 最终载荷快照
-     * @param payloadHash     最终载荷哈希
-     * @param attemptedAt     实际发送尝试时间
-     * @return 更新行数
+     * @param commands 逐条通知的最终payload冻结命令
+     * @return 实际更新行数
      */
-    int finalizePayload(@Param("noticeIds") List<Long> noticeIds,
-                        @Param("payloadSnapshot") String payloadSnapshot,
-                        @Param("payloadHash") String payloadHash,
-                        @Param("attemptedAt") LocalDateTime attemptedAt);
+    int finalizePayload(@Param("commands") List<NoticePayloadFinalizeCommand> commands);
+
+    /**
+     * 判断是否存在待发送(PENDING)通知。
+     *
+     * @return 存在待发送通知返回true;否则false
+     */
+    boolean existsPendingNotices();
 }

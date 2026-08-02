@@ -2,7 +2,8 @@ package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import lombok.*;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.configuration.db.JsonbTypeHandler;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
@@ -34,7 +35,7 @@ public class TornStockVirtualBatchDO extends BaseDO {
      */
     private String batchNo;
     /**
-     * 账本类型(FORMAL正式/SHADOW影子,影子批次仅跟踪不实际分配资金)
+     * 账本类型(FORMAL正式/UNLIMITED_SHADOW无限资金影子/REJECTED_OBSERVATION拒绝观察)
      */
     private String ledgerType;
     /**
@@ -59,7 +60,8 @@ public class TornStockVirtualBatchDO extends BaseDO {
      */
     private BigDecimal qualityScore;
     /**
-     * 批次状态(SIGNAL_PENDING/ENTRY_PENDING/HOLDING/EXIT_PENDING/CLOSED/CANCELLED)
+     * 批次状态(ENTRY_PENDING/OPEN/DATA_STALE/EXIT_PENDING/DATA_STALE_EXIT/
+     * CLOSED_TARGET/CLOSED_RANGE/CLOSED_RISK/CLOSED_TIME/CLOSED_DYNAMIC/CLOSED_ROTATION/ADMIN_CLOSED/CANCELLED)
      */
     private String batchStatus;
     /**
@@ -207,9 +209,29 @@ public class TornStockVirtualBatchDO extends BaseDO {
      */
     private BigDecimal exitReferencePrice;
     /**
-     * 平仓原因(如TAKE_PROFIT/STOP_LOSS/TIMEOUT/SIGNAL_RESET)
+     * 原策略退出类型(如CLOSED_TARGET/CLOSED_RANGE/CLOSED_RISK/CLOSED_TIME);灾难关闭时保留原值
      */
     private String exitReason;
+    /**
+     * 进入DATA_STALE_EXIT时冻结的原策略退出类型,灾难关闭后不可覆盖
+     */
+    private String originalExitReason;
+    /**
+     * 管理关闭原因;灾难恢复固定DATA_STALE_EXIT_RECOVERY_CLOSE
+     */
+    private String adminCloseReason;
+    /**
+     * 灾难关闭所用首个恢复bar开始时间
+     */
+    private LocalDateTime recoveryBarStartTime;
+    /**
+     * 灾难关闭所用首个恢复bar结束时间,与exit_time一致
+     */
+    private LocalDateTime recoveryBarEndTime;
+    /**
+     * 从原预期卖出bar结束到恢复bar结束的陈旧秒数,不小于0
+     */
+    private Long staleExitDurationSeconds;
     /**
      * 最终净收益率(平仓参考价相对入场参考价的收益率)
      */

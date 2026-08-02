@@ -3,8 +3,10 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -176,6 +178,113 @@ public class StockPortfolioService {
         slot.setCurrentBatchId(null);
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
         log.debug("槽位[{}]卖出结算,股数{},卖出所得{},可用余额{}", slot.getSlotNo(), quantity, sellProceeds, slot.getAvailableCash());
+    }
+
+    /**
+     * 正式批次槽位校验与结算(领域共用方法)
+     * <p>
+     * 正常SELL与灾难关闭统一走此方法,禁止复制两套资金公式。结算前一次性校验正式账本
+     * 一致性,任一条件不满足即抛出 {@link IllegalStateException} 使整个轮次事务回滚,
+     * 不会只关闭批次、不会只释放部分资金。
+     * <p>
+     * 成功结算后: 卖出所得回笼到 {@code batch.remainingCash} 之上,槽位状态 AVAILABLE、
+     * 解绑批次ID。本方法不负责写批次终态与冷却,由调用方按各自入口状态(DATA_STALE_EXIT
+     * 灾难关闭或 EXIT_PENDING 正常卖出)完成。
+     *
+     * @param batch             正式批次(ledgerType必须为FORMAL)
+     * @param slot              锁后正式槽位
+     * @param exitReferencePrice 卖出参考价(>0)
+     * @return 扣费后卖出所得(sellProceeds)
+     * @throws IllegalStateException 正式账本一致性校验失败时抛出
+     */
+    public BigDecimal settleFormalSlot(TornStockVirtualBatchDO batch,
+                                       TornStockPortfolioSlotDO slot,
+                                       BigDecimal exitReferencePrice) {
+        validateFormalSettlement(batch, slot, exitReferencePrice);
+
+        BigDecimal sellProceeds = exitReferencePrice
+                .multiply(BigDecimal.valueOf(batch.getQuantity()))
+                .multiply(SELL_FEE_RATE);
+        BigDecimal remainingCash = batch.getRemainingCash() == null ? BigDecimal.ZERO : batch.getRemainingCash();
+        slot.setAvailableCash(remainingCash.add(sellProceeds));
+        slot.setReservedCash(BigDecimal.ZERO);
+        slot.setCurrentBatchId(null);
+        slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
+        log.info("正式批次槽位结算: batchNo={}, slotNo={}, sellProceeds={}, availableCash={}",
+                batch.getBatchNo(), slot.getSlotNo(), sellProceeds, slot.getAvailableCash());
+        return sellProceeds;
+    }
+
+    /**
+     * 校验正式批次关闭前的账本一致性。
+     * <p>
+     * 校验: ledgerType=FORMAL; batch.id/slotId/slotNo/stocksId完整; quantity>0;
+     * entryReferencePrice>0; expectedExitBarTime非空; slot存在; slot.slotNo=batch.slotNo;
+     * slot.currentBatchId=batch.id; slotStatus为OCCUPIED或STALE; reservedCash=0;
+     * availableCash=batch.remainingCash(按BigDecimal数值比较)。任何不满足即抛异常。
+     *
+     * @param batch              正式批次
+     * @param slot               锁后正式槽位
+     * @param exitReferencePrice 卖出参考价
+     * @throws IllegalStateException 校验失败时抛出
+     */
+    private void validateFormalSettlement(TornStockVirtualBatchDO batch,
+                                          TornStockPortfolioSlotDO slot,
+                                          BigDecimal exitReferencePrice) {
+        if (batch == null) {
+            throw new IllegalStateException("正式关闭批次为空,账本一致性破坏");
+        }
+        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
+            throw new IllegalStateException("正式批次账本类型非法,禁止非Shadow即正式: batchNo="
+                    + batch.getBatchNo() + ", ledgerType=" + batch.getLedgerType());
+        }
+        if (batch.getId() == null || batch.getSlotId() == null || batch.getSlotNo() == null
+                || batch.getStocksId() == null) {
+            throw new IllegalStateException("正式批次关键标识缺失,账本一致性破坏: batchNo=" + batch.getBatchNo());
+        }
+        if (batch.getQuantity() == null || batch.getQuantity() <= 0) {
+            throw new IllegalStateException("正式批次股数非法,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", quantity=" + batch.getQuantity());
+        }
+        if (batch.getEntryReferencePrice() == null || batch.getEntryReferencePrice().signum() <= 0) {
+            throw new IllegalStateException("正式批次入场参考价非法,账本一致性破坏: batchNo=" + batch.getBatchNo());
+        }
+        if (batch.getExpectedExitBarTime() == null) {
+            throw new IllegalStateException("正式批次预期卖出bar缺失,账本一致性破坏: batchNo=" + batch.getBatchNo());
+        }
+        if (slot == null) {
+            throw new IllegalStateException("正式批次槽位不存在,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", slotId=" + batch.getSlotId());
+        }
+        if (slot.getSlotNo() == null || !slot.getSlotNo().equals(batch.getSlotNo())) {
+            throw new IllegalStateException("正式批次槽位编号不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", batchSlotNo=" + batch.getSlotNo() + ", slotNo=" + slot.getSlotNo());
+        }
+        if (slot.getCurrentBatchId() == null || !slot.getCurrentBatchId().equals(batch.getId())) {
+            throw new IllegalStateException("正式批次槽位绑定不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", batchId=" + batch.getId() + ", currentBatchId=" + slot.getCurrentBatchId());
+        }
+        String slotStatus = slot.getSlotStatus();
+        if (!StockSlotStatusEnum.OCCUPIED.getCode().equals(slotStatus)
+                && !StockSlotStatusEnum.STALE.getCode().equals(slotStatus)) {
+            throw new IllegalStateException("正式批次槽位状态非法,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", slotStatus=" + slotStatus);
+        }
+        BigDecimal reservedCash = slot.getReservedCash() == null ? BigDecimal.ZERO : slot.getReservedCash();
+        if (reservedCash.compareTo(BigDecimal.ZERO) != 0) {
+            throw new IllegalStateException("正式批次槽位仍有预留资金,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", reservedCash=" + reservedCash);
+        }
+        BigDecimal availableCash = slot.getAvailableCash();
+        BigDecimal remainingCash = batch.getRemainingCash();
+        if (availableCash == null || remainingCash == null
+                || availableCash.compareTo(remainingCash) != 0) {
+            throw new IllegalStateException("正式批次槽位余款不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", slotAvailableCash=" + availableCash + ", batchRemainingCash=" + remainingCash);
+        }
+        if (exitReferencePrice == null || exitReferencePrice.signum() <= 0) {
+            throw new IllegalStateException("正式批次卖出参考价非法,账本一致性破坏: batchNo=" + batch.getBatchNo());
+        }
     }
 
     // ==================== 纯计算方法(静态) ====================

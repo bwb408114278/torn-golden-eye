@@ -16,7 +16,6 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockHashUtils;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDateTime;
@@ -108,12 +107,19 @@ public class StockNoticeSendService {
             return;
         }
 
+        Map<Long, TornStockNoticeAuditDO> noticeById = indexNoticesById(validNotices);
+
         int successCount = 0;
         int failedCount = 0;
         for (StockNoticeComposeService.ComposedMessage composedMessage : composedMessages) {
             LocalDateTime attemptedAt = LocalDateTime.now();
             String frozenPayload = getFrozenMessageText(composedMessage);
-            finalizePayload(composedMessage.noticeIds(), frozenPayload, attemptedAt);
+            if (!finalizePayload(noticeById, composedMessage.noticeIds(), frozenPayload, attemptedAt)) {
+                failedCount++;
+                log.error("股票通知发送-最终payload冻结行数不符,停止发送本条合并消息: noticeCount={}",
+                        composedMessage.noticeIds().size());
+                continue;
+            }
             SendResult sendResult = sendMessage(frozenPayload);
             if (sendResult.success()) {
                 successCount++;
@@ -185,19 +191,65 @@ public class StockNoticeSendService {
     }
 
     /**
-     * 在发送前冻结最终消息载荷。
+     * 在发送前逐条冻结最终消息载荷。
+     * <p>
+     * 对每条通知读取创建时业务payload,合并最终{@code messageText}与{@code frozenAt},
+     * 保留全部业务字段(如formalReason/originalExitReason/recoveryBar等),不得覆盖。
+     * 最终payload经 {@link StockNoticePayloadCanonicalizer} 规范化后计算哈希。
+     * 冻结UPDATE行数必须等于通知数,否则返回false并停止发送本条合并消息,禁止发送不可审计消息。
      *
-     * @param noticeIds   通知ID列表
+     * @param noticeById  通知ID索引
+     * @param noticeIds   本合并消息通知ID列表
      * @param messageText 最终消息文本
      * @param attemptedAt 实际发送尝试时间
+     * @return 冻结成功(更新行数等于通知数)返回true;否则false
      */
-    private void finalizePayload(List<Long> noticeIds, String messageText, LocalDateTime attemptedAt) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("messageText", messageText);
-        payload.put("frozenAt", attemptedAt.toString());
-        String payloadSnapshot = JsonUtils.objToJson(payload);
-        noticeAuditDao.finalizePayload(noticeIds, payloadSnapshot,
-                StockHashUtils.sha256(payloadSnapshot), attemptedAt);
+    private boolean finalizePayload(Map<Long, TornStockNoticeAuditDO> noticeById,
+                                    List<Long> noticeIds,
+                                    String messageText,
+                                    LocalDateTime attemptedAt) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return true;
+        }
+        List<NoticePayloadFinalizeCommand> commands = new ArrayList<>();
+        for (Long noticeId : noticeIds) {
+            TornStockNoticeAuditDO notice = noticeById.get(noticeId);
+            if (notice == null) {
+                log.error("股票通知发送-通知不存在,无法冻结payload: noticeId={}", noticeId);
+                return false;
+            }
+            String originalPayload = notice.getPayloadSnapshot();
+            String finalPayload = StockNoticePayloadCanonicalizer.mergeAndCanonicalize(
+                    originalPayload, messageText, attemptedAt);
+            commands.add(new NoticePayloadFinalizeCommand(
+                    noticeId, finalPayload, StockNoticePayloadCanonicalizer.sha256(finalPayload), attemptedAt));
+        }
+        int updated = noticeAuditDao.finalizePayload(commands);
+        if (updated != noticeIds.size()) {
+            log.error("股票通知发送-最终payload冻结行数不符: updated={}, expected={}",
+                    updated, noticeIds.size());
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 将通知列表按ID索引,用于逐条payload冻结。
+     *
+     * @param notices 通知列表
+     * @return 通知ID到通知的映射
+     */
+    private Map<Long, TornStockNoticeAuditDO> indexNoticesById(List<TornStockNoticeAuditDO> notices) {
+        Map<Long, TornStockNoticeAuditDO> map = new HashMap<>();
+        if (notices == null) {
+            return map;
+        }
+        for (TornStockNoticeAuditDO notice : notices) {
+            if (notice.getId() != null) {
+                map.put(notice.getId(), notice);
+            }
+        }
+        return map;
     }
 
     /**

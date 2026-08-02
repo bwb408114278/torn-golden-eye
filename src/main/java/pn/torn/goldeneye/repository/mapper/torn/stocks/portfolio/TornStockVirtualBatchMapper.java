@@ -73,6 +73,12 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
      * @param signalEventIds 信号事件ID列表
      * @return 拒绝观察批次
      */
-    List<TornStockVirtualBatchDO> selectRejectedObservationBatches(
-            @Param("signalEventIds") List<Long> signalEventIds);
+    List<TornStockVirtualBatchDO> selectRejectedObservationBatches(@Param("signalEventIds") List<Long> signalEventIds);
+
+    /**
+     * 判断是否存在正式或无限资金影子活跃批次。
+     *
+     * @return 存在活跃批次返回true;否则false
+     */
+    boolean existsActiveBatches();
 }

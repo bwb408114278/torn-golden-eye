@@ -30,7 +30,7 @@ public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEv
      * 批量查询未结算拒绝观察事件。
      *
      * @param startTime 轮次起点(含)
-     * @param endTime 轮次终点(不含)
+     * @param endTime   轮次终点(不含)
      * @return 未结算拒绝观察事件
      */
     List<TornStockSignalEventDO> selectPendingRejectedObservationEvents(
@@ -50,4 +50,11 @@ public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEv
      * @return 实际更新行数
      */
     int updateObservationResultsByIds(@Param("events") List<TornStockSignalEventDO> events);
+
+    /**
+     * 判断是否存在未结算的拒绝观察事件。
+     *
+     * @return 存在未结算拒绝观察事件返回true;否则false
+     */
+    boolean existsPendingRejectedObservationEvents();
 }

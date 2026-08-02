@@ -101,6 +101,10 @@ public class SettingConstants {
      */
     public static final String KEY_VIP_STOCK_ALERT_ENABLED = "VIP_STOCK_ALERT_ENABLED";
     /**
+     * VIP股票新买入批次开关(紧急回滚时关闭此项即可停止新买入;缺失配置按false处理)
+     */
+    public static final String KEY_VIP_STOCK_NEW_ENTRY_ENABLED = "VIP_STOCK_NEW_ENTRY_ENABLED";
+    /**
      * VIP股票正式买卖消息开关
      */
     public static final String KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED = "VIP_STOCK_FORMAL_NOTICE_ENABLED";

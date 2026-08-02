@@ -126,13 +126,12 @@ class StockNoticeSendServiceTest {
     @DisplayName("通知发送HTTP失败_批量失败原因必须记录HTTP状态")
     void sendPendingNotices_httpFailure_recordsActualFailureReason() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
-        TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-        notice.setId(11L);
-        notice.setBatchId(21L);
+        TornStockNoticeAuditDO notice = notice(11L, 21L);
         when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
         when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(21L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(11L), "测试通知")));
+        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
@@ -146,9 +145,7 @@ class StockNoticeSendServiceTest {
     @DisplayName("有效和缺失批次混合_缺失通知失败且有效通知继续发送")
     void sendPendingNotices_mixedBatchReferences_processesValidNoticeAndFailsMissingNotice() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
-        TornStockNoticeAuditDO valid = new TornStockNoticeAuditDO();
-        valid.setId(12L);
-        valid.setBatchId(22L);
+        TornStockNoticeAuditDO valid = notice(12L, 22L);
         TornStockNoticeAuditDO missing = new TornStockNoticeAuditDO();
         missing.setId(13L);
         missing.setBatchId(23L);
@@ -156,6 +153,7 @@ class StockNoticeSendServiceTest {
         when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(22L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(12L), "测试通知")));
+        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -171,13 +169,12 @@ class StockNoticeSendServiceTest {
     @DisplayName("通知发送成功_调用成功状态批量更新")
     void sendPendingNotices_successfulResponse_marksNoticesSent() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
-        TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-        notice.setId(14L);
-        notice.setBatchId(24L);
+        TornStockNoticeAuditDO notice = notice(14L, 24L);
         when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
         when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(24L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(14L), "测试通知")));
+        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -186,6 +183,15 @@ class StockNoticeSendServiceTest {
 
         verify(noticeAuditDAO).markSentByIds(List.of(14L));
         verify(noticeAuditDAO, never()).markSendFailedByIds(any(), any());
+    }
+
+    private TornStockNoticeAuditDO notice(Long id, Long batchId) {
+        TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
+        notice.setId(id);
+        notice.setBatchId(batchId);
+        notice.setPayloadSnapshot("{\"noticeType\":\"SELL\",\"batchId\":" + batchId
+                + ",\"batchNo\":\"B" + batchId + "\",\"stocksId\":1001}");
+        return notice;
     }
 
     private TornStockVirtualBatchDO batch(Long id) {

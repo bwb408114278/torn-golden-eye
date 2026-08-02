@@ -58,7 +58,7 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
      * 查询正式账本指定时间范围内有入场或出场动作的批次。
      *
      * @param startTime 时间范围起点(含)
-     * @param endTime 时间范围终点(不含)
+     * @param endTime   时间范围终点(不含)
      * @return 正式批次
      */
     public List<TornStockVirtualBatchDO> selectFormalActionBatches(
@@ -70,7 +70,7 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
      * 查询影子账本指定时间范围内有信号或出场动作的批次。
      *
      * @param startTime 时间范围起点(含)
-     * @param endTime 时间范围终点(不含)
+     * @param endTime   时间范围终点(不含)
      * @return 影子批次
      */
     public List<TornStockVirtualBatchDO> selectShadowActionBatches(
@@ -86,5 +86,16 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
      */
     public List<TornStockVirtualBatchDO> selectRejectedObservationBatches(List<Long> signalEventIds) {
         return baseMapper.selectRejectedObservationBatches(signalEventIds);
+    }
+
+    /**
+     * 判断是否存在正式或无限资金影子活跃批次。
+     * <p>
+     * 用于运行时门禁判断存量持仓是否需要继续管理,使用SELECT EXISTS避免加载全量列表。
+     *
+     * @return 存在活跃批次返回true;否则false
+     */
+    public boolean existsActiveBatches() {
+        return baseMapper.existsActiveBatches();
     }
 }

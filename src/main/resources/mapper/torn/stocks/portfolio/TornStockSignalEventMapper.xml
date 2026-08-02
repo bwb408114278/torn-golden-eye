@@ -61,4 +61,20 @@
         WHERE torn_stock_signal_event.id = source.id
           AND torn_stock_signal_event.resolved_at IS NULL
     </update>
+
+    <!-- 判断是否存在未结算的拒绝观察事件 -->
+    <select id="existsPendingRejectedObservationEvents" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM torn_stock_signal_event event
+            WHERE portfolio_decision = 'REJECTED'
+              AND resolved_at IS NULL
+              AND deleted = 0
+              AND EXISTS (
+                  SELECT 1 FROM torn_stock_virtual_batch batch
+                  WHERE batch.signal_event_id = event.id
+                    AND batch.ledger_type = 'REJECTED_OBSERVATION'
+                    AND batch.deleted = 0
+              )
+        )
+    </select>
 </mapper>

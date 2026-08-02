@@ -1245,7 +1245,27 @@ databaseChangeLog:
               - column:
                   name: exit_reason
                   type: VARCHAR(64)
-                  remarks: "关闭原因编码"
+                  remarks: "原策略退出类型(如CLOSED_TARGET/CLOSED_RANGE/CLOSED_RISK/CLOSED_TIME);灾难关闭时保留原值"
+              - column:
+                  name: original_exit_reason
+                  type: VARCHAR(64)
+                  remarks: "进入DATA_STALE_EXIT时冻结的原策略退出类型,灾难关闭后不可覆盖"
+              - column:
+                  name: admin_close_reason
+                  type: VARCHAR(64)
+                  remarks: "管理关闭原因;灾难恢复固定DATA_STALE_EXIT_RECOVERY_CLOSE"
+              - column:
+                  name: recovery_bar_start_time
+                  type: TIMESTAMP
+                  remarks: "灾难关闭所用首个恢复bar开始时间"
+              - column:
+                  name: recovery_bar_end_time
+                  type: TIMESTAMP
+                  remarks: "灾难关闭所用首个恢复bar结束时间,与exit_time一致"
+              - column:
+                  name: stale_exit_duration_seconds
+                  type: BIGINT
+                  remarks: "从原预期卖出bar结束到恢复bar结束的陈旧秒数,不小于0"
               - column:
                   name: net_return
                   type: DECIMAL(18,10)
@@ -1312,6 +1332,12 @@ databaseChangeLog:
             sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_formal_prices CHECK (ledger_type != 'FORMAL' OR (signal_reference_price > 0 AND (entry_reference_price IS NULL OR entry_reference_price > 0) AND (exit_reference_price IS NULL OR exit_reference_price > 0)))"
         - sql:
             sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_formal_cash CHECK (ledger_type != 'FORMAL' OR (batch_status NOT IN ('OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') OR (quantity IS NOT NULL AND quantity > 0 AND invested_cash IS NOT NULL AND invested_cash >= 0)))"
+        - sql:
+            sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_stale_duration_non_negative CHECK (stale_exit_duration_seconds IS NULL OR stale_exit_duration_seconds >= 0)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_admin_close_audit_complete CHECK (admin_close_reason IS NULL OR admin_close_reason != 'DATA_STALE_EXIT_RECOVERY_CLOSE' OR (original_exit_reason IS NOT NULL AND expected_exit_bar_time IS NOT NULL AND recovery_bar_start_time IS NOT NULL AND recovery_bar_end_time IS NOT NULL AND stale_exit_duration_seconds IS NOT NULL AND exit_time IS NOT NULL AND exit_reference_price IS NOT NULL))"
+        - sql:
+            sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_batch_recovery_bar_consistency CHECK (recovery_bar_end_time IS NULL OR (recovery_bar_start_time IS NOT NULL AND recovery_bar_end_time > recovery_bar_start_time AND exit_time = recovery_bar_end_time))"
 
   # ========== 表9: torn_stock_batch_mark ==========
   - changeSet:
@@ -1610,4 +1636,25 @@ databaseChangeLog:
         - onError: HALT
         - sqlCheck:
             sql: "SELECT COUNT(*) FROM sys_setting WHERE setting_key IN ('VIP_STOCK_ALERT_ENABLED', 'VIP_STOCK_FORMAL_NOTICE_ENABLED', 'VIP_STOCK_DAILY_SUMMARY_ENABLED', 'VIP_STOCK_RULE_MODE')"
+            expectedResult: "0"
+
+  # ========== sys_setting: 追加VIP股票新买入开关(单独changeSet,避免改写已执行changeSet) ==========
+  - changeSet:
+      id: insert_stock_portfolio_new_entry_setting
+      author: Bai
+      changes:
+        - insert:
+            tableName: sys_setting
+            columns:
+              - column:
+                  name: setting_key
+                  value: "VIP_STOCK_NEW_ENTRY_ENABLED"
+              - column:
+                  name: setting_value
+                  value: "false"
+      preConditions:
+        - onFail: HALT
+        - onError: HALT
+        - sqlCheck:
+            sql: "SELECT COUNT(*) FROM sys_setting WHERE setting_key = 'VIP_STOCK_NEW_ENTRY_ENABLED'"
             expectedResult: "0"

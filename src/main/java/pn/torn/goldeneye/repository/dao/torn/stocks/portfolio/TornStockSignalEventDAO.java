@@ -32,7 +32,7 @@ public class TornStockSignalEventDAO extends ServiceImpl<TornStockSignalEventMap
      * 批量查询未结算拒绝观察事件。
      *
      * @param startTime 轮次起点(含)
-     * @param endTime 轮次终点(不含)
+     * @param endTime   轮次终点(不含)
      * @return 未结算拒绝观察事件
      */
     public List<TornStockSignalEventDO> selectPendingRejectedObservationEvents(
@@ -60,5 +60,17 @@ public class TornStockSignalEventDAO extends ServiceImpl<TornStockSignalEventMap
             return 0;
         }
         return baseMapper.updateObservationResultsByIds(events);
+    }
+
+    /**
+     * 判断是否存在未结算的拒绝观察事件。
+     * <p>
+     * 拒绝观察批次本身是CANCELLED,不能依赖活跃批次查询发现。用于运行时门禁:
+     * 即使新买入关闭且无活跃持仓,只要存在未结算拒绝观察,仍应继续构建观察窗口bar并结算研究义务。
+     *
+     * @return 存在未结算拒绝观察事件返回true;否则false
+     */
+    public boolean existsPendingRejectedObservationEvents() {
+        return baseMapper.existsPendingRejectedObservationEvents();
     }
 }

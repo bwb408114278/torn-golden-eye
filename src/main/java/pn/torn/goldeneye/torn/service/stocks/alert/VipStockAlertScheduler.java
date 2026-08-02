@@ -9,12 +9,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
-import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
-import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 
 import java.time.LocalDateTime;
@@ -51,10 +49,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequiredArgsConstructor
 public class VipStockAlertScheduler {
     /**
-     * 开关启用标识
-     */
-    private static final String SETTING_ENABLED_VALUE = "true";
-    /**
      * 买入规则版本
      */
     public static final String BUY_RULE_VERSION = "1.0.0";
@@ -82,8 +76,8 @@ public class VipStockAlertScheduler {
     private final StockMarketRoundLoader roundLoader;
     private final StockRoundTransactionService transactionService;
     private final StockMarketClock marketClock;
-    private final SysSettingManager sysSettingManager;
     private final ProjectProperty projectProperty;
+    private final StockAlertRuntimeGate runtimeGate;
 
     /**
      * JVM内防重入标记,同一时刻仅允许一个轮次处理流程
@@ -96,10 +90,17 @@ public class VipStockAlertScheduler {
      * 执行前置检查:
      * <ol>
      *   <li>非生产环境直接返回</li>
-     *   <li> {@link SettingConstants#KEY_VIP_STOCK_ALERT_ENABLED} 开关不为 "true" 时返回</li>
+     *   <li>读取 {@link StockAlertRuntimeGate} 运行时门禁,无轮次构建、无研究义务且无PENDING通知时返回</li>
      *   <li>{@link AtomicBoolean#compareAndSet(boolean, boolean)} 抢占防重入标记失败时返回</li>
      * </ol>
-     * 通过后调用 {@link #processPendingRounds()} 处理已结束但未完成的轮次,finally释放标记。
+     * 通过后按固定顺序执行:
+     * <ol>
+     *   <li>存在未结算拒绝观察时结算到期研究义务</li>
+     *   <li>需要构建轮次时调用 {@link #processPendingRounds(boolean)} 处理已结束但未完成的轮次</li>
+     *   <li>存在PENDING通知且正式消息开关允许时调用 {@code noticeSendService.sendPendingNotices()}</li>
+     * </ol>
+     * 总开关关闭但存在活跃批次时,仍继续构建存量管理所需轮次(退出/恢复/灾难关闭/冷却),
+     * 仅禁止新买入;历史PENDING通知投递不受轮次总开关与数据构建结果影响。
      */
     @Scheduled(cron = "10 * * * * ?", zone = "Asia/Shanghai")
     public void executeRound() {
@@ -107,8 +108,9 @@ public class VipStockAlertScheduler {
             return;
         }
 
-        String enabled = sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED);
-        if (!SETTING_ENABLED_VALUE.equalsIgnoreCase(enabled)) {
+        StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
+        if (!decision.shouldBuildRounds() && !decision.shouldSendPendingNotices()) {
+            log.debug("VIP股票策略调度-无轮次构建义务与待投递通知,跳过本次调度");
             return;
         }
 
@@ -118,9 +120,15 @@ public class VipStockAlertScheduler {
         }
 
         try {
-            rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
-            processPendingRounds();
-            noticeSendService.sendPendingNotices();
+            if (decision.manageResearchObligations()) {
+                rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
+            }
+            if (decision.shouldBuildRounds()) {
+                processPendingRounds(decision.allowNewEntry());
+            }
+            if (decision.shouldSendPendingNotices()) {
+                noticeSendService.sendPendingNotices();
+            }
         } finally {
             processing.set(false);
         }
@@ -139,8 +147,10 @@ public class VipStockAlertScheduler {
      * </ol>
      * 每处理完一个轮次检查防重入标记是否仍持有,标记丢失时中断处理。
      * 单个轮次异常时记录错误并将状态置为FAILED_RETRYABLE,不中断后续轮次。
+     *
+     * @param allowNewEntry 是否允许创建新的正式/候选影子批次,透传给轮次事务
      */
-    public void processPendingRounds() {
+    public void processPendingRounds(boolean allowNewEntry) {
         LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
 
         List<TornStockMarketRoundDO> pendingRounds = roundDao.selectPendingRoundsBefore(currentEndedBucket);
@@ -149,7 +159,8 @@ public class VipStockAlertScheduler {
             return;
         }
 
-        log.info("VIP股票策略调度-发现{}个待处理轮次, currentEndedBucket={}", pendingRounds.size(), currentEndedBucket);
+        log.info("VIP股票策略调度-发现{}个待处理轮次, currentEndedBucket={}, allowNewEntry={}",
+                pendingRounds.size(), currentEndedBucket, allowNewEntry);
         for (TornStockMarketRoundDO round : pendingRounds) {
             if (!processing.get()) {
                 log.warn("VIP股票策略调度-防重入标记已释放,中断轮次处理");
@@ -158,7 +169,7 @@ public class VipStockAlertScheduler {
 
             LocalDateTime roundTime = round.getRoundTime();
             try {
-                processSingleRound(round, roundTime);
+                processSingleRound(round, roundTime, allowNewEntry);
             } catch (Exception e) {
                 log.error("VIP股票策略调度-轮次处理异常, roundTime={}", roundTime, e);
                 markFailed(round, e);
@@ -169,12 +180,15 @@ public class VipStockAlertScheduler {
     /**
      * 应用启动后执行补偿初始化
      * <p>
-     * 非生产环境或开关关闭时直接返回。依次执行(每步独立try-catch,单步失败不阻塞后续):
+     * 非生产环境直接返回。读取 {@link StockAlertRuntimeGate} 运行时门禁:
+     * 总开关关闭但存在活跃批次或未结算拒绝观察时,仍执行历史重建、未完成轮次处理与
+     * 研究义务结算,但新买入被禁止;历史PENDING通知由正式消息开关独立决定投递。
+     * 依次执行(每步独立try-catch,单步失败不阻塞后续):
      * <ol>
      *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位</li>
      *   <li> {@link StockMonthlyStateInitService#initCurrentMonth()} 初始化月度风格草稿</li>
      *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史</li>
-     *   <li> {@link #processPendingRounds()} 处理未完成轮次</li>
+     *   <li> {@link #processPendingRounds(boolean)} 处理未完成轮次</li>
      * </ol>
      */
     @EventListener(ApplicationReadyEvent.class)
@@ -183,12 +197,9 @@ public class VipStockAlertScheduler {
             return;
         }
 
-        String enabled = sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED);
-        if (!SETTING_ENABLED_VALUE.equalsIgnoreCase(enabled)) {
-            return;
-        }
-
-        log.info("VIP股票策略调度-启动补偿开始");
+        StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
+        log.info("VIP股票策略调度-启动补偿开始, shouldBuildRounds={}, allowNewEntry={}, shouldSendPendingNotices={}",
+                decision.shouldBuildRounds(), decision.allowNewEntry(), decision.shouldSendPendingNotices());
 
         try {
             portfolioInitService.verifyAndInitSlots();
@@ -202,29 +213,37 @@ public class VipStockAlertScheduler {
             log.error("VIP股票策略调度-月度状态初始化失败,继续后续步骤", e);
         }
 
-        try {
-            LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
-            historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
-        } catch (Exception e) {
-            log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
+        if (decision.shouldBuildRounds()) {
+            try {
+                LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
+                historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
+            } catch (Exception e) {
+                log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
+            }
         }
 
-        try {
-            rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
-        } catch (Exception e) {
-            log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
+        if (decision.manageResearchObligations()) {
+            try {
+                rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
+            } catch (Exception e) {
+                log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
+            }
         }
 
-        try {
-            processPendingRounds();
-        } catch (Exception e) {
-            log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
+        if (decision.shouldBuildRounds()) {
+            try {
+                processPendingRounds(decision.allowNewEntry());
+            } catch (Exception e) {
+                log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
+            }
         }
 
-        try {
-            noticeSendService.sendPendingNotices();
-        } catch (Exception e) {
-            log.error("VIP股票策略调度-启动补偿投递PENDING通知失败", e);
+        if (decision.shouldSendPendingNotices()) {
+            try {
+                noticeSendService.sendPendingNotices();
+            } catch (Exception e) {
+                log.error("VIP股票策略调度-启动补偿投递PENDING通知失败", e);
+            }
         }
 
         log.info("VIP股票策略调度-启动补偿完成");
@@ -238,10 +257,11 @@ public class VipStockAlertScheduler {
      * 只有TransactionService成功后才标记COMPLETED。
      * 规则版本字段(buy/sell/allocation/message)在首次进入BUILDING_BAR时填充。
      *
-     * @param round     待处理轮次记录
-     * @param roundTime 轮次锚定的bar时间
+     * @param round         待处理轮次记录
+     * @param roundTime     轮次锚定的bar时间
+     * @param allowNewEntry 是否允许创建新的正式/候选影子批次,透传给轮次事务
      */
-    private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime) {
+    private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime, boolean allowNewEntry) {
         log.info("VIP股票策略调度-开始处理轮次, roundTime={}, 当前状态={}", roundTime, round.getRoundStatus());
 
         boolean needsDataBuild = !StockRoundStatusEnum.READY.getCode().equals(round.getRoundStatus());
@@ -254,7 +274,7 @@ public class VipStockAlertScheduler {
         }
 
         StockMarketRoundLoader.RoundSnapshot snapshot = roundLoader.loadRoundSnapshot(roundTime);
-        transactionService.executeRound(roundTime, snapshot);
+        transactionService.executeRound(roundTime, snapshot, allowNewEntry);
 
         log.info("VIP股票策略调度-轮次事务完成, roundTime={}", roundTime);
     }

@@ -206,18 +206,21 @@ class StockEntrySettlementServiceTest {
     }
 
     @Test
-    @DisplayName("待卖出批次bar连续_成交并设置exitReferencePrice")
+    @DisplayName("待卖出批次bar连续_正式批次成交并精确结算槽位资金")
     void processExitPending_barConsecutive_filledWithExitPrice() {
         TornStockVirtualBatchDO batch = buildExitPendingBatch();
         BigDecimal exitPrice = new BigDecimal("101.00");
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(exitPrice);
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         try (MockedStatic<StockPortfolioService> mocked = mockStatic(StockPortfolioService.class)) {
             mocked.when(() -> StockPortfolioService.calculateNetReturn(ENTRY_PRICE, exitPrice))
                     .thenReturn(new BigDecimal("0.008"));
+            mocked.when(() -> StockPortfolioService.indexSlotsById(any()))
+                    .thenReturn(Map.of(1L, slot));
 
-            RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
+            RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
             List<TornStockVirtualBatchDO> result = entrySettlementService.processExitPending(
                     snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
 
@@ -225,11 +228,19 @@ class StockEntrySettlementServiceTest {
             TornStockVirtualBatchDO filled = result.getFirst();
             assertEquals(exitPrice, filled.getExitReferencePrice());
             assertEquals(ROUND_TIME, filled.getExitTime());
+            BigDecimal expectedSellProceeds = exitPrice.multiply(BigDecimal.valueOf(1000))
+                    .multiply(StockPortfolioService.SELL_FEE_RATE);
+            assertEquals(expectedSellProceeds, filled.getSellProceeds(), "卖出所得=股数×卖出价×0.999");
+            assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus(), "正式槽位应释放");
+            assertNull(slot.getCurrentBatchId(), "释放后槽位应解绑批次");
+            assertEquals(new BigDecimal("1999990000.00").add(expectedSellProceeds), slot.getAvailableCash(),
+                    "槽位可用现金应等于批次余款+卖出所得");
+            assertEquals(BigDecimal.ZERO, slot.getReservedCash(), "结算后预留资金应为0");
         }
     }
 
     @Test
-    @DisplayName("待卖出批次bar不可用_转为DATA_STALE_EXIT且不返回成交列表")
+    @DisplayName("待卖出批次bar不可用_转为DATA_STALE_EXIT且冻结原退出原因")
     void processExitPending_barNotUsable_returnsEmptyAndMarksStaleExit() {
         TornStockVirtualBatchDO batch = buildExitPendingBatch();
         TornStockMarketBar15mDO bar = buildBar(false);
@@ -240,6 +251,133 @@ class StockEntrySettlementServiceTest {
 
         assertEquals(0, result.size());
         assertEquals(StockBatchStatusEnum.DATA_STALE_EXIT.getCode(), batch.getBatchStatus());
+        assertEquals("CLOSED_TARGET", batch.getOriginalExitReason(), "首次迁移应冻结原退出原因");
+    }
+
+    // ==================== 灾难处置 fail-closed ====================
+
+    @Test
+    @DisplayName("灾难处置_正式批次缺ledgerType_抛异常并回滚")
+    void processExitPending_staleExitNullLedgerType_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setLedgerType(null);
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "未知或空ledgerType必须fail-closed,禁止非Shadow即正式");
+    }
+
+    @Test
+    @DisplayName("灾难处置_正式批次槽位不存在_抛异常并回滚")
+    void processExitPending_staleExitSlotMissing_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "正式批次槽位缺失必须抛异常,不得仅关闭批次");
+    }
+
+    @Test
+    @DisplayName("灾难处置_slotNo不一致_抛异常并回滚")
+    void processExitPending_staleExitSlotNoMismatch_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 2, batch.getId());
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "槽位slotNo不一致必须抛异常");
+    }
+
+    @Test
+    @DisplayName("灾难处置_currentBatchId不匹配_抛异常并回滚")
+    void processExitPending_staleExitCurrentBatchIdMismatch_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, 999L);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "槽位currentBatchId必须等于批次id,否则抛异常");
+    }
+
+    @Test
+    @DisplayName("灾难处置_槽位状态非法_抛异常并回滚")
+    void processExitPending_staleExitSlotStatusInvalid_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
+        slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "槽位状态非法必须抛异常");
+    }
+
+    @Test
+    @DisplayName("灾难处置_槽位reservedCash非零_抛异常并回滚")
+    void processExitPending_staleExitReservedCashNonZero_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
+        slot.setReservedCash(new BigDecimal("100.00"));
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "槽位仍有预留资金必须抛异常");
+    }
+
+    @Test
+    @DisplayName("灾难处置_槽位余款与批次不一致_抛异常并回滚")
+    void processExitPending_staleExitCashMismatch_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
+        slot.setAvailableCash(new BigDecimal("999.00"));
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "槽位可用现金与批次余款不一致必须抛异常");
+    }
+
+    @Test
+    @DisplayName("灾难处置_批次数量非正_抛异常并回滚")
+    void processExitPending_staleExitQuantityNonPositive_failClosed() {
+        TornStockVirtualBatchDO batch = buildExitPendingBatch();
+        batch.setQuantity(0L);
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.50"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> entrySettlementService.processExitPending(snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                "正式批次股数非正必须抛异常");
     }
 
     // ==================== DATA_STALE_EXIT 灾难处置 ====================
@@ -266,11 +404,11 @@ class StockEntrySettlementServiceTest {
     void processExitPending_staleExitRecoveryBar_disasterCloseFormal() {
         TornStockVirtualBatchDO batch = buildExitPendingBatch();
         batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        batch.setOriginalExitReason(StockBatchStatusEnum.CLOSED_TARGET.getCode());
         BigDecimal recoveryPrice = new BigDecimal("101.50");
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setLastPrice(recoveryPrice);
-        TornStockPortfolioSlotDO slot = buildSlot(1L, 1);
-        slot.setSlotStatus("OCCUPIED");
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
         List<TornStockVirtualBatchDO> result = entrySettlementService.processExitPending(
@@ -288,8 +426,21 @@ class StockEntrySettlementServiceTest {
         assertEquals(ROUND_TIME, closed.getExpectedExitBarTime(), "应保留原预期成交bar时间");
         assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus(), "正式槽位应同事务释放");
         assertNull(slot.getCurrentBatchId(), "释放后槽位应解绑批次");
-        assertNotNull(closed.getNetReturn(), "灾难关闭应计算净收益");
-        assertNotNull(closed.getSellProceeds(), "灾难关闭应计算回笼资金");
+
+        BigDecimal expectedSellProceeds = recoveryPrice.multiply(BigDecimal.valueOf(1000))
+                .multiply(StockPortfolioService.SELL_FEE_RATE);
+        BigDecimal expectedNetReturn = StockPortfolioService.calculateNetReturn(ENTRY_PRICE, recoveryPrice);
+        assertEquals(expectedNetReturn, closed.getNetReturn(), "灾难关闭应精确计算净收益");
+        assertEquals(expectedSellProceeds, closed.getSellProceeds(), "灾难关闭应精确计算回笼资金");
+        assertEquals(new BigDecimal("1999990000.00").add(expectedSellProceeds), slot.getAvailableCash(),
+                "槽位可用现金应等于批次余款+灾难卖出所得");
+        assertEquals(BigDecimal.ZERO, slot.getReservedCash(), "结算后预留资金应为0");
+
+        assertEquals("CLOSED_TARGET", closed.getOriginalExitReason(), "应冻结原退出原因");
+        assertEquals("DATA_STALE_EXIT_RECOVERY_CLOSE", closed.getAdminCloseReason(), "管理关闭原因应固定");
+        assertEquals(ROUND_TIME, closed.getRecoveryBarStartTime(), "恢复bar开始时间应落库");
+        assertEquals(ROUND_TIME.plusMinutes(15), closed.getRecoveryBarEndTime(), "恢复bar结束时间应落库");
+        assertEquals(0L, closed.getStaleExitDurationSeconds(), "预期bar结束与恢复bar结束相同时陈旧持续为0");
     }
 
     @Test
@@ -297,20 +448,28 @@ class StockEntrySettlementServiceTest {
     void processExitPending_staleExitRecoveryBarNonConsecutive_disasterClose() {
         TornStockVirtualBatchDO batch = buildExitPendingBatch();
         batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        batch.setOriginalExitReason(StockBatchStatusEnum.CLOSED_TARGET.getCode());
         // 恢复bar与原预期成交bar时间不同(非连续),灾难处置不要求连续
         TornStockMarketBar15mDO bar = buildBar(true);
         bar.setBarStartTime(ROUND_TIME.plusMinutes(30));
         bar.setBarEndTime(ROUND_TIME.plusMinutes(45));
         bar.setLastSampleTime(ROUND_TIME.plusMinutes(44));
         bar.setLastPrice(new BigDecimal("102.00"));
+        TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
-        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
         List<TornStockVirtualBatchDO> result = entrySettlementService.processExitPending(
                 snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME);
 
         assertEquals(1, result.size());
-        assertEquals(StockBatchStatusEnum.ADMIN_CLOSED.getCode(), result.getFirst().getBatchStatus());
-        assertEquals(new BigDecimal("102.00"), result.getFirst().getExitReferencePrice());
+        TornStockVirtualBatchDO closed = result.getFirst();
+        assertEquals(StockBatchStatusEnum.ADMIN_CLOSED.getCode(), closed.getBatchStatus());
+        assertEquals(new BigDecimal("102.00"), closed.getExitReferencePrice());
+        assertEquals(ROUND_TIME.plusMinutes(45), closed.getExitTime(), "exitTime应为恢复bar结束时间");
+        assertEquals(ROUND_TIME.plusMinutes(30), closed.getRecoveryBarStartTime(), "恢复bar开始时间应落库");
+        assertEquals(ROUND_TIME.plusMinutes(45), closed.getRecoveryBarEndTime(), "恢复bar结束时间应落库");
+        assertEquals(1800L, closed.getStaleExitDurationSeconds(),
+                "陈旧持续秒数=恢复bar结束-(预期bar结束+15分钟)=45-30分钟=1800秒");
     }
 
     @Test
@@ -337,6 +496,7 @@ class StockEntrySettlementServiceTest {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setId(1L);
         batch.setBatchNo(BATCH_NO);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         batch.setStocksId(STOCKS_ID);
         batch.setStocksShortname(STOCKS_SHORTNAME);
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
@@ -351,6 +511,7 @@ class StockEntrySettlementServiceTest {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setId(1L);
         batch.setBatchNo(BATCH_NO);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         batch.setStocksId(STOCKS_ID);
         batch.setStocksShortname(STOCKS_SHORTNAME);
         batch.setBatchStatus(StockBatchStatusEnum.EXIT_PENDING.getCode());
@@ -360,6 +521,8 @@ class StockEntrySettlementServiceTest {
         batch.setExpectedExitBarTime(ROUND_TIME);
         batch.setExitReason("CLOSED_TARGET");
         batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setRemainingCash(new BigDecimal("1999990000.00"));
         return batch;
     }
 
@@ -384,6 +547,17 @@ class StockEntrySettlementServiceTest {
         slot.setAvailableCash(new BigDecimal("2000000000.00"));
         slot.setReservedCash(BigDecimal.ZERO);
         slot.setSlotStatus("AVAILABLE");
+        return slot;
+    }
+
+    private TornStockPortfolioSlotDO buildOccupiedFormalSlot(Long id, int slotNo, Long currentBatchId) {
+        TornStockPortfolioSlotDO slot = new TornStockPortfolioSlotDO();
+        slot.setId(id);
+        slot.setSlotNo(slotNo);
+        slot.setAvailableCash(new BigDecimal("1999990000.00"));
+        slot.setReservedCash(BigDecimal.ZERO);
+        slot.setCurrentBatchId(currentBatchId);
+        slot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
         return slot;
     }
 

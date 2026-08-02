@@ -96,15 +96,20 @@ public class StockRoundTransactionService {
      * 在单个数据库事务内按12步固定顺序完成待成交处理、路径更新、状态流转、
      * 槽位分配与通知审计写入。传入的{@link RoundSnapshot}在事务外已批量加载,
      * 事务内不再产生N+1查询。
+     * <p>
+     * {@code allowNewEntry=false} 时仍完整执行ENTRY/EXIT结算、存量路径管理、灾难关闭、
+     * 冷却与通知审计,仅在买入信号评估、事件/影子创建、候选接纳和买入边沿推进阶段
+     * 应用该开关,确保紧急回滚不遗弃已存在的正式持仓。
      *
-     * @param roundTime 本轮bar开始时间(决策锚点)
-     * @param snapshot  事务外已加载的批量数据快照
+     * @param roundTime     本轮bar开始时间(决策锚点)
+     * @param snapshot      事务外已加载的批量数据快照
+     * @param allowNewEntry 是否允许创建新的正式/候选影子批次
      */
     @Transactional(rollbackFor = Exception.class)
-    public void executeRound(LocalDateTime roundTime, RoundSnapshot snapshot) {
+    public void executeRound(LocalDateTime roundTime, RoundSnapshot snapshot, boolean allowNewEntry) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         Objects.requireNonNull(snapshot, "轮次快照不能为空");
-        log.info("轮次事务开始: roundTime={}", roundTime);
+        log.info("轮次事务开始: roundTime={}, allowNewEntry={}", roundTime, allowNewEntry);
 
         // 步骤1: 创建/锁定轮次记录
         TornStockMarketRoundDO round = lockOrCreateRound(roundTime, snapshot);
@@ -151,58 +156,52 @@ public class StockRoundTransactionService {
         List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
                 mergedSnapshot, barByStock, featureByStock, roundTime);
 
-        // 步骤6: 评估买入信号与资格
-        BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
-                snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
-
-        // 步骤7: 读取规则模式后再进行候选编排
+        // 步骤6-8: 规则模式与新买入开关共同决定买入研究、候选接纳与边沿推进是否执行。
+        // allowNewEntry=false 或规则模式OFF时,跳过买入信号评估、事件/影子创建、
+        // 候选接纳与买入边沿推进,但存量批次退出/灾难关闭/冷却/通知审计不受影响。
         StockRuleModeEnum ruleMode = resolveRuleMode();
-        List<CandidateInfo> rankedCandidates = ruleMode == StockRuleModeEnum.OFF
-                ? List.of()
-                : candidateRankingPolicy.rank(signalResult.formalCandidates());
-        rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
-        Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evaluationByStockId = ruleMode == StockRuleModeEnum.OFF
-                ? Map.of()
-                : signalResult.allEvaluations().stream()
-                .filter(Objects::nonNull)
-                .filter(evaluation -> evaluation.stocksId() != null)
-                .collect(Collectors.toMap(StockBuySignalEvaluator.SignalEvaluation::stocksId,
-                        evaluation -> evaluation, (left, right) -> left));
-        StockCandidateAllocationResult allocationResult = StockCandidateAllocationResult.empty();
-        if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
-            allocationResult = buySignalEvaluator.acceptCandidates(
-                    rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                    evaluationByStockId, roundTime);
+        boolean newEntryAllowed = allowNewEntry && ruleMode != StockRuleModeEnum.OFF;
+        if (!newEntryAllowed) {
+            log.info("新买入关闭或规则模式[{}]不推进买入研究,跳过候选编排: allowNewEntry={}",
+                    ruleMode.getCode(), allowNewEntry);
         } else {
-            log.info("规则模式[{}]不创建正式批次,跳过候选接纳: candidateCount={}",
-                    ruleMode.getCode(), rankedCandidates.size());
-        }
+            BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
+                    snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
+            List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
+            rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
+            Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evaluationByStockId = signalResult.allEvaluations().stream()
+                    .filter(Objects::nonNull)
+                    .filter(evaluation -> evaluation.stocksId() != null)
+                    .collect(Collectors.toMap(StockBuySignalEvaluator.SignalEvaluation::stocksId,
+                            evaluation -> evaluation, (left, right) -> left));
+            StockCandidateAllocationResult allocationResult = StockCandidateAllocationResult.empty();
+            if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
+                allocationResult = buySignalEvaluator.acceptCandidates(
+                        rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                        evaluationByStockId, roundTime);
+            } else {
+                log.info("规则模式[{}]不创建正式批次,跳过候选接纳: candidateCount={}",
+                        ruleMode.getCode(), rankedCandidates.size());
+            }
 
-        // 构建候选排名映射(stocksId -> rank),供事件回写
-        Map<Integer, Integer> candidateRankByStockId = ruleMode == StockRuleModeEnum.OFF
-                ? Map.of()
-                : buildCandidateRankByStockId(rankedCandidates);
+            // 构建候选排名映射(stocksId -> rank),供事件回写
+            Map<Integer, Integer> candidateRankByStockId = buildCandidateRankByStockId(rankedCandidates);
 
-        // 步骤8: OFF模式不写入买入研究事件和Shadow批次
-        if (ruleMode != StockRuleModeEnum.OFF) {
+            // 写入原始信号事件、无限资金影子与拒绝观察批次
             shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(),
                     allocationResult.formalBatches(), candidateRankByStockId,
                     allocationResult.resultByStockId(), roundTime);
-        } else {
-            log.info("规则模式OFF,跳过信号事件和影子批次写入");
+
+            // 推进买入信号边沿状态(仅在新买入开启时)
+            signalStateUpdater.updateStates(
+                    signalResult.allEvaluations(), signalStateByKey, roundTime);
         }
 
-        // 步骤9: 为已成交的买入/卖出写入PENDING通知审计
+        // 步骤9: 为已成交的买入/卖出写入PENDING通知审计(不受新买入开关影响)
         shadowRecordWriter.writeNoticeAudits(
                 entryResult.filledBatches(), exitFilledBatches, roundTime);
 
-        // 步骤10: OFF模式不推进新的买入信号边沿状态,避免重新启用时丢失边沿
-        if (ruleMode != StockRuleModeEnum.OFF) {
-            signalStateUpdater.updateStates(
-                    signalResult.allEvaluations(), signalStateByKey, roundTime);
-        } else {
-            log.info("规则模式OFF,跳过买入信号状态更新");
-        }
+        // 平仓信号状态关闭(不受新买入开关影响)
         signalStateUpdater.updateCloseStates(exitFilledBatches, signalStateByKey);
 
         // 批量保存变更(含影子批次的路径/状态变更)
@@ -211,9 +210,9 @@ public class StockRoundTransactionService {
         // 步骤11: 更新轮次为COMPLETED
         completeRound(round, mergedSnapshot);
 
-        log.info("轮次事务完成: roundTime={}, entryFilled={}, entryCancelled={}, exitFilled={}, newFormal={}, marks={}",
+        log.info("轮次事务完成: roundTime={}, entryFilled={}, entryCancelled={}, exitFilled={}, marks={}",
                 roundTime, entryResult.filledBatches().size(), entryResult.cancelledBatches().size(),
-                exitFilledBatches.size(), allocationResult.formalBatches().size(), marks.size());
+                exitFilledBatches.size(), marks.size());
     }
 
     /**

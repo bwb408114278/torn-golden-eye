@@ -69,4 +69,14 @@
         </foreach>
         ORDER BY signal_event_id ASC, id ASC
     </select>
+
+    <!-- 判断是否存在正式或无限资金影子活跃批次 -->
+    <select id="existsActiveBatches" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM torn_stock_virtual_batch
+            WHERE ledger_type IN ('FORMAL', 'UNLIMITED_SHADOW')
+              AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+              AND deleted = 0
+        )
+    </select>
 </mapper>

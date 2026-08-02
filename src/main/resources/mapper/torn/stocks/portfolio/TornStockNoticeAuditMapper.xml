@@ -56,19 +56,31 @@
         </foreach>
     </update>
 
-    <!-- 发送前冻结最终载荷和实际发送尝试时间 -->
+    <!-- 发送前逐条冻结最终载荷和实际发送尝试时间 -->
     <update id="finalizePayload">
         UPDATE torn_stock_notice_audit
-        SET payload_snapshot = CAST(#{payloadSnapshot} AS jsonb),
-            payload_hash = #{payloadHash},
-            attempted_at = #{attemptedAt},
+        SET payload_snapshot = source.payload_snapshot,
+            payload_hash = source.payload_hash,
+            attempted_at = source.attempted_at,
             update_time = CURRENT_TIMESTAMP
-        WHERE deleted = 0
-          AND send_status = 'PENDING'
-          AND id IN
-        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
-            #{id}
-        </foreach>
+        FROM (VALUES
+            <foreach collection="commands" item="cmd" separator=",">
+                (CAST(#{cmd.noticeId} AS BIGINT), CAST(#{cmd.payloadSnapshot} AS jsonb),
+                 #{cmd.payloadHash}, CAST(#{cmd.attemptedAt} AS TIMESTAMP))
+            </foreach>
+        ) AS source(notice_id, payload_snapshot, payload_hash, attempted_at)
+        WHERE torn_stock_notice_audit.id = source.notice_id
+          AND torn_stock_notice_audit.deleted = 0
+          AND torn_stock_notice_audit.send_status = 'PENDING'
     </update>
+
+    <!-- 判断是否存在待发送通知 -->
+    <select id="existsPendingNotices" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM torn_stock_notice_audit
+            WHERE send_status = 'PENDING'
+              AND deleted = 0
+        )
+    </select>
 
 </mapper>

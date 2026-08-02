@@ -13,8 +13,9 @@ import java.time.LocalDateTime;
 /**
  * Torn股票通知审计表
  * <p>
- * 记录每条策略通知的调度、载荷、发送状态与重试信息,确保通知可追溯、
- * 可重放、可去重,支撑消息通知的可靠投递与审计。
+ * 保存正式买卖和每日摘要的中文消息快照及本期一次发送结果。
+ * 它是最小审计表,不是高可用Outbox实现:本期不自动重试、不解析NapCat ACK,
+ * 仅证明系统生成了唯一通知并执行了一次发送调用。
  *
  * @author Bai
  * @version 1.2.12
@@ -53,24 +54,24 @@ public class TornStockNoticeAuditDO extends BaseDO {
      */
     private Long groupId;
     /**
-     * 载荷哈希(通知内容的去重指纹,相同哈希避免重复发送)
+     * 载荷哈希(最终完整payload规范化JSON的SHA-256摘要,64位小写十六进制)
      */
     private String payloadHash;
     /**
-     * 载荷快照(JSON文本,通知的完整消息体)
+     * 载荷快照(JSON文本,不可丢失的业务字段、最终中文文本和冻结时间的完整快照)
      */
     @TableField(typeHandler = JsonbTypeHandler.class)
     private String payloadSnapshot;
     /**
-     * 发送状态(PENDING/SENDING/SUCCESS/FAILED)
+     * 发送状态(PENDING/SENT/FAILED)
      */
     private String sendStatus;
     /**
-     * 发送尝试次数(累计重试次数)
+     * 发送尝试次数(本期固定最多1次,保留扩展字段)
      */
     private Integer sendAttemptCount;
     /**
-     * 最近一次尝试发送时间
+     * 最近一次尝试发送时间(最终payload冻结成功后才调用Bot)
      */
     private LocalDateTime attemptedAt;
     /**

@@ -31,8 +31,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * 股票轮次事务编排测试，验证本轮正式平仓股票不会重新进入正式候选接纳。
@@ -99,7 +98,7 @@ class StockRoundTransactionServiceTest {
 
         stubRoundExecution(roundTime, formalExitPendingBatch, shadowExitPendingBatch, lockedSlots, candidates);
 
-        transactionService.executeRound(roundTime, snapshot);
+        transactionService.executeRound(roundTime, snapshot, true);
 
         verify(buySignalEvaluator).acceptCandidates(
                 candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime));
@@ -120,6 +119,53 @@ class StockRoundTransactionServiceTest {
         assertEquals(List.of(shadowExitPendingBatch), capturedSnapshot.shadowBatches());
         assertSlotSetCompleteness(capturedSnapshot.slots(), lockedSlots);
         assertSlotSettlement(capturedSnapshot.slots());
+    }
+
+    @Test
+    @DisplayName("生产编排_DATA_STALE_EXIT正式批次灾难关闭_完整审计字段与通知审计")
+    void executeRound_dataStaleExitFormalBatch_disasterClosesWithAuditAndNotice() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        TornStockVirtualBatchDO staleExitBatch = staleExitBatch(31L, 3001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(staleExitBatch);
+        List<TornStockPortfolioSlotDO> externalSlots = buildFiveFormalSlots(staleExitBatch);
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(usableBar(3001, roundTime)), List.of(), List.of(),
+                List.of(staleExitBatch), List.of(), List.of(), externalSlots, roundTime);
+
+        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(round);
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(lockedSlots);
+        when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of(staleExitBatch));
+        when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of());
+        when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime))).thenReturn(List.of());
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
+                .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
+
+        transactionService.executeRound(roundTime, snapshot, false);
+
+        assertEquals(StockBatchStatusEnum.ADMIN_CLOSED.getCode(), staleExitBatch.getBatchStatus());
+        assertEquals(new BigDecimal("101.00"), staleExitBatch.getExitReferencePrice(),
+                "灾难关闭参考价应为恢复bar价格");
+        assertEquals(roundTime.plusMinutes(15), staleExitBatch.getExitTime());
+        assertEquals(roundTime.plusMinutes(15).plusHours(48), staleExitBatch.getCooldownUntil(),
+                "灾难关闭冷却应为48小时");
+        assertFalse(staleExitBatch.getResetObserved());
+        assertEquals("CLOSED_TARGET", staleExitBatch.getOriginalExitReason(), "应冻结原退出原因");
+        assertEquals("DATA_STALE_EXIT_RECOVERY_CLOSE", staleExitBatch.getAdminCloseReason());
+        assertEquals(roundTime, staleExitBatch.getRecoveryBarStartTime());
+        assertEquals(roundTime.plusMinutes(15), staleExitBatch.getRecoveryBarEndTime());
+        assertEquals(0L, staleExitBatch.getStaleExitDurationSeconds());
+        assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), lockedSlots.getFirst().getSlotStatus(),
+                "正式槽位应同事务释放");
+        assertNull(lockedSlots.getFirst().getCurrentBatchId(), "槽位应解绑批次");
+
+        org.mockito.ArgumentCaptor<List<TornStockVirtualBatchDO>> exitFilledCaptor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(shadowRecordWriter).writeNoticeAudits(any(), exitFilledCaptor.capture(), eq(roundTime));
+        assertTrue(exitFilledCaptor.getValue().contains(staleExitBatch),
+                "灾难关闭批次应进入SELL通知审计");
+        verify(marketRoundDao, atLeastOnce()).updateById(round);
     }
 
     /**
@@ -162,7 +208,7 @@ class StockRoundTransactionServiceTest {
     }
 
     /**
-     * 创建由事务内待卖出结算服务实际成交的批次。
+     * 创建待卖出批次。
      *
      * @param id         批次ID
      * @param stocksId   股票ID
@@ -185,6 +231,38 @@ class StockRoundTransactionServiceTest {
         batch.setExpectedExitBarTime(roundTime);
         batch.setExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
         batch.setSlotId(slotId);
+        if (slotId != null) {
+            batch.setSlotNo(slotId.intValue());
+            batch.setRemainingCash(new BigDecimal("1999990000.00"));
+        }
+        return batch;
+    }
+
+    /**
+     * 创建DATA_STALE_EXIT正式批次,用于灾难关闭编排测试。
+     *
+     * @param id        批次ID
+     * @param stocksId  股票ID
+     * @param roundTime 本轮时间
+     * @return 数据陈旧卖出批次
+     */
+    private TornStockVirtualBatchDO staleExitBatch(Long id, int stocksId, LocalDateTime roundTime) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo("B" + id);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setStocksId(stocksId);
+        batch.setStocksShortname("T" + stocksId);
+        batch.setBatchStatus(StockBatchStatusEnum.DATA_STALE_EXIT.getCode());
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setEntryTime(roundTime.minusDays(1));
+        batch.setQuantity(100L);
+        batch.setExpectedExitBarTime(roundTime);
+        batch.setExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
+        batch.setOriginalExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setRemainingCash(new BigDecimal("1999990000.00"));
         return batch;
     }
 
@@ -295,6 +373,7 @@ class StockRoundTransactionServiceTest {
         bar.setSampleCount(15);
         bar.setLastSampleTime(roundTime.plusMinutes(14));
         bar.setUsable(true);
+        bar.setBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
         return bar;
     }
 }

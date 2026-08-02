@@ -50,7 +50,7 @@ public class TornStockPortfolioSlotDO extends BaseDO {
      */
     private Long currentBatchId;
     /**
-     * 仓位状态(IDLE空闲/PENDING待入场/HOLDING持仓/CLOSING平仓中)
+     * 仓位状态(AVAILABLE空闲/RESERVED预留/OCCUPIED持仓/STALE数据陈旧)
      */
     private String slotStatus;
     /**

@@ -58,7 +58,7 @@ public class TornStockSignalStateDO extends BaseDO {
      */
     private Boolean resetObserved;
     /**
-     * 上次平仓类型(如TAKE_PROFIT/STOP_LOSS/TIMEOUT,用于冷却策略判断)
+     * 最近关闭类型(如CLOSED_RISK/CLOSED_TARGET/ADMIN_CLOSED,用于冷却口径判断)
      */
     private String lastCloseType;
 }
