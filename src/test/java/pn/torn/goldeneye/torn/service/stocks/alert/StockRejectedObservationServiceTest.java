@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockObservationResultEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
@@ -143,6 +144,42 @@ class StockRejectedObservationServiceTest {
 
         assertEquals(0, count);
         verify(signalEventDao, never()).updateBatchById(any());
+    }
+
+    @Test
+    @DisplayName("理论入场bar积压后补建_按真实bar结算而非提前写NO_THEORETICAL_ENTRY")
+    void resolveDueObservations_entryBarRebuiltAfterBacklog_computesRealObservation() {
+        LocalDateTime signalTime = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime observedAt = signalTime.plusDays(15);
+        TornStockSignalEventDO event = new TornStockSignalEventDO();
+        event.setId(14L);
+        event.setStocksId(1001);
+        event.setSignalReferencePrice(new BigDecimal("100.00"));
+        event.setRoundTime(signalTime);
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setSignalEventId(14L);
+        batch.setExpectedEntryBarTime(signalTime.plusMinutes(15));
+        batch.setEntryStaleAt(signalTime.plusMinutes(35));
+        // 积压期间理论入场bar缺失,调度器先补建轮次bar后再结算拒绝观察,
+        // 因此本次传入的bars中必须包含真实理论入场bar。
+        TornStockMarketBar15mDO entry = bar(signalTime.plusMinutes(15), new BigDecimal("100.00"));
+        TornStockMarketBar15mDO later = bar(signalTime.plusDays(1), new BigDecimal("108.00"));
+
+        when(signalEventDao.selectPendingRejectedObservationEvents(any(), any())).thenReturn(List.of(event));
+        when(virtualBatchDao.selectRejectedObservationBatches(List.of(14L))).thenReturn(List.of(batch));
+        when(barDao.selectByStocksAndTimeRange(eq(List.of(1001)), any(), any(), any()))
+                .thenReturn(List.of(entry, later));
+
+        int count = new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao)
+                .resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
+
+        assertEquals(1, count);
+        assertEquals("OBSERVATION_COMPLETED", event.getObservationResult(),
+                "补建bar后必须按真实bar计算,不得提前写NO_THEORETICAL_ENTRY");
+        assertNotEquals(StockObservationResultEnum.NO_THEORETICAL_ENTRY.getCode(), event.getObservationResult());
+        assertEquals(0, event.getLaterMfe().compareTo(new BigDecimal("0.08")));
+        assertEquals(0, event.getLaterMae().compareTo(new BigDecimal("0.08")));
+        verify(signalEventDao).updateObservationResultsByIds(List.of(event));
     }
 
     private TornStockVirtualBatchDO batchForEvent(Long eventId) {

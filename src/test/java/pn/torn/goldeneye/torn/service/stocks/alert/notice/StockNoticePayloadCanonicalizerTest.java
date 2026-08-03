@@ -37,6 +37,37 @@ class StockNoticePayloadCanonicalizerTest {
     }
 
     @Test
+    @DisplayName("数值规范化_无科学计数法且尾零归一(JSONB往返稳定)")
+    void canonicalize_numberSemantics_plainDecimalAndStripTrailingZeros() {
+        assertEquals("{\"n\":100}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1e+2}"),
+                "指数必须展开为普通十进制,禁止输出科学计数法(否则JSONB读回改写导致hash不稳)");
+        assertEquals("{\"n\":100000}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1E+5}"));
+        assertEquals("{\"n\":100000}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1e5}"));
+        assertEquals("{\"n\":1}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1.00}"),
+                "尾零按stripTrailingZeros归一,写入JSONB的是归一后文本,读回可复核");
+        assertEquals("{\"n\":1}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1.0}"));
+        assertEquals("{\"n\":1}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1e0}"));
+        assertEquals("{\"n\":1.5}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1.50}"));
+        assertEquals("{\"n\":0.001}", StockNoticePayloadCanonicalizer.canonicalize("{\"n\":0.001}"));
+        assertEquals("{\"n\":100000000000000000000}",
+                StockNoticePayloadCanonicalizer.canonicalize("{\"n\":1e20}"),
+                "大数必须输出普通十进制,不得使用指数");
+    }
+
+    @Test
+    @DisplayName("JSONB等价数值_不同指数写法规范化后哈希一致")
+    void sha256_equivalentNumbers_sameHash() {
+        // 归一化文本为写入JSONB的唯一表示: 1e+2/1e2/1E+2/100 均归一为100,哈希必须相同;
+        // 该唯一表示与JSONB读回文本(展开指数)再规范化结果一致,保证hash可复核。
+        String[] equivalents = {"{\"n\":1e+2}", "{\"n\":1e2}", "{\"n\":1E+2}", "{\"n\":100}"};
+        String expected = StockNoticePayloadCanonicalizer.sha256("{\"n\":100}");
+        for (String json : equivalents) {
+            assertEquals(expected, StockNoticePayloadCanonicalizer.sha256(json),
+                    "JSONB等价数值应得到相同哈希: " + json);
+        }
+    }
+
+    @Test
     @DisplayName("合并_保留全部业务字段并追加messageText与frozenAt")
     void mergeAndCanonicalize_preservesBusinessFieldsAndAppendsTextAndTime() {
         String original = "{\"noticeType\":\"SELL\",\"formalReason\":\"SELL_DATA_ADMIN_CLOSE\","

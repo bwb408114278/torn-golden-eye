@@ -95,8 +95,9 @@ public class VipStockAlertScheduler {
      * </ol>
      * 通过后按固定顺序执行:
      * <ol>
-     *   <li>存在未结算拒绝观察时结算到期研究义务</li>
-     *   <li>需要构建轮次时调用 {@link #processPendingRounds(boolean)} 处理已结束但未完成的轮次</li>
+     *   <li>需要构建轮次时先调用 {@link #processPendingRounds(boolean)} 处理已结束但未完成的轮次,
+     *       先补建可能积压的理论入场bar,避免后续拒绝观察把尚可重建的理论入场误判为缺失</li>
+     *   <li>存在未结算拒绝观察时结算到期研究义务(此时理论入场bar已尽可能补建)</li>
      *   <li>存在PENDING通知且正式消息开关允许时调用 {@code noticeSendService.sendPendingNotices()}</li>
      * </ol>
      * 总开关关闭但存在活跃批次时,仍继续构建存量管理所需轮次(退出/恢复/灾难关闭/冷却),
@@ -120,11 +121,14 @@ public class VipStockAlertScheduler {
         }
 
         try {
-            if (decision.manageResearchObligations()) {
-                rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
-            }
+            // 固定顺序: 先补建未完成轮次bar, 再结算到期拒绝观察, 最后投递PENDING通知。
+            // 若先结算拒绝观察, 紧邻理论入场bar因停机/前一轮失败/调度积压尚未写入时,
+            // 会被提前结算为NO_THEORETICAL_ENTRY并永久写入resolvedAt, 后续补建bar不再重算。
             if (decision.shouldBuildRounds()) {
                 processPendingRounds(decision.allowNewEntry());
+            }
+            if (decision.manageResearchObligations()) {
+                rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
             }
             if (decision.shouldSendPendingNotices()) {
                 noticeSendService.sendPendingNotices();

@@ -1,6 +1,8 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.notice;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -23,7 +25,8 @@ import java.util.TreeMap;
  *   <li>将payload解析为JsonNode</li>
  *   <li>Object字段按UTF-8字典序递归排序</li>
  *   <li>Array保持业务顺序,不排序</li>
- *   <li>数值使用Jackson标准JSON数值,不转科学计数法字符串;时间字段预先使用ISO-8601字符串</li>
+ *   <li>数值统一解析为{@link java.math.BigDecimal}并按普通十进制(plain)输出,不使用科学计数法;
+ *       尾零按stripTrailingZeros归一(如1.00→1),写入JSONB的正是归一后文本,读回再规范化结果一致;时间字段预先使用ISO-8601字符串</li>
  *   <li>不输出空白和换行</li>
  *   <li>SHA-256(canonicalJson UTF-8 bytes),输出64位小写十六进制</li>
  * </ol>
@@ -38,6 +41,16 @@ import java.util.TreeMap;
 public final class StockNoticePayloadCanonicalizer {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    static {
+        // 数值契约冻结,保证写入JSONB的文本与读回后重新规范化结果一致:
+        // 1) 浮点统一解析为BigDecimal(禁止Double导致精度丢失与指数改写);
+        // 2) BigDecimal输出普通十进制(plain),不输出科学计数法(JSONB会展开指数改写文本导致hash不稳);
+        // 3) 尾零按stripTrailingZeros归一(Jackson readTree语义,如1.00→1、1.50→1.5),
+        //    因为写入JSONB的正是归一后文本,读回再规范化必然一致。
+        MAPPER.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+        MAPPER.enable(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN);
+    }
 
     /**
      * 对payload JSON做确定性规范化并计算SHA-256。
@@ -103,7 +116,7 @@ public final class StockNoticePayloadCanonicalizer {
     }
 
     /**
-     * 递归规范化JsonNode: 对象键排序为字典序TreeMap,数组保持顺序,标量原样保留。
+     * 递归规范化JsonNode: 对象键排序为字典序TreeMap,数组保持顺序,数值转为BigDecimal按plain十进制输出。
      *
      * @param node 待规范化节点
      * @return 规范化后的容器对象或标量
@@ -123,7 +136,7 @@ public final class StockNoticePayloadCanonicalizer {
             return list;
         }
         if (node.isNumber()) {
-            return node.numberValue();
+            return node.decimalValue();
         }
         if (node.isBoolean()) {
             return node.booleanValue();

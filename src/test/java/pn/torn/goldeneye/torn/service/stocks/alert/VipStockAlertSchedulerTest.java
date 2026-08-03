@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
@@ -131,6 +132,21 @@ class VipStockAlertSchedulerTest {
 
         verify(rejectedObservationService).resolveAllDueObservations(any());
         verify(roundDao).selectPendingRoundsBefore(any());
+    }
+
+    @Test
+    @DisplayName("定时入口_必须先补建轮次bar再结算拒绝观察")
+    void executeRound_buildsPendingRoundsBeforeResolvingRejectedObservations() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, false, true, false, false));
+        when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+
+        scheduler.executeRound();
+
+        InOrder inOrder = inOrder(roundDao, rejectedObservationService);
+        inOrder.verify(roundDao).selectPendingRoundsBefore(any());
+        inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
     }
 
     @Test

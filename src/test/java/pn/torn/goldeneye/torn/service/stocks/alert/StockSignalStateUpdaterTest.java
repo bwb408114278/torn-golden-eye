@@ -6,7 +6,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBuyStrategyEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
@@ -114,10 +116,58 @@ class StockSignalStateUpdaterTest {
         assertFalse(saved.getResetObserved());
     }
 
+    @Test
+    @DisplayName("灾难关闭回写_lastCloseType必须是ADMIN_CLOSED而非原策略退出原因")
+    void updateCloseStates_disasterClose_writesAdminClosedLastCloseType() {
+        StockSignalStateUpdater updater = new StockSignalStateUpdater(signalStateDAO);
+        TornStockVirtualBatchDO batch = buildVirtualBatchDO(31L, StockBatchStatusEnum.ADMIN_CLOSED, 48);
+
+        updater.updateCloseStates(List.of(batch), Map.of());
+
+        ArgumentCaptor<List<TornStockSignalStateDO>> captor =
+                ArgumentCaptor.forClass((Class<List<TornStockSignalStateDO>>) (Class<?>) List.class);
+        verify(signalStateDAO).saveOrUpdateBatch(captor.capture());
+        TornStockSignalStateDO saved = captor.getValue().getFirst();
+        assertEquals(StockBatchStatusEnum.ADMIN_CLOSED.getCode(), saved.getLastCloseType(),
+                "灾难关闭必须把最终关闭类型记为ADMIN_CLOSED,不得沿用原策略退出原因");
+        assertEquals(ROUND_TIME.plusHours(48), saved.getCooldownUntil());
+        assertFalse(saved.getResetObserved());
+    }
+
+    @Test
+    @DisplayName("普通策略关闭回写_批次终态与退出原因一致时记录关闭类型")
+    void updateCloseStates_normalClose_writesBatchStatusCloseType() {
+        StockSignalStateUpdater updater = new StockSignalStateUpdater(signalStateDAO);
+        TornStockVirtualBatchDO batch = buildVirtualBatchDO(32L, StockBatchStatusEnum.CLOSED_TARGET, 24);
+
+        updater.updateCloseStates(List.of(batch), Map.of());
+
+        ArgumentCaptor<List<TornStockSignalStateDO>> captor =
+                ArgumentCaptor.forClass((Class<List<TornStockSignalStateDO>>) (Class<?>) List.class);
+        verify(signalStateDAO).saveOrUpdateBatch(captor.capture());
+        assertEquals(StockBatchStatusEnum.CLOSED_TARGET.getCode(), captor.getValue().getFirst().getLastCloseType());
+    }
+
     private StockBuyStrategy mockStrategy() {
         StockBuyStrategy strategy = mock(StockBuyStrategy.class);
         when(strategy.getStrategyType()).thenReturn(StockBuyStrategyEnum.RANGE_LOWER_BUY);
         return strategy;
+    }
+
+    private TornStockVirtualBatchDO buildVirtualBatchDO(long id, StockBatchStatusEnum adminClosed, int hours) {
+        StockSignalStateKey key = new StockSignalStateKey(
+                STOCKS_ID, StockBuyStrategyEnum.RANGE_LOWER_BUY.getCode(), BUY_RULE_VERSION);
+
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setStocksId(STOCKS_ID);
+        batch.setPrimaryStrategy(key.strategyType());
+        batch.setBuyRuleVersion(BUY_RULE_VERSION);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setBatchStatus(adminClosed.getCode());
+        batch.setExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
+        batch.setCooldownUntil(ROUND_TIME.plusHours(hours));
+        return batch;
     }
 
     private StockSignalStateUpdater.SignalStateEvaluationView evaluation(

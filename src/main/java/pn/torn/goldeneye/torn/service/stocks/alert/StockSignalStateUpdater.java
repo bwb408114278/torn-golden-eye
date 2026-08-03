@@ -83,9 +83,27 @@ public class StockSignalStateUpdater {
         state.setStrategyType(batch.getPrimaryStrategy());
         state.setBuyRuleVersion(batch.getBuyRuleVersion());
         state.setCooldownUntil(batch.getCooldownUntil());
-        state.setLastCloseType(batch.getExitReason());
+        state.setLastCloseType(resolveLastCloseType(batch));
         state.setResetObserved(false);
         toSaveByKey.put(key, state);
+    }
+
+    /**
+     * 解析批次最终关闭类型写入信号状态。
+     * <p>
+     * 优先使用批次终态{@code batchStatus}: 灾难处置统一将批次置为{@code ADMIN_CLOSED},
+     * 此时必须记录最终管理关闭类型,而不能沿用原策略退出原因{@code exitReason}
+     * (如CLOSED_TARGET)造成跨表审计语义不一致。普通策略关闭时{@code batchStatus}
+     * 由{@code exitReason}派生,二者一致。批次终态缺失时兜底使用{@code exitReason}。
+     *
+     * @param batch 已平仓批次
+     * @return 批次最终关闭类型编码
+     */
+    private String resolveLastCloseType(TornStockVirtualBatchDO batch) {
+        if (batch.getBatchStatus() != null && !batch.getBatchStatus().isBlank()) {
+            return batch.getBatchStatus();
+        }
+        return batch.getExitReason();
     }
 
     /**
