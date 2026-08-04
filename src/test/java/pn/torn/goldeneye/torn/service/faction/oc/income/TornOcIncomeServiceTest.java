@@ -22,10 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 大锅饭OC收益计算集成测试
@@ -294,6 +291,62 @@ class TornOcIncomeServiceTest {
 
         assertThrows(BizException.class,
                 () -> incomeService.calcMonthlyIncomeSummary(FACTION_ID, "2026-04"));
+    }
+
+    @Test
+    @DisplayName("跨月链：叶子月份summary包含两人工时与成本，奖励只计一次，父节点月份不承载该链数据")
+    void testCalculateIncome_CrossMonthChain_leafMonthHoldsWholeChain() {
+        // 父节点3月完成、叶子4月完成，两个成员分别只参加父节点与叶子节点
+        TornFactionOcDO step1 = createOc(null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 3, 29, 10, 0), 0L, null);
+        TornFactionOcDO step2 = createOc(step1.getId(), TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 15, 0), 1500000L, null);
+        createSlot(step1.getId(), USER_ID_1, "Imitator#1", 80, 80000L);
+        createSlot(step2.getId(), USER_ID_2, "Imitator#1", 75, 120000L);
+
+        incomeService.calculateAndSaveIncome(step2);
+
+        // 叶子月份summary：两个成员都计入工时与成本
+        TornFactionOcIncomeSummaryDO leafSummary1 = querySummary(USER_ID_1, "2026-04");
+        TornFactionOcIncomeSummaryDO leafSummary2 = querySummary(USER_ID_2, "2026-04");
+        assertNotNull(leafSummary1);
+        assertNotNull(leafSummary2);
+        assertTrue(leafSummary1.getTotalEffectiveHours().compareTo(BigDecimal.ZERO) > 0);
+        assertTrue(leafSummary2.getTotalEffectiveHours().compareTo(BigDecimal.ZERO) > 0);
+        // 整链总奖励只计一次
+        assertEquals(1500000L, leafSummary1.getTotalReward());
+        assertEquals(1500000L, leafSummary2.getTotalReward());
+
+        // 父节点月份（2026-03）不包含该链的工时、成本与奖励
+        assertNull(querySummary(USER_ID_1, "2026-03"));
+        assertNull(querySummary(USER_ID_2, "2026-03"));
+
+        // 重新计算两个相关月份结果不变（幂等）
+        incomeService.calcMonthlyIncomeSummary(FACTION_ID, "2026-04");
+        incomeService.calcMonthlyIncomeSummary(FACTION_ID, "2026-03");
+        assertEquals(1500000L, querySummary(USER_ID_1, "2026-04").getTotalReward());
+        assertNull(querySummary(USER_ID_1, "2026-03"));
+        assertNull(querySummary(USER_ID_2, "2026-03"));
+    }
+
+    @Test
+    @DisplayName("无岗位时总有效工时为0，生成收益抛业务异常")
+    void testCalculateIncome_NoSlot_throwsBizException() {
+        TornFactionOcDO oc = createOc(null, TornConstants.OC_NAME_BREAK_THE_BANK, 8, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 1000000L, null);
+
+        assertThrows(BizException.class, () -> incomeService.calculateAndSaveIncome(oc));
+    }
+
+    @Test
+    @DisplayName("岗位均无有效工时（系数缺失）时，生成收益抛业务异常")
+    void testCalculateIncome_CoefficientMissing_throwsBizException() {
+        // 使用不存在的OC/岗位组合，系数缺失导致有效工时为0
+        TornFactionOcDO oc = createOc(null, "No Such OC", 99, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 1000000L, null);
+        createSlot(oc.getId(), USER_ID_1, "Ghost#1", 60, 50000L);
+
+        assertThrows(BizException.class, () -> incomeService.calculateAndSaveIncome(oc));
     }
 
     private TornFactionOcIncomeSummaryDO querySummary(Long userId, String yearMonth) {

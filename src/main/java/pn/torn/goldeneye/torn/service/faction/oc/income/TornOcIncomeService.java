@@ -7,16 +7,24 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.exception.BizException;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingOcChainDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
+import pn.torn.goldeneye.torn.model.faction.crime.income.ChainIncompleteReasonEnum;
+import pn.torn.goldeneye.torn.model.faction.crime.income.ChainLoadResult;
 import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCalculationDTO;
+import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCompletenessEnum;
+import pn.torn.goldeneye.torn.model.faction.crime.income.OcIncomeKey;
+import pn.torn.goldeneye.torn.model.faction.crime.income.OcKey;
 import pn.torn.goldeneye.torn.model.faction.crime.income.WorkingHoursDTO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -34,6 +42,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -54,28 +63,39 @@ public class TornOcIncomeService {
     private final TornFactionOcIncomeDAO incomeDao;
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
     private final TornFactionOcDAO ocDao;
+    private final TornSettingOcChainDAO ocChainDao;
 
     /**
-     * 计算并保存OC收益（含月度汇总重算）。
+     * 计算并保存OC收益（含受影响月份汇总重算）。
      *
-     * <p>供直接调用与既有测试使用，生成整链明细后重算叶子完成月份的汇总。</p>
+     * <p>供直接调用与既有测试使用，生成整链明细后重算整链涉及的所有月份汇总，
+     * 确保跨月链的工时、成本与奖励统一归入叶子完成月份。</p>
      *
      * @param oc 触发计算的叶子OC
+     * @throws BizException 链回溯不完整或总有效工时为0时抛出，整链回滚
      */
     @Transactional(rollbackFor = Exception.class)
     public void calculateAndSaveIncome(TornFactionOcDO oc) {
-        generateAndSaveIncome(oc, loadOcChain(oc));
-        calcMonthlyIncomeSummary(oc.getFactionId(), oc.getExecutedTime().format(DateTimeUtils.YEAR_MONTH_FORMATTER));
+        ChainLoadResult chainResult = loadOcChain(oc);
+        if (!chainResult.complete()) {
+            throw new BizException(String.format(
+                    "OC链回溯不完整，拒绝计算: leafOcId=%d, missingAncestorOcId=%s, reason=%s",
+                    oc.getId(), chainResult.missingAncestorOcId(), chainResult.reason()));
+        }
+        generateAndSaveIncome(oc, chainResult.chain());
+        recalcAffectedMonths(oc.getFactionId(), chainResult.chain());
     }
 
     /**
      * 使用调用方已加载的完整链生成并保存OC收益明细。
      *
      * <p>供单链事务Worker在自身事务内复用已回溯的链，避免重复逐节点查询。本方法只写入
-     * income明细，月度汇总由调用方在Worker事务内另行调用，便于整链原子提交。</p>
+     * income明细，月度汇总由调用方在Worker事务内另行调用，便于整链原子提交。
+     * 总有效工时为0时抛出业务异常，避免把无有效工时的链误报为成功。</p>
      *
      * @param leaf    触发计算的叶子OC
      * @param ocChain 从最早步骤到最终步骤的完整OC链（含叶子自身）
+     * @throws BizException 总有效工时为0时抛出，调用方应回滚且不得计数成功
      */
     void generateAndSaveIncome(TornFactionOcDO leaf, List<TornFactionOcDO> ocChain) {
         // 1. 计算工时
@@ -92,8 +112,10 @@ public class TornOcIncomeService {
                 .map(WorkingHoursDTO::getEffectiveWorkingHours)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (totalEffectiveHours.compareTo(BigDecimal.ZERO) == 0) {
-            log.warn("OC链总有效工时为0，跳过收益计算: ocId={}", leaf.getId());
-            return;
+            throw new BizException(String.format(
+                    "OC链总有效工时为0，拒绝生成收益: leafOcId=%d, leafOcName=%s, chainOcIds=%s",
+                    leaf.getId(), leaf.getName(),
+                    ocChain.stream().map(TornFactionOcDO::getId).toList()));
         }
         // 3. 计算全叶子节点总道具成本
         List<Long> allOcIds = ocChain.stream().map(TornFactionOcDO::getId).toList();
@@ -117,7 +139,7 @@ public class TornOcIncomeService {
             List<WorkingHoursDTO> workingHoursList = stepWorkingHoursMap.get(stepOc.getId());
             incomeList = new ArrayList<>();
             for (WorkingHoursDTO workingHours : workingHoursList) {
-                long itemCost = userItemCostMap.get(workingHours.getUserId());
+                long itemCost = userItemCostMap.getOrDefault(workingHours.getUserId(), 0L);
                 incomeList.add(new IncomeCalculationDTO(workingHours, itemCost, totalItemCost,
                         totalReward, netReward));
             }
@@ -145,33 +167,68 @@ public class TornOcIncomeService {
     }
 
     /**
-     * 按指定月份重新计算收益汇总（用于月度结算）
+     * 按指定月份重新计算收益汇总（用于月度结算）。
      *
-     * <p>月度总奖励按“实际奖励结算叶子”计一次：单步OC自身是结算叶子；成功链的最终叶子是结算单元；
-     * 同一链所有步骤与成员共享该叶子奖励但月度只计一次；不同叶子即使奖励金额相同也分别计入；
-     * 跨月链父节点归到最终叶子完成月份。同一结算叶子分组内出现不同奖励金额视为数据异常，fail-closed报错。</p>
+     * <p>月度汇总的数据集按“结算叶子完成月份”选择，而不是按每条明细自身完成月份选择：
+     * 先找出目标月份完成的结算叶子，批量回溯完整链节点，再查询这些链节点的全部income，
+     * 把整条链的有效工时、道具成本、OC次数和成功次数统一归入叶子月份。父节点月份不得单独承载
+     * 该链的部分数据，单步OC继续按自身完成月份归属。重算会同步清除该月不再适用用户的旧汇总行，
+     * 保证跨月链补偿与幂等语义。</p>
      *
      * @param factionId 帮派ID
      * @param yearMonth 目标年月，格式yyyy-MM
      * @throws BizException 同一结算叶子分组内出现不同奖励金额时抛出，要求调用方回滚
      */
     public void calcMonthlyIncomeSummary(long factionId, String yearMonth) {
-        // 1. 查询该月所有已完成的OC记录
-        LocalDateTime startTime = LocalDateTime.parse(yearMonth + "-01 00:00:00",
+        // 1. 找出目标月份完成的结算叶子
+        LocalDateTime monthStart = LocalDateTime.parse(yearMonth + "-01 00:00:00",
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        LocalDateTime endTime = startTime.plusMonths(1);
-        List<TornFactionOcIncomeDO> monthlyRecords = incomeDao.lambdaQuery()
-                .eq(TornFactionOcIncomeDO::getFactionId, factionId)
-                .ge(TornFactionOcIncomeDO::getOcExecutedTime, startTime)
-                .lt(TornFactionOcIncomeDO::getOcExecutedTime, endTime)
-                .list();
-        if (CollectionUtils.isEmpty(monthlyRecords)) {
-            log.warn("该月没有OC记录: yearMonth={}", yearMonth);
+        LocalDateTime monthEnd = monthStart.plusMonths(1);
+        List<String> rotationList = TornConstants.ROTATION_OC_NAME.get(factionId);
+        Set<OcKey> chainParentKeys = loadChainParentKeys();
+        List<TornFactionOcDO> leaves;
+        if (CollectionUtils.isEmpty(rotationList)) {
+            leaves = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getFactionId, factionId)
+                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                    .ge(TornFactionOcDO::getExecutedTime, monthStart)
+                    .lt(TornFactionOcDO::getExecutedTime, monthEnd)
+                    .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
+                    .list();
+        } else {
+            leaves = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getFactionId, factionId)
+                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                    .in(TornFactionOcDO::getName, rotationList)
+                    .ge(TornFactionOcDO::getExecutedTime, monthStart)
+                    .lt(TornFactionOcDO::getExecutedTime, monthEnd)
+                    .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
+                    .list();
+        }
+        // 排除仍在等待后继节点的成功配置链父节点，避免被误判为结算叶子
+        leaves = leaves.stream()
+                .filter(oc -> !(TornOcStatusEnum.SUCCESSFUL.getCode().equals(oc.getStatus())
+                        && chainParentKeys.contains(new OcKey(oc.getName(), oc.getRank()))))
+                .toList();
+        if (CollectionUtils.isEmpty(leaves)) {
+            // 该月没有结算叶子，清除可能残留的旧汇总
+            purgeStaleSummaryRows(factionId, yearMonth, Set.of());
+            log.warn("该月没有结算叶子，清除旧汇总: factionId={}, yearMonth={}", factionId, yearMonth);
             return;
         }
 
-        // 2. 构建本批income涉及OC的链上下文（内存回溯，按结算叶子归并）
-        ChainContext chainContext = buildChainContext(factionId, monthlyRecords);
+        // 2. 批量回溯这些叶子的完整链节点，并查询其全部income
+        ChainContext chainContext = buildChainContextForLeaves(factionId, leaves);
+        List<Long> chainNodeIds = new ArrayList<>(chainContext.nodeMap().keySet());
+        List<TornFactionOcIncomeDO> monthlyRecords = incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getFactionId, factionId)
+                .in(TornFactionOcIncomeDO::getOcId, chainNodeIds)
+                .list();
+        if (CollectionUtils.isEmpty(monthlyRecords)) {
+            purgeStaleSummaryRows(factionId, yearMonth, Set.of());
+            log.warn("该月没有结算income，清除旧汇总: yearMonth={}", yearMonth);
+            return;
+        }
 
         // 3. 计算该月总收益（按结算叶子去重）和总成本
         long monthlyTotalReward = calculateMonthlyTotalReward(factionId, yearMonth, monthlyRecords, chainContext);
@@ -253,18 +310,63 @@ public class TornOcIncomeService {
             }
         }
 
-        log.info("月度汇总重新计算完成: yearMonth={}, 参与人数={}, 总收益={}, 总成本={}, 净收益={}",
-                yearMonth, userRecordsMap.size(), monthlyTotalReward,
+        // 7. 清除该月不再适用用户的旧汇总行，保证补偿与幂等
+        purgeStaleSummaryRows(factionId, yearMonth, userRecordsMap.keySet());
+
+        log.info("月度汇总重新计算完成: factionId={}, yearMonth={}, 参与人数={}, 总收益={}, 总成本={}, 净收益={}",
+                factionId, yearMonth, userRecordsMap.size(), monthlyTotalReward,
                 monthlyTotalItemCost, monthlyNetReward);
+    }
+
+    /**
+     * 清除指定月份中不再参与的用户旧汇总行。
+     *
+     * @param factionId       帮派ID
+     * @param yearMonth       年月
+     * @param presentUserIds  当前仍应保留汇总的用户ID集合；为空表示清除该月全部汇总
+     */
+    private void purgeStaleSummaryRows(long factionId, String yearMonth, Set<Long> presentUserIds) {
+        if (CollectionUtils.isEmpty(presentUserIds)) {
+            incomeSummaryDao.lambdaUpdate()
+                    .eq(TornFactionOcIncomeSummaryDO::getFactionId, factionId)
+                    .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
+                    .remove();
+            return;
+        }
+        incomeSummaryDao.lambdaUpdate()
+                .eq(TornFactionOcIncomeSummaryDO::getFactionId, factionId)
+                .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
+                .notIn(TornFactionOcIncomeSummaryDO::getUserId, presentUserIds)
+                .remove();
+    }
+
+    /**
+     * 重算整条链涉及的所有受影响月份汇总。
+     *
+     * <p>跨月链可能同时影响父节点完成月份与叶子完成月份；统一按结算叶子完成月份归属后，
+     * 父节点月份会自然去除该链的工时、成本与奖励，避免旧汇总保留历史残量。重算具有幂等语义。</p>
+     *
+     * @param factionId 帮派ID
+     * @param chain     从最早步骤到最终步骤的完整OC链（含叶子自身）
+     */
+    public void recalcAffectedMonths(long factionId, List<TornFactionOcDO> chain) {
+        Set<String> affectedMonths = chain.stream()
+                .map(TornFactionOcDO::getExecutedTime)
+                .filter(Objects::nonNull)
+                .map(time -> time.format(DateTimeUtils.YEAR_MONTH_FORMATTER))
+                .collect(Collectors.toSet());
+        for (String yearMonth : affectedMonths) {
+            calcMonthlyIncomeSummary(factionId, yearMonth);
+        }
     }
 
     /**
      * 计算该月总奖励，按结算叶子分组后每个叶子只计一次奖励。
      *
-     * @param factionId     帮派ID
-     * @param yearMonth     目标年月
-     * @param monthlyRecords 该月所有income记录
-     * @param chainContext  链上下文
+     * @param factionId      帮派ID
+     * @param yearMonth      目标年月
+     * @param monthlyRecords 该月归属的全部income（已按结算叶子完成月份筛选）
+     * @param chainContext   链上下文
      * @return 该月总奖励
      */
     private long calculateMonthlyTotalReward(long factionId, String yearMonth,
@@ -273,9 +375,7 @@ public class TornOcIncomeService {
         Map<Long, List<TornFactionOcIncomeDO>> successByLeaf = monthlyRecords.stream()
                 .filter(TornFactionOcIncomeDO::getIsSuccess)
                 .collect(Collectors.groupingBy(
-                        record -> chainContext.settlementLeafByOcId.get(record.getOcId()) != null
-                                ? chainContext.settlementLeafByOcId.get(record.getOcId())
-                                : record.getOcId()));
+                        record -> chainContext.settlementLeafByOcId.getOrDefault(record.getOcId(), record.getOcId())));
 
         long total = 0L;
         for (Map.Entry<Long, List<TornFactionOcIncomeDO>> entry : successByLeaf.entrySet()) {
@@ -290,62 +390,65 @@ public class TornOcIncomeService {
                         "月度汇总发现同一结算叶子奖励不一致: factionId=%d, yearMonth=%s, leafOcId=%d, rewards=%s",
                         factionId, yearMonth, leafOcId, distinctRewards));
             }
-
-            // 跨月链父节点归到最终叶子完成月份：仅当叶子完成月份等于当前结算月份才计入奖励
-            LocalDateTime leafTime = chainContext.nodeMap.get(leafOcId) != null
-                    ? chainContext.nodeMap.get(leafOcId).getExecutedTime()
-                    : leafRecords.getFirst().getOcExecutedTime();
-            String leafMonth = leafTime == null ? null : leafTime.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
-            if (yearMonth.equals(leafMonth)) {
-                total += distinctRewards.getFirst();
-            }
+            total += distinctRewards.getFirst();
         }
         return total;
     }
 
     /**
-     * 构建本批income记录涉及OC的链上下文。
+     * 构建本批结算叶子涉及的完整链上下文。
      *
-     * <p>以该月income的ocId为起点，批量加载涉及的OC节点及其后继节点，在内存中构建
+     * <p>以目标月份结算叶子为起点，批量加载其所有祖先节点，在内存中构建
      * {@code ocId -> 结算叶子OcId}映射，避免逐节点查询的N+1。</p>
      *
-     * @param factionId      帮派ID
-     * @param monthlyRecords 该月所有income记录
+     * @param factionId 帮派ID
+     * @param leaves    目标月份完成的结算叶子
      * @return 链上下文
      */
-    private ChainContext buildChainContext(long factionId, List<TornFactionOcIncomeDO> monthlyRecords) {
-        Set<Long> ocIds = monthlyRecords.stream()
-                .map(TornFactionOcIncomeDO::getOcId)
-                .collect(Collectors.toSet());
-        if (CollectionUtils.isEmpty(ocIds)) {
-            return new ChainContext(Map.of(), Map.of());
+    private ChainContext buildChainContextForLeaves(long factionId, List<TornFactionOcDO> leaves) {
+        Map<Long, TornFactionOcDO> nodeMap = new HashMap<>();
+        Set<Long> loadedIds = new HashSet<>();
+        for (TornFactionOcDO leaf : leaves) {
+            nodeMap.put(leaf.getId(), leaf);
+            loadedIds.add(leaf.getId());
         }
 
-        Map<Long, TornFactionOcDO> nodeMap = loadOcNodes(factionId, ocIds);
-        Map<Long, Long> childOf = new HashMap<>();
-        Set<Long> frontier = new HashSet<>(ocIds);
-        while (!frontier.isEmpty()) {
-            List<TornFactionOcDO> children = ocDao.lambdaQuery()
+        List<Long> pendingIds = leaves.stream()
+                .map(TornFactionOcDO::getPreviousOcId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .filter(id -> !loadedIds.contains(id))
+                .toList();
+        while (!pendingIds.isEmpty()) {
+            List<TornFactionOcDO> loaded = ocDao.lambdaQuery()
                     .eq(TornFactionOcDO::getFactionId, factionId)
-                    .in(TornFactionOcDO::getPreviousOcId, frontier)
+                    .in(TornFactionOcDO::getId, pendingIds)
                     .list();
-            Set<Long> nextFrontier = new HashSet<>();
-            for (TornFactionOcDO child : children) {
-                nodeMap.put(child.getId(), child);
-                childOf.putIfAbsent(child.getPreviousOcId(), child.getId());
-                nextFrontier.add(child.getId());
+            List<Long> nextPending = new ArrayList<>();
+            for (TornFactionOcDO node : loaded) {
+                nodeMap.put(node.getId(), node);
+                loadedIds.add(node.getId());
+                if (node.getPreviousOcId() != null && !loadedIds.contains(node.getPreviousOcId())) {
+                    nextPending.add(node.getPreviousOcId());
+                }
             }
-            frontier = nextFrontier;
+            pendingIds = nextPending.stream().distinct().toList();
         }
 
         Map<Long, Long> settlementLeafByOcId = new HashMap<>();
-        for (Long ocId : ocIds) {
-            Long leafId = ocId;
+        for (TornFactionOcDO leaf : leaves) {
+            settlementLeafByOcId.put(leaf.getId(), leaf.getId());
+            Long cursor = leaf.getPreviousOcId();
             Set<Long> visited = new HashSet<>();
-            while (childOf.containsKey(leafId) && visited.add(leafId)) {
-                leafId = childOf.get(leafId);
+            visited.add(leaf.getId());
+            while (cursor != null && visited.add(cursor)) {
+                TornFactionOcDO node = nodeMap.get(cursor);
+                if (node == null) {
+                    break;
+                }
+                settlementLeafByOcId.put(node.getId(), leaf.getId());
+                cursor = node.getPreviousOcId();
             }
-            settlementLeafByOcId.put(ocId, leafId);
         }
         return new ChainContext(nodeMap, settlementLeafByOcId);
     }
@@ -372,13 +475,18 @@ public class TornOcIncomeService {
     /**
      * 沿 previousOcId 链批量回溯，获取完整OC链（从最早步骤到最终步骤）。
      *
-     * <p>使用分批IN查询替代逐节点getById，消除链回溯N+1。</p>
+     * <p>使用分批IN查询替代逐节点getById，消除链回溯N+1。遇到祖先缺失、被逻辑删除、
+     * 帮派不一致或环形引用时返回不完整结果，由调用方fail-closed处理，禁止截断后按单步OC结算。</p>
      *
      * @param finalOc 最终步骤（叶子）OC
-     * @return 从最早步骤到最终步骤的完整OC链（含叶子自身）
+     * @return 链回溯结果；{@code complete=false}时{@code chain}为已加载的部分节点（含叶子）
      */
-    public List<TornFactionOcDO> loadOcChain(TornFactionOcDO finalOc) {
+    public ChainLoadResult loadOcChain(TornFactionOcDO finalOc) {
         Map<Long, TornFactionOcDO> nodeMap = new HashMap<>();
+        nodeMap.put(finalOc.getId(), finalOc);
+        Set<Long> loadedIds = new HashSet<>();
+        loadedIds.add(finalOc.getId());
+
         List<Long> pendingIds = new ArrayList<>();
         if (finalOc.getPreviousOcId() != null) {
             pendingIds.add(finalOc.getPreviousOcId());
@@ -387,21 +495,68 @@ public class TornOcIncomeService {
             List<TornFactionOcDO> loaded = ocDao.lambdaQuery()
                     .in(TornFactionOcDO::getId, pendingIds)
                     .list();
+            Set<Long> foundIds = loaded.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
+            for (Long expectedId : pendingIds) {
+                if (!foundIds.contains(expectedId)) {
+                    return new ChainLoadResult(partialChain(finalOc, nodeMap), false, expectedId,
+                            ChainIncompleteReasonEnum.MISSING_ANCESTOR);
+                }
+            }
             List<Long> nextPending = new ArrayList<>();
             for (TornFactionOcDO node : loaded) {
+                if (!Objects.equals(node.getFactionId(), finalOc.getFactionId())) {
+                    return new ChainLoadResult(partialChain(finalOc, nodeMap), false, node.getId(),
+                            ChainIncompleteReasonEnum.FACTION_MISMATCH);
+                }
                 nodeMap.put(node.getId(), node);
-                if (node.getPreviousOcId() != null && !nodeMap.containsKey(node.getPreviousOcId())) {
+                loadedIds.add(node.getId());
+                if (node.getPreviousOcId() != null && !loadedIds.contains(node.getPreviousOcId())) {
                     nextPending.add(node.getPreviousOcId());
                 }
             }
             pendingIds = nextPending;
         }
 
+        // 构建从最早祖先到叶子的有序链，并检测环形引用
         List<TornFactionOcDO> chain = new ArrayList<>();
         Deque<TornFactionOcDO> stack = new ArrayDeque<>();
         stack.push(finalOc);
         Long cursor = finalOc.getPreviousOcId();
         Set<Long> visited = new HashSet<>();
+        visited.add(finalOc.getId());
+        while (cursor != null) {
+            if (!visited.add(cursor)) {
+                return new ChainLoadResult(partialChain(finalOc, nodeMap), false, cursor,
+                        ChainIncompleteReasonEnum.CYCLE);
+            }
+            TornFactionOcDO node = nodeMap.get(cursor);
+            if (node == null) {
+                return new ChainLoadResult(partialChain(finalOc, nodeMap), false, cursor,
+                        ChainIncompleteReasonEnum.MISSING_ANCESTOR);
+            }
+            stack.push(node);
+            cursor = node.getPreviousOcId();
+        }
+        while (!stack.isEmpty()) {
+            chain.add(stack.pop());
+        }
+        return new ChainLoadResult(chain, true, null, null);
+    }
+
+    /**
+     * 使用已加载的节点构建从最早祖先到叶子的部分有序链（用于不完整结果返回）。
+     *
+     * @param finalOc  叶子OC
+     * @param nodeMap  已加载节点映射
+     * @return 已加载节点的有序链（从叶子向根回溯）
+     */
+    private List<TornFactionOcDO> partialChain(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap) {
+        List<TornFactionOcDO> chain = new ArrayList<>();
+        Deque<TornFactionOcDO> stack = new ArrayDeque<>();
+        stack.push(finalOc);
+        Long cursor = finalOc.getPreviousOcId();
+        Set<Long> visited = new HashSet<>();
+        visited.add(finalOc.getId());
         while (cursor != null && visited.add(cursor)) {
             TornFactionOcDO node = nodeMap.get(cursor);
             if (node == null) {
@@ -417,9 +572,93 @@ public class TornOcIncomeService {
     }
 
     /**
+     * 批量查询指定OC节点的岗位。
+     *
+     * @param ocIds OC ID集合
+     * @return OC ID到岗位列表的映射
+     */
+    Map<Long, List<TornFactionOcSlotDO>> loadSlotsByOcIds(Collection<Long> ocIds) {
+        if (CollectionUtils.isEmpty(ocIds)) {
+            return Map.of();
+        }
+        return ocSlotDao.lambdaQuery()
+                .in(TornFactionOcSlotDO::getOcId, ocIds)
+                .list()
+                .stream()
+                .collect(Collectors.groupingBy(TornFactionOcSlotDO::getOcId));
+    }
+
+    /**
+     * 根据链节点有效完成岗位计算预期收益业务键集合。
+     *
+     * <p>预期业务键为(ocId, userId, position)：每个持有用户的岗位对应一条预期income记录，
+     * 与活动income的实际业务键精确比较以判断整链是否完整结算。</p>
+     *
+     * @param chain       完整OC链（含叶子自身）
+     * @param slotsByOcId 链节点岗位映射
+     * @return 预期收益业务键集合
+     */
+    Set<OcIncomeKey> buildExpectedIncomeKeys(List<TornFactionOcDO> chain,
+                                             Map<Long, List<TornFactionOcSlotDO>> slotsByOcId) {
+        Set<OcIncomeKey> expectedKeys = new HashSet<>();
+        for (TornFactionOcDO node : chain) {
+            List<TornFactionOcSlotDO> slots = slotsByOcId.getOrDefault(node.getId(), List.of());
+            for (TornFactionOcSlotDO slot : slots) {
+                if (slot.getUserId() == null) {
+                    continue;
+                }
+                expectedKeys.add(new OcIncomeKey(node.getId(), slot.getUserId(), slot.getPosition()));
+            }
+        }
+        return expectedKeys;
+    }
+
+    /**
+     * 判断链income完整性。
+     *
+     * <p>实际业务键集合为空表示待计算；实际集合精确等于预期集合且整链完整表示已结算；
+     * 其余情况（真子集、超集、重复业务键或链节点缺失）均为异常部分income。</p>
+     *
+     * @param expectedKeys 预期业务键集合
+     * @param actualIncome 活动income记录
+     * @return 完整性结论
+     */
+    IncomeCompletenessEnum classifyIncomeCompleteness(Set<OcIncomeKey> expectedKeys,
+                                                      List<TornFactionOcIncomeDO> actualIncome) {
+        if (CollectionUtils.isEmpty(actualIncome)) {
+            return IncomeCompletenessEnum.PENDING;
+        }
+        Set<OcIncomeKey> actualKeys = actualIncome.stream()
+                .map(income -> new OcIncomeKey(income.getOcId(), income.getUserId(), income.getPosition()))
+                .collect(Collectors.toSet());
+        boolean hasDuplicate = actualIncome.size() != actualKeys.size();
+        if (hasDuplicate || !actualKeys.equals(expectedKeys)) {
+            return IncomeCompletenessEnum.ABNORMAL_PARTIAL_INCOME;
+        }
+        return IncomeCompletenessEnum.ALREADY_CALCULATED;
+    }
+
+    /**
+     * 一次性加载有效链配置中所有父节点，避免逐条查询。
+     *
+     * <p>仅加载{@code enabled=true}的有效配置；逻辑删除由MyBatis-Plus全局逻辑删除自动追加
+     * {@code deleted = 0}过滤。</p>
+     *
+     * @return 父节点OC名称与等级键集合
+     */
+    private Set<OcKey> loadChainParentKeys() {
+        return ocChainDao.lambdaQuery()
+                .eq(TornSettingOcChainDO::getEnabled, true)
+                .list()
+                .stream()
+                .map(chain -> new OcKey(chain.getParentOcName(), chain.getParentRank()))
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * OC链上下文，包含节点映射与结算叶子映射。
      *
-     * @param nodeMap               OC ID到节点映射（含本批及后继节点）
+     * @param nodeMap               OC ID到节点映射（含本批叶子及全部祖先节点）
      * @param settlementLeafByOcId  OC ID到结算叶子OC ID映射
      */
     private record ChainContext(Map<Long, TornFactionOcDO> nodeMap,

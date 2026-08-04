@@ -143,6 +143,25 @@ class TornFactionOcBenefitMapperTest {
         assertEquals(500L, ranking.getBenefit());
     }
 
+    @Test
+    @DisplayName("同期榜：生效前普通收益计入、生效后目标OC普通收益排除")
+    void cohortRanking_appliesSameExclusionRule() {
+        // PN_USER=8803001、NOV_USER=8803002、OTHER_USER=8803003 同为880同期组
+        OcBenefitRankingQuery julyQuery = new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 7, 1));
+        julyQuery.setLimit(10000);
+        List<TornFactionOcBenefitRankDO> july = benefitDao.queryCohortBenefitRanking(julyQuery);
+        TornFactionOcBenefitRankDO pnUserJuly = findRank(july, PN_USER);
+        assertNotNull(pnUserJuly);
+        // 生效前：Lock Stock(100) + Hostile Takeover(400) 计入，Ace in the Hole 始终排除
+        assertEquals(500L, pnUserJuly.getBenefit());
+
+        OcBenefitRankingQuery augustQuery = new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 8, 1));
+        augustQuery.setLimit(10000);
+        List<TornFactionOcBenefitRankDO> august = benefitDao.queryCohortBenefitRanking(augustQuery);
+        // 生效后：PN Lock Stock 普通收益被排除，同期榜不再出现该用户
+        assertNull(findRank(august, PN_USER));
+    }
+
     private OcBenefitRankingQuery personalQuery(long factionId, long userId,
                                                 LocalDateTime from, LocalDateTime to) {
         return new OcBenefitRankingQuery(factionId, userId, from, to);

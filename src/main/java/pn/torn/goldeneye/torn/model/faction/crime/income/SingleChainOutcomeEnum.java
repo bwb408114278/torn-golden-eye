@@ -3,7 +3,7 @@ package pn.torn.goldeneye.torn.model.faction.crime.income;
 /**
  * 单链事务处理结果类型。
  *
- * <p>由单链事务Worker返回给批量门面，用于区分成功、已结算、异常部分income、
+ * <p>由单链事务Worker返回给批量门面，用于区分成功、已结算、异常部分income、祖先缺失、
  * 等待后继节点与其他不再适用情况，真实失败则直接抛出异常，不在此枚举内。</p>
  *
  * @author Bai
@@ -20,9 +20,13 @@ public enum SingleChainOutcomeEnum {
      */
     ALREADY_CALCULATED,
     /**
-     * 链内祖先节点已有部分income而叶子没有，识别为异常，不新增任何收益。
+     * 链内部分节点或成员income不完整（真子集、超集、重复或节点缺失），识别为异常，不新增任何收益。
      */
     ABNORMAL_PARTIAL_INCOME,
+    /**
+     * 链回溯发现祖先节点缺失、被逻辑删除、帮派不一致或存在环形引用，无法按完整链结算。
+     */
+    ABNORMAL_INCOMPLETE_CHAIN,
     /**
      * 成功的配置链父节点，真实后继尚未同步，需等待后续分页或刷新。
      */

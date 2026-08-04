@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
@@ -54,6 +55,8 @@ class TornOcBatchIncomeReentrancyTest {
     private TornFactionOcIncomeDAO incomeDao;
     @Autowired
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
     @MockitoSpyBean
     private TornOcIncomeTransactionWorker transactionWorker;
 
@@ -71,14 +74,17 @@ class TornOcBatchIncomeReentrancyTest {
 
     @AfterEach
     void cleanup() {
-        // 通过持久层清理测试数据（逻辑删除），不直接操作SQL，保持与生产删除语义一致
+        // 通过JdbcTemplate物理删除测试数据，确保数据库干净，避免逻辑删除残留deleted=1记录
         if (!createdOcIds.isEmpty()) {
-            incomeDao.lambdaUpdate().in(TornFactionOcIncomeDO::getOcId, createdOcIds).remove();
-            slotDao.lambdaUpdate().in(TornFactionOcSlotDO::getOcId, createdOcIds).remove();
-            ocDao.lambdaUpdate().in(TornFactionOcDO::getId, createdOcIds).remove();
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE oc_id IN (" +
+                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" +
+                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" +
+                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
         }
         // 清理本测试生成的汇总与历史遗留测试汇总（faction_id=999002, year_month=2026-04, user_id=888002）
-        incomeSummaryDao.lambdaUpdate().eq(TornFactionOcIncomeSummaryDO::getUserId, USER_ID).remove();
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE user_id = ?", USER_ID);
         if (originalRotationList == null) {
             TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
         } else {
@@ -170,7 +176,7 @@ class TornOcBatchIncomeReentrancyTest {
             entered.countDown();
             assertTrue(release.await(10, TimeUnit.SECONDS));
             return invocation.callRealMethod();
-        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet());
+        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         Future<BatchIncomeResult> first = pool.submit(() ->
@@ -208,7 +214,7 @@ class TornOcBatchIncomeReentrancyTest {
             doAnswer(invocation -> {
                 barrier.await(10, TimeUnit.SECONDS);
                 return invocation.callRealMethod();
-            }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet());
+            }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
 
             ExecutorService pool = Executors.newFixedThreadPool(2);
             Future<BatchIncomeResult> fA = pool.submit(() ->
@@ -244,7 +250,7 @@ class TornOcBatchIncomeReentrancyTest {
                 throw new RuntimeException("注入的Worker故障");
             }
             return invocation.callRealMethod();
-        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet());
+        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
 
         BatchIncomeResult first = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
         assertNotNull(first);
@@ -258,6 +264,142 @@ class TornOcBatchIncomeReentrancyTest {
         BatchIncomeResult second = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
         assertNotNull(second);
         assertEquals(1, second.successCount());
+        assertEquals(1, countIncome(oc.getId()));
+        assertEquals(1L, countSummary(USER_ID));
+    }
+
+    @Test
+    @DisplayName("运行期间连续触发多页，最终只合并为一次重跑")
+    void requestBatchIncome_triggersDuringRun_mergeToOneRerun() throws Exception {
+        TornFactionOcDO oc1 = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(oc1.getId(), USER_ID, "Driver#1", 70, 20000L);
+
+        // 第一线程进入Worker并阻塞；运行期间多个页触发应合并为一次重跑
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger workerCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            int call = workerCalls.incrementAndGet();
+            if (call == 1) {
+                entered.countDown();
+                assertTrue(release.await(10, TimeUnit.SECONDS));
+            }
+            return invocation.callRealMethod();
+        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
+
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        // 第一线程真正执行批次
+        Future<?> runner = pool.submit(() ->
+                batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+
+        // 运行期间连续触发多页：全部合并为一个重跑请求
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<?>> triggers = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            triggers.add(pool.submit(() -> {
+                go.await();
+                batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+                return null;
+            }));
+        }
+        go.countDown();
+        for (Future<?> trigger : triggers) {
+            trigger.get(10, TimeUnit.SECONDS);
+        }
+
+        // 最后一页OC在锁被占用时提交，只有重跑才能处理它
+        TornFactionOcDO lastPage = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 16, 10, 0), 500000L);
+        createSlot(lastPage.getId(), USER_ID, "Driver#1", 70, 20000L);
+
+        // 释放第一线程，批次结束后只执行一次最终重跑（Worker总调用为2次：首次+唯一一次重跑）
+        release.countDown();
+        runner.get(10, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertEquals(2, workerCalls.get());
+        assertEquals(1, countIncome(oc1.getId()));
+        assertEquals(1, countIncome(lastPage.getId()));
+        assertEquals(1L, countSummary(USER_ID));
+    }
+
+    @Test
+    @DisplayName("运行期间到达的触发在批次结束后仍被消费，最后一页OC最终生成收益")
+    void requestBatchIncome_triggerArrivingDuringRun_finalRerunPicksUpLastPage() throws Exception {
+        // 第一页OC
+        TornFactionOcDO first = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(first.getId(), USER_ID, "Driver#1", 70, 20000L);
+
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger workerCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            workerCalls.incrementAndGet();
+            if (workerCalls.get() == 1) {
+                entered.countDown();
+                assertTrue(release.await(10, TimeUnit.SECONDS));
+            }
+            return invocation.callRealMethod();
+        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<?> runner = pool.submit(() ->
+                batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+
+        // 最后一页OC在锁被占用时提交，触发被合并；释放后重跑必须覆盖它
+        TornFactionOcDO lastPage = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 16, 10, 0), 500000L);
+        createSlot(lastPage.getId(), USER_ID, "Driver#1", 70, 20000L);
+        pool.submit(() -> batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+
+        release.countDown();
+        runner.get(10, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertEquals(2, workerCalls.get());
+        assertEquals(1, countIncome(first.getId()));
+        assertEquals(1, countIncome(lastPage.getId()));
+    }
+
+    @Test
+    @DisplayName("重跑期间再次触发仍最终收敛，不会递归失控")
+    void requestBatchIncome_triggerDuringRerun_converges() throws Exception {
+        TornFactionOcDO oc = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(oc.getId(), USER_ID, "Driver#1", 70, 20000L);
+
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch firstRelease = new CountDownLatch(1);
+        AtomicInteger workerCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            int call = workerCalls.incrementAndGet();
+            if (call == 1) {
+                firstEntered.countDown();
+                assertTrue(firstRelease.await(10, TimeUnit.SECONDS));
+            }
+            return invocation.callRealMethod();
+        }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<?> runner = pool.submit(() ->
+                batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        assertTrue(firstEntered.await(10, TimeUnit.SECONDS));
+
+        // 第一次运行期间触发一次重跑
+        pool.submit(() -> batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        Thread.sleep(200);
+        firstRelease.countDown();
+        // 重跑期间再次触发，也应被后续收敛消费，不会无限循环
+        Thread.sleep(300);
+        pool.submit(() -> batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        Thread.sleep(300);
+        pool.shutdown();
+
+        // 最终收敛：收益只生成一套
         assertEquals(1, countIncome(oc.getId()));
         assertEquals(1L, countSummary(USER_ID));
     }

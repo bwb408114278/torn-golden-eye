@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -13,11 +14,14 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingOcChainDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingOcCoefficientDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcCoefficientDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
 
 import java.math.BigDecimal;
@@ -31,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 大锅饭OC批量收益入口集成测试。
  *
  * <p>批量门面本身不持有事务，每个叶子在独立事务Worker中提交，因此本测试不使用事务回滚，
- * 改为在@AfterEach通过持久层按测试创建数据定向清理（逻辑删除），避免污染开发库。
+ * 改为在@AfterEach通过JdbcTemplate物理删除测试创建数据，确保开发库干净且不残留逻辑删除记录。
  * 同时验证链配置按名称加等级匹配、等待后继与异常部分income统计。</p>
  *
  * @author Bai
@@ -53,6 +57,12 @@ class TornOcBatchIncomeServiceTest {
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
     @Autowired
     private TornSettingOcChainDAO ocChainDao;
+    @Autowired
+    private TornSettingOcCoefficientDAO coefficientDao;
+    @Autowired
+    private TornSettingOcCoefficientManager coefficientManager;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private static final Long FACTION_ID = 1000L;
     private static final Long USER_ID = 2001L;
@@ -67,12 +77,18 @@ class TornOcBatchIncomeServiceTest {
 
     private final List<Long> createdOcIds = new ArrayList<>();
     private final List<String> testChainCodes = new ArrayList<>();
+    private final List<Long> testCoefficientIds = new ArrayList<>();
     private List<String> originalRotationList;
 
     @BeforeEach
     void setUp() {
         originalRotationList = TornConstants.ROTATION_OC_NAME.get(FACTION_ID);
         TornConstants.ROTATION_OC_NAME.put(FACTION_ID, ROTATION_NAMES);
+        // 为测试使用的非生产rank/岗位补系数，保证R11下有效工时为0的OC不会误判等待逻辑
+        insertCoefficient(0L, TornConstants.OC_NAME_LOCK_STOCK, 9, "Hacker#1", 65);
+        insertCoefficient(0L, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 5, "Driver#1", 60);
+        insertCoefficient(0L, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 6, "Driver#1", 60);
+        coefficientManager.refreshCache();
         // Lock Stock -> Hostile Takeover 链配置在生产由管理员手工维护，测试使用唯一链编码自插保证确定性
         insertChainConfig(TornConstants.OC_NAME_LOCK_STOCK, 8,
                 TornConstants.OC_NAME_HOSTILE_TAKEOVER, 9, true);
@@ -80,16 +96,23 @@ class TornOcBatchIncomeServiceTest {
 
     @AfterEach
     void cleanup() {
-        // 通过持久层清理测试数据（逻辑删除），不直接操作SQL，保持与生产删除语义一致
+        // 通过JdbcTemplate物理删除测试数据，确保开发库干净且不残留逻辑删除记录
         if (!createdOcIds.isEmpty()) {
-            incomeDao.lambdaUpdate().in(TornFactionOcIncomeDO::getOcId, createdOcIds).remove();
-            ocSlotDao.lambdaUpdate().in(TornFactionOcSlotDO::getOcId, createdOcIds).remove();
-            ocDao.lambdaUpdate().in(TornFactionOcDO::getId, createdOcIds).remove();
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE oc_id IN (" +
+                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" +
+                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" +
+                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
         }
         incomeSummaryDaoCleanup();
         if (!testChainCodes.isEmpty()) {
             ocChainDao.lambdaUpdate().in(TornSettingOcChainDO::getChainCode, testChainCodes).remove();
         }
+        if (!testCoefficientIds.isEmpty()) {
+            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+        }
+        coefficientManager.refreshCache();
         if (originalRotationList == null) {
             TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
         } else {
@@ -138,7 +161,10 @@ class TornOcBatchIncomeServiceTest {
 
         BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
 
-        assertEquals(0, result.candidateCount());
+        // R10：候选查询不再按叶子任意income直接排除，叶子进入完整性审计后判定为已结算
+        assertEquals(1, result.candidateCount());
+        assertEquals(1, result.alreadyCalculatedCount());
+        assertEquals(0, result.successCount());
         List<TornFactionOcIncomeDO> incomes = incomeDao.lambdaQuery()
                 .eq(TornFactionOcIncomeDO::getOcId, oc.getId())
                 .list();
@@ -413,6 +439,194 @@ class TornOcBatchIncomeServiceTest {
                 .eq(TornFactionOcIncomeDO::getFactionId, FACTION_ID).count());
     }
 
+    @Test
+    @DisplayName("仅存在已删除income时，OC仍可重新计算")
+    void testLogicDeletedIncome_ocRecalculable() {
+        // 预置一条逻辑删除的income，模拟历史误结算后被清理，必须能重新进入候选并结算
+        TornFactionOcDO oc = createOc(null, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(oc.getId(), USER_ID, "Driver#1", 65, 20000L);
+        insertIncome(oc, USER_ID, "Driver#1", true, 500000L);
+        // 物理删除后再插入逻辑删除记录，或直接将已有记录标记为逻辑删除
+        jdbcTemplate.update("UPDATE torn_faction_oc_income SET deleted = 1 WHERE oc_id = ?", oc.getId());
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.successCount());
+        List<TornFactionOcIncomeDO> activeIncomes = incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, oc.getId())
+                .eq(TornFactionOcIncomeDO::getDeleted, 0)
+                .list();
+        assertEquals(1, activeIncomes.size());
+    }
+
+    @Test
+    @DisplayName("仅存在已删除后继时，父节点仍按活动链规则判断")
+    void testLogicDeletedSuccessor_parentJudgedByActiveRules() {
+        // 成功配置链父节点 Lock Stock(8) 存在一个逻辑删除的后继，不应被误判为已有后继
+        TornFactionOcDO lockStock = createOc(null, TornConstants.OC_NAME_LOCK_STOCK, 8, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 1, 10, 0), 0L);
+        TornFactionOcDO deletedChild = createOc(lockStock.getId(), TornConstants.OC_NAME_HOSTILE_TAKEOVER, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 10, 0), 1000000L);
+        jdbcTemplate.update("UPDATE torn_faction_oc SET deleted = 1 WHERE id = ?", deletedChild.getId());
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        // 活动后继为空，父节点按活动链规则仍等待后继
+        assertEquals(1, result.waitingChainParentCount());
+        assertEquals(0, result.successCount());
+    }
+
+    @Test
+    @DisplayName("活动income与活动后继仍正确阻断重复计算或父节点提前结算")
+    void testActiveIncomeAndSuccessor_stillBlock() {
+        // 父节点有活动后继：父节点不应被当作叶子提前结算
+        TornFactionOcDO lockStock = createOc(null, TornConstants.OC_NAME_LOCK_STOCK, 8, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 1, 10, 0), 0L);
+        TornFactionOcDO hostile = createOc(lockStock.getId(), TornConstants.OC_NAME_HOSTILE_TAKEOVER, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 10, 0), 1000000L);
+        createSlot(lockStock.getId(), USER_ID, "Hacker#1", 65, 50000L);
+        createSlot(hostile.getId(), USER_ID, "Imitator#1", 70, 30000L);
+        // 叶子已有完整income：不应重复计算
+        insertIncome(hostile, USER_ID, "Imitator#1", true, 1000000L);
+        insertIncome(lockStock, USER_ID, "Hacker#1", true, 1000000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.alreadyCalculatedCount());
+        assertEquals(0, result.successCount());
+    }
+
+    @Test
+    @DisplayName("祖先缺失时链回溯fail-closed，不生成任何收益")
+    void testMissingAncestor_chainIncomplete_noIncome() {
+        // 叶子指向不存在的祖先
+        TornFactionOcDO leaf = createOc(999999L, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 2, 10, 0), 1000000L);
+        createSlot(leaf.getId(), USER_ID, "Imitator#1", 70, 30000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.abnormalIncompleteChainCount());
+        assertEquals(0, result.successCount());
+        assertEquals(0L, incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, leaf.getId()).count());
+    }
+
+    @Test
+    @DisplayName("跨帮派祖先时链回溯fail-closed，不生成任何收益")
+    void testCrossFactionAncestor_chainIncomplete_noIncome() {
+        TornFactionOcDO foreignRoot = createOc(null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 1, 10, 0), 0L, TornConstants.FACTION_HP_ID);
+        TornFactionOcDO leaf = createOc(foreignRoot.getId(), TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 10, 0), 1000000L);
+        createSlot(leaf.getId(), USER_ID, "Imitator#1", 70, 30000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.abnormalIncompleteChainCount());
+        assertEquals(0, result.successCount());
+        assertEquals(0L, incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, leaf.getId()).count());
+    }
+
+    @Test
+    @DisplayName("祖先链存在环形引用时fail-closed，不生成任何收益")
+    void testCycleAncestor_chainIncomplete_noIncome() {
+        // A.previous = B, B.previous = A 形成环，叶子挂在环外
+        TornFactionOcDO a = createOc(null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 1, 10, 0), 0L);
+        TornFactionOcDO b = createOc(a.getId(), TornConstants.OC_NAME_GONE_FISSION, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 1, 11, 0), 0L);
+        jdbcTemplate.update("UPDATE torn_faction_oc SET previous_oc_id = ? WHERE id = ?", b.getId(), a.getId());
+        TornFactionOcDO leaf = createOc(b.getId(), TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 10, 0), 1000000L);
+        createSlot(leaf.getId(), USER_ID, "Imitator#1", 70, 30000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.abnormalIncompleteChainCount());
+        assertEquals(0, result.successCount());
+        assertEquals(0L, incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, leaf.getId()).count());
+    }
+
+    @Test
+    @DisplayName("叶子少一个成员income时识别为异常部分income，不新增明细")
+    void testLeafMissingOneMember_abnormalPartialIncome() {
+        // 叶子有两个岗位，但只写入其中一个成员income → 异常部分income
+        TornFactionOcDO oc = createOc(null, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(oc.getId(), USER_ID, "Driver#1", 65, 20000L);
+        createSlot(oc.getId(), USER_ID + 1, "Driver#2", 60, 10000L);
+        insertIncome(oc, USER_ID, "Driver#1", true, 500000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.abnormalPartialIncomeCount());
+        assertEquals(0, result.successCount());
+        assertEquals(1L, incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, oc.getId()).count());
+    }
+
+    @Test
+    @DisplayName("额外非法岗位income识别为异常部分income，不新增明细")
+    void testExtraIllegalPosition_abnormalPartialIncome() {
+        // 岗位只有一个，但多写了一条不属于该岗位的income → 超集异常
+        TornFactionOcDO oc = createOc(null, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(oc.getId(), USER_ID, "Driver#1", 65, 20000L);
+        insertIncome(oc, USER_ID, "Driver#1", true, 500000L);
+        insertIncome(oc, USER_ID + 1, "Illegal#99", true, 500000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.abnormalPartialIncomeCount());
+        assertEquals(0, result.successCount());
+        assertEquals(2L, incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, oc.getId()).count());
+    }
+
+    @Test
+    @DisplayName("重复业务键income识别为异常部分income，不新增明细")
+    void testDuplicateBusinessKey_abnormalPartialIncome() {
+        // 同一(ocId,userId,position)存在两条income → 重复业务键异常
+        TornFactionOcDO oc = createOc(null, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
+        createSlot(oc.getId(), USER_ID, "Driver#1", 65, 20000L);
+        insertIncome(oc, USER_ID, "Driver#1", true, 500000L);
+        insertIncome(oc, USER_ID, "Driver#1", true, 500000L);
+
+        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+
+        assertEquals(1, result.abnormalPartialIncomeCount());
+        assertEquals(0, result.successCount());
+        assertEquals(2L, incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getOcId, oc.getId()).count());
+    }
+
+    /**
+     * 插入一条测试系数配置（全局factionId=0），覆盖任意成功率区间，保证测试OC在R11下不因系数缺失而失败。
+     *
+     * @param factionId 帮派ID，测试固定使用0表示全局
+     * @param ocName    OC名称
+     * @param rank      OC等级
+     * @param slotCode  岗位编码
+     * @param passRate  成功率
+     */
+    private void insertCoefficient(Long factionId, String ocName, Integer rank, String slotCode, Integer passRate) {
+        TornSettingOcCoefficientDO coefficient = new TornSettingOcCoefficientDO();
+        coefficient.setFactionId(factionId);
+        coefficient.setOcName(ocName);
+        coefficient.setRank(rank);
+        coefficient.setSlotCode(slotCode);
+        coefficient.setPassRateMin(Math.max(0, passRate - 1));
+        coefficient.setPassRateMax(100);
+        coefficient.setCoefficient(BigDecimal.valueOf(10));
+        coefficientDao.save(coefficient);
+        testCoefficientIds.add(coefficient.getId());
+    }
+
     /**
      * 插入一条测试链配置，使用唯一链编码便于逻辑删除清理而不与唯一约束冲突。
      *
@@ -437,14 +651,13 @@ class TornOcBatchIncomeServiceTest {
     }
 
     /**
-     * 通过持久层逻辑删除本测试帮派与月份下测试用户的汇总数据。
+     * 通过JdbcTemplate物理删除本测试帮派与月份下测试用户的汇总数据。
      */
     private void incomeSummaryDaoCleanup() {
-        incomeSummaryDao.lambdaUpdate()
-                .eq(TornFactionOcIncomeSummaryDO::getUserId, USER_ID)
-                .in(TornFactionOcIncomeSummaryDO::getFactionId, TEST_FACTIONS)
-                .in(TornFactionOcIncomeSummaryDO::getYearMonth, TEST_MONTHS)
-                .remove();
+        String factionIn = TEST_FACTIONS.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+        String monthIn = TEST_MONTHS.stream().map(m -> "'" + m + "'").reduce((a, b) -> a + "," + b).orElse("");
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE user_id = ? AND faction_id IN (" +
+                factionIn + ") AND year_month IN (" + monthIn + ")", USER_ID);
     }
 
     private void insertIncome(TornFactionOcDO oc, Long userId, String position, boolean isSuccess, Long totalReward) {
