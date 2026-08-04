@@ -6,14 +6,26 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingOcChainDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingOcCoefficientDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcCoefficientDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -22,8 +34,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * 大锅饭OC批量收益入口集成测试。
  *
  * <p>批量门面本身不持有事务，每个叶子在独立事务Worker中提交，因此本测试不使用事务回滚，
- * 改为在@AfterEach通过物理删除清理测试数据，确保开发库干净且不残留逻辑删除记录。
+ * 改为在@AfterEach通过JdbcTemplate物理删除清理测试数据，确保开发库干净且不残留逻辑删除记录。
  * 同时验证链配置按名称加等级匹配、等待后继与异常部分income统计。</p>
+ *
+ * <p><b>为什么不能用测试级事务回滚：</b>本测试调用的{@link TornOcBatchIncomeService}按Review
+ * 方案R1要求使用{@code REQUIRES_NEW}传播的独立事务Worker逐链提交。若测试方法标注
+ * {@code @Transactional}让JUnit回滚，测试方法所在事务与Worker的{@code REQUIRES_NEW}事务不在同一
+ * 事务边界，Worker提交后测试层回滚无法撤销其已提交的income与summary，反而留下部分数据。只有
+ * 改为{@code REQUIRED}传播（违反R1独立事务验收门禁）或事务不包裹Worker时才可回滚，故此处使用
+ * 物理删除保证开发库零残留。</p>
  *
  * @author Bai
  * @version 1.2.12
@@ -31,9 +50,25 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @SpringBootTest
 @DisplayName("大锅饭收入入口测试")
-class TornOcBatchIncomeServiceTest extends TornOcIncomeDbTestSupport {
+class TornOcBatchIncomeServiceTest {
     @Autowired
     private TornOcBatchIncomeService batchIncomeService;
+    @Autowired
+    private TornFactionOcDAO ocDao;
+    @Autowired
+    private TornFactionOcSlotDAO ocSlotDao;
+    @Autowired
+    private TornFactionOcIncomeDAO incomeDao;
+    @Autowired
+    private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    @Autowired
+    private TornSettingOcChainDAO ocChainDao;
+    @Autowired
+    private TornSettingOcCoefficientDAO coefficientDao;
+    @Autowired
+    private TornSettingOcCoefficientManager coefficientManager;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private static final Long FACTION_ID = 1000L;
     private static final Long USER_ID = 2001L;
@@ -46,11 +81,15 @@ class TornOcBatchIncomeServiceTest extends TornOcIncomeDbTestSupport {
             TornConstants.OC_NAME_MANIFEST_CRUELTY, TornConstants.OC_NAME_GONE_FISSION,
             TornConstants.OC_NAME_CRANE_REACTION);
 
+    private final List<Long> createdOcIds = new ArrayList<>();
+    private final List<String> testChainCodes = new ArrayList<>();
+    private final List<Long> testCoefficientIds = new ArrayList<>();
     private List<String> originalRotationList;
 
     @BeforeEach
     void setUp() {
-        originalRotationList = saveRotationList(FACTION_ID, ROTATION_NAMES);
+        originalRotationList = TornConstants.ROTATION_OC_NAME.get(FACTION_ID);
+        TornConstants.ROTATION_OC_NAME.put(FACTION_ID, ROTATION_NAMES);
         // 为测试使用的非生产rank/岗位补系数，保证R11下有效工时为0的OC不会误判等待逻辑
         insertCoefficient(0L, TornConstants.OC_NAME_LOCK_STOCK, 9, "Hacker#1", 65);
         insertCoefficient(0L, TornConstants.OC_NAME_ACE_IN_THE_HOLE, 5, "Driver#1", 60);
@@ -63,11 +102,26 @@ class TornOcBatchIncomeServiceTest extends TornOcIncomeDbTestSupport {
 
     @AfterEach
     void cleanup() {
-        // 物理删除测试数据，确保开发库干净且不残留逻辑删除记录
-        physicalDeleteCreatedOcs();
+        // 通过JdbcTemplate物理删除测试数据，确保开发库干净且不残留逻辑删除记录
+        if (!createdOcIds.isEmpty()) {
+            String ids = createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE oc_id IN (" + ids + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" + ids + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" + ids + ")");
+        }
         incomeSummaryDaoCleanup();
-        cleanupConfigsAndRefreshCache();
-        restoreRotationList(FACTION_ID, originalRotationList);
+        if (!testChainCodes.isEmpty()) {
+            ocChainDao.lambdaUpdate().in(TornSettingOcChainDO::getChainCode, testChainCodes).remove();
+        }
+        if (!testCoefficientIds.isEmpty()) {
+            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+        }
+        coefficientManager.refreshCache();
+        if (originalRotationList == null) {
+            TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
+        } else {
+            TornConstants.ROTATION_OC_NAME.put(FACTION_ID, originalRotationList);
+        }
         for (Long factionId : TEST_FACTIONS) {
             batchIncomeService.releaseFactionCalculateLock(factionId);
         }
@@ -556,20 +610,145 @@ class TornOcBatchIncomeServiceTest extends TornOcIncomeDbTestSupport {
     }
 
     /**
-     * 物理删除本测试帮派与月份下测试用户的汇总数据。
+     * 通过JdbcTemplate物理删除本测试帮派与月份下测试用户的汇总数据。
      */
     private void incomeSummaryDaoCleanup() {
-        physicalDeleteSummaryByUserMonths(USER_ID, TEST_FACTIONS, TEST_MONTHS);
+        String factionIn = TEST_FACTIONS.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+        String monthIn = TEST_MONTHS.stream().map(m -> "'" + m + "'").reduce((a, b) -> a + "," + b).orElse("");
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE user_id = ? AND faction_id IN (" +
+                factionIn + ") AND year_month IN (" + monthIn + ")", USER_ID);
+    }
+
+    private void insertIncome(TornFactionOcDO oc, Long userId, String position, boolean isSuccess, Long totalReward) {
+        TornFactionOcIncomeDO income = new TornFactionOcIncomeDO();
+        income.setFactionId(oc.getFactionId());
+        income.setOcId(oc.getId());
+        income.setOcName(oc.getName());
+        income.setRank(oc.getRank());
+        income.setOcExecutedTime(oc.getExecutedTime());
+        income.setUserId(userId);
+        income.setPosition(position);
+        income.setPassRate(60);
+        income.setBaseWorkingHours(4);
+        income.setCoefficient(BigDecimal.valueOf(15));
+        income.setEffectiveWorkingHours(BigDecimal.valueOf(60));
+        income.setIsSuccess(isSuccess);
+        income.setTotalReward(totalReward);
+        income.setItemCost(0L);
+        income.setTotalItemCost(0L);
+        income.setFinalIncome(totalReward);
+        incomeDao.save(income);
     }
 
     private TornFactionOcDO createOc(Long previousOcId, String name, Integer rank,
                                      TornOcStatusEnum status, LocalDateTime executedTime, Long rewardMoney) {
-        return createOc(FACTION_ID, previousOcId, name, rank, status, executedTime, rewardMoney);
+        return createOc(previousOcId, name, rank, status, executedTime, rewardMoney, FACTION_ID);
     }
 
     private TornFactionOcDO createOc(Long previousOcId, String name, Integer rank,
                                      TornOcStatusEnum status, LocalDateTime executedTime, Long rewardMoney,
                                      Long factionId) {
-        return createOc(factionId, previousOcId, name, rank, status, executedTime, rewardMoney);
+        TornFactionOcDO oc = new TornFactionOcDO();
+        oc.setFactionId(factionId);
+        oc.setPreviousOcId(previousOcId);
+        oc.setName(name);
+        oc.setRank(rank);
+        oc.setStatus(status.getCode());
+        oc.setExecutedTime(executedTime);
+        oc.setRewardMoney(rewardMoney);
+        ocDao.save(oc);
+        createdOcIds.add(oc.getId());
+        return oc;
+    }
+
+    private void createSlot(Long ocId, Long userId, String position, Integer passRate, Long itemValue) {
+        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
+        slot.setOcId(ocId);
+        slot.setUserId(userId);
+        slot.setPosition(position);
+        slot.setPassRate(passRate);
+        slot.setOutcomeItemValue(itemValue);
+        ocSlotDao.save(slot);
+    }
+
+    /**
+     * 插入一条测试系数配置（全局factionId=0），覆盖任意成功率区间，保证测试OC在R11下不因系数缺失而失败。
+     *
+     * @param factionId 帮派ID，测试固定使用0表示全局
+     * @param ocName    OC名称
+     * @param rank      OC等级
+     * @param slotCode  岗位编码
+     * @param passRate  成功率
+     */
+    private void insertCoefficient(Long factionId, String ocName, Integer rank, String slotCode, Integer passRate) {
+        TornSettingOcCoefficientDO coefficient = new TornSettingOcCoefficientDO();
+        coefficient.setFactionId(factionId);
+        coefficient.setOcName(ocName);
+        coefficient.setRank(rank);
+        coefficient.setSlotCode(slotCode);
+        coefficient.setPassRateMin(Math.max(0, passRate - 1));
+        coefficient.setPassRateMax(100);
+        coefficient.setCoefficient(BigDecimal.valueOf(10));
+        coefficientDao.save(coefficient);
+        testCoefficientIds.add(coefficient.getId());
+    }
+
+    /**
+     * 插入一条测试链配置，使用唯一链编码便于逻辑删除清理而不与唯一约束冲突。
+     *
+     * @param parentName 前置OC名称
+     * @param parentRank 前置OC等级
+     * @param childName  后继OC名称
+     * @param childRank  后继OC等级
+     * @param enabled    是否启用
+     */
+    private void insertChainConfig(String parentName, Integer parentRank,
+                                   String childName, Integer childRank, boolean enabled) {
+        TornSettingOcChainDO chain = new TornSettingOcChainDO();
+        chain.setChainCode("TEST_CHAIN_" + System.nanoTime());
+        chain.setParentOcName(parentName);
+        chain.setParentRank(parentRank);
+        chain.setChildOcName(childName);
+        chain.setChildRank(childRank);
+        chain.setSequenceNo(1);
+        chain.setEnabled(enabled);
+        ocChainDao.save(chain);
+        testChainCodes.add(chain.getChainCode());
+    }
+
+    /**
+     * 将指定income标记为逻辑删除。
+     *
+     * <p>MyBatis-Plus逻辑删除字段无法通过DAO直接赋值，只能用原生SQL模拟历史逻辑删除记录，
+     * 用于验证已删除income不阻断重新计算。</p>
+     *
+     * @param ocId 目标OC ID
+     */
+    private void markIncomeLogicalDeleted(Long ocId) {
+        jdbcTemplate.update("UPDATE torn_faction_oc_income SET deleted = 1 WHERE oc_id = ?", ocId);
+    }
+
+    /**
+     * 将指定OC标记为逻辑删除。
+     *
+     * <p>同{@link #markIncomeLogicalDeleted(Long)}，MyBatis-Plus无法通过DAO直接赋值逻辑删除字段。</p>
+     *
+     * @param ocId 目标OC ID
+     */
+    private void markOcLogicalDeleted(Long ocId) {
+        jdbcTemplate.update("UPDATE torn_faction_oc SET deleted = 1 WHERE id = ?", ocId);
+    }
+
+    /**
+     * 通过DAO调整OC的前置OC，用于构造环形引用等边界数据。
+     *
+     * @param ocId         目标OC ID
+     * @param previousOcId 新的前置OC ID
+     */
+    private void updatePreviousOc(Long ocId, Long previousOcId) {
+        ocDao.lambdaUpdate()
+                .set(TornFactionOcDO::getPreviousOcId, previousOcId)
+                .eq(TornFactionOcDO::getId, ocId)
+                .update();
     }
 }

@@ -7,12 +7,18 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
 
 import java.time.LocalDateTime;
@@ -32,34 +38,61 @@ import static org.mockito.Mockito.doAnswer;
  * 防重入标记在异常路径也必须在finally释放，且释放发生在Worker事务返回之后。本测试通过
  * 真实调用批量入口验证锁与事务行为，不开启事务，方便验证跨线程的提交与清理。</p>
  *
+ * <p><b>为什么不能用测试级事务回滚：</b>本测试验证跨线程提交语义，Worker使用
+ * {@code REQUIRES_NEW}独立事务，测试方法级{@code @Transactional}只在主线程生效且无法回滚
+ * 其它线程/独立事务已提交的数据；同时回滚后锁的finally释放时序也无法真实验证。因此使用
+ * JdbcTemplate物理删除保证开发库零残留。</p>
+ *
  * @author Bai
  * @version 1.2.12
  * @since 2026.08.03
  */
 @SpringBootTest
 @DisplayName("大锅饭批量计算防重入测试")
-class TornOcBatchIncomeReentrancyTest extends TornOcIncomeDbTestSupport {
+class TornOcBatchIncomeReentrancyTest {
     @Autowired
     private TornOcBatchIncomeService batchIncomeService;
+    @Autowired
+    private TornFactionOcDAO ocDao;
+    @Autowired
+    private TornFactionOcSlotDAO slotDao;
+    @Autowired
+    private TornFactionOcIncomeDAO incomeDao;
+    @Autowired
+    private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
     @MockitoSpyBean
     private TornOcIncomeTransactionWorker transactionWorker;
 
     private static final Long FACTION_ID = 999002L;
     private static final Long USER_ID = 888002L;
 
+    private final List<Long> createdOcIds = new ArrayList<>();
     private List<String> originalRotationList;
 
     @BeforeEach
     void setUp() {
-        originalRotationList = saveRotationList(FACTION_ID, List.of(TornConstants.OC_NAME_ACE_IN_THE_HOLE));
+        originalRotationList = TornConstants.ROTATION_OC_NAME.get(FACTION_ID);
+        TornConstants.ROTATION_OC_NAME.put(FACTION_ID, List.of(TornConstants.OC_NAME_ACE_IN_THE_HOLE));
     }
 
     @AfterEach
     void cleanup() {
-        // 物理删除测试数据，确保数据库干净，避免逻辑删除残留deleted=1记录
-        physicalDeleteCreatedOcs();
-        physicalDeleteSummaryByUser(USER_ID);
-        restoreRotationList(FACTION_ID, originalRotationList);
+        // 通过JdbcTemplate物理删除测试数据，确保数据库干净，避免逻辑删除残留deleted=1记录
+        if (!createdOcIds.isEmpty()) {
+            String ids = createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE oc_id IN (" + ids + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" + ids + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" + ids + ")");
+        }
+        // 清理本测试生成的汇总与历史遗留测试汇总（faction_id=999002, year_month=2026-04, user_id=888002）
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE user_id = ?", USER_ID);
+        if (originalRotationList == null) {
+            TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
+        } else {
+            TornConstants.ROTATION_OC_NAME.put(FACTION_ID, originalRotationList);
+        }
         batchIncomeService.releaseFactionCalculateLock(FACTION_ID);
         batchIncomeService.releaseFactionCalculateLock(FACTION_ID + 1L);
         Mockito.reset(transactionWorker);
@@ -413,6 +446,25 @@ class TornOcBatchIncomeReentrancyTest extends TornOcIncomeDbTestSupport {
 
     private TornFactionOcDO createOcForFaction(String name, Integer rank, TornOcStatusEnum status,
                                                LocalDateTime executedTime, Long rewardMoney, Long factionId) {
-        return createOc(factionId, null, name, rank, status, executedTime, rewardMoney);
+        TornFactionOcDO oc = new TornFactionOcDO();
+        oc.setFactionId(factionId);
+        oc.setName(name);
+        oc.setRank(rank);
+        oc.setStatus(status.getCode());
+        oc.setExecutedTime(executedTime);
+        oc.setRewardMoney(rewardMoney);
+        ocDao.save(oc);
+        createdOcIds.add(oc.getId());
+        return oc;
+    }
+
+    private void createSlot(Long ocId, Long userId, String position, Integer passRate, Long itemValue) {
+        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
+        slot.setOcId(ocId);
+        slot.setUserId(userId);
+        slot.setPosition(position);
+        slot.setPassRate(passRate);
+        slot.setOutcomeItemValue(itemValue);
+        slotDao.save(slot);
     }
 }

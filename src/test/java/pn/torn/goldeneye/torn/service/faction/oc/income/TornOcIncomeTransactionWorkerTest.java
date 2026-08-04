@@ -7,17 +7,26 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingOcCoefficientDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcCoefficientDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -33,17 +42,33 @@ import static org.mockito.Mockito.doThrow;
  * <p>通过真实数据库约束故障注入验证：链明细或汇总任一环节失败，整条链的income与summary
  * 在REQUIRES_NEW事务中全部回滚，不会留下部分提交；故障清除后重试同一链成功。</p>
  *
+ * <p><b>为什么不能用测试级事务回滚：</b>本测试验证{@code REQUIRES_NEW}独立事务自身的回滚
+ * 语义，若测试方法再标注{@code @Transactional}会因REQUIRES_NEW挂起外层事务而破坏被测行为。
+ * 测试结束后通过JdbcTemplate物理删除测试帮派数据保证开发库零残留。</p>
+ *
  * @author Bai
  * @version 1.2.12
  * @since 2026.08.03
  */
 @SpringBootTest
 @DisplayName("单链事务原子回滚测试")
-class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
+class TornOcIncomeTransactionWorkerTest {
     @Autowired
     private TornOcBatchIncomeService batchIncomeService;
+    @Autowired
+    private TornFactionOcDAO ocDao;
+    @Autowired
+    private TornFactionOcSlotDAO slotDao;
+    @Autowired
+    private TornFactionOcIncomeDAO incomeDao;
+    @Autowired
+    private TornSettingOcCoefficientDAO coefficientDao;
+    @Autowired
+    private TornSettingOcCoefficientManager coefficientManager;
     @MockitoSpyBean
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
     @MockitoSpyBean
     private TornOcIncomeService incomeService;
 
@@ -52,10 +77,12 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
     private static final Long USER_ID_2 = 888004L;
 
     private List<String> originalRotationList;
+    private final List<Long> testCoefficientIds = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
-        originalRotationList = saveRotationList(FACTION_ID, List.of(
+        originalRotationList = TornConstants.ROTATION_OC_NAME.get(FACTION_ID);
+        TornConstants.ROTATION_OC_NAME.put(FACTION_ID, List.of(
                 TornConstants.OC_NAME_STACKING_THE_DECK, TornConstants.OC_NAME_ACE_IN_THE_HOLE,
                 TornConstants.OC_NAME_MANIFEST_CRUELTY, TornConstants.OC_NAME_GONE_FISSION,
                 TornConstants.OC_NAME_CRANE_REACTION));
@@ -70,8 +97,15 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
     @AfterEach
     void cleanup() {
         cleanupFactionData();
-        cleanupConfigsAndRefreshCache();
-        restoreRotationList(FACTION_ID, originalRotationList);
+        if (!testCoefficientIds.isEmpty()) {
+            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+        }
+        coefficientManager.refreshCache();
+        if (originalRotationList == null) {
+            TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
+        } else {
+            TornConstants.ROTATION_OC_NAME.put(FACTION_ID, originalRotationList);
+        }
         batchIncomeService.releaseFactionCalculateLock(FACTION_ID);
         Mockito.reset(incomeService, incomeSummaryDao);
     }
@@ -160,7 +194,7 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
         assertEquals(0, countIncome(step1.getId(), step2.getId()));
 
         // 修复第二步骤岗位用户后重试同一链
-        ocSlotDao.lambdaUpdate()
+        slotDao.lambdaUpdate()
                 .set(TornFactionOcSlotDO::getUserId, USER_ID)
                 .eq(TornFactionOcSlotDO::getId, brokenSlot.getId())
                 .update();
@@ -285,9 +319,9 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
      * @return 链上两个OC，index 0为根节点，index 1为叶子
      */
     private TornFactionOcDO[] createTwoStepChain() {
-        TornFactionOcDO step1 = createOc(FACTION_ID, null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
+        TornFactionOcDO step1 = createOc(null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
                 TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 1, 10, 0), 0L);
-        TornFactionOcDO step2 = createOc(FACTION_ID, step1.getId(), TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9,
+        TornFactionOcDO step2 = createOc(step1.getId(), TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9,
                 TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 10, 0), 1000000L);
         createSlot(step1.getId(), USER_ID, "Hacker#1", 65, 50000L);
         createSlot(step2.getId(), USER_ID, "Imitator#1", 70, 30000L);
@@ -295,7 +329,19 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
     }
 
     private void insertSummary(Long userId, String yearMonth) {
-        super.insertSummary(userId, FACTION_ID, yearMonth);
+        TornFactionOcIncomeSummaryDO summary = new TornFactionOcIncomeSummaryDO();
+        summary.setUserId(userId);
+        summary.setFactionId(FACTION_ID);
+        summary.setYearMonth(yearMonth);
+        summary.setIsSettled(false);
+        summary.setTotalEffectiveHours(BigDecimal.ZERO);
+        summary.setTotalItemCost(0L);
+        summary.setTotalReward(0L);
+        summary.setNetReward(0L);
+        summary.setFinalIncome(0L);
+        summary.setOcCount(0);
+        summary.setSuccessOcCount(0);
+        incomeSummaryDao.save(summary);
     }
 
     private long countIncome(Long ocId1, Long ocId2) {
@@ -310,6 +356,27 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
                 .eq(TornFactionOcIncomeDO::getFactionId, FACTION_ID)
                 .in(TornFactionOcIncomeDO::getOcId, List.of(ocId1, ocId2, ocId3))
                 .count();
+    }
+
+    private void insertIncome(TornFactionOcDO oc, Long userId, String position, boolean isSuccess, Long totalReward) {
+        TornFactionOcIncomeDO income = new TornFactionOcIncomeDO();
+        income.setFactionId(oc.getFactionId());
+        income.setOcId(oc.getId());
+        income.setOcName(oc.getName());
+        income.setRank(oc.getRank());
+        income.setOcExecutedTime(oc.getExecutedTime());
+        income.setUserId(userId);
+        income.setPosition(position);
+        income.setPassRate(60);
+        income.setBaseWorkingHours(2);
+        income.setCoefficient(BigDecimal.valueOf(15));
+        income.setEffectiveWorkingHours(BigDecimal.valueOf(30));
+        income.setIsSuccess(isSuccess);
+        income.setTotalReward(totalReward);
+        income.setItemCost(0L);
+        income.setTotalItemCost(0L);
+        income.setFinalIncome(totalReward);
+        incomeDao.save(income);
     }
 
     private TornFactionOcIncomeSummaryDO querySummary(Long userId, String yearMonth) {
@@ -327,14 +394,68 @@ class TornOcIncomeTransactionWorkerTest extends TornOcIncomeDbTestSupport {
     }
 
     /**
-     * 物理删除测试帮派的全部测试数据（合成帮派，不触碰正式数据）。
+     * 通过JdbcTemplate物理删除测试帮派的全部测试数据（合成帮派，不触碰正式数据）。
      */
     private void cleanupFactionData() {
-        physicalDeleteFactionAllData(FACTION_ID);
+        List<Long> ocIds = ocDao.lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, FACTION_ID)
+                .list()
+                .stream()
+                .map(TornFactionOcDO::getId)
+                .toList();
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE faction_id = ?", FACTION_ID);
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE faction_id = ?", FACTION_ID);
+        if (!ocIds.isEmpty()) {
+            String ids = ocIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" + ids + ")");
+        }
+        jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE faction_id = ?", FACTION_ID);
     }
 
     private TornFactionOcDO createOc(Long previousOcId, String name, Integer rank,
                                      TornOcStatusEnum status, LocalDateTime executedTime, Long rewardMoney) {
-        return createOc(FACTION_ID, previousOcId, name, rank, status, executedTime, rewardMoney);
+        TornFactionOcDO oc = new TornFactionOcDO();
+        oc.setFactionId(FACTION_ID);
+        oc.setPreviousOcId(previousOcId);
+        oc.setName(name);
+        oc.setRank(rank);
+        oc.setStatus(status.getCode());
+        oc.setExecutedTime(executedTime);
+        oc.setRewardMoney(rewardMoney);
+        ocDao.save(oc);
+        return oc;
+    }
+
+    private TornFactionOcSlotDO createSlot(Long ocId, Long userId, String position, Integer passRate, Long itemValue) {
+        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
+        slot.setOcId(ocId);
+        slot.setUserId(userId);
+        slot.setPosition(position);
+        slot.setPassRate(passRate);
+        slot.setOutcomeItemValue(itemValue);
+        slotDao.save(slot);
+        return slot;
+    }
+
+    /**
+     * 插入一条测试系数配置（全局factionId=0），覆盖任意成功率区间，保证测试OC不因系数缺失而失败。
+     *
+     * @param factionId 帮派ID，测试固定使用0表示全局
+     * @param ocName    OC名称
+     * @param rank      OC等级
+     * @param slotCode  岗位编码
+     * @param passRate  成功率
+     */
+    private void insertCoefficient(Long factionId, String ocName, Integer rank, String slotCode, Integer passRate) {
+        TornSettingOcCoefficientDO coefficient = new TornSettingOcCoefficientDO();
+        coefficient.setFactionId(factionId);
+        coefficient.setOcName(ocName);
+        coefficient.setRank(rank);
+        coefficient.setSlotCode(slotCode);
+        coefficient.setPassRateMin(Math.max(0, passRate - 1));
+        coefficient.setPassRateMax(100);
+        coefficient.setCoefficient(BigDecimal.valueOf(10));
+        coefficientDao.save(coefficient);
+        testCoefficientIds.add(coefficient.getId());
     }
 }

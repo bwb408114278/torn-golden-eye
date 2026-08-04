@@ -13,22 +13,10 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
-import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
-import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCompletenessEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.income.OcIncomeKey;
-import pn.torn.goldeneye.torn.model.faction.crime.income.OcKey;
-import pn.torn.goldeneye.torn.model.faction.crime.income.SingleChainOutcomeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.income.SingleChainResult;
+import pn.torn.goldeneye.torn.model.faction.crime.income.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -377,29 +365,47 @@ public class TornOcBatchIncomeService {
      */
     private ChainSnapshot buildChainSnapshot(TornFactionOcDO candidate, Map<Long, TornFactionOcDO> nodeMap) {
         List<TornFactionOcDO> chain = new ArrayList<>();
+        Long missingAncestor = walkCandidateChain(candidate, nodeMap, chain);
+        List<Long> chainOcIds = chain.stream().map(TornFactionOcDO::getId).toList();
+        return new ChainSnapshot(chain, missingAncestor == null, missingAncestor, chainOcIds);
+    }
+
+    /**
+     * 从叶子向根回溯组装有序链，返回缺失祖先或环引用时的异常祖先ID。
+     *
+     * <p>{@code null}表示链完整回溯到链首；非{@code null}表示缺失祖先或环形引用，
+     * 由调用方fail-closed处理。</p>
+     *
+     * @param candidate 叶子候选
+     * @param nodeMap   已批量加载的节点映射
+     * @param chain     输出参数，组装完成的链节点（从叶子向根）
+     * @return 缺失或环引用时的异常祖先ID；链完整返回{@code null}
+     */
+    private Long walkCandidateChain(TornFactionOcDO candidate, Map<Long, TornFactionOcDO> nodeMap,
+                                    List<TornFactionOcDO> chain) {
         Set<Long> visited = new HashSet<>();
         visited.add(candidate.getId());
-        TornFactionOcDO cursor = candidate;
-        Long missingAncestor = null;
-        while (cursor != null && missingAncestor == null) {
+        Long cursorId = candidate.getId();
+        while (cursorId != null) {
+            TornFactionOcDO cursor = nodeMap.get(cursorId);
             chain.add(cursor);
             Long nextId = cursor.getPreviousOcId();
             if (nextId == null) {
-                break;
+                return null;
             }
             if (!visited.add(nextId)) {
-                missingAncestor = nextId;
-            } else {
-                TornFactionOcDO parent = nodeMap.get(nextId);
-                if (parent == null || !Objects.equals(parent.getFactionId(), candidate.getFactionId())) {
-                    missingAncestor = parent == null ? nextId : parent.getId();
-                } else {
-                    cursor = parent;
-                }
+                return nextId;
             }
+            TornFactionOcDO parent = nodeMap.get(nextId);
+            if (parent == null) {
+                return nextId;
+            }
+            if (!Objects.equals(parent.getFactionId(), candidate.getFactionId())) {
+                return parent.getId();
+            }
+            cursorId = nextId;
         }
-        List<Long> chainOcIds = chain.stream().map(TornFactionOcDO::getId).toList();
-        return new ChainSnapshot(chain, missingAncestor == null, missingAncestor, chainOcIds);
+        return null;
     }
 
     /**
@@ -425,10 +431,10 @@ public class TornOcBatchIncomeService {
     /**
      * 单链快照，供批量门面预分类与事务Worker复用。
      *
-     * @param chain              完整链（从最早祖先到叶子）或已加载的部分链
-     * @param complete           链是否完整
+     * @param chain               完整链（从最早祖先到叶子）或已加载的部分链
+     * @param complete            链是否完整
      * @param missingAncestorOcId 缺失祖先OC ID；链完整时为{@code null}
-     * @param chainOcIds         链节点OC ID列表
+     * @param chainOcIds          链节点OC ID列表
      */
     private record ChainSnapshot(List<TornFactionOcDO> chain, boolean complete,
                                  Long missingAncestorOcId, List<Long> chainOcIds) {
@@ -437,8 +443,8 @@ public class TornOcBatchIncomeService {
     /**
      * 批量链上下文，包含每个叶子快照与全部链节点ID。
      *
-     * @param snapshotByLeaf    叶子OC ID到链快照映射
-     * @param allChainNodeIds   本批全部链节点OC ID
+     * @param snapshotByLeaf  叶子OC ID到链快照映射
+     * @param allChainNodeIds 本批全部链节点OC ID
      */
     private record BatchChainContext(Map<Long, ChainSnapshot> snapshotByLeaf, List<Long> allChainNodeIds) {
     }
@@ -492,9 +498,9 @@ public class TornOcBatchIncomeService {
         /**
          * 记录异常部分income链，不新增任何收益。
          *
-         * @param factionId   帮派ID
-         * @param leaf        叶子候选
-         * @param chainOcIds  链节点OC ID
+         * @param factionId    帮派ID
+         * @param leaf         叶子候选
+         * @param chainOcIds   链节点OC ID
          * @param actualIncome 链上实际income
          */
         void recordAbnormalPartial(long factionId, TornFactionOcDO leaf, List<Long> chainOcIds,

@@ -16,11 +16,19 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
+import pn.torn.goldeneye.repository.dao.setting.TornSettingOcCoefficientDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcCoefficientDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
@@ -42,18 +50,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @SpringBootTest
 @DisplayName("批量收益计算SQL查询次数证据测试")
-class TornOcBatchIncomeQueryCountTest extends TornOcIncomeDbTestSupport {
+class TornOcBatchIncomeQueryCountTest {
     @Autowired
     private TornOcBatchIncomeService batchIncomeService;
+    @Autowired
+    private TornFactionOcDAO ocDao;
+    @Autowired
+    private TornFactionOcSlotDAO ocSlotDao;
+    @Autowired
+    private TornSettingOcCoefficientDAO coefficientDao;
+    @Autowired
+    private TornSettingOcCoefficientManager coefficientManager;
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     private static final Long FACTION_ID = 999004L;
     private static final Long USER_ID = 888005L;
 
+    private final List<Long> createdOcIds = new ArrayList<>();
+    private final List<Long> testCoefficientIds = new ArrayList<>();
     private List<String> originalRotationList;
 
     @BeforeEach
     void setUp() {
-        originalRotationList = saveRotationList(FACTION_ID, List.of(
+        originalRotationList = TornConstants.ROTATION_OC_NAME.get(FACTION_ID);
+        TornConstants.ROTATION_OC_NAME.put(FACTION_ID, List.of(
                 TornConstants.OC_NAME_STACKING_THE_DECK, TornConstants.OC_NAME_ACE_IN_THE_HOLE,
                 TornConstants.OC_NAME_MANIFEST_CRUELTY, TornConstants.OC_NAME_GONE_FISSION,
                 TornConstants.OC_NAME_CRANE_REACTION));
@@ -66,11 +87,23 @@ class TornOcBatchIncomeQueryCountTest extends TornOcIncomeDbTestSupport {
 
     @AfterEach
     void cleanup() {
-        // 物理删除测试数据并清理测试系数，确保开发库干净
-        physicalDeleteCreatedOcs();
-        physicalDeleteFactionIncomeAndSummary(FACTION_ID);
-        cleanupConfigsAndRefreshCache();
-        restoreRotationList(FACTION_ID, originalRotationList);
+        // 通过JdbcTemplate物理删除测试数据并清理测试系数，确保开发库干净
+        if (!createdOcIds.isEmpty()) {
+            String ids = createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE oc_id IN (" + ids + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" + ids + ")");
+            jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" + ids + ")");
+        }
+        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE faction_id = ?", FACTION_ID);
+        if (!testCoefficientIds.isEmpty()) {
+            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+        }
+        coefficientManager.refreshCache();
+        if (originalRotationList == null) {
+            TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
+        } else {
+            TornConstants.ROTATION_OC_NAME.put(FACTION_ID, originalRotationList);
+        }
         batchIncomeService.releaseFactionCalculateLock(FACTION_ID);
     }
 
@@ -103,6 +136,53 @@ class TornOcBatchIncomeQueryCountTest extends TornOcIncomeDbTestSupport {
         // 以及受影响月份汇总重算。总次数与节点数线性相关，而非候选数×链长的逐节点查询放大。
         assertTrue(ocSelectCount <= 28, "torn_faction_oc SELECT次数应受控，实际=" + ocSelectCount);
         assertTrue(incomeSelectCount <= 14, "torn_faction_oc_income SELECT次数应受控，实际=" + incomeSelectCount);
+    }
+
+    /**
+     * 插入一条测试系数配置（全局factionId=0），覆盖任意成功率区间。
+     *
+     * @param factionId 帮派ID，测试固定使用0表示全局
+     * @param ocName    OC名称
+     * @param rank      OC等级
+     * @param slotCode  岗位编码
+     * @param passRate  成功率
+     */
+    private void insertCoefficient(Long factionId, String ocName, Integer rank, String slotCode, Integer passRate) {
+        TornSettingOcCoefficientDO coefficient = new TornSettingOcCoefficientDO();
+        coefficient.setFactionId(factionId);
+        coefficient.setOcName(ocName);
+        coefficient.setRank(rank);
+        coefficient.setSlotCode(slotCode);
+        coefficient.setPassRateMin(Math.max(0, passRate - 1));
+        coefficient.setPassRateMax(100);
+        coefficient.setCoefficient(BigDecimal.valueOf(10));
+        coefficientDao.save(coefficient);
+        testCoefficientIds.add(coefficient.getId());
+    }
+
+    private TornFactionOcDO createOc(Long factionId, Long previousOcId, String name, Integer rank,
+                                     TornOcStatusEnum status, LocalDateTime executedTime, Long rewardMoney) {
+        TornFactionOcDO oc = new TornFactionOcDO();
+        oc.setFactionId(factionId);
+        oc.setPreviousOcId(previousOcId);
+        oc.setName(name);
+        oc.setRank(rank);
+        oc.setStatus(status.getCode());
+        oc.setExecutedTime(executedTime);
+        oc.setRewardMoney(rewardMoney);
+        ocDao.save(oc);
+        createdOcIds.add(oc.getId());
+        return oc;
+    }
+
+    private void createSlot(Long ocId, Long userId, String position, Integer passRate, Long itemValue) {
+        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
+        slot.setOcId(ocId);
+        slot.setUserId(userId);
+        slot.setPosition(position);
+        slot.setPassRate(passRate);
+        slot.setOutcomeItemValue(itemValue);
+        ocSlotDao.save(slot);
     }
 
     /**

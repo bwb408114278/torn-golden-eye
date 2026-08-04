@@ -19,31 +19,14 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
-import pn.torn.goldeneye.torn.model.faction.crime.income.ChainIncompleteReasonEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.income.ChainLoadResult;
-import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCalculationDTO;
-import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCompletenessEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.income.OcIncomeKey;
-import pn.torn.goldeneye.torn.model.faction.crime.income.OcKey;
-import pn.torn.goldeneye.torn.model.faction.crime.income.WorkingHoursDTO;
+import pn.torn.goldeneye.torn.model.faction.crime.income.*;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -320,9 +303,9 @@ public class TornOcIncomeService {
     /**
      * 清除指定月份中不再参与的用户旧汇总行。
      *
-     * @param factionId       帮派ID
-     * @param yearMonth       年月
-     * @param presentUserIds  当前仍应保留汇总的用户ID集合；为空表示清除该月全部汇总
+     * @param factionId      帮派ID
+     * @param yearMonth      年月
+     * @param presentUserIds 当前仍应保留汇总的用户ID集合；为空表示清除该月全部汇总
      */
     private void purgeStaleSummaryRows(long factionId, String yearMonth, Set<Long> presentUserIds) {
         if (CollectionUtils.isEmpty(presentUserIds)) {
@@ -437,15 +420,7 @@ public class TornOcIncomeService {
                     .eq(TornFactionOcDO::getFactionId, factionId)
                     .in(TornFactionOcDO::getId, pendingIds)
                     .list();
-            List<Long> nextPending = new ArrayList<>();
-            for (TornFactionOcDO node : loaded) {
-                nodeMap.put(node.getId(), node);
-                loadedIds.add(node.getId());
-                if (node.getPreviousOcId() != null && !loadedIds.contains(node.getPreviousOcId())) {
-                    nextPending.add(node.getPreviousOcId());
-                }
-            }
-            pendingIds = nextPending.stream().distinct().toList();
+            pendingIds = collectNextAncestors(nodeMap, loadedIds, loaded).stream().distinct().toList();
         }
         return nodeMap;
     }
@@ -526,28 +501,61 @@ public class TornOcIncomeService {
             List<TornFactionOcDO> loaded = ocDao.lambdaQuery()
                     .in(TornFactionOcDO::getId, pendingIds)
                     .list();
-            Set<Long> foundIds = loaded.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
-            for (Long expectedId : pendingIds) {
-                if (!foundIds.contains(expectedId)) {
-                    return new ChainLoadResult(partialChain(finalOc, nodeMap), false, expectedId,
-                            ChainIncompleteReasonEnum.MISSING_ANCESTOR);
-                }
+            ChainLoadResult missing = findMissingAncestor(finalOc, nodeMap, pendingIds, loaded);
+            if (missing != null) {
+                return missing;
             }
-            List<Long> nextPending = new ArrayList<>();
-            for (TornFactionOcDO node : loaded) {
-                if (!Objects.equals(node.getFactionId(), finalOc.getFactionId())) {
-                    return new ChainLoadResult(partialChain(finalOc, nodeMap), false, node.getId(),
-                            ChainIncompleteReasonEnum.FACTION_MISMATCH);
-                }
-                nodeMap.put(node.getId(), node);
-                loadedIds.add(node.getId());
-                if (node.getPreviousOcId() != null && !loadedIds.contains(node.getPreviousOcId())) {
-                    nextPending.add(node.getPreviousOcId());
-                }
-            }
-            pendingIds = nextPending;
+            pendingIds = collectNextAncestors(nodeMap, loadedIds, loaded);
         }
         return null;
+    }
+
+    /**
+     * 校验本批加载结果：缺失祖先或帮派不一致时返回不完整结果。
+     *
+     * @param finalOc    叶子OC
+     * @param nodeMap    已加载节点映射
+     * @param pendingIds 本批期望加载的祖先ID
+     * @param loaded     实际加载到的节点
+     * @return 缺失或不一致时不完整结果；全部有效返回{@code null}
+     */
+    private ChainLoadResult findMissingAncestor(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap,
+                                                List<Long> pendingIds, List<TornFactionOcDO> loaded) {
+        Set<Long> foundIds = loaded.stream().map(TornFactionOcDO::getId).collect(Collectors.toSet());
+        for (Long expectedId : pendingIds) {
+            if (!foundIds.contains(expectedId)) {
+                return new ChainLoadResult(partialChain(finalOc, nodeMap), false, expectedId,
+                        ChainIncompleteReasonEnum.MISSING_ANCESTOR);
+            }
+        }
+        for (TornFactionOcDO node : loaded) {
+            if (!Objects.equals(node.getFactionId(), finalOc.getFactionId())) {
+                return new ChainLoadResult(partialChain(finalOc, nodeMap), false, node.getId(),
+                        ChainIncompleteReasonEnum.FACTION_MISMATCH);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 将本批有效节点并入映射，并收集下一批待加载的祖先ID。
+     *
+     * @param nodeMap   已加载节点映射
+     * @param loadedIds 已加载节点ID集合
+     * @param loaded    本批加载到的节点
+     * @return 下一批待加载祖先ID
+     */
+    private List<Long> collectNextAncestors(Map<Long, TornFactionOcDO> nodeMap,
+                                            Set<Long> loadedIds, List<TornFactionOcDO> loaded) {
+        List<Long> nextPending = new ArrayList<>();
+        for (TornFactionOcDO node : loaded) {
+            nodeMap.put(node.getId(), node);
+            loadedIds.add(node.getId());
+            if (node.getPreviousOcId() != null && !loadedIds.contains(node.getPreviousOcId())) {
+                nextPending.add(node.getPreviousOcId());
+            }
+        }
+        return nextPending;
     }
 
     /**
@@ -555,8 +563,8 @@ public class TornOcIncomeService {
      *
      * <p>不完整链场景下也返回已加载节点的有序链，供fail-closed结果携带部分链信息。</p>
      *
-     * @param finalOc  叶子OC
-     * @param nodeMap  已加载节点映射
+     * @param finalOc 叶子OC
+     * @param nodeMap 已加载节点映射
      * @return 链遍历结果
      */
     private ChainWalkResult walkChain(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap) {
@@ -589,8 +597,8 @@ public class TornOcIncomeService {
     /**
      * 使用已加载的节点构建从最早祖先到叶子的部分有序链（用于不完整结果返回）。
      *
-     * @param finalOc  叶子OC
-     * @param nodeMap  已加载节点映射
+     * @param finalOc 叶子OC
+     * @param nodeMap 已加载节点映射
      * @return 已加载节点的有序链（从叶子向根回溯）
      */
     private List<TornFactionOcDO> partialChain(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap) {
@@ -684,8 +692,8 @@ public class TornOcIncomeService {
     /**
      * OC链上下文，包含节点映射与结算叶子映射。
      *
-     * @param nodeMap               OC ID到节点映射（含本批叶子及全部祖先节点）
-     * @param settlementLeafByOcId  OC ID到结算叶子OC ID映射
+     * @param nodeMap              OC ID到节点映射（含本批叶子及全部祖先节点）
+     * @param settlementLeafByOcId OC ID到结算叶子OC ID映射
      */
     private record ChainContext(Map<Long, TornFactionOcDO> nodeMap,
                                 Map<Long, Long> settlementLeafByOcId) {
