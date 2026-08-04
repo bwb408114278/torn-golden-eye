@@ -37,7 +37,7 @@ import java.util.List;
  * OC收益查询实现类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.12
  * @since 2025.08.20
  */
 @Component
@@ -97,7 +97,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
                 queryIncomeList(user.getId(), dateRange) : List.of();
         TornFactionOcIncomeSummaryDO incomeSummary = shouldCalcReassign ?
                 queryIncomeSummary(user.getId(), dateRange.toDate()) : null;
-        List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user, dateRange, shouldCalcReassign);
+        List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user, dateRange);
         return new OcDataResult(incomeList, incomeSummary, benefitList);
     }
 
@@ -124,17 +124,12 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 查询收益列表
+     * 查询普通收益列表，与排行榜共用统一的大锅饭排除规则
      */
-    private List<TornFactionOcBenefitDO> queryBenefitList(TornUserDO user, DateRange dateRange,
-                                                          boolean shouldCalcReassign) {
-        return benefitDao.lambdaQuery()
-                .eq(TornFactionOcBenefitDO::getUserId, user.getId())
-                .between(TornFactionOcBenefitDO::getOcFinishTime, dateRange.fromDate(), dateRange.toDate())
-                .notIn(shouldCalcReassign, TornFactionOcBenefitDO::getOcName,
-                        TornConstants.ROTATION_OC_NAME.get(user.getFactionId()))
-                .orderByDesc(TornFactionOcBenefitDO::getOcFinishTime)
-                .list();
+    private List<TornFactionOcBenefitDO> queryBenefitList(TornUserDO user, DateRange dateRange) {
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getFactionId(), user.getId(),
+                dateRange.fromDate(), dateRange.toDate());
+        return benefitDao.queryPersonalBenefitList(query);
     }
 
     /**
@@ -364,13 +359,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
          * 获取收入表表头
          */
         public List<String> getIncomeHeaders() {
-            List<String> headers = new ArrayList<>();
-            headers.add("OC名称");
-            headers.add("等级");
-            headers.add("状态");
-            headers.add("完成时间");
-            headers.add("岗位");
-            headers.add("成功率");
+            List<String> headers = createCommonHeaders();
             headers.add("准备天数");
 
             if (shouldShowCoefficientColumns()) {
@@ -385,13 +374,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
          * 获取收益表表头
          */
         public List<String> getBenefitHeaders() {
-            List<String> headers = new ArrayList<>();
-            headers.add("OC名称");
-            headers.add("等级");
-            headers.add("状态");
-            headers.add("完成时间");
-            headers.add("岗位");
-            headers.add("成功率");
+            List<String> headers = createCommonHeaders();
             headers.add("收益");
 
             // 填充剩余列
@@ -400,6 +383,22 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
                 headers.add("");
             }
 
+            return headers;
+        }
+
+        /**
+         * 创建收入表与收益表共用的前六个表头列。
+         *
+         * @return 包含OC名称、等级、状态、完成时间、岗位、成功率的新表头列表
+         */
+        private List<String> createCommonHeaders() {
+            List<String> headers = new ArrayList<>();
+            headers.add("OC名称");
+            headers.add("等级");
+            headers.add("状态");
+            headers.add("完成时间");
+            headers.add("岗位");
+            headers.add("成功率");
             return headers;
         }
     }
