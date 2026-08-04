@@ -31,4 +31,24 @@ public record BatchIncomeResult(
         int abnormalIncompleteChainCount,
         int skippedCount,
         List<SingleChainResult> abnormalChains) {
+
+    /**
+     * 构造无任何候选与统计的空结果。
+     *
+     * @return 空批次结果
+     */
+    public static BatchIncomeResult empty() {
+        return new BatchIncomeResult(0, 0, 0, 0, 0, 0, 0, 0, List.of());
+    }
+
+    /**
+     * 构造仅含等待后继父节点统计的结果（无可处理候选）。
+     *
+     * @param candidateCount 参与本批次的叶子候选数量
+     * @param waitingCount   等待链式后继节点的父节点数量
+     * @return 仅等待统计的批次结果
+     */
+    public static BatchIncomeResult waitingOnly(int candidateCount, int waitingCount) {
+        return new BatchIncomeResult(candidateCount, 0, 0, waitingCount, 0, 0, 0, 0, List.of());
+    }
 }

@@ -7,18 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.BatchIncomeResult;
 
 import java.time.LocalDateTime;
@@ -44,52 +38,28 @@ import static org.mockito.Mockito.doAnswer;
  */
 @SpringBootTest
 @DisplayName("大锅饭批量计算防重入测试")
-class TornOcBatchIncomeReentrancyTest {
+class TornOcBatchIncomeReentrancyTest extends TornOcIncomeDbTestSupport {
     @Autowired
     private TornOcBatchIncomeService batchIncomeService;
-    @Autowired
-    private TornFactionOcDAO ocDao;
-    @Autowired
-    private TornFactionOcSlotDAO slotDao;
-    @Autowired
-    private TornFactionOcIncomeDAO incomeDao;
-    @Autowired
-    private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
     @MockitoSpyBean
     private TornOcIncomeTransactionWorker transactionWorker;
 
     private static final Long FACTION_ID = 999002L;
     private static final Long USER_ID = 888002L;
 
-    private final List<Long> createdOcIds = new ArrayList<>();
     private List<String> originalRotationList;
 
     @BeforeEach
     void setUp() {
-        originalRotationList = TornConstants.ROTATION_OC_NAME.get(FACTION_ID);
-        TornConstants.ROTATION_OC_NAME.put(FACTION_ID, List.of(TornConstants.OC_NAME_ACE_IN_THE_HOLE));
+        originalRotationList = saveRotationList(FACTION_ID, List.of(TornConstants.OC_NAME_ACE_IN_THE_HOLE));
     }
 
     @AfterEach
     void cleanup() {
-        // 通过JdbcTemplate物理删除测试数据，确保数据库干净，避免逻辑删除残留deleted=1记录
-        if (!createdOcIds.isEmpty()) {
-            jdbcTemplate.update("DELETE FROM torn_faction_oc_income WHERE oc_id IN (" +
-                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
-            jdbcTemplate.update("DELETE FROM torn_faction_oc_slot WHERE oc_id IN (" +
-                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
-            jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" +
-                    createdOcIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("") + ")");
-        }
-        // 清理本测试生成的汇总与历史遗留测试汇总（faction_id=999002, year_month=2026-04, user_id=888002）
-        jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE user_id = ?", USER_ID);
-        if (originalRotationList == null) {
-            TornConstants.ROTATION_OC_NAME.remove(FACTION_ID);
-        } else {
-            TornConstants.ROTATION_OC_NAME.put(FACTION_ID, originalRotationList);
-        }
+        // 物理删除测试数据，确保数据库干净，避免逻辑删除残留deleted=1记录
+        physicalDeleteCreatedOcs();
+        physicalDeleteSummaryByUser(USER_ID);
+        restoreRotationList(FACTION_ID, originalRotationList);
         batchIncomeService.releaseFactionCalculateLock(FACTION_ID);
         batchIncomeService.releaseFactionCalculateLock(FACTION_ID + 1L);
         Mockito.reset(transactionWorker);
@@ -208,7 +178,7 @@ class TornOcBatchIncomeReentrancyTest {
             createSlot(ocA.getId(), USER_ID, "Driver#1", 70, 20000L);
             TornFactionOcDO ocB = createOcForFaction(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
                     LocalDateTime.of(2026, 4, 15, 10, 0), 500000L, factionB);
-            createSlotForFaction(ocB.getId(), USER_ID, "Driver#1", 70, 20000L);
+            createSlot(ocB.getId(), USER_ID, "Driver#1", 70, 20000L);
 
             CyclicBarrier barrier = new CyclicBarrier(2);
             doAnswer(invocation -> {
@@ -368,39 +338,54 @@ class TornOcBatchIncomeReentrancyTest {
     @Test
     @DisplayName("重跑期间再次触发仍最终收敛，不会递归失控")
     void requestBatchIncome_triggerDuringRerun_converges() throws Exception {
-        TornFactionOcDO oc = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+        TornFactionOcDO first = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
                 LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
-        createSlot(oc.getId(), USER_ID, "Driver#1", 70, 20000L);
+        createSlot(first.getId(), USER_ID, "Driver#1", 70, 20000L);
 
         CountDownLatch firstEntered = new CountDownLatch(1);
         CountDownLatch firstRelease = new CountDownLatch(1);
+        CountDownLatch rerunEntered = new CountDownLatch(1);
+        CountDownLatch rerunRelease = new CountDownLatch(1);
         AtomicInteger workerCalls = new AtomicInteger();
         doAnswer(invocation -> {
             int call = workerCalls.incrementAndGet();
             if (call == 1) {
                 firstEntered.countDown();
                 assertTrue(firstRelease.await(10, TimeUnit.SECONDS));
+            } else if (call == 2) {
+                rerunEntered.countDown();
+                assertTrue(rerunRelease.await(10, TimeUnit.SECONDS));
             }
             return invocation.callRealMethod();
         }).when(transactionWorker).processSingleChain(anyLong(), anyLong(), any(LocalDateTime.class), anySet(), anyList());
 
-        ExecutorService pool = Executors.newFixedThreadPool(2);
+        ExecutorService pool = Executors.newFixedThreadPool(3);
         Future<?> runner = pool.submit(() ->
                 batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
         assertTrue(firstEntered.await(10, TimeUnit.SECONDS));
 
-        // 第一次运行期间触发一次重跑
-        pool.submit(() -> batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
-        Thread.sleep(200);
+        // 第一次运行期间触发一次重跑，并新增最后一页OC，保证重跑有新的待处理叶子
+        Future<?> firstTrigger = pool.submit(() ->
+                batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        firstTrigger.get(10, TimeUnit.SECONDS);
+        TornFactionOcDO lastPage = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
+                LocalDateTime.of(2026, 4, 16, 10, 0), 500000L);
+        createSlot(lastPage.getId(), USER_ID, "Driver#1", 70, 20000L);
         firstRelease.countDown();
-        // 重跑期间再次触发，也应被后续收敛消费，不会无限循环
-        Thread.sleep(300);
-        pool.submit(() -> batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
-        Thread.sleep(300);
+
+        // 重跑进入Worker（处理最后一页OC）后再次触发，验证重跑期间的触发也被收敛消费，不会无限循环
+        assertTrue(rerunEntered.await(10, TimeUnit.SECONDS));
+        Future<?> rerunTrigger = pool.submit(() ->
+                batchIncomeService.requestBatchIncome(FACTION_ID, LocalDateTime.of(2026, 4, 10, 0, 0, 0)));
+        rerunTrigger.get(10, TimeUnit.SECONDS);
+        rerunRelease.countDown();
+
+        runner.get(10, TimeUnit.SECONDS);
         pool.shutdown();
 
-        // 最终收敛：收益只生成一套
-        assertEquals(1, countIncome(oc.getId()));
+        // 最终收敛：两页OC各只生成一套收益，批次结束返回而非无限循环
+        assertEquals(1, countIncome(first.getId()));
+        assertEquals(1, countIncome(lastPage.getId()));
         assertEquals(1L, countSummary(USER_ID));
     }
 
@@ -428,29 +413,6 @@ class TornOcBatchIncomeReentrancyTest {
 
     private TornFactionOcDO createOcForFaction(String name, Integer rank, TornOcStatusEnum status,
                                                LocalDateTime executedTime, Long rewardMoney, Long factionId) {
-        TornFactionOcDO oc = new TornFactionOcDO();
-        oc.setFactionId(factionId);
-        oc.setName(name);
-        oc.setRank(rank);
-        oc.setStatus(status.getCode());
-        oc.setExecutedTime(executedTime);
-        oc.setRewardMoney(rewardMoney);
-        ocDao.save(oc);
-        createdOcIds.add(oc.getId());
-        return oc;
-    }
-
-    private void createSlot(Long ocId, Long userId, String position, Integer passRate, Long itemValue) {
-        createSlotForFaction(ocId, userId, position, passRate, itemValue);
-    }
-
-    private void createSlotForFaction(Long ocId, Long userId, String position, Integer passRate, Long itemValue) {
-        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
-        slot.setOcId(ocId);
-        slot.setUserId(userId);
-        slot.setPosition(position);
-        slot.setPassRate(passRate);
-        slot.setOutcomeItemValue(itemValue);
-        slotDao.save(slot);
+        return createOc(factionId, null, name, rank, status, executedTime, rewardMoney);
     }
 }

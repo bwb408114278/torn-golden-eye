@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -375,7 +374,7 @@ public class TornOcIncomeService {
         Map<Long, List<TornFactionOcIncomeDO>> successByLeaf = monthlyRecords.stream()
                 .filter(TornFactionOcIncomeDO::getIsSuccess)
                 .collect(Collectors.groupingBy(
-                        record -> chainContext.settlementLeafByOcId.getOrDefault(record.getOcId(), record.getOcId())));
+                        income -> chainContext.settlementLeafByOcId.getOrDefault(income.getOcId(), income.getOcId())));
 
         long total = 0L;
         for (Map.Entry<Long, List<TornFactionOcIncomeDO>> entry : successByLeaf.entrySet()) {
@@ -406,18 +405,32 @@ public class TornOcIncomeService {
      * @return 链上下文
      */
     private ChainContext buildChainContextForLeaves(long factionId, List<TornFactionOcDO> leaves) {
-        Map<Long, TornFactionOcDO> nodeMap = new HashMap<>();
-        Set<Long> loadedIds = new HashSet<>();
-        for (TornFactionOcDO leaf : leaves) {
-            nodeMap.put(leaf.getId(), leaf);
-            loadedIds.add(leaf.getId());
-        }
+        Map<Long, TornFactionOcDO> nodeMap = loadAncestorNodes(factionId, leaves);
+        Map<Long, Long> settlementLeafByOcId = buildSettlementMapping(leaves, nodeMap);
+        return new ChainContext(nodeMap, settlementLeafByOcId);
+    }
 
-        List<Long> pendingIds = leaves.stream()
+    /**
+     * 批量加载种子节点及其全部祖先，避免逐节点查询N+1。
+     *
+     * <p>以种子节点为起点，按{@code previous_oc_id}分批IN查询，直到无新祖先为止；
+     * 供批量门面与月度汇总上下文复用，保证不随候选数逐链重复查询同一祖先。</p>
+     *
+     * @param factionId 帮派ID
+     * @param seedOcs   种子OC集合（候选叶子或结算叶子）
+     * @return OC ID到节点的映射（含种子节点与全部祖先）
+     */
+    Map<Long, TornFactionOcDO> loadAncestorNodes(long factionId, Collection<TornFactionOcDO> seedOcs) {
+        Map<Long, TornFactionOcDO> nodeMap = new HashMap<>();
+        for (TornFactionOcDO seed : seedOcs) {
+            nodeMap.put(seed.getId(), seed);
+        }
+        Set<Long> loadedIds = new HashSet<>(nodeMap.keySet());
+        List<Long> pendingIds = seedOcs.stream()
                 .map(TornFactionOcDO::getPreviousOcId)
                 .filter(Objects::nonNull)
-                .distinct()
                 .filter(id -> !loadedIds.contains(id))
+                .distinct()
                 .toList();
         while (!pendingIds.isEmpty()) {
             List<TornFactionOcDO> loaded = ocDao.lambdaQuery()
@@ -434,7 +447,17 @@ public class TornOcIncomeService {
             }
             pendingIds = nextPending.stream().distinct().toList();
         }
+        return nodeMap;
+    }
 
+    /**
+     * 构建叶子到其整条链全部节点的结算叶子映射。
+     *
+     * @param leaves  结算叶子
+     * @param nodeMap 已加载的链节点映射
+     * @return OC ID到结算叶子OC ID的映射
+     */
+    private Map<Long, Long> buildSettlementMapping(List<TornFactionOcDO> leaves, Map<Long, TornFactionOcDO> nodeMap) {
         Map<Long, Long> settlementLeafByOcId = new HashMap<>();
         for (TornFactionOcDO leaf : leaves) {
             settlementLeafByOcId.put(leaf.getId(), leaf.getId());
@@ -450,26 +473,7 @@ public class TornOcIncomeService {
                 cursor = node.getPreviousOcId();
             }
         }
-        return new ChainContext(nodeMap, settlementLeafByOcId);
-    }
-
-    /**
-     * 批量加载指定OC节点。
-     *
-     * @param factionId 帮派ID
-     * @param ocIds     OC ID集合
-     * @return OC ID到节点的映射
-     */
-    private Map<Long, TornFactionOcDO> loadOcNodes(long factionId, Collection<Long> ocIds) {
-        if (CollectionUtils.isEmpty(ocIds)) {
-            return Map.of();
-        }
-        return ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getFactionId, factionId)
-                .in(TornFactionOcDO::getId, ocIds)
-                .list()
-                .stream()
-                .collect(Collectors.toMap(TornFactionOcDO::getId, Function.identity()));
+        return settlementLeafByOcId;
     }
 
     /**
@@ -487,6 +491,33 @@ public class TornOcIncomeService {
         Set<Long> loadedIds = new HashSet<>();
         loadedIds.add(finalOc.getId());
 
+        ChainLoadResult loadFailure = loadChainAncestors(finalOc, nodeMap, loadedIds);
+        if (loadFailure != null) {
+            return loadFailure;
+        }
+
+        // 构建从最早祖先到叶子的有序链，并检测环形引用
+        ChainWalkResult walkResult = walkChain(finalOc, nodeMap);
+        if (walkResult.cycleNodeId() != null) {
+            return new ChainLoadResult(walkResult.chain(), false, walkResult.cycleNodeId(),
+                    ChainIncompleteReasonEnum.CYCLE);
+        }
+        return new ChainLoadResult(walkResult.chain(), true, null, null);
+    }
+
+    /**
+     * 按批回溯加载叶子的全部祖先节点。
+     *
+     * <p>祖先缺失（含被逻辑删除）或帮派不一致时返回不完整结果，由调用方fail-closed处理；
+     * 全部加载成功返回{@code null}。</p>
+     *
+     * @param finalOc   叶子OC
+     * @param nodeMap   已含叶子的节点映射，成功时追加全部祖先
+     * @param loadedIds 已加载节点ID集合
+     * @return 加载失败的不完整结果；全部成功返回{@code null}
+     */
+    private ChainLoadResult loadChainAncestors(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap,
+                                               Set<Long> loadedIds) {
         List<Long> pendingIds = new ArrayList<>();
         if (finalOc.getPreviousOcId() != null) {
             pendingIds.add(finalOc.getPreviousOcId());
@@ -516,31 +547,43 @@ public class TornOcIncomeService {
             }
             pendingIds = nextPending;
         }
+        return null;
+    }
 
-        // 构建从最早祖先到叶子的有序链，并检测环形引用
+    /**
+     * 从叶子向根遍历链，构建从最早祖先到叶子的有序链并检测环形引用。
+     *
+     * <p>不完整链场景下也返回已加载节点的有序链，供fail-closed结果携带部分链信息。</p>
+     *
+     * @param finalOc  叶子OC
+     * @param nodeMap  已加载节点映射
+     * @return 链遍历结果
+     */
+    private ChainWalkResult walkChain(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap) {
         List<TornFactionOcDO> chain = new ArrayList<>();
         Deque<TornFactionOcDO> stack = new ArrayDeque<>();
         stack.push(finalOc);
         Long cursor = finalOc.getPreviousOcId();
         Set<Long> visited = new HashSet<>();
         visited.add(finalOc.getId());
-        while (cursor != null) {
+        Long cycleNodeId = null;
+        while (cursor != null && cycleNodeId == null) {
             if (!visited.add(cursor)) {
-                return new ChainLoadResult(partialChain(finalOc, nodeMap), false, cursor,
-                        ChainIncompleteReasonEnum.CYCLE);
+                cycleNodeId = cursor;
+            } else {
+                TornFactionOcDO node = nodeMap.get(cursor);
+                if (node != null) {
+                    stack.push(node);
+                    cursor = node.getPreviousOcId();
+                } else {
+                    cursor = null;
+                }
             }
-            TornFactionOcDO node = nodeMap.get(cursor);
-            if (node == null) {
-                return new ChainLoadResult(partialChain(finalOc, nodeMap), false, cursor,
-                        ChainIncompleteReasonEnum.MISSING_ANCESTOR);
-            }
-            stack.push(node);
-            cursor = node.getPreviousOcId();
         }
         while (!stack.isEmpty()) {
             chain.add(stack.pop());
         }
-        return new ChainLoadResult(chain, true, null, null);
+        return new ChainWalkResult(chain, cycleNodeId);
     }
 
     /**
@@ -551,24 +594,7 @@ public class TornOcIncomeService {
      * @return 已加载节点的有序链（从叶子向根回溯）
      */
     private List<TornFactionOcDO> partialChain(TornFactionOcDO finalOc, Map<Long, TornFactionOcDO> nodeMap) {
-        List<TornFactionOcDO> chain = new ArrayList<>();
-        Deque<TornFactionOcDO> stack = new ArrayDeque<>();
-        stack.push(finalOc);
-        Long cursor = finalOc.getPreviousOcId();
-        Set<Long> visited = new HashSet<>();
-        visited.add(finalOc.getId());
-        while (cursor != null && visited.add(cursor)) {
-            TornFactionOcDO node = nodeMap.get(cursor);
-            if (node == null) {
-                break;
-            }
-            stack.push(node);
-            cursor = node.getPreviousOcId();
-        }
-        while (!stack.isEmpty()) {
-            chain.add(stack.pop());
-        }
-        return chain;
+        return walkChain(finalOc, nodeMap).chain();
     }
 
     /**
@@ -663,5 +689,14 @@ public class TornOcIncomeService {
      */
     private record ChainContext(Map<Long, TornFactionOcDO> nodeMap,
                                 Map<Long, Long> settlementLeafByOcId) {
+    }
+
+    /**
+     * 链遍历结果，包含从最早祖先到叶子的有序链与环形引用检测结果。
+     *
+     * @param chain       有序链（从最早祖先到叶子，含叶子自身）
+     * @param cycleNodeId 检测到环形引用时指向环中重复节点OC ID；无环时为{@code null}
+     */
+    private record ChainWalkResult(List<TornFactionOcDO> chain, Long cycleNodeId) {
     }
 }

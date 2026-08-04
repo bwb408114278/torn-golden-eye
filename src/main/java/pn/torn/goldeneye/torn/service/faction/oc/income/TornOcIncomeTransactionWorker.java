@@ -13,11 +13,7 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.torn.model.faction.crime.income.IncomeCompletenessEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.income.OcIncomeKey;
-import pn.torn.goldeneye.torn.model.faction.crime.income.OcKey;
-import pn.torn.goldeneye.torn.model.faction.crime.income.SingleChainOutcomeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.income.SingleChainResult;
+import pn.torn.goldeneye.torn.model.faction.crime.income.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,6 +70,38 @@ public class TornOcIncomeTransactionWorker {
                     List.of(), Set.of());
         }
 
+        SingleChainResult chainState = resolveChainState(factionId, leaf, chainParentKeys);
+        if (chainState != null) {
+            return chainState;
+        }
+
+        // R9/R15：以一次受控批量查询在事务内重新确认链节点仍存在且帮派一致，缺失则fail-closed
+        List<Long> expectedChainOcIds = preloadedChain.stream().map(TornFactionOcDO::getId).toList();
+        if (expectedChainOcIds.isEmpty()) {
+            return new SingleChainResult(SingleChainOutcomeEnum.ABNORMAL_INCOMPLETE_CHAIN, leaf.getId(),
+                    leaf.getName(), List.of(), Set.of(), leaf.getPreviousOcId());
+        }
+        Long missingAncestor = findMissingChainNode(factionId, preloadedChain, expectedChainOcIds);
+        if (missingAncestor != null) {
+            log.warn("单链事务内链节点缺失或帮派不一致，整链不结算: factionId={}, leafOcId={}, leafOcName={}, " +
+                            "chainOcIds={}, missingAncestorOcId={}",
+                    factionId, leaf.getId(), leaf.getName(), expectedChainOcIds, missingAncestor);
+            return new SingleChainResult(SingleChainOutcomeEnum.ABNORMAL_INCOMPLETE_CHAIN, leaf.getId(),
+                    leaf.getName(), expectedChainOcIds, Set.of(), missingAncestor);
+        }
+
+        return auditAndGenerateIncome(factionId, leaf, preloadedChain, expectedChainOcIds);
+    }
+
+    /**
+     * 判断叶子当前是否属于等待后继父节点或已出现真实后继。
+     *
+     * @param factionId       帮派ID
+     * @param leaf            叶子OC
+     * @param chainParentKeys 有效链配置父节点集合
+     * @return 属于等待或已出现后继时返回对应结果；否则返回{@code null}表示继续处理
+     */
+    private SingleChainResult resolveChainState(long factionId, TornFactionOcDO leaf, Set<OcKey> chainParentKeys) {
         boolean configParent = TornOcStatusEnum.SUCCESSFUL.getCode().equals(leaf.getStatus())
                 && chainParentKeys.contains(new OcKey(leaf.getName(), leaf.getRank()));
         boolean hasSuccessor = ocDao.lambdaQuery()
@@ -93,13 +121,19 @@ public class TornOcIncomeTransactionWorker {
             return new SingleChainResult(SingleChainOutcomeEnum.NOT_CANDIDATE, leaf.getId(), leaf.getName(),
                     List.of(), Set.of());
         }
+        return null;
+    }
 
-        // R9/R15：以一次受控批量查询在事务内重新确认链节点仍存在且帮派一致，缺失则fail-closed
-        List<Long> expectedChainOcIds = preloadedChain.stream().map(TornFactionOcDO::getId).toList();
-        if (expectedChainOcIds.isEmpty()) {
-            return new SingleChainResult(SingleChainOutcomeEnum.ABNORMAL_INCOMPLETE_CHAIN, leaf.getId(),
-                    leaf.getName(), List.of(), Set.of(), leaf.getPreviousOcId());
-        }
+    /**
+     * 在事务内批量复验链节点仍存在且帮派一致，返回第一个缺失或帮派不一致的节点。
+     *
+     * @param factionId          帮派ID
+     * @param preloadedChain     预加载的完整链
+     * @param expectedChainOcIds 链节点OC ID
+     * @return 第一个缺失或不一致节点ID；全部有效返回{@code null}
+     */
+    private Long findMissingChainNode(long factionId, List<TornFactionOcDO> preloadedChain,
+                                      List<Long> expectedChainOcIds) {
         Map<Long, TornFactionOcDO> freshNodes = ocDao.lambdaQuery()
                 .in(TornFactionOcDO::getId, expectedChainOcIds)
                 .list()
@@ -108,25 +142,24 @@ public class TornOcIncomeTransactionWorker {
         Long missingAncestor = null;
         for (TornFactionOcDO node : preloadedChain) {
             TornFactionOcDO fresh = freshNodes.get(node.getId());
-            if (fresh == null) {
+            if (missingAncestor == null && (fresh == null || !fresh.getFactionId().equals(factionId))) {
                 missingAncestor = node.getId();
-                break;
-            }
-            if (!fresh.getFactionId().equals(factionId)) {
-                missingAncestor = node.getId();
-                break;
             }
         }
-        if (missingAncestor != null) {
-            log.warn("单链事务内链节点缺失或帮派不一致，整链不结算: factionId={}, leafOcId={}, leafOcName={}, " +
-                            "chainOcIds={}, missingAncestorOcId={}",
-                    factionId, leaf.getId(), leaf.getName(), expectedChainOcIds, missingAncestor);
-            return new SingleChainResult(SingleChainOutcomeEnum.ABNORMAL_INCOMPLETE_CHAIN, leaf.getId(),
-                    leaf.getName(), expectedChainOcIds, Set.of(), missingAncestor);
-        }
-        List<TornFactionOcDO> chain = preloadedChain;
-        List<Long> chainOcIds = expectedChainOcIds;
+        return missingAncestor;
+    }
 
+    /**
+     * 校验链income完整性并按预期业务键审计，通过后生成明细并重算受影响月份汇总。
+     *
+     * @param factionId  帮派ID
+     * @param leaf       叶子OC
+     * @param chain      预加载的完整链
+     * @param chainOcIds 链节点OC ID
+     * @return 单链处理结果
+     */
+    private SingleChainResult auditAndGenerateIncome(long factionId, TornFactionOcDO leaf,
+                                                     List<TornFactionOcDO> chain, List<Long> chainOcIds) {
         // R10：income完整性必须按预期业务键判断，禁止把任意一行income等同于完整结算
         Map<Long, List<TornFactionOcSlotDO>> slotsByOcId = incomeService.loadSlotsByOcIds(chainOcIds);
         Set<OcIncomeKey> expectedKeys = incomeService.buildExpectedIncomeKeys(chain, slotsByOcId);
@@ -134,10 +167,10 @@ public class TornOcIncomeTransactionWorker {
                 .eq(TornFactionOcIncomeDO::getFactionId, factionId)
                 .in(TornFactionOcIncomeDO::getOcId, chainOcIds)
                 .list();
-        IncomeCompletenessEnum completeness = incomeService.classifyIncomeCompleteness(expectedKeys, existingIncome);
         Set<Long> existingIncomeOcIds = existingIncome.stream()
                 .map(TornFactionOcIncomeDO::getOcId)
                 .collect(Collectors.toSet());
+        IncomeCompletenessEnum completeness = incomeService.classifyIncomeCompleteness(expectedKeys, existingIncome);
         if (completeness == IncomeCompletenessEnum.ALREADY_CALCULATED) {
             return new SingleChainResult(SingleChainOutcomeEnum.ALREADY_CALCULATED, leaf.getId(), leaf.getName(),
                     chainOcIds, existingIncomeOcIds);
