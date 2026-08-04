@@ -20,6 +20,7 @@
 │   └── knowledge/                                                              # AI知识库
 │       ├── activity_heatmap_design.md                                          # 活跃度热力图完整设计、数据口径与固定RGB色板
 │       ├── oc_reassign_range_technical_design.md                               # PN/NOV大锅饭OC范围、生效边界、校准补算与收益查询技术方案
+│       ├── oc_reassign_range_review_fix_plan.md                                # 一次性Review修复方案（联合验收通过后删除）
 │       └── automated_build_deployment_pipeline_design.md                       # 自动流水线构建部署设计方案
 ├── build/                                                                      # 构建项目镜像需要的文件
 │   └── docker-compose.yml                                                      # Docker compose启动文件
