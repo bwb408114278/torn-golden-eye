@@ -36,12 +36,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>验证VIP组合槽位完整性</li>
  *   <li>初始化当月风格/成熟度/风险草稿记录</li>
  *   <li>从最后已完成轮次之后重建历史bar与特征至当前已结束桶</li>
- *   <li>重建完成后调用 {@link #processPendingRounds(boolean)} 处理未完成轮次</li>
+ *   <li>重建完成后调用 {@link #processPendingRounds(boolean)} 处理未完成轮次,
+ *       先补建可能积压的理论入场bar,再结算到期拒绝观察,避免理论入场bar缺失被误结算</li>
+ *   <li>存在未结算拒绝观察时调用 {@link StockRejectedObservationService#resolveAllDueObservations(java.time.LocalDateTime)}</li>
  * </ol>
  * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.07.25
  */
 @Slf4j
@@ -192,7 +194,9 @@ public class VipStockAlertScheduler {
      *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位</li>
      *   <li> {@link StockMonthlyStateInitService#initCurrentMonth()} 初始化月度风格草稿</li>
      *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史</li>
-     *   <li> {@link #processPendingRounds(boolean)} 处理未完成轮次</li>
+     *   <li> {@link #processPendingRounds(boolean)} 处理未完成轮次(先补建理论入场bar,
+     *       再结算拒绝观察,避免历史重建跳过的早期失败/积压轮次被误结算)</li>
+     *   <li> {@link StockRejectedObservationService#resolveAllDueObservations(LocalDateTime)} 结算到期拒绝观察</li>
      * </ol>
      */
     @EventListener(ApplicationReadyEvent.class)
@@ -224,6 +228,12 @@ public class VipStockAlertScheduler {
             } catch (Exception e) {
                 log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
             }
+
+            try {
+                processPendingRounds(decision.allowNewEntry());
+            } catch (Exception e) {
+                log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
+            }
         }
 
         if (decision.manageResearchObligations()) {
@@ -231,14 +241,6 @@ public class VipStockAlertScheduler {
                 rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
             } catch (Exception e) {
                 log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
-            }
-        }
-
-        if (decision.shouldBuildRounds()) {
-            try {
-                processPendingRounds(decision.allowNewEntry());
-            } catch (Exception e) {
-                log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
             }
         }
 

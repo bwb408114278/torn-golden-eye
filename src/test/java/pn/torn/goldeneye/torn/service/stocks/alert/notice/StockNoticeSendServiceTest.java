@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
  * 股票通知发送服务测试,覆盖NapCat响应判定、开关门禁和无关联批次处理。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.07.28
  */
 @DisplayName("股票通知发送服务测试")
@@ -238,7 +238,7 @@ class StockNoticeSendServiceTest {
     }
 
     @Test
-    @DisplayName("已冻结PENDING通知_重启后复用冻结文本且不重复组合")
+    @DisplayName("已冻结PENDING通知_重启后复用冻结文本且不重复组合不重复冻结")
     void sendPendingNotices_frozenPendingNotice_reusesFrozenTextWithoutRecompose() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
         TornStockNoticeAuditDO frozen = new TornStockNoticeAuditDO();
@@ -248,7 +248,6 @@ class StockNoticeSendServiceTest {
                 + "\"messageText\":\"已冻结文本\",\"frozenAt\":\"2026-08-02T10:00:00\"}");
         when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(frozen));
         when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(27L)));
-        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -265,7 +264,30 @@ class StockNoticeSendServiceTest {
         verify(composeService).composeAndMergeNotices(composeCaptor.capture(), any());
         assertTrue(composeCaptor.getValue().isEmpty(),
                 "已冻结通知不得进入重新组合,必须复用已冻结文本");
+        verify(noticeAuditDAO, never()).finalizePayload(any());
         verify(noticeAuditDAO).markSentByIds(List.of(17L));
+    }
+
+    @Test
+    @DisplayName("已冻结PENDING通知_Bot失败不再次冻结payload且标记FAILED")
+    void sendPendingNotices_frozenPendingNotice_botFailure_marksFailedWithoutRefinalize() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO frozen = new TornStockNoticeAuditDO();
+        frozen.setId(18L);
+        frozen.setBatchId(28L);
+        frozen.setPayloadSnapshot("{\"noticeType\":\"SELL\",\"batchId\":28,\"batchNo\":\"B28\",\"stocksId\":1001,"
+                + "\"messageText\":\"已冻结文本\",\"frozenAt\":\"2026-08-02T10:00:00\"}");
+        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(frozen));
+        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(28L)));
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDAO, never()).finalizePayload(any());
+        verify(noticeAuditDAO).markSendFailedByIds(eq(List.of(18L)), contains("HTTP状态非2xx"));
+        verify(noticeAuditDAO, never()).markSentByIds(any());
     }
 
     private TornStockNoticeAuditDO notice(Long id, Long batchId) {

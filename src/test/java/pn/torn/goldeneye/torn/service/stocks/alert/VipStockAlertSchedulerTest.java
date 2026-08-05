@@ -23,7 +23,7 @@ import static org.mockito.Mockito.*;
  * 以及历史PENDING通知独立于轮次总开关投递。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.08.02
  */
 @DisplayName("股票提醒调度器测试")
@@ -178,6 +178,23 @@ class VipStockAlertSchedulerTest {
         verify(historyRebuildService, never()).rebuildFromLastCompleted(any());
         verify(roundDao, never()).selectPendingRoundsBefore(any());
         verify(noticeSendService).sendPendingNotices();
+    }
+
+    @Test
+    @DisplayName("启动补偿_必须先补建未完成轮次bar再结算到期拒绝观察")
+    void onStartup_buildsPendingRoundsBeforeResolvingRejectedObservations() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, false, false));
+        when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        InOrder inOrder = inOrder(historyRebuildService, roundDao, rejectedObservationService);
+        inOrder.verify(historyRebuildService).rebuildFromLastCompleted(any());
+        inOrder.verify(roundDao).selectPendingRoundsBefore(any());
+        inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
+        inOrder.verifyNoMoreInteractions();
     }
 
     /**

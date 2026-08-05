@@ -31,7 +31,10 @@ import java.util.stream.Collectors;
  *   <li>校验 {@link SettingConstants#KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED} 开关(值为"true"时启用)</li>
  *   <li>查询全部PENDING通知 {@link TornStockNoticeAuditDAO#selectPendingNotices()}</li>
  *   <li>批量查询关联批次信息(用通知的batchId集合)</li>
- *   <li>调用 {@link StockNoticeComposeService#composeAndMergeNotices} 组合消息</li>
+ *   <li>调用 {@link StockNoticeComposeService#composeAndMergeNotices} 组合未冻结通知;
+ *       已冻结通知(快照已有messageText与frozenAt)按原冻结文本直接投递,不再重新组合</li>
+ *   <li>未冻结通知先逐条冻结最终payload并校验更新行数,再调用Bot发送;
+ *       已冻结通知不调用冻结更新,直接发送,仅按发送结果更新SENT/FAILED</li>
  *   <li>逐条构建 {@link GroupMsgHttpBuilder} + {@link TextQqMsg} 发送,HTTP 2xx且body非空时更新SENT,
  *       异常、非2xx、body为空或NapCat业务失败更新FAILED</li>
  *   <li>本期不自动重试,sendAttemptCount从0改为1</li>
@@ -39,7 +42,7 @@ import java.util.stream.Collectors;
  * 单条通知发送异常不会中断后续通知投递,异常信息写入errorMessage字段。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.07.25
  */
 @Slf4j
@@ -108,19 +111,29 @@ public class StockNoticeSendService {
         }
 
         Map<Long, TornStockNoticeAuditDO> noticeById = indexNoticesById(validNotices);
+        Set<Long> frozenNoticeIds = validNotices.stream()
+                .filter(this::isAlreadyFrozen)
+                .map(TornStockNoticeAuditDO::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
 
         int successCount = 0;
         int failedCount = 0;
         for (StockNoticeComposeService.ComposedMessage composedMessage : composedMessages) {
-            LocalDateTime attemptedAt = LocalDateTime.now();
-            String frozenPayload = getFrozenMessageText(composedMessage);
-            if (!finalizePayload(noticeById, composedMessage.noticeIds(), frozenPayload, attemptedAt)) {
-                failedCount++;
-                log.error("股票通知发送-最终payload冻结行数不符,停止发送本条合并消息: noticeCount={}",
-                        composedMessage.noticeIds().size());
-                continue;
+            // 已冻结通知重启投递不得再次冻结,避免覆盖首次冻结的payloadSnapshot/payloadHash/frozenAt/attemptedAt
+            boolean allAlreadyFrozen = !composedMessage.noticeIds().isEmpty()
+                    && frozenNoticeIds.containsAll(composedMessage.noticeIds());
+            if (!allAlreadyFrozen) {
+                LocalDateTime attemptedAt = LocalDateTime.now();
+                String frozenPayload = getFrozenMessageText(composedMessage);
+                if (!finalizePayload(noticeById, composedMessage.noticeIds(), frozenPayload, attemptedAt)) {
+                    failedCount++;
+                    log.error("股票通知发送-最终payload冻结行数不符,停止发送本条合并消息: noticeCount={}",
+                            composedMessage.noticeIds().size());
+                    continue;
+                }
             }
-            SendResult sendResult = sendMessage(frozenPayload);
+            SendResult sendResult = sendMessage(composedMessage.text());
             if (sendResult.success()) {
                 successCount++;
                 markNoticesSent(composedMessage.noticeIds());
@@ -144,7 +157,12 @@ public class StockNoticeSendService {
     }
 
     /**
-     * 组合尚未冻结的通知，并复用进程中断前已经冻结的通知文本。
+     * 组合尚未冻结的通知,并复用进程中断前已经冻结的通知文本。
+     * <p>
+     * 已冻结通知判定要求payload快照同时存在有效的{@code messageText}与{@code frozenAt}:
+     * 已冻结通知按原冻结文本分组直接发送,不进入重新组合;
+     * 未冻结通知调用 {@link StockNoticeComposeService#composeAndMergeNotices} 重新组合。
+     * 两种通知不会被混合到同一条消息后再次冻结。
      *
      * @param notices  有效待发送通知
      * @param batchMap 批次索引
@@ -156,10 +174,10 @@ public class StockNoticeSendService {
         Map<String, List<Long>> frozenNoticeIdsByText = new LinkedHashMap<>();
         List<TornStockNoticeAuditDO> noticesToCompose = new ArrayList<>();
         for (TornStockNoticeAuditDO notice : notices) {
-            String frozenText = extractFrozenMessageText(notice.getPayloadSnapshot());
-            if (frozenText == null || frozenText.isBlank()) {
+            if (!isAlreadyFrozen(notice)) {
                 noticesToCompose.add(notice);
             } else {
+                String frozenText = extractFrozenMessageText(notice.getPayloadSnapshot());
                 frozenNoticeIdsByText.computeIfAbsent(frozenText, ignored -> new ArrayList<>())
                         .add(notice.getId());
             }
@@ -170,6 +188,29 @@ public class StockNoticeSendService {
                 messages.add(new StockNoticeComposeService.ComposedMessage(noticeIds, text)));
         messages.addAll(stockNoticeComposeService.composeAndMergeNotices(noticesToCompose, batchMap));
         return messages;
+    }
+
+    /**
+     * 判断通知是否已完成首次payload冻结。
+     * <p>
+     * 冻结完成的标志是payload快照同时存在有效{@code messageText}与{@code frozenAt}。
+     * 仅存在messageText而缺少frozenAt时不算已冻结,必须重新冻结。
+     *
+     * @param notice 通知审计DO
+     * @return 已冻结返回true;否则false
+     */
+    private boolean isAlreadyFrozen(TornStockNoticeAuditDO notice) {
+        if (notice == null || notice.getPayloadSnapshot() == null || notice.getPayloadSnapshot().isBlank()) {
+            return false;
+        }
+        com.fasterxml.jackson.databind.JsonNode textNode =
+                JsonUtils.getNode(notice.getPayloadSnapshot(), "messageText");
+        if (textNode == null || textNode.isNull() || textNode.asText().isBlank()) {
+            return false;
+        }
+        com.fasterxml.jackson.databind.JsonNode frozenAtNode =
+                JsonUtils.getNode(notice.getPayloadSnapshot(), "frozenAt");
+        return frozenAtNode != null && !frozenAtNode.isNull() && !frozenAtNode.asText().isBlank();
     }
 
     /**
