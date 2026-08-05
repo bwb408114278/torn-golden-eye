@@ -5,6 +5,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
@@ -54,7 +56,7 @@ public class TornFactionOcManager {
         deleteOcData(factionId, validOcIdList);
 
         if (TornConstants.REASSIGN_OC_FACTION.contains(factionId)) {
-            virtualThreadExecutor.execute(() -> ocBatchIncomeService.batchCalculateIncome(factionId, execTime));
+            registerIncomeTriggerAfterCommit(factionId, execTime);
         }
     }
 
@@ -223,6 +225,28 @@ public class TornFactionOcManager {
                     .eq(TornFactionOcSlotDO::getId, execSlot.getId())
                     .update();
         }
+    }
+
+    /**
+     * 在事务提交成功后异步触发该帮派的批量收益计算。
+     *
+     * <p>收益计算必须在OC数据事务提交后才能触发，否则异步任务可能查询到未提交的数据；
+     * 同帮派计算运行中的新触发由批量服务合并为一次最终重跑，避免最后一页历史OC丢触发。</p>
+     *
+     * @param factionId 帮派ID
+     * @param execTime  执行时间
+     */
+    private void registerIncomeTriggerAfterCommit(long factionId, LocalDateTime execTime) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            virtualThreadExecutor.execute(() -> ocBatchIncomeService.requestBatchIncome(factionId, execTime));
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                virtualThreadExecutor.execute(() -> ocBatchIncomeService.requestBatchIncome(factionId, execTime));
+            }
+        });
     }
 
     /**

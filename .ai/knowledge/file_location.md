@@ -34,6 +34,7 @@
 │       │   ├── vip_stock_virtual_portfolio_strategy.md                         # 系统虚拟组合完整业务设计与开发主依据
 │       │   └── virtual_portfolio_research_evidence.md                          # 交易参考、冻结策略、组合与风格门禁研究证据
 │       ├── activity_heatmap_design.md                                          # 活跃度热力图完整设计、数据口径与固定RGB色板
+│       ├── oc_reassign_range_technical_design.md                               # PN/NOV大锅饭OC范围、生效边界、校准补算与收益查询技术方案
 │       └── automated_build_deployment_pipeline_design.md                       # 自动流水线构建部署设计方案
 ├── build/                                                                      # 构建项目镜像需要的文件
 │   └── docker-compose.yml                                                      # Docker compose启动文件

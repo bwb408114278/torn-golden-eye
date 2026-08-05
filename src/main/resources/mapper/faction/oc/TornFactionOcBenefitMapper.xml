@@ -19,6 +19,21 @@
         </choose>
     </sql>
 
+    <!-- 大锅饭普通收益排除片段：排除满足任一规则（帮派+名单+生效时间）的普通收益 -->
+    <sql id="reassignOrdinaryBenefitExclusion">
+        <foreach collection="query.factionOcExclusions" item="rule" separator="OR">
+            (b.faction_id = #{rule.factionId}
+            AND b.oc_name IN
+            <foreach collection="rule.ocList" item="oc" open="(" close=")" separator=",">
+                #{oc}
+            </foreach>
+            <if test="rule.effectiveFrom != null">
+                AND b.oc_finish_time &gt;= #{rule.effectiveFrom}
+            </if>
+            )
+        </foreach>
+    </sql>
+
     <!-- 大锅饭收益数据源 -->
     <sql id="reassignBenefitDataSource">
         SELECT s.user_id, s.faction_id,
@@ -34,18 +49,23 @@
 
         SELECT b.user_id, b.faction_id, b.item_cost, b.net_reward
         FROM torn_faction_oc_benefit b
-        WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate} AND (
-        <foreach collection="query.factionOcExclusions" item="exclusion" separator="OR">
-            (b.faction_id = #{exclusion.factionId}
-            <if test="exclusion.ocList != null and exclusion.ocList.size() > 0">
-                AND b.oc_name NOT IN
-                <foreach collection="exclusion.ocList" item="oc" open="(" close=")" separator=",">
-                    #{oc}
+        WHERE b.deleted = 0 AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate}
+        <choose>
+            <when test="query.factionId > 0">
+                AND b.faction_id = #{query.factionId}
+            </when>
+            <otherwise>
+                AND b.faction_id IN
+                <foreach collection="query.reassignFactionList" item="item" open="(" close=")" separator=",">
+                    #{item}
                 </foreach>
-            </if>
+            </otherwise>
+        </choose>
+        <if test="query.factionOcExclusions != null and query.factionOcExclusions.size() > 0">
+            AND NOT (
+            <include refid="reassignOrdinaryBenefitExclusion"/>
             )
-        </foreach>
-        )
+        </if>
     </sql>
 
     <!-- 查询OC收益排行榜 -->
@@ -115,5 +135,21 @@
         SELECT * FROM base_benefit
         WHERE SUBSTRING(LPAD(user_id::TEXT, 7, '0'), 1, 3) = SUBSTRING(LPAD(#{query.userId}::TEXT, 7, '0'), 1, 3)
         ORDER BY benefit DESC
+    </select>
+
+    <!-- 查询用户个人普通OC收益明细 -->
+    <select id="queryPersonalBenefitList"
+            resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO">
+        SELECT b.*
+        FROM torn_faction_oc_benefit b
+        WHERE b.deleted = 0
+        AND b.user_id = #{query.userId}
+        AND b.oc_finish_time BETWEEN #{query.fromDate} AND #{query.toDate}
+        <if test="query.factionOcExclusions != null and query.factionOcExclusions.size() > 0">
+            AND NOT (
+            <include refid="reassignOrdinaryBenefitExclusion"/>
+            )
+        </if>
+        ORDER BY b.oc_finish_time DESC
     </select>
 </mapper>

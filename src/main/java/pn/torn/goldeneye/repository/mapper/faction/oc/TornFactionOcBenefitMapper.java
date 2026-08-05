@@ -14,7 +14,7 @@ import java.util.List;
  * OC收益数据库访问层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.12
  * @since 2025.09.10
  */
 @Mapper
@@ -42,4 +42,14 @@ public interface TornFactionOcBenefitMapper extends BaseMapper<TornFactionOcBene
      * @return 排行榜列表
      */
     List<TornFactionOcBenefitRankDO> queryCohortBenefitRanking(@Param("query") OcBenefitRankingQuery query);
+
+    /**
+     * 查询用户个人普通OC收益明细。
+     *
+     * <p>与排行榜共用同一大锅饭普通收益排除规则，确保个人明细与排行榜的日期边界一致。</p>
+     *
+     * @param query 个人收益明细查询参数，需包含用户ID、时间范围和帮派排除规则
+     * @return 普通收益明细列表
+     */
+    List<TornFactionOcBenefitDO> queryPersonalBenefitList(@Param("query") OcBenefitRankingQuery query);
 }

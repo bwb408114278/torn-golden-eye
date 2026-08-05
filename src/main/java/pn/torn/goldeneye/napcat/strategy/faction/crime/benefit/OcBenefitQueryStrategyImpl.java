@@ -12,7 +12,6 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
-import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
@@ -20,6 +19,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
+import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcIncomeService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.ImageCompositor;
@@ -28,23 +28,25 @@ import pn.torn.goldeneye.utils.image.TextImageUtils;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * OC收益查询实现类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.2.12
  * @since 2025.08.20
  */
 @Component
 @RequiredArgsConstructor
 public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
+    private final TornOcIncomeService incomeService;
     private final TornFactionOcBenefitDAO benefitDao;
-    private final TornFactionOcIncomeDAO incomeDao;
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
 
     @Override
@@ -89,52 +91,98 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 查询OC相关数据
+     * 查询OC相关数据。
+     *
+     * <p>个人大锅饭income与summary查询不受用户当前所属帮派限制：用户可能已更换或退出大锅饭帮派，
+     * 指定月份必须保留其全部历史帮派的大锅饭收益，空结果自然返回空列表/{@code null}。普通收益
+     * 明细由记录自身的帮派、OC名称与完成时间决定是否排除，同样不锁定当前帮派。</p>
      */
     private OcDataResult queryOcData(TornUserDO user, DateRange dateRange) {
-        boolean shouldCalcReassign = TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId());
-        List<TornFactionOcIncomeDO> incomeList = shouldCalcReassign ?
-                queryIncomeList(user.getId(), dateRange) : List.of();
-        TornFactionOcIncomeSummaryDO incomeSummary = shouldCalcReassign ?
-                queryIncomeSummary(user.getId(), dateRange.toDate()) : null;
-        List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user, dateRange, shouldCalcReassign);
+        List<TornFactionOcIncomeDO> incomeList = queryIncomeList(user.getId(), dateRange);
+        TornFactionOcIncomeSummaryDO incomeSummary = queryIncomeSummary(user.getId(), dateRange.toDate());
+        List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user, dateRange);
         return new OcDataResult(incomeList, incomeSummary, benefitList);
     }
 
     /**
-     * 查询收入列表
+     * 查询收入列表。
+     *
+     * <p>个人大锅饭明细按“结算叶子完成月份”查询，与月度汇总口径一致：找出目标月份完成的
+     * 全部结算叶子，批量回溯整条链节点，再按用户ID返回这些链节点的全部income。跨月链父节点
+     * 参与人的income虽然按父节点自身时间存储，但会随叶子月份一并返回，覆盖用户当月参与过的
+     * 全部帮派，不锁定当前帮派。</p>
      */
     private List<TornFactionOcIncomeDO> queryIncomeList(Long userId, DateRange dateRange) {
-        return incomeDao.lambdaQuery()
-                .eq(TornFactionOcIncomeDO::getUserId, userId)
-                .between(TornFactionOcIncomeDO::getOcExecutedTime, dateRange.fromDate(), dateRange.toDate())
-                .orderByDesc(TornFactionOcIncomeDO::getOcExecutedTime)
-                .list();
+        String yearMonth = dateRange.toDate().format(DateTimeUtils.YEAR_MONTH_FORMATTER);
+        return incomeService.queryUserIncomeBySettlementMonth(userId, yearMonth);
     }
 
     /**
-     * 查询收入汇总
+     * 查询收入汇总。
+     *
+     * <p>同一用户可能在同月更换帮派，真实数据库允许同一用户同月存在多条不同帮派summary。
+     * 此处查询该用户指定月份的全部summary记录并跨帮派聚合，不再调用单对象{@code one()}查询，
+     * 避免锁定当前帮派或抛出TooManyResults。</p>
      */
     private TornFactionOcIncomeSummaryDO queryIncomeSummary(Long userId, LocalDateTime toDate) {
         String yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
-        return incomeSummaryDao.lambdaQuery()
+        List<TornFactionOcIncomeSummaryDO> summaries = incomeSummaryDao.lambdaQuery()
                 .eq(TornFactionOcIncomeSummaryDO::getUserId, userId)
                 .eq(TornFactionOcIncomeSummaryDO::getYearMonth, yearMonth)
-                .one();
+                .list();
+        if (CollectionUtils.isEmpty(summaries)) {
+            return null;
+        }
+        return aggregateIncomeSummary(summaries);
     }
 
     /**
-     * 查询收益列表
+     * 聚合用户同一月份全部历史帮派的收益汇总。
+     *
+     * <p>对多个帮派的汇总记录按数值字段求和，生成一条跨帮派汇总，供个人收益展示使用。</p>
+     *
+     * @param summaries 同一用户同一月份的全部帮派汇总
+     * @return 跨帮派聚合后的汇总记录
      */
-    private List<TornFactionOcBenefitDO> queryBenefitList(TornUserDO user, DateRange dateRange,
-                                                          boolean shouldCalcReassign) {
-        return benefitDao.lambdaQuery()
-                .eq(TornFactionOcBenefitDO::getUserId, user.getId())
-                .between(TornFactionOcBenefitDO::getOcFinishTime, dateRange.fromDate(), dateRange.toDate())
-                .notIn(shouldCalcReassign, TornFactionOcBenefitDO::getOcName,
-                        TornConstants.ROTATION_OC_NAME.get(user.getFactionId()))
-                .orderByDesc(TornFactionOcBenefitDO::getOcFinishTime)
-                .list();
+    private TornFactionOcIncomeSummaryDO aggregateIncomeSummary(List<TornFactionOcIncomeSummaryDO> summaries) {
+        TornFactionOcIncomeSummaryDO combined = new TornFactionOcIncomeSummaryDO();
+        combined.setUserId(summaries.getFirst().getUserId());
+        combined.setYearMonth(summaries.getFirst().getYearMonth());
+        combined.setTotalEffectiveHours(summaries.stream()
+                .map(TornFactionOcIncomeSummaryDO::getTotalEffectiveHours)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        combined.setTotalItemCost(summaries.stream()
+                .mapToLong(s -> s.getTotalItemCost() == null ? 0L : s.getTotalItemCost())
+                .sum());
+        combined.setTotalReward(summaries.stream()
+                .mapToLong(s -> s.getTotalReward() == null ? 0L : s.getTotalReward())
+                .sum());
+        combined.setNetReward(summaries.stream()
+                .mapToLong(s -> s.getNetReward() == null ? 0L : s.getNetReward())
+                .sum());
+        combined.setFinalIncome(summaries.stream()
+                .mapToLong(s -> s.getFinalIncome() == null ? 0L : s.getFinalIncome())
+                .sum());
+        combined.setOcCount(summaries.stream()
+                .mapToInt(s -> s.getOcCount() == null ? 0 : s.getOcCount())
+                .sum());
+        combined.setSuccessOcCount(summaries.stream()
+                .mapToInt(s -> s.getSuccessOcCount() == null ? 0 : s.getSuccessOcCount())
+                .sum());
+        return combined;
+    }
+
+    /**
+     * 查询普通收益列表，与排行榜共用统一的大锅饭排除规则。
+     *
+     * <p>加载全部大锅饭帮派的排除规则，由每条普通收益自身的帮派、OC名称和完成时间决定是否
+     * 排除，覆盖用户当月参与过的全部历史帮派，不锁定当前帮派。</p>
+     */
+    private List<TornFactionOcBenefitDO> queryBenefitList(TornUserDO user, DateRange dateRange) {
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(),
+                dateRange.fromDate(), dateRange.toDate());
+        return benefitDao.queryPersonalBenefitList(query);
     }
 
     /**
@@ -364,13 +412,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
          * 获取收入表表头
          */
         public List<String> getIncomeHeaders() {
-            List<String> headers = new ArrayList<>();
-            headers.add("OC名称");
-            headers.add("等级");
-            headers.add("状态");
-            headers.add("完成时间");
-            headers.add("岗位");
-            headers.add("成功率");
+            List<String> headers = createCommonHeaders();
             headers.add("准备天数");
 
             if (shouldShowCoefficientColumns()) {
@@ -385,13 +427,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
          * 获取收益表表头
          */
         public List<String> getBenefitHeaders() {
-            List<String> headers = new ArrayList<>();
-            headers.add("OC名称");
-            headers.add("等级");
-            headers.add("状态");
-            headers.add("完成时间");
-            headers.add("岗位");
-            headers.add("成功率");
+            List<String> headers = createCommonHeaders();
             headers.add("收益");
 
             // 填充剩余列
@@ -400,6 +436,22 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
                 headers.add("");
             }
 
+            return headers;
+        }
+
+        /**
+         * 创建收入表与收益表共用的前六个表头列。
+         *
+         * @return 包含OC名称、等级、状态、完成时间、岗位、成功率的新表头列表
+         */
+        private List<String> createCommonHeaders() {
+            List<String> headers = new ArrayList<>();
+            headers.add("OC名称");
+            headers.add("等级");
+            headers.add("状态");
+            headers.add("完成时间");
+            headers.add("岗位");
+            headers.add("成功率");
             return headers;
         }
     }
