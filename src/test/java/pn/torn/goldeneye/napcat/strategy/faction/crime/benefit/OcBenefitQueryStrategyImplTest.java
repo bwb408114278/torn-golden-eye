@@ -25,7 +25,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 
@@ -129,7 +128,7 @@ class OcBenefitQueryStrategyImplTest {
         Long userId = 8809004L;
         // 历史大锅饭明细由生产收入服务按结算月份返回，即使当前用户已不在大锅饭帮派
         doReturn(List.of(buildIncome(userId))).when(incomeService)
-                .queryUserIncomeBySettlementMonth(userId, eq("2026-08"));
+                .queryUserIncomeBySettlementMonth(userId, "2026-08");
         // 历史大锅饭summary真实插入（PN 2026-08）
         insertSummary(userId, TornConstants.FACTION_PN_ID, "2026-08", 1000L);
 
