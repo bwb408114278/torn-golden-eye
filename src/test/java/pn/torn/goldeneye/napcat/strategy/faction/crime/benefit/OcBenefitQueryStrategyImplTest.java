@@ -11,10 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.FactionOcExclusion;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
+import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcIncomeService;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -23,6 +25,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -44,6 +48,8 @@ class OcBenefitQueryStrategyImplTest {
     private OcBenefitQueryStrategyImpl strategy;
     @MockitoSpyBean
     private TornFactionOcBenefitDAO benefitDao;
+    @MockitoSpyBean
+    private TornOcIncomeService incomeService;
     @Autowired
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
 
@@ -115,6 +121,32 @@ class OcBenefitQueryStrategyImplTest {
         assertEquals(3000L, combined.getFinalIncome());
     }
 
+    @Test
+    @Transactional
+    @Rollback
+    @DisplayName("当前普通帮派用户不会在策略入口被跳过历史大锅饭income与summary")
+    void queryOcData_ordinaryFactionUser_returnsHistoricalPotData() throws Exception {
+        Long userId = 8809004L;
+        // 历史大锅饭明细由生产收入服务按结算月份返回，即使当前用户已不在大锅饭帮派
+        doReturn(List.of(buildIncome(userId))).when(incomeService)
+                .queryUserIncomeBySettlementMonth(userId, eq("2026-08"));
+        // 历史大锅饭summary真实插入（PN 2026-08）
+        insertSummary(userId, TornConstants.FACTION_PN_ID, "2026-08", 1000L);
+
+        TornUserDO user = new TornUserDO();
+        user.setId(userId);
+        user.setFactionId(9999L);
+        LocalDateTime from = LocalDateTime.of(2026, 8, 1, 0, 0, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 8, 31, 23, 59, 59);
+
+        Object result = invokeQueryOcData(user, from, to);
+
+        List<?> incomeList = (List<?>) result.getClass().getMethod("getIncomeList").invoke(result);
+        Object summary = result.getClass().getMethod("getIncomeSummary").invoke(result);
+        assertFalse(incomeList.isEmpty());
+        assertNotNull(summary);
+    }
+
     /**
      * 通过反射调用私有方法{@code queryBenefitList(TornUserDO, DateRange)}，
      * 其中{@code DateRange}为策略内部私有record。
@@ -148,6 +180,41 @@ class OcBenefitQueryStrategyImplTest {
         Method method = strategy.getClass().getDeclaredMethod("queryIncomeSummary", Long.class, LocalDateTime.class);
         method.setAccessible(true);
         return (TornFactionOcIncomeSummaryDO) method.invoke(strategy, userId, toDate);
+    }
+
+    /**
+     * 通过反射调用私有方法{@code queryOcData(TornUserDO, DateRange)}。
+     *
+     * @param user 用户
+     * @param from 查询开始时间
+     * @param to   查询结束时间
+     * @return 策略入口查询结果（私有{@code OcDataResult}）
+     * @throws Exception 反射异常
+     */
+    private Object invokeQueryOcData(TornUserDO user, LocalDateTime from, LocalDateTime to) throws Exception {
+        Class<?> strategyClass = strategy.getClass();
+        Class<?> dateRangeClass = Class.forName(
+                "pn.torn.goldeneye.napcat.strategy.faction.crime.benefit.OcBenefitQueryStrategyImpl$DateRange");
+        Constructor<?> dateRangeCtor = dateRangeClass.getDeclaredConstructor(LocalDateTime.class, LocalDateTime.class);
+        dateRangeCtor.setAccessible(true);
+        Object dateRange = dateRangeCtor.newInstance(from, to);
+        Method method = strategyClass.getDeclaredMethod("queryOcData", TornUserDO.class, dateRangeClass);
+        method.setAccessible(true);
+        return method.invoke(strategy, user, dateRange);
+    }
+
+    /**
+     * 构造一条测试用大锅饭income明细，供收入服务桩返回。
+     *
+     * @param userId 用户ID
+     * @return 测试income记录
+     */
+    private TornFactionOcIncomeDO buildIncome(Long userId) {
+        TornFactionOcIncomeDO income = new TornFactionOcIncomeDO();
+        income.setFactionId(TornConstants.FACTION_PN_ID);
+        income.setOcId(9900001L);
+        income.setUserId(userId);
+        return income;
     }
 
     /**

@@ -91,14 +91,15 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 查询OC相关数据
+     * 查询OC相关数据。
+     *
+     * <p>个人大锅饭income与summary查询不受用户当前所属帮派限制：用户可能已更换或退出大锅饭帮派，
+     * 指定月份必须保留其全部历史帮派的大锅饭收益，空结果自然返回空列表/{@code null}。普通收益
+     * 明细由记录自身的帮派、OC名称与完成时间决定是否排除，同样不锁定当前帮派。</p>
      */
     private OcDataResult queryOcData(TornUserDO user, DateRange dateRange) {
-        boolean shouldCalcReassign = TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId());
-        List<TornFactionOcIncomeDO> incomeList = shouldCalcReassign ?
-                queryIncomeList(user.getId(), dateRange) : List.of();
-        TornFactionOcIncomeSummaryDO incomeSummary = shouldCalcReassign ?
-                queryIncomeSummary(user.getId(), dateRange.toDate()) : null;
+        List<TornFactionOcIncomeDO> incomeList = queryIncomeList(user.getId(), dateRange);
+        TornFactionOcIncomeSummaryDO incomeSummary = queryIncomeSummary(user.getId(), dateRange.toDate());
         List<TornFactionOcBenefitDO> benefitList = queryBenefitList(user, dateRange);
         return new OcDataResult(incomeList, incomeSummary, benefitList);
     }
