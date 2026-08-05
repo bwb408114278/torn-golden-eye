@@ -4,19 +4,19 @@
 
 - 文档类型：技术设计与实施依据
 - 适用项目：Golden-Eye
-- 适用版本：1.2.12及以上
+- 适用版本：1.2.13及以上
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 设计状态：第九轮修复实施基线（技术方案已修订，待用户确认后由工程师实施）
-- 当前实现基线：`d9bd257fb1be9b88a0b1ec5cb1142cafcf288533`
-- 技术验收状态：未通过；仅允许继续Shadow，正式买卖提醒保持关闭
+- 设计状态：第十二轮实现已通过代码Review；当前最终技术实施基线
+- 当前实现基线：`53f52080e1b6698f07e5983e429c0af6a68aa8e4`
+- 技术验收状态：代码P0/P1通过；仅允许继续Shadow，正式买卖提醒保持关闭
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后修订日期：2026-08-01
+- 最后修订日期：2026-08-05
 
-本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
+本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
-当前代码已完成主体功能，但第八轮Review确认灾难关闭账实原子性、管理关闭审计、通知最终快照和存量持仓开关语义仍未满足本文最终设计。第九轮工程师必须以本文修订后的契约为准修复代码和测试，不得以当前实现反向覆盖本文。
+最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review的P0/P1通过后，由AI技术专家根据已验证实现更新本文的基线、状态和验收记录。第十二轮已完成此前账实原子性、管理关闭审计、最终payload、存量门禁、启动补偿顺序和冻结PENDING通知审计的直接代码修复。
 
 > 本文冻结的实施资金口径为5槽、每槽初始20亿、总初始资金100亿。该口径是用户在技术方案审核阶段对原研究口径“每槽4亿”的明确覆盖。历史研究收益基于每槽4亿，正式实施前必须按每槽20亿重新执行整数股数、余款现金和逐bar净值回放。
 
@@ -1179,12 +1179,12 @@ slot_status = AVAILABLE
 1. 将payload解析为JsonNode
 2. Object字段按UTF-8字典序递归排序
 3. Array保持业务顺序，不排序
-4. 数值使用Jackson标准JSON数值，不转科学计数法字符串；时间字段预先使用ISO-8601字符串
+4. 所有JSON数值转为`BigDecimal`精确十进制语义，按`stripTrailingZeros()`归一并以plain十进制唯一输出；例如`1.00 → 1`、`1e+2 → 100`；时间字段预先使用ISO-8601字符串
 5. 不输出空白和换行
 6. SHA-256(canonicalJson UTF-8 bytes)，输出64位小写十六进制
 ```
 
-应新增无状态工具`StockNoticePayloadCanonicalizer`或等价私有组件，创建payload、发送前合并和审计复核统一调用，禁止各处自行拼接JSON。数据库读取`payload_snapshot`后重新规范化，必须得到相同hash。
+`StockNoticePayloadCanonicalizer`统一用于创建payload、发送前合并和审计复核，禁止各处自行拼接JSON。数据库读取`payload_snapshot`后重新规范化，必须得到相同hash。
 
 BUY最少字段：
 
@@ -1225,6 +1225,7 @@ staleExitDurationSeconds
 - 对每条通知分别生成最终JSON和hash；因此DAO/Mapper改为接收`List<NoticePayloadFinalizeCommand>`逐条批量更新，不能继续用一份payload覆盖一组通知；
 - `NoticePayloadFinalizeCommand`至少包含`noticeId/payloadSnapshot/payloadHash/attemptedAt`，可用record并补齐Javadoc；
 - 最终payload冻结成功后才调用Bot。冻结UPDATE影响行数必须等于通知数，否则停止本条合并消息发送并将错误上抛/记录为FAILED，禁止发送不可审计消息；
+- 若PENDING通知的已持久化payload同时包含有效`messageText/frozenAt`，视为已冻结：重启后按原冻结文本分组直接发送，不重新组合，不调用`finalizePayload`，不得覆盖`payloadSnapshot/payloadHash`或payload内`frozenAt`；
 - 本期仍不建设自动重试，`sendAttemptCount`只在实际Bot调用结果落库时增加，不在单纯冻结payload时增加。
 
 ### 9.12 表关系
@@ -1353,14 +1354,22 @@ marketRound
 
 ### 11.3 启动补偿
 
-应用启动后：
+应用启动后，先独立验证5槽完整性和初始化月度状态。存在轮次构建或拒绝观察义务时，启动入口必须与定时入口复用同一JVM内`AtomicBoolean`：
 
-1. 读取最后一个`COMPLETED`轮次；
-2. 从下一15分钟桶开始补算至当前已经结束的桶；
-3. 按bar、特征、轮次顺序处理；
-4. `ENTRY_PENDING`恢复时必须重新检查`staleAt`；
-5. 晚于`staleAt`的历史买入不补发；
-6. 已完成轮次不重复执行。
+```text
+compareAndSet(false, true)成功
+→ 读取最后一个COMPLETED轮次，从下一15分钟桶补算至当前已经结束桶
+→ processPendingRounds按bar、特征、轮次顺序处理非完成轮次
+→ resolveAllDueObservations结算到期拒绝观察
+→ finally释放processing
+```
+
+约束：
+
+- 历史重建失败不阻断待处理轮次尝试；单个待处理轮次失败转`FAILED_RETRYABLE`且不阻断后续轮次；
+- `ENTRY_PENDING`恢复时重新检查`staleAt`，晚于`staleAt`不补发买入；已完成轮次不重复执行；
+- 拒绝观察的`resolvedAt`不可逆；必须在可补理论入场bar已经尝试构建后，才可写`NO_THEORETICAL_ENTRY`；
+- 抢占失败说明已有轮次流程在执行，启动补偿不得并发处理轮次或拒绝观察；PENDING通知投递仍可由正式消息开关独立处理。
 
 ### 11.4 每日摘要
 
@@ -2050,23 +2059,31 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 
 ---
 
-## 20. 下一轮工程师实施检查清单
+## 20. 第十二轮代码验收记录与后续运营清单
 
-- [x] 主体15分钟bar、特征、5槽、Shadow和通知框架已存在；本轮不重复建设。
-- [x] RANGE不可评估转`DATA_STALE`的规则层实现已存在；本轮补真实编排测试。
-- [ ] 明确核实股票changeSet是否在正式环境执行，决定改写原changelog或追加changeSet，并记录证据。
-- [ ] 为虚拟批次新增5个管理关闭审计字段及约束，Liquibase每列均有准确中文remarks。
-- [ ] 更新DO字段和状态/原因Javadoc，禁止继续使用旧`TAKE_PROFIT/STOP_LOSS`示例。
-- [ ] 抽取正式批次—槽位一致性校验，正常SELL与灾难关闭共用资金结算逻辑。
-- [ ] 正式批次缺字段、缺槽位、绑定错误、状态错误、余款不一致时抛异常回滚。
-- [ ] 影子批次必须显式`UNLIMITED_SHADOW`，未知ledgerType不得进入结算。
-- [ ] 灾难关闭持久化完整审计字段并使用48小时冷却、`resetObserved=false`。
-- [ ] 通知payload采用合并模式，最终hash对应完整最终JSON；禁止覆盖创建时业务字段。
-- [ ] 新增`VIP_STOCK_NEW_ENTRY_ENABLED`并按缺失=false处理；存量批次管理不得被总开关或RULE_MODE阻断。
-- [ ] 定时入口和启动补偿共用同一开关判定服务/方法，避免双套判断。
-- [ ] 完成规则层、服务层、真实编排层、通知链和隔离PostgreSQL测试。
-- [ ] 先完成Sonar/IDEA/Javadoc/Liquibase Schema清理，再运行聚焦、股票包和全量测试。
-- [ ] 更新本技术方案“当前实现基线/技术验收状态”，确保最终文档与代码一致后再提交Review。
+第十二轮被审基线：
+
+```text
+53f52080e1b6698f07e5983e429c0af6a68aa8e4
+```
+
+代码Review已确认：
+
+- [x] 正式灾难关闭与正常SELL共用正式槽位一致性校验和资金结算；异常fail-closed并回滚。
+- [x] 管理关闭字段、48小时冷却、`resetObserved=false`、最终`ADMIN_CLOSED`信号状态均已实现。
+- [x] 影子账本显式`UNLIMITED_SHADOW`；未知账本类型不按正式账本推断。
+- [x] 通知保留创建时业务字段；未冻结通知逐条冻结最终payload/hash，已冻结PENDING重启后不二次冻结。
+- [x] `VIP_STOCK_NEW_ENTRY_ENABLED`缺失按false；总开关和`RULE_MODE=OFF`不遗弃存量批次或拒绝观察。
+- [x] 定时入口和启动补偿均在尝试补建待处理bar后结算拒绝观察；启动入口与定时入口复用JVM防重入标记并在`finally`释放。
+- [x] JDK 21独立worktree编译通过；4个直接相关测试类共37项通过；`git diff --check`通过。
+
+正式发布前仍需单独完成，且不因本次代码验收自动关闭：
+
+- [ ] 连续不少于20个自然日Shadow观察；
+- [ ] 每槽20亿、5槽整数股数和逐bar资金回放；
+- [ ] 当前HEAD隔离PostgreSQL可归属验证证据；
+- [ ] 状态机、数据库、审计和消息数量运营门禁；
+- [ ] 正式群发布单独审批。
 
 ---
 
