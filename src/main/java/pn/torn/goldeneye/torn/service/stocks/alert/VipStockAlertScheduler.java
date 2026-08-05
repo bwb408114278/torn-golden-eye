@@ -35,12 +35,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <ol>
  *   <li>验证VIP组合槽位完整性</li>
  *   <li>初始化当月风格/成熟度/风险草稿记录</li>
- *   <li>从最后已完成轮次之后重建历史bar与特征至当前已结束桶</li>
- *   <li>重建完成后调用 {@link #processPendingRounds(boolean)} 处理未完成轮次,
- *       先补建可能积压的理论入场bar,再结算到期拒绝观察,避免理论入场bar缺失被误结算</li>
- *   <li>存在未结算拒绝观察时调用 {@link StockRejectedObservationService#resolveAllDueObservations(java.time.LocalDateTime)}</li>
+ *   <li>存在轮次构建或研究义务时,与定时入口复用同一JVM防重入标记抢占处理权</li>
+ *   <li>抢占成功后在同一try/finally内执行历史重建、未完成轮次处理与拒绝观察结算,
+ *       finally释放标记,确保启动补偿真实补建bar</li>
  * </ol>
- * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续。
+ * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续;通知投递保持独立语义。
  *
  * @author Bai
  * @version 1.2.13
@@ -189,6 +188,9 @@ public class VipStockAlertScheduler {
      * 非生产环境直接返回。读取 {@link StockAlertRuntimeGate} 运行时门禁:
      * 总开关关闭但存在活跃批次或未结算拒绝观察时,仍执行历史重建、未完成轮次处理与
      * 研究义务结算,但新买入被禁止;历史PENDING通知由正式消息开关独立决定投递。
+     * 存在轮次构建或研究义务时,必须与定时入口复用同一JVM防重入标记:抢占成功后在
+     * 同一try/finally内执行,finally释放标记,避免启动补偿因防重入标记未持有导致真实
+     * 待处理轮次被跳过;抢占失败说明已有轮次流程在执行,不得并发处理,通知投递保持独立。
      * 依次执行(每步独立try-catch,单步失败不阻塞后续):
      * <ol>
      *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位</li>
@@ -209,50 +211,117 @@ public class VipStockAlertScheduler {
         log.info("VIP股票策略调度-启动补偿开始, shouldBuildRounds={}, allowNewEntry={}, shouldSendPendingNotices={}",
                 decision.shouldBuildRounds(), decision.allowNewEntry(), decision.shouldSendPendingNotices());
 
+        verifyPortfolioSlotsSafely();
+        initCurrentMonthSafely();
+        processStartupRoundWork(decision);
+        sendStartupPendingNoticesSafely(decision);
+
+        log.info("VIP股票策略调度-启动补偿完成");
+    }
+
+    /**
+     * 验证VIP组合槽位完整性,失败仅记录日志不阻塞后续步骤。
+     */
+    private void verifyPortfolioSlotsSafely() {
         try {
             portfolioInitService.verifyAndInitSlots();
         } catch (Exception e) {
             log.error("VIP股票策略调度-组合槽位验证失败,继续后续步骤", e);
         }
+    }
 
+    /**
+     * 初始化当月风格/成熟度/风险草稿记录,失败仅记录日志不阻塞后续步骤。
+     */
+    private void initCurrentMonthSafely() {
         try {
             monthlyStateInitService.initCurrentMonth();
         } catch (Exception e) {
             log.error("VIP股票策略调度-月度状态初始化失败,继续后续步骤", e);
         }
+    }
 
-        if (decision.shouldBuildRounds()) {
-            try {
-                LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
-                historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
-            } catch (Exception e) {
-                log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
-            }
-
-            try {
-                processPendingRounds(decision.allowNewEntry());
-            } catch (Exception e) {
-                log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
-            }
+    /**
+     * 启动补偿的轮次工作区: 存在轮次构建或研究义务时,与定时入口复用同一JVM防重入标记,
+     * 抢占成功后在统一try/finally内按顺序执行历史重建、未完成轮次处理与拒绝观察结算,
+     * finally释放标记;抢占失败说明已有轮次流程在执行,跳过补偿处理。
+     *
+     * @param decision 运行时判定结果
+     */
+    private void processStartupRoundWork(StockAlertRuntimeGate.RuntimeDecision decision) {
+        boolean needsRoundWork = decision.shouldBuildRounds() || decision.manageResearchObligations();
+        if (!needsRoundWork) {
+            return;
         }
 
-        if (decision.manageResearchObligations()) {
-            try {
-                rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
-            } catch (Exception e) {
-                log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
-            }
+        if (!processing.compareAndSet(false, true)) {
+            log.warn("VIP股票策略调度-启动补偿检测到已有轮次流程在执行,跳过轮次补偿处理");
+            return;
         }
 
-        if (decision.shouldSendPendingNotices()) {
-            try {
-                noticeSendService.sendPendingNotices();
-            } catch (Exception e) {
-                log.error("VIP股票策略调度-启动补偿投递PENDING通知失败", e);
+        try {
+            if (decision.shouldBuildRounds()) {
+                rebuildStartupHistorySafely();
+                processStartupPendingRoundsSafely(decision.allowNewEntry());
             }
+            if (decision.manageResearchObligations()) {
+                resolveStartupObservationsSafely();
+            }
+        } finally {
+            processing.set(false);
         }
+    }
 
-        log.info("VIP股票策略调度-启动补偿完成");
+    /**
+     * 从最后已完成轮次之后重建历史bar与特征,失败仅记录日志不阻塞后续步骤。
+     */
+    private void rebuildStartupHistorySafely() {
+        try {
+            LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
+            historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
+        }
+    }
+
+    /**
+     * 处理启动补偿时的未完成轮次,失败仅记录日志不阻塞拒绝观察结算。
+     *
+     * @param allowNewEntry 是否允许创建新的正式/候选影子批次
+     */
+    private void processStartupPendingRoundsSafely(boolean allowNewEntry) {
+        try {
+            processPendingRounds(allowNewEntry);
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
+        }
+    }
+
+    /**
+     * 结算到期拒绝观察,失败仅记录日志不阻塞后续步骤。
+     */
+    private void resolveStartupObservationsSafely() {
+        try {
+            rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
+        }
+    }
+
+    /**
+     * 投递启动补偿期间的历史PENDING通知,失败仅记录日志。
+     *
+     * @param decision 运行时判定结果
+     */
+    private void sendStartupPendingNoticesSafely(StockAlertRuntimeGate.RuntimeDecision decision) {
+        if (!decision.shouldSendPendingNotices()) {
+            return;
+        }
+        try {
+            noticeSendService.sendPendingNotices();
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿投递PENDING通知失败", e);
+        }
     }
 
     /**

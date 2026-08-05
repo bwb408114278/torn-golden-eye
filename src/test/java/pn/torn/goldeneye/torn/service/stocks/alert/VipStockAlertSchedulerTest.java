@@ -9,10 +9,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -197,6 +201,34 @@ class VipStockAlertSchedulerTest {
         inOrder.verifyNoMoreInteractions();
     }
 
+    @Test
+    @DisplayName("启动补偿_非空待处理轮次真实补建bar并释放防重入标记")
+    void onStartup_withNonEmptyPendingRound_buildsBarsAndReleasesProcessingFlag() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 5, 10, 0);
+        TornStockMarketRoundDO firstRound = pendingRound(1L, roundTime);
+        TornStockMarketRoundDO secondRound = pendingRound(2L, roundTime);
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, false, false));
+        when(marketClock.currentEndedBucket()).thenReturn(roundTime);
+        when(roundDao.selectPendingRoundsBefore(roundTime))
+                .thenReturn(List.of(firstRound))
+                .thenReturn(List.of(secondRound));
+        when(barBuildService.buildBars(roundTime)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(roundTime)).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        InOrder inOrder = inOrder(historyRebuildService, barBuildService, rejectedObservationService);
+        inOrder.verify(historyRebuildService).rebuildFromLastCompleted(roundTime);
+        inOrder.verify(barBuildService).buildBars(roundTime);
+        inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
+        verify(roundDao, atLeastOnce()).updateById(any());
+
+        scheduler.executeRound();
+        verify(barBuildService, times(2)).buildBars(roundTime);
+    }
+
     /**
      * 构建运行时判定结果。
      */
@@ -209,5 +241,20 @@ class VipStockAlertSchedulerTest {
                 shouldBuildRounds, manageExistingBatches, manageResearchObligations,
                 allowNewEntry, shouldSendPendingNotices, StockRuleModeEnum.SHADOW,
                 manageExistingBatches, manageResearchObligations);
+    }
+
+    /**
+     * 构建一个初始状态为PENDING的轮次记录。
+     *
+     * @param id        轮次ID
+     * @param roundTime 轮次锚定的bar时间
+     * @return 初始PENDING轮次记录
+     */
+    private TornStockMarketRoundDO pendingRound(Long id, LocalDateTime roundTime) {
+        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
+        round.setId(id);
+        round.setRoundTime(roundTime);
+        round.setRoundStatus(StockRoundStatusEnum.PENDING.getCode());
+        return round;
     }
 }
