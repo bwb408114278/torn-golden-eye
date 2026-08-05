@@ -25,8 +25,8 @@ import java.util.stream.Collectors;
  * OC批量收益计算服务（非事务门面）
  *
  * <p>负责按帮派防重入、批量查询叶子候选、批量加载链与income键进行预分类、逐条调用单链
- * 事务Worker并统计结果。本身不持有覆盖整批的事务，每个叶子在独立的REQUIRES_NEW事务中
- * 原子生成明细与汇总，避免循环提交残缺链。锁在Worker返回（事务提交/回滚完成）后于finally释放。</p>
+ * 事务Worker并统计结果。本身不持有覆盖整批的事务，每个叶子由独立Worker事务原子生成明细
+ * 与汇总，避免循环提交残缺链。锁在Worker返回（事务提交/回滚完成）后于finally释放。</p>
  *
  * @author Bai
  * @version 1.2.12

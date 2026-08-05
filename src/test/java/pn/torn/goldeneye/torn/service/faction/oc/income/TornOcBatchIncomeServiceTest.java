@@ -33,15 +33,14 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * 大锅饭OC批量收益入口集成测试。
  *
- * <p>批量门面本身不持有事务，每个叶子在独立事务Worker中提交，因此本测试不使用事务回滚，
+ * <p>批量门面本身不持有事务，每个叶子由独立Worker事务提交，因此本测试不使用事务回滚，
  * 改为在@AfterEach通过JdbcTemplate物理删除清理测试数据，确保开发库干净且不残留逻辑删除记录。
  * 同时验证链配置按名称加等级匹配、等待后继与异常部分income统计。</p>
  *
  * <p><b>为什么不能用测试级事务回滚：</b>本测试调用的{@link TornOcBatchIncomeService}按Review
- * 方案R1要求使用{@code REQUIRES_NEW}传播的独立事务Worker逐链提交。若测试方法标注
- * {@code @Transactional}让JUnit回滚，测试方法所在事务与Worker的{@code REQUIRES_NEW}事务不在同一
- * 事务边界，Worker提交后测试层回滚无法撤销其已提交的income与summary，反而留下部分数据。只有
- * 改为{@code REQUIRED}传播（违反R1独立事务验收门禁）或事务不包裹Worker时才可回滚，故此处使用
+ * 方案R1要求由独立Worker事务逐链提交，批量门面本身不持有事务。若测试方法标注
+ * {@code @Transactional}让JUnit回滚，测试方法所在事务与Worker各自持有独立事务边界，Worker
+ * 提交后测试层回滚无法撤销其已提交的income与summary，反而留下部分数据。因此这里使用
  * 物理删除保证开发库零残留。</p>
  *
  * @author Bai

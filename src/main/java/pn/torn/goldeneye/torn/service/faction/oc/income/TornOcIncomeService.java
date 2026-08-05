@@ -163,35 +163,10 @@ public class TornOcIncomeService {
      */
     public void calcMonthlyIncomeSummary(long factionId, String yearMonth) {
         // 1. 找出目标月份完成的结算叶子
-        LocalDateTime monthStart = LocalDateTime.parse(yearMonth + "-01 00:00:00",
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        LocalDateTime monthStart = parseMonthStart(yearMonth);
         LocalDateTime monthEnd = monthStart.plusMonths(1);
-        List<String> rotationList = TornConstants.ROTATION_OC_NAME.get(factionId);
         Set<OcKey> chainParentKeys = loadChainParentKeys();
-        List<TornFactionOcDO> leaves;
-        if (CollectionUtils.isEmpty(rotationList)) {
-            leaves = ocDao.lambdaQuery()
-                    .eq(TornFactionOcDO::getFactionId, factionId)
-                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
-                    .ge(TornFactionOcDO::getExecutedTime, monthStart)
-                    .lt(TornFactionOcDO::getExecutedTime, monthEnd)
-                    .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
-                    .list();
-        } else {
-            leaves = ocDao.lambdaQuery()
-                    .eq(TornFactionOcDO::getFactionId, factionId)
-                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
-                    .in(TornFactionOcDO::getName, rotationList)
-                    .ge(TornFactionOcDO::getExecutedTime, monthStart)
-                    .lt(TornFactionOcDO::getExecutedTime, monthEnd)
-                    .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
-                    .list();
-        }
-        // 排除仍在等待后继节点的成功配置链父节点，避免被误判为结算叶子
-        leaves = leaves.stream()
-                .filter(oc -> !(TornOcStatusEnum.SUCCESSFUL.getCode().equals(oc.getStatus())
-                        && chainParentKeys.contains(new OcKey(oc.getName(), oc.getRank()))))
-                .toList();
+        List<TornFactionOcDO> leaves = querySettlementLeaves(factionId, monthStart, monthEnd, chainParentKeys);
         if (CollectionUtils.isEmpty(leaves)) {
             // 该月没有结算叶子，清除可能残留的旧汇总
             purgeStaleSummaryRows(factionId, yearMonth, Set.of());
@@ -298,6 +273,93 @@ public class TornOcIncomeService {
         log.info("月度汇总重新计算完成: factionId={}, yearMonth={}, 参与人数={}, 总收益={}, 总成本={}, 净收益={}",
                 factionId, yearMonth, userRecordsMap.size(), monthlyTotalReward,
                 monthlyTotalItemCost, monthlyNetReward);
+    }
+
+    /**
+     * 查询用户在指定结算月份的大锅饭收益明细（跨帮派整链income）。
+     *
+     * <p>个人收益明细必须与月度汇总使用同一口径：数据集按“结算叶子完成月份”选择，而不是按每条
+     * 明细自身完成月份选择。本方法找出目标月份完成的所有结算叶子，批量回溯整条链节点，再按
+     * 用户ID返回这些链节点的全部income。跨月链父节点参与人的income虽然按父节点自身时间存储，
+     * 但会随叶子月份一并返回，覆盖用户当月参与过的全部帮派，不锁定当前帮派。</p>
+     *
+     * @param userId    用户ID
+     * @param yearMonth 目标年月，格式yyyy-MM
+     * @return 用户在该结算月份的全部大锅饭income明细（按完成时间倒序）
+     */
+    public List<TornFactionOcIncomeDO> queryUserIncomeBySettlementMonth(long userId, String yearMonth) {
+        LocalDateTime monthStart = parseMonthStart(yearMonth);
+        LocalDateTime monthEnd = monthStart.plusMonths(1);
+        Set<OcKey> chainParentKeys = loadChainParentKeys();
+        Set<Long> chainNodeIds = new LinkedHashSet<>();
+        for (Long factionId : TornConstants.REASSIGN_OC_FACTION) {
+            List<TornFactionOcDO> leaves = querySettlementLeaves(factionId, monthStart, monthEnd, chainParentKeys);
+            if (CollectionUtils.isEmpty(leaves)) {
+                continue;
+            }
+            Map<Long, TornFactionOcDO> nodeMap = loadAncestorNodes(factionId, leaves);
+            chainNodeIds.addAll(nodeMap.keySet());
+        }
+        if (chainNodeIds.isEmpty()) {
+            return List.of();
+        }
+        return incomeDao.lambdaQuery()
+                .eq(TornFactionOcIncomeDO::getUserId, userId)
+                .in(TornFactionOcIncomeDO::getOcId, chainNodeIds)
+                .orderByDesc(TornFactionOcIncomeDO::getOcExecutedTime)
+                .list();
+    }
+
+    /**
+     * 解析目标年月的第一天零点。
+     *
+     * @param yearMonth 年月，格式yyyy-MM
+     * @return 该月第一天零点
+     */
+    private LocalDateTime parseMonthStart(String yearMonth) {
+        return LocalDateTime.parse(yearMonth + "-01 00:00:00",
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    /**
+     * 查询目标月份内指定帮派的结算叶子OC。
+     *
+     * <p>结算叶子条件：完成状态、大锅饭名单、完成时间落在目标月份、无真实后继，且不是仍在等待
+     * 后继节点的成功配置链父节点。与批量收益候选、月度汇总共用同一叶子识别规则。</p>
+     *
+     * @param factionId       帮派ID
+     * @param monthStart      月份起点（含）
+     * @param monthEnd        月份终点（不含）
+     * @param chainParentKeys 有效链配置父节点集合，用于等待后继判断
+     * @return 结算叶子OC列表
+     */
+    private List<TornFactionOcDO> querySettlementLeaves(long factionId, LocalDateTime monthStart,
+                                                        LocalDateTime monthEnd, Set<OcKey> chainParentKeys) {
+        List<String> rotationList = TornConstants.ROTATION_OC_NAME.get(factionId);
+        List<TornFactionOcDO> leaves;
+        if (CollectionUtils.isEmpty(rotationList)) {
+            leaves = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getFactionId, factionId)
+                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                    .ge(TornFactionOcDO::getExecutedTime, monthStart)
+                    .lt(TornFactionOcDO::getExecutedTime, monthEnd)
+                    .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
+                    .list();
+        } else {
+            leaves = ocDao.lambdaQuery()
+                    .eq(TornFactionOcDO::getFactionId, factionId)
+                    .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                    .in(TornFactionOcDO::getName, rotationList)
+                    .ge(TornFactionOcDO::getExecutedTime, monthStart)
+                    .lt(TornFactionOcDO::getExecutedTime, monthEnd)
+                    .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
+                    .list();
+        }
+        // 排除仍在等待后继节点的成功配置链父节点，避免被误判为结算叶子
+        return leaves.stream()
+                .filter(oc -> !(TornOcStatusEnum.SUCCESSFUL.getCode().equals(oc.getStatus())
+                        && chainParentKeys.contains(new OcKey(oc.getName(), oc.getRank()))))
+                .toList();
     }
 
     /**

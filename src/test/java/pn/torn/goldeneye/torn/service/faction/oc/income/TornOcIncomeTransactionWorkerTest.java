@@ -40,11 +40,11 @@ import static org.mockito.Mockito.doThrow;
  * 单链事务原子回滚测试。
  *
  * <p>通过真实数据库约束故障注入验证：链明细或汇总任一环节失败，整条链的income与summary
- * 在REQUIRES_NEW事务中全部回滚，不会留下部分提交；故障清除后重试同一链成功。</p>
+ * 在独立Worker事务中全部回滚，不会留下部分提交；故障清除后重试同一链成功。</p>
  *
- * <p><b>为什么不能用测试级事务回滚：</b>本测试验证{@code REQUIRES_NEW}独立事务自身的回滚
- * 语义，若测试方法再标注{@code @Transactional}会因REQUIRES_NEW挂起外层事务而破坏被测行为。
- * 测试结束后通过JdbcTemplate物理删除测试帮派数据保证开发库零残留。</p>
+ * <p><b>为什么不能用测试级事务回滚：</b>本测试验证独立Worker事务自身的回滚
+ * 语义，若测试方法再标注{@code @Transactional}会因测试层事务与Worker各自持有独立事务边界而
+ * 破坏被测行为。测试结束后通过JdbcTemplate物理删除测试帮派数据保证开发库零残留。</p>
  *
  * @author Bai
  * @version 1.2.12

@@ -3,7 +3,6 @@ package pn.torn.goldeneye.torn.service.faction.oc.income;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
@@ -24,9 +23,10 @@ import java.util.stream.Collectors;
 /**
  * 单链收益事务Worker。
  *
- * <p>每个叶子在一个独立事务（REQUIRES_NEW）中完成链完整性校验、income完整性审计、
+ * <p>每个叶子由独立的Spring Bean代理调用，在自身事务中完成链完整性校验、income完整性审计、
  * 整链明细生成与受影响月份汇总重算，任一环节失败整链回滚，避免批量门面在大事务中循环
- * 提交残缺链。必须通过Spring代理由批量门面调用，禁止在同一Service内自调用。</p>
+ * 提交残缺链。批量门面不持有覆盖整批的事务，因此该事务方法会在每次调用时自然创建独立事务；
+ * 必须通过Spring代理由批量门面调用，禁止在同一Service内自调用。</p>
  *
  * @author Bai
  * @version 1.2.12
@@ -43,7 +43,8 @@ public class TornOcIncomeTransactionWorker {
     /**
      * 在独立事务中处理一条链，事务提交或回滚完成后才返回。
      *
-     * <p>批次查询只是候选快照，事务内会基于最新数据重新校验：叶子仍属于目标帮派、完成状态、
+     * <p>批量门面不持有事务，因此该方法的{@code @Transactional}会为每次调用创建一个独立事务。
+     * 批次查询只是候选快照，事务内会基于最新数据重新校验：叶子仍属于目标帮派、完成状态、
      * 大锅饭名单、扫描时间范围；无真实后继；链回溯完整；整链income按预期业务键完整或待计算。
      * 传入批量门面已预加载的链，事务内仅以一次受控批量查询重新确认链节点仍存在且帮派一致，
      * 不再逐节点回溯，避免查询放大。真实失败异常会穿过事务边界由批量门面捕获统计。</p>
@@ -55,7 +56,7 @@ public class TornOcIncomeTransactionWorker {
      * @param preloadedChain  批量门面已预加载的完整链（从最早祖先到叶子，含叶子自身）
      * @return 单链处理结果
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public SingleChainResult processSingleChain(long factionId, long leafOcId, LocalDateTime startTime,
                                                 Set<OcKey> chainParentKeys, List<TornFactionOcDO> preloadedChain) {
         TornFactionOcDO leaf = ocDao.getById(leafOcId);

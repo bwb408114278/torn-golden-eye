@@ -120,6 +120,29 @@ public class OcBenefitRankingQuery {
     }
 
     /**
+     * 个人普通收益明细跨帮派查询构造器。
+     *
+     * <p>加载全部大锅饭帮派的排除规则，由每条普通收益自身的{@code factionId + ocName + ocFinishTime}
+     * 决定是否排除，覆盖用户当月参与过的全部历史帮派，不锁定当前帮派。</p>
+     *
+     * @param userId   用户ID
+     * @param fromDate 查询开始时间（含）
+     * @param toDate   查询结束时间（含）
+     */
+    public OcBenefitRankingQuery(long userId, LocalDateTime fromDate, LocalDateTime toDate) {
+        this.fromDate = fromDate;
+        this.toDate = toDate;
+        this.yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
+        this.factionId = 0L;
+        this.userId = userId;
+        this.reassignFactionList = TornConstants.REASSIGN_OC_FACTION;
+        this.factionOcExclusions = loadAllFactionExclusions();
+        this.includeNormalBenefit = false;
+        this.includeReassignBenefit = false;
+        this.limit = 30;
+    }
+
+    /**
      * 展开所有大锅饭帮派的普通收益排除规则。
      *
      * @return 扁平化后的排除规则列表

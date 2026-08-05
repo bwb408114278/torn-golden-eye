@@ -38,8 +38,8 @@ import static org.mockito.Mockito.doAnswer;
  * 防重入标记在异常路径也必须在finally释放，且释放发生在Worker事务返回之后。本测试通过
  * 真实调用批量入口验证锁与事务行为，不开启事务，方便验证跨线程的提交与清理。</p>
  *
- * <p><b>为什么不能用测试级事务回滚：</b>本测试验证跨线程提交语义，Worker使用
- * {@code REQUIRES_NEW}独立事务，测试方法级{@code @Transactional}只在主线程生效且无法回滚
+ * <p><b>为什么不能用测试级事务回滚：</b>本测试验证跨线程提交语义，每个叶子由批量门面
+ * 调用独立Worker事务提交，测试方法级{@code @Transactional}只在主线程生效且无法回滚
  * 其它线程/独立事务已提交的数据；同时回滚后锁的finally释放时序也无法真实验证。因此使用
  * JdbcTemplate物理删除保证开发库零残留。</p>
  *
@@ -242,7 +242,7 @@ class TornOcBatchIncomeReentrancyTest {
 
     @Test
     @DisplayName("Worker抛异常后锁在finally释放，再次调用可正常处理同一帮派")
-    void workerException_releasesLockAndAllowsRetry() throws Exception {
+    void workerException_releasesLockAndAllowsRetry() {
         TornFactionOcDO oc = createOc(TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9, TornOcStatusEnum.SUCCESSFUL,
                 LocalDateTime.of(2026, 4, 15, 10, 0), 500000L);
         createSlot(oc.getId(), USER_ID, "Driver#1", 70, 20000L);

@@ -330,6 +330,44 @@ class TornOcIncomeServiceTest {
     }
 
     @Test
+    @DisplayName("跨月个人明细：父节点参与人按结算叶子月份可查到整链income")
+    void testQueryUserIncomeBySettlementMonth_crossMonthChain() {
+        // 跨月链：父节点3月完成、叶子4月完成，父节点参与人只参加父节点
+        TornFactionOcDO step1 = createOc(null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 3, 29, 10, 0), 0L, null);
+        TornFactionOcDO step2 = createOc(step1.getId(), TornConstants.OC_NAME_ACE_IN_THE_HOLE, 9,
+                TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 2, 15, 0), 1500000L, null);
+        createSlot(step1.getId(), USER_ID_1, "Imitator#1", 80, 80000L);
+        createSlot(step2.getId(), USER_ID_2, "Imitator#1", 75, 120000L);
+
+        incomeService.calculateAndSaveIncome(step2);
+
+        // 临时加入大锅饭帮派列表，使该测试帮派可被个人结算月份查询扫描
+        boolean added = TornConstants.REASSIGN_OC_FACTION.add(FACTION_ID);
+        try {
+            List<TornFactionOcIncomeDO> user1Income =
+                    incomeService.queryUserIncomeBySettlementMonth(USER_ID_1, "2026-04");
+            List<TornFactionOcIncomeDO> user2Income =
+                    incomeService.queryUserIncomeBySettlementMonth(USER_ID_2, "2026-04");
+
+            // 父节点参与人在叶子月份（2026-04）能看到父节点自身income，尽管父节点完成于3月
+            assertEquals(1, user1Income.size());
+            assertEquals(step1.getId(), user1Income.getFirst().getOcId());
+            // 叶子参与人看到叶子income
+            assertEquals(1, user2Income.size());
+            assertEquals(step2.getId(), user2Income.getFirst().getOcId());
+            // 跨月链的父节点月份（2026-03）不会单独返回父节点参与人明细
+            List<TornFactionOcIncomeDO> user1March =
+                    incomeService.queryUserIncomeBySettlementMonth(USER_ID_1, "2026-03");
+            assertTrue(user1March.isEmpty());
+        } finally {
+            if (added) {
+                TornConstants.REASSIGN_OC_FACTION.remove(FACTION_ID);
+            }
+        }
+    }
+
+    @Test
     @DisplayName("无岗位时总有效工时为0，生成收益抛业务异常")
     void testCalculateIncome_NoSlot_throwsBizException() {
         TornFactionOcDO oc = createOc(null, TornConstants.OC_NAME_BREAK_THE_BANK, 8, TornOcStatusEnum.SUCCESSFUL,
