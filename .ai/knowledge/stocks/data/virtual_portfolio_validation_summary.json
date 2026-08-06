@@ -101,7 +101,7 @@
       "range_upper_position30": 0.6
     },
     "dynamic": {
-      "status": "SHADOW_CANDIDATE",
+      "status": "RESEARCH_DATA_ONLY",
       "independent_of_rotation": true,
       "inputs": [
         "netReturn",
@@ -117,7 +117,23 @@
         "holdTime",
         "buyFamily"
       ],
-      "best_continuous_annualized": 0.1608
+      "best_continuous_annualized": 0.1608,
+      "executable_formula_frozen": false,
+      "shadow_decision": "NOT_EVALUATED",
+      "shadow_reason": "DYNAMIC_RULE_NOT_FROZEN",
+      "allowed_outputs": [
+        "per-bar research inputs",
+        "input coverage",
+        "missing rate",
+        "path distribution"
+      ],
+      "forbidden_outputs": [
+        "dynamic SELL suggestion",
+        "dynamic trade",
+        "CLOSED_DYNAMIC",
+        "formal state/fund/slot/notice impact"
+      ],
+      "replay_behavior": "collect inputs only; zero dynamic suggestions/trades/closes until a new rule version is frozen"
     },
     "bare_down_sequence_allowed": false
   },
@@ -208,7 +224,7 @@
   },
   "rule_status": {
     "final_buy_and_wide_lifecycle": "SHADOW_CANDIDATE",
-    "dynamic_sell": "RESEARCH_SHADOW_CANDIDATE",
+    "dynamic_sell": "RESEARCH_DATA_ONLY_FORMULA_NOT_FROZEN",
     "high_risk_hard_veto": "RESEARCH",
     "rotation": "SHADOW_CANDIDATE_DEFAULT_OFF",
     "wide_java_reversal_buy": "RETIRED_FROM_GROUP_PORTFOLIO",

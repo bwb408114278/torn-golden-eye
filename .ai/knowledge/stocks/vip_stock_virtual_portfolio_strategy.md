@@ -405,7 +405,31 @@ RANGE盈利且position30 >= 0.60 → CLOSED_RANGE
 
 ### 7.3 动态自然SELL
 
-动态SELL必须始终独立计算，首期先shadow：
+动态SELL必须始终独立于正式宽生命周期和换仓计算。但当前只有研究方向与候选输入，**没有冻结可执行公式、阈值、状态迁移或规则版本**，因此首期按`RESEARCH_DATA_ONLY`处理，而不是产生可计数的动态SELL建议：
+
+```text
+dynamicSellMode = RESEARCH_DATA_ONLY
+dynamicShadowDecision = NOT_EVALUATED
+dynamicShadowReason = DYNAMIC_RULE_NOT_FROZEN
+```
+
+该模式只允许随每个开放批次、每个可用bar记录研究事实：
+
+- 批次净收益、MFE、MAE和峰值回撤；
+- Z1、return6h、return1d、MA7/MA30；
+- position30、width30、持有时间和BUY策略族；
+- 当前bar、特征、批次及数据质量版本。
+
+不得：
+
+- 根据开发经验把下式定性结构转换成数值公式；
+- 写`SELL_DYNAMIC_STRENGTH/SELL_PROFIT_PROTECT`命中；
+- 写`CLOSED_DYNAMIC/EXIT_PENDING`；
+- 影响正式HOLD/SELL、资金、槽位、冷却、复位或通知；
+- 在日报中把研究数据采集数量展示为“动态SELL建议数”；
+- 为满足隔离回放轨道要求自行发明阈值。
+
+以下结构仅是下一版本研究假设，不是当前可执行规则：
 
 ```text
 dynamicTarget =
@@ -432,6 +456,8 @@ dynamicTarget =
 - rebound：Z1偏热且短期动量仍正时主动落袋。
 
 峰值回撤仅作后备保护。动态规则当前最好连续年化约16.08%，尚未超过正式宽生命周期，因此不能直接替代，但应在新增月份中持续优化和验证，以追求高于当前约20%的长期目标。
+
+动态SELL升级为可执行Shadow前，必须另行冻结：精确公式、全部阈值、输入缺失处理、策略族差异、优先级、状态、原因码、下一连续bar理论成交、费用、冷却、规则版本和回放证据。升级后产生新规则版本，并重新开始不少于20个自然日的前向Shadow；不能追溯重算并把历史研究事实伪装成当时已产生的建议。
 
 ### 7.4 风险SELL
 
@@ -773,7 +799,7 @@ sentTime, groupId, errorMessage
 
 - 5槽正式影子组合；
 - 无限槽信号影子批次；
-- 动态SELL影子建议；
+- 动态SELL研究数据（公式冻结前不产生建议）；
 - HIGH风险拒绝观察；
 - 满仓和其他拒绝观察；
 - 当前Java原始BUY对照。

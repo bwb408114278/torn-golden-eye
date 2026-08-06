@@ -1,0 +1,81 @@
+package pn.torn.goldeneye.torn.service.stocks.replay;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import javax.sql.DataSource;
+
+/**
+ * 隔离回放只读事务守卫。
+ *
+ * <p>隔离回放必须保证数据库会话只读: 任何数据访问都在只读事务内执行,DAO 写入会被 PostgreSQL
+ * 以只读事务错误拒绝,从而阻断回放过程对业务数据的意外修改。守卫承担两项职责:</p>
+ *
+ * <ol>
+ *   <li>启动校验: 在独立只读事务内执行 {@code SELECT pg_is_in_transaction_read_only()},断言结果为
+ *       {@code true},否则抛出 {@link IllegalStateException} 中止回放;</li>
+ *   <li>只读事务回调执行器: 数据访问代码通过 {@link #inReadOnlyTransaction} 在只读事务内执行,
+ *       任何写操作由数据库只读事务约束拒绝。</li>
+ * </ol>
+ *
+ * @author Bai
+ * @version 1.2.14
+ * @since 2026.08.06
+ */
+@Slf4j
+@Component
+public class StockReplayReadOnlyGuard {
+
+    private final PlatformTransactionManager transactionManager;
+    private final JdbcTemplate jdbcTemplate;
+    private final TransactionTemplate readOnlyTxTemplate;
+    private final TransactionTemplate validationTxTemplate;
+
+    public StockReplayReadOnlyGuard(PlatformTransactionManager transactionManager, DataSource dataSource) {
+        this.transactionManager = transactionManager;
+        this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.readOnlyTxTemplate = new TransactionTemplate(transactionManager);
+        this.readOnlyTxTemplate.setReadOnly(true);
+        this.validationTxTemplate = new TransactionTemplate(transactionManager);
+        this.validationTxTemplate.setReadOnly(true);
+        this.validationTxTemplate.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+    }
+
+    /**
+     * 在只读事务内执行回调,任何写操作将触发数据库只读事务错误。
+     * <p>
+     * 默认 REQUIRED 传播: 无外层事务时新建只读事务;已有外层事务时加入(测试可注入可见数据)。
+     *
+     * @param callback 在只读事务内执行的回调
+     * @param <T>      回调返回值的类型
+     * @return 回调的返回值;回调无返回值时返回 null
+     * @throws org.springframework.dao.DataAccessException 数据库访问失败时抛出
+     */
+    public <T> T inReadOnlyTransaction(TransactionCallback<T> callback) {
+        return readOnlyTxTemplate.execute(callback);
+    }
+
+    /**
+     * 启动校验: 在独立只读事务内断言当前事务为只读,否则抛出异常中止回放。
+     * <p>
+     * 使用 {@code current_setting('transaction_read_only')} 校验只读事务已生效(结果为 on);
+     * 任何DAO写操作都会在此只读事务内被PostgreSQL拒绝。
+     *
+     * @throws IllegalStateException 当前数据库事务非只读时抛出,中止回放
+     */
+    public void verifyReadOnlySession() {
+        validationTxTemplate.executeWithoutResult(status -> {
+            String readOnly = jdbcTemplate.queryForObject(
+                    "SELECT current_setting('transaction_read_only')", String.class);
+            if (!"on".equalsIgnoreCase(readOnly)) {
+                throw new IllegalStateException(
+                        "隔离回放要求只读数据库会话,但 transaction_read_only = " + readOnly);
+            }
+        });
+        log.info("隔离回放只读会话校验通过");
+    }
+}

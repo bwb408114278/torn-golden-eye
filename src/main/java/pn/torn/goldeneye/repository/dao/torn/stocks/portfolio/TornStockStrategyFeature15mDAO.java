@@ -47,6 +47,20 @@ public class TornStockStrategyFeature15mDAO
     }
 
     /**
+     * 按时间范围和特征版本批量查询全部股票特征。
+     *
+     * @param startTime      起始时间(含)
+     * @param endTime        结束时间(含)
+     * @param featureVersion 特征计算版本
+     * @return 按股票ID与bar时间升序排列的特征列表
+     */
+    public List<TornStockStrategyFeature15mDO> selectByTimeRange(LocalDateTime startTime,
+                                                                 LocalDateTime endTime,
+                                                                 String featureVersion) {
+        return baseMapper.selectByTimeRange(startTime, endTime, featureVersion);
+    }
+
+    /**
      * 按唯一键执行UPSERT,支持幂等重试
      *
      * @param feature 待插入或更新的特征
