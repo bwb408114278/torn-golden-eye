@@ -1,12 +1,11 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
@@ -19,47 +18,38 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 月度状态Mapper/DAO真实PostgreSQL集成测试。
  * <p>
- * 使用远端未来月份(2099-09-01)作为隔离测试月,验证:
+ * 使用远端未来月份(2099-09-01)作为隔离测试月,通过{@code @Transactional}回滚
+ * 保证开发库零残留,不直接编写任何SQL。验证:
  * <ul>
  *   <li>首次插入成功,返回实际插入行数;</li>
  *   <li>同输入重复执行为0行,不抛重复键异常;</li>
  *   <li>DRAFT与CONFIRMED状态都能阻止同股票同月重复插入;</li>
- *   <li>部分唯一索引 {@code uk_stock_monthly_state_stock_month} 仍然存在且有效。</li>
+ *   <li>部分唯一索引 {@code uk_stock_monthly_state_stock_month} 仍存在且有效:
+ *       其存在性由{@code ON CONFLICT}子句执行前提隐式保证,数据库层拒绝由
+ *       MyBatis-Plus标准insert触发{@link DuplicateKeyException}显式验证。</li>
  * </ul>
- * {@code @AfterEach} 通过JdbcTemplate物理删除测试月份数据,保证开发库零残留。
  *
  * @author Bai
  * @version 1.2.13
  * @since 2026.08.06
  */
 @SpringBootTest
+@Transactional
 @DisplayName("月度状态Mapper真实PostgreSQL集成测试")
-class TornStockMonthlyStateMapperIT {
+class TornStockMonthlyStateMapperTest {
 
     @Autowired
     private TornStockMonthlyStateDAO monthlyStateDao;
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     /**
      * 隔离测试月(远离生产数据)
      */
     private static final LocalDate TEST_MONTH = LocalDate.of(2099, 9, 1);
-
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM torn_stock_monthly_state WHERE effective_month = ?", TEST_MONTH);
-    }
-
-    @AfterEach
-    void cleanup() {
-        jdbcTemplate.update("DELETE FROM torn_stock_monthly_state WHERE effective_month = ?", TEST_MONTH);
-    }
 
     @Test
     @DisplayName("真实PG_首次插入成功并返回实际插入数,重复执行0行不抛异常")
@@ -82,8 +72,7 @@ class TornStockMonthlyStateMapperIT {
     @DisplayName("真实PG_DRAFT与CONFIRMED状态都能阻止同股票同月重复插入")
     void insertDraftStatesIgnoreConflict_existingDraftAndConfirmedBothBlockDuplicate() {
         // 先插入101的DRAFT草稿
-        TornStockMonthlyStateDO draft101 = buildDraft(101, "T101");
-        assertEquals(1, monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(draft101)));
+        assertEquals(1, monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(buildDraft(101, "T101"))));
 
         // 再次插入101的DRAFT: 应被已存在DRAFT阻止
         assertEquals(0, monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(buildDraft(101, "T101"))));
@@ -99,42 +88,26 @@ class TornStockMonthlyStateMapperIT {
     }
 
     @Test
-    @DisplayName("真实PG_部分唯一索引仍然存在且有效")
+    @DisplayName("真实PG_部分唯一索引仍存在且在数据库层拒绝重复行")
     void uniqueIndex_stillExistsAndEnforcesUniqueness() {
-        List<String> indexes = jdbcTemplate.queryForList(
-                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'torn_stock_monthly_state'",
-                String.class);
-        assertTrue(indexes.contains("uk_stock_monthly_state_stock_month"),
-                "部分唯一索引uk_stock_monthly_state_stock_month必须存在,实际: " + indexes);
-
         assertEquals(1, monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(buildDraft(103, "T103"))));
-        // 原生INSERT绕过程序直接触发索引冲突,证明唯一约束在数据库层仍有效
-        int thrown = 0;
-        try {
-            jdbcTemplate.update(
-                    "INSERT INTO torn_stock_monthly_state "
-                            + "(stocks_id, stocks_shortname, effective_month, strategy_fit_prior, maturity, risk_level, "
-                            + " suggested_personality, previous_personality, manual_override, override_reason, "
-                            + " metric_snapshot, personality_rule_version, risk_rule_version, "
-                            + " evidence_start_time, evidence_end_time, state_status, calculated_at, confirmed_at, confirmed_by, deleted) "
-                            + "VALUES (103, 'T103', ?, 'STEADY', 'M4_MATURE', 'NONE', 'STEADY', NULL, false, NULL, "
-                            + " '{}'::jsonb, '1.0.0', '1.0.0', NULL, NULL, 'DRAFT', ?, NULL, NULL, 0)",
-                    TEST_MONTH, LocalDateTime.now());
-        } catch (org.springframework.dao.DuplicateKeyException e) {
-            thrown = 1;
-        }
-        assertEquals(1, thrown, "数据库层唯一索引应拒绝重复行");
-        assertEquals(1, countRows(), "库中应仍只有1行");
+        assertEquals(1, countRows(), "库中应仅1行");
+
+        // 通过MyBatis-Plus标准insert(不携带ON CONFLICT)直接插入同股票同月重复行,
+        // 若部分唯一索引缺失则此处插入成功,断言失败即捕获索引被删除的风险。
+        TornStockMonthlyStateDO duplicate = buildDraft(103, "T103");
+        assertThrows(DuplicateKeyException.class,
+                () -> monthlyStateDao.save(duplicate),
+                "数据库层部分唯一索引必须拒绝同股票同月重复行");
     }
 
     /**
-     * 查询测试月当前行数。
+     * 查询测试月当前有效行数。
      *
      * @return 行数
      */
     private int countRows() {
-        return jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM torn_stock_monthly_state WHERE effective_month = ?", Integer.class, TEST_MONTH);
+        return monthlyStateDao.selectExistingStockIdsByMonth(TEST_MONTH).size();
     }
 
     /**

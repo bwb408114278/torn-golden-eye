@@ -27,7 +27,7 @@ import static org.mockito.Mockito.mockStatic;
  * 股票批次成交结算服务测试，覆盖待买入批次成交/取消/过期和待卖出批次成交的核心逻辑。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.2.14
  * @since 2026.07.26
  */
 @DisplayName("股票批次成交结算服务测试")
@@ -582,9 +582,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(
-                        snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "正常SELL缺exitSignalTime必须fail-closed抛异常");
 
         assertBatchAndSlotUnchanged(batch, slot);
@@ -618,9 +618,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(
-                        snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "正常SELL退出原因必须属于冻结正式关闭类型");
 
         assertBatchAndSlotUnchanged(batch, slot);
@@ -638,9 +638,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(
-                        snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "灾难关闭缺exitSignalTime必须fail-closed抛异常");
 
         assertBatchAndSlotUnchanged(batch, slot);
@@ -679,9 +679,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(
-                        snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "灾难关闭缺originalExitReason必须fail-closed抛异常,不得用exitReason替代");
 
         assertBatchAndSlotUnchanged(batch, slot);
@@ -699,9 +699,9 @@ class StockEntrySettlementServiceTest {
         TornStockPortfolioSlotDO slot = buildOccupiedFormalSlot(1L, 1, batch.getId());
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        Map<Integer, TornStockMarketBar15mDO> barByStock = Map.of(STOCKS_ID, bar);
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                () -> entrySettlementService.processExitPending(
-                        snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME),
+                () -> entrySettlementService.processExitPending(snapshot, barByStock, ROUND_TIME),
                 "灾难关闭原退出原因必须属于合法正式关闭类型");
 
         assertBatchAndSlotUnchanged(batch, slot);
@@ -715,11 +715,10 @@ class StockEntrySettlementServiceTest {
      */
     private void assertBatchAndSlotUnchanged(TornStockVirtualBatchDO batch,
                                              TornStockPortfolioSlotDO slot) {
-        assertEquals(StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus())
+        assertTrue(StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus())
                         || StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus())
-                        || StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())
-                        ? batch.getBatchStatus() : batch.getBatchStatus(),
-                batch.getBatchStatus(), "失败后批次状态不得变化");
+                        || StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()),
+                () -> "失败后批次状态不得变化,实际状态: " + batch.getBatchStatus());
         assertEquals(StockSlotStatusEnum.OCCUPIED.getCode(), slot.getSlotStatus(), "失败后槽位不得释放");
         assertNotNull(slot.getCurrentBatchId(), "失败后槽位不得解绑批次");
         assertEquals(new BigDecimal("1999990000.00"), slot.getAvailableCash(), "失败后可用现金不得变化");

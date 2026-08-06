@@ -37,7 +37,7 @@ import static org.mockito.Mockito.*;
  * 股票轮次事务编排测试，验证本轮正式平仓股票不会重新进入正式候选接纳。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.2.14
  * @since 2026.07.17
  */
 @ExtendWith(MockitoExtension.class)
@@ -160,8 +160,7 @@ class StockRoundTransactionServiceTest {
                 "正式槽位应同事务释放");
         assertNull(lockedSlots.getFirst().getCurrentBatchId(), "槽位应解绑批次");
 
-        org.mockito.ArgumentCaptor<List<TornStockVirtualBatchDO>> exitFilledCaptor =
-                org.mockito.ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<TornStockVirtualBatchDO>> exitFilledCaptor = ArgumentCaptor.forClass(List.class);
         verify(shadowRecordWriter).writeNoticeAudits(any(), exitFilledCaptor.capture(), eq(roundTime));
         assertTrue(exitFilledCaptor.getValue().contains(staleExitBatch),
                 "灾难关闭批次应进入SELL通知审计");
@@ -203,8 +202,7 @@ class StockRoundTransactionServiceTest {
         assertEquals(StockCancelReasonEnum.ENTRY_DATA_STALE.getCode(), entryPendingBatch.getCancelReason());
         assertEquals(StockBatchStatusEnum.OPEN.getCode(), shadowBatch.getBatchStatus(),
                 "影子批次未过期可正常成交");
-        org.mockito.ArgumentCaptor<List<TornStockVirtualBatchDO>> entryFilledCaptor =
-                org.mockito.ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<TornStockVirtualBatchDO>> entryFilledCaptor = ArgumentCaptor.forClass(List.class);
         verify(shadowRecordWriter).writeNoticeAudits(entryFilledCaptor.capture(), any(), eq(roundTime));
         assertTrue(entryFilledCaptor.getValue().stream()
                         .noneMatch(b -> StockLedgerTypeEnum.FORMAL.getCode().equals(b.getLedgerType())),
@@ -245,10 +243,10 @@ class StockRoundTransactionServiceTest {
     /**
      * 创建待买入批次。
      *
-     * @param id             批次ID
-     * @param stocksId       股票ID
-     * @param signalTime     信号时间
-     * @param entryStaleAt   入场过期时间
+     * @param id           批次ID
+     * @param stocksId     股票ID
+     * @param signalTime   信号时间
+     * @param entryStaleAt 入场过期时间
      * @return 待买入批次
      */
     private TornStockVirtualBatchDO entryPendingBatch(Long id, int stocksId,
@@ -263,19 +261,18 @@ class StockRoundTransactionServiceTest {
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
         batch.setSignalReferencePrice(new BigDecimal("100.00"));
         batch.setSignalTime(signalTime);
-        batch.setExpectedEntryBarTime(roundTimeFor(id));
+        batch.setExpectedEntryBarTime(expectedEntryBarTime());
         batch.setEntryStaleAt(entryStaleAt);
         batch.setResetObserved(false);
         return batch;
     }
 
     /**
-     * 按批次ID生成预期入场bar时间(与测试roundTime对齐)。
+     * 预期入场bar时间,与测试roundTime(2026-08-01T10:00)对齐。
      *
-     * @param id 批次ID
      * @return 预期入场bar时间
      */
-    private LocalDateTime roundTimeFor(Long id) {
+    private LocalDateTime expectedEntryBarTime() {
         return LocalDateTime.of(2026, 8, 1, 10, 0);
     }
 
