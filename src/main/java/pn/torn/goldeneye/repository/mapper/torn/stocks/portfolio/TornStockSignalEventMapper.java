@@ -19,14 +19,6 @@ import java.util.List;
 public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEventDO> {
 
     /**
-     * 按轮次时间批量查询全部信号事件
-     *
-     * @param roundTime 轮次时间
-     * @return 该轮次的全部信号事件列表
-     */
-    List<TornStockSignalEventDO> selectByRoundTime(@Param("roundTime") LocalDateTime roundTime);
-
-    /**
      * 批量查询未结算拒绝观察事件。
      *
      * @param startTime 轮次起点(含)

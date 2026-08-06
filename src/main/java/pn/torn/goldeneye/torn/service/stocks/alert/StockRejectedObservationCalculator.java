@@ -101,7 +101,7 @@ public final class StockRejectedObservationCalculator {
         Objects.requireNonNull(features, "策略特征不能为空");
         LocalDateTime expectedEntryTime = batch.getExpectedEntryBarTime();
         TornStockMarketBar15mDO entryBar = findBar(bars, expectedEntryTime);
-        if (!Stock15mBarBuildService.isUsable(entryBar)
+        if (entryBar == null || !Stock15mBarBuildService.isUsable(entryBar)
                 || event.getSignalReferencePrice() == null || entryBar.getLastPrice() == null) {
             return unresolved(NO_THEORETICAL_ENTRY, batch.getEntryStaleAt(), false);
         }
@@ -142,7 +142,6 @@ public final class StockRejectedObservationCalculator {
                     theoreticalExit.netReturn());
         }
 
-        LocalDateTime finalBarTime = observedBars.getLast().getBarStartTime();
         BigDecimal finalPrice = observedBars.getLast().getLastPrice();
         return new Result(laterMfe, laterMae, deadline, OBSERVATION_COMPLETED,
                 hasObservationDataGap(bars, observationStart, deadline),

@@ -19,16 +19,6 @@ import java.util.List;
 public class TornStockSignalEventDAO extends ServiceImpl<TornStockSignalEventMapper, TornStockSignalEventDO> {
 
     /**
-     * 按轮次时间批量查询全部信号事件,避免逐股查询产生N+1问题
-     *
-     * @param roundTime 轮次时间
-     * @return 该轮次的全部信号事件列表
-     */
-    public List<TornStockSignalEventDO> selectByRoundTime(LocalDateTime roundTime) {
-        return baseMapper.selectByRoundTime(roundTime);
-    }
-
-    /**
      * 批量查询未结算拒绝观察事件。
      *
      * @param startTime 轮次起点(含)

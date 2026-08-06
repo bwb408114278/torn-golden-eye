@@ -31,34 +31,6 @@ public class TornStockStrategyFeature15mDAO
     }
 
     /**
-     * 查询指定股票在指定时间及之前的最新特征,避免逐股查询产生N+1问题
-     *
-     * @param stocksIds       股票ID列表
-     * @param maxBarStartTime 最大bar开始时间(含)
-     * @param featureVersion  特征计算版本
-     * @return 按股票ID与bar时间倒序排列的特征列表
-     */
-    public List<TornStockStrategyFeature15mDO> selectLatestByStocksIds(List<Integer> stocksIds,
-                                                                       LocalDateTime maxBarStartTime,
-                                                                       String featureVersion) {
-        return baseMapper.selectLatestByStocksIds(stocksIds, maxBarStartTime, featureVersion);
-    }
-
-    /**
-     * 按时间范围和特征版本批量查询全部股票特征。
-     *
-     * @param startTime 起始时间(含)
-     * @param endTime 结束时间(含)
-     * @param featureVersion 特征版本
-     * @return 时间范围内特征
-     */
-    public List<TornStockStrategyFeature15mDO> selectByTimeRange(LocalDateTime startTime,
-                                                                  LocalDateTime endTime,
-                                                                  String featureVersion) {
-        return baseMapper.selectByTimeRange(startTime, endTime, featureVersion);
-    }
-
-    /**
      * 按时间范围、股票集合和特征版本批量查询特征,避免逐股查询产生N+1问题。
      *
      * @param stocksIds      股票ID列表
@@ -73,6 +45,7 @@ public class TornStockStrategyFeature15mDAO
                                                                           String featureVersion) {
         return baseMapper.selectByStocksAndTimeRange(stocksIds, startTime, endTime, featureVersion);
     }
+
     /**
      * 按唯一键执行UPSERT,支持幂等重试
      *

@@ -29,30 +29,6 @@ public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockS
                                                              @Param("featureVersion") String featureVersion);
 
     /**
-     * 查询指定股票在指定时间及之前的最新特征。
-     *
-     * @param stocksIds       股票ID列表
-     * @param maxBarStartTime 最大bar开始时间(含)
-     * @param featureVersion  特征计算版本
-     * @return 按股票ID与bar时间倒序排列的特征列表
-     */
-    List<TornStockStrategyFeature15mDO> selectLatestByStocksIds(@Param("stocksIds") List<Integer> stocksIds,
-                                                                @Param("maxBarStartTime") LocalDateTime maxBarStartTime,
-                                                                @Param("featureVersion") String featureVersion);
-
-    /**
-     * 按时间范围和特征版本批量查询全部股票特征。
-     *
-     * @param startTime      起始时间(含)
-     * @param endTime        结束时间(含)
-     * @param featureVersion 特征版本
-     * @return 时间范围内特征
-     */
-    List<TornStockStrategyFeature15mDO> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
-                                                          @Param("endTime") LocalDateTime endTime,
-                                                          @Param("featureVersion") String featureVersion);
-
-    /**
      * 按时间范围、股票集合和特征版本批量查询特征。
      *
      * @param stocksIds      股票ID列表
