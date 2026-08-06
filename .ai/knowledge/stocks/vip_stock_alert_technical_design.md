@@ -7,16 +7,16 @@
 - 适用版本：1.2.13及以上
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 设计状态：第十二轮实现已通过代码Review；当前最终技术实施基线
-- 当前实现基线：`53f52080e1b6698f07e5983e429c0af6a68aa8e4`
-- 技术验收状态：代码P0/P1通过；仅允许继续Shadow，正式买卖提醒保持关闭
+- 设计状态：第十二轮局部修复已完成；存在未闭环P0/P1，当前技术基线需按一次性修复方案继续收敛
+- 当前实现基线：`7a2c6efeed675be4ac4a7af718f05090ce48f3e2`
+- 技术验收状态：P0-1、P0-2、P1-1～P1-4、SEC-1及月度初始化重复键异常未闭环；仅允许继续Shadow和存量批次管理，禁止新的正式BUY及正式群BUY/SELL
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
 - 最后修订日期：2026-08-05
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
-最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review的P0/P1通过后，由AI技术专家根据已验证实现更新本文的基线、状态和验收记录。第十二轮已完成此前账实原子性、管理关闭审计、最终payload、存量门禁、启动补偿顺序和冻结PENDING通知审计的直接代码修复。
+最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review的P0/P1通过后，由AI技术专家根据已验证实现更新本文的基线、状态和验收记录。第十二轮已完成账实原子性、管理关闭审计、最终payload、存量门禁、启动补偿顺序和冻结PENDING通知审计的局部修复；这些局部闭环不代表月度规则、ENTRY实际处理时刻、拒绝观察完整生命周期、隔离回放、RANGE 7日保护或结算来源前置条件已完成。当前未闭环清单和工程分解以`vip_stock_alert_business_acceptance_open_items.md`及`vip_stock_alert_remediation_implementation_plan.md`为准。
 
 > 本文冻结的实施资金口径为5槽、每槽初始20亿、总初始资金100亿。该口径是用户在技术方案审核阶段对原研究口径“每槽4亿”的明确覆盖。历史研究收益基于每槽4亿，正式实施前必须按每槽20亿重新执行整数股数、余款现金和逐bar净值回放。
 
@@ -725,7 +725,7 @@ batchStatus = DATA_STALE_EXIT
 
 若批次已经是`DATA_STALE_EXIT`，后续轮次不得再次覆盖`originalExitReason`。历史异常数据若`originalExitReason`为空但`exitReason`是合法`CLOSED_*`，迁移脚本允许一次性回填；无法确定原原因时不得自动管理关闭，应保持待人工核对。
 
-如果股票功能changeSet尚未在正式环境执行，工程师可按项目约定直接改写原`stocks-portfolio.yaml`；若已在任一正式环境执行，则必须追加changeSet，禁止修改旧checksum。实施前必须核实部署事实并在修复记录中写明选择。
+股票功能已部署至正式环境。本功能后续所有Schema新增列、约束或索引必须追加新的Liquibase changeSet，禁止改写已执行的`stocks-portfolio.yaml` changeSet及其checksum；实施记录必须写明升级验证结果。
 
 #### 8.1.5 长时间未恢复与运维告警
 
@@ -2061,13 +2061,13 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 
 ## 20. 第十二轮代码验收记录与后续运营清单
 
-第十二轮被审基线：
+第十二轮局部修复被审基线：
 
 ```text
 53f52080e1b6698f07e5983e429c0af6a68aa8e4
 ```
 
-代码Review已确认：
+已确认的局部代码修复：
 
 - [x] 正式灾难关闭与正常SELL共用正式槽位一致性校验和资金结算；异常fail-closed并回滚。
 - [x] 管理关闭字段、48小时冷却、`resetObserved=false`、最终`ADMIN_CLOSED`信号状态均已实现。
@@ -2077,7 +2077,18 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - [x] 定时入口和启动补偿均在尝试补建待处理bar后结算拒绝观察；启动入口与定时入口复用JVM防重入标记并在`finally`释放。
 - [x] JDK 21独立worktree编译通过；4个直接相关测试类共37项通过；`git diff --check`通过。
 
-正式发布前仍需单独完成，且不因本次代码验收自动关闭：
+当前P0/P1发布阻断项（不得因上述局部修复被关闭）：
+
+- [ ] P0-1：ENTRY_PENDING必须以实际处理时刻而非历史roundTime判断`entryStaleAt`；晚于或等于staleAt取消、释放正式预留且BUY通知为0。
+- [ ] P0-2：月度状态必须实现`PERSONALITY_RULE_V1/RISK_RULE_V1_SHADOW`的证据、分类、风险、迟滞与确认语义；不得使用`STOCK_PERSONALITY`或固定`NONE`代替机器计算。
+- [ ] P1-1：拒绝观察必须持久化理论ENTRY/EXIT与净收益，并按冻结退出生命周期结算，且不污染正式账本。
+- [ ] P1-2：必须完成只读隔离回放，实际输出20亿/槽生产轨道与4亿/槽历史对照以及JSON/CSV产物。
+- [ ] P1-3：RANGE 7日收益绝对趋势保护待业务冻结精确阈值；在阈值明确前不得自行实现或开启正式交易。
+- [ ] P1-4：正常SELL与灾难关闭必须分别校验来源状态、`exitSignalTime`及原退出事实；失败时整轮回滚且通知为0。
+- [ ] SEC-1：临时Review文档及相关Git历史的数据库凭据必须完成无敏感值扫描；若发现历史泄露，必须先完成凭据轮换和处置结论，不能仅因当前文件不存在而关闭。
+- [ ] 月度初始化重复键：当前月存在DRAFT/CONFIRMED等任意有效状态时不得重复INSERT；以全状态预查询和PostgreSQL冲突安全插入保证启动重试幂等。
+
+完成上述事项后的正式发布前置条件：
 
 - [ ] 连续不少于20个自然日Shadow观察；
 - [ ] 每槽20亿、5槽整数股数和逐bar资金回放；
@@ -2104,4 +2115,4 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文是当前第九轮修复的最终技术实施基线。主体代码、Liquibase和Shadow能力已经部分实现，但本文新增或修订的账实原子性、管理关闭审计、最终payload和开关拆分尚未实施。普通工程师必须按第20节完成修复并取得真实验证；在技术方案与代码逐项一致、Review通过及正式发布单独审批前，仅允许继续Shadow，禁止开启正式买卖提醒。
+本文是当前第十二轮局部修复后的技术实施基线。主体代码、Liquibase和Shadow能力已部分实现；账实原子性、管理关闭审计、最终payload、存量门禁和启动补偿顺序已有局部实现，但第20节列出的P0/P1及月度初始化异常仍未闭环。普通工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成修复并取得真实验证；在技术方案与代码逐项一致、开放项经独立Review关闭及正式发布单独审批前，仅允许继续Shadow，禁止开启正式买卖提醒。

@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 /**
  * 股票月度风格状态初始化服务 - 为全部股票按当月指标快照生成风格/成熟度/风险等级草稿记录
  * <p>
- * 每月初(或阶段B冷启动)调用 {@link #initCurrentMonth()} 为全部股票构建当月
+ * 每月初(或阶段B冷启动)调用 {@link #initCurrentMonth()} 为缺少当月有效状态的股票构建
  * {@link TornStockMonthlyStateDO} 草稿,基于 {@link SysSettingManager#getStockPersonalities()}
  * 映射风格、按证据自然日跨度判定成熟度、风险等级默认NONE,完成人工或流程确认后由
  * {@link #confirmDraftStates(LocalDate, String)} 批量转CONFIRMED。
@@ -40,12 +40,14 @@ import java.util.stream.Collectors;
  *       完整风险计算需要全窗口日级对数趋势、连续负月比例和最大回撤等多维度指标,
  *       当前阶段仅有15分钟bar数据,不足以支持完整风险分级。
  *       NONE表示"暂无明显风险",CONFIRMED前需人工复核风险等级</li>
- *   <li>幂等: 当月已存在CONFIRMED状态的股票跳过,不重复初始化</li>
+ *   <li>幂等: 当月已存在任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票跳过初始化,
+ *       插入使用PostgreSQL {@code ON CONFLICT DO NOTHING},与数据库部分唯一索引
+ *       {@code uk_stock_monthly_state_stock_month} 保持一致,重复启动/并发不抛异常、不重复、不覆盖</li>
  *   <li>开仓批次固化: 月度状态一经CONFIRMED即作为当月开仓批次的状态基准,次月变化不回写旧批次</li>
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -82,6 +84,7 @@ public class StockMonthlyStateInitService {
     private final TornStockMonthlyStateDAO monthlyStateDao;
     private final TornStockMarketBar15mDAO bar15mDao;
     private final SysSettingManager sysSettingManager;
+    private final StockMarketClock marketClock;
 
     // ==================== 对外方法 ====================
 
@@ -91,37 +94,43 @@ public class StockMonthlyStateInitService {
      * 以当月1日作为effectiveMonth,执行以下流程:
      * <ol>
      *   <li>获取全部股票列表</li>
-     *   <li>查询当月已CONFIRMED状态的月度状态,这些股票将跳过初始化(幂等保护)</li>
+     *   <li>一次查询当月任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票ID集合,
+     *       这些股票全部跳过初始化,避免与数据库部分唯一索引
+     *       {@code uk_stock_monthly_state_stock_month} 冲突(幂等保护)</li>
+     *   <li>查询当月已CONFIRMED股票ID集合,仅用于可观测日志</li>
      *   <li>从sys_setting读取STOCK_PERSONALITY配置,构建股票简称 -> 风格映射</li>
-     *   <li>对每支未确认的股票构建DRAFT状态月度记录: 风格来自配置(fail-closed)、
-     *       成熟度按证据自然日跨度分级、风险等级NONE、metricSnapshot存JSON快照</li>
-     *   <li>批量保存草稿记录</li>
+     *   <li>仅对既无任何有效状态的股票构建DRAFT状态月度记录</li>
+     *   <li>使用PostgreSQL冲突安全批量插入(ON CONFLICT DO NOTHING),返回实际插入数,
+     *       不覆盖任何已存在状态,重复键冲突被数据库吸收不抛异常</li>
      * </ol>
      * 风格缺失时stylePrior=null,后续资格判断会拒绝该股票正式买入,禁止默认STEADY。
      *
-     * @return 本次初始化新建的草稿记录数量;全部已确认时返回0
+     * @return 本次初始化实际新建的草稿记录数量;全部股票已有有效状态时返回0
      */
     public int initCurrentMonth() {
-        LocalDate effectiveMonth = LocalDate.now().withDayOfMonth(1);
+        LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
         List<TornStocksDO> allStocks = tornStocksDao.list();
         if (CollectionUtils.isEmpty(allStocks)) {
             log.warn("月度状态初始化-股票列表为空,跳过, effectiveMonth={}", effectiveMonth);
             return 0;
         }
 
+        Set<Integer> existingStockIds = loadExistingStockIds(effectiveMonth);
         Set<Integer> confirmedStockIds = loadConfirmedStockIds(effectiveMonth);
-        if (confirmedStockIds.size() == allStocks.size()) {
-            log.info("月度状态初始化-当月[{}]全部{}支股票已确认,无需初始化",
-                    effectiveMonth, allStocks.size());
+        List<TornStocksDO> missingStocks = allStocks.stream()
+                .filter(stock -> !existingStockIds.contains(stock.getId()))
+                .toList();
+        if (missingStocks.isEmpty()) {
+            log.info("月度状态初始化-当月[{}]全部{}支股票已有任意有效状态,无需初始化, existingCount={}, confirmedCount={}",
+                    effectiveMonth, allStocks.size(), existingStockIds.size(), confirmedStockIds.size());
             return 0;
         }
 
         Map<String, StockStrategyFitEnum> styleMap = loadStyleMap();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = marketClock.now();
         LocalDateTime evidenceEnd = effectiveMonth.atStartOfDay();
         Map<Integer, TornStockMarketBar15mDO> evidenceRanges = loadEvidenceRanges(evidenceEnd);
-        List<TornStockMonthlyStateDO> draftStates = allStocks.stream()
-                .filter(stock -> !confirmedStockIds.contains(stock.getId()))
+        List<TornStockMonthlyStateDO> draftStates = missingStocks.stream()
                 .map(stock -> buildDraftState(stock, effectiveMonth, styleMap,
                         evidenceRanges.get(stock.getId()), now, evidenceEnd))
                 .toList();
@@ -131,10 +140,13 @@ public class StockMonthlyStateInitService {
             return 0;
         }
 
-        monthlyStateDao.saveBatch(draftStates);
-        log.info("月度状态初始化-完成, effectiveMonth={}, 待初始化={}, 新建草稿={}",
-                effectiveMonth, allStocks.size() - confirmedStockIds.size(), draftStates.size());
-        return draftStates.size();
+        int insertedCount = monthlyStateDao.insertDraftStatesIgnoreConflict(draftStates);
+        int conflictIgnoredCount = draftStates.size() - insertedCount;
+        log.info("月度状态初始化-完成, effectiveMonth={}, existingCount={}, confirmedCount={}, "
+                        + "candidateCount={}, insertedCount={}, conflictIgnoredCount={}",
+                effectiveMonth, existingStockIds.size(), confirmedStockIds.size(),
+                draftStates.size(), insertedCount, conflictIgnoredCount);
+        return insertedCount;
     }
 
 
@@ -164,7 +176,7 @@ public class StockMonthlyStateInitService {
             return 0;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = marketClock.now();
         for (TornStockMonthlyStateDO state : draftStates) {
             if (!isConfirmable(state)) {
                 log.warn("月度状态确认-记录不完整,保留DRAFT: stocksId={}, effectiveMonth={}",
@@ -395,7 +407,8 @@ public class StockMonthlyStateInitService {
     /**
      * 加载当月已CONFIRMED状态的股票ID集合
      * <p>
-     * 用于幂等保护: 已确认的股票不再重复初始化。
+     * 仅用于可观测日志,不作为初始化INSERT过滤条件;初始化过滤使用
+     * {@link #loadExistingStockIds(LocalDate)}。
      *
      * @param effectiveMonth 生效月份
      * @return 已确认股票ID集合;无记录时返回空Set
@@ -409,5 +422,22 @@ public class StockMonthlyStateInitService {
                 .map(TornStockMonthlyStateDO::getStocksId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * 加载当月存在任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票ID集合
+     * <p>
+     * 用于初始化幂等过滤:同月每股票至多一行有效状态,只要已存在任意状态,
+     * 都不得再INSERT该股票,避免触发数据库部分唯一索引冲突。
+     *
+     * @param effectiveMonth 生效月份
+     * @return 当月已有任意有效状态的股票ID集合;无记录时返回空Set
+     */
+    private Set<Integer> loadExistingStockIds(LocalDate effectiveMonth) {
+        List<Integer> existingIds = monthlyStateDao.selectExistingStockIdsByMonth(effectiveMonth);
+        if (CollectionUtils.isEmpty(existingIds)) {
+            return Set.of();
+        }
+        return new HashSet<>(existingIds);
     }
 }

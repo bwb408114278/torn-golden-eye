@@ -37,7 +37,7 @@ import static org.mockito.Mockito.*;
  * 股票轮次事务编排测试，验证本轮正式平仓股票不会重新进入正式候选接纳。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.07.17
  */
 @ExtendWith(MockitoExtension.class)
@@ -98,7 +98,7 @@ class StockRoundTransactionServiceTest {
 
         stubRoundExecution(roundTime, formalExitPendingBatch, shadowExitPendingBatch, lockedSlots, candidates);
 
-        transactionService.executeRound(roundTime, snapshot, true);
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
         verify(buySignalEvaluator).acceptCandidates(
                 candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime));
@@ -142,7 +142,7 @@ class StockRoundTransactionServiceTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
                 .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
 
-        transactionService.executeRound(roundTime, snapshot, false);
+        transactionService.executeRound(roundTime, snapshot, false, roundTime);
 
         assertEquals(StockBatchStatusEnum.ADMIN_CLOSED.getCode(), staleExitBatch.getBatchStatus());
         assertEquals(new BigDecimal("101.00"), staleExitBatch.getExitReferencePrice(),
@@ -166,6 +166,117 @@ class StockRoundTransactionServiceTest {
         assertTrue(exitFilledCaptor.getValue().contains(staleExitBatch),
                 "灾难关闭批次应进入SELL通知审计");
         verify(marketRoundDao, atLeastOnce()).updateById(round);
+    }
+
+    @Test
+    @DisplayName("生产编排_ENTRY_PENDING实际处理时刻晚于staleAt_取消且BUY通知为0")
+    void executeRound_entryStaleByActualProcessingTime_noBuyNotice() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        TornStockVirtualBatchDO entryPendingBatch = entryPendingBatch(
+                41L, 4001, roundTime.minusMinutes(30), roundTime.plusMinutes(35));
+        // 实际处理时刻晚于staleAt(启动补偿晚恢复)
+        LocalDateTime actualProcessingTime = roundTime.plusMinutes(50);
+        TornStockVirtualBatchDO shadowBatch = entryPendingBatch(
+                42L, 4002, roundTime.minusMinutes(30), roundTime.plusMinutes(60));
+        shadowBatch.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        // 影子批次信号价与bar价一致,避免因价格偏离被取消,验证仅过期判定生效
+        shadowBatch.setSignalReferencePrice(new BigDecimal("101.00"));
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(usableBar(4001, roundTime), usableBar(4002, roundTime)), List.of(), List.of(),
+                List.of(entryPendingBatch), List.of(shadowBatch), List.of(), lockedSlots, roundTime);
+
+        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(round);
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(lockedSlots);
+        when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of(entryPendingBatch));
+        when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of(shadowBatch));
+        when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime))).thenReturn(List.of());
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
+                .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
+
+        transactionService.executeRound(roundTime, snapshot, false, actualProcessingTime);
+
+        assertEquals(StockBatchStatusEnum.CANCELLED.getCode(), entryPendingBatch.getBatchStatus(),
+                "晚于staleAt的ENTRY_PENDING应取消");
+        assertEquals(StockCancelReasonEnum.ENTRY_DATA_STALE.getCode(), entryPendingBatch.getCancelReason());
+        assertEquals(StockBatchStatusEnum.OPEN.getCode(), shadowBatch.getBatchStatus(),
+                "影子批次未过期可正常成交");
+        org.mockito.ArgumentCaptor<List<TornStockVirtualBatchDO>> entryFilledCaptor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(shadowRecordWriter).writeNoticeAudits(entryFilledCaptor.capture(), any(), eq(roundTime));
+        assertTrue(entryFilledCaptor.getValue().stream()
+                        .noneMatch(b -> StockLedgerTypeEnum.FORMAL.getCode().equals(b.getLedgerType())),
+                "过期正式ENTRY取消后不得产生任何正式BUY通知审计");
+        assertFalse(entryFilledCaptor.getValue().contains(entryPendingBatch),
+                "过期正式批次不得进入已成交买入列表");
+    }
+
+    @Test
+    @DisplayName("生产编排_P1-4灾难关闭缺exitSignalTime_整轮事务抛异常回滚且通知为0")
+    void executeRound_disasterCloseMissingExitSignalTime_throwsAndRollsBack() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        TornStockVirtualBatchDO staleExitBatch = staleExitBatch(31L, 3001, roundTime);
+        staleExitBatch.setExitSignalTime(null);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(staleExitBatch);
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(usableBar(3001, roundTime)), List.of(), List.of(),
+                List.of(staleExitBatch), List.of(), List.of(), lockedSlots, roundTime);
+
+        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(round);
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(lockedSlots);
+        when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of(staleExitBatch));
+        when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of());
+
+        assertThrows(IllegalStateException.class,
+                () -> transactionService.executeRound(roundTime, snapshot, false, roundTime),
+                "灾难关闭缺exitSignalTime必须抛异常,由@Transactional整轮回滚");
+        assertEquals(StockBatchStatusEnum.DATA_STALE_EXIT.getCode(), staleExitBatch.getBatchStatus(),
+                "回滚后批次状态不得变化");
+        assertEquals(StockSlotStatusEnum.OCCUPIED.getCode(), lockedSlots.getFirst().getSlotStatus(),
+                "回滚后槽位不得释放");
+        assertNotNull(lockedSlots.getFirst().getCurrentBatchId(), "回滚后槽位不得解绑批次");
+        verify(shadowRecordWriter, never()).writeNoticeAudits(any(), any(), eq(roundTime));
+    }
+
+    /**
+     * 创建待买入批次。
+     *
+     * @param id             批次ID
+     * @param stocksId       股票ID
+     * @param signalTime     信号时间
+     * @param entryStaleAt   入场过期时间
+     * @return 待买入批次
+     */
+    private TornStockVirtualBatchDO entryPendingBatch(Long id, int stocksId,
+                                                      LocalDateTime signalTime,
+                                                      LocalDateTime entryStaleAt) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo("B" + id);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setStocksId(stocksId);
+        batch.setStocksShortname("T" + stocksId);
+        batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
+        batch.setSignalReferencePrice(new BigDecimal("100.00"));
+        batch.setSignalTime(signalTime);
+        batch.setExpectedEntryBarTime(roundTimeFor(id));
+        batch.setEntryStaleAt(entryStaleAt);
+        batch.setResetObserved(false);
+        return batch;
+    }
+
+    /**
+     * 按批次ID生成预期入场bar时间(与测试roundTime对齐)。
+     *
+     * @param id 批次ID
+     * @return 预期入场bar时间
+     */
+    private LocalDateTime roundTimeFor(Long id) {
+        return LocalDateTime.of(2026, 8, 1, 10, 0);
     }
 
     /**
@@ -229,6 +340,7 @@ class StockRoundTransactionServiceTest {
         batch.setEntryTime(roundTime.minusDays(1));
         batch.setQuantity(100L);
         batch.setExpectedExitBarTime(roundTime);
+        batch.setExitSignalTime(roundTime.minusDays(1));
         batch.setExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
         batch.setSlotId(slotId);
         if (slotId != null) {
@@ -258,6 +370,7 @@ class StockRoundTransactionServiceTest {
         batch.setEntryTime(roundTime.minusDays(1));
         batch.setQuantity(100L);
         batch.setExpectedExitBarTime(roundTime);
+        batch.setExitSignalTime(roundTime.minusDays(1));
         batch.setExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
         batch.setOriginalExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
         batch.setSlotId(1L);

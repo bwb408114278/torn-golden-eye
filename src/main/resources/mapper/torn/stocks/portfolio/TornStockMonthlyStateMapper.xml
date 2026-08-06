@@ -8,4 +8,33 @@
           AND state_status = 'CONFIRMED'
           AND deleted = 0
     </select>
+
+    <!-- 查询指定月份存在任意有效状态的股票ID集合,不按state_status过滤 -->
+    <select id="selectExistingStockIdsByMonth" resultType="java.lang.Integer">
+        SELECT stocks_id
+        FROM torn_stock_monthly_state
+        WHERE effective_month = #{effectiveMonth}
+          AND deleted = 0
+    </select>
+
+    <!-- 批量冲突安全插入月度状态草稿: 部分唯一索引(stocks_id,effective_month) WHERE deleted=0 冲突时DO NOTHING -->
+    <insert id="insertDraftStatesIgnoreConflict">
+        INSERT INTO torn_stock_monthly_state
+            (stocks_id, stocks_shortname, effective_month, strategy_fit_prior, maturity, risk_level,
+             suggested_personality, previous_personality, manual_override, override_reason,
+             metric_snapshot, personality_rule_version, risk_rule_version,
+             evidence_start_time, evidence_end_time, state_status, calculated_at,
+             confirmed_at, confirmed_by, deleted, create_time, update_time)
+        VALUES
+        <foreach collection="states" item="state" separator=",">
+            (#{state.stocksId}, #{state.stocksShortname}, #{state.effectiveMonth}, #{state.strategyFitPrior},
+             #{state.maturity}, #{state.riskLevel}, #{state.suggestedPersonality}, #{state.previousPersonality},
+             #{state.manualOverride}, #{state.overrideReason},
+             #{state.metricSnapshot, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{state.personalityRuleVersion}, #{state.riskRuleVersion},
+             #{state.evidenceStartTime}, #{state.evidenceEndTime}, #{state.stateStatus}, #{state.calculatedAt},
+             #{state.confirmedAt}, #{state.confirmedBy}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (stocks_id, effective_month) WHERE deleted = 0 DO NOTHING
+    </insert>
 </mapper>

@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,7 +43,7 @@ import static org.mockito.Mockito.*;
  * 通过 Mockito mock 全部DAO与 {@link SysSettingManager},使用 ArgumentCaptor 验证持久化字段。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @ExtendWith(MockitoExtension.class)
@@ -59,21 +60,31 @@ class StockMonthlyStateInitServiceTest {
     private SysSettingManager sysSettingManager;
     @Mock
     private LambdaQueryChainWrapper<TornStockMonthlyStateDO> monthlyStateQuery;
+    @Mock
+    private StockMarketClock marketClock;
     @Captor
     private ArgumentCaptor<List<TornStockMonthlyStateDO>> monthlyStatesCaptor;
 
     @InjectMocks
     private StockMonthlyStateInitService monthlyStateInitService;
 
+    @BeforeEach
+    void setUp() {
+        lenient().when(marketClock.today()).thenReturn(LocalDate.now());
+        lenient().when(marketClock.now()).thenReturn(java.time.LocalDateTime.now());
+    }
+
     // ==================== initCurrentMonth ====================
 
     @Test
-    @DisplayName("月度初始化_ 当月全部股票已CONFIRMED,跳过初始化返回0")
-    void initCurrentMonth_allStocksConfirmed_skipAndReturnZero() {
-        // 2支股票,均已在当月CONFIRMED
+    @DisplayName("月度初始化_ 当月全部股票已有任意有效状态,跳过初始化返回0")
+    void initCurrentMonth_allStocksExisting_skipAndReturnZero() {
+        // 2支股票,均已在当月存在任意有效状态
         List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"), buildStock(2, "MSG"));
         when(tornStocksDao.list()).thenReturn(allStocks);
         LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth))
+                .thenReturn(List.of(1, 2));
         when(monthlyStateDao.selectConfirmedByMonth(currentMonth))
                 .thenReturn(List.of(
                         buildConfirmedState(1, "TCS", currentMonth),
@@ -82,17 +93,37 @@ class StockMonthlyStateInitServiceTest {
 
         int result = monthlyStateInitService.initCurrentMonth();
 
-        assertEquals(0, result, "全部已确认时应返回0");
-        verify(monthlyStateDao, never()).saveBatch(any());
+        assertEquals(0, result, "全部已存在有效状态时应返回0");
+        verify(monthlyStateDao, never()).insertDraftStatesIgnoreConflict(any());
     }
 
     @Test
-    @DisplayName("月度初始化_ 无CONFIRMED记录,为每支股票创建DRAFT草稿")
-    void initCurrentMonth_noConfirmedRecords_createsDraftForEachStock() {
-        // 2支股票,均未确认
+    @DisplayName("月度初始化_ 当月全部股票已有DRAFT有效状态,跳过初始化返回0且不覆盖")
+    void initCurrentMonth_allStocksHaveDraft_skipAndReturnZero() {
         List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"), buildStock(2, "MSG"));
         when(tornStocksDao.list()).thenReturn(allStocks);
         LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        // 当月已有DRAFT有效状态(非CONFIRMED)
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth))
+                .thenReturn(List.of(1, 2));
+        when(monthlyStateDao.selectConfirmedByMonth(currentMonth))
+                .thenReturn(List.of());
+
+        int result = monthlyStateInitService.initCurrentMonth();
+
+        assertEquals(0, result, "当月已存在DRAFT有效状态时应返回0,不重复INSERT");
+        verify(monthlyStateDao, never()).insertDraftStatesIgnoreConflict(any());
+    }
+
+    @Test
+    @DisplayName("月度初始化_ 无任意有效状态,为每支股票创建DRAFT草稿")
+    void initCurrentMonth_noExistingRecords_createsDraftForEachStock() {
+        // 2支股票,均无任意有效状态
+        List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"), buildStock(2, "MSG"));
+        when(tornStocksDao.list()).thenReturn(allStocks);
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth))
+                .thenReturn(List.of());
         when(monthlyStateDao.selectConfirmedByMonth(currentMonth))
                 .thenReturn(List.of());
         // 风格配置: TCS -> STEADY, MSG -> STRONG
@@ -103,12 +134,16 @@ class StockMonthlyStateInitServiceTest {
                 ));
         // 无证据bar -> 成熟度M0_UNMATURE
         when(bar15mDao.selectEvidenceRanges(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
 
         int result = monthlyStateInitService.initCurrentMonth();
 
         assertEquals(2, result, "应为2支股票创建草稿");
         // 验证批量保存的草稿字段
-        verify(monthlyStateDao).saveBatch(monthlyStatesCaptor.capture());
+        verify(monthlyStateDao).insertDraftStatesIgnoreConflict(monthlyStatesCaptor.capture());
         List<TornStockMonthlyStateDO> saved = monthlyStatesCaptor.getValue();
         assertEquals(2, saved.size(), "应保存2条草稿记录");
 
@@ -140,22 +175,81 @@ class StockMonthlyStateInitServiceTest {
     }
 
     @Test
+    @DisplayName("月度初始化_ 混合DRAFT/CONFIRMED/缺失,只为缺失股票插入且不覆盖已有DRAFT")
+    void initCurrentMonth_mixedExistingDraftConfirmed_missingOnlyInserted() {
+        // 3支股票: 1号已有DRAFT,2号已有CONFIRMED,3号缺失
+        List<TornStocksDO> allStocks = List.of(
+                buildStock(1, "TCS"), buildStock(2, "MSG"), buildStock(3, "JUN"));
+        when(tornStocksDao.list()).thenReturn(allStocks);
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth))
+                .thenReturn(List.of(1, 2));
+        when(monthlyStateDao.selectConfirmedByMonth(currentMonth))
+                .thenReturn(List.of(buildConfirmedState(2, "MSG", currentMonth)));
+        when(sysSettingManager.getStockPersonalities())
+                .thenReturn(Map.of("JUN", StockPersonalityEnum.NARROW));
+        when(bar15mDao.selectEvidenceRanges(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
+
+        int result = monthlyStateInitService.initCurrentMonth();
+
+        assertEquals(1, result, "只为缺失的3号股票插入草稿");
+        verify(monthlyStateDao).insertDraftStatesIgnoreConflict(monthlyStatesCaptor.capture());
+        List<TornStockMonthlyStateDO> saved = monthlyStatesCaptor.getValue();
+        assertEquals(1, saved.size(), "应只保存1条草稿记录");
+        assertEquals(Integer.valueOf(3), saved.getFirst().getStocksId(), "应只插入3号股票");
+        assertEquals("NARROW", saved.getFirst().getStrategyFitPrior(), "3号股票风格应为NARROW");
+    }
+
+    @Test
+    @DisplayName("月度初始化_ 查询后并发冲突被数据库DO NOTHING吸收,返回实际插入数")
+    void initCurrentMonth_concurrentConflictIgnored_returnsActualInsertedCount() {
+        // 模拟: 应用查询时3号股票缺失,但INSERT前另一入口插入了同一键,冲突被DO NOTHING吸收
+        List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"), buildStock(3, "JUN"));
+        when(tornStocksDao.list()).thenReturn(allStocks);
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth))
+                .thenReturn(List.of());
+        when(monthlyStateDao.selectConfirmedByMonth(currentMonth))
+                .thenReturn(List.of());
+        when(sysSettingManager.getStockPersonalities())
+                .thenReturn(Map.of("TCS", StockPersonalityEnum.STEADY, "JUN", StockPersonalityEnum.NARROW));
+        when(bar15mDao.selectEvidenceRanges(any(), any())).thenReturn(List.of());
+        // 数据库实际只插入1行(3号被并发入口先插入,1号成功)
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenReturn(1);
+
+        int result = monthlyStateInitService.initCurrentMonth();
+
+        assertEquals(1, result, "应返回实际插入数1,不抛重复键异常");
+        verify(monthlyStateDao).insertDraftStatesIgnoreConflict(any());
+    }
+
+    @Test
     @DisplayName("月度初始化_ 风格配置缺失,strategyFitPrior为null(fail-closed,禁止默认STEADY)")
     void initCurrentMonth_styleConfigMissing_strategyFitPriorIsNull() {
         List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"));
         when(tornStocksDao.list()).thenReturn(allStocks);
         LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth))
+                .thenReturn(List.of());
         when(monthlyStateDao.selectConfirmedByMonth(currentMonth))
                 .thenReturn(List.of());
         // 风格配置为空Map(fail-closed)
         when(sysSettingManager.getStockPersonalities())
                 .thenReturn(Map.of());
         when(bar15mDao.selectEvidenceRanges(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
 
         int result = monthlyStateInitService.initCurrentMonth();
 
         assertEquals(1, result, "应为1支股票创建草稿");
-        verify(monthlyStateDao).saveBatch(monthlyStatesCaptor.capture());
+        verify(monthlyStateDao).insertDraftStatesIgnoreConflict(monthlyStatesCaptor.capture());
         List<TornStockMonthlyStateDO> saved = monthlyStatesCaptor.getValue();
         assertEquals(1, saved.size(), "应保存1条草稿记录");
 

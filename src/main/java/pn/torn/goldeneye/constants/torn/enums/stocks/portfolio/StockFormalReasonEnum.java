@@ -13,7 +13,7 @@ import java.util.Arrays;
  * 完整冻结清单以策略文档为准，本枚举只收录当前退出规则引擎实际产出且已冻结的编码。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.08.01
  */
 @Getter
@@ -39,6 +39,10 @@ public enum StockFormalReasonEnum {
      * 数据/管理关闭 - DATA_STALE_EXIT恢复后的独立灾难处置,非普通策略卖出
      */
     SELL_DATA_ADMIN_CLOSE("SELL_DATA_ADMIN_CLOSE", "数据异常/管理关闭"),
+    /**
+     * 区间特征缺失 - RANGE批次在目标/硬风险/时间退出均未命中后缺区间特征,转入DATA_STALE
+     */
+    EXIT_RANGE_FEATURE_MISSING("EXIT_RANGE_FEATURE_MISSING", "区间特征缺失"),
     /**
      * 未触发任何退出规则,保持持有
      */

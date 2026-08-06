@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
  * </ol>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.07.25
  */
 @Slf4j
@@ -100,16 +100,26 @@ public class StockRoundTransactionService {
      * {@code allowNewEntry=false} 时仍完整执行ENTRY/EXIT结算、存量路径管理、灾难关闭、
      * 冷却与通知审计,仅在买入信号评估、事件/影子创建、候选接纳和买入边沿推进阶段
      * 应用该开关,确保紧急回滚不遗弃已存在的正式持仓。
+     * <p>
+     * 时间语义: {@code roundTime} 是历史决策/成交bar的业务锚点;
+     * {@code actualProcessingTime} 是本轮真实执行/恢复时刻,由调度层通过
+     * {@link StockMarketClock#now()} 获得一次后显式传入,同一轮内不再反复取当前时间。
+     * 仅ENTRY过期(entryStaleAt)判定使用实际处理时刻,避免启动补偿晚恢复时把历史轮次
+     * 当作未过期而补发BUY。
      *
-     * @param roundTime     本轮bar开始时间(决策锚点)
-     * @param snapshot      事务外已加载的批量数据快照
-     * @param allowNewEntry 是否允许创建新的正式/候选影子批次
+     * @param roundTime             本轮bar开始时间(历史决策锚点)
+     * @param snapshot              事务外已加载的批量数据快照
+     * @param allowNewEntry         是否允许创建新的正式/候选影子批次
+     * @param actualProcessingTime  本次实际处理时刻(仅用于ENTRY过期判定)
      */
     @Transactional(rollbackFor = Exception.class)
-    public void executeRound(LocalDateTime roundTime, RoundSnapshot snapshot, boolean allowNewEntry) {
+    public void executeRound(LocalDateTime roundTime, RoundSnapshot snapshot, boolean allowNewEntry,
+                             LocalDateTime actualProcessingTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         Objects.requireNonNull(snapshot, "轮次快照不能为空");
-        log.info("轮次事务开始: roundTime={}, allowNewEntry={}", roundTime, allowNewEntry);
+        Objects.requireNonNull(actualProcessingTime, "实际处理时刻不能为空");
+        log.info("轮次事务开始: roundTime={}, allowNewEntry={}, actualProcessingTime={}",
+                roundTime, allowNewEntry, actualProcessingTime);
 
         // 步骤1: 创建/锁定轮次记录
         TornStockMarketRoundDO round = lockOrCreateRound(roundTime, snapshot);
@@ -146,7 +156,7 @@ public class StockRoundTransactionService {
 
         // 步骤2: 处理待买入批次(ENTRY_PENDING) - 含正式与影子
         EntrySettlementResult entryResult = entrySettlementService.processEntryPending(
-                mergedSnapshot, barByStock, roundTime);
+                mergedSnapshot, barByStock, roundTime, actualProcessingTime);
 
         // 步骤3: 处理待卖出批次(EXIT_PENDING) - 含正式与影子
         List<TornStockVirtualBatchDO> exitFilledBatches = entrySettlementService.processExitPending(

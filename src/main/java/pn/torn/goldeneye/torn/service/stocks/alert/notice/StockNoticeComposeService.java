@@ -31,7 +31,7 @@ import java.util.*;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -217,6 +217,10 @@ public class StockNoticeComposeService {
      * DATA_STALE_EXIT 恢复后的独立灾难处置消息。说明原退出信号已产生但预期成交bar缺失,
      * 当前价格为数据恢复后的首个可用参考价,本次为系统风险/管理关闭,不代表在该价格
      * 形成了原策略的准时卖出。保留原退出原因与预期成交时间,不使用普通SELL原因码或"止盈"文案。
+     * <p>
+     * 原退出原因以 {@code originalExitReason} 为权威来源(与结构化payload一致);
+     * 仅历史记录缺失该字段时才回退 {@code exitReason},回退时输出结构化WARN;
+     * 两字段不一致时以 originalExitReason 展示。
      *
      * @param batch 数据异常关闭批次(须含batchNo、stocksShortname、primaryStrategy、
      *              entryReferencePrice、exitReferencePrice、netReturn、exitReason、expectedExitBarTime)
@@ -224,7 +228,8 @@ public class StockNoticeComposeService {
      */
     private String composeDisasterCloseMessage(TornStockVirtualBatchDO batch) {
         String strategyChinese = resolveStrategyChinese(batch.getPrimaryStrategy());
-        String originalExitReasonChinese = resolveCloseTypeChinese(batch.getExitReason());
+        String originalExitReasonCode = resolveDisasterOriginalExitReason(batch);
+        String originalExitReasonChinese = resolveCloseTypeChinese(originalExitReasonCode);
         BigDecimal entryPrice = nullSafePrice(batch.getEntryReferencePrice());
         BigDecimal exitPrice = nullSafePrice(batch.getExitReferencePrice());
         String netReturnText = formatNetReturn(batch.getNetReturn());
@@ -244,6 +249,25 @@ public class StockNoticeComposeService {
                 "\n" +
                 "本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出。" + "\n" +
                 "未跟随原BUY的成员无需操作。";
+    }
+
+    /**
+     * 解析灾难关闭消息的原退出原因编码,以 originalExitReason 为权威来源。
+     * <p>
+     * originalExitReason 非空时直接使用;仅历史记录缺失(为空)时才回退 exitReason,
+     * 回退时输出结构化WARN,保证中文文本与结构化payload的原退出原因一致。
+     *
+     * @param batch 数据异常关闭批次
+     * @return 原退出原因编码(可能回退exitReason)
+     */
+    private String resolveDisasterOriginalExitReason(TornStockVirtualBatchDO batch) {
+        String originalExitReason = batch.getOriginalExitReason();
+        if (originalExitReason != null && !originalExitReason.isBlank()) {
+            return originalExitReason;
+        }
+        log.warn("灾难关闭消息原退出原因originalExitReason缺失,回退exitReason展示: batchNo={}, exitReason={}",
+                batch.getBatchNo(), batch.getExitReason());
+        return batch.getExitReason();
     }
 
 

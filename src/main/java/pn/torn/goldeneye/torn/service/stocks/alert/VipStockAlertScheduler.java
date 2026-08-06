@@ -15,6 +15,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,7 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续;通知投递保持独立语义。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -237,7 +238,8 @@ public class VipStockAlertScheduler {
         try {
             monthlyStateInitService.initCurrentMonth();
         } catch (Exception e) {
-            log.error("VIP股票策略调度-月度状态初始化失败,继续后续步骤", e);
+            LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+            log.error("VIP股票策略调度-月度状态初始化失败, effectiveMonth={}, 继续后续步骤", effectiveMonth, e);
         }
     }
 
@@ -349,9 +351,10 @@ public class VipStockAlertScheduler {
         }
 
         StockMarketRoundLoader.RoundSnapshot snapshot = roundLoader.loadRoundSnapshot(roundTime);
-        transactionService.executeRound(roundTime, snapshot, allowNewEntry);
+        LocalDateTime actualProcessingTime = marketClock.now();
+        transactionService.executeRound(roundTime, snapshot, allowNewEntry, actualProcessingTime);
 
-        log.info("VIP股票策略调度-轮次事务完成, roundTime={}", roundTime);
+        log.info("VIP股票策略调度-轮次事务完成, roundTime={}, actualProcessingTime={}", roundTime, actualProcessingTime);
     }
 
     /**

@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @DisplayName("股票通知组合服务测试")
@@ -217,6 +217,55 @@ class StockNoticeComposeServiceTest {
             assertFalse(text.contains("系统参考卖价"), "灾难关闭消息不应伪装成普通策略卖出");
             assertFalse(text.contains("本卖出仅对应批次"), "灾难关闭消息不应使用普通SELL模板");
             assertFalse(text.contains("止盈"), "灾难关闭消息不得使用止盈文案");
+        }
+
+        @Test
+        @DisplayName("P2-1_灾难关闭消息优先使用originalExitReason且与exitReason不一致时以原因为准")
+        void composeDisasterCloseMessage_originalExitReasonPreferred_whenMismatch() {
+            TornStockVirtualBatchDO batch = buildSellBatch(StockCloseTypeEnum.CLOSED_TARGET.getCode(),
+                    new BigDecimal("0.008"));
+            batch.setBatchStatus(StockBatchStatusEnum.ADMIN_CLOSED.getCode());
+            batch.setExpectedExitBarTime(LocalDateTime.of(2026, 7, 25, 12, 0));
+            // 原退出事实为CLOSED_RISK,兼容字段exitReason为CLOSED_TARGET: 必须展示originalExitReason
+            batch.setOriginalExitReason(StockCloseTypeEnum.CLOSED_RISK.getCode());
+            batch.setExitReason(StockCloseTypeEnum.CLOSED_TARGET.getCode());
+
+            String text = service.composeSellMessage(batch);
+
+            assertTrue(text.contains("原退出原因：风险退出"),
+                    "两字段不一致时必须以originalExitReason(风险退出)为准,实际: " + text);
+            assertFalse(text.contains("原退出原因：达到目标收益"),
+                    "不得以兼容字段exitReason(达到目标收益)为权威来源");
+        }
+
+        @Test
+        @DisplayName("P2-1_两字段一致时按originalExitReason展示")
+        void composeDisasterCloseMessage_originalExitReasonMatches_exitReason() {
+            TornStockVirtualBatchDO batch = buildSellBatch(StockCloseTypeEnum.CLOSED_RANGE.getCode(),
+                    new BigDecimal("0.008"));
+            batch.setBatchStatus(StockBatchStatusEnum.ADMIN_CLOSED.getCode());
+            batch.setExpectedExitBarTime(LocalDateTime.of(2026, 7, 25, 12, 0));
+            batch.setOriginalExitReason(StockCloseTypeEnum.CLOSED_RANGE.getCode());
+
+            String text = service.composeSellMessage(batch);
+
+            assertTrue(text.contains("原退出原因：区间恢复退出"),
+                    "一致时按originalExitReason展示,实际: " + text);
+        }
+
+        @Test
+        @DisplayName("P2-1_originalExitReason为空的历史兼容_回退exitReason展示")
+        void composeDisasterCloseMessage_originalExitReasonNull_fallsBackToExitReason() {
+            TornStockVirtualBatchDO batch = buildSellBatch(StockCloseTypeEnum.CLOSED_TARGET.getCode(),
+                    new BigDecimal("0.008"));
+            batch.setBatchStatus(StockBatchStatusEnum.ADMIN_CLOSED.getCode());
+            batch.setExpectedExitBarTime(LocalDateTime.of(2026, 7, 25, 12, 0));
+            batch.setOriginalExitReason(null);
+
+            String text = service.composeSellMessage(batch);
+
+            assertTrue(text.contains("原退出原因：达到目标收益"),
+                    "历史记录缺originalExitReason时回退exitReason展示,实际: " + text);
         }
     }
 

@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 同时验证 StockBatchStatusEnum.isActive() 与 StockMaturityEnum.isUsable() 的状态判定。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.13
  * @since 2026.07.24
  */
 @DisplayName("股票组合枚举映射测试")
@@ -178,6 +178,58 @@ class StockPortfolioEnumTest {
             assertTrue(e.getChineseDisplay().chars().anyMatch(c -> Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN),
                     "chineseDisplay应包含中文字符: " + e + " -> " + e.getChineseDisplay());
         }
+    }
+
+    // ==================== StockFormalReasonEnum 契约(P2-2) ====================
+
+    @Test
+    @DisplayName("正式原因枚举_ 编码唯一")
+    void stockFormalReasonEnum_codesAreUnique() {
+        long distinct = java.util.Arrays.stream(StockFormalReasonEnum.values())
+                .map(StockFormalReasonEnum::getCode)
+                .distinct()
+                .count();
+        assertEquals(StockFormalReasonEnum.values().length, distinct, "正式原因编码必须唯一");
+    }
+
+    @Test
+    @DisplayName("正式原因枚举_ chineseDisplay非空")
+    void stockFormalReasonEnum_chineseDisplayNonEmpty() {
+        for (StockFormalReasonEnum e : StockFormalReasonEnum.values()) {
+            assertNotNull(e.getChineseDisplay(), "chineseDisplay不应为空: " + e);
+            assertFalse(e.getChineseDisplay().isBlank(), "chineseDisplay不应为空白: " + e);
+        }
+    }
+
+    @Test
+    @DisplayName("正式原因枚举_ fromCode可逆且非法值拒绝")
+    void stockFormalReasonEnum_fromCodeReversibleAndInvalidRejected() {
+        for (StockFormalReasonEnum e : StockFormalReasonEnum.values()) {
+            assertEquals(e, StockFormalReasonEnum.fromCode(e.getCode()), "fromCode(getCode())应可逆: " + e);
+        }
+        assertThrows(IllegalArgumentException.class,
+                () -> StockFormalReasonEnum.fromCode("NON_EXISTENT_CODE"),
+                "非法正式原因编码必须拒绝");
+    }
+
+    @Test
+    @DisplayName("正式原因枚举_ 冻结集合包含当前引擎实际产出的全部编码")
+    void stockFormalReasonEnum_frozenSetContainsEngineOutputs() {
+        java.util.Set<String> engineOutputs = java.util.Set.of(
+                "HOLD_NO_EXIT_TRIGGERED",
+                "SELL_TARGET_REACHED",
+                "SELL_RANGE_RECOVERED",
+                "SELL_HARD_RISK",
+                "SELL_MAX_HOLD",
+                "SELL_DATA_ADMIN_CLOSE",
+                "EXIT_RANGE_FEATURE_MISSING"
+        );
+        java.util.Set<String> enumCodes = java.util.Arrays.stream(StockFormalReasonEnum.values())
+                .map(StockFormalReasonEnum::getCode)
+                .collect(java.util.stream.Collectors.toSet());
+        assertTrue(enumCodes.containsAll(engineOutputs),
+                "冻结正式原因集合必须包含当前引擎实际产出, 缺失: "
+                        + engineOutputs.stream().filter(c -> !enumCodes.contains(c)).toList());
     }
 
     // ==================== StockBatchStatusEnum.isActive ====================

@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 股票入场结算服务 - 处理待买入批次(ENTRY_PENDING)与待卖出批次(EXIT_PENDING)的成交与取消
@@ -30,7 +31,7 @@ import java.util.Map;
  * 传入的{@link RoundSnapshot}在事务外已批量加载,本服务内不再产生N+1查询。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -63,6 +64,17 @@ public class StockEntrySettlementService {
             "CLOSED_DYNAMIC", "CLOSED_ROTATION", "ADMIN_CLOSED"
     };
     /**
+     * 冻结的正式策略关闭类型集合。
+     * <p>
+     * 正常正式SELL与灾难关闭的退出事实来源必须属于该集合,用于结算前来源状态校验
+     * (P1-4): 正常SELL要求 exitReason ∈ 该集合;灾难关闭要求 originalExitReason ∈ 该集合。
+     * ADMIN_CLOSED是批次终态而非原策略退出事实,不包含在集合内。
+     */
+    private static final Set<String> FROZEN_STRATEGY_CLOSE_TYPES = Set.of(
+            "CLOSED_TARGET", "CLOSED_RANGE", "CLOSED_RISK", "CLOSED_TIME",
+            "CLOSED_DYNAMIC", "CLOSED_ROTATION"
+    );
+    /**
      * 运维告警WARN限频间隔小时数: 同一批次每小时最多输出一次结构化WARN,避免15分钟轮次日志噪声。
      */
     private static final long STALE_EXIT_WARN_INTERVAL_HOURS = 1;
@@ -83,18 +95,27 @@ public class StockEntrySettlementService {
      * <ul>
      *   <li>本轮bar与预期入场bar连续且价格偏离通过 -&gt; 成交(状态OPEN)</li>
      *   <li>本轮bar连续但价格偏离超限 -&gt; 取消(CANCELLED, reason=ENTRY_PRICE_DEVIATION)</li>
-     *   <li>超过entryStaleAt仍未成交 -&gt; 取消(CANCELLED, reason=ENTRY_DATA_STALE)</li>
+     *   <li>实际处理时刻达到或晚于entryStaleAt -&gt; 取消(CANCELLED, reason=ENTRY_DATA_STALE)</li>
      *   <li>本轮bar不可用或非连续 -&gt; 保持ENTRY_PENDING等待下一轮</li>
      * </ul>
+     * <p>
+     * 时间语义拆分:
+     * <ul>
+     *   <li>{@code roundTime} 为历史决策/成交bar的业务锚点,仅用于成交时刻等历史事实;</li>
+     *   <li>{@code actualProcessingTime} 为本次真实执行/恢复时刻,只用于过期(entryStaleAt)判定,
+     *       保证启动补偿/晚恢复场景不会把历史轮次当作未过期而补发BUY。</li>
+     * </ul>
      *
-     * @param snapshot   轮次快照
-     * @param barByStock 按股票ID索引的bar映射
-     * @param roundTime  本轮时间
+     * @param snapshot             轮次快照
+     * @param barByStock           按股票ID索引的bar映射
+     * @param roundTime            历史决策/成交bar的业务锚点
+     * @param actualProcessingTime 本次实际处理时刻(仅用于entryStaleAt过期判定)
      * @return 入场结算结果(包含已成交与已取消的批次列表)
      */
     public EntrySettlementResult processEntryPending(RoundSnapshot snapshot,
                                                      Map<Integer, TornStockMarketBar15mDO> barByStock,
-                                                     LocalDateTime roundTime) {
+                                                     LocalDateTime roundTime,
+                                                     LocalDateTime actualProcessingTime) {
         List<TornStockVirtualBatchDO> entryPendingBatches = snapshot.activeBatches().stream()
                 .filter(batch -> StockBatchStatusEnum.ENTRY_PENDING.getCode().equals(batch.getBatchStatus()))
                 .toList();
@@ -110,7 +131,8 @@ public class StockEntrySettlementService {
         Map<Long, TornStockPortfolioSlotDO> slotById = StockPortfolioService.indexSlotsById(snapshot.slots());
 
         for (TornStockVirtualBatchDO batch : entryPendingBatches) {
-            processSingleEntryBatch(batch, barByStock, slotById, roundTime, filledBatches, cancelledBatches);
+            processSingleEntryBatch(batch, barByStock, slotById, roundTime, actualProcessingTime,
+                    filledBatches, cancelledBatches);
         }
         return new EntrySettlementResult(filledBatches, cancelledBatches);
     }
@@ -118,24 +140,27 @@ public class StockEntrySettlementService {
     /**
      * 处理单个待买入批次: 判断过期、bar可用性、连续性与价格偏离, 决定成交、取消或等待。
      *
-     * @param batch            待买入批次
-     * @param barByStock       按股票ID索引的bar映射
-     * @param slotById         槽位ID索引映射
-     * @param roundTime        本轮时间
-     * @param filledBatches    输出: 已成交批次列表
-     * @param cancelledBatches 输出: 已取消批次列表
+     * @param batch                待买入批次
+     * @param barByStock           按股票ID索引的bar映射
+     * @param slotById             槽位ID索引映射
+     * @param roundTime            历史决策/成交bar的业务锚点
+     * @param actualProcessingTime 本次实际处理时刻(仅用于entryStaleAt过期判定)
+     * @param filledBatches        输出: 已成交批次列表
+     * @param cancelledBatches     输出: 已取消批次列表
      */
     private void processSingleEntryBatch(TornStockVirtualBatchDO batch,
                                          Map<Integer, TornStockMarketBar15mDO> barByStock,
                                          Map<Long, TornStockPortfolioSlotDO> slotById,
                                          LocalDateTime roundTime,
+                                         LocalDateTime actualProcessingTime,
                                          List<TornStockVirtualBatchDO> filledBatches,
                                          List<TornStockVirtualBatchDO> cancelledBatches) {
-        // 检查是否超过过期时间
-        if (batch.getEntryStaleAt() != null && !roundTime.isBefore(batch.getEntryStaleAt())) {
+        // 检查是否超过过期时间: 以实际处理时刻判定, 等于staleAt也取消(冻结比较边界)
+        if (batch.getEntryStaleAt() != null && !actualProcessingTime.isBefore(batch.getEntryStaleAt())) {
             cancelEntryBatch(batch, slotById, StockCancelReasonEnum.ENTRY_DATA_STALE, cancelledBatches);
-            log.info("待买入批次过期取消: batchNo={}, stocksId={}, staleAt={}, roundTime={}",
-                    batch.getBatchNo(), batch.getStocksId(), batch.getEntryStaleAt(), roundTime);
+            log.info("待买入批次过期取消: batchNo={}, stocksId={}, staleAt={}, actualProcessingTime={}, roundTime={}",
+                    batch.getBatchNo(), batch.getStocksId(), batch.getEntryStaleAt(),
+                    actualProcessingTime, roundTime);
             return;
         }
 
@@ -380,9 +405,86 @@ public class StockEntrySettlementService {
             return;
         }
 
+        validateNormalSellSource(batch);
         fillExitBatch(batch, currentBar, slotById, roundTime, filledBatches);
         log.info("待卖出批次成交: batchNo={}, stocksId={}, exitPrice={}, closeType={}",
                 batch.getBatchNo(), batch.getStocksId(), currentBar.getLastPrice(), batch.getExitReason());
+    }
+
+    /**
+     * 校验正常正式SELL结算前的来源状态与退出事实(P1-4)。
+     * <p>
+     * 正常SELL前置条件:
+     * <ul>
+     *   <li>ledgerType=FORMAL</li>
+     *   <li>batchStatus=EXIT_PENDING</li>
+     *   <li>exitSignalTime != null</li>
+     *   <li>expectedExitBarTime != null</li>
+     *   <li>exitReason 属于冻结正式策略关闭类型</li>
+     * </ul>
+     * 任一不满足直接抛 {@link IllegalStateException},由轮次事务整体回滚,
+     * 批次不关闭、槽位不释放、资金不回笼、SELL通知为0。不自动补字段。
+     *
+     * @param batch 待正常卖出的正式批次
+     * @throws IllegalStateException 来源状态或退出事实不满足冻结前置时抛出
+     */
+    private void validateNormalSellSource(TornStockVirtualBatchDO batch) {
+        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
+            throw new IllegalStateException("正式卖出批次账本类型非法: batchNo=" + batch.getBatchNo()
+                    + ", ledgerType=" + batch.getLedgerType());
+        }
+        if (!StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus())) {
+            throw new IllegalStateException("正式卖出来源状态非法,必须为EXIT_PENDING: batchNo="
+                    + batch.getBatchNo() + ", batchStatus=" + batch.getBatchStatus());
+        }
+        if (batch.getExitSignalTime() == null) {
+            throw new IllegalStateException("正式卖出批次缺少exitSignalTime,禁止结算: batchNo=" + batch.getBatchNo());
+        }
+        if (batch.getExpectedExitBarTime() == null) {
+            throw new IllegalStateException("正式卖出批次缺少expectedExitBarTime,禁止结算: batchNo=" + batch.getBatchNo());
+        }
+        if (!FROZEN_STRATEGY_CLOSE_TYPES.contains(batch.getExitReason())) {
+            throw new IllegalStateException("正式卖出退出原因不在冻结正式关闭类型内,禁止结算: batchNo="
+                    + batch.getBatchNo() + ", exitReason=" + batch.getExitReason());
+        }
+    }
+
+    /**
+     * 校验灾难关闭结算前的来源状态与退出事实(P1-4)。
+     * <p>
+     * 灾难关闭前置条件:
+     * <ul>
+     *   <li>ledgerType=FORMAL</li>
+     *   <li>batchStatus=DATA_STALE_EXIT</li>
+     *   <li>exitSignalTime != null</li>
+     *   <li>expectedExitBarTime != null</li>
+     *   <li>originalExitReason != null 且属于合法原正式关闭类型(不得用exitReason替代)</li>
+     * </ul>
+     * 任一不满足直接抛 {@link IllegalStateException},由轮次事务整体回滚,
+     * 批次不关闭、槽位不释放、资金不回笼、SELL通知为0。不自动补字段。
+     *
+     * @param batch 待灾难关闭的正式批次
+     * @throws IllegalStateException 来源状态或退出事实不满足冻结前置时抛出
+     */
+    private void validateDisasterCloseSource(TornStockVirtualBatchDO batch) {
+        if (!StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus())) {
+            throw new IllegalStateException("灾难关闭来源状态非法,必须为DATA_STALE_EXIT: batchNo="
+                    + batch.getBatchNo() + ", batchStatus=" + batch.getBatchStatus());
+        }
+        if (batch.getExitSignalTime() == null) {
+            throw new IllegalStateException("灾难关闭批次缺少exitSignalTime,禁止结算: batchNo=" + batch.getBatchNo());
+        }
+        if (batch.getExpectedExitBarTime() == null) {
+            throw new IllegalStateException("灾难关闭批次缺少expectedExitBarTime,禁止结算: batchNo=" + batch.getBatchNo());
+        }
+        if (batch.getOriginalExitReason() == null) {
+            throw new IllegalStateException("灾难关闭批次缺少originalExitReason,禁止结算: batchNo=" + batch.getBatchNo()
+                    + ", exitReason=" + batch.getExitReason());
+        }
+        if (!FROZEN_STRATEGY_CLOSE_TYPES.contains(batch.getOriginalExitReason())) {
+            throw new IllegalStateException("灾难关闭原退出原因不在合法正式关闭类型内,禁止结算: batchNo="
+                    + batch.getBatchNo() + ", originalExitReason=" + batch.getOriginalExitReason());
+        }
     }
 
     /**
@@ -514,6 +616,7 @@ public class StockEntrySettlementService {
 
         BigDecimal sellProceeds;
         if (isFormal) {
+            validateDisasterCloseSource(batch);
             TornStockPortfolioSlotDO slot = batch.getSlotId() != null ? slotById.get(batch.getSlotId()) : null;
             sellProceeds = portfolioService.settleFormalSlot(batch, slot, disasterExitPrice);
         } else if (isShadow) {
