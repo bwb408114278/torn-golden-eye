@@ -30,19 +30,6 @@
         ORDER BY stocks_id ASC, bar_start_time ASC
     </select>
 
-    <!-- 批量查询每支股票的证据首尾bar时间 -->
-    <select id="selectEvidenceRanges" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
-        SELECT stocks_id,
-               MIN(bar_start_time) AS first_sample_time,
-               MAX(bar_start_time) AS last_sample_time
-        FROM torn_stock_market_bar_15m
-        WHERE bar_start_time <![CDATA[<]]> #{endTime}
-          AND build_version = #{buildVersion}
-          AND deleted = 0
-        GROUP BY stocks_id
-        ORDER BY stocks_id ASC
-    </select>
-
     <!-- 按唯一键执行UPSERT -->
     <insert id="upsertBar">
         INSERT INTO torn_stock_market_bar_15m

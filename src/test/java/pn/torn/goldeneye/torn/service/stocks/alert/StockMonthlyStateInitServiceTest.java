@@ -215,15 +215,17 @@ class StockMonthlyStateInitServiceTest {
     @Test
     @DisplayName("确认草稿状态_ 确认人为空抛异常")
     void confirmDraftStates_blankConfirmedBy_throws() {
+        LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
         assertThrows(IllegalArgumentException.class,
-                () -> monthlyStateInitService.confirmDraftStates(LocalDate.of(2026, 7, 1), "  "));
+                () -> monthlyStateInitService.confirmDraftStates(effectiveMonth, "  "));
     }
 
     @Test
     @DisplayName("确认草稿状态_ 确认人为SYSTEM抛异常")
     void confirmDraftStates_systemConfirmedBy_throws() {
+        LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
         assertThrows(IllegalArgumentException.class,
-                () -> monthlyStateInitService.confirmDraftStates(LocalDate.of(2026, 7, 1), "SYSTEM"));
+                () -> monthlyStateInitService.confirmDraftStates(effectiveMonth, "SYSTEM"));
     }
 
     @Test
