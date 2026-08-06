@@ -95,23 +95,14 @@ final class StockReplaySignalStateMirror {
     private static void apply(StockBuySignalEvaluator.SignalEvaluation evaluation,
                               StockBuyStrategy strategy, TornStockSignalStateDO state,
                               LocalDateTime roundTime) {
-        boolean previousActive = Boolean.TRUE.equals(state.getConditionActive());
         boolean currentActive = evaluation.matchedStrategies() != null
                 && evaluation.matchedStrategies().contains(strategy);
-        state.setStocksId(evaluation.stocksId());
-        state.setStrategyType(strategy.getStrategyType().getCode());
-        state.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-        state.setConditionActive(currentActive);
-        state.setLastEvaluatedRoundTime(roundTime);
-        if (currentActive && !previousActive) {
-            state.setLastSignalTime(roundTime);
-        }
-        if (!currentActive && previousActive) {
-            state.setResetObserved(true);
-        }
-        if (state.getResetObserved() == null) {
-            state.setResetObserved(false);
-        }
+        state.applyEvaluation(
+                evaluation.stocksId(),
+                strategy.getStrategyType().getCode(),
+                StockRoundTransactionService.BUY_RULE_VERSION,
+                currentActive,
+                roundTime);
     }
 
     private static String resolveLastCloseType(TornStockVirtualBatchDO batch) {

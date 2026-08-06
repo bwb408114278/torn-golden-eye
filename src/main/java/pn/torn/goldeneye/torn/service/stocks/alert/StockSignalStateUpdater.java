@@ -17,7 +17,7 @@ import java.util.*;
  * 本服务按股票与策略分别维护条件状态,避免主策略切换时覆盖其他策略的边沿、复位和冷却数据。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.27
  */
 @Slf4j
@@ -186,21 +186,12 @@ public class StockSignalStateUpdater {
                                                boolean currentActive,
                                                LocalDateTime roundTime) {
         TornStockSignalStateDO target = state == null ? new TornStockSignalStateDO() : state;
-        boolean previousActive = Boolean.TRUE.equals(target.getConditionActive());
-        target.setStocksId(evaluation.stocksId());
-        target.setStrategyType(strategy.getStrategyType().getCode());
-        target.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-        target.setConditionActive(currentActive);
-        target.setLastEvaluatedRoundTime(roundTime);
-        if (currentActive && !previousActive) {
-            target.setLastSignalTime(roundTime);
-        }
-        if (!currentActive && previousActive) {
-            target.setResetObserved(true);
-        }
-        if (target.getResetObserved() == null) {
-            target.setResetObserved(false);
-        }
+        target.applyEvaluation(
+                evaluation.stocksId(),
+                strategy.getStrategyType().getCode(),
+                StockRoundTransactionService.BUY_RULE_VERSION,
+                currentActive,
+                roundTime);
         return target;
     }
 
@@ -208,7 +199,7 @@ public class StockSignalStateUpdater {
      * 股票策略评估状态视图。
      *
      * @author Bai
-     * @version 1.2.12
+     * @version 1.2.14
      * @since 2026.07.27
      */
     public interface SignalStateEvaluationView {

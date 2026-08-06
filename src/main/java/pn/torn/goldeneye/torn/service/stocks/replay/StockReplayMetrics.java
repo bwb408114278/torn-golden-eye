@@ -96,8 +96,8 @@ final class StockReplayMetrics {
     /**
      * 追加本轮正式净值点并更新回撤与利用率指标。
      *
-     * @param t           本轮时间
-     * @param barByStock  本轮bar(按股票ID索引)
+     * @param t          本轮时间
+     * @param barByStock 本轮bar(按股票ID索引)
      */
     void recordEquityPoint(LocalDateTime t, Map<Integer, TornStockMarketBar15mDO> barByStock) {
         BigDecimal cashAndReserved =
@@ -108,7 +108,7 @@ final class StockReplayMetrics {
             utilizationCount++;
         }
         MarketValue open = aggregateOpen(portfolio.activeBatches(), barByStock);
-        BigDecimal equity = open.missingPrice ? null : cashAndReserved.add(open.marketValue);
+        BigDecimal equity = open.missingPrice ? null : cashAndReserved.add(open.totalMarketValue);
         equityByTrack.get(track.getCode()).add(new StockReplayEquityPoint(
                 runId, track.getCode(), t, equity, cashAndReserved,
                 open.openPositions, realizedReturn, utilization));
@@ -123,8 +123,8 @@ final class StockReplayMetrics {
     /**
      * 追加本轮影子净值点(恒1股无现金口径)。
      *
-     * @param t           本轮时间
-     * @param barByStock  本轮bar(按股票ID索引)
+     * @param t          本轮时间
+     * @param barByStock 本轮bar(按股票ID索引)
      */
     private void recordShadowEquityPoint(LocalDateTime t,
                                          Map<Integer, TornStockMarketBar15mDO> barByStock) {
@@ -132,7 +132,7 @@ final class StockReplayMetrics {
         String code = StockReplayTrackEnum.UNLIMITED_SHADOW.getCode();
         equityByTrack.get(code).add(new StockReplayEquityPoint(
                 runId, code, t,
-                open.missingPrice ? null : open.marketValue, BigDecimal.ZERO,
+                open.missingPrice ? null : open.totalMarketValue, BigDecimal.ZERO,
                 open.openPositions, null, null));
     }
 
@@ -162,13 +162,13 @@ final class StockReplayMetrics {
     BigDecimal averageUtilization() {
         return utilizationCount == 0 ? null
                 : utilizationSum.divide(BigDecimal.valueOf(utilizationCount),
-                        STAT_SCALE, RoundingMode.HALF_UP);
+                STAT_SCALE, RoundingMode.HALF_UP);
     }
 
     private BigDecimal utilization(int occupiedSlots) {
         return track.getSlotCount() <= 0 ? null
                 : BigDecimal.valueOf(occupiedSlots)
-                        .divide(BigDecimal.valueOf(track.getSlotCount()), STAT_SCALE, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(track.getSlotCount()), STAT_SCALE, RoundingMode.HALF_UP);
     }
 
     private int occupiedSlots() {
@@ -243,7 +243,7 @@ final class StockReplayMetrics {
      * 持仓市值聚合(含缺失价格标记)。
      */
     private static final class MarketValue {
-        private BigDecimal marketValue = BigDecimal.ZERO;
+        private BigDecimal totalMarketValue = BigDecimal.ZERO;
         private int openPositions;
         private boolean missingPrice;
 
@@ -253,7 +253,7 @@ final class StockReplayMetrics {
                 return;
             }
             openPositions++;
-            marketValue = marketValue.add(
+            totalMarketValue = totalMarketValue.add(
                     BigDecimal.valueOf(quantity).multiply(price).multiply(SELL_FEE_RATE));
         }
     }
