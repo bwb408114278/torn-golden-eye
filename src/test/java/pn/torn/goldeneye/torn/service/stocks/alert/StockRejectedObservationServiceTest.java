@@ -8,6 +8,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockObservationResultEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
@@ -22,10 +23,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * 拒绝观察结算服务测试，验证批量读取、到期结算和结果回写。
+ * 拒绝观察结算服务测试，验证批量读取、到期结算、理论退出生命周期和结果回写。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.29
  */
 @DisplayName("拒绝观察结算服务测试")
@@ -38,6 +39,12 @@ class StockRejectedObservationServiceTest {
     private TornStockVirtualBatchDAO virtualBatchDao;
     @Mock
     private TornStockMarketBar15mDAO barDao;
+    @Mock
+    private TornStockStrategyFeature15mDAO featureDao;
+
+    private StockRejectedObservationService service() {
+        return new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao, featureDao);
+    }
 
     @Test
     @DisplayName("观察窗口到期_批量回写后续收益并只更新一次")
@@ -62,15 +69,16 @@ class StockRejectedObservationServiceTest {
         when(virtualBatchDao.selectRejectedObservationBatches(List.of(11L))).thenReturn(List.of(batch));
         when(barDao.selectByStocksAndTimeRange(eq(List.of(1001)), any(), any(), any()))
                 .thenReturn(List.of(entry, later));
+        when(featureDao.selectByStocksAndTimeRange(anyList(), any(), any(), any())).thenReturn(List.of());
 
-        int count = new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao)
-                .resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
 
         assertEquals(1, count);
         assertEquals(0, event.getLaterMfe().compareTo(new BigDecimal("0.05")));
         assertEquals(0, event.getLaterMae().compareTo(new BigDecimal("0.05")));
         assertEquals("OBSERVATION_COMPLETED", event.getObservationResult());
         assertTrue(event.getObservationDataIncomplete());
+        assertEquals(signalTime.plusMinutes(15), event.getTheoreticalEntryTime());
         verify(signalEventDao).updateObservationResultsByIds(List.of(event));
     }
 
@@ -92,8 +100,7 @@ class StockRejectedObservationServiceTest {
         when(virtualBatchDao.selectRejectedObservationBatches(List.of(11L))).thenReturn(List.of(batch));
         when(barDao.selectByStocksAndTimeRange(anyList(), any(), any(), any())).thenReturn(List.of());
 
-        int count = new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao)
-                .resolveDueObservations(signalTime, signalTime.plusMinutes(15), signalTime.plusMinutes(34));
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), signalTime.plusMinutes(34));
 
         assertEquals(0, count);
     }
@@ -116,13 +123,13 @@ class StockRejectedObservationServiceTest {
         when(virtualBatchDao.selectRejectedObservationBatches(List.of(12L))).thenReturn(List.of(batch));
         when(barDao.selectByStocksAndTimeRange(anyList(), any(), any(), any())).thenReturn(List.of());
 
-        int count = new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao)
-                .resolveDueObservations(signalTime, signalTime.plusMinutes(15), signalTime.plusMinutes(35));
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), signalTime.plusMinutes(35));
 
         assertEquals(1, count);
         assertEquals(signalTime.plusMinutes(35), event.getResolvedAt());
         assertEquals("NO_THEORETICAL_ENTRY", event.getObservationResult());
         assertFalse(event.getObservationDataIncomplete());
+        assertNull(event.getTheoreticalEntryPrice(), "无法理论入场不得回填理论入场价");
         verify(signalEventDao).updateObservationResultsByIds(List.of(event));
     }
 
@@ -139,8 +146,7 @@ class StockRejectedObservationServiceTest {
         when(virtualBatchDao.selectRejectedObservationBatches(List.of(13L)))
                 .thenReturn(List.of(batchForEvent(13L)));
 
-        int count = new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao)
-                .resolveDueObservations(signalTime, signalTime.plusMinutes(15), signalTime.plusDays(15));
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), signalTime.plusDays(15));
 
         assertEquals(0, count);
         verify(signalEventDao, never()).updateBatchById(any());
@@ -169,9 +175,9 @@ class StockRejectedObservationServiceTest {
         when(virtualBatchDao.selectRejectedObservationBatches(List.of(14L))).thenReturn(List.of(batch));
         when(barDao.selectByStocksAndTimeRange(eq(List.of(1001)), any(), any(), any()))
                 .thenReturn(List.of(entry, later));
+        when(featureDao.selectByStocksAndTimeRange(anyList(), any(), any(), any())).thenReturn(List.of());
 
-        int count = new StockRejectedObservationService(signalEventDao, virtualBatchDao, barDao)
-                .resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
 
         assertEquals(1, count);
         assertEquals("OBSERVATION_COMPLETED", event.getObservationResult(),
@@ -180,6 +186,44 @@ class StockRejectedObservationServiceTest {
         assertEquals(0, event.getLaterMfe().compareTo(new BigDecimal("0.08")));
         assertEquals(0, event.getLaterMae().compareTo(new BigDecimal("0.08")));
         verify(signalEventDao).updateObservationResultsByIds(List.of(event));
+    }
+
+    @Test
+    @DisplayName("理论路径命中目标_提前理论退出_回填退出生命周期字段")
+    void resolveDueObservations_theoreticalTargetExit_fillsLifecycleFields() {
+        LocalDateTime signalTime = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime observedAt = signalTime.plusDays(2).plusHours(1);
+        TornStockSignalEventDO event = new TornStockSignalEventDO();
+        event.setId(15L);
+        event.setStocksId(1001);
+        event.setSignalReferencePrice(new BigDecimal("100.00"));
+        event.setRoundTime(signalTime);
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setSignalEventId(15L);
+        batch.setExpectedEntryBarTime(signalTime.plusMinutes(15));
+        batch.setEntryStaleAt(signalTime.plusMinutes(35));
+        batch.setPrimaryStrategy("DEEP_REVERSION");
+        TornStockMarketBar15mDO entry = bar(signalTime.plusMinutes(15), new BigDecimal("100.00"));
+        TornStockMarketBar15mDO signalBar = bar(signalTime.plusDays(1), new BigDecimal("101.00"));
+        TornStockMarketBar15mDO exitBar = bar(signalTime.plusDays(1).plusMinutes(15), new BigDecimal("100.90"));
+
+        when(signalEventDao.selectPendingRejectedObservationEvents(any(), any())).thenReturn(List.of(event));
+        when(virtualBatchDao.selectRejectedObservationBatches(List.of(15L))).thenReturn(List.of(batch));
+        when(barDao.selectByStocksAndTimeRange(eq(List.of(1001)), any(), any(), any()))
+                .thenReturn(List.of(entry, signalBar, exitBar));
+        when(featureDao.selectByStocksAndTimeRange(anyList(), any(), any(), any())).thenReturn(List.of());
+
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
+
+        assertEquals(1, count);
+        assertEquals(signalTime.plusMinutes(15), event.getTheoreticalEntryTime());
+        assertEquals(0, event.getTheoreticalEntryPrice().compareTo(new BigDecimal("100.00")));
+        assertEquals(signalBar.getBarStartTime(), event.getTheoreticalExitSignalTime());
+        assertEquals(exitBar.getBarStartTime(), event.getTheoreticalExitTime());
+        assertEquals(0, event.getTheoreticalExitPrice().compareTo(new BigDecimal("100.90")));
+        assertEquals("CLOSED_TARGET", event.getTheoreticalCloseType());
+        assertNotNull(event.getTheoreticalNetReturn(), "提前退出必须回填理论净收益");
+        assertEquals(event.getTheoreticalExitTime(), event.getResolvedAt(), "提前退出时resolvedAt=理论退出时间");
     }
 
     private TornStockVirtualBatchDO batchForEvent(Long eventId) {

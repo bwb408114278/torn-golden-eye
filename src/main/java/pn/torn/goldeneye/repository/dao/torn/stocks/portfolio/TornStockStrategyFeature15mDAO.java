@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征持久层类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Repository
@@ -56,6 +56,22 @@ public class TornStockStrategyFeature15mDAO
                                                                   LocalDateTime endTime,
                                                                   String featureVersion) {
         return baseMapper.selectByTimeRange(startTime, endTime, featureVersion);
+    }
+
+    /**
+     * 按时间范围、股票集合和特征版本批量查询特征,避免逐股查询产生N+1问题。
+     *
+     * @param stocksIds      股票ID列表
+     * @param startTime      起始时间(含)
+     * @param endTime        结束时间(含)
+     * @param featureVersion 特征版本
+     * @return 按股票ID与bar时间升序排列的特征列表
+     */
+    public List<TornStockStrategyFeature15mDO> selectByStocksAndTimeRange(List<Integer> stocksIds,
+                                                                          LocalDateTime startTime,
+                                                                          LocalDateTime endTime,
+                                                                          String featureVersion) {
+        return baseMapper.selectByStocksAndTimeRange(stocksIds, startTime, endTime, featureVersion);
     }
     /**
      * 按唯一键执行UPSERT,支持幂等重试

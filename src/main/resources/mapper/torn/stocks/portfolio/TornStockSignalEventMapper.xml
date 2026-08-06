@@ -48,16 +48,32 @@
             resolved_at = source.resolved_at,
             observation_result = source.observation_result,
             observation_data_incomplete = source.observation_data_incomplete,
+            theoretical_entry_time = source.theoretical_entry_time,
+            theoretical_entry_price = source.theoretical_entry_price,
+            theoretical_exit_signal_time = source.theoretical_exit_signal_time,
+            theoretical_exit_time = source.theoretical_exit_time,
+            theoretical_exit_price = source.theoretical_exit_price,
+            theoretical_close_type = source.theoretical_close_type,
+            theoretical_net_return = source.theoretical_net_return,
             update_time = CURRENT_TIMESTAMP
         FROM (VALUES
             <foreach collection="events" item="event" separator=",">
                 (CAST(#{event.id} AS BIGINT), CAST(#{event.laterMfe} AS NUMERIC(18,10)),
                  CAST(#{event.laterMae} AS NUMERIC(18,10)), CAST(#{event.resolvedAt} AS TIMESTAMP),
                  CAST(#{event.observationResult} AS VARCHAR(64)),
-                 CAST(#{event.observationDataIncomplete} AS BOOLEAN))
+                 CAST(#{event.observationDataIncomplete} AS BOOLEAN),
+                 CAST(#{event.theoreticalEntryTime} AS TIMESTAMP),
+                 CAST(#{event.theoreticalEntryPrice} AS NUMERIC(18,6)),
+                 CAST(#{event.theoreticalExitSignalTime} AS TIMESTAMP),
+                 CAST(#{event.theoreticalExitTime} AS TIMESTAMP),
+                 CAST(#{event.theoreticalExitPrice} AS NUMERIC(18,6)),
+                 CAST(#{event.theoreticalCloseType} AS VARCHAR(32)),
+                 CAST(#{event.theoreticalNetReturn} AS NUMERIC(18,10)))
             </foreach>
         ) AS source(id, later_mfe, later_mae, resolved_at, observation_result,
-                    observation_data_incomplete)
+                    observation_data_incomplete, theoretical_entry_time, theoretical_entry_price,
+                    theoretical_exit_signal_time, theoretical_exit_time, theoretical_exit_price,
+                    theoretical_close_type, theoretical_net_return)
         WHERE torn_stock_signal_event.id = source.id
           AND torn_stock_signal_event.resolved_at IS NULL
     </update>

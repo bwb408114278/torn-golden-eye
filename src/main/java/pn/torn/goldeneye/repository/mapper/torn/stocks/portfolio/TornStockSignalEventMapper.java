@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票信号事件数据库访问层
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Mapper
@@ -33,8 +33,8 @@ public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEv
      * @param endTime   轮次终点(不含)
      * @return 未结算拒绝观察事件
      */
-    List<TornStockSignalEventDO> selectPendingRejectedObservationEvents(
-            @Param("startTime") LocalDateTime startTime, @Param("endTime") LocalDateTime endTime);
+    List<TornStockSignalEventDO> selectPendingRejectedObservationEvents(@Param("startTime") LocalDateTime startTime,
+                                                                        @Param("endTime") LocalDateTime endTime);
 
     /**
      * 批量查询全部未结算拒绝观察事件,用于停机补偿。

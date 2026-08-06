@@ -6,9 +6,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.time.LocalDateTime;
@@ -21,10 +23,10 @@ import java.util.stream.Collectors;
 /**
  * 拒绝观察独立结算服务。
  *
- * <p>服务只处理拒绝观察研究账本，不创建正式持仓、不占用槽位、不发送通知。</p>
+ * <p>服务只处理拒绝观察研究账本,不创建正式持仓、不占用槽位、不发送通知。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.29
  */
 @Slf4j
@@ -35,6 +37,7 @@ public class StockRejectedObservationService {
     private final TornStockSignalEventDAO signalEventDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
     private final TornStockMarketBar15mDAO barDao;
+    private final TornStockStrategyFeature15mDAO featureDao;
 
     /**
      * 结算指定时间范围内已经到达观察结算点的拒绝事件。
@@ -95,15 +98,23 @@ public class StockRejectedObservationService {
         LocalDateTime barStart = events.stream().map(event -> batchByEventId.get(event.getId()))
                 .filter(Objects::nonNull).map(TornStockVirtualBatchDO::getExpectedEntryBarTime)
                 .filter(Objects::nonNull).min(LocalDateTime::compareTo).orElse(fallbackBarStart);
+        LocalDateTime windowEnd = observedAt.plusMinutes(15);
         List<TornStockMarketBar15mDO> bars = stocksIds.isEmpty() ? List.of()
-                : barDao.selectByStocksAndTimeRange(stocksIds, barStart, observedAt.plusMinutes(15),
+                : barDao.selectByStocksAndTimeRange(stocksIds, barStart, windowEnd,
                 Stock15mBarBuildService.BUILD_VERSION);
+        List<TornStockStrategyFeature15mDO> features = stocksIds.isEmpty() ? List.of()
+                : featureDao.selectByStocksAndTimeRange(stocksIds, barStart, windowEnd,
+                Stock15mFeatureBuildService.FEATURE_VERSION);
         Map<Integer, List<TornStockMarketBar15mDO>> barsByStockId = bars.stream()
                 .filter(bar -> bar.getStocksId() != null)
                 .collect(Collectors.groupingBy(TornStockMarketBar15mDO::getStocksId));
+        Map<Integer, List<TornStockStrategyFeature15mDO>> featuresByStockId = features.stream()
+                .filter(feature -> feature.getStocksId() != null)
+                .collect(Collectors.groupingBy(TornStockStrategyFeature15mDO::getStocksId));
         List<TornStockSignalEventDO> resolved = events.stream()
                 .map(event -> resolveIfDue(event, batchByEventId.get(event.getId()),
-                        barsByStockId.getOrDefault(event.getStocksId(), List.of()), observedAt))
+                        barsByStockId.getOrDefault(event.getStocksId(), List.of()),
+                        featuresByStockId.getOrDefault(event.getStocksId(), List.of()), observedAt))
                 .filter(Objects::nonNull).toList();
         if (!resolved.isEmpty()) {
             signalEventDao.updateObservationResultsByIds(resolved);
@@ -114,6 +125,7 @@ public class StockRejectedObservationService {
     private TornStockSignalEventDO resolveIfDue(TornStockSignalEventDO event,
                                                 TornStockVirtualBatchDO batch,
                                                 List<TornStockMarketBar15mDO> bars,
+                                                List<TornStockStrategyFeature15mDO> features,
                                                 LocalDateTime observedAt) {
         if (batch == null || event.getResolvedAt() != null) {
             return null;
@@ -123,7 +135,7 @@ public class StockRejectedObservationService {
             return null;
         }
         StockRejectedObservationCalculator.Result result =
-                StockRejectedObservationCalculator.calculate(event, batch, bars);
+                StockRejectedObservationCalculator.calculate(event, batch, bars, features);
         if (StockRejectedObservationCalculator.NO_THEORETICAL_ENTRY.equals(result.resultCode())) {
             event.setLaterMfe(null);
             event.setLaterMae(null);
@@ -134,14 +146,35 @@ public class StockRejectedObservationService {
         }
         LocalDateTime observationDeadline = batch.getExpectedEntryBarTime() == null
                 ? null : batch.getExpectedEntryBarTime().plusDays(StockRejectedObservationCalculator.OBSERVATION_DAYS);
-        if (observationDeadline == null || observedAt.isBefore(observationDeadline)) {
+        if (result.theoreticalExitTime() == null && (observationDeadline == null
+                || observedAt.isBefore(observationDeadline))) {
             return null;
         }
+        applyObservationResult(event, result, observationDeadline);
+        return event;
+    }
+
+    /**
+     * 将理论观察结果写回信号事件(含理论退出生命周期字段)。
+     *
+     * @param event               信号事件
+     * @param result              理论观察结果
+     * @param observationDeadline 观察窗口截止时间
+     */
+    private void applyObservationResult(TornStockSignalEventDO event,
+                                        StockRejectedObservationCalculator.Result result,
+                                        LocalDateTime observationDeadline) {
         event.setLaterMfe(result.laterMfe());
         event.setLaterMae(result.laterMae());
         event.setObservationResult(result.resultCode());
         event.setObservationDataIncomplete(result.observationDataIncomplete());
         event.setResolvedAt(result.resolvedAt() == null ? observationDeadline : result.resolvedAt());
-        return event;
+        event.setTheoreticalEntryTime(result.theoreticalEntryTime());
+        event.setTheoreticalEntryPrice(result.theoreticalEntryPrice());
+        event.setTheoreticalExitSignalTime(result.theoreticalExitSignalTime());
+        event.setTheoreticalExitTime(result.theoreticalExitTime());
+        event.setTheoreticalExitPrice(result.theoreticalExitPrice());
+        event.setTheoreticalCloseType(result.theoreticalCloseType());
+        event.setTheoreticalNetReturn(result.theoreticalNetReturn());
     }
 }

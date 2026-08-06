@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
  * 作为信号回测与策略迭代的核心数据。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Data
@@ -137,4 +137,32 @@ public class TornStockSignalEventDO extends BaseDO {
      * 观察窗口是否存在数据缺口
      */
     private Boolean observationDataIncomplete;
+    /**
+     * 理论入场时间(拒绝观察理论路径入场bar的开始时间)
+     */
+    private LocalDateTime theoreticalEntryTime;
+    /**
+     * 理论入场价格(拒绝观察理论路径入场bar的lastPrice)
+     */
+    private BigDecimal theoreticalEntryPrice;
+    /**
+     * 理论退出信号时间(首次命中冻结退出规则的bar开始时间)
+     */
+    private LocalDateTime theoreticalExitSignalTime;
+    /**
+     * 理论退出成交时间(退出信号后紧邻下一连续可用bar的开始时间)
+     */
+    private LocalDateTime theoreticalExitTime;
+    /**
+     * 理论退出成交价格
+     */
+    private BigDecimal theoreticalExitPrice;
+    /**
+     * 理论退出关闭类型(冻结正式退出类型编码;无提前退出时为null)
+     */
+    private String theoreticalCloseType;
+    /**
+     * 理论净收益(扣0.1%卖出费;提前退出按退出价,否则按14天截止前最后可用bar期末价)
+     */
+    private BigDecimal theoreticalNetReturn;
 }

@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票信号事件持久层类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Repository

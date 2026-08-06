@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征数据库访问层
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Mapper
@@ -43,14 +43,28 @@ public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockS
     /**
      * 按时间范围和特征版本批量查询全部股票特征。
      *
-     * @param startTime 起始时间(含)
-     * @param endTime 结束时间(含)
+     * @param startTime      起始时间(含)
+     * @param endTime        结束时间(含)
      * @param featureVersion 特征版本
      * @return 时间范围内特征
      */
     List<TornStockStrategyFeature15mDO> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
-                                                           @Param("endTime") LocalDateTime endTime,
-                                                           @Param("featureVersion") String featureVersion);
+                                                          @Param("endTime") LocalDateTime endTime,
+                                                          @Param("featureVersion") String featureVersion);
+
+    /**
+     * 按时间范围、股票集合和特征版本批量查询特征。
+     *
+     * @param stocksIds      股票ID列表
+     * @param startTime      起始时间(含)
+     * @param endTime        结束时间(含)
+     * @param featureVersion 特征版本
+     * @return 按股票ID与bar时间升序排列的特征列表
+     */
+    List<TornStockStrategyFeature15mDO> selectByStocksAndTimeRange(@Param("stocksIds") List<Integer> stocksIds,
+                                                                   @Param("startTime") LocalDateTime startTime,
+                                                                   @Param("endTime") LocalDateTime endTime,
+                                                                   @Param("featureVersion") String featureVersion);
 
     /**
      * 按唯一键(stocks_id, bar_start_time, feature_version)执行UPSERT
