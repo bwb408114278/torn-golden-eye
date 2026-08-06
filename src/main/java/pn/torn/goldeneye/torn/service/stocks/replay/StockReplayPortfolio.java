@@ -1,7 +1,5 @@
 package pn.torn.goldeneye.torn.service.stocks.replay;
 
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
@@ -97,22 +95,6 @@ public class StockReplayPortfolio {
     }
 
     /**
-     * 指定股票是否已有正式活跃批次。
-     *
-     * @param stocksId 股票ID
-     * @return 有正式活跃批次时返回true
-     */
-    public boolean hasActiveFormalBatch(Integer stocksId) {
-        if (stocksId == null) {
-            return false;
-        }
-        return activeBatches.stream().anyMatch(batch ->
-                StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
-                        && stocksId.equals(batch.getStocksId())
-                        && isActiveStatus(batch.getBatchStatus()));
-    }
-
-    /**
      * 新增批次并分配内存批次ID。
      *
      * @param batch 批次DO(尚未设置ID)
@@ -122,16 +104,5 @@ public class StockReplayPortfolio {
         batch.setId(nextBatchId++);
         activeBatches.add(batch);
         return batch;
-    }
-
-    private static boolean isActiveStatus(String status) {
-        if (status == null) {
-            return false;
-        }
-        try {
-            return StockBatchStatusEnum.fromCode(status).isActive();
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
     }
 }

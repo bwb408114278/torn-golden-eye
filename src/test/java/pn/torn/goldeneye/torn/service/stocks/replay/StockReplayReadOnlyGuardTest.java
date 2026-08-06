@@ -6,8 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRequest;
@@ -21,18 +20,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 回放只读事务守卫真实PostgreSQL测试。
  * <p>
- * 验证: 独立只读事务内 {@code pg_is_in_transaction_read_only()} 为true; 只读事务内任何
+ * 验证: 独立只读事务内 {@code current_setting('transaction_read_only')} 为on; 只读事务内任何
  * DAO写入被数据库拒绝; 一次真实回放运行不改变任何业务表行数(业务表写0)。产物写入
  * {@code target/replay-guard} 并在测试后清理。
  *
@@ -51,7 +47,13 @@ class StockReplayReadOnlyGuardTest {
     @Autowired
     private TornStockSignalEventDAO signalEventDao;
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private TornStockVirtualBatchDAO virtualBatchDao;
+    @Autowired
+    private TornStockSignalStateDAO signalStateDao;
+    @Autowired
+    private TornStockNoticeAuditDAO noticeAuditDao;
+    @Autowired
+    private TornStockMarketRoundDAO marketRoundDao;
 
     /**
      * 产物输出根目录(测试专用,结束后清理)。
@@ -75,7 +77,7 @@ class StockReplayReadOnlyGuardTest {
     }
 
     @Test
-    @DisplayName("独立只读事务校验通过(pg_is_in_transaction_read_only=true)")
+    @DisplayName("独立只读事务校验通过(transaction_read_only=on)")
     void verifyReadOnlySession_passes() {
         readOnlyGuard.verifyReadOnlySession();
     }
@@ -127,16 +129,11 @@ class StockReplayReadOnlyGuardTest {
 
     private Map<String, Long> businessRowCounts() {
         Map<String, Long> counts = new LinkedHashMap<>();
-        for (String table : List.of(
-                "torn_stock_signal_event",
-                "torn_stock_virtual_batch",
-                "torn_stock_signal_state",
-                "torn_stock_notice_audit",
-                "torn_stock_market_round")) {
-            Long count = jdbcTemplate.queryForObject(
-                    "SELECT count(*) FROM " + table + " WHERE deleted = 0", Long.class);
-            counts.put(table, count == null ? 0L : count);
-        }
+        counts.put("torn_stock_signal_event", signalEventDao.count());
+        counts.put("torn_stock_virtual_batch", virtualBatchDao.count());
+        counts.put("torn_stock_signal_state", signalStateDao.count());
+        counts.put("torn_stock_notice_audit", noticeAuditDao.count());
+        counts.put("torn_stock_market_round", marketRoundDao.count());
         return counts;
     }
 }

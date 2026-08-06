@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
 import java.util.TreeMap;
 
 /**
@@ -46,27 +47,27 @@ public record StockReplaySummary(
     /**
      * 单一轨道摘要。
      *
-     * @param track             轨道编码
-     * @param displayName       轨道展示名
-     * @param slotCount         正式槽位数
-     * @param initialCashPerSlot 每槽初始资金
-     * @param trades            交易总数
-     * @param buys              买入数
-     * @param sells             卖出数
-     * @param intervalReturn    区间净收益
-     * @param annualizedReturn  年化折算收益
-     * @param maxDrawdown       最大回撤
-     * @param slotUtilization   槽位占用率
-     * @param medianHoldHours   中位持有小时数
-     * @param messageCount      正式消息条数(买卖合计)
+     * @param track               轨道编码
+     * @param displayName         轨道展示名
+     * @param slotCount           正式槽位数
+     * @param initialCashPerSlot  每槽初始资金
+     * @param trades              交易总数
+     * @param buys                买入数
+     * @param sells               卖出数
+     * @param intervalReturn      区间净收益
+     * @param annualizedReturn    年化折算收益
+     * @param maxDrawdown         最大回撤
+     * @param slotUtilization     槽位占用率
+     * @param medianHoldHours     中位持有小时数
+     * @param messageCount        正式消息条数(买卖合计)
      * @param messageRoundsPerDay 每日消息轮次数
-     * @param rejectionCount    拒绝/观察记录数
-     * @param rejectionReasons  拒绝/观察原因分布
-     * @param observationCount  完成理论观察数
-     * @param observationResults 理论观察结果分布
-     * @param finalEquity       期末权益
-     * @param equityPoints      净值点数量
-     * @param dynamicSell       动态SELL研究数据(仅该轨道非空)
+     * @param rejectionCount      拒绝/观察记录数
+     * @param rejectionReasons    拒绝/观察原因分布
+     * @param observationCount    完成理论观察数
+     * @param observationResults  理论观察结果分布
+     * @param finalEquity         期末权益
+     * @param equityPoints        净值点数量
+     * @param dynamicSell         动态SELL研究数据(仅该轨道非空)
      * @author Bai
      * @version 1.2.14
      * @since 2026.08.06
@@ -87,9 +88,9 @@ public record StockReplaySummary(
             long messageCount,
             BigDecimal messageRoundsPerDay,
             long rejectionCount,
-            TreeMap<String, Integer> rejectionReasons,
+            Map<String, Integer> rejectionReasons,
             long observationCount,
-            TreeMap<String, Integer> observationResults,
+            Map<String, Integer> observationResults,
             BigDecimal finalEquity,
             long equityPoints,
             DynamicSellSummary dynamicSell
@@ -118,7 +119,7 @@ public record StockReplaySummary(
             long observations,
             BigDecimal inputCoverage,
             BigDecimal missingRate,
-            TreeMap<String, Integer> pathDistribution,
+            Map<String, Integer> pathDistribution,
             long suggestions,
             long trades,
             long closes
@@ -130,7 +131,7 @@ public record StockReplaySummary(
      *
      * @return 空原因分布
      */
-    public static TreeMap<String, Integer> emptyReasonMap() {
+    public static SortedMap<String, Integer> emptyReasonMap() {
         return new TreeMap<>();
     }
 

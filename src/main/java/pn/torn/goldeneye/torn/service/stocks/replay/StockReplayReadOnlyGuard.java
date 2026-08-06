@@ -1,13 +1,12 @@
 package pn.torn.goldeneye.torn.service.stocks.replay;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
-
-import javax.sql.DataSource;
+import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.StockReplayReadOnlyProbeMapper;
 
 /**
  * 隔离回放只读事务守卫。
@@ -16,8 +15,8 @@ import javax.sql.DataSource;
  * 以只读事务错误拒绝,从而阻断回放过程对业务数据的意外修改。守卫承担两项职责:</p>
  *
  * <ol>
- *   <li>启动校验: 在独立只读事务内执行 {@code SELECT pg_is_in_transaction_read_only()},断言结果为
- *       {@code true},否则抛出 {@link IllegalStateException} 中止回放;</li>
+ *   <li>启动校验: 在独立只读事务内执行 {@code SELECT current_setting('transaction_read_only')},
+ *       断言结果为 {@code on},否则抛出 {@link IllegalStateException} 中止回放;</li>
  *   <li>只读事务回调执行器: 数据访问代码通过 {@link #inReadOnlyTransaction} 在只读事务内执行,
  *       任何写操作由数据库只读事务约束拒绝。</li>
  * </ol>
@@ -30,19 +29,18 @@ import javax.sql.DataSource;
 @Component
 public class StockReplayReadOnlyGuard {
 
-    private final PlatformTransactionManager transactionManager;
-    private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate readOnlyTxTemplate;
     private final TransactionTemplate validationTxTemplate;
+    private final StockReplayReadOnlyProbeMapper probeMapper;
 
-    public StockReplayReadOnlyGuard(PlatformTransactionManager transactionManager, DataSource dataSource) {
-        this.transactionManager = transactionManager;
-        this.jdbcTemplate = new JdbcTemplate(dataSource);
+    public StockReplayReadOnlyGuard(PlatformTransactionManager transactionManager,
+                                    StockReplayReadOnlyProbeMapper probeMapper) {
         this.readOnlyTxTemplate = new TransactionTemplate(transactionManager);
         this.readOnlyTxTemplate.setReadOnly(true);
         this.validationTxTemplate = new TransactionTemplate(transactionManager);
         this.validationTxTemplate.setReadOnly(true);
-        this.validationTxTemplate.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+        this.validationTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.probeMapper = probeMapper;
     }
 
     /**
@@ -69,8 +67,7 @@ public class StockReplayReadOnlyGuard {
      */
     public void verifyReadOnlySession() {
         validationTxTemplate.executeWithoutResult(status -> {
-            String readOnly = jdbcTemplate.queryForObject(
-                    "SELECT current_setting('transaction_read_only')", String.class);
+            String readOnly = probeMapper.selectTransactionReadOnly();
             if (!"on".equalsIgnoreCase(readOnly)) {
                 throw new IllegalStateException(
                         "隔离回放要求只读数据库会话,但 transaction_read_only = " + readOnly);
