@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockEligibilityService.EligibilityResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
@@ -23,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 排序测试验证质量分降序、股票ID升序及空列表处理；资格测试按固定检查顺序逐项验证短路返回。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @DisplayName("候选排序与资格判断测试")
@@ -99,6 +100,38 @@ class RankingAndEligibilityTest {
         }
 
         @Test
+        @DisplayName("资格判断_月度状态缺失_STYLE_MISSING")
+        void checkEligibility_monthlyStateMissing_rejected() {
+            BuyContext context = buildEligibilityContext(
+                    StockStrategyFitEnum.RANGING,
+                    StockMaturityEnum.M3_SEASONED,
+                    StockRiskLevelEnum.NONE,
+                    Boolean.TRUE);
+
+            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+
+            assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
+            assertTrue(result.reasons().contains("STYLE_MISSING"));
+        }
+
+        @Test
+        @DisplayName("资格判断_月度状态过期(非本轮月份)_STYLE_STALE")
+        void checkEligibility_monthlyStateStale_rejected() {
+            BuyContext context = buildEligibilityContext(
+                    StockStrategyFitEnum.RANGING,
+                    StockMaturityEnum.M3_SEASONED,
+                    StockRiskLevelEnum.NONE,
+                    Boolean.TRUE);
+            TornStockMonthlyStateDO staleState = buildConfirmedState(
+                    LocalDateTime.now().minusMonths(1));
+
+            EligibilityResult result = service.checkEligibility(context, null, staleState, false, LocalDateTime.now());
+
+            assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
+            assertTrue(result.reasons().contains("STYLE_STALE"));
+        }
+
+        @Test
         @DisplayName("资格判断_风格缺失_REJECTED")
         void checkEligibility_styleMissing_rejected() {
             BuyContext context = buildEligibilityContext(
@@ -107,7 +140,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("STYLE_MISSING"));
@@ -126,7 +160,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
         }
@@ -140,7 +175,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("MATURITY_INSUFFICIENT"));
@@ -155,7 +191,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.HIGH,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
         }
@@ -172,7 +209,8 @@ class RankingAndEligibilityTest {
             TornStockSignalStateDO signalState = new TornStockSignalStateDO();
             signalState.setCooldownUntil(LocalDateTime.now().plusHours(2));
 
-            EligibilityResult result = service.checkEligibility(context, signalState, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, signalState, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("COOLDOWN_ACTIVE"));
@@ -191,7 +229,8 @@ class RankingAndEligibilityTest {
             signalState.setLastCloseType("TAKE_PROFIT");
             signalState.setResetObserved(false);
 
-            EligibilityResult result = service.checkEligibility(context, signalState, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, signalState, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("RESET_NOT_OBSERVED"));
@@ -206,7 +245,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, true, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), true, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("SAME_STOCK_ACTIVE"));
@@ -221,7 +261,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.FALSE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.REJECTED, result.result());
             assertTrue(result.reasons().contains("DATA_NOT_READY"));
@@ -236,7 +277,8 @@ class RankingAndEligibilityTest {
                     StockRiskLevelEnum.NONE,
                     Boolean.TRUE);
 
-            EligibilityResult result = service.checkEligibility(context, null, null, false, LocalDateTime.now());
+            EligibilityResult result = service.checkEligibility(
+                    context, null, buildConfirmedState(LocalDateTime.now()), false, LocalDateTime.now());
 
             assertEquals(StockEligibilityResultEnum.ALLOWED, result.result());
             assertTrue(result.reasons().isEmpty());
@@ -260,6 +302,20 @@ class RankingAndEligibilityTest {
                 StockBuyStrategyEnum.DEEP_MEAN_REVERSION_BUY,
                 List.of(StockBuyStrategyEnum.DEEP_MEAN_REVERSION_BUY.getCode()),
                 qualityScore);
+    }
+
+    /**
+     * 构建本轮已确认月度状态(生效月份与roundTime当月一致,供资格时效校验通过)。
+     *
+     * @param roundTime 本轮时间
+     * @return CONFIRMED月度状态
+     */
+    private static TornStockMonthlyStateDO buildConfirmedState(LocalDateTime roundTime) {
+        TornStockMonthlyStateDO state = new TornStockMonthlyStateDO();
+        state.setStocksId(1001);
+        state.setEffectiveMonth(roundTime.toLocalDate().withDayOfMonth(1));
+        state.setStateStatus(StockMonthlyStateStatusEnum.CONFIRMED.getCode());
+        return state;
     }
 
     /**

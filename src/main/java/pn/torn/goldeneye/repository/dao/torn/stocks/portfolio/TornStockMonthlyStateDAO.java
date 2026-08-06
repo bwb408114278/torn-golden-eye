@@ -54,4 +54,19 @@ public class TornStockMonthlyStateDAO extends ServiceImpl<TornStockMonthlyStateM
         }
         return baseMapper.insertDraftStatesIgnoreConflict(states);
     }
+
+    /**
+     * 批量查询每支股票最近一个更早生效月份且已确认的月度状态。
+     *
+     * @param stocksIds   股票ID列表
+     * @param targetMonth 目标生效月份(不含)
+     * @return 每支股票至多一条更早CONFIRMED月度状态;无记录时返回空列表
+     */
+    public List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(List<Integer> stocksIds,
+                                                                         LocalDate targetMonth) {
+        if (CollectionUtils.isEmpty(stocksIds)) {
+            return List.of();
+        }
+        return baseMapper.selectPreviousConfirmedByStocks(stocksIds, targetMonth);
+    }
 }

@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
  * 作为组合选股与仓位分配的风格依据。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Data
@@ -69,7 +69,13 @@ public class TornStockMonthlyStateDO extends BaseDO {
      */
     private String overrideReason;
     /**
-     * 分类时完整指标快照(JSON文本,包含用于评定的全部输入特征)
+     * 分类时完整指标快照(JSON文本)
+     * <p>
+     * 包含真实计算字段而非空对象: rawPersonality/rawRiskLevel、suggestedPersonality、
+     * annualizedDisplay、trend30/trend30Low/trend30High、secondHalfReturn、lastQuarterReturn、
+     * fullBand、maxDrawdown、negativeMonthRatio/negativeMonthStreak、HIGH/MEDIUM投票明细、
+     * usableBarCoverage、maxMissingBucketGap、evidenceDays、completeMonthCount、
+     * quarterWindowTruncated、hysteresisReason、incompleteReason。
      */
     @TableField(typeHandler = JsonbTypeHandler.class)
     private String metricSnapshot;

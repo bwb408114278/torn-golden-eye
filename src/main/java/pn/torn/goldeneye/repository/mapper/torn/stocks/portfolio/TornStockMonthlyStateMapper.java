@@ -49,4 +49,17 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
      * @return 实际插入行数
      */
     int insertDraftStatesIgnoreConflict(@Param("states") List<TornStockMonthlyStateDO> states);
+
+    /**
+     * 批量查询每支股票最近一个更早生效月份且已确认的月度状态。
+     * <p>
+     * 用于月度迟滞计算:同一股票取{@code effective_month < targetMonth}且
+     * {@code state_status = CONFIRMED}的最近一条;DRAFT/RETIRED不参与。
+     *
+     * @param stocksIds    股票ID列表
+     * @param targetMonth  目标生效月份(不含)
+     * @return 每支股票至多一条更早CONFIRMED月度状态(含metricSnapshot供读取raw字段)
+     */
+    List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(@Param("stocksIds") List<Integer> stocksIds,
+                                                                  @Param("targetMonth") LocalDate targetMonth);
 }

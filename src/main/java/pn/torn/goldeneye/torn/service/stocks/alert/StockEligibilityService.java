@@ -2,14 +2,12 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -34,7 +32,7 @@ import java.util.List;
  * context中的stylePrior是否落在该集合内；若调用方未传入策略风格集合则跳过该项检查。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Slf4j
@@ -44,6 +42,10 @@ public class StockEligibilityService {
      * 拒绝原因编码：风格缺失或过期
      */
     private static final String REASON_STYLE_MISSING = "STYLE_MISSING";
+    /**
+     * 拒绝原因编码：月度状态过期(生效月份不等于本轮月份)
+     */
+    private static final String REASON_STYLE_STALE = "STYLE_STALE";
     /**
      * 拒绝原因编码：成熟度不足
      */
@@ -78,10 +80,10 @@ public class StockEligibilityService {
      *
      * @param context              买入评估上下文，包含特征与月度状态
      * @param signalState          信号状态记录，包含冷却与复位信息，可为null（视为无冷却、已复位）
-     * @param monthlyState         月度状态记录，可为null。用于校验风格是否过期(对比effectiveMonth与当前月)，
-     *                             当前尚未实现该过期校验逻辑,待P1-12月度状态业务计算完善后补充
+     * @param monthlyState         月度状态记录，可为null。用于校验状态是否为本轮生效月份且已确认
+     *                             (missing/非CONFIRMED/生效月份不等于本轮月份时fail-closed)
      * @param hasActiveFormalBatch 当前股票是否已有正式活跃批次
-     * @param roundTime            本轮时间(用于冷却判断,替代LocalDateTime.now())
+     * @param roundTime            本轮时间(用于月度状态时效与冷却判断,替代LocalDateTime.now())
      * @return 资格判定结果
      */
     public EligibilityResult checkEligibility(
@@ -92,6 +94,12 @@ public class StockEligibilityService {
             LocalDateTime roundTime) {
 
         Integer stocksId = context.stocksId();
+
+        // 0. 月度状态必须为本轮生效月份且已确认,否则fail-closed
+        EligibilityResult monthStateResult = checkMonthlyStateCurrency(monthlyState, roundTime, stocksId);
+        if (monthStateResult != null) {
+            return monthStateResult;
+        }
 
         // 1. 风格缺失或过期
         StockStrategyFitEnum style = context.stylePrior();
@@ -137,6 +145,31 @@ public class StockEligibilityService {
         log.info("资格判断-通过: stocksId={}, style={}, maturity={}, risk={}",
                 stocksId, style, maturity, riskLevel);
         return new EligibilityResult(StockEligibilityResultEnum.ALLOWED, List.of());
+    }
+
+    /**
+     * 校验月度状态时效性: 缺失、非CONFIRMED或生效月份不等于本轮月份时fail-closed。
+     *
+     * @param monthlyState 月度状态记录
+     * @param roundTime    本轮时间
+     * @param stocksId     股票ID
+     * @return 拒绝结果;校验通过时返回null
+     */
+    private EligibilityResult checkMonthlyStateCurrency(TornStockMonthlyStateDO monthlyState,
+                                                        LocalDateTime roundTime,
+                                                        Integer stocksId) {
+        if (monthlyState == null) {
+            return reject(stocksId, REASON_STYLE_MISSING, "月度状态缺失");
+        }
+        if (!StockMonthlyStateStatusEnum.CONFIRMED.getCode().equals(monthlyState.getStateStatus())) {
+            return reject(stocksId, REASON_STYLE_MISSING, "月度状态未确认");
+        }
+        LocalDate roundMonth = roundTime.toLocalDate().withDayOfMonth(1);
+        if (!roundMonth.equals(monthlyState.getEffectiveMonth())) {
+            return reject(stocksId, REASON_STYLE_STALE, "月度状态过期: effectiveMonth="
+                    + monthlyState.getEffectiveMonth() + ", roundMonth=" + roundMonth);
+        }
+        return null;
     }
 
     /**
@@ -196,7 +229,7 @@ public class StockEligibilityService {
      * @param result  资格结果枚举
      * @param reasons 原因编码列表，ALLOWED时为空列表
      * @author Bai
-     * @version 1.2.12
+     * @version 1.2.14
      * @since 2026.07.24
      */
     public record EligibilityResult(

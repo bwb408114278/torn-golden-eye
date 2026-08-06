@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟K线(bar)持久层类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Repository
@@ -90,5 +90,32 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
      */
     public void upsertBar(TornStockMarketBar15mDO bar) {
         baseMapper.upsertBar(bar);
+    }
+
+    /**
+     * 批量查询指定截止时间前每支股票可用bar的首尾时间,供月度状态证据窗口定位。
+     *
+     * @param stocksIds    股票ID列表
+     * @param cutoffTime   证据截止时间(不含)
+     * @param buildVersion bar构建版本
+     * @return 每支股票一条证据首尾时间记录
+     */
+    public List<TornStockMarketBar15mDO> selectUsableEvidenceEdges(
+            List<Integer> stocksIds, LocalDateTime cutoffTime, String buildVersion) {
+        return baseMapper.selectUsableEvidenceEdges(stocksIds, cutoffTime, buildVersion);
+    }
+
+    /**
+     * 按股票集合和时间范围批量查询可用bar,供月度状态证据窗口加载,避免N+1。
+     *
+     * @param stocksIds    股票ID列表
+     * @param startTime    起始时间(含)
+     * @param endTime      结束时间(含)
+     * @param buildVersion bar构建版本
+     * @return 可用bar列表,按股票ID和bar时间升序
+     */
+    public List<TornStockMarketBar15mDO> selectUsableByStocksAndTimeRange(
+            List<Integer> stocksIds, LocalDateTime startTime, LocalDateTime endTime, String buildVersion) {
+        return baseMapper.selectUsableByStocksAndTimeRange(stocksIds, startTime, endTime, buildVersion);
     }
 }
