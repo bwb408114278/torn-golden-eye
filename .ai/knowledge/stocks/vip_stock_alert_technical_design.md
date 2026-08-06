@@ -7,16 +7,16 @@
 - 适用版本：1.2.13及以上
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 设计状态：第十二轮局部修复已完成；存在未闭环P0/P1，当前技术基线需按一次性修复方案继续收敛
-- 当前实现基线：`7a2c6efeed675be4ac4a7af718f05090ce48f3e2`
-- 技术验收状态：P0-1、P0-2、P1-1～P1-4、SEC-1及月度初始化重复键异常未闭环；仅允许继续Shadow和存量批次管理，禁止新的正式BUY及正式群BUY/SELL
+- 设计状态：第一轮修复验收完成，第二轮仅处理遗留发布阻断项
+- 当前实现基线：`a9fae2c474a82f96f6e67eba15e5e15552f1ecca`
+- 技术验收状态：月度重复键、P0-1、P1-1、P1-4、P2-1/P2-2与当前范围SEC-1扫描已闭环；P0-2、P1-2、P1-3未闭环。仅允许继续Shadow和存量批次管理，禁止新的正式BUY及正式群BUY/SELL
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
 - 最后修订日期：2026-08-05
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
-最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review的P0/P1通过后，由AI技术专家根据已验证实现更新本文的基线、状态和验收记录。第十二轮已完成账实原子性、管理关闭审计、最终payload、存量门禁、启动补偿顺序和冻结PENDING通知审计的局部修复；这些局部闭环不代表月度规则、ENTRY实际处理时刻、拒绝观察完整生命周期、隔离回放、RANGE 7日保护或结算来源前置条件已完成。当前未闭环清单和工程分解以`vip_stock_alert_business_acceptance_open_items.md`及`vip_stock_alert_remediation_implementation_plan.md`为准。
+最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review的P0/P1通过后，由AI技术专家根据已验证实现更新本文的基线、状态和验收记录。第一轮已经闭环账实原子性、管理关闭审计、最终payload、存量门禁、启动补偿顺序、冻结PENDING通知审计、月度初始化幂等、迟到ENTRY、拒绝观察理论生命周期及SELL来源前置校验；这些闭环不代表P0-2月度完整自然月统计、P1-2可归属长窗口回放或P1-3 RANGE 7日保护已完成。本文是唯一长期技术基线；`vip_stock_alert_business_acceptance_open_items.md`仅冻结业务开放项，`vip_stock_alert_remediation_implementation_plan.md`仅记录当前一次性工程拆解与验收证据。
 
 > 本文冻结的实施资金口径为5槽、每槽初始20亿、总初始资金100亿。该口径是用户在技术方案审核阶段对原研究口径“每槽4亿”的明确覆盖。历史研究收益基于每槽4亿，正式实施前必须按每槽20亿重新执行整数股数、余款现金和逐bar净值回放。
 
@@ -309,6 +309,7 @@ strategyFitPrior + maturity + riskLevel
 
 关键边界：
 
+- 日级趋势、全窗口收益、价格带和最大回撤可使用每日最后一个usable 15分钟bar；但完整自然月`monthMean`、`monthChange`、`negativeMonthRatio`和`negativeMonthStreak`必须直接以月内**全部**usable 15分钟`lastPrice`算术均值计算，禁止先降采样为日末价；
 - 成熟度按证据自然日60/120/240/365计算，不按15分钟bar数量的1/7/30天阈值；
 - `suggestedPersonality`是机器原始分类应用月度迟滞后的建议；
 - `strategyFitPrior`是最终确认值，人工覆盖时不改写机器建议；
@@ -354,8 +355,10 @@ width30 <= 8%
 AND position30 <= 10%
 AND effectiveZ1 <= -0.5
 AND return6h <= 0
-AND 通过绝对趋势保护
+AND 通过已冻结的绝对趋势保护
 ```
+
+`return7d`的RANGE专属比较符、阈值、等值边界及其与MA7/MA30的组合关系尚未由业务冻结。当前不得把DEEP的`return7d >= -1%`套用到RANGE；在冻结新规则版本并完成P1-3实现、测试及Review前，RANGE正式准入保持关闭。
 
 #### 严格反弹确认
 
@@ -503,7 +506,7 @@ netReturn = exitReferencePrice / entryReferencePrice × 0.999 - 1
 
 首期并行记录但不影响正式关闭：
 
-- 动态自然卖出；
+- 动态自然卖出研究事实（`RESEARCH_DATA_ONLY`，当前公式未冻结，不产生SELL建议）；
 - 高风险硬否决观察；
 - 满仓拒绝机会；
 - 风格拒绝机会；
@@ -511,6 +514,15 @@ netReturn = exitReferencePrice / entryReferencePrice × 0.999 - 1
 - 可选盈利换仓，默认关闭。
 
 裸连续下跌不得成为独立卖出理由。
+
+当前动态SELL轨道固定写：
+
+```text
+dynamicShadowDecision = NOT_EVALUATED
+dynamicShadowReason = DYNAMIC_RULE_NOT_FROZEN
+```
+
+它只保存批次路径和候选输入，不得写`HOLD/SELL`动态判断，不得改变`dynamicSellState`为带投资语义的状态，不得进入`EXIT_PENDING/CLOSED_DYNAMIC`，不得计入日报“动态SELL建议数”。隔离回放当前也只输出动态研究输入覆盖率与数据质量，不计算动态SELL交易或收益。只有业务知识库另行冻结公式和新规则版本后，才可实现可执行Shadow。
 
 ---
 
@@ -1891,16 +1903,13 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 
 ### 16.12 回放
 
-必须使用每槽20亿重跑：
+回放当前已具备小窗口只读机制，但尚未完成P1-2长窗口发布验收。完成态必须包含两个独立资金组合和五个派生研究轨道：
 
-- 5槽正式组合；
-- 无限资金影子；
-- 拒绝观察；
-- 动态卖出影子；
-- 高风险观察；
-- 当前Java原始买入对照。
+- `FORMAL_20E`：5槽、每槽20亿生产资金口径；
+- `FORMAL_4E`：5槽、每槽4亿历史对照；
+- 无限资金影子、拒绝观察、动态SELL研究数据、高风险观察、当前Java原始BUY对照。
 
-回放只读生产输入，`runId/portfolioId`仅存在于内存和产物文件，不写业务表、不新增首期回放表。必须复用正式纯领域策略/Policy/计算器，但不得调用写DAO、发送消息或读取系统当前时间的编排Service。
+动态SELL公式未冻结时仅采集研究输入，不形成建议、交易或收益轨道。回放只读生产输入，`runId/portfolioId`仅存在于内存和产物文件，不写业务表、不新增首期回放表。必须复用正式纯领域策略/Policy/计算器，但不得调用写DAO、发送消息或读取系统当前时间的编排Service。
 
 强制输出：
 
@@ -1911,7 +1920,7 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 <runId>-equity-curve.csv
 ```
 
-不要求持久化每bar事件流水；逐bar净值在内存计算并输出净值曲线。失败/中断产物标记`FAILED/INCOMPLETE`，不续跑中间状态，使用相同输入和版本从头重跑。
+不要求持久化每bar事件流水；逐bar净值在内存计算并输出净值曲线。失败/中断不续跑中间状态。只有`COMPLETED`的完整四产物可作为不可覆盖完成标识；FAILED诊断产物不得占用后续同请求从头运行的完成目录。输入加载必须是单一`READ ONLY + REPEATABLE READ`快照，摘要固化输入manifest/hash、版本、行数和时间边界后，才能宣称确定性。
 
 回放和生产共用同一bar质量、特征、买入、排序、成交、资金和退出纯领域实现，禁止维护两套逻辑。
 
@@ -2059,34 +2068,28 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 
 ---
 
-## 20. 第十二轮代码验收记录与后续运营清单
+## 20. 第一轮修复验收记录与第二轮发布门禁
 
-第十二轮局部修复被审基线：
+第一轮审查基线：
 
 ```text
-53f52080e1b6698f07e5983e429c0af6a68aa8e4
+a9fae2c474a82f96f6e67eba15e5e15552f1ecca
 ```
 
-已确认的局部代码修复：
+已由技术负责人根据当前HEAD、真实Mapper测试、聚焦测试（156项）与全量Maven测试（575项）确认：
 
-- [x] 正式灾难关闭与正常SELL共用正式槽位一致性校验和资金结算；异常fail-closed并回滚。
-- [x] 管理关闭字段、48小时冷却、`resetObserved=false`、最终`ADMIN_CLOSED`信号状态均已实现。
-- [x] 影子账本显式`UNLIMITED_SHADOW`；未知账本类型不按正式账本推断。
-- [x] 通知保留创建时业务字段；未冻结通知逐条冻结最终payload/hash，已冻结PENDING重启后不二次冻结。
-- [x] `VIP_STOCK_NEW_ENTRY_ENABLED`缺失按false；总开关和`RULE_MODE=OFF`不遗弃存量批次或拒绝观察。
-- [x] 定时入口和启动补偿均在尝试补建待处理bar后结算拒绝观察；启动入口与定时入口复用JVM防重入标记并在`finally`释放。
-- [x] JDK 21独立worktree编译通过；4个直接相关测试类共37项通过；`git diff --check`通过。
+- [x] 月度初始化：全有效状态预查询 + PostgreSQL冲突安全插入，DRAFT/CONFIRMED不重复且不覆盖。
+- [x] P0-1：以实际处理时刻判定ENTRY过期；启动补偿不会补发BUY。
+- [x] P1-1：拒绝观察的理论ENTRY/EXIT、净收益和批量结算已完成；无提前退出时按业务口径使用截止前最后可用bar并标记数据不完整。
+- [x] P1-4：正常SELL与灾难关闭均校验来源状态、`exitSignalTime`和原退出事实；异常整轮回滚。
+- [x] P2-1/P2-2：管理关闭中文原因与正式原因码契约已覆盖。
+- [x] SEC-1：当前文档、修复范围和可达`.ai`历史的高置信扫描未发现明文JDBC凭据或高置信secret赋值。
 
-当前P0/P1发布阻断项（不得因上述局部修复被关闭）：
+第二轮仍未关闭的发布阻断项：
 
-- [ ] P0-1：ENTRY_PENDING必须以实际处理时刻而非历史roundTime判断`entryStaleAt`；晚于或等于staleAt取消、释放正式预留且BUY通知为0。
-- [ ] P0-2：月度状态必须实现`PERSONALITY_RULE_V1/RISK_RULE_V1_SHADOW`的证据、分类、风险、迟滞与确认语义；不得使用`STOCK_PERSONALITY`或固定`NONE`代替机器计算。
-- [ ] P1-1：拒绝观察必须持久化理论ENTRY/EXIT与净收益，并按冻结退出生命周期结算，且不污染正式账本。
-- [ ] P1-2：必须完成只读隔离回放，实际输出20亿/槽生产轨道与4亿/槽历史对照以及JSON/CSV产物。
-- [ ] P1-3：RANGE 7日收益绝对趋势保护待业务冻结精确阈值；在阈值明确前不得自行实现或开启正式交易。
-- [ ] P1-4：正常SELL与灾难关闭必须分别校验来源状态、`exitSignalTime`及原退出事实；失败时整轮回滚且通知为0。
-- [ ] SEC-1：临时Review文档及相关Git历史的数据库凭据必须完成无敏感值扫描；若发现历史泄露，必须先完成凭据轮换和处置结论，不能仅因当前文件不存在而关闭。
-- [ ] 月度初始化重复键：当前月存在DRAFT/CONFIRMED等任意有效状态时不得重复INSERT；以全状态预查询和PostgreSQL冲突安全插入保证启动重试幂等。
+- [ ] P0-2：完整自然月均价、月变化、负月比例和连续负月必须使用月内全部usable 15分钟价格；完成后须有冻结历史只读抽样重算证据。
+- [ ] P1-2：回放须解决FAILED重跑、输入一致性快照/manifest，并提供生产20亿与历史4亿两个独立资金轨道的可归属长窗口四产物。
+- [ ] P1-3：RANGE的`return7d`保护等待业务冻结专属阈值、边界和与MA条件的组合关系。
 
 完成上述事项后的正式发布前置条件：
 
