@@ -6,11 +6,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 月度证据指标计算器 - 从可用15分钟bar计算证据窗口指标、日级对数趋势、负月统计与HIGH/MEDIUM投票。
@@ -423,10 +419,8 @@ final class StockMonthlyEvidenceComputer {
     private static Map<YearMonth, List<Double>> groupMonthPrices(List<TornStockMarketBar15mDO> usableBars) {
         Map<YearMonth, List<Double>> monthPrices = new LinkedHashMap<>();
         for (TornStockMarketBar15mDO bar : usableBars) {
-            if (bar == null || bar.getBarStartTime() == null || bar.getLastPrice() == null) {
-                continue;
-            }
-            if (bar.getLastPrice().signum() <= 0) {
+            if (bar == null || bar.getBarStartTime() == null || bar.getLastPrice() == null
+                    || bar.getLastPrice().signum() <= 0) {
                 continue;
             }
             YearMonth ym = YearMonth.from(bar.getBarStartTime());

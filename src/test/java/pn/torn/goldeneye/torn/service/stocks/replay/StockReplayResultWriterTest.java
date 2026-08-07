@@ -14,11 +14,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 回放产物写入器与输入来源清单领域测试。
@@ -57,8 +53,10 @@ class StockReplayResultWriterTest {
     void writeCompleted_sameGeneration_rejectsOverwrite() {
         writer.writeCompleted(RUN_ID, tempDir.toString(), result("COMPLETED", manifest(0)));
 
+        String outputRoot = tempDir.toString();
+        StockReplayResult duplicate = result("COMPLETED", manifest(0));
         IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> writer.writeCompleted(RUN_ID, tempDir.toString(), result("COMPLETED", manifest(0))),
+                () -> writer.writeCompleted(RUN_ID, outputRoot, duplicate),
                 "已完成同代际必须拒绝覆盖");
         assertTrue(e.getMessage().contains("相同输入代际完成"), "拒绝信息应说明同代际已完成");
     }
@@ -68,8 +66,10 @@ class StockReplayResultWriterTest {
     void writeCompleted_differentGeneration_rejectsOverwrite() {
         writer.writeCompleted(RUN_ID, tempDir.toString(), result("COMPLETED", manifest(0)));
 
+        String outputRoot = tempDir.toString();
+        StockReplayResult differentGeneration = result("COMPLETED", manifest(1));
         IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> writer.writeCompleted(RUN_ID, tempDir.toString(), result("COMPLETED", manifest(1))),
+                () -> writer.writeCompleted(RUN_ID, outputRoot, differentGeneration),
                 "不同输入代际不得误判为同一次成功");
         assertTrue(e.getMessage().contains("不同输入代际"), "拒绝信息应说明代际冲突");
     }
