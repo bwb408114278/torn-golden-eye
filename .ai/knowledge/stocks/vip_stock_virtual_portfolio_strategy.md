@@ -190,6 +190,7 @@ STYLE_STALE
 DATA_NOT_CONTIGUOUS
 ENTRY_DATA_STALE
 ENTRY_PRICE_DEVIATION
+DATA_INSUFFICIENT
 ```
 
 原因是这些事件缺少合法或及时的参考成交，不能事后用更晚价格伪造机会。
@@ -309,7 +310,7 @@ AND return7d >= -2%
 AND MA7 / MA30 - 1 >= -2%
 ```
 
-`return7d >= -2%`与`MA7 / MA30 - 1 >= -2%`是并列AND门禁。等于-2%通过，低于-2%使用`ABSOLUTE_TREND_GUARD_FAILED`拒绝。`return7d`、`MA7`或`MA30`缺失时不可评估，按数据不足处理，不得默认通过。该RANGE专属边界基于训练和验证窗口的邻域稳定性冻结，不复用DEEP的-1%。
+`return7d >= -2%`与`MA7 / MA30 - 1 >= -2%`是并列AND门禁。等于-2%通过，低于-2%使用`ABSOLUTE_TREND_GUARD_FAILED`拒绝。`return7d`、`MA7`或`MA30`缺失时不可评估，使用冻结原因码`DATA_INSUFFICIENT`按数据不足处理，不得默认通过，也不得套用DEEP的-1%；其拒绝观察结果固定为`NO_THEORETICAL_ENTRY`（不构造理论ENTRY/EXIT/MFE/MAE）。该RANGE专属边界基于训练和验证窗口的邻域稳定性冻结，不复用DEEP的-1%。
 
 ### 6.3 严格反弹确认
 
@@ -1007,6 +1008,17 @@ PORTFOLIO_FULL
 DATA_NOT_CONTIGUOUS
 ENTRY_DATA_STALE
 ENTRY_PRICE_DEVIATION
+DATA_INSUFFICIENT
+```
+
+DATA_INSUFFICIENT 冻结语义：
+
+```text
+DATA_INSUFFICIENT
+  = RANGE 的 return7d、MA7、MA30 任一缺失，策略趋势输入不可评估
+  = 不建立正式批次，不默认通过
+  = 保留原始信号及拒绝观察审计对象
+  = 观察结果固定为 NO_THEORETICAL_ENTRY；不得构造理论 ENTRY、EXIT、MFE、MAE
 ```
 
 SELL/HOLD原因码必须按下列语义冻结，不得互换：
