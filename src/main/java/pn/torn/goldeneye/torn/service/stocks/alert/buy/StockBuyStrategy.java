@@ -62,4 +62,19 @@ public interface StockBuyStrategy {
      * @return 风格适配时返回true，否则返回false
      */
     boolean isApplicableStyle(StockStrategyFitEnum style);
+
+    /**
+     * 返回该策略的绝对趋势保护守卫失败原因编码。
+     * <p>
+     * 部分策略(如RANGE)在结构条件与MA门禁之外还冻结了绝对趋势保护(如 {@code return7d} 下界),
+     * 该守卫属于策略专属资格检查: 守卫失败时信号仍触发原始事件与拒绝观察,但不得建立正式批次,
+     * 因此与 {@link #matches} 分离。未设置守卫的策略返回{@code null};守卫失败返回冻结原因码
+     * (如 {@code ABSOLUTE_TREND_GUARD_FAILED})。
+     *
+     * @param context 买入评估上下文
+     * @return 守卫失败原因编码;未设置守卫或守卫通过时返回 null
+     */
+    default String absoluteTrendGuardFailureReason(BuyContext context) {
+        return null;
+    }
 }

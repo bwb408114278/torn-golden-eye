@@ -30,6 +30,17 @@ public class TornStockMonthlyStateDAO extends ServiceImpl<TornStockMonthlyStateM
     }
 
     /**
+     * 范围批量查询已确认的月度状态(含起止月份),避免按月循环发SQL。
+     *
+     * @param startMonth 起始生效月份(含)
+     * @param endMonth   结束生效月份(含)
+     * @return 起止月份之间已确认的月度状态列表
+     */
+    public List<TornStockMonthlyStateDO> selectConfirmedByMonthRange(LocalDate startMonth, LocalDate endMonth) {
+        return baseMapper.selectConfirmedByMonthRange(startMonth, endMonth);
+    }
+
+    /**
      * 查询指定月份存在任意有效状态的股票ID集合,不按state_status过滤。
      *
      * @param effectiveMonth 生效月份

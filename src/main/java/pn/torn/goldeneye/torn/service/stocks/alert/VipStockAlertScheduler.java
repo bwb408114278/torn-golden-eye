@@ -51,9 +51,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequiredArgsConstructor
 public class VipStockAlertScheduler {
     /**
-     * 买入规则版本
+     * 买入规则版本(RANGE绝对趋势保护自1.1.0起生效)
      */
-    public static final String BUY_RULE_VERSION = "1.0.0";
+    public static final String BUY_RULE_VERSION = StockRoundTransactionService.BUY_RULE_VERSION;
     /**
      * 卖出规则版本
      */

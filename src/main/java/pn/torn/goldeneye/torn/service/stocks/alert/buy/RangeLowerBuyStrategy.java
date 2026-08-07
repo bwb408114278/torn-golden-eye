@@ -26,6 +26,12 @@ import java.util.Set;
  *   <li>近6小时收益率 {@code <=} 0（return6h {@code <=} 0）</li>
  *   <li>趋势保护：MA7 / MA30 - 1 {@code >=} -2%</li>
  * </ul>
+ * RANGE专属绝对趋势保护（策略专属资格守卫，与{@link #matches}分离）：
+ * <ul>
+ *   <li>{@code return7d >= -2%}（{@link #RANGE_RETURN_7D_FLOOR}）</li>
+ *   <li>等于-2%通过；低于-2%或输入缺失时以{@value #ABSOLUTE_TREND_GUARD_FAILED}
+ *       拒绝,仍写原始信号与拒绝观察,不建立正式批次</li>
+ * </ul>
  *
  * @author Bai
  * @version 1.2.12
@@ -50,6 +56,14 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
      * 趋势保护阈值：MA7/MA30 - 1 >= -2%
      */
     private static final BigDecimal TREND_PROTECT_THRESHOLD = new BigDecimal("-0.02");
+    /**
+     * RANGE专属7日收益下界：return7d >= -2%(冻结,不得复用DEEP的-1%)
+     */
+    public static final BigDecimal RANGE_RETURN_7D_FLOOR = new BigDecimal("-0.02");
+    /**
+     * 绝对趋势保护守卫失败原因码(冻结)
+     */
+    public static final String ABSOLUTE_TREND_GUARD_FAILED = "ABSOLUTE_TREND_GUARD_FAILED";
     /**
      * 质量分基础分
      */
@@ -133,6 +147,17 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
     @Override
     public boolean isApplicableStyle(StockStrategyFitEnum style) {
         return style != null && APPLICABLE_STYLES.contains(style);
+    }
+
+    @Override
+    public String absoluteTrendGuardFailureReason(BuyContext context) {
+        BigDecimal return7d = context.return7d();
+        if (return7d == null || return7d.compareTo(RANGE_RETURN_7D_FLOOR) < 0) {
+            log.info("区间下沿-绝对趋势守卫失败: stocksId={}, return7d={}, reason={}",
+                    context.stocksId(), return7d, ABSOLUTE_TREND_GUARD_FAILED);
+            return ABSOLUTE_TREND_GUARD_FAILED;
+        }
+        return null;
     }
 
     /**

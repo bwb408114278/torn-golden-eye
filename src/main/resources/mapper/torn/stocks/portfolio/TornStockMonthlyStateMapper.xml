@@ -9,6 +9,16 @@
           AND deleted = 0
     </select>
 
+    <!-- 范围批量查询已确认月度状态: 隔离回放一次性加载,避免按月循环发SQL -->
+    <select id="selectConfirmedByMonthRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO">
+        SELECT * FROM torn_stock_monthly_state
+        WHERE effective_month &gt;= #{startMonth}
+          AND effective_month &lt;= #{endMonth}
+          AND state_status = 'CONFIRMED'
+          AND deleted = 0
+        ORDER BY effective_month ASC, stocks_id ASC
+    </select>
+
     <!-- 查询指定月份存在任意有效状态的股票ID集合,不按state_status过滤 -->
     <select id="selectExistingStockIdsByMonth" resultType="java.lang.Integer">
         SELECT stocks_id

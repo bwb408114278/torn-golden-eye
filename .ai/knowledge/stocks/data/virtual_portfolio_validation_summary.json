@@ -228,7 +228,8 @@
     "high_risk_hard_veto": "RESEARCH",
     "rotation": "SHADOW_CANDIDATE_DEFAULT_OFF",
     "wide_java_reversal_buy": "RETIRED_FROM_GROUP_PORTFOLIO",
-    "trend_pullback": "RESEARCH"
+    "trend_pullback": "RESEARCH",
+    "range_return7d_guard": "BUSINESS_FROZEN_CODE_PENDING"
   },
   "limitations": [
     "history shorter than one year",
@@ -398,5 +399,50 @@
       "staleExitDuration"
     ],
     "no_recovery_price": "remain DATA_STALE_EXIT, occupy slot, alert; no cost/old/zero price settlement"
+  },
+  "buy_execution_parameters": {
+    "range_return7d_guard": {
+      "rule_version_status": "BUSINESS_FROZEN_IMPLEMENTATION_PENDING",
+      "formula": "return7d >= -0.02 AND ma7d/ma30d - 1 >= -0.02",
+      "return7d_floor": -0.02,
+      "comparator": ">=",
+      "equal_boundary_passes": true,
+      "ma_trend_floor": -0.02,
+      "combination": "AND",
+      "missing_behavior": "DATA_INSUFFICIENT_FAIL_CLOSED",
+      "reject_reason": "ABSOLUTE_TREND_GUARD_FAILED",
+      "applies_to": [
+        "RANGE_LOWER_BUY"
+      ],
+      "does_not_apply_to": [
+        "STRICT_REBOUND_CONFIRM_BUY"
+      ],
+      "deep_uses_own_floor": -0.01,
+      "selection_evidence": {
+        "data_cutoff": "2026-07-23T09:44:05",
+        "selection_windows": [
+          "2026-03-01/2026-04-30",
+          "2026-05-01/2026-06-30"
+        ],
+        "candidate_floors": [
+          null,
+          -0.02,
+          -0.015,
+          -0.01,
+          -0.0075,
+          -0.005,
+          0.0
+        ],
+        "selected_without_holdout": -0.02,
+        "train_trades": 68,
+        "train_mean_net_return": 0.001925830595711584,
+        "validation_trades": 72,
+        "validation_mean_net_return": 0.0031709726089472726,
+        "holdout_usage": "one-time confirmation after freeze; not used for selection",
+        "holdout_trades": 31,
+        "holdout_mean_net_return": 0.004278124626614853,
+        "holdout_win_rate": 0.7741935483870968
+      }
+    }
   }
 }

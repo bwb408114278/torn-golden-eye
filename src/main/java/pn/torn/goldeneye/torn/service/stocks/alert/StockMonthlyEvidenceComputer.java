@@ -57,7 +57,7 @@ final class StockMonthlyEvidenceComputer {
         int dailyCloseCount = dailyCloses.size();
 
         TrendStats trend = computeTrend(dailyCloses);
-        MonthStats monthStats = computeMonthStats(evidenceStartTime, evidenceEndTime, dailyCloses);
+        MonthStats monthStats = computeMonthStats(evidenceStartTime, evidenceEndTime, usableBars);
 
         double fullReturn = fullReturn(dailyCloses);
         double secondHalfReturn = secondHalfReturn(dailyCloses);
@@ -385,19 +385,19 @@ final class StockMonthlyEvidenceComputer {
      * 计算完整自然月均价变化与负月统计。
      * <p>
      * 只使用在证据窗口内完整覆盖月初至月末的自然月;月均价为该月全部可用bar
-     * lastPrice的算术平均。
+     * lastPrice的算术平均(空bar、空时间、空/非正价格不得参与,不插值)。
      *
-     * @param start       证据起点
-     * @param end         证据终点
-     * @param dailyCloses 日收盘序列(用于月份分组,价格取日收盘)
+     * @param start      证据起点
+     * @param end        证据终点
+     * @param usableBars 证据窗口内可用bar列表(按时间升序)
      * @return 负月统计
      */
     private static MonthStats computeMonthStats(LocalDateTime start, LocalDateTime end,
-                                                List<DailyClose> dailyCloses) {
+                                                List<TornStockMarketBar15mDO> usableBars) {
         if (start == null || end == null) {
             return MonthStats.empty();
         }
-        Map<YearMonth, List<Double>> monthPrices = groupMonthPrices(dailyCloses);
+        Map<YearMonth, List<Double>> monthPrices = groupMonthPrices(usableBars);
         List<YearMonth> completeMonths = listCompleteMonths(start, end);
         List<Double> monthChanges = computeMonthChanges(monthPrices, completeMonths);
         if (monthChanges.isEmpty()) {
@@ -415,16 +415,22 @@ final class StockMonthlyEvidenceComputer {
     }
 
     /**
-     * 按自然月分组日收盘价格。
+     * 按自然月收集全部可用bar的lastPrice(算术均值输入)。
      *
-     * @param dailyCloses 日收盘序列
-     * @return 月份→价格列表
+     * @param usableBars 可用bar列表
+     * @return 月份→有效价格列表
      */
-    private static Map<YearMonth, List<Double>> groupMonthPrices(List<DailyClose> dailyCloses) {
+    private static Map<YearMonth, List<Double>> groupMonthPrices(List<TornStockMarketBar15mDO> usableBars) {
         Map<YearMonth, List<Double>> monthPrices = new LinkedHashMap<>();
-        for (DailyClose dc : dailyCloses) {
-            YearMonth ym = YearMonth.from(dc.date());
-            monthPrices.computeIfAbsent(ym, k -> new ArrayList<>()).add(dc.price());
+        for (TornStockMarketBar15mDO bar : usableBars) {
+            if (bar == null || bar.getBarStartTime() == null || bar.getLastPrice() == null) {
+                continue;
+            }
+            if (bar.getLastPrice().signum() <= 0) {
+                continue;
+            }
+            YearMonth ym = YearMonth.from(bar.getBarStartTime());
+            monthPrices.computeIfAbsent(ym, k -> new ArrayList<>()).add(bar.getLastPrice().doubleValue());
         }
         return monthPrices;
     }

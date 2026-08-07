@@ -8,6 +8,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
 
 import java.math.BigDecimal;
@@ -200,6 +201,49 @@ class StockReplayEngineTest {
         assertTrue(dynamic.observations() > 0, "应采集开放批次研究输入");
     }
 
+    @Test
+    @DisplayName("RANGE绝对趋势守卫失败_仍写原始BUY对照与拒绝观察原因正确")
+    void rangeGuard_failure_rawBuyAndRejectionObservation() {
+        LocalDateTime start = T0;
+        StockReplayRequest request = new StockReplayRequest(
+                start, start, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.values()), "target/replay-unit/guard-fail");
+        StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E, "guard-fail",
+                new StockReplayContext(request, guardFailWindowData(start)));
+        engine.run();
+
+        List<StockReplayRejection> rawBuy =
+                engine.rejectionsByTrack().get(StockReplayTrackEnum.RAW_BUY_CONTROL.getCode());
+        List<StockReplayRejection> rejections =
+                engine.rejectionsByTrack().get(StockReplayTrackEnum.REJECTION_OBSERVATION.getCode());
+        assertNotNull(rawBuy);
+        assertEquals(1, rawBuy.size(), "守卫失败信号仍应记录原始BUY对照");
+        assertEquals("RAW_BUY_SIGNAL", rawBuy.getFirst().rejectReason());
+
+        assertNotNull(rejections);
+        assertTrue(rejections.stream()
+                        .anyMatch(r -> RangeLowerBuyStrategy.ABSOLUTE_TREND_GUARD_FAILED.equals(r.rejectReason())),
+                "拒绝观察账本原因必须为ABSOLUTE_TREND_GUARD_FAILED");
+        assertTrue(rejections.stream()
+                        .anyMatch(r -> RangeLowerBuyStrategy.ABSOLUTE_TREND_GUARD_FAILED.equals(r.rejectReason())
+                                && "REJECTED".equals(r.eligibilityResult())),
+                "拒绝观察资格结果必须为REJECTED");
+    }
+
+    private StockReplayWindowData guardFailWindowData(LocalDateTime start) {
+        Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> barsByStock = new HashMap<>();
+        Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> featuresByStock = new HashMap<>();
+        barsByStock.computeIfAbsent(1, k -> new TreeMap<>()).put(start, bar(1, start, new BigDecimal("95.2")));
+        TornStockStrategyFeature15mDO guardFailFeature = feature(1, start, new BigDecimal("95.2"));
+        guardFailFeature.setReturn7d(new BigDecimal("-0.03"));
+        featuresByStock.computeIfAbsent(1, k -> new TreeMap<>()).put(start, guardFailFeature);
+
+        LocalDate month = start.toLocalDate().withDayOfMonth(1);
+        Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> monthly = new LinkedHashMap<>();
+        monthly.put(month, Map.of(1, monthlyState(1, month, "M2_PROVISIONAL")));
+        return new StockReplayWindowData(barsByStock, featuresByStock, monthly, null);
+    }
+
     private StockReplayEngine runEngine(StockReplayTrackEnum track) {
         StockReplayContext context = buildContext(track.name());
         StockReplayEngine engine = new StockReplayEngine(track, track.name(), context);
@@ -241,7 +285,7 @@ class StockReplayEngineTest {
         byStock.put(IMMATURE_STOCK, monthlyState(IMMATURE_STOCK, month, "M1_EARLY"));
         monthly.put(month, byStock);
 
-        return new StockReplayWindowData(barsByStock, featuresByStock, monthly);
+        return new StockReplayWindowData(barsByStock, featuresByStock, monthly, null);
     }
 
     private TornStockMarketBar15mDO bar(int stock, LocalDateTime t, BigDecimal price) {
@@ -269,6 +313,7 @@ class StockReplayEngineTest {
         feature.setMa30d(new BigDecimal("96.0"));
         feature.setZscore1d(new BigDecimal("-1.0"));
         feature.setReturn6h(new BigDecimal("-0.005"));
+        feature.setReturn7d(new BigDecimal("-0.02"));
         feature.setLow30d(new BigDecimal("95.0"));
         feature.setHigh30d(new BigDecimal("100.0"));
         feature.setWidth30d(new BigDecimal("0.05"));

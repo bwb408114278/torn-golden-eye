@@ -27,6 +27,18 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
     List<TornStockMonthlyStateDO> selectConfirmedByMonth(@Param("effectiveMonth") LocalDate effectiveMonth);
 
     /**
+     * 范围批量查询已确认的月度状态(含起止月份)。
+     * <p>
+     * 供隔离回放一次性加载整个窗口的月度状态,禁止按月循环发SQL。
+     *
+     * @param startMonth 起始生效月份(含)
+     * @param endMonth   结束生效月份(含)
+     * @return 起止月份之间已确认的月度状态列表
+     */
+    List<TornStockMonthlyStateDO> selectConfirmedByMonthRange(@Param("startMonth") LocalDate startMonth,
+                                                              @Param("endMonth") LocalDate endMonth);
+
+    /**
      * 查询指定月份存在任意有效状态(stocks_id)集合,不按state_status过滤。
      * <p>
      * 用于月度初始化幂等过滤:同月每股票至多一行有效状态,只要已存在
@@ -56,8 +68,8 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
      * 用于月度迟滞计算:同一股票取{@code effective_month < targetMonth}且
      * {@code state_status = CONFIRMED}的最近一条;DRAFT/RETIRED不参与。
      *
-     * @param stocksIds    股票ID列表
-     * @param targetMonth  目标生效月份(不含)
+     * @param stocksIds   股票ID列表
+     * @param targetMonth 目标生效月份(不含)
      * @return 每支股票至多一条更早CONFIRMED月度状态(含metricSnapshot供读取raw字段)
      */
     List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(@Param("stocksIds") List<Integer> stocksIds,

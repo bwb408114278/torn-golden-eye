@@ -301,13 +301,15 @@ NARROW: effectiveZ1 = rawZ1 × 0.6
 适用：`NARROW / RANGING`
 
 ```text
-30日价格带宽 <= 8%
+30日区间宽度 <= 8%
 AND 当前位于30日区间底部10%
 AND effectiveZ1 <= -0.5
 AND 近6小时收益 <= 0
+AND return7d >= -2%
+AND MA7 / MA30 - 1 >= -2%
 ```
 
-必须保留MA7/MA30和7日收益的绝对趋势保护，避免将下降中的窄带误判为安全区间。
+`return7d >= -2%`与`MA7 / MA30 - 1 >= -2%`是并列AND门禁。等于-2%通过，低于-2%使用`ABSOLUTE_TREND_GUARD_FAILED`拒绝。`return7d`、`MA7`或`MA30`缺失时不可评估，按数据不足处理，不得默认通过。该RANGE专属边界基于训练和验证窗口的邻域稳定性冻结，不复用DEEP的-1%。
 
 ### 6.3 严格反弹确认
 

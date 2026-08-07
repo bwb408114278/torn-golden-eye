@@ -182,6 +182,7 @@ public class StockBuySignalEvaluator {
         boolean hasActiveFormalBatch = activeFormalStockIds.contains(stocksId);
         EligibilityResult eligibility = eligibilityService.checkEligibility(
                 context, signalState, monthlyState, hasActiveFormalBatch, roundTime);
+        eligibility = applyStrategyGuard(context, matchResult.primaryStrategy(), eligibility);
         builder.eligibilityResult(eligibility);
 
         boolean accepted = StockEligibilityResultEnum.ALLOWED == eligibility.result()
@@ -236,6 +237,34 @@ public class StockBuySignalEvaluator {
      */
     private boolean isStrategyMatched(StockBuyStrategy strategy, BuyContext context) {
         return strategy.isApplicableStyle(context.stylePrior()) && strategy.matches(context);
+    }
+
+    /**
+     * 应用主策略的绝对趋势保护守卫(RANGE专属资格检查)。
+     * <p>
+     * 守卫独立于通用资格门禁: 仅当通用资格为ALLOWED时执行;守卫失败将结果降级为REJECTED并
+     * 记录冻结原因码(如 {@code ABSOLUTE_TREND_GUARD_FAILED}),使该失败仍写原始信号与拒绝观察,
+     * 不建立正式批次。未设置守卫的策略(默认返回null)保持原资格结果。
+     *
+     * @param context         买入上下文
+     * @param primaryStrategy 主策略;无命中时为null
+     * @param eligibility     通用资格判断结果
+     * @return 应用守卫后的资格结果
+     */
+    private EligibilityResult applyStrategyGuard(BuyContext context,
+                                                 StockBuyStrategy primaryStrategy,
+                                                 EligibilityResult eligibility) {
+        if (primaryStrategy == null || eligibility == null
+                || StockEligibilityResultEnum.ALLOWED != eligibility.result()) {
+            return eligibility;
+        }
+        String guardReason = primaryStrategy.absoluteTrendGuardFailureReason(context);
+        if (guardReason == null || guardReason.isBlank()) {
+            return eligibility;
+        }
+        log.info("买入信号未通过策略绝对趋势守卫: stocksId={}, strategy={}, reason={}",
+                context.stocksId(), primaryStrategy.getStrategyType(), guardReason);
+        return new EligibilityResult(StockEligibilityResultEnum.REJECTED, List.of(guardReason));
     }
 
     /**

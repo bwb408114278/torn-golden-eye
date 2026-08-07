@@ -9,23 +9,21 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthly
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRequest;
+import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySourceManifest;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.TreeMap;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.*;
 
 /**
  * 回放只读输入加载器。
  *
- * <p>按时间窗口分块批量只读加载 bar/feature/月度状态并索引,避免单次超大查询与N+1。
- * 加载范围: bar 覆盖回放窗口加观察尾窗(14天),feature 同bar范围,月度状态覆盖窗口内全部月份。
- * 所有读取在只读事务内执行,任何写操作都会被数据库只读事务拒绝。</p>
+ * <p>在单一 {@code READ ONLY + REPEATABLE READ} 事务内按时间窗口分块批量只读加载
+ * bar/feature/月度状态并索引,避免单次超大查询与N+1;整个输入清单来自同一一致性快照。
+ * 加载范围: bar 覆盖回放窗口加观察尾窗(14天),feature 同bar范围,月度状态通过范围批量
+ * 查询一次加载窗口内全部月份。每次加载固化 {@link StockReplaySourceManifest},记录版本、
+ * 行数与每股时间边界及其SHA-256摘要。所有读取在只读事务内执行,任何写操作都会被数据库
+ * 只读事务拒绝。</p>
  *
  * @author Bai
  * @version 1.2.14
@@ -51,10 +49,10 @@ public class StockReplayInputLoader {
     /**
      * 构造加载器。
      *
-     * @param barDao         15分钟bar只读DAO
-     * @param featureDao     策略特征只读DAO
+     * @param barDao          15分钟bar只读DAO
+     * @param featureDao      策略特征只读DAO
      * @param monthlyStateDao 月度状态只读DAO
-     * @param readOnlyGuard  只读事务守卫
+     * @param readOnlyGuard   只读事务守卫
      */
     public StockReplayInputLoader(TornStockMarketBar15mDAO barDao,
                                   TornStockStrategyFeature15mDAO featureDao,
@@ -67,10 +65,10 @@ public class StockReplayInputLoader {
     }
 
     /**
-     * 加载回放输入窗口数据。
+     * 在单一只读 + Repeatable Read 事务内加载回放输入窗口数据并固化来源清单。
      *
      * @param request 回放请求(起止时间须已按15分钟桶对齐)
-     * @return 索引后的窗口数据
+     * @return 索引后的窗口数据(含同一快照下的来源清单)
      * @throws IllegalArgumentException 起止时间未对齐或开始晚于结束时抛出
      */
     public StockReplayWindowData load(StockReplayRequest request) {
@@ -86,7 +84,10 @@ public class StockReplayInputLoader {
                     loadFeatures(start, barEnd, request.featureVersion());
             Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> monthlyStatesByMonth =
                     loadMonthlyStates(start, end);
-            return new StockReplayWindowData(barsByStock, featuresByStock, monthlyStatesByMonth);
+            StockReplaySourceManifest sourceManifest = buildSourceManifest(
+                    request, barsByStock, featuresByStock, monthlyStatesByMonth);
+            return new StockReplayWindowData(barsByStock, featuresByStock, monthlyStatesByMonth,
+                    sourceManifest);
         });
     }
 
@@ -162,20 +163,99 @@ public class StockReplayInputLoader {
         return byStock;
     }
 
+    /**
+     * 范围批量加载窗口内全部月份的已确认月度状态(禁止按月循环发SQL)。
+     *
+     * @param start 回放窗口开始时间
+     * @param end   回放窗口结束时间
+     * @return 生效月份 → (股票ID → 已确认月度状态)
+     */
     private Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> loadMonthlyStates(
             LocalDateTime start, LocalDateTime end) {
         LocalDate startMonth = start.toLocalDate().withDayOfMonth(1);
         LocalDate endMonth = end.toLocalDate().withDayOfMonth(1);
-        Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> byMonth = new HashMap<>();
-        for (LocalDate month = startMonth; !month.isAfter(endMonth); month = month.plusMonths(1)) {
-            List<TornStockMonthlyStateDO> states = monthlyStateDao.selectConfirmedByMonth(month);
-            Map<Integer, TornStockMonthlyStateDO> byStock = states.stream()
-                    .filter(state -> state != null && state.getStocksId() != null)
-                    .collect(Collectors.toMap(TornStockMonthlyStateDO::getStocksId,
-                            Function.identity(), (left, right) -> left));
-            byMonth.put(month, byStock);
+        List<TornStockMonthlyStateDO> states = monthlyStateDao.selectConfirmedByMonthRange(startMonth, endMonth);
+        Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> byMonth = new LinkedHashMap<>();
+        for (TornStockMonthlyStateDO state : states) {
+            if (state == null || state.getStocksId() == null || state.getEffectiveMonth() == null) {
+                continue;
+            }
+            byMonth.computeIfAbsent(state.getEffectiveMonth(), k -> new HashMap<>())
+                    .put(state.getStocksId(), state);
         }
         return byMonth;
+    }
+
+    /**
+     * 由已加载输入构建来源清单(行数、每股时间边界、版本与SHA-256摘要)。
+     *
+     * @param request              回放请求
+     * @param barsByStock          加载的bar索引
+     * @param featuresByStock      加载的特征索引
+     * @param monthlyStatesByMonth 加载的月度状态索引
+     * @return 来源清单
+     */
+    private StockReplaySourceManifest buildSourceManifest(
+            StockReplayRequest request,
+            Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> barsByStock,
+            Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> featuresByStock,
+            Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> monthlyStatesByMonth) {
+        long barCount = 0;
+        List<StockReplaySourceManifest.StockBoundary> boundaries = new ArrayList<>();
+        Set<Integer> stocks = new TreeSet<>();
+        stocks.addAll(barsByStock.keySet());
+        stocks.addAll(featuresByStock.keySet());
+        for (Integer stock : stocks) {
+            NavigableMap<LocalDateTime, TornStockMarketBar15mDO> bars = barsByStock.get(stock);
+            NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO> features = featuresByStock.get(stock);
+            barCount += bars == null ? 0 : bars.size();
+            boundaries.add(new StockReplaySourceManifest.StockBoundary(
+                    stock,
+                    firstKeyOrNull(bars),
+                    lastKeyOrNull(bars),
+                    firstKeyOrNull(features),
+                    lastKeyOrNull(features)));
+        }
+        long featureCount = featuresByStock.values().stream()
+                .mapToLong(m -> m == null ? 0 : m.size()).sum();
+        long monthlyStateCount = monthlyStatesByMonth.values().stream()
+                .mapToLong(m -> m == null ? 0 : m.size()).sum();
+
+        Set<String> monthlyRuleVersions = new TreeSet<>();
+        for (Map<Integer, TornStockMonthlyStateDO> byStock : monthlyStatesByMonth.values()) {
+            for (TornStockMonthlyStateDO state : byStock.values()) {
+                monthlyRuleVersions.add(state.getPersonalityRuleVersion() + "|"
+                        + state.getRiskRuleVersion());
+            }
+        }
+
+        LocalDate monthlyStartMonth = monthlyStatesByMonth.keySet().stream()
+                .min(Comparator.naturalOrder()).orElse(null);
+        LocalDate monthlyEndMonth = monthlyStatesByMonth.keySet().stream()
+                .max(Comparator.naturalOrder()).orElse(null);
+        LocalDate requestStartMonth = request.startTime().toLocalDate().withDayOfMonth(1);
+        LocalDate requestEndMonth = request.endTime().toLocalDate().withDayOfMonth(1);
+
+        StockReplaySourceManifest.WindowRange windowRange =
+                new StockReplaySourceManifest.WindowRange(
+                        request.startTime(), request.endTime(),
+                        request.startTime(), request.endTime().plusDays(OBSERVATION_TAIL_DAYS),
+                        request.startTime(), request.endTime().plusDays(OBSERVATION_TAIL_DAYS),
+                        monthlyStartMonth == null ? requestStartMonth : monthlyStartMonth,
+                        monthlyEndMonth == null ? requestEndMonth : monthlyEndMonth);
+        StockReplaySourceManifest.Versions versions = new StockReplaySourceManifest.Versions(
+                request.barBuildVersion(), request.featureVersion(),
+                List.copyOf(monthlyRuleVersions));
+        return StockReplaySourceManifest.of(windowRange, versions, barCount, featureCount,
+                monthlyStateCount, boundaries);
+    }
+
+    private static LocalDateTime firstKeyOrNull(NavigableMap<LocalDateTime, ?> map) {
+        return map == null || map.isEmpty() ? null : map.firstKey();
+    }
+
+    private static LocalDateTime lastKeyOrNull(NavigableMap<LocalDateTime, ?> map) {
+        return map == null || map.isEmpty() ? null : map.lastKey();
     }
 
     private static LocalDateTime nextChunk(LocalDateTime cursor) {

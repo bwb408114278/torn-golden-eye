@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockRoundTransactionService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
 
 import java.nio.charset.StandardCharsets;
@@ -70,7 +71,7 @@ public class StockReplayRunner {
      * @param request 回放请求
      * @return 内存回放结果(与产物一致)
      * @throws IllegalArgumentException 请求参数非法时抛出
-     * @throws IllegalStateException    只读会话校验失败或产物目录已存在时抛出
+     * @throws IllegalStateException    只读会话校验失败、已完成同代际拒绝覆盖或写入失败时抛出
      */
     public StockReplayResult run(StockReplayRequest request) {
         StockReplayRequest normalized = normalize(request);
@@ -107,13 +108,16 @@ public class StockReplayRunner {
             }
 
             long windowDays = normalizedWindowDays(normalized);
+            StockReplaySourceManifest sourceManifest = windowData.sourceManifest();
             StockReplaySummary summary = buildSummary(
-                    runId, normalized, windowDays, summaries, dynamicSell, null);
+                    runId, normalized, windowDays, summaries, dynamicSell, sourceManifest, null);
             StockReplayResult result = new StockReplayResult(
                     runId, summary,
                     flatten(trades), flatten(rejections), flatten(equityPoints));
-            resultWriter.write(runId, normalized.outputRootDir(), result);
-            log.info("隔离回放完成: runId={}, 产物目录={}", runId, normalized.outputRootDir() + "/" + runId);
+            resultWriter.writeCompleted(runId, normalized.outputRootDir(), result);
+            log.info("隔离回放完成: runId={}, 产物目录={}, sourceManifestHash={}",
+                    runId, normalized.outputRootDir() + "/" + runId,
+                    sourceManifest == null ? null : sourceManifest.sha256());
             return result;
         } catch (RuntimeException e) {
             log.error("隔离回放失败: runId={}, error={}", runId, e.getMessage(), e);
@@ -126,8 +130,9 @@ public class StockReplayRunner {
         try {
             long windowDays = normalizedWindowDays(normalized);
             StockReplaySummary failed = buildSummary(
-                    runId, normalized, windowDays, Map.of(), null, error.getMessage());
-            resultWriter.write(runId, normalized.outputRootDir(),
+                    runId, normalized, windowDays, Map.of(), null, null, error.getMessage());
+            String attemptId = UUID.randomUUID().toString();
+            resultWriter.writeFailed(runId, attemptId, normalized.outputRootDir(),
                     new StockReplayResult(runId, failed, List.of(), List.of(), List.of()));
         } catch (Exception writeError) {
             log.warn("失败摘要写出失败: runId={}, error={}", runId, writeError.getMessage());
@@ -162,7 +167,8 @@ public class StockReplayRunner {
                         : request.barBuildVersion(),
                 request.featureVersion() == null ? Stock15mFeatureBuildService.FEATURE_VERSION
                         : request.featureVersion(),
-                request.buyRuleVersion() == null ? "1.0.0" : request.buyRuleVersion(),
+                request.buyRuleVersion() == null ? StockRoundTransactionService.BUY_RULE_VERSION
+                        : request.buyRuleVersion(),
                 request.sellRuleVersion() == null ? "1.0.0" : request.sellRuleVersion(),
                 tracks, outputRoot);
     }
@@ -223,6 +229,7 @@ public class StockReplayRunner {
                                                    long windowDays,
                                                    Map<String, StockReplaySummary.TrackSummary> summaries,
                                                    StockReplaySummary.DynamicSellSummary dynamicSell,
+                                                   StockReplaySourceManifest sourceManifest,
                                                    String error) {
         List<StockReplaySummary.TrackSummary> orderedTracks = new ArrayList<>();
         for (StockReplayTrackEnum track : StockReplayTrackEnum.values()) {
@@ -246,6 +253,6 @@ public class StockReplayRunner {
                 request.startTime(), request.endTime(), windowDays,
                 request.barBuildVersion(), request.featureVersion(),
                 request.buyRuleVersion(), request.sellRuleVersion(),
-                orderedTracks, error);
+                sourceManifest, orderedTracks, error);
     }
 }

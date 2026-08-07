@@ -11,9 +11,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitE
 
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 区间下沿买入策略与严格反弹确认买入策略的边界测试，覆盖技术方案16.3中这两个策略的
@@ -21,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 合并于本测试类中分别以Nested内部类组织。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @DisplayName("区间下沿与严格反弹确认买入策略测试")
@@ -143,6 +141,114 @@ class RangeAndReboundStrategyTest {
                     new BigDecimal("-0.01"),
                     new BigDecimal("978"), new BigDecimal("1000"));
             assertFalse(strategy.matches(context));
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_return7d恰为-2%_通过")
+        void guard_return7dEqualToFloor_passes() {
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), new BigDecimal("1000"),
+                    new BigDecimal("-0.02"));
+            assertNull(strategy.absoluteTrendGuardFailureReason(context), "等于-2%应通过");
+            assertTrue(strategy.matches(context), "结构条件与MA门禁应命中");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_return7d略低于-2%_以ABSOLUTE_TREND_GUARD_FAILED拒绝")
+        void guard_return7dBelowFloor_failed() {
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), new BigDecimal("1000"),
+                    new BigDecimal("-0.0201"));
+            assertEquals(RangeLowerBuyStrategy.ABSOLUTE_TREND_GUARD_FAILED,
+                    strategy.absoluteTrendGuardFailureReason(context), "略低于-2%应拒绝");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_return7d略高于-2%_通过")
+        void guard_return7dAboveFloor_passes() {
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), new BigDecimal("1000"),
+                    new BigDecimal("-0.01"));
+            assertNull(strategy.absoluteTrendGuardFailureReason(context), "高于-2%应通过");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_return7d缺失_数据不足fail-closed")
+        void guard_return7dMissing_failClosed() {
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), new BigDecimal("1000"),
+                    null);
+            assertEquals(RangeLowerBuyStrategy.ABSOLUTE_TREND_GUARD_FAILED,
+                    strategy.absoluteTrendGuardFailureReason(context), "return7d缺失不得默认通过");
+        }
+
+        @Test
+        @DisplayName("matches_return7d低于-2%但结构条件满足_仍命中(守卫独立于matches)")
+        void matches_return7dBelowFloorStructuralPasses_returnsTrue() {
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), new BigDecimal("1000"),
+                    new BigDecimal("-0.03"));
+            assertTrue(strategy.matches(context), "matches不包含return7d守卫,结构条件满足即命中");
+            assertEquals(RangeLowerBuyStrategy.ABSOLUTE_TREND_GUARD_FAILED,
+                    strategy.absoluteTrendGuardFailureReason(context), "守卫应在资格层独立拒绝");
+        }
+
+        @Test
+        @DisplayName("matches_MA门禁失败_return7d满足也返回false")
+        void matches_maGateFails_returnsFalse() {
+            // ma7d/ma30d - 1 = 978/1000 - 1 = -0.022 < -0.02,即使return7d满足也不命中
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("978"), new BigDecimal("1000"),
+                    new BigDecimal("0"));
+            assertFalse(strategy.matches(context), "MA门禁失败不应命中");
+            assertNull(strategy.absoluteTrendGuardFailureReason(context), "return7d满足时守卫本身通过");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_其他策略默认不设守卫_返回null")
+        void guard_otherStrategies_defaultNull() {
+            BuyContext context = buildRangeContextWithReturn7d(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), new BigDecimal("1000"),
+                    new BigDecimal("-0.03"));
+            assertNull(new DeepMeanReversionBuyStrategy().absoluteTrendGuardFailureReason(context),
+                    "DEEP未设置RANGE守卫,不受该守卫影响");
+            assertNull(new StrictReboundConfirmBuyStrategy().absoluteTrendGuardFailureReason(context),
+                    "REBOUND未设置RANGE守卫,不受该守卫影响");
         }
 
         @Test
@@ -321,13 +427,13 @@ class RangeAndReboundStrategyTest {
     /**
      * 构建区间下沿策略测试上下文，仅设置该策略需要的字段。
      *
-     * @param style     策略适配风格
-     * @param width30d  30日通道宽度
+     * @param style      策略适配风格
+     * @param width30d   30日通道宽度
      * @param position30 当前仓位位置
-     * @param zscore1d  近1日Z-score
-     * @param return6h  近6小时收益率
-     * @param ma7d      近7日移动均价
-     * @param ma30d     近30日移动均价
+     * @param zscore1d   近1日Z-score
+     * @param return6h   近6小时收益率
+     * @param ma7d       近7日移动均价
+     * @param ma30d      近30日移动均价
      * @return 买入评估上下文
      */
     private static BuyContext buildRangeContext(StockStrategyFitEnum style,
@@ -337,6 +443,31 @@ class RangeAndReboundStrategyTest {
                                                 BigDecimal return6h,
                                                 BigDecimal ma7d,
                                                 BigDecimal ma30d) {
+        return buildRangeContextWithReturn7d(style, width30d, position30, zscore1d, return6h,
+                ma7d, ma30d, BigDecimal.ZERO);
+    }
+
+    /**
+     * 构建区间下沿策略测试上下文(可指定return7d)。
+     *
+     * @param style      策略适配风格
+     * @param width30d   30日通道宽度
+     * @param position30 当前仓位位置
+     * @param zscore1d   近1日Z-score
+     * @param return6h   近6小时收益率
+     * @param ma7d       近7日移动均价
+     * @param ma30d      近30日移动均价
+     * @param return7d   近7日收益率
+     * @return 买入评估上下文
+     */
+    private static BuyContext buildRangeContextWithReturn7d(StockStrategyFitEnum style,
+                                                            BigDecimal width30d,
+                                                            BigDecimal position30,
+                                                            BigDecimal zscore1d,
+                                                            BigDecimal return6h,
+                                                            BigDecimal ma7d,
+                                                            BigDecimal ma30d,
+                                                            BigDecimal return7d) {
         return new BuyContext(
                 2002,
                 "RANGE",
@@ -349,7 +480,7 @@ class RangeAndReboundStrategyTest {
                 BigDecimal.ZERO,
                 return6h,
                 BigDecimal.ZERO,
-                BigDecimal.ZERO,
+                return7d,
                 BigDecimal.ZERO,
                 new BigDecimal("490"),
                 new BigDecimal("510"),

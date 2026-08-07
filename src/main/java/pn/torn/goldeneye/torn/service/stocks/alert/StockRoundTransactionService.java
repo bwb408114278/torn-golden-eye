@@ -53,9 +53,9 @@ import java.util.stream.Collectors;
 public class StockRoundTransactionService {
 
     /**
-     * 买入规则版本
+     * 买入规则版本(RANGE绝对趋势保护自1.1.0起生效,历史批次保留原版本)
      */
-    public static final String BUY_RULE_VERSION = "1.0.0";
+    public static final String BUY_RULE_VERSION = "1.1.0";
     /**
      * 卖出规则版本
      */
@@ -107,10 +107,10 @@ public class StockRoundTransactionService {
      * 仅ENTRY过期(entryStaleAt)判定使用实际处理时刻,避免启动补偿晚恢复时把历史轮次
      * 当作未过期而补发BUY。
      *
-     * @param roundTime             本轮bar开始时间(历史决策锚点)
-     * @param snapshot              事务外已加载的批量数据快照
-     * @param allowNewEntry         是否允许创建新的正式/候选影子批次
-     * @param actualProcessingTime  本次实际处理时刻(仅用于ENTRY过期判定)
+     * @param roundTime            本轮bar开始时间(历史决策锚点)
+     * @param snapshot             事务外已加载的批量数据快照
+     * @param allowNewEntry        是否允许创建新的正式/候选影子批次
+     * @param actualProcessingTime 本次实际处理时刻(仅用于ENTRY过期判定)
      */
     @Transactional(rollbackFor = Exception.class)
     public void executeRound(LocalDateTime roundTime, RoundSnapshot snapshot, boolean allowNewEntry,

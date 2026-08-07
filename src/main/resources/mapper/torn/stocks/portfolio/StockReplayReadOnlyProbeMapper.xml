@@ -7,4 +7,9 @@
         SELECT current_setting('transaction_read_only')
     </select>
 
+    <!-- 当前会话事务隔离级别: 回放要求 repeatable read -->
+    <select id="selectTransactionIsolationLevel" resultType="string">
+        SELECT current_setting('transaction_isolation')
+    </select>
+
 </mapper>

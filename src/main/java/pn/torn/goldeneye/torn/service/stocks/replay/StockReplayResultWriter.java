@@ -5,10 +5,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayEquityPoint;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRejection;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayResult;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayTrade;
+import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -25,10 +22,16 @@ import java.util.stream.Stream;
 /**
  * 回放产物落盘写入器。
  *
- * <p>将一次回放运行的完整产物集合写入 {@code outputRootDir}/{@code runId} 目录,产物包含:
- * {@code summary.json}、{@code trades.csv}、{@code rejections.csv}、{@code equity-curve.csv}。
- * 写入具备幂等保护与原子性: 目标目录已存在 {@code <runId>-summary.json} 时拒绝覆盖;每个文件先写
- * 入同目录临时文件,全部就绪后再逐个原子改名,任一步失败即清理临时文件与目标目录。</p>
+ * <p>{@link #writeCompleted} 将一次成功回放的完整产物集合写入 {@code outputRootDir}/{@code runId}
+ * 目录,产物包含: {@code summary.json}、{@code trades.csv}、{@code rejections.csv}、
+ * {@code equity-curve.csv}。写入具备幂等保护与原子性: 仅完整四产物且摘要状态为
+ * {@code COMPLETED} 成为不可覆盖的完成标识,相同 {@code runId + sourceManifestHash} 拒绝覆盖;
+ * 每个文件先写入同目录临时文件,全部就绪后再逐个原子改名,summary 最后改名,任一步失败即
+ * 清理临时文件与目标目录,不留伪完成摘要。</p>
+ *
+ * <p>{@link #writeFailed} 将失败诊断摘要写入独立 {@code attemptId} 目录
+ * ({@code outputRootDir}/{@code runId}-failed/{@code attemptId}),不占用成功产物目录与完成标识,
+ * 同一 {@code runId} 失败后允许新 attempt 从头重跑。</p>
  *
  * <p>CSV 采用 UTF-8 无 BOM 编码,行尾 {@code \n};时间使用 ISO_LOCAL_DATE_TIME,金额使用
  * BigDecimal 的 plain 字符串,{@code null} 输出空串。JSON 使用独立配置的 ObjectMapper 序列化
@@ -107,26 +110,25 @@ public class StockReplayResultWriter {
     }
 
     /**
-     * 将回放产物写入 {@code outputRootDir}/{@code runId} 目录。
+     * 将成功回放产物写入 {@code outputRootDir}/{@code runId} 目录。
      *
-     * <p>写入流程: 幂等校验 → 建目录 → 四类产物依次写入同目录临时文件({@code .tmp.<uuid>})
+     * <p>写入流程: 完成标识校验 → 建目录 → 四类产物依次写入同目录临时文件({@code .tmp.<uuid>})
      * → 全部就绪后按 trades / rejections / equity-curve / summary 顺序原子改名。summary 最后
-     * 改名,保证幂等标记仅在全部产物就绪后出现,避免部分改名失败被误判为已完成。任一步失败时
-     * 清理已创建的临时文件并递归删除目标目录(不触及上层输出根目录)。</p>
+     * 改名,保证完成标识仅在全部产物就绪后出现。完成标识由 {@code runId + sourceManifestHash}
+     * 共同决定: 已存在同代际 {@code COMPLETED} 摘要时拒绝覆盖;已被不同输入代际的完成结果占用
+     * 时同样拒绝,避免不同代际产物混淆。任一步失败时清理已创建的临时文件并递归删除目标目录。
+     * 已存在的非 {@code COMPLETED} 摘要(历史遗留)允许重写。</p>
      *
-     * @param runId         回放运行标识
+     * @param runId         回放请求归一化键
      * @param outputRootDir 产物输出根目录(可为相对路径,如 {@code .hermes/output/vip-stock-replay})
-     * @param result        回放产物集合
+     * @param result        成功回放产物集合(摘要状态必须为COMPLETED)
      * @return 实际写入的产物目录绝对路径
-     * @throws IllegalStateException 目标目录已存在 {@code <runId>-summary.json}(该 runId 已完成)
-     *                               时拒绝覆盖;或写入过程发生异常并完成清理后抛出
+     * @throws IllegalStateException 已完成同代际/不同代际占用、标识文件无法解析或写入失败时抛出
      */
-    public String write(String runId, String outputRootDir, StockReplayResult result) {
+    public String writeCompleted(String runId, String outputRootDir, StockReplayResult result) {
         Path targetDir = Paths.get(outputRootDir).resolve(runId).toAbsolutePath().normalize();
         Path summaryFile = targetDir.resolve(runId + SUMMARY_FILE_SUFFIX);
-        if (Files.exists(summaryFile)) {
-            throw new IllegalStateException("该 runId 回放产物已存在,拒绝覆盖: " + summaryFile);
-        }
+        verifyNotCompleted(runId, summaryFile, result.summary());
 
         List<Path> tempFiles = new ArrayList<>(4);
         try {
@@ -147,6 +149,82 @@ public class StockReplayResultWriter {
             cleanup(tempFiles, targetDir);
             log.error("回放产物写入失败并已清理, runId={}, 目录={}", runId, targetDir, e);
             throw new IllegalStateException("回放产物写入失败, runId=" + runId, e);
+        }
+    }
+
+    /**
+     * 将失败诊断摘要写入独立 attemptId 目录,不占用成功产物目录与完成标识。
+     *
+     * @param runId         回放请求归一化键
+     * @param attemptId     本次尝试标识(同一runId每次失败均不同)
+     * @param outputRootDir 产物输出根目录
+     * @param result        失败回放结果(摘要状态为FAILED)
+     * @return 实际写入的失败摘要目录绝对路径
+     */
+    public String writeFailed(String runId, String attemptId, String outputRootDir, StockReplayResult result) {
+        Path failedDir = Paths.get(outputRootDir).resolve(runId + "-failed")
+                .resolve(attemptId).toAbsolutePath().normalize();
+        Path summaryFile = failedDir.resolve(runId + SUMMARY_FILE_SUFFIX);
+        try {
+            Files.createDirectories(failedDir);
+            Path tempFile = newTempFile(failedDir, runId + SUMMARY_FILE_SUFFIX);
+            writeJsonAtomic(tempFile, result.summary());
+            renameAtomic(tempFile, summaryFile);
+            log.info("回放失败摘要写入: runId={}, attemptId={}, 目录={}", runId, attemptId, failedDir);
+            return failedDir.toString();
+        } catch (Exception e) {
+            deleteRecursively(failedDir);
+            log.error("回放失败摘要写出失败并已清理, runId={}, attemptId={}", runId, attemptId, e);
+            throw new IllegalStateException("回放失败摘要写入失败, runId=" + runId, e);
+        }
+    }
+
+    /**
+     * 校验完成标识: 存在同代际或不同代际的COMPLETED摘要时拒绝覆盖。
+     *
+     * @param runId       回放请求归一化键
+     * @param summaryFile 完成标识文件
+     * @param current     本次回放摘要
+     * @throws IllegalStateException 已完成(同代际)、被不同代际占用或标识无法解析时抛出
+     */
+    private void verifyNotCompleted(String runId, Path summaryFile, StockReplaySummary current) {
+        if (!Files.exists(summaryFile)) {
+            return;
+        }
+        StockReplaySummary existing = readSummary(summaryFile);
+        if (existing == null) {
+            throw new IllegalStateException("该 runId 已有产物标识文件但内容无法解析,拒绝覆盖: " + summaryFile);
+        }
+        String currentHash = current.sourceManifest() == null ? null : current.sourceManifest().sha256();
+        String existingHash = existing.sourceManifest() == null ? null : existing.sourceManifest().sha256();
+        if (isCompleted(existing)) {
+            if (java.util.Objects.equals(existingHash, currentHash)) {
+                throw new IllegalStateException(
+                        "该 runId 已以相同输入代际完成,拒绝覆盖: " + summaryFile + ", sourceManifestHash=" + existingHash);
+            }
+            throw new IllegalStateException(
+                    "该 runId 已被不同输入代际的成功结果占用,需清理后重跑: " + summaryFile
+                            + ", 既有hash=" + existingHash + ", 本次hash=" + currentHash);
+        }
+        log.warn("检测到历史非COMPLETED摘要,允许重写: runId={}, status={}", runId, existing.status());
+    }
+
+    private static boolean isCompleted(StockReplaySummary summary) {
+        return "COMPLETED".equals(summary.status());
+    }
+
+    /**
+     * 读取已有完成标识摘要。
+     *
+     * @param summaryFile 完成标识文件
+     * @return 摘要;读取失败时返回null
+     */
+    private StockReplaySummary readSummary(Path summaryFile) {
+        try {
+            return objectMapper.readValue(summaryFile.toFile(), StockReplaySummary.class);
+        } catch (IOException e) {
+            log.warn("读取已有回放摘要失败: {}", summaryFile, e);
+            return null;
         }
     }
 

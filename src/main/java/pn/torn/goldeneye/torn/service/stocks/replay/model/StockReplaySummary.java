@@ -11,7 +11,9 @@ import java.util.TreeMap;
  * 回放运行摘要(输出到 summary.json)。
  *
  * <p>内容完全确定性(无墙钟时间戳),可由相同输入复现。年化收益为短历史比较基准,
- * 必须携带 {@code SHORT_HISTORY_ANNUALIZED_BACKTEST} 标记,不构成收益承诺。</p>
+ * 必须携带 {@code SHORT_HISTORY_ANNUALIZED_BACKTEST} 标记,不构成收益承诺。
+ * 摘要同时固化 {@link StockReplaySourceManifest} 输入来源清单,与 {@code runId} 共同
+ * 构成成功完成标识: 相同请求但输入代际不同不会误判为同一次成功结果。</p>
  *
  * @param runId           回放运行标识
  * @param status          运行状态: COMPLETED/FAILED/INCOMPLETE
@@ -23,6 +25,7 @@ import java.util.TreeMap;
  * @param featureVersion  特征计算规则版本
  * @param buyRuleVersion  买入规则版本
  * @param sellRuleVersion 退出规则版本
+ * @param sourceManifest  本次输入来源清单(含SHA-256摘要,与runId共同构成成功完成标识)
  * @param tracks          各轨道摘要
  * @param error           失败原因(仅FAILED/INCOMPLETE时非空)
  * @author Bai
@@ -40,6 +43,7 @@ public record StockReplaySummary(
         String featureVersion,
         String buyRuleVersion,
         String sellRuleVersion,
+        StockReplaySourceManifest sourceManifest,
         List<TrackSummary> tracks,
         String error
 ) {
