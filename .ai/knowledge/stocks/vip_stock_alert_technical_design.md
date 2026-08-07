@@ -355,10 +355,11 @@ width30 <= 8%
 AND position30 <= 10%
 AND effectiveZ1 <= -0.5
 AND return6h <= 0
-AND 通过已冻结的绝对趋势保护
+AND return7d >= -2%
+AND MA7 / MA30 - 1 >= -2%
 ```
 
-`return7d`的RANGE专属比较符、阈值、等值边界及其与MA7/MA30的组合关系尚未由业务冻结。当前不得把DEEP的`return7d >= -1%`套用到RANGE；在冻结新规则版本并完成P1-3实现、测试及Review前，RANGE正式准入保持关闭。
+RANGE绝对趋势保护已冻结：两个条件是并列AND，等于-2%通过。`return7d < -2%`使用`ABSOLUTE_TREND_GUARD_FAILED`；`return7d/MA7/MA30`任一缺失时返回数据不足而不是普通策略不命中。该阈值不得替换成DEEP的-1%，也不得因7月留出表现更高而事后收紧。
 
 #### 严格反弹确认
 
@@ -2089,7 +2090,7 @@ a9fae2c474a82f96f6e67eba15e5e15552f1ecca
 
 - [ ] P0-2：完整自然月均价、月变化、负月比例和连续负月必须使用月内全部usable 15分钟价格；完成后须有冻结历史只读抽样重算证据。
 - [ ] P1-2：回放须解决FAILED重跑、输入一致性快照/manifest，并提供生产20亿与历史4亿两个独立资金轨道的可归属长窗口四产物。
-- [ ] P1-3：RANGE的`return7d`保护等待业务冻结专属阈值、边界和与MA条件的组合关系。
+- [ ] P1-3：RANGE按已冻结的`return7d >= -2%`、等值通过、与MA门禁并列AND完成代码和测试。
 
 完成上述事项后的正式发布前置条件：
 
