@@ -8,6 +8,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
@@ -28,6 +29,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -97,8 +99,15 @@ class TornOcIncomeTransactionWorkerTest {
     @AfterEach
     void cleanup() {
         cleanupFactionData();
+        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         if (!testCoefficientIds.isEmpty()) {
-            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+            namedJdbcTemplate.update(
+                    "DELETE FROM torn_setting_oc_coefficient WHERE id IN (:coefficientIds)",
+                    Map.of("coefficientIds", testCoefficientIds));
+            Long coefficientCount = namedJdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM torn_setting_oc_coefficient WHERE id IN (:coefficientIds)",
+                    Map.of("coefficientIds", testCoefficientIds), Long.class);
+            assertEquals(0L, coefficientCount, "测试系数配置物理清理后应计数为0");
         }
         coefficientManager.refreshCache();
         if (originalRotationList == null) {

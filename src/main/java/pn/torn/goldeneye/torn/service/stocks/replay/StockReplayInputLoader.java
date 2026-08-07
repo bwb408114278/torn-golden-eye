@@ -246,8 +246,10 @@ public class StockReplayInputLoader {
         StockReplaySourceManifest.Versions versions = new StockReplaySourceManifest.Versions(
                 request.barBuildVersion(), request.featureVersion(),
                 List.copyOf(monthlyRuleVersions));
+        String contentSha256 = StockReplayInputDigest.compute(
+                barsByStock, featuresByStock, monthlyStatesByMonth);
         return StockReplaySourceManifest.of(windowRange, versions, barCount, featureCount,
-                monthlyStateCount, boundaries);
+                monthlyStateCount, boundaries, contentSha256);
     }
 
     private static LocalDateTime firstKeyOrNull(NavigableMap<LocalDateTime, ?> map) {

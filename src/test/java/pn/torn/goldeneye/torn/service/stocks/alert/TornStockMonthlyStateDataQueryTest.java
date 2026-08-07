@@ -70,8 +70,86 @@ class TornStockMonthlyStateDataQueryTest {
 
         assertEquals(1, edges.size(), "每支股票应只返回一条证据首尾时间");
         TornStockMarketBar15mDO edge = edges.getFirst();
-        assertEquals(usableTime, edge.getFirstSampleTime(), "首bar应为截止前最早可用bar");
-        assertEquals(usableTime, edge.getLastSampleTime(), "末bar应为截止前最晚可用bar(忽略不可用与截止后)");
+        assertEquals(usableTime, edge.getFirstSampleTime(), "首bar应为截止前最早可用bar开始时间");
+        assertEquals(usableTime.plusMinutes(15), edge.getBarEndTime(),
+                "末bar应为截止前最晚可用bar的桶闭合时间(忽略不可用与截止后)");
+    }
+
+    @Test
+    @DisplayName("真实PG_末日23:45可用末桶_证据终点取桶闭合时间_最近已闭合月参与统计")
+    void selectUsableEvidenceEdges_2345LastBucket_recentClosedMonthParticipates() {
+        // 2026-08 最近完整月,末日23:45末桶为最后一个可用bar
+        LocalDateTime cutoff = LocalDateTime.of(2026, 9, 1, 0, 0);
+        LocalDateTime evidenceStart = LocalDateTime.of(2026, 7, 1, 0, 0);
+        LocalDateTime lastBarStart = LocalDateTime.of(2026, 8, 31, 23, 45);
+        // 逐日两根bar: 08:00=100、12:00=110,末日23:45=112,保证月均可用全部bar而非日末价
+        for (int day = 1; day <= 31; day++) {
+            LocalDate date = LocalDate.of(2026, 8, day);
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(8, 0), true));
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(12, 0), true));
+        }
+        bar15mDao.upsertBar(buildBar(STOCK_A, lastBarStart, true));
+        // 前月7月两根bar,用于计算相邻月变化
+        for (int day = 1; day <= 31; day++) {
+            LocalDate date = LocalDate.of(2026, 7, day);
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(8, 0), true));
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(12, 0), true));
+        }
+
+        List<TornStockMarketBar15mDO> edges = bar15mDao.selectUsableEvidenceEdges(
+                List.of(STOCK_A), cutoff, Stock15mBarBuildService.BUILD_VERSION);
+        assertEquals(1, edges.size(), "每支股票应只返回一条证据首尾时间");
+        TornStockMarketBar15mDO edge = edges.getFirst();
+        assertEquals(LocalDateTime.of(2026, 7, 1, 8, 0), edge.getFirstSampleTime(),
+                "证据起点应为最早可用bar开始时间");
+        assertEquals(lastBarStart.plusMinutes(15), edge.getBarEndTime(),
+                "证据终点应为末日23:45末桶的闭合时间(次日00:00),而非bar_start_time 23:45");
+
+        // 服务级重算: 以证据终点为桶闭合时间,最近完整自然月(2026-08)必须参与月均/负月统计
+        List<TornStockMarketBar15mDO> bars = bar15mDao.selectUsableByStocksAndTimeRange(
+                List.of(STOCK_A), LocalDateTime.of(2026, 7, 1, 0, 0), lastBarStart,
+                Stock15mBarBuildService.BUILD_VERSION);
+        StockMonthlyEvidenceMetrics metrics = StockMonthlyEvidenceComputer.computeMetrics(
+                evidenceStart, edge.getBarEndTime(), bars);
+        assertEquals(2, metrics.completeMonthCount(),
+                "证据终点取桶闭合时间后,7月与8月均应视为完整自然月");
+        assertEquals(0.0, metrics.negativeMonthRatio(),
+                "8月月均高于7月,负月占比应为0,证明最近已闭合月参与统计");
+        assertEquals(0, metrics.negativeMonthStreak(), "最近已闭合月参与后末尾连续负月为0");
+    }
+
+    @Test
+    @DisplayName("真实PG_末日22:30末桶未闭合_最近完整月fail-closed")
+    void selectUsableEvidenceEdges_incompleteLastBucket_recentMonthFailClosed() {
+        // 最近月8月最后一个可用bar为22:30(桶未闭合至23:59:59),8月不得视为完整自然月
+        LocalDateTime cutoff = LocalDateTime.of(2026, 9, 1, 0, 0);
+        LocalDateTime evidenceStart = LocalDateTime.of(2026, 7, 1, 0, 0);
+        LocalDateTime lastBarStart = LocalDateTime.of(2026, 8, 31, 22, 30);
+        for (int day = 1; day <= 31; day++) {
+            LocalDate date = LocalDate.of(2026, 8, day);
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(8, 0), true));
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(12, 0), true));
+        }
+        bar15mDao.upsertBar(buildBar(STOCK_A, lastBarStart, true));
+        for (int day = 1; day <= 31; day++) {
+            LocalDate date = LocalDate.of(2026, 7, day);
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(8, 0), true));
+            bar15mDao.upsertBar(buildBar(STOCK_A, date.atTime(12, 0), true));
+        }
+
+        List<TornStockMarketBar15mDO> edges = bar15mDao.selectUsableEvidenceEdges(
+                List.of(STOCK_A), cutoff, Stock15mBarBuildService.BUILD_VERSION);
+        TornStockMarketBar15mDO edge = edges.getFirst();
+        assertEquals(lastBarStart.plusMinutes(15), edge.getBarEndTime(),
+                "末桶22:30闭合时间为22:45,不覆盖月末23:59:59");
+
+        List<TornStockMarketBar15mDO> bars = bar15mDao.selectUsableByStocksAndTimeRange(
+                List.of(STOCK_A), LocalDateTime.of(2026, 7, 1, 0, 0), lastBarStart,
+                Stock15mBarBuildService.BUILD_VERSION);
+        StockMonthlyEvidenceMetrics metrics = StockMonthlyEvidenceComputer.computeMetrics(
+                evidenceStart, edge.getBarEndTime(), bars);
+        assertEquals(1, metrics.completeMonthCount(),
+                "末桶未闭合时最近月8月不得计入完整自然月(fail-closed)");
     }
 
     @Test
@@ -116,8 +194,8 @@ class TornStockMonthlyStateDataQueryTest {
         assertEquals(2, edges.size(), "应返回两支股票各一条证据边");
         Map<Integer, TornStockMarketBar15mDO> byStock = edges.stream()
                 .collect(Collectors.toMap(TornStockMarketBar15mDO::getStocksId, e -> e));
-        assertEquals(a2, byStock.get(STOCK_A).getLastSampleTime());
-        assertEquals(b2, byStock.get(STOCK_B).getLastSampleTime());
+        assertEquals(a2.plusMinutes(15), byStock.get(STOCK_A).getBarEndTime());
+        assertEquals(b2.plusMinutes(15), byStock.get(STOCK_B).getBarEndTime());
     }
 
     @Test
@@ -126,7 +204,6 @@ class TornStockMonthlyStateDataQueryTest {
         LocalDate targetMonth = LocalDate.of(2099, 9, 1);
         LocalDate monthM1 = LocalDate.of(2099, 8, 1);
         LocalDate monthM2 = LocalDate.of(2099, 7, 1);
-        LocalDate monthM0 = LocalDate.of(2099, 9, 1);
 
         // A: 更早7月CONFIRMED + 8月CONFIRMED -> 应返回8月(最近)
         monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(
@@ -200,9 +277,9 @@ class TornStockMonthlyStateDataQueryTest {
     /**
      * 构建月度状态DO(全部NOT NULL字段填充)。
      *
-     * @param stocksId      股票ID
+     * @param stocksId       股票ID
      * @param effectiveMonth 生效月份
-     * @param stateStatus   状态
+     * @param stateStatus    状态
      * @return 月度状态DO
      */
     private TornStockMonthlyStateDO buildState(int stocksId, LocalDate effectiveMonth, String stateStatus) {

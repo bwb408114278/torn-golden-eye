@@ -111,11 +111,11 @@
         ORDER BY stocks_id ASC
     </select>
 
-    <!-- 批量查询指定截止时间前每支股票可用bar的首尾时间 -->
+    <!-- 批量查询指定截止时间前每支股票可用bar的首尾时间(末桶使用bar_end_time闭合语义,映射到DO.barEndTime) -->
     <select id="selectUsableEvidenceEdges" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
         SELECT stocks_id,
                MIN(bar_start_time) AS first_sample_time,
-               MAX(bar_start_time) AS last_sample_time
+               MAX(bar_end_time) AS bar_end_time
         FROM torn_stock_market_bar_15m
         WHERE stocks_id IN
         <foreach collection="stocksIds" item="stocksId" open="(" separator="," close=")">

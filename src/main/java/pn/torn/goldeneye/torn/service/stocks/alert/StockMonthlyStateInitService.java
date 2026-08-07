@@ -232,8 +232,8 @@ public class StockMonthlyStateInitService {
                                                     TornStockMonthlyStateDO previous,
                                                     LocalDateTime now) {
         LocalDateTime evidenceEnd = null;
-        if (evidenceEdge != null && evidenceEdge.getLastSampleTime() != null) {
-            evidenceEnd = evidenceEdge.getLastSampleTime();
+        if (evidenceEdge != null && evidenceEdge.getBarEndTime() != null) {
+            evidenceEnd = evidenceEdge.getBarEndTime();
         }
         LocalDateTime evidenceStart = computeEvidenceStart(evidenceEdge, evidenceEnd);
 

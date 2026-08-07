@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -30,6 +31,7 @@ import java.sql.Connection;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -95,8 +97,15 @@ class TornOcBatchIncomeQueryCountTest {
             jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" + ids + ")");
         }
         jdbcTemplate.update("DELETE FROM torn_faction_oc_income_summary WHERE faction_id = ?", FACTION_ID);
+        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         if (!testCoefficientIds.isEmpty()) {
-            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+            namedJdbcTemplate.update(
+                    "DELETE FROM torn_setting_oc_coefficient WHERE id IN (:coefficientIds)",
+                    Map.of("coefficientIds", testCoefficientIds));
+            Long coefficientCount = namedJdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM torn_setting_oc_coefficient WHERE id IN (:coefficientIds)",
+                    Map.of("coefficientIds", testCoefficientIds), Long.class);
+            assertEquals(0L, coefficientCount, "测试系数配置物理清理后应计数为0");
         }
         coefficientManager.refreshCache();
         if (originalRotationList == null) {

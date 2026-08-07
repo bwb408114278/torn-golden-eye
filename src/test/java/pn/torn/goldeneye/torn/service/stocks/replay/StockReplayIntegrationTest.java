@@ -6,11 +6,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
@@ -26,10 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,7 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * 使用现有 {@link Stock15mBarBuildService} 在本地库种子一个小窗口的bar,并通过现有DAO
  * (生产upsert与月度状态批量插入)种子 strategyReady特征与CONFIRMED月度状态作为回放输入;
- * 运行完整回放断言四类产物与摘要;全部种子数据与产物随{@code @Transactional}回滚并在测试后清理。
+ * 输入加载使用 REQUIRES_NEW 只读事务,因此种子必须在独立事务中显式提交后才对回放可见;
+ * 运行完整回放断言四类产物与摘要;全部种子数据与产物在{@code @AfterEach}物理删除。
  * 特征与月度状态不调用对应构建器的原因: 30天特征lookback与月度证据构建在测试中不可行,
  * 这两个构建器已有各自聚焦测试。
  *
@@ -48,7 +46,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026.08.06
  */
 @SpringBootTest
-@Transactional
 @DisplayName("回放端到端真实PostgreSQL集成测试")
 class StockReplayIntegrationTest {
 
@@ -68,6 +65,10 @@ class StockReplayIntegrationTest {
     private TornStockNoticeAuditDAO noticeAuditDao;
     @Autowired
     private StockReplayRunner runner;
+    @Autowired
+    private NamedParameterJdbcTemplate namedJdbcTemplate;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     /**
      * 回放窗口起点(2026-08-01上午,历史行情覆盖)。
@@ -81,6 +82,14 @@ class StockReplayIntegrationTest {
      * 产物输出根目录(测试专用,结束后清理)。
      */
     private static final String OUTPUT_ROOT = "target/replay-it";
+    /**
+     * 种子月度状态确认人标记,用于精确物理清理。
+     */
+    private static final String SEED_CONFIRMED_BY = "REPLAY_IT_TEST";
+    /**
+     * 种子特征版本。
+     */
+    private static final String SEED_FEATURE_VERSION = "1.0.0";
 
     @AfterEach
     void cleanupArtifacts() throws IOException {
@@ -96,14 +105,27 @@ class StockReplayIntegrationTest {
                 });
             }
         }
+        namedJdbcTemplate.update(
+                "DELETE FROM torn_stock_market_bar_15m WHERE bar_start_time >= :start AND bar_start_time <= :end "
+                        + "AND build_version = :version",
+                Map.of("start", START, "end", END, "version", Stock15mBarBuildService.BUILD_VERSION));
+        namedJdbcTemplate.update(
+                "DELETE FROM torn_stock_strategy_feature_15m WHERE bar_start_time >= :start AND bar_start_time <= :end "
+                        + "AND feature_version = :version",
+                Map.of("start", START, "end", END, "version", SEED_FEATURE_VERSION));
+        namedJdbcTemplate.update(
+                "DELETE FROM torn_stock_monthly_state WHERE effective_month = :month AND confirmed_by = :confirmedBy",
+                Map.of("month", START.toLocalDate().withDayOfMonth(1), "confirmedBy", SEED_CONFIRMED_BY));
     }
 
     @Test
     @DisplayName("种子窗口回放产出四类产物且不写业务表")
     void seededWindow_producesFourArtifactsWithoutBusinessWrites() throws Exception {
-        List<TornStockMarketBar15mDO> seededBars = seedBars(START, END);
-        seedFeatures(seededBars);
-        seedMonthlyStates();
+        transactionTemplate.executeWithoutResult(status -> {
+            seedBars(START, END);
+            seedFeatures(START, END);
+            seedMonthlyStates();
+        });
 
         long batchesBefore = virtualBatchDao.count();
         long eventsBefore = signalEventDao.count();
@@ -144,6 +166,12 @@ class StockReplayIntegrationTest {
     @Test
     @DisplayName("相同请求两次运行runId一致且已完成runId拒绝覆盖")
     void sameRequest_runIdDeterministicAndNoOverwrite() {
+        transactionTemplate.executeWithoutResult(status -> {
+            seedBars(START, END);
+            seedFeatures(START, END);
+            seedMonthlyStates();
+        });
+
         StockReplayRequest request = new StockReplayRequest(
                 START, END, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
                 Set.of(StockReplayTrackEnum.FORMAL_20E), OUTPUT_ROOT);
@@ -160,23 +188,21 @@ class StockReplayIntegrationTest {
                 () -> runner.run(same), "已完成runId必须拒绝覆盖");
     }
 
-    private List<TornStockMarketBar15mDO> seedBars(LocalDateTime start, LocalDateTime end) {
-        List<TornStockMarketBar15mDO> all = new ArrayList<>();
+    private void seedBars(LocalDateTime start, LocalDateTime end) {
         LocalDateTime cursor = Stock15mBarBuildService.alignToBucket(start);
         LocalDateTime last = Stock15mBarBuildService.alignToBucket(end);
         while (!cursor.isAfter(last)) {
-            all.addAll(barBuildService.buildBars(cursor));
+            barBuildService.buildBars(cursor);
             cursor = cursor.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
         }
-        return all;
     }
 
-    private void seedFeatures(List<TornStockMarketBar15mDO> bars) {
+    private void seedFeatures(LocalDateTime start, LocalDateTime end) {
         Set<Integer> stocks = new TreeSet<>();
-        for (TornStockMarketBar15mDO bar : bars) {
-            stocks.add(bar.getStocksId());
+        for (int stock = 1; stock <= 35; stock++) {
+            stocks.add(stock);
         }
-        for (LocalDateTime t = START; !t.isAfter(END);
+        for (LocalDateTime t = start; !t.isAfter(end);
              t = t.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES)) {
             for (Integer stock : stocks) {
                 featureDao.upsertFeature(feature(stock, t));
@@ -208,7 +234,7 @@ class StockReplayIntegrationTest {
         feature.setPctBelow30dHigh(new BigDecimal("0.019608"));
         feature.setStrategyReady(true);
         feature.setDataQualityReason("");
-        feature.setFeatureVersion("1.0.0");
+        feature.setFeatureVersion(SEED_FEATURE_VERSION);
         return feature;
     }
 
@@ -229,6 +255,7 @@ class StockReplayIntegrationTest {
             state.setStateStatus(StockMonthlyStateStatusEnum.CONFIRMED.getCode());
             state.setCalculatedAt(LocalDateTime.of(2026, 8, 1, 8, 0));
             state.setConfirmedAt(LocalDateTime.of(2026, 8, 1, 8, 0));
+            state.setConfirmedBy(SEED_CONFIRMED_BY);
             state.setEvidenceStartTime(LocalDateTime.of(2025, 12, 1, 0, 0));
             state.setEvidenceEndTime(LocalDateTime.of(2026, 7, 31, 23, 45));
             state.setPersonalityRuleVersion("PERSONALITY_RULE_V1");

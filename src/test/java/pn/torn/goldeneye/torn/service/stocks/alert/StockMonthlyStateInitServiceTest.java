@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlyStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 
 import java.time.LocalDate;
@@ -341,6 +342,35 @@ class StockMonthlyStateInitServiceTest {
 
         assertEquals(0, result, "旧规则版本草稿不得自动确认");
         verify(monthlyStateDao, never()).updateBatchById(any());
+    }
+
+    @Test
+    @DisplayName("月度初始化_ 末日23:45末桶_证据终点取桶闭合时间而非bar_start_time")
+    void initCurrentMonth_2345LastBucket_evidenceEndIsBarEndTime() {
+        List<TornStocksDO> allStocks = List.of(buildStock(1, "TCS"));
+        when(tornStocksDao.list()).thenReturn(allStocks);
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth)).thenReturn(List.of());
+        when(monthlyStateDao.selectConfirmedByMonth(currentMonth)).thenReturn(List.of());
+
+        TornStockMarketBar15mDO edge = new TornStockMarketBar15mDO();
+        edge.setStocksId(1);
+        edge.setFirstSampleTime(LocalDateTime.of(2025, 8, 1, 0, 0));
+        edge.setBarEndTime(LocalDateTime.of(2026, 7, 31, 23, 45).plusMinutes(15));
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of(edge));
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
+
+        monthlyStateInitService.initCurrentMonth();
+
+        verify(monthlyStateDao).insertDraftStatesIgnoreConflict(monthlyStatesCaptor.capture());
+        TornStockMonthlyStateDO saved = monthlyStatesCaptor.getValue().getFirst();
+        assertEquals(LocalDateTime.of(2026, 8, 1, 0, 0), saved.getEvidenceEndTime(),
+                "末日23:45末桶的证据终点必须取桶闭合时间(次日00:00),否则最近完整月被排除");
     }
 
     // ==================== 辅助方法 ====================

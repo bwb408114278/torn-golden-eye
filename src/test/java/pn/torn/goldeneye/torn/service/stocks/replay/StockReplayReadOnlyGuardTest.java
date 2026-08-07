@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
+import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.StockReplayReadOnlyProbeMapper;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRequest;
@@ -30,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>
  * 验证: 独立只读事务内 {@code current_setting('transaction_read_only')} 为on; 只读事务内任何
  * DAO写入被数据库拒绝; 一次真实回放运行不改变任何业务表行数(业务表写0)。产物写入
- * {@code target/replay-guard} 并在测试后清理。
+ * {@code target/replay-guard} 并在测试后清理。同时验证输入加载使用 REQUIRES_NEW 只读事务,
+ * 即使调用方处于外层可写/READ_COMMITTED事务,输入事务仍保持只读 + Repeatable Read。</p>
  *
  * @author Bai
  * @version 1.2.14
@@ -54,6 +57,8 @@ class StockReplayReadOnlyGuardTest {
     private TornStockNoticeAuditDAO noticeAuditDao;
     @Autowired
     private TornStockMarketRoundDAO marketRoundDao;
+    @Autowired
+    private StockReplayReadOnlyProbeMapper probeMapper;
 
     /**
      * 产物输出根目录(测试专用,结束后清理)。
@@ -112,6 +117,29 @@ class StockReplayReadOnlyGuardTest {
 
         Map<String, Long> after = businessRowCounts();
         assertEquals(before, after, "回放运行不得写入或删除任何业务表行");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("外层READ_COMMITTED可写事务_输入事务仍只读+Repeatable Read")
+    void outerWritableTx_inputTransactionStillReadOnlyRepeatableRead() {
+        // 测试方法默认处于 READ_COMMITTED 可写外层事务;输入加载必须使用REQUIRES_NEW,
+        // 新建独立的只读+Repeatable Read事务,不受外层污染
+        String[] settings = readOnlyGuard.inReadOnlyTransaction(status -> new String[]{
+                probeMapper.selectTransactionReadOnly(),
+                probeMapper.selectTransactionIsolationLevel()});
+        assertEquals("on", settings[0], "输入事务必须保持只读(on)");
+        assertTrue(settings[1].toLowerCase().contains("repeatable read"),
+                "输入事务必须保持Repeatable Read,实际=" + settings[1]);
+
+        // 在同样外层事务内运行真实回放,证明加载全程使用只读+RR输入事务
+        LocalDateTime start = LocalDateTime.of(2099, 3, 1, 10, 0);
+        LocalDateTime end = start.plusMinutes(45);
+        StockReplayRequest request = new StockReplayRequest(
+                start, end, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), OUTPUT_ROOT);
+        StockReplayResult result = runner.run(request);
+        assertEquals("COMPLETED", result.summary().status(), "外层事务内回放加载仍应完成");
     }
 
     private TornStockSignalEventDO buildIsolatedEvent() {

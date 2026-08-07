@@ -110,14 +110,19 @@ public class StockReplayResultWriter {
     }
 
     /**
-     * 将成功回放产物写入 {@code outputRootDir}/{@code runId} 目录。
+     * 将成功回放产物发布到 {@code outputRootDir}/{@code runId} 目录。
      *
-     * <p>写入流程: 完成标识校验 → 建目录 → 四类产物依次写入同目录临时文件({@code .tmp.<uuid>})
-     * → 全部就绪后按 trades / rejections / equity-curve / summary 顺序原子改名。summary 最后
-     * 改名,保证完成标识仅在全部产物就绪后出现。完成标识由 {@code runId + sourceManifestHash}
-     * 共同决定: 已存在同代际 {@code COMPLETED} 摘要时拒绝覆盖;已被不同输入代际的完成结果占用
-     * 时同样拒绝,避免不同代际产物混淆。任一步失败时清理已创建的临时文件并递归删除目标目录。
-     * 已存在的非 {@code COMPLETED} 摘要(历史遗留)允许重写。</p>
+     * <p>发布流程采用 attempt 专属 staging + 单次独占发布,避免并发竞争删除他人已完成的证据:</p>
+     * <ol>
+     *   <li>在独立 staging 目录({@code outputRootDir}/.{@code runId}.staging-{@code uuid})构建四类产物,
+     *       每个文件先写临时文件再原子改名;</li>
+     *   <li>以独占 {@code Files.createDirectory} 竞争最终 {@code runId} 目录: 创建成功者将四产物移入
+     *       (summary 最后), 创建失败者重新校验完成标识后放弃, 绝不触碰共享最终目录;</li>
+     *   <li>失败清理只删除当前 attempt 的 staging 目录与临时文件, 绝不递归删除共享最终目录。</li>
+     * </ol>
+     * <p>完成标识由 {@code runId + sourceManifestHash} 共同决定: 已存在同代际 {@code COMPLETED} 摘要时
+     * 拒绝覆盖;已被不同输入代际的完成结果占用时同样拒绝。已存在的非 {@code COMPLETED} 摘要(历史遗留)
+     * 允许重写。</p>
      *
      * @param runId         回放请求归一化键
      * @param outputRootDir 产物输出根目录(可为相对路径,如 {@code .hermes/output/vip-stock-replay})
@@ -126,30 +131,127 @@ public class StockReplayResultWriter {
      * @throws IllegalStateException 已完成同代际/不同代际占用、标识文件无法解析或写入失败时抛出
      */
     public String writeCompleted(String runId, String outputRootDir, StockReplayResult result) {
-        Path targetDir = Paths.get(outputRootDir).resolve(runId).toAbsolutePath().normalize();
+        Path outputRoot = Paths.get(outputRootDir).toAbsolutePath().normalize();
+        Path targetDir = outputRoot.resolve(runId);
         Path summaryFile = targetDir.resolve(runId + SUMMARY_FILE_SUFFIX);
         verifyNotCompleted(runId, summaryFile, result.summary());
 
-        List<Path> tempFiles = new ArrayList<>(4);
+        Path stagingDir = outputRoot.resolve("." + runId + ".staging-" + UUID.randomUUID());
+        List<Path> stagedFiles = new ArrayList<>(4);
         try {
-            Files.createDirectories(targetDir);
-            tempFiles.add(writeTextAtomic(newTempFile(targetDir, runId + TRADES_FILE_SUFFIX), renderTrades(result.trades())));
-            tempFiles.add(writeTextAtomic(newTempFile(targetDir, runId + REJECTIONS_FILE_SUFFIX), renderRejections(result.rejections())));
-            tempFiles.add(writeTextAtomic(newTempFile(targetDir, runId + EQUITY_CURVE_FILE_SUFFIX), renderEquityPoints(result.equityPoints())));
-            tempFiles.add(writeJsonAtomic(newTempFile(targetDir, runId + SUMMARY_FILE_SUFFIX), result.summary()));
+            Files.createDirectories(stagingDir);
+            stagedFiles.add(writeTextAtomic(newTempFile(stagingDir, runId + TRADES_FILE_SUFFIX), renderTrades(result.trades())));
+            stagedFiles.add(writeTextAtomic(newTempFile(stagingDir, runId + REJECTIONS_FILE_SUFFIX), renderRejections(result.rejections())));
+            stagedFiles.add(writeTextAtomic(newTempFile(stagingDir, runId + EQUITY_CURVE_FILE_SUFFIX), renderEquityPoints(result.equityPoints())));
+            stagedFiles.add(writeJsonAtomic(newTempFile(stagingDir, runId + SUMMARY_FILE_SUFFIX), result.summary()));
 
-            renameAtomic(tempFiles.get(0), targetDir.resolve(runId + TRADES_FILE_SUFFIX));
-            renameAtomic(tempFiles.get(1), targetDir.resolve(runId + REJECTIONS_FILE_SUFFIX));
-            renameAtomic(tempFiles.get(2), targetDir.resolve(runId + EQUITY_CURVE_FILE_SUFFIX));
-            renameAtomic(tempFiles.get(3), summaryFile);
+            renameAtomic(stagedFiles.get(0), stagingDir.resolve(runId + TRADES_FILE_SUFFIX));
+            renameAtomic(stagedFiles.get(1), stagingDir.resolve(runId + REJECTIONS_FILE_SUFFIX));
+            renameAtomic(stagedFiles.get(2), stagingDir.resolve(runId + EQUITY_CURVE_FILE_SUFFIX));
+            renameAtomic(stagedFiles.get(3), stagingDir.resolve(runId + SUMMARY_FILE_SUFFIX));
+
+            boolean published = publishStaging(stagingDir, targetDir, summaryFile, result.summary());
+            if (!published) {
+                throw new IllegalStateException(
+                        "该 runId 最终目录已被其他并发attempt发布,拒绝覆盖: " + targetDir);
+            }
+            deleteRecursively(stagingDir);
 
             log.info("回放产物写入完成, runId={}, 目录={}", runId, targetDir);
             return targetDir.toString();
         } catch (Exception e) {
-            cleanup(tempFiles, targetDir);
-            log.error("回放产物写入失败并已清理, runId={}, 目录={}", runId, targetDir, e);
-            throw new IllegalStateException("回放产物写入失败, runId=" + runId, e);
+            cleanupStagingOnly(stagingDir);
+            log.error("回放产物写入失败并已清理当前attempt staging, runId={}, staging={}", runId, stagingDir, e);
+            throw e instanceof IllegalStateException ise
+                    ? ise : new IllegalStateException("回放产物写入失败, runId=" + runId, e);
         }
+    }
+
+    /**
+     * 单次独占发布最终目录。
+     * <p>
+     * 目标目录不存在时以 {@code Files.createDirectory} 原子竞争, 只有创建成功者写入四产物,
+     * 创建失败者复校验完成标识后放弃, 绝不写入或删除共享最终目录。目标目录已存在且摘要为
+     * 非 {@code COMPLETED} 时视为历史遗留允许重写(与完成标识语义一致); 若目录已存在但尚无
+     * 摘要文件则判定为并发 attempt 正在进行, 直接拒绝且不触碰该目录。
+     *
+     * @param stagingDir  当前 attempt 的 staging 目录
+     * @param targetDir   最终 runId 目录
+     * @param summaryFile 完成标识文件
+     * @param current     本次摘要
+     * @return 发布成功返回true;最终目录已被并发attempt独占时返回false
+     */
+    private boolean publishStaging(Path stagingDir, Path targetDir, Path summaryFile,
+                                   StockReplaySummary current) {
+        if (Files.exists(targetDir)) {
+            if (!Files.exists(summaryFile)) {
+                log.warn("该 runId 最终目录已被其他并发attempt创建但尚未完成,拒绝写入: {}", targetDir);
+                return false;
+            }
+            verifyNotCompleted("", summaryFile, current);
+            try {
+                return moveAll(stagingDir, targetDir, summaryFile, true);
+            } catch (IOException e) {
+                throw new IllegalStateException("发布回放产物到历史遗留目录失败: " + targetDir, e);
+            }
+        }
+        try {
+            Files.createDirectory(targetDir);
+        } catch (FileAlreadyExistsException e) {
+            verifyNotCompleted("", summaryFile, current);
+            log.warn("该 runId 最终目录已被其他并发attempt独占,拒绝覆盖: {}", targetDir);
+            return false;
+        } catch (IOException e) {
+            throw new IllegalStateException("创建最终产物目录失败: " + targetDir, e);
+        }
+        try {
+            return moveAll(stagingDir, targetDir, summaryFile, false);
+        } catch (IOException e) {
+            deleteRecursively(targetDir);
+            throw new IllegalStateException("发布回放产物到最终目录失败: " + targetDir, e);
+        }
+    }
+
+    /**
+     * 将 staging 内四类产物移入最终目录, summary 最后移入(完成标识最后出现)。
+     *
+     * @param stagingDir  当前 attempt 的 staging 目录
+     * @param targetDir   最终 runId 目录
+     * @param summaryFile 完成标识文件
+     * @param replace     是否允许覆盖目标同名文件(历史遗留重写时true,独占新建时false)
+     * @return 恒为true
+     * @throws IOException 移入失败时抛出
+     */
+    private boolean moveAll(Path stagingDir, Path targetDir, Path summaryFile, boolean replace)
+            throws IOException {
+        moveFile(stagingDir.resolve(runIdFileName(targetDir, TRADES_FILE_SUFFIX)),
+                targetDir.resolve(runIdFileName(targetDir, TRADES_FILE_SUFFIX)), replace);
+        moveFile(stagingDir.resolve(runIdFileName(targetDir, REJECTIONS_FILE_SUFFIX)),
+                targetDir.resolve(runIdFileName(targetDir, REJECTIONS_FILE_SUFFIX)), replace);
+        moveFile(stagingDir.resolve(runIdFileName(targetDir, EQUITY_CURVE_FILE_SUFFIX)),
+                targetDir.resolve(runIdFileName(targetDir, EQUITY_CURVE_FILE_SUFFIX)), replace);
+        moveFile(stagingDir.resolve(runIdFileName(targetDir, SUMMARY_FILE_SUFFIX)), summaryFile, replace);
+        return true;
+    }
+
+    /**
+     * 移动单个文件, 可选覆盖目标。
+     *
+     * @param source  源文件
+     * @param target  目标文件
+     * @param replace 是否允许覆盖
+     * @throws IOException 移动失败时抛出
+     */
+    private void moveFile(Path source, Path target, boolean replace) throws IOException {
+        if (replace) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } else {
+            renameAtomic(source, target);
+        }
+    }
+
+    private static String runIdFileName(Path targetDir, String suffix) {
+        return targetDir.getFileName().toString() + suffix;
     }
 
     /**
@@ -434,20 +536,14 @@ public class StockReplayResultWriter {
     }
 
     /**
-     * 清理已创建的临时文件并递归删除目标目录(不触及上层输出根目录)。
+     * 清理当前 attempt 的 staging 目录(含其内临时文件),绝不触碰共享最终目录。
      *
-     * @param tempFiles 已创建的临时文件
-     * @param targetDir 目标目录
+     * @param stagingDir 当前 attempt 的 staging 目录
      */
-    private void cleanup(List<Path> tempFiles, Path targetDir) {
-        for (Path tempFile : tempFiles) {
-            try {
-                Files.deleteIfExists(tempFile);
-            } catch (IOException e) {
-                log.warn("清理回放临时文件失败: {}", tempFile, e);
-            }
+    private void cleanupStagingOnly(Path stagingDir) {
+        if (stagingDir != null) {
+            deleteRecursively(stagingDir);
         }
-        deleteRecursively(targetDir);
     }
 
     /**

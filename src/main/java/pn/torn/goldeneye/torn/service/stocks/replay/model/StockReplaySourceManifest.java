@@ -12,9 +12,10 @@ import java.util.stream.Collectors;
  * 回放输入来源清单(sourceManifest) - 固化一次成功回放的全部输入证据。
  * <p>
  * 同一回放请求在不同输入代际下(如bar/feature被重建)必须可区分: {@code sha256} 是对
- * 规范化输入字段(起止时间、各类型数据时间范围、版本、行数、每股时间边界)计算的摘要,
- * 摘要同时记录在 {@link StockReplaySummary#sourceManifest()} 中,与 {@code runId}(请求
- * 归一化键)共同构成成功完成标识。全部字段无墙钟依赖,可由相同输入复现。</p>
+ * 规范化输入字段(起止时间、各类型数据时间范围、版本、行数、每股时间边界)与每类实际
+ * 输入内容的确定性摘要({@code contentSha256})共同计算的摘要,摘要同时记录在
+ * {@link StockReplaySummary#sourceManifest()} 中,与 {@code runId}(请求归一化键)共同构成
+ * 成功完成标识。全部字段无墙钟依赖,可由相同输入复现。</p>
  *
  * @param windowRange       输入窗口时间范围(请求窗口与各类数据实际范围)
  * @param versions          数据/规则版本(bar、feature与月度状态规则版本)
@@ -22,7 +23,8 @@ import java.util.stream.Collectors;
  * @param featureCount      加载的策略特征总数
  * @param monthlyStateCount 加载的已确认月度状态总数
  * @param stockBoundaries   每股时间边界
- * @param sha256            对规范化输入字段计算的SHA-256摘要
+ * @param contentSha256     对每类实际回放输入内容按稳定顺序计算的流式SHA-256
+ * @param sha256            对规范化输入字段与内容摘要计算的SHA-256
  * @author Bai
  * @version 1.2.14
  * @since 2026.08.06
@@ -34,6 +36,7 @@ public record StockReplaySourceManifest(
         long featureCount,
         long monthlyStateCount,
         List<StockBoundary> stockBoundaries,
+        String contentSha256,
         String sha256
 ) {
 
@@ -111,6 +114,7 @@ public record StockReplaySourceManifest(
      * @param featureCount      特征总数
      * @param monthlyStateCount 月度状态总数
      * @param stockBoundaries   每股时间边界
+     * @param contentSha256     对每类实际回放输入内容按稳定顺序计算的流式SHA-256
      * @return 含摘要的清单
      */
     public static StockReplaySourceManifest of(WindowRange windowRange,
@@ -118,15 +122,17 @@ public record StockReplaySourceManifest(
                                                long barCount,
                                                long featureCount,
                                                long monthlyStateCount,
-                                               List<StockBoundary> stockBoundaries) {
+                                               List<StockBoundary> stockBoundaries,
+                                               String contentSha256) {
         String canonical = canonical(windowRange, versions, barCount, featureCount,
-                monthlyStateCount, stockBoundaries);
+                monthlyStateCount, stockBoundaries, contentSha256);
         return new StockReplaySourceManifest(windowRange, versions, barCount, featureCount,
-                monthlyStateCount, stockBoundaries, StockHashUtils.sha256(canonical));
+                monthlyStateCount, stockBoundaries, contentSha256, StockHashUtils.sha256(canonical));
     }
 
     private static String canonical(WindowRange w, Versions v, long barCount, long featureCount,
-                                    long monthlyStateCount, List<StockBoundary> stockBoundaries) {
+                                    long monthlyStateCount, List<StockBoundary> stockBoundaries,
+                                    String contentSha256) {
         List<String> ruleVersions = v.monthlyRuleVersions() == null ? List.of()
                 : v.monthlyRuleVersions().stream().sorted().toList();
         String base = String.join("|",
@@ -143,7 +149,8 @@ public record StockReplaySourceManifest(
                 String.join(",", ruleVersions),
                 String.valueOf(barCount),
                 String.valueOf(featureCount),
-                String.valueOf(monthlyStateCount));
+                String.valueOf(monthlyStateCount),
+                contentSha256 == null ? "" : contentSha256);
         String boundaryPart = stockBoundaries.stream()
                 .sorted(Comparator.comparing(StockBoundary::stocksId,
                         Comparator.nullsLast(Comparator.naturalOrder())))

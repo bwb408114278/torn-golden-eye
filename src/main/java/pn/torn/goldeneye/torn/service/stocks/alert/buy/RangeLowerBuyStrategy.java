@@ -29,8 +29,10 @@ import java.util.Set;
  * RANGE专属绝对趋势保护（策略专属资格守卫，与{@link #matches}分离）：
  * <ul>
  *   <li>{@code return7d >= -2%}（{@link #RANGE_RETURN_7D_FLOOR}）</li>
- *   <li>等于-2%通过；低于-2%或输入缺失时以{@value #ABSOLUTE_TREND_GUARD_FAILED}
- *       拒绝,仍写原始信号与拒绝观察,不建立正式批次</li>
+ *   <li>{@code MA7 / MA30 - 1 >= -2%}（{@link #TREND_PROTECT_THRESHOLD}）</li>
+ *   <li>等于-2%通过；低于-2%以{@value #ABSOLUTE_TREND_GUARD_FAILED}拒绝</li>
+ *   <li>{@code return7d}、{@code MA7}或{@code MA30}任一缺失时以{@value #TREND_GUARD_DATA_INSUFFICIENT}
+ *       记录数据不足,仍写原始信号与拒绝观察,不建立正式批次,不伪装为普通策略不命中</li>
  * </ul>
  *
  * @author Bai
@@ -64,6 +66,10 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
      * 绝对趋势保护守卫失败原因码(冻结)
      */
     public static final String ABSOLUTE_TREND_GUARD_FAILED = "ABSOLUTE_TREND_GUARD_FAILED";
+    /**
+     * 绝对趋势保护守卫数据不足原因码: return7d/MA7/MA30任一缺失时使用,与阈值失败区分
+     */
+    public static final String TREND_GUARD_DATA_INSUFFICIENT = "DATA_INSUFFICIENT";
     /**
      * 质量分基础分
      */
@@ -110,8 +116,7 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
         boolean positionOk = isPositionLow(context.position30());
         boolean z1Ok = effectiveZ1.compareTo(EFFECTIVE_Z1_THRESHOLD) <= 0;
         boolean return6hOk = isReturn6hNonPositive(context.return6h());
-        boolean trendOk = StockStrategyUtils.isTrendProtected(context.ma7d(), context.ma30d(),
-                TREND_PROTECT_THRESHOLD, SCALE);
+        boolean trendOk = isMaTrendProtectedOrMissing(context.ma7d(), context.ma30d());
 
         boolean matched = widthOk && positionOk && z1Ok && return6hOk && trendOk;
         if (matched) {
@@ -152,7 +157,14 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
     @Override
     public String absoluteTrendGuardFailureReason(BuyContext context) {
         BigDecimal return7d = context.return7d();
-        if (return7d == null || return7d.compareTo(RANGE_RETURN_7D_FLOOR) < 0) {
+        BigDecimal ma7d = context.ma7d();
+        BigDecimal ma30d = context.ma30d();
+        if (return7d == null || ma7d == null || ma30d == null) {
+            log.info("区间下沿-绝对趋势守卫数据不足: stocksId={}, return7d={}, ma7d={}, ma30d={}, reason={}",
+                    context.stocksId(), return7d, ma7d, ma30d, TREND_GUARD_DATA_INSUFFICIENT);
+            return TREND_GUARD_DATA_INSUFFICIENT;
+        }
+        if (return7d.compareTo(RANGE_RETURN_7D_FLOOR) < 0) {
             log.info("区间下沿-绝对趋势守卫失败: stocksId={}, return7d={}, reason={}",
                     context.stocksId(), return7d, ABSOLUTE_TREND_GUARD_FAILED);
             return ABSOLUTE_TREND_GUARD_FAILED;
@@ -198,5 +210,20 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
      */
     private boolean isReturn6hNonPositive(BigDecimal return6h) {
         return return6h != null && return6h.compareTo(BigDecimal.ZERO) <= 0;
+    }
+
+    /**
+     * 判断MA7/MA30中期趋势保护: 数据缺失时视为待守卫判定(不伪装为普通策略不命中),
+     * 数据完整时按 {@code MA7/MA30 - 1 >= -2%} 阈值比较。
+     *
+     * @param ma7d  近7日移动均价(可为null)
+     * @param ma30d 近30日移动均价(可为null)
+     * @return 数据缺失或趋势未破位时返回true;数据完整且破位时返回false
+     */
+    private boolean isMaTrendProtectedOrMissing(BigDecimal ma7d, BigDecimal ma30d) {
+        if (ma7d == null || ma30d == null) {
+            return true;
+        }
+        return StockStrategyUtils.isTrendProtected(ma7d, ma30d, TREND_PROTECT_THRESHOLD, SCALE);
     }
 }

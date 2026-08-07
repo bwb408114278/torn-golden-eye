@@ -188,8 +188,8 @@ class RangeAndReboundStrategyTest {
         }
 
         @Test
-        @DisplayName("绝对趋势守卫_return7d缺失_数据不足fail-closed")
-        void guard_return7dMissing_failClosed() {
+        @DisplayName("绝对趋势守卫_return7d缺失_数据不足DATA_INSUFFICIENT")
+        void guard_return7dMissing_dataInsufficient() {
             BuyContext context = buildRangeContextWithReturn7d(
                     StockStrategyFitEnum.RANGING,
                     new BigDecimal("0.04"),
@@ -198,8 +198,60 @@ class RangeAndReboundStrategyTest {
                     new BigDecimal("-0.01"),
                     new BigDecimal("998"), new BigDecimal("1000"),
                     null);
-            assertEquals(RangeLowerBuyStrategy.ABSOLUTE_TREND_GUARD_FAILED,
-                    strategy.absoluteTrendGuardFailureReason(context), "return7d缺失不得默认通过");
+            assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT,
+                    strategy.absoluteTrendGuardFailureReason(context),
+                    "return7d缺失必须记录为数据不足而非阈值失败");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_MA7缺失_数据不足DATA_INSUFFICIENT且不伪装为普通不命中")
+        void guard_ma7Missing_dataInsufficient() {
+            BuyContext context = buildRangeContextWithMa7(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    null, new BigDecimal("1000"),
+                    new BigDecimal("-0.01"));
+            assertTrue(strategy.matches(context), "MA7缺失时结构条件满足应命中,由守卫判数据不足");
+            assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT,
+                    strategy.absoluteTrendGuardFailureReason(context),
+                    "MA7缺失必须记录为数据不足");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_MA30缺失_数据不足DATA_INSUFFICIENT且不伪装为普通不命中")
+        void guard_ma30Missing_dataInsufficient() {
+            BuyContext context = buildRangeContextWithMa7(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    new BigDecimal("998"), null,
+                    new BigDecimal("-0.01"));
+            assertTrue(strategy.matches(context), "MA30缺失时结构条件满足应命中,由守卫判数据不足");
+            assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT,
+                    strategy.absoluteTrendGuardFailureReason(context),
+                    "MA30缺失必须记录为数据不足");
+        }
+
+        @Test
+        @DisplayName("绝对趋势守卫_MA7/MA30均缺失_数据不足DATA_INSUFFICIENT")
+        void guard_maBothMissing_dataInsufficient() {
+            BuyContext context = buildRangeContextWithMa7(
+                    StockStrategyFitEnum.RANGING,
+                    new BigDecimal("0.04"),
+                    new BigDecimal("0.05"),
+                    new BigDecimal("-1.0"),
+                    new BigDecimal("-0.01"),
+                    null, null,
+                    new BigDecimal("-0.01"));
+            assertTrue(strategy.matches(context), "MA均缺失时结构条件满足应命中,由守卫判数据不足");
+            assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT,
+                    strategy.absoluteTrendGuardFailureReason(context),
+                    "MA均缺失必须记录为数据不足");
         }
 
         @Test
@@ -493,6 +545,31 @@ class RangeAndReboundStrategyTest {
                 StockMaturityEnum.M3_SEASONED,
                 StockRiskLevelEnum.NONE
         );
+    }
+
+    /**
+     * 构建区间下沿策略测试上下文(可指定MA7/MA30是否缺失)。
+     *
+     * @param style      策略适配风格
+     * @param width30d   30日通道宽度
+     * @param position30 当前仓位位置
+     * @param zscore1d   近1日Z-score
+     * @param return6h   近6小时收益率
+     * @param ma7d       近7日移动均价(可为null)
+     * @param ma30d      近30日移动均价(可为null)
+     * @param return7d   近7日收益率
+     * @return 买入评估上下文
+     */
+    private static BuyContext buildRangeContextWithMa7(StockStrategyFitEnum style,
+                                                       BigDecimal width30d,
+                                                       BigDecimal position30,
+                                                       BigDecimal zscore1d,
+                                                       BigDecimal return6h,
+                                                       BigDecimal ma7d,
+                                                       BigDecimal ma30d,
+                                                       BigDecimal return7d) {
+        return buildRangeContextWithReturn7d(style, width30d, position30, zscore1d, return6h,
+                ma7d, ma30d, return7d);
     }
 
     /**
