@@ -110,11 +110,28 @@ public class StockReplayInputLoader {
         }
     }
 
+    /**
+     * 判断时间点是否已按15分钟桶对齐。
+     *
+     * @param time 待校验的时间点
+     * @return 分钟为桶倍数、秒与纳秒均为0时返回{@code true}
+     */
     private static boolean isBucketAligned(LocalDateTime time) {
         return time.getMinute() % Stock15mBarBuildService.BUCKET_MINUTES == 0
                 && time.getSecond() == 0 && time.getNano() == 0;
     }
 
+    /**
+     * 按时间窗口分块批量只读加载bar并索引。
+     *
+     * <p>以{@link #CHUNK_DAYS}天为块滚动查询,避免单次查询跨度过大;同一块内可能查询到
+     * 结束时间之后的记录,由回放窗口外的数据自行按需消费。</p>
+     *
+     * @param start        查询开始时间(含)
+     * @param end          查询结束时间(含)
+     * @param buildVersion bar构建版本
+     * @return 股票ID → (bar开始时间 → bar),按bar开始时间升序
+     */
     private Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> loadBars(
             LocalDateTime start, LocalDateTime end, String buildVersion) {
         Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> byStock = new HashMap<>();
@@ -130,6 +147,14 @@ public class StockReplayInputLoader {
         return byStock;
     }
 
+    /**
+     * 将一批bar并入按股票索引的导航表。
+     *
+     * <p>忽略股票ID或bar开始时间为空的脏行;同一股票同一开始时间后写入者覆盖前者。</p>
+     *
+     * @param bars    本块查询到的bar列表
+     * @param byStock 目标索引: 股票ID → (bar开始时间 → bar)
+     */
     private void indexBars(List<TornStockMarketBar15mDO> bars,
                            Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> byStock) {
         for (TornStockMarketBar15mDO bar : bars) {
@@ -141,6 +166,16 @@ public class StockReplayInputLoader {
         }
     }
 
+    /**
+     * 按时间窗口分块批量只读加载策略特征并索引。
+     *
+     * <p>与{@link #loadBars}同窗口滚动加载,忽略股票ID或bar开始时间为空的脏行。</p>
+     *
+     * @param start          查询开始时间(含)
+     * @param end            查询结束时间(含)
+     * @param featureVersion 特征计算版本
+     * @return 股票ID → (bar开始时间 → 特征),按bar开始时间升序
+     */
     private Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> loadFeatures(
             LocalDateTime start, LocalDateTime end, String featureVersion) {
         Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> byStock = new HashMap<>();
@@ -252,14 +287,32 @@ public class StockReplayInputLoader {
                 monthlyStateCount, boundaries, contentSha256);
     }
 
+    /**
+     * 取映射中最早时间键。
+     *
+     * @param map 按时间排序的映射
+     * @return 首个时间键;映射为空或{@code null}时返回{@code null}
+     */
     private static LocalDateTime firstKeyOrNull(NavigableMap<LocalDateTime, ?> map) {
         return map == null || map.isEmpty() ? null : map.firstKey();
     }
 
+    /**
+     * 取映射中最晚时间键。
+     *
+     * @param map 按时间排序的映射
+     * @return 末个时间键;映射为空或{@code null}时返回{@code null}
+     */
     private static LocalDateTime lastKeyOrNull(NavigableMap<LocalDateTime, ?> map) {
         return map == null || map.isEmpty() ? null : map.lastKey();
     }
 
+    /**
+     * 计算下一个分块查询起点。
+     *
+     * @param cursor 当前分块起点
+     * @return 向后推进{@link #CHUNK_DAYS}天后的时间点
+     */
     private static LocalDateTime nextChunk(LocalDateTime cursor) {
         return cursor.plusDays(CHUNK_DAYS);
     }

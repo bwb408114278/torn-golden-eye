@@ -3,8 +3,8 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
+import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySourceManifest;
 
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -61,6 +61,15 @@ final class StockReplayInputDigest {
         }
     }
 
+    /**
+     * 将全部bar内容按稳定顺序写入摘要。
+     *
+     * <p>按股票ID升序、bar开始时间升序遍历,逐bar追加股票ID、bar开始时间、lastPrice、usable、
+     * 构建版本与来源最大历史ID,保证同一批数据必然产生相同摘要。</p>
+     *
+     * @param digest      正在累积的SHA-256摘要器
+     * @param barsByStock 股票ID → (bar开始时间 → bar);为空时直接返回
+     */
     private static void appendBars(MessageDigest digest,
                                    Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> barsByStock) {
         if (barsByStock == null) {
@@ -82,6 +91,15 @@ final class StockReplayInputDigest {
         }
     }
 
+    /**
+     * 将全部策略特征内容按稳定顺序写入摘要。
+     *
+     * <p>按股票ID升序、bar开始时间升序遍历,逐特征追加股票ID、bar开始时间及全部特征字段与
+     * 特征版本,保证同一批特征数据必然产生相同摘要。</p>
+     *
+     * @param digest          正在累积的SHA-256摘要器
+     * @param featuresByStock 股票ID → (bar开始时间 → 特征);为空时直接返回
+     */
     private static void appendFeatures(MessageDigest digest,
                                        Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> featuresByStock) {
         if (featuresByStock == null) {
@@ -118,6 +136,15 @@ final class StockReplayInputDigest {
         }
     }
 
+    /**
+     * 将全部月度状态内容按稳定顺序写入摘要。
+     *
+     * <p>按生效月份升序、股票ID升序遍历,逐状态追加股票ID、生效月份、月度决策字段
+     * (策略适配度/成熟度/风险等级/建议性格/手动覆盖)与决策规则版本。</p>
+     *
+     * @param digest               正在累积的SHA-256摘要器
+     * @param monthlyStatesByMonth 生效月份 → (股票ID → 月度状态);为空时直接返回
+     */
     private static void appendMonthlyStates(MessageDigest digest,
                                             Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> monthlyStatesByMonth) {
         if (monthlyStatesByMonth == null) {
@@ -146,6 +173,14 @@ final class StockReplayInputDigest {
         }
     }
 
+    /**
+     * 将一个字段值写入摘要。
+     *
+     * <p>空值以空串写入,字段间以{@link #SEPARATOR}分隔,避免相邻字段值拼接产生歧义。</p>
+     *
+     * @param digest 正在累积的SHA-256摘要器
+     * @param value  待写入的字段值;为空时写空串
+     */
     private static void append(MessageDigest digest, Object value) {
         String token = value == null ? "" : String.valueOf(value);
         digest.update(token.getBytes(StandardCharsets.UTF_8));

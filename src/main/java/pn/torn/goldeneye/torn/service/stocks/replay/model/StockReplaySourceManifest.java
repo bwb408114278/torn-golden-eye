@@ -130,6 +130,21 @@ public record StockReplaySourceManifest(
                 monthlyStateCount, stockBoundaries, contentSha256, StockHashUtils.sha256(canonical));
     }
 
+    /**
+     * 将全部输入证据字段规范化为稳定字符串。
+     *
+     * <p>规则版本先排序后以逗号连接,每股边界按股票ID升序以分号连接;空内容摘要按空串处理,
+     * 保证相同输入无论构建顺序如何都产生相同的规范化文本。</p>
+     *
+     * @param w                 输入窗口时间范围
+     * @param v                 数据/规则版本
+     * @param barCount          bar总数
+     * @param featureCount      特征总数
+     * @param monthlyStateCount 月度状态总数
+     * @param stockBoundaries   每股时间边界
+     * @param contentSha256     对每类实际回放输入内容按稳定顺序计算的流式SHA-256
+     * @return 用于计算SHA-256的规范化字符串
+     */
     private static String canonical(WindowRange w, Versions v, long barCount, long featureCount,
                                     long monthlyStateCount, List<StockBoundary> stockBoundaries,
                                     String contentSha256) {
