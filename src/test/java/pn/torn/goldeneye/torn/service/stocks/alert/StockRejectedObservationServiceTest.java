@@ -13,6 +13,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -224,6 +225,50 @@ class StockRejectedObservationServiceTest {
         assertEquals("CLOSED_TARGET", event.getTheoreticalCloseType());
         assertNotNull(event.getTheoreticalNetReturn(), "提前退出必须回填理论净收益");
         assertEquals(event.getTheoreticalExitTime(), event.getResolvedAt(), "提前退出时resolvedAt=理论退出时间");
+    }
+
+    @Test
+    @DisplayName("RANGE趋势输入数据不足_后续存在可用bar_仍直接写无法理论入场")
+    void resolveDueObservations_dataInsufficient_ignoresLaterBars() {
+        LocalDateTime signalTime = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime observedAt = signalTime.plusDays(15);
+        TornStockSignalEventDO event = new TornStockSignalEventDO();
+        event.setId(16L);
+        event.setStocksId(1001);
+        event.setSignalReferencePrice(new BigDecimal("100.00"));
+        event.setRoundTime(signalTime);
+        event.setRejectReason(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT);
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setSignalEventId(16L);
+        batch.setExpectedEntryBarTime(signalTime.plusMinutes(15));
+        batch.setEntryStaleAt(signalTime.plusMinutes(35));
+        TornStockMarketBar15mDO entry = bar(signalTime.plusMinutes(15), new BigDecimal("100.00"));
+        TornStockMarketBar15mDO later = bar(signalTime.plusDays(1), new BigDecimal("108.00"));
+
+        when(signalEventDao.selectPendingRejectedObservationEvents(any(), any())).thenReturn(List.of(event));
+        when(virtualBatchDao.selectRejectedObservationBatches(List.of(16L))).thenReturn(List.of(batch));
+        when(barDao.selectByStocksAndTimeRange(eq(List.of(1001)), any(), any(), any()))
+                .thenReturn(List.of(entry, later));
+        when(featureDao.selectByStocksAndTimeRange(anyList(), any(), any(), any())).thenReturn(List.of());
+
+        int count = service().resolveDueObservations(signalTime, signalTime.plusMinutes(15), observedAt);
+
+        assertEquals(1, count);
+        assertEquals(signalTime.plusMinutes(35), event.getResolvedAt(),
+                "数据不足必须在入场过期点直接结算");
+        assertEquals("NO_THEORETICAL_ENTRY", event.getObservationResult(),
+                "数据不足不得构造理论入场");
+        assertFalse(event.getObservationDataIncomplete());
+        assertNull(event.getLaterMfe(), "数据不足不得计算MFE");
+        assertNull(event.getLaterMae(), "数据不足不得计算MAE");
+        assertNull(event.getTheoreticalEntryTime());
+        assertNull(event.getTheoreticalEntryPrice());
+        assertNull(event.getTheoreticalExitSignalTime());
+        assertNull(event.getTheoreticalExitTime());
+        assertNull(event.getTheoreticalExitPrice());
+        assertNull(event.getTheoreticalCloseType());
+        assertNull(event.getTheoreticalNetReturn());
+        verify(signalEventDao).updateObservationResultsByIds(List.of(event));
     }
 
     private TornStockVirtualBatchDO batchForEvent(Long eventId) {

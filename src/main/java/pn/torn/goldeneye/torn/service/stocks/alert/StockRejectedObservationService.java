@@ -12,6 +12,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -75,6 +76,17 @@ public class StockRejectedObservationService {
         resolveEvents(events, observedAt, observedAt);
     }
 
+    /**
+     * 批量结算已到期的拒绝观察事件。
+     * <p>
+     * 批量加载对应拒绝观察批次、行情bar与策略特征后逐条调用{@link #resolveIfDue}结算,
+     * 实际回写的事件在事务内一次批量更新。无批次或全部未到期时返回0。
+     *
+     * @param events           待结算的到期拒绝观察事件
+     * @param observedAt       观察器当前时间
+     * @param fallbackBarStart 无批次期望入场bar时间时兜底的行情加载起点
+     * @return 本次实际结算并回写的事件数
+     */
     private int resolveEvents(List<TornStockSignalEventDO> events, LocalDateTime observedAt,
                               LocalDateTime fallbackBarStart) {
         if (events == null || events.isEmpty()) {
@@ -122,6 +134,21 @@ public class StockRejectedObservationService {
         return resolved.size();
     }
 
+    /**
+     * 结算单个到达入场过期点的拒绝观察事件。
+     * <p>
+     * 已结算或未到入场过期点的事件保持待结算;冻结原因码
+     * {@link RangeLowerBuyStrategy#TREND_GUARD_DATA_INSUFFICIENT}直接写无法理论入场,
+     * 其余原因复用{@link StockRejectedObservationCalculator#calculate}计算理论路径,
+     * 未到观察窗口截止时保持待结算。
+     *
+     * @param event      信号事件
+     * @param batch      拒绝观察批次
+     * @param bars       该股票已批量加载的行情bar
+     * @param features   该股票已批量加载的策略特征
+     * @param observedAt 观察器当前时间
+     * @return 已写观察结果的事件;未到期或无需回写时返回null
+     */
     private TornStockSignalEventDO resolveIfDue(TornStockSignalEventDO event,
                                                 TornStockVirtualBatchDO batch,
                                                 List<TornStockMarketBar15mDO> bars,
@@ -133,6 +160,9 @@ public class StockRejectedObservationService {
         LocalDateTime entryDeadline = batch.getEntryStaleAt();
         if (entryDeadline == null || observedAt.isBefore(entryDeadline)) {
             return null;
+        }
+        if (RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT.equals(event.getRejectReason())) {
+            return markNoTheoreticalEntry(event, entryDeadline);
         }
         StockRejectedObservationCalculator.Result result =
                 StockRejectedObservationCalculator.calculate(event, batch, bars, features);
@@ -151,6 +181,34 @@ public class StockRejectedObservationService {
             return null;
         }
         applyObservationResult(event, result, observationDeadline);
+        return event;
+    }
+
+    /**
+     * 对策略趋势输入数据不足事件固定写无法理论入场。
+     * <p>
+     * 冻结原因码{@link RangeLowerBuyStrategy#TREND_GUARD_DATA_INSUFFICIENT}表示RANGE的趋势输入
+     * (return7d/MA7/MA30)不可评估,属于数据类拒绝: 到达既有入场过期点后直接结算为
+     * {@code NO_THEORETICAL_ENTRY},不得构造理论ENTRY/EXIT、MFE/MAE,即使后续存在可用bar也不改变结果。
+     *
+     * @param event      信号事件
+     * @param resolvedAt 结算时间(入场过期点entryStaleAt)
+     * @return 已写无理论入场的信号事件
+     */
+    private TornStockSignalEventDO markNoTheoreticalEntry(TornStockSignalEventDO event,
+                                                          LocalDateTime resolvedAt) {
+        event.setLaterMfe(null);
+        event.setLaterMae(null);
+        event.setObservationResult(StockRejectedObservationCalculator.NO_THEORETICAL_ENTRY);
+        event.setObservationDataIncomplete(false);
+        event.setResolvedAt(resolvedAt);
+        event.setTheoreticalEntryTime(null);
+        event.setTheoreticalEntryPrice(null);
+        event.setTheoreticalExitSignalTime(null);
+        event.setTheoreticalExitTime(null);
+        event.setTheoreticalExitPrice(null);
+        event.setTheoreticalCloseType(null);
+        event.setTheoreticalNetReturn(null);
         return event;
     }
 

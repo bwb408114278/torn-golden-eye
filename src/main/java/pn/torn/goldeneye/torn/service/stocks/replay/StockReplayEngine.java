@@ -4,6 +4,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
 
@@ -47,10 +48,14 @@ public class StockReplayEngine {
     private static final String REJECT_INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS";
     /**
      * 不建立理论路径拒绝原因(数据/时效/偏离)。
+     * <p>含冻结原因码{@link RangeLowerBuyStrategy#TREND_GUARD_DATA_INSUFFICIENT}:
+     * RANGE趋势输入缺失属于数据类拒绝,拒绝观察固定写{@code NO_THEORETICAL_ENTRY},
+     * 即使窗口内存在后续完整bar也不构造14天理论路径。</p>
      */
     private static final Set<String> NO_ENTRY_REJECT_REASONS = Set.of(
             "STYLE_MISSING", "STYLE_STALE", "DATA_NOT_CONTIGUOUS",
-            "ENTRY_DATA_STALE", "ENTRY_PRICE_DEVIATION", "MATURITY_INSUFFICIENT", "DATA_NOT_READY");
+            "ENTRY_DATA_STALE", "ENTRY_PRICE_DEVIATION", "MATURITY_INSUFFICIENT", "DATA_NOT_READY",
+            RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT);
 
     private final StockReplayTrackEnum track;
     private final String runId;
@@ -172,6 +177,15 @@ public class StockReplayEngine {
         metrics.recordEquityPoint(t, barByStock);
     }
 
+    /**
+     * 构建指定轮次的正式领域快照。
+     *
+     * @param t              轮次时间
+     * @param barByStock     按股票ID索引的本轮bar
+     * @param featureByStock 按股票ID索引的本轮策略特征
+     * @param monthlyByStock 按股票ID索引的月度状态
+     * @return 供正式纯领域服务复用的轮次快照
+     */
     private RoundSnapshot buildSnapshot(
             LocalDateTime t,
             Map<Integer, TornStockMarketBar15mDO> barByStock,
@@ -193,6 +207,15 @@ public class StockReplayEngine {
 
     // ==================== 正式候选接纳 ====================
 
+    /**
+     * 按排序结果逐位接纳正式候选。
+     *
+     * @param candidates     排序后的正式候选列表
+     * @param barByStock     按股票ID索引的本轮bar
+     * @param monthlyByStock 按股票ID索引的月度状态
+     * @param t              轮次时间
+     * @param evalByStock    按股票ID索引的信号评估结果
+     */
     private void allocate(List<CandidateInfo> candidates,
                           Map<Integer, TornStockMarketBar15mDO> barByStock,
                           Map<Integer, TornStockMonthlyStateDO> monthlyByStock,
@@ -206,6 +229,17 @@ public class StockReplayEngine {
         }
     }
 
+    /**
+     * 尝试接纳单个正式候选: 校验可用槽位、bar价格与可用资金,失败按容量原因转影子/观察,
+     * 全部通过时建立正式批次并预留槽位。
+     *
+     * @param candidate      候选信息
+     * @param candidateRank  候选排名(1起始)
+     * @param barByStock     按股票ID索引的本轮bar
+     * @param monthlyByStock 按股票ID索引的月度状态
+     * @param evaluation     该候选对应的信号评估结果
+     * @param t              轮次时间
+     */
     private void tryAcceptCandidate(CandidateInfo candidate, int candidateRank,
                                     Map<Integer, TornStockMarketBar15mDO> barByStock,
                                     Map<Integer, TornStockMonthlyStateDO> monthlyByStock,
@@ -231,6 +265,16 @@ public class StockReplayEngine {
                 bar.getLastPrice(), quantity, t);
     }
 
+    /**
+     * 接纳正式候选: 构建ENTRY_PENDING正式批次并加入内存组合,预留槽位资金。
+     *
+     * @param candidate    候选信息
+     * @param slot         分配的可用槽位
+     * @param monthlyState 该候选股票的月度状态
+     * @param signalPrice  信号参考价(本轮bar收盘价)
+     * @param quantity     计划买入股数
+     * @param t            轮次时间
+     */
     private void acceptFormalCandidate(CandidateInfo candidate, TornStockPortfolioSlotDO slot,
                                        TornStockMonthlyStateDO monthlyState,
                                        BigDecimal signalPrice, Long quantity, LocalDateTime t) {
@@ -252,6 +296,16 @@ public class StockReplayEngine {
         context.portfolioService().reserveSlot(slot, slot.getAvailableCash(), batch.getId());
     }
 
+    /**
+     * 处理容量级拒绝: 边沿信号在可成交价格下建立无限资金影子批次,
+     * 并追加一条拒绝观察候选供收尾阶段计算理论路径。
+     *
+     * @param evaluation    信号评估结果
+     * @param rejectReason  容量拒绝原因编码
+     * @param candidateRank 候选排名(1起始)
+     * @param t             轮次时间
+     * @param bar           该候选本轮bar
+     */
     private void handleCapacityReject(StockBuySignalEvaluator.SignalEvaluation evaluation,
                                       String rejectReason, int candidateRank, LocalDateTime t,
                                       TornStockMarketBar15mDO bar) {
@@ -264,16 +318,35 @@ public class StockReplayEngine {
         }
     }
 
+    /**
+     * 将容量拒绝原因映射为拒绝观察分组编码: 满仓与资金不足统一归并为满仓。
+     *
+     * @param rejectReason 容量拒绝原因编码
+     * @return 拒绝观察分组编码
+     */
     private static String mapCapacityReason(String rejectReason) {
         return REJECT_PORTFOLIO_FULL.equals(rejectReason)
                 || REJECT_INSUFFICIENT_FUNDS.equals(rejectReason)
                 ? REJECT_PORTFOLIO_FULL : rejectReason;
     }
 
+    /**
+     * 判断bar是否具备可成交价格(存在且为正)。
+     *
+     * @param bar 行情bar
+     * @return 具备正价格时返回true
+     */
     private static boolean isUsablePrice(TornStockMarketBar15mDO bar) {
         return bar != null && bar.getLastPrice() != null && bar.getLastPrice().signum() > 0;
     }
 
+    /**
+     * 为边沿信号建立无限资金影子批次(恒1股口径,不占正式槽位)。
+     *
+     * @param evaluation  信号评估结果
+     * @param signalPrice 信号参考价
+     * @param t           轮次时间
+     */
     private void createShadowBatch(StockBuySignalEvaluator.SignalEvaluation evaluation,
                                    BigDecimal signalPrice, LocalDateTime t) {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
@@ -292,6 +365,12 @@ public class StockReplayEngine {
 
     // ==================== 观察馈送 ====================
 
+    /**
+     * 采集本轮边沿信号的观察馈送: 原始BUY对照、高风险观察与拒绝观察候选。
+     *
+     * @param allEvaluations 本轮全部信号评估结果
+     * @param t              轮次时间
+     */
     private void collectObservationFeeds(
             List<StockBuySignalEvaluator.SignalEvaluation> allEvaluations, LocalDateTime t) {
         for (StockBuySignalEvaluator.SignalEvaluation evaluation : allEvaluations) {
@@ -333,6 +412,12 @@ public class StockReplayEngine {
 
     // ==================== 交易记录 ====================
 
+    /**
+     * 按账本类型将已成交买入批次记录到对应轨道(正式或无限资金影子)。
+     *
+     * @param batch 已成交买入批次
+     * @param t     轮次时间
+     */
     private void recordBuyTrade(TornStockVirtualBatchDO batch, LocalDateTime t) {
         String ledgerType = batch.getLedgerType();
         if (StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)) {
@@ -353,6 +438,12 @@ public class StockReplayEngine {
         }
     }
 
+    /**
+     * 按账本类型将已成交卖出批次记录到对应轨道,并计算持仓小时数。
+     *
+     * @param batch 已成交卖出批次
+     * @param t     轮次时间
+     */
     private void recordSellTrade(TornStockVirtualBatchDO batch, LocalDateTime t) {
         String ledgerType = batch.getLedgerType();
         String trackCode;
@@ -379,12 +470,22 @@ public class StockReplayEngine {
 
     // ==================== 收尾: 理论观察与摘要 ====================
 
+    /**
+     * 收尾阶段: 对全部观察候选逐一产出拒绝/观察记录。
+     */
     private void finish() {
         for (StockReplayObservationCandidate observation : observations) {
             emitRejection(observation);
         }
     }
 
+    /**
+     * 产出单条观察候选的拒绝/观察记录。
+     * <p>拒绝观察轨道命中无理论入场原因时固定写{@code NO_THEORETICAL_ENTRY},
+     * 不调用理论路径计算器;其余原因按全窗口数据计算理论路径。</p>
+     *
+     * @param observation 观察候选
+     */
     private void emitRejection(StockReplayObservationCandidate observation) {
         StockReplayRejection row;
         if (StockReplayTrackEnum.REJECTION_OBSERVATION.getCode().equals(observation.track())
@@ -406,6 +507,13 @@ public class StockReplayEngine {
         rejectionsByTrack.get(observation.track()).add(row);
     }
 
+    /**
+     * 将理论观察结果组装为回放拒绝/观察记录(结果为空时理论字段均为null)。
+     *
+     * @param observation 观察候选
+     * @param result      理论观察结果
+     * @return 回放拒绝/观察记录
+     */
     private StockReplayRejection toRejectionRow(StockReplayObservationCandidate observation,
                                                 StockRejectedObservationCalculator.Result result) {
         return new StockReplayRejection(
@@ -428,6 +536,12 @@ public class StockReplayEngine {
                 result == null ? null : result.theoreticalNetReturn());
     }
 
+    /**
+     * 计算观察候选的理论路径(拒绝观察专用,使用全窗口行情与策略特征)。
+     *
+     * @param observation 观察候选
+     * @return 理论观察结果
+     */
     private StockRejectedObservationCalculator.Result calculateObservation(
             StockReplayObservationCandidate observation) {
         TornStockSignalEventDO event = new TornStockSignalEventDO();

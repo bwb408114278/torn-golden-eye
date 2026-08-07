@@ -230,6 +230,56 @@ class StockReplayEngineTest {
                 "拒绝观察资格结果必须为REJECTED");
     }
 
+    @Test
+    @DisplayName("回放_RANGE趋势输入数据不足_窗口内存在后续bar_仍固定写无法理论入场")
+    void rejectionObservation_dataInsufficient_noTheoreticalEntryEvenWithLaterBars() {
+        LocalDateTime start = T0;
+        LocalDateTime end = start.plusMinutes(3L * Stock15mBarBuildService.BUCKET_MINUTES);
+        StockReplayRequest request = new StockReplayRequest(
+                start, end, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.values()), "target/replay-unit/data-insufficient");
+        StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E, "data-insufficient",
+                new StockReplayContext(request, dataInsufficientWindowData(start)));
+        engine.run();
+
+        List<StockReplayRejection> rejections =
+                engine.rejectionsByTrack().get(StockReplayTrackEnum.REJECTION_OBSERVATION.getCode());
+        assertNotNull(rejections);
+        StockReplayRejection rejection = rejections.stream()
+                .filter(r -> RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT.equals(r.rejectReason()))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(rejection, "回放拒绝观察必须存在DATA_INSUFFICIENT记录");
+        assertEquals("NO_THEORETICAL_ENTRY", rejection.observationResult(),
+                "数据不足不得构造理论入场");
+        assertNull(rejection.laterMfe(), "数据不足不得计算MFE");
+        assertNull(rejection.laterMae(), "数据不足不得计算MAE");
+        assertNull(rejection.theoreticalEntryTime());
+        assertNull(rejection.theoreticalEntryPrice());
+        assertNull(rejection.theoreticalExitSignalTime());
+        assertNull(rejection.theoreticalExitTime());
+        assertNull(rejection.theoreticalExitPrice());
+        assertNull(rejection.theoreticalCloseType());
+        assertNull(rejection.theoreticalNetReturn());
+    }
+
+    private StockReplayWindowData dataInsufficientWindowData(LocalDateTime start) {
+        Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> barsByStock = new HashMap<>();
+        Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> featuresByStock = new HashMap<>();
+        for (int round = 0; round < 4; round++) {
+            LocalDateTime t = start.plusMinutes(round * Stock15mBarBuildService.BUCKET_MINUTES);
+            barsByStock.computeIfAbsent(1, k -> new TreeMap<>()).put(t, bar(1, t, new BigDecimal("95.2")));
+        }
+        TornStockStrategyFeature15mDO dataInsufficientFeature = feature(1, start, new BigDecimal("95.2"));
+        dataInsufficientFeature.setReturn7d(null);
+        featuresByStock.computeIfAbsent(1, k -> new TreeMap<>()).put(start, dataInsufficientFeature);
+
+        LocalDate month = start.toLocalDate().withDayOfMonth(1);
+        Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> monthly = new LinkedHashMap<>();
+        monthly.put(month, Map.of(1, monthlyState(1, month, "M2_PROVISIONAL")));
+        return new StockReplayWindowData(barsByStock, featuresByStock, monthly, null);
+    }
+
     private StockReplayWindowData guardFailWindowData(LocalDateTime start) {
         Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> barsByStock = new HashMap<>();
         Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> featuresByStock = new HashMap<>();
