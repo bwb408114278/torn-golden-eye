@@ -123,11 +123,14 @@ public class VipStockAlertScheduler {
         }
 
         try {
-            // 固定顺序: 先补建未完成轮次bar, 再结算到期拒绝观察, 最后投递PENDING通知。
+            // 固定顺序: 先为最近已结束桶幂等建立PENDING轮次, 再补建未完成轮次bar,
+            // 再结算到期拒绝观察, 最后投递PENDING通知。
             // 若先结算拒绝观察, 紧邻理论入场bar因停机/前一轮失败/调度积压尚未写入时,
             // 会被提前结算为NO_THEORETICAL_ENTRY并永久写入resolvedAt, 后续补建bar不再重算。
             if (decision.shouldBuildRounds()) {
-                processPendingRounds(decision.allowNewEntry());
+                LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
+                ensurePendingRound(currentEndedBucket);
+                processPendingRounds(decision.allowNewEntry(), currentEndedBucket);
             }
             if (decision.manageResearchObligations()) {
                 rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
@@ -141,9 +144,59 @@ public class VipStockAlertScheduler {
     }
 
     /**
+     * 为最近已结束桶幂等建立PENDING轮次。
+     * <p>
+     * 仅当 {@link StockAlertRuntimeGate.RuntimeDecision#shouldBuildRounds()} 判定存在
+     * 轮次构建义务(ALERT开启、存在活跃正式/影子批次或未结算拒绝观察)时调用。
+     * 使用数据库部分唯一索引 + {@code ON CONFLICT DO NOTHING} 保证双入口/重启重试只落一行。
+     * 创建失败时记录roundTime并抛出,阻断本轮后续对同一新桶的"假处理";
+     * 下一轮可通过幂等插入或未完成查询恢复。
+     *
+     * @param currentEndedBucket 最近已结束桶时间
+     */
+    private void ensurePendingRound(LocalDateTime currentEndedBucket) {
+        TornStockMarketRoundDO round = buildPendingRound(currentEndedBucket);
+        try {
+            int inserted = roundDao.insertPendingRoundIgnoreConflict(round);
+            if (inserted > 0) {
+                log.info("VIP股票策略调度-为最近已结束桶建立PENDING轮次, roundTime={}", currentEndedBucket);
+            } else {
+                log.debug("VIP股票策略调度-最近已结束桶PENDING轮次已存在,跳过重复创建, roundTime={}",
+                        currentEndedBucket);
+            }
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-创建轮次失败, roundTime={}", currentEndedBucket, e);
+            throw e;
+        }
+    }
+
+    /**
+     * 构建最近已结束桶的PENDING轮次记录(含固定规则版本,stockCount/attemptCount初始为0)。
+     *
+     * @param currentEndedBucket 最近已结束桶时间
+     * @return 未保存的PENDING轮次记录
+     */
+    private TornStockMarketRoundDO buildPendingRound(LocalDateTime currentEndedBucket) {
+        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
+        round.setRoundTime(currentEndedBucket);
+        round.setRoundStatus(StockRoundStatusEnum.PENDING.getCode());
+        round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
+        round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
+        round.setBuyRuleVersion(BUY_RULE_VERSION);
+        round.setSellRuleVersion(SELL_RULE_VERSION);
+        round.setAllocationRuleVersion(ALLOCATION_RULE_VERSION);
+        round.setMessageRuleVersion(MESSAGE_RULE_VERSION);
+        round.setExpectedStockCount(0);
+        round.setUsableStockCount(0);
+        round.setAttemptCount(0);
+        return round;
+    }
+
+    /**
      * 处理已结束但尚未完成的轮次
      * <p>
-     * 计算当前已结束的桶时间(当前桶对齐后回退15分钟),查询该时间之前全部未完成轮次并按
+     * 使用调用方计算的当前已结束桶时间(与生产者 {@link #ensurePendingRound(LocalDateTime)}
+     * 共用同一桶,避免重复计算),查询该时间之前全部未完成轮次并按
      * round_time升序逐个处理。每个轮次:
      * <ol>
      *   <li>状态置为BUILDING_BAR,调用 {@link Stock15mBarBuildService#buildBars(LocalDateTime)}</li>
@@ -154,11 +207,10 @@ public class VipStockAlertScheduler {
      * 每处理完一个轮次检查防重入标记是否仍持有,标记丢失时中断处理。
      * 单个轮次异常时记录错误并将状态置为FAILED_RETRYABLE,不中断后续轮次。
      *
-     * @param allowNewEntry 是否允许创建新的正式/候选影子批次,透传给轮次事务
+     * @param allowNewEntry     是否允许创建新的正式/候选影子批次,透传给轮次事务
+     * @param currentEndedBucket 最近已结束桶时间(含生产者已建立的PENDING轮次)
      */
-    public void processPendingRounds(boolean allowNewEntry) {
-        LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
-
+    public void processPendingRounds(boolean allowNewEntry, LocalDateTime currentEndedBucket) {
         List<TornStockMarketRoundDO> pendingRounds = roundDao.selectPendingRoundsBefore(currentEndedBucket);
         if (CollectionUtils.isEmpty(pendingRounds)) {
             log.debug("VIP股票策略调度-无待处理轮次, currentEndedBucket={}", currentEndedBucket);
@@ -195,10 +247,14 @@ public class VipStockAlertScheduler {
      * 依次执行(每步独立try-catch,单步失败不阻塞后续):
      * <ol>
      *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位</li>
-     *   <li> {@link StockMonthlyStateInitService#initCurrentMonth()} 初始化月度风格草稿</li>
-     *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史</li>
-     *   <li> {@link #processPendingRounds(boolean)} 处理未完成轮次(先补建理论入场bar,
-     *       再结算拒绝观察,避免历史重建跳过的早期失败/积压轮次被误结算)</li>
+     *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史
+     *        (先证据补齐,月度重算与自动确认必须在其后)</li>
+     *   <li> {@link #processPendingRounds(boolean, LocalDateTime)} 处理未完成轮次(先补建理论入场bar,
+     *        再结算拒绝观察,避免历史重建跳过的早期失败/积压轮次被误结算)</li>
+     *   <li> {@link StockMonthlyStateInitService#recalculateCurrentMonthDrafts()} 重算当月未确认DRAFT
+     *        (仅更新state_status=DRAFT且非人工覆盖记录,补齐证据后可再次计算)</li>
+     *   <li> {@link StockMonthlyStateInitService#autoConfirmDraftStates(LocalDate)} 自动确认满足冻结条件的DRAFT
+     *        (仅完整且非人工覆盖,confirmedBy=SYSTEM)</li>
      *   <li> {@link StockRejectedObservationService#resolveAllDueObservations(LocalDateTime)} 结算到期拒绝观察</li>
      * </ol>
      */
@@ -213,7 +269,6 @@ public class VipStockAlertScheduler {
                 decision.shouldBuildRounds(), decision.allowNewEntry(), decision.shouldSendPendingNotices());
 
         verifyPortfolioSlotsSafely();
-        initCurrentMonthSafely();
         processStartupRoundWork(decision);
         sendStartupPendingNoticesSafely(decision);
 
@@ -232,7 +287,8 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 初始化当月风格/成熟度/风险草稿记录,失败仅记录日志不阻塞后续步骤。
+     * 为当月缺失股票的初始化DRAFT草稿,仅应在历史重建补齐证据之后调用。
+     * 失败仅记录日志不阻塞后续步骤。
      */
     private void initCurrentMonthSafely() {
         try {
@@ -245,8 +301,9 @@ public class VipStockAlertScheduler {
 
     /**
      * 启动补偿的轮次工作区: 存在轮次构建或研究义务时,与定时入口复用同一JVM防重入标记,
-     * 抢占成功后在统一try/finally内按顺序执行历史重建、未完成轮次处理与拒绝观察结算,
-     * finally释放标记;抢占失败说明已有轮次流程在执行,跳过补偿处理。
+     * 抢占成功后在统一try/finally内按固定顺序执行历史重建、未完成轮次处理、
+     * 月度状态缺失初始化、未确认DRAFT重算、自动确认与拒绝观察结算,finally释放标记;
+     * 抢占失败说明已有轮次流程在执行,跳过补偿处理。
      *
      * @param decision 运行时判定结果
      */
@@ -262,10 +319,17 @@ public class VipStockAlertScheduler {
         }
 
         try {
+            LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
             if (decision.shouldBuildRounds()) {
                 rebuildStartupHistorySafely();
-                processStartupPendingRoundsSafely(decision.allowNewEntry());
+                processStartupPendingRoundsSafely(decision.allowNewEntry(), currentEndedBucket);
+                // 历史重建补齐证据后,再为缺失股票初始化当月DRAFT(先证据、后DRAFT、后确认)
+                initCurrentMonthSafely();
             }
+            // 月度状态: 先重算当月未确认DRAFT(仅DRAFT且非人工覆盖),
+            // 再自动确认满足冻结条件的记录;历史补建失败时重算保持DRAFT/fail-closed,不误写已确认。
+            recalculateCurrentMonthDraftsSafely();
+            autoConfirmCurrentMonthDraftsSafely();
             if (decision.manageResearchObligations()) {
                 resolveStartupObservationsSafely();
             }
@@ -287,15 +351,45 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 处理启动补偿时的未完成轮次,失败仅记录日志不阻塞拒绝观察结算。
+     * 处理启动补偿时的未完成轮次,失败仅记录日志不阻塞后续步骤。
      *
-     * @param allowNewEntry 是否允许创建新的正式/候选影子批次
+     * @param allowNewEntry      是否允许创建新的正式/候选影子批次
+     * @param currentEndedBucket 最近已结束桶时间
      */
-    private void processStartupPendingRoundsSafely(boolean allowNewEntry) {
+    private void processStartupPendingRoundsSafely(boolean allowNewEntry, LocalDateTime currentEndedBucket) {
         try {
-            processPendingRounds(allowNewEntry);
+            processPendingRounds(allowNewEntry, currentEndedBucket);
         } catch (Exception e) {
             log.error("VIP股票策略调度-启动补偿处理未完成轮次失败", e);
+        }
+    }
+
+    /**
+     * 重算当月未确认DRAFT月度状态,失败仅记录日志不阻塞后续步骤。
+     * <p>
+     * 历史补建失败时,重算结果仍为DRAFT/fail-closed(证据不足不满足自动确认条件),
+     * 不允许把"没有补齐证据"误写为已确认。
+     */
+    private void recalculateCurrentMonthDraftsSafely() {
+        try {
+            int recalculated = monthlyStateInitService.recalculateCurrentMonthDrafts();
+            log.info("VIP股票策略调度-启动补偿月度状态重算完成, recalculated={}", recalculated);
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿月度状态重算失败,继续后续步骤", e);
+        }
+    }
+
+    /**
+     * 自动确认当月满足冻结条件的DRAFT月度状态,失败仅记录日志不阻塞后续步骤。
+     */
+    private void autoConfirmCurrentMonthDraftsSafely() {
+        try {
+            LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+            int confirmed = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
+            log.info("VIP股票策略调度-启动补偿月度状态自动确认完成, effectiveMonth={}, confirmed={}",
+                    effectiveMonth, confirmed);
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿月度状态自动确认失败,继续后续步骤", e);
         }
     }
 

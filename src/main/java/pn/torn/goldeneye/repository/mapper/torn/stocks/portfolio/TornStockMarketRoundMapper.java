@@ -40,4 +40,16 @@ public interface TornStockMarketRoundMapper extends BaseMapper<TornStockMarketRo
      * @return 锁定的轮次记录,无则返回null
      */
     TornStockMarketRoundDO selectByRoundTimeForUpdate(@Param("roundTime") LocalDateTime roundTime);
+
+    /**
+     * 幂等插入最近已结束桶的PENDING轮次。
+     * <p>
+     * 使用数据库部分唯一索引 {@code uk_stock_market_round_time} 的同一语义
+     * {@code (round_time) WHERE deleted = 0} 执行 {@code INSERT ... ON CONFLICT DO NOTHING},
+     * 作为定时入口与启动补偿双入口/重启重试的幂等兜底;返回实际插入行数,冲突行被忽略不影响幂等。
+     *
+     * @param round 待插入的PENDING轮次(须填充roundTime与全部规则版本字段)
+     * @return 实际插入行数(0表示已存在同round_time有效轮次)
+     */
+    int insertPendingRoundIgnoreConflict(@Param("round") TornStockMarketRoundDO round);
 }

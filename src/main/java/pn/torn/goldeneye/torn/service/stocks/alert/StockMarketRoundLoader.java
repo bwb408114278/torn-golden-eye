@@ -27,7 +27,7 @@ import java.util.List;
  * </ol>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -68,7 +68,7 @@ public class StockMarketRoundLoader {
     /**
      * 一次批量加载本轮决策所需的全部数据快照,返回不可变RoundSnapshot值对象。
      * <p>
-     * 全部6类数据通过各自的批量查询方法一次性读取,不产生N+1查询。
+     * 全部数据通过各自的批量查询方法一次性读取,不产生N+1查询。
      * 本方法不参与事务,调用方在事务外获取快照后再进入事务执行业务逻辑。
      *
      * @param roundTime 本轮bar开始时间,同时作为当月生效月份的取值依据
@@ -85,13 +85,18 @@ public class StockMarketRoundLoader {
         List<TornStockVirtualBatchDO> activeBatches = virtualBatchDao.selectActiveFormalBatches();
         List<TornStockVirtualBatchDO> shadowBatches = virtualBatchDao.selectActiveShadowBatches();
         List<TornStockSignalStateDO> signalStates = signalStateDao.selectAll();
-        List<TornStockPortfolioSlotDO> slots =
+        List<TornStockPortfolioSlotDO> formalSlots =
                 portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
-        log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, formalBatches={}, shadowBatches={}, signalStates={}, slots={}",
+        List<TornStockPortfolioSlotDO> candidateShadowSlots =
+                portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
+        List<TornStockPortfolioSlotDO> allSlots = new java.util.ArrayList<>(formalSlots);
+        allSlots.addAll(candidateShadowSlots);
+        log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, formalBatches={}, shadowBatches={}, signalStates={}, formalSlots={}, candidateShadowSlots={}",
                 bars.size(), features.size(), monthlyStates.size(),
-                activeBatches.size(), shadowBatches.size(), signalStates.size(), slots.size());
+                activeBatches.size(), shadowBatches.size(), signalStates.size(),
+                formalSlots.size(), candidateShadowSlots.size());
         return new RoundSnapshot(bars, features, monthlyStates, activeBatches, shadowBatches,
-                signalStates, slots, roundTime);
+                signalStates, allSlots, roundTime);
     }
 
     /**

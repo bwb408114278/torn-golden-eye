@@ -101,7 +101,8 @@ class StockRoundTransactionServiceTest {
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
         verify(buySignalEvaluator).acceptCandidates(
-                candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime));
+                candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime),
+                eq(StockBuySignalEvaluator.CandidateAcceptanceTarget.formal()));
         assertFalse(candidatesCaptor.getValue().stream()
                 .map(CandidateInfo::stocksId)
                 .toList()
@@ -301,7 +302,8 @@ class StockRoundTransactionServiceTest {
                 .thenReturn(new BuySignalResult(candidates, List.of()));
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
                 .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
-        when(buySignalEvaluator.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime)))
+        when(buySignalEvaluator.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
+                eq(StockBuySignalEvaluator.CandidateAcceptanceTarget.formal())))
                 .thenReturn(StockCandidateAllocationResult.empty());
     }
 

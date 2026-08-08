@@ -20,13 +20,13 @@ import java.util.*;
 
 /**
  * 股票买入信号评估器 - 执行轮次事务步骤6-7,评估买入信号(false->true边沿)与资格,
- * 排序候选并接纳正式候选。
+ * 排序候选并接纳槽位账本候选(正式或候选影子)。
  * <p>
  * 从 {@link StockRoundTransactionService} 拆分而来,消除原 732 行 Brain Method。
  * 职责仅包含:
  * <ol>
- *   <li>步骤6: 对每支有特征数据的股票评估买入信号,收集通过资格的正式候选</li>
- *   <li>步骤7: 按排序结果接纳正式候选,查找可用槽位并预留</li>
+ *   <li>步骤6: 对每支有特征数据的股票评估买入信号,收集通过资格的形式候选</li>
+ *   <li>步骤7: 按排序结果接纳候选,在目标组合内查找可用槽位并预留</li>
  * </ol>
  * 信号事件写入、影子批次与拒绝观察批次由 {@link StockShadowService} 消费
  * {@link BuySignalResult#allEvaluations()} 完成,不在本类职责范围内。
@@ -36,12 +36,12 @@ import java.util.*;
  *   <li>原 Brain Method 拆分为 {@link #evaluateSignals} + {@link #evaluateSingleStock}
  *       + {@link #matchStrategies},降低认知复杂度</li>
  *   <li>{@link SignalEvaluation} 用 record + Builder 模式消除 10 参数构造器问题</li>
- *   <li>{@link #createFormalBatch} 7 参数用 {@link FormalBatchContext} record 封装</li>
+ *   <li>{@link #createTrackBatch} 7 参数用 {@link FormalBatchContext} record 封装</li>
  *   <li>循环内多个 continue 提取为 {@link #evaluateSingleStock} 返回 null</li>
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -50,15 +50,11 @@ import java.util.*;
 public class StockBuySignalEvaluator {
 
     /**
-     * 正式批次编号前缀
-     */
-    private static final String FORMAL_BATCH_NO_PREFIX = "F";
-    /**
-     * 正式批次编号时间戳格式
+     * 批次编号时间戳格式(正式与候选影子共用)
      */
     private static final String FORMAL_BATCH_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmm";
     /**
-     * 正式批次编号格式化器
+     * 批次编号格式化器(正式与候选影子共用)
      */
     private static final DateTimeFormatter FORMAL_BATCH_NO_FORMATTER =
             DateTimeFormatter.ofPattern(FORMAL_BATCH_NO_TIMESTAMP_PATTERN);
@@ -410,10 +406,12 @@ public class StockBuySignalEvaluator {
     }
 
     /**
-     * 收集所有有正式活跃批次的股票ID集合。
+     * 收集所有有正式或候选影子活跃批次的股票ID集合。
+     * <p>
+     * 候选影子与正式共享同股单活跃规则,避免同股重复建立槽位批次。
      *
      * @param activeBatches 活跃批次列表
-     * @return 有正式活跃批次的股票ID集合
+     * @return 有正式或候选影子活跃批次的股票ID集合
      */
     private Set<Integer> collectActiveFormalStockIds(List<TornStockVirtualBatchDO> activeBatches) {
         Set<Integer> stockIds = new HashSet<>();
@@ -421,7 +419,8 @@ public class StockBuySignalEvaluator {
             return stockIds;
         }
         for (TornStockVirtualBatchDO batch : activeBatches) {
-            if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+            if ((StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                    || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(batch.getLedgerType()))
                     && batch.getStocksId() != null) {
                 StockBatchStatusEnum status = StockBatchStatusEnum.fromCode(batch.getBatchStatus());
                 if (status.isActive()) {
@@ -432,18 +431,12 @@ public class StockBuySignalEvaluator {
         return stockIds;
     }
 
-    // ==================== 步骤7: 接纳正式候选 ====================
+    // ==================== 步骤7: 接纳候选 ====================
 
     /**
-     * 按排序结果接纳正式候选,检查可用槽位并预留,返回新建的正式批次列表。
+     * 按排序结果接纳正式候选(正式组合),检查可用槽位并预留,返回新建的正式批次列表。
      * <p>
-     * 遍历排序后的候选列表,对每个候选:
-     * <ol>
-     *   <li>查找可用槽位(findFirstAvailableFromSnapshot);无槽位时停止接纳</li>
-     *   <li>计算股数(calculateQuantity);股数不足时跳过该候选</li>
-     *   <li>创建正式批次(ENTRY_PENDING),预留槽位</li>
-     * </ol>
-     * 单个候选的接纳逻辑提取为 {@link #acceptSingleCandidate},返回 null 表示该候选被跳过。
+     * 兼容入口,等价于以正式组合为目标调用 {@link #acceptCandidates(List, RoundSnapshot, Map, Map, Map, LocalDateTime, CandidateAcceptanceTarget)}。
      *
      * @param rankedCandidates    排序后的候选列表
      * @param snapshot            轮次快照
@@ -459,8 +452,43 @@ public class StockBuySignalEvaluator {
             Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
             Map<Integer, SignalEvaluation> evaluationByStockId,
             LocalDateTime roundTime) {
+        return acceptCandidates(rankedCandidates, snapshot, barByStock, monthlyStateByStock,
+                evaluationByStockId, roundTime, CandidateAcceptanceTarget.formal());
+    }
+
+    /**
+     * 按排序结果接纳候选,检查目标组合可用槽位并预留,返回新建批次列表。
+     * <p>
+     * 遍历排序后的候选列表,对每个候选:
+     * <ol>
+     *   <li>在目标组合内查找可用槽位(findFirstAvailableFromSnapshot);无槽位时记录容量事实</li>
+     *   <li>计算股数(calculateQuantity);股数不足时跳过该候选</li>
+     *   <li>按目标账本创建批次(ENTRY_PENDING),预留槽位,并回填事件批次ID</li>
+     * </ol>
+     * 单个候选的接纳逻辑提取为 {@link #acceptSingleCandidate},返回 null 表示该候选被跳过。
+     * 排序结果由调用方保证唯一(每轮只排序一次),不同目标轨道共用同一排序,不得因轨道不同
+     * 产生不同成交价格或时间边界。
+     *
+     * @param rankedCandidates    排序后的候选列表
+     * @param snapshot            轮次快照
+     * @param barByStock          按股票ID索引的bar映射
+     * @param monthlyStateByStock 按股票ID索引的月度状态映射
+     * @param evaluationByStockId 按股票ID索引的信号评估映射
+     * @param roundTime           本轮时间
+     * @param target              候选接纳目标(组合编码+账本类型+批次编号前缀)
+     * @return 新建批次与每个候选的实际接纳结果
+     */
+    public StockCandidateAllocationResult acceptCandidates(
+            List<CandidateInfo> rankedCandidates,
+            RoundSnapshot snapshot,
+            Map<Integer, TornStockMarketBar15mDO> barByStock,
+            Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
+            Map<Integer, SignalEvaluation> evaluationByStockId,
+            LocalDateTime roundTime,
+            CandidateAcceptanceTarget target) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
-        List<TornStockVirtualBatchDO> newFormalBatches = new ArrayList<>();
+        Objects.requireNonNull(target, "候选接纳目标不能为空");
+        List<TornStockVirtualBatchDO> newBatches = new ArrayList<>();
         Map<Integer, StockCandidateAllocationResultEnum> resultByStockId = new LinkedHashMap<>();
         if (rankedCandidates == null || rankedCandidates.isEmpty()) {
             return StockCandidateAllocationResult.empty();
@@ -469,9 +497,10 @@ public class StockBuySignalEvaluator {
         int candidateRank = 0;
         for (CandidateInfo candidate : rankedCandidates) {
             candidateRank++;
-            Optional<TornStockPortfolioSlotDO> slotOpt = findFirstAvailableFromSnapshot(snapshot);
+            Optional<TornStockPortfolioSlotDO> slotOpt = findFirstAvailableFromSnapshot(snapshot, target.portfolioCode());
             if (slotOpt.isEmpty()) {
-                log.info("无可用槽位,拒绝正式接纳候选: stocksId={}, rank={}", candidate.stocksId(), candidateRank);
+                log.info("无可用槽位,拒绝接纳候选: stocksId={}, rank={}, portfolioCode={}",
+                        candidate.stocksId(), candidateRank, target.portfolioCode());
                 resultByStockId.put(candidate.stocksId(), StockCandidateAllocationResultEnum.NO_AVAILABLE_SLOT);
                 continue;
             }
@@ -479,29 +508,32 @@ public class StockBuySignalEvaluator {
             CandidateAcceptance acceptance = acceptSingleCandidate(
                     candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
                     monthlyStateByStock.get(candidate.stocksId()),
-                    evaluationByStockId.get(candidate.stocksId()), candidateRank, roundTime);
+                    evaluationByStockId.get(candidate.stocksId()), candidateRank, roundTime, target);
             resultByStockId.put(candidate.stocksId(), acceptance.result());
             if (acceptance.batch() != null) {
-                newFormalBatches.add(acceptance.batch());
+                newBatches.add(acceptance.batch());
             }
         }
-        return new StockCandidateAllocationResult(newFormalBatches, resultByStockId);
+        return new StockCandidateAllocationResult(newBatches, resultByStockId);
     }
 
     /**
-     * 从内存快照中查找首个可用槽位,避免数据库查询
+     * 从内存快照中查找目标组合首个可用槽位,避免数据库查询
      *
-     * @param snapshot 轮次快照
+     * @param snapshot      轮次快照
+     * @param portfolioCode 目标组合编码
      * @return 首个AVAILABLE槽位;无则返回empty
      */
-    private Optional<TornStockPortfolioSlotDO> findFirstAvailableFromSnapshot(RoundSnapshot snapshot) {
+    private Optional<TornStockPortfolioSlotDO> findFirstAvailableFromSnapshot(RoundSnapshot snapshot,
+                                                                              String portfolioCode) {
         return snapshot.slots().stream()
+                .filter(slot -> portfolioCode.equals(slot.getPortfolioCode()))
                 .filter(slot -> StockSlotStatusEnum.AVAILABLE.getCode().equals(slot.getSlotStatus()))
                 .findFirst();
     }
 
     /**
-     * 接纳单个候选:校验 bar 与股数,创建正式批次并预留槽位。
+     * 接纳单个候选:校验 bar 与股数,创建目标账本批次并预留槽位。
      * <p>
      * 以下情况返回 null(原循环中的 continue 分支):
      * <ul>
@@ -516,7 +548,8 @@ public class StockBuySignalEvaluator {
      * @param evaluation    该候选对应的完整信号评估事实
      * @param candidateRank 候选排名(1起始)
      * @param roundTime     本轮时间
-     * @return 单个候选的正式批次与接纳结果
+     * @param target        候选接纳目标
+     * @return 单个候选的批次与接纳结果
      */
     private CandidateAcceptance acceptSingleCandidate(
             CandidateInfo candidate,
@@ -525,7 +558,8 @@ public class StockBuySignalEvaluator {
             TornStockMonthlyStateDO monthlyState,
             SignalEvaluation evaluation,
             int candidateRank,
-            LocalDateTime roundTime) {
+            LocalDateTime roundTime,
+            CandidateAcceptanceTarget target) {
         if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
             log.warn("候选[{}]本轮bar无效,跳过", candidate.stocksId());
             return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.DATA_NOT_READY);
@@ -542,47 +576,53 @@ public class StockBuySignalEvaluator {
 
         FormalBatchContext ctx = new FormalBatchContext(
                 candidate, slot, monthlyState, signalReferencePrice, quantity, roundTime);
-        TornStockSignalEventDO event = shadowRecordWriter.recordFormalSignalEvent(
-                evaluation, candidateRank, roundTime);
-        TornStockVirtualBatchDO batch = createFormalBatch(ctx);
+        TornStockSignalEventDO event = shadowRecordWriter.recordTrackSignalEvent(
+                evaluation, candidateRank, roundTime, target.eventDecision());
+        TornStockVirtualBatchDO batch = createTrackBatch(ctx, target);
         batch.setSignalEventId(event.getId());
 
         virtualBatchDao.save(batch);
-        event.setFormalBatchId(batch.getId());
-        shadowRecordWriter.updateSignalEventBatchIds(event);
+        if (StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(target.ledgerType())) {
+            // 候选影子批次: 回填事件shadowCandidateBatchId并创建无限资金影子孪生批次
+            shadowRecordWriter.linkCandidateShadowEvent(event, batch);
+        } else {
+            target.applyEventBatchId(event, batch.getId());
+            shadowRecordWriter.updateSignalEventBatchIds(event);
+        }
 
         portfolioService.reserveSlot(slot, reservedAmount, batch.getId());
 
-        log.info("正式候选接纳: stocksId={}, slotNo={}, signalPrice={}, quantity={}, reserved={}, batchId={}",
+        log.info("候选接纳: stocksId={}, slotNo={}, signalPrice={}, quantity={}, reserved={}, batchId={}, ledgerType={}",
                 candidate.stocksId(), slot.getSlotNo(),
-                signalReferencePrice, quantity, reservedAmount, batch.getId());
-        return new CandidateAcceptance(batch, StockCandidateAllocationResultEnum.FORMAL_ALLOCATED);
+                signalReferencePrice, quantity, reservedAmount, batch.getId(), target.ledgerType());
+        return new CandidateAcceptance(batch, target.allocatedResult());
     }
 
     /**
-     * 创建正式批次DO(ENTRY_PENDING状态)。
+     * 创建目标账本批次DO(ENTRY_PENDING状态)。
      * <p>
      * 使用 {@link FormalBatchContext} 封装参数,避免超过 Sonar 方法参数上限(7)。
      *
-     * @param ctx 正式批次构建上下文
-     * @return 未保存的正式批次DO
+     * @param ctx    批次构建上下文
+     * @param target 候选接纳目标
+     * @return 未保存的目标账本批次DO
      */
-    private TornStockVirtualBatchDO createFormalBatch(FormalBatchContext ctx) {
+    private TornStockVirtualBatchDO createTrackBatch(FormalBatchContext ctx, CandidateAcceptanceTarget target) {
         CandidateInfo candidate = ctx.candidate();
         TornStockPortfolioSlotDO slot = ctx.slot();
         LocalDateTime roundTime = ctx.roundTime();
 
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
-        batch.setBatchNo(FORMAL_BATCH_NO_PREFIX
+        batch.setBatchNo(target.batchNoPrefix()
                 + roundTime.format(FORMAL_BATCH_NO_FORMATTER) + candidate.stocksId());
-        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setLedgerType(target.ledgerType());
         batch.setStocksId(candidate.stocksId());
         batch.setStocksShortname(candidate.stocksShortname());
         batch.setPrimaryStrategy(candidate.primaryStrategy().getCode());
         batch.setMatchedStrategies(JsonUtils.objToJson(candidate.matchedStrategies()));
         batch.setQualityScore(candidate.qualityScore());
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
-        // signalEventId在信号事件保存后回填;正式批次尚未进入持久化批量写入。
+        // signalEventId在信号事件保存后回填;目标账本批次尚未进入持久化批量写入。
         batch.setSlotId(slot.getId());
         batch.setSlotNo(slot.getSlotNo());
         batch.setSignalTime(roundTime);
@@ -591,6 +631,69 @@ public class StockBuySignalEvaluator {
                 ctx.signalReferencePrice(), roundTime, ctx.monthlyState());
         StockVirtualBatchAssembler.applySignalFields(batch, fields);
         return batch;
+    }
+
+    /**
+     * 候选接纳目标 - 定义候选被接纳到哪个组合、以什么账本类型与批次编号前缀创建。
+     * <p>
+     * 仅支持本文定义的正式组合与候选影子组合两种有槽位组合,不建立通用多组合框架。
+     *
+     * @param portfolioCode 目标组合编码(VIP_FORMAL或VIP_SHADOW_CANDIDATE)
+     * @param ledgerType    目标账本类型编码(FORMAL或SHADOW_FORMAL_CANDIDATE)
+     * @param batchNoPrefix 批次编号前缀(F或C)
+     * @param eventDecision 事件组合决策编码(FORMAL或SHADOW)
+     * @param allocatedResult 分配成功的结果枚举(FORMAL_ALLOCATED或SHADOW_CANDIDATE_ALLOCATED)
+     */
+    public record CandidateAcceptanceTarget(
+            String portfolioCode,
+            String ledgerType,
+            String batchNoPrefix,
+            String eventDecision,
+            StockCandidateAllocationResultEnum allocatedResult) {
+
+        /**
+         * 正式组合接纳目标。
+         *
+         * @return 正式目标
+         */
+        public static CandidateAcceptanceTarget formal() {
+            return new CandidateAcceptanceTarget(
+                    StockPortfolioService.PORTFOLIO_CODE,
+                    StockLedgerTypeEnum.FORMAL.getCode(),
+                    "F",
+                    StockPortfolioDecisionEnum.FORMAL.getCode(),
+                    StockCandidateAllocationResultEnum.FORMAL_ALLOCATED);
+        }
+
+        /**
+         * 候选影子组合接纳目标。
+         *
+         * @return 候选影子目标
+         */
+        public static CandidateAcceptanceTarget candidateShadow() {
+            return new CandidateAcceptanceTarget(
+                    StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE,
+                    StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode(),
+                    "C",
+                    StockPortfolioDecisionEnum.SHADOW.getCode(),
+                    StockCandidateAllocationResultEnum.SHADOW_CANDIDATE_ALLOCATED);
+        }
+
+        /**
+         * 将新建批次ID回填到信号事件对应字段。
+         * <p>
+         * 正式目标回填formalBatchId,候选影子目标回填shadowCandidateBatchId。
+         *
+         * @param event   信号事件
+         * @param batchId 新建批次ID
+         */
+        public void applyEventBatchId(TornStockSignalEventDO event, Long batchId) {
+            if (StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)) {
+                event.setFormalBatchId(batchId);
+            } else if (StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(ledgerType)) {
+                event.setShadowCandidateBatchId(batchId);
+            }
+        }
     }
 
     /**

@@ -74,4 +74,17 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
      */
     List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(@Param("stocksIds") List<Integer> stocksIds,
                                                                   @Param("targetMonth") LocalDate targetMonth);
+
+    /**
+     * 条件批量重算当月未确认DRAFT月度状态。
+     * <p>
+     * 仅更新 {@code state_status='DRAFT' AND manual_override=false} 的记录:
+     * CONFIRMED、RETIRED、任何人工覆盖(manual_override=true)记录均不会被覆盖、
+     * 降级或改写confirmedBy/confirmedAt。UPDATE自带状态谓词,防止并发重算或人工修改
+     * 在SELECT与UPDATE之间改变状态后被误写。
+     *
+     * @param states 重算后的DRAFT状态列表(须携带主键id)
+     * @return 实际更新行数
+     */
+    int recalculateDraftStates(@Param("states") List<TornStockMonthlyStateDO> states);
 }

@@ -121,6 +121,77 @@ public class StockMonthlyStateInitService {
     }
 
     /**
+     * 重算当月已存在且未确认的DRAFT月度状态。
+     * <p>
+     * 与 {@link #initCurrentMonth()} 互补: 后者只负责为缺失股票初始化DRAFT行,
+     * 本方法只重算当月已存在 {@code state_status=DRAFT} 且
+     * {@code manual_override=false} 的记录。数据补齐后再次调用即可让空DRAFT升级为
+     * 完整机器建议,不再因{@code initCurrentMonth()}的"已存在即跳过"语义永久阻塞。
+     * <p>
+     * 约束:
+     * <ul>
+     *   <li>仅更新 {@code state_status=DRAFT AND manual_override=false},数据库UPDATE自带该谓词,
+     *       任何CONFIRMED/RETIRED或人工覆盖记录均不得被覆盖、降级或改写confirmedBy/confirmedAt;</li>
+     *   <li>计算输入复用现有批量证据查询与{@link #loadPreviousByStocks(List, LocalDate)},
+     *       不引入每股票N+1;</li>
+     *   <li>幂等: 相同证据重复重算结果稳定。</li>
+     * </ul>
+     *
+     * @return 本次实际更新的DRAFT记录数量
+     */
+    public int recalculateCurrentMonthDrafts() {
+        LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+        List<TornStockMonthlyStateDO> drafts = monthlyStateDao.lambdaQuery()
+                .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
+                .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
+                .eq(TornStockMonthlyStateDO::getManualOverride, false)
+                .list();
+        if (CollectionUtils.isEmpty(drafts)) {
+            log.info("月度状态重算-当月[{}]无未确认非人工覆盖DRAFT,跳过", effectiveMonth);
+            return 0;
+        }
+
+        List<Integer> stockIds = drafts.stream()
+                .map(TornStockMonthlyStateDO::getStocksId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        List<TornStocksDO> stocks = tornStocksDao.listByIds(stockIds);
+        Map<Integer, TornStocksDO> stockById = stocks.stream()
+                .filter(stock -> stock.getId() != null)
+                .collect(Collectors.toMap(TornStocksDO::getId, stock -> stock, (left, right) -> left));
+
+        LocalDateTime now = marketClock.now();
+        Map<Integer, TornStockMarketBar15mDO> evidenceEdges = loadEvidenceEdges(stockIds, effectiveMonth);
+        Map<Integer, List<TornStockMarketBar15mDO>> barsByStock = loadEvidenceBars(stockIds, effectiveMonth);
+        Map<Integer, TornStockMonthlyStateDO> previousByStock = loadPreviousByStocks(stockIds, effectiveMonth);
+
+        List<TornStockMonthlyStateDO> recalculated = new ArrayList<>();
+        for (TornStockMonthlyStateDO draft : drafts) {
+            TornStocksDO stock = stockById.get(draft.getStocksId());
+            if (stock == null) {
+                log.warn("月度状态重算-股票[{}]不存在,跳过该DRAFT", draft.getStocksId());
+                continue;
+            }
+            TornStockMonthlyStateDO updated = buildDraftState(stock, effectiveMonth,
+                    evidenceEdges.get(draft.getStocksId()),
+                    barsByStock.getOrDefault(draft.getStocksId(), List.of()),
+                    previousByStock.get(draft.getStocksId()), now);
+            updated.setId(draft.getId());
+            recalculated.add(updated);
+        }
+        if (recalculated.isEmpty()) {
+            log.info("月度状态重算-当月[{}]无有效可重算股票,返回0", effectiveMonth);
+            return 0;
+        }
+
+        int updatedCount = monthlyStateDao.recalculateDraftStates(recalculated);
+        log.info("月度状态重算-完成, effectiveMonth={}, 重算候选={}, 实际更新={}",
+                effectiveMonth, recalculated.size(), updatedCount);
+        return updatedCount;
+    }
+
+    /**
      * 人工确认指定月份的草稿状态。
      * <p>
      * 确认人必须为实际调用方标识,拒绝空白与固定{@code SYSTEM}。

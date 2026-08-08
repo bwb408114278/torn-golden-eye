@@ -87,18 +87,46 @@ class StockEntrySettlementServiceTest {
     }
 
     @Test
-    @DisplayName("待买入批次过期_实际处理时刻等于staleAt按冻结边界取消")
-    void processEntryPending_actualProcessingEqualsStaleAt_cancelled() {
+    @DisplayName("待买入批次过期_实际处理时刻等于staleAt_其他入场条件成立时仍成交")
+    void processEntryPending_actualProcessingEqualsStaleAt_fills() {
+        TornStockVirtualBatchDO batch = buildEntryPendingBatch();
+        batch.setEntryStaleAt(ROUND_TIME.plusMinutes(35));
+        batch.setSlotId(1L);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        TornStockPortfolioSlotDO slot = buildSlot(1L, 1);
+        LocalDateTime actualProcessingTime = batch.getEntryStaleAt();
+
+        try (MockedStatic<StockPortfolioService> mocked = mockStatic(StockPortfolioService.class)) {
+            mocked.when(() -> StockPortfolioService.checkEntryPriceDeviation(SIGNAL_PRICE, ENTRY_PRICE))
+                    .thenReturn(false);
+            mocked.when(() -> StockPortfolioService.calculateQuantity(any(BigDecimal.class), any(BigDecimal.class)))
+                    .thenReturn(1000L);
+            mocked.when(() -> StockPortfolioService.indexSlotsById(any()))
+                    .thenReturn(Map.of(1L, slot));
+
+            RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+            EntrySettlementResult result = entrySettlementService.processEntryPending(
+                    snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME, actualProcessingTime);
+
+            assertEquals(1, result.filledBatches().size(), "等于staleAt边界在其他入场条件成立时应成交");
+            assertEquals(0, result.cancelledBatches().size(), "等于staleAt边界不应取消");
+            assertEquals(StockBatchStatusEnum.OPEN.getCode(), batch.getBatchStatus(), "批次应成交为OPEN");
+        }
+    }
+
+    @Test
+    @DisplayName("待买入批次过期_实际处理时刻晚于staleAt_取消并返回ENTRY_DATA_STALE")
+    void processEntryPending_actualProcessingAfterStaleAt_cancelled() {
         TornStockVirtualBatchDO batch = buildEntryPendingBatch();
         batch.setEntryStaleAt(ROUND_TIME.plusMinutes(35));
         TornStockMarketBar15mDO bar = buildBar(true);
-        LocalDateTime actualProcessingTime = batch.getEntryStaleAt();
+        LocalDateTime actualProcessingTime = batch.getEntryStaleAt().plusNanos(1);
 
         RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of());
         EntrySettlementResult result = entrySettlementService.processEntryPending(
                 snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME, actualProcessingTime);
 
-        assertEquals(0, result.filledBatches().size(), "等于staleAt也取消");
+        assertEquals(0, result.filledBatches().size(), "晚于staleAt不得成交");
         assertEquals(1, result.cancelledBatches().size());
         assertEquals(StockCancelReasonEnum.ENTRY_DATA_STALE.getCode(),
                 result.cancelledBatches().getFirst().getCancelReason());

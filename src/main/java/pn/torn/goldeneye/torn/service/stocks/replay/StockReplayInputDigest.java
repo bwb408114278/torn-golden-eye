@@ -64,8 +64,11 @@ final class StockReplayInputDigest {
     /**
      * 将全部bar内容按稳定顺序写入摘要。
      *
-     * <p>按股票ID升序、bar开始时间升序遍历,逐bar追加股票ID、bar开始时间、lastPrice、usable、
-     * 构建版本与来源最大历史ID,保证同一批数据必然产生相同摘要。</p>
+     * <p>按股票ID升序、bar开始时间升序遍历,逐bar追加冻结清单全部字段:
+     * 股票ID、bar起止时间、首末采样时间、首末/高低价格、采样与重复计数、尾部间隔、
+     * 可用性与质量原因、构建版本与来源最大历史ID。该清单覆盖{@code isUsable()}、
+     * 质量判定、路径、成交、权益、审计与产物读取的全部bar输入字段,
+     * 保证任何影响回放实际行为的bar内容变化都会改变输入代际摘要。</p>
      *
      * @param digest      正在累积的SHA-256摘要器
      * @param barsByStock 股票ID → (bar开始时间 → bar);为空时直接返回
@@ -83,8 +86,18 @@ final class StockReplayInputDigest {
             for (TornStockMarketBar15mDO bar : bars.values()) {
                 append(digest, stocksId);
                 append(digest, bar.getBarStartTime());
+                append(digest, bar.getBarEndTime());
+                append(digest, bar.getFirstSampleTime());
+                append(digest, bar.getLastSampleTime());
+                append(digest, bar.getFirstPrice());
                 append(digest, bar.getLastPrice());
+                append(digest, bar.getLowPrice());
+                append(digest, bar.getHighPrice());
+                append(digest, bar.getSampleCount());
+                append(digest, bar.getDuplicateCount());
+                append(digest, bar.getTailGapSeconds());
                 append(digest, bar.getUsable());
+                append(digest, bar.getQualityReason());
                 append(digest, bar.getBuildVersion());
                 append(digest, bar.getSourceMaxHistoryId());
             }

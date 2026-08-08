@@ -95,7 +95,8 @@ public class StockEntrySettlementService {
      * <ul>
      *   <li>本轮bar与预期入场bar连续且价格偏离通过 -&gt; 成交(状态OPEN)</li>
      *   <li>本轮bar连续但价格偏离超限 -&gt; 取消(CANCELLED, reason=ENTRY_PRICE_DEVIATION)</li>
-     *   <li>实际处理时刻达到或晚于entryStaleAt -&gt; 取消(CANCELLED, reason=ENTRY_DATA_STALE)</li>
+     *   <li>实际处理时刻晚于entryStaleAt(严格大于) -&gt; 取消(CANCELLED, reason=ENTRY_DATA_STALE);
+     *       等于staleAt边界仍继续检查目标bar、连续性与价格偏离</li>
      *   <li>本轮bar不可用或非连续 -&gt; 保持ENTRY_PENDING等待下一轮</li>
      * </ul>
      * <p>
@@ -155,8 +156,9 @@ public class StockEntrySettlementService {
                                          LocalDateTime actualProcessingTime,
                                          List<TornStockVirtualBatchDO> filledBatches,
                                          List<TornStockVirtualBatchDO> cancelledBatches) {
-        // 检查是否超过过期时间: 以实际处理时刻判定, 等于staleAt也取消(冻结比较边界)
-        if (batch.getEntryStaleAt() != null && !actualProcessingTime.isBefore(batch.getEntryStaleAt())) {
+        // 检查是否超过过期时间: 以实际处理时刻判定,仅actualProcessingTime晚于staleAt才取消,
+        // 等于staleAt边界仍继续检查目标bar、连续性与价格偏离(冻结业务规则: 严格大于才取消)
+        if (batch.getEntryStaleAt() != null && actualProcessingTime.isAfter(batch.getEntryStaleAt())) {
             cancelEntryBatch(batch, slotById, StockCancelReasonEnum.ENTRY_DATA_STALE, cancelledBatches);
             log.info("待买入批次过期取消: batchNo={}, stocksId={}, staleAt={}, actualProcessingTime={}, roundTime={}",
                     batch.getBatchNo(), batch.getStocksId(), batch.getEntryStaleAt(),
@@ -232,8 +234,8 @@ public class StockEntrySettlementService {
             fillShadowEntryBatch(batch, currentBar, roundTime, filledBatches);
             return;
         }
-        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
-            throw new IllegalStateException("待买入批次账本类型非法,禁止非Shadow即正式: batchNo="
+        if (!portfolioService.isSlotBackedLedger(batch.getLedgerType())) {
+            throw new IllegalStateException("待买入批次账本类型非法,禁止非正式/候选影子即正式: batchNo="
                     + batch.getBatchNo() + ", ledgerType=" + batch.getLedgerType());
         }
 
@@ -412,11 +414,11 @@ public class StockEntrySettlementService {
     }
 
     /**
-     * 校验正常正式SELL结算前的来源状态与退出事实(P1-4)。
+     * 校验正常槽位账本SELL结算前的来源状态与退出事实(P1-4)。
      * <p>
      * 正常SELL前置条件:
      * <ul>
-     *   <li>ledgerType=FORMAL</li>
+     *   <li>ledgerType=FORMAL或SHADOW_FORMAL_CANDIDATE</li>
      *   <li>batchStatus=EXIT_PENDING</li>
      *   <li>exitSignalTime != null</li>
      *   <li>expectedExitBarTime != null</li>
@@ -425,16 +427,16 @@ public class StockEntrySettlementService {
      * 任一不满足直接抛 {@link IllegalStateException},由轮次事务整体回滚,
      * 批次不关闭、槽位不释放、资金不回笼、SELL通知为0。不自动补字段。
      *
-     * @param batch 待正常卖出的正式批次
+     * @param batch 待正常卖出的槽位账本批次
      * @throws IllegalStateException 来源状态或退出事实不满足冻结前置时抛出
      */
     private void validateNormalSellSource(TornStockVirtualBatchDO batch) {
-        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
-            throw new IllegalStateException("正式卖出批次账本类型非法: batchNo=" + batch.getBatchNo()
+        if (!portfolioService.isSlotBackedLedger(batch.getLedgerType())) {
+            throw new IllegalStateException("槽位卖出批次账本类型非法: batchNo=" + batch.getBatchNo()
                     + ", ledgerType=" + batch.getLedgerType());
         }
         if (!StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus())) {
-            throw new IllegalStateException("正式卖出来源状态非法,必须为EXIT_PENDING: batchNo="
+            throw new IllegalStateException("槽位卖出来源状态非法,必须为EXIT_PENDING: batchNo="
                     + batch.getBatchNo() + ", batchStatus=" + batch.getBatchStatus());
         }
         if (batch.getExitSignalTime() == null) {
@@ -454,7 +456,7 @@ public class StockEntrySettlementService {
      * <p>
      * 灾难关闭前置条件:
      * <ul>
-     *   <li>ledgerType=FORMAL</li>
+     *   <li>ledgerType=FORMAL或SHADOW_FORMAL_CANDIDATE</li>
      *   <li>batchStatus=DATA_STALE_EXIT</li>
      *   <li>exitSignalTime != null</li>
      *   <li>expectedExitBarTime != null</li>
@@ -463,10 +465,14 @@ public class StockEntrySettlementService {
      * 任一不满足直接抛 {@link IllegalStateException},由轮次事务整体回滚,
      * 批次不关闭、槽位不释放、资金不回笼、SELL通知为0。不自动补字段。
      *
-     * @param batch 待灾难关闭的正式批次
+     * @param batch 待灾难关闭的槽位账本批次
      * @throws IllegalStateException 来源状态或退出事实不满足冻结前置时抛出
      */
     private void validateDisasterCloseSource(TornStockVirtualBatchDO batch) {
+        if (!portfolioService.isSlotBackedLedger(batch.getLedgerType())) {
+            throw new IllegalStateException("灾难关闭批次账本类型非法: batchNo=" + batch.getBatchNo()
+                    + ", ledgerType=" + batch.getLedgerType());
+        }
         if (!StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus())) {
             throw new IllegalStateException("灾难关闭来源状态非法,必须为DATA_STALE_EXIT: batchNo="
                     + batch.getBatchNo() + ", batchStatus=" + batch.getBatchStatus());
@@ -612,10 +618,10 @@ public class StockEntrySettlementService {
                                     List<TornStockVirtualBatchDO> filledBatches) {
         BigDecimal disasterExitPrice = recoveryBar.getLastPrice();
         boolean isShadow = StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode().equals(batch.getLedgerType());
-        boolean isFormal = StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType());
+        boolean isSlotBacked = portfolioService.isSlotBackedLedger(batch.getLedgerType());
 
         BigDecimal sellProceeds;
-        if (isFormal) {
+        if (isSlotBacked) {
             validateDisasterCloseSource(batch);
             TornStockPortfolioSlotDO slot = batch.getSlotId() != null ? slotById.get(batch.getSlotId()) : null;
             sellProceeds = portfolioService.settleFormalSlot(batch, slot, disasterExitPrice);

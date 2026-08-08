@@ -114,9 +114,14 @@ public class TornStockSignalEventDO extends BaseDO {
      */
     private Long formalBatchId;
     /**
-     * 影子批次ID(未入选但进入影子跟踪的虚拟批次ID)
+     * 影子批次ID(未入选但进入影子跟踪的虚拟批次ID,指无限资金影子批次)
      */
     private Long shadowBatchId;
+    /**
+     * 候选影子批次ID(SHADOW模式独立5槽候选影子账本的批次ID,
+     * 与无限资金影子批次并存,不可与shadowBatchId混用)
+     */
+    private Long shadowCandidateBatchId;
     /**
      * 后续观察期内的最大有利偏移(MFE,入场参考价到最高价涨幅)
      */

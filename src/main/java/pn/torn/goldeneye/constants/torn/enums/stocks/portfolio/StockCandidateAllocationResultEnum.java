@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票候选接纳结果枚举，区分资格、正式分配和数据门禁失败原因。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.27
  */
 @Getter
@@ -19,6 +19,10 @@ public enum StockCandidateAllocationResultEnum {
      * 已正式分配槽位并创建正式批次。
      */
     FORMAL_ALLOCATED("FORMAL_ALLOCATED"),
+    /**
+     * 已分配候选影子槽位并创建候选影子批次(SHADOW模式独立5槽账本)。
+     */
+    SHADOW_CANDIDATE_ALLOCATED("SHADOW_CANDIDATE_ALLOCATED"),
     /**
      * 无可用正式槽位。
      */

@@ -46,6 +46,10 @@ public class StockPortfolioService {
      */
     public static final String PORTFOLIO_CODE = "VIP_FORMAL";
     /**
+     * 组合编码 - 候选影子VIP组合(SHADOW模式独立5槽,与正式组合完全隔离)
+     */
+    public static final String SHADOW_CANDIDATE_PORTFOLIO_CODE = "VIP_SHADOW_CANDIDATE";
+    /**
      * 槽位数量
      */
     public static final int SLOT_COUNT = 5;
@@ -181,9 +185,9 @@ public class StockPortfolioService {
     }
 
     /**
-     * 正式批次槽位校验与结算(领域共用方法)
+     * 槽位账本批次校验与结算(领域共用方法)
      * <p>
-     * 正常SELL与灾难关闭统一走此方法,禁止复制两套资金公式。结算前一次性校验正式账本
+     * 正常SELL与灾难关闭统一走此方法,禁止复制两套资金公式。结算前一次性校验槽位账本
      * 一致性,任一条件不满足即抛出 {@link IllegalStateException} 使整个轮次事务回滚,
      * 不会只关闭批次、不会只释放部分资金。
      * <p>
@@ -191,11 +195,11 @@ public class StockPortfolioService {
      * 解绑批次ID。本方法不负责写批次终态与冷却,由调用方按各自入口状态(DATA_STALE_EXIT
      * 灾难关闭或 EXIT_PENDING 正常卖出)完成。
      *
-     * @param batch              正式批次(ledgerType必须为FORMAL)
-     * @param slot               锁后正式槽位
+     * @param batch              槽位账本批次(ledgerType为FORMAL或SHADOW_FORMAL_CANDIDATE)
+     * @param slot               锁后槽位
      * @param exitReferencePrice 卖出参考价(>0)
      * @return 扣费后卖出所得(sellProceeds)
-     * @throws IllegalStateException 正式账本一致性校验失败时抛出
+     * @throws IllegalStateException 槽位账本一致性校验失败时抛出
      */
     public BigDecimal settleFormalSlot(TornStockVirtualBatchDO batch,
                                        TornStockPortfolioSlotDO slot,
@@ -210,15 +214,15 @@ public class StockPortfolioService {
         slot.setReservedCash(BigDecimal.ZERO);
         slot.setCurrentBatchId(null);
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
-        log.info("正式批次槽位结算: batchNo={}, slotNo={}, sellProceeds={}, availableCash={}",
-                batch.getBatchNo(), slot.getSlotNo(), sellProceeds, slot.getAvailableCash());
+        log.info("槽位账本批次结算: batchNo={}, ledgerType={}, slotNo={}, sellProceeds={}, availableCash={}",
+                batch.getBatchNo(), batch.getLedgerType(), slot.getSlotNo(), sellProceeds, slot.getAvailableCash());
         return sellProceeds;
     }
 
     /**
-     * 校验正式批次关闭前的账本一致性。
+     * 校验槽位账本批次关闭前的账本一致性。
      * <p>
-     * 校验: ledgerType=FORMAL; batch.id/slotId/slotNo/stocksId完整; quantity>0;
+     * 校验: ledgerType=FORMAL或SHADOW_FORMAL_CANDIDATE; batch.id/slotId/slotNo/stocksId完整; quantity>0;
      * entryReferencePrice>0; expectedExitBarTime非空; slot存在; slot.slotNo=batch.slotNo;
      * slot.currentBatchId=batch.id; slotStatus为OCCUPIED或STALE; reservedCash=0;
      * availableCash=batch.remainingCash(按BigDecimal数值比较)。任何不满足即抛异常。
@@ -266,16 +270,28 @@ public class StockPortfolioService {
     }
 
     /**
-     * 校验正式批次账本类型必须为FORMAL,禁止"非Shadow即正式"宽松判断。
+     * 校验槽位账本类型必须为支持槽位组合的账本(FORMAL或SHADOW_FORMAL_CANDIDATE),
+     * 禁止"非Shadow即正式"宽松判断,未知/无限资金/拒绝观察不得走槽位结算。
      *
-     * @param batch 正式批次
+     * @param batch 槽位账本批次
      * @throws IllegalStateException 账本类型非法时抛出
      */
     private void validateFormalLedgerType(TornStockVirtualBatchDO batch) {
-        if (!StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
-            throw new IllegalStateException("正式批次账本类型非法,禁止非Shadow即正式: batchNo="
+        if (!isSlotBackedLedger(batch.getLedgerType())) {
+            throw new IllegalStateException("槽位批次账本类型非法,禁止非正式/候选影子即正式: batchNo="
                     + batch.getBatchNo() + ", ledgerType=" + batch.getLedgerType());
         }
+    }
+
+    /**
+     * 判断账本类型是否为有槽位组合账本(正式或候选影子)。
+     *
+     * @param ledgerType 账本类型编码
+     * @return 支持槽位组合返回true
+     */
+    public boolean isSlotBackedLedger(String ledgerType) {
+        return StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)
+                || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(ledgerType);
     }
 
     /**

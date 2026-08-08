@@ -2,11 +2,8 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
@@ -261,6 +258,115 @@ class StockReplayEngineTest {
         assertNull(rejection.theoreticalExitPrice());
         assertNull(rejection.theoreticalCloseType());
         assertNull(rejection.theoreticalNetReturn());
+    }
+
+    @Test
+    @DisplayName("回放_实际处理时刻等于staleAt边界_共享结算服务仍允许成交且晚于边界补发BUY为0可复核")
+    void entryStale_equalityBoundary_fillsAndLateReissueZero() {
+        // 生产与回放共用同一个StockEntrySettlementService(actualProcessingTime=t),
+        // 严格大于才取消: 等于staleAt边界在其他入场条件成立时仍成交。
+        LocalDateTime start = T0;
+        StockReplayRequest request = new StockReplayRequest(
+                start, start, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/entry-stale-boundary");
+        StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E,
+                "entry-stale-boundary", new StockReplayContext(request, staleBoundaryWindowData(start)));
+
+        TornStockVirtualBatchDO batch = seedEntryPendingAtStaleAt(engine, start, start);
+        engine.run();
+
+        assertNotNull(batch.getEntryTime(), "等于staleAt边界且其他条件成立时批次应成交");
+        List<StockReplayTrade> buys = engine.tradesByTrack().get(StockReplayTrackEnum.FORMAL_20E.getCode())
+                .stream().filter(t -> "BUY".equals(t.side())).toList();
+        assertTrue(buys.stream().anyMatch(t -> t.stocksId().equals(STALE_STOCK)),
+                "等于边界成交应记录BUY");
+    }
+
+    @Test
+    @DisplayName("回放_实际处理时刻晚于staleAt边界_批次取消且晚于边界补发BUY为0")
+    void entryStale_afterBoundary_cancelledNoLateBuy() {
+        LocalDateTime start = T0;
+        StockReplayRequest request = new StockReplayRequest(
+                start, start, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/entry-stale-after");
+        StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E,
+                "entry-stale-after", new StockReplayContext(request, staleBoundaryWindowData(start)));
+
+        TornStockVirtualBatchDO batch = seedEntryPendingAtStaleAt(engine, start.minusNanos(1), start);
+        engine.run();
+
+        assertEquals(StockBatchStatusEnum.CANCELLED.getCode(), batch.getBatchStatus(),
+                "晚于staleAt边界批次必须取消");
+        assertEquals(StockCancelReasonEnum.ENTRY_DATA_STALE.getCode(), batch.getCancelReason(),
+                "取消原因必须为ENTRY_DATA_STALE");
+        assertNull(batch.getEntryTime(), "取消批次不得写入入场时间");
+        List<StockReplayTrade> buys = engine.tradesByTrack().get(StockReplayTrackEnum.FORMAL_20E.getCode())
+                .stream().filter(t -> "BUY".equals(t.side())).toList();
+        assertEquals(0, buys.stream().filter(t -> t.stocksId().equals(STALE_STOCK)).count(),
+                "晚于边界的补发BUY必须为0");
+    }
+
+    private static final int STALE_STOCK = 999;
+
+    /**
+     * 构建含STALE_STOCK单轮bar的窗口数据,用于入场过期边界回放测试。
+     *
+     * @param start 轮次时间
+     * @return 窗口数据
+     */
+    private StockReplayWindowData staleBoundaryWindowData(LocalDateTime start) {
+        Map<Integer, NavigableMap<LocalDateTime, TornStockMarketBar15mDO>> barsByStock = new HashMap<>();
+        Map<Integer, NavigableMap<LocalDateTime, TornStockStrategyFeature15mDO>> featuresByStock = new HashMap<>();
+        barsByStock.computeIfAbsent(STALE_STOCK, k -> new TreeMap<>())
+                .put(start, bar(STALE_STOCK, start, new BigDecimal("100.00")));
+
+        LocalDate month = start.toLocalDate().withDayOfMonth(1);
+        Map<LocalDate, Map<Integer, TornStockMonthlyStateDO>> monthly = new LinkedHashMap<>();
+        monthly.put(month, Map.of(STALE_STOCK, monthlyState(STALE_STOCK, month, "M2_PROVISIONAL")));
+        return new StockReplayWindowData(barsByStock, featuresByStock, monthly, null);
+    }
+
+    /**
+     * 向回放引擎注入一个ENTRY_PENDING正式批次(占用1号槽位),用于验证入场过期边界。
+     *
+     * @param engine    回放引擎
+     * @param staleAt   入场过期时间
+     * @param roundTime 本轮时间
+     * @return 注入的批次
+     */
+    private TornStockVirtualBatchDO seedEntryPendingAtStaleAt(StockReplayEngine engine,
+                                                              LocalDateTime staleAt,
+                                                              LocalDateTime roundTime) {
+        try {
+            java.lang.reflect.Field portfolioField = StockReplayEngine.class.getDeclaredField("portfolio");
+            portfolioField.setAccessible(true);
+            StockReplayPortfolio portfolio = (StockReplayPortfolio) portfolioField.get(engine);
+
+            TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+            batch.setBatchNo("S" + STALE_STOCK);
+            batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+            batch.setStocksId(STALE_STOCK);
+            batch.setStocksShortname("T" + STALE_STOCK);
+            batch.setPrimaryStrategy("RANGE");
+            batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
+            batch.setSignalReferencePrice(new BigDecimal("100.00"));
+            batch.setSignalTime(roundTime.minusMinutes(15));
+            batch.setExpectedEntryBarTime(roundTime);
+            batch.setEntryStaleAt(staleAt);
+            batch.setSlotId(1L);
+            batch.setSlotNo(1);
+            batch.setResetObserved(false);
+
+            portfolio.addBatch(batch);
+            TornStockPortfolioSlotDO slot = portfolio.slots().getFirst();
+            slot.setReservedCash(new BigDecimal("2000000000.00"));
+            slot.setAvailableCash(BigDecimal.ZERO);
+            slot.setCurrentBatchId(batch.getId());
+            slot.setSlotStatus(StockSlotStatusEnum.RESERVED.getCode());
+            return batch;
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new IllegalStateException("无法注入回放批次", e);
+        }
     }
 
     private StockReplayWindowData dataInsufficientWindowData(LocalDateTime start) {

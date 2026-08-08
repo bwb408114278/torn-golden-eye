@@ -26,4 +26,17 @@
           AND deleted = 0
         FOR UPDATE
     </select>
+
+    <!-- 幂等插入最近已结束桶的PENDING轮次,与部分唯一索引uk_stock_market_round_time同语义ON CONFLICT DO NOTHING -->
+    <insert id="insertPendingRoundIgnoreConflict">
+        INSERT INTO torn_stock_market_round
+            (round_time, round_status, bar_build_version, feature_version,
+             buy_rule_version, sell_rule_version, allocation_rule_version, message_rule_version,
+             expected_stock_count, usable_stock_count, attempt_count, deleted, create_time, update_time)
+        VALUES
+            (#{round.roundTime}, 'PENDING', #{round.barBuildVersion}, #{round.featureVersion},
+             #{round.buyRuleVersion}, #{round.sellRuleVersion}, #{round.allocationRuleVersion}, #{round.messageRuleVersion},
+             0, 0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (round_time) WHERE deleted = 0 DO NOTHING
+    </insert>
 </mapper>

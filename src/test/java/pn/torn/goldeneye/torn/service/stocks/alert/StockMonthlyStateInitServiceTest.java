@@ -20,6 +20,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -342,6 +343,144 @@ class StockMonthlyStateInitServiceTest {
 
         assertEquals(0, result, "旧规则版本草稿不得自动确认");
         verify(monthlyStateDao, never()).updateBatchById(any());
+    }
+
+    // ==================== recalculateCurrentMonthDrafts ====================
+
+    @Test
+    @DisplayName("月度重算_当月无未确认非人工覆盖DRAFT_跳过返回0")
+    void recalculateCurrentMonthDrafts_noDraft_returnsZero() {
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of());
+
+        int result = monthlyStateInitService.recalculateCurrentMonthDrafts();
+
+        assertEquals(0, result, "无DRAFT时应返回0");
+        verify(monthlyStateDao, never()).recalculateDraftStates(any());
+    }
+
+    @Test
+    @DisplayName("月度重算_已有完整普通DRAFT_重算更新指标并保留主键")
+    void recalculateCurrentMonthDrafts_existingDraft_recalculatedWithEvidence() {
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", currentMonth);
+        draft.setId(99L);
+        draft.setManualOverride(false);
+
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+        when(tornStocksDao.listByIds(any())).thenReturn(List.of(buildStock(1, "TCS")));
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
+
+        int result = monthlyStateInitService.recalculateCurrentMonthDrafts();
+
+        assertEquals(1, result, "应重算并更新1条DRAFT");
+        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(monthlyStateDao).recalculateDraftStates(captor.capture());
+        List<TornStockMonthlyStateDO> updated = captor.getValue();
+        assertEquals(1, updated.size(), "应重算1条");
+        assertEquals(99L, updated.getFirst().getId(), "重算必须保留原主键");
+        assertEquals(StockMonthlyStateStatusEnum.DRAFT.getCode(), updated.getFirst().getStateStatus(),
+                "重算后仍为DRAFT");
+    }
+
+    @Test
+    @DisplayName("月度重算_人工覆盖DRAFT不进入重算候选")
+    void recalculateCurrentMonthDrafts_manualOverrideDraft_excludedFromCandidates() {
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of());
+
+        int result = monthlyStateInitService.recalculateCurrentMonthDrafts();
+
+        assertEquals(0, result);
+        verify(monthlyStateDao, never()).recalculateDraftStates(any());
+        // 人工覆盖记录由查询谓词(manualOverride=false)排除,服务不主动构建其重算
+    }
+
+    @Test
+    @DisplayName("月度重算_股票不存在时跳过该DRAFT不阻塞其余")
+    void recalculateCurrentMonthDrafts_missingStock_skipsThatDraft() {
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", currentMonth);
+        draft.setId(99L);
+        draft.setManualOverride(false);
+
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+        when(tornStocksDao.listByIds(any())).thenReturn(List.of());
+
+        int result = monthlyStateInitService.recalculateCurrentMonthDrafts();
+
+        assertEquals(0, result, "股票不存在应跳过且返回0");
+        verify(monthlyStateDao, never()).recalculateDraftStates(any());
+    }
+
+    @Test
+    @DisplayName("月度重算_证据补齐后空DRAFT升级为非空机器建议")
+    void recalculateCurrentMonthDrafts_emptyDraftWithEvidence_becomesNonEmpty() {
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", currentMonth);
+        draft.setId(99L);
+        draft.setManualOverride(false);
+
+        LocalDateTime evidenceEnd = currentMonth.atStartOfDay().minusMinutes(15);
+        List<TornStockMarketBar15mDO> denseBars = buildDenseEvidenceBars(evidenceEnd.minusDays(10), evidenceEnd);
+
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+        when(tornStocksDao.listByIds(any())).thenReturn(List.of(buildStock(1, "TCS")));
+        // 证据窗口完整: 首尾bar与窗口内10天每15分钟bar齐全,满足95%覆盖率与10个日收盘
+        TornStockMarketBar15mDO edge = new TornStockMarketBar15mDO();
+        edge.setStocksId(1);
+        edge.setFirstSampleTime(evidenceEnd.minusDays(10));
+        edge.setBarEndTime(evidenceEnd);
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of(edge));
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(denseBars);
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.recalculateDraftStates(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
+
+        monthlyStateInitService.recalculateCurrentMonthDrafts();
+
+        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(monthlyStateDao).recalculateDraftStates(captor.capture());
+        TornStockMonthlyStateDO updated = captor.getValue().getFirst();
+        assertNotNull(updated.getStrategyFitPrior(), "证据补齐后应得到非空机器建议");
+        assertNotNull(updated.getEvidenceStartTime(), "证据起点应写入");
+        assertNotNull(updated.getEvidenceEndTime(), "证据终点应写入");
+    }
+
+    /**
+     * 构建10天内每15分钟一个bar的密集证据窗口(满足月度证据95%覆盖率与10个日收盘要求)。
+     *
+     * @param start 证据起点
+     * @param end   证据终点(含)
+     * @return 密集bar列表
+     */
+    private List<TornStockMarketBar15mDO> buildDenseEvidenceBars(LocalDateTime start, LocalDateTime end) {
+        List<TornStockMarketBar15mDO> bars = new java.util.ArrayList<>();
+        BigDecimal price = new BigDecimal("100.00");
+        for (LocalDateTime t = start; !t.isAfter(end); t = t.plusMinutes(15)) {
+            TornStockMarketBar15mDO bar = new TornStockMarketBar15mDO();
+            bar.setStocksId(1);
+            bar.setBarStartTime(t);
+            bar.setBarEndTime(t.plusMinutes(15));
+            bar.setLastPrice(price);
+            bar.setUsable(true);
+            bar.setBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
+            bars.add(bar);
+        }
+        return bars;
     }
 
     @Test

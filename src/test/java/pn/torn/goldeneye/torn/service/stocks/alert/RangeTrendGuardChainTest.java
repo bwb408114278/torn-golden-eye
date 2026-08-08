@@ -125,7 +125,7 @@ class RangeTrendGuardChainTest {
                 "资格原因必须是数据不足而非阈值失败");
 
         shadowRecordWriter.writeShadowRecords(
-                result.allEvaluations(), List.of(), Map.of(), Map.of(), ROUND_TIME);
+                result.allEvaluations(), List.of(), List.of(), Map.of(), Map.of(), ROUND_TIME);
 
         ArgumentCaptor<StockSignalEventContext> eventCaptor =
                 ArgumentCaptor.forClass(StockSignalEventContext.class);

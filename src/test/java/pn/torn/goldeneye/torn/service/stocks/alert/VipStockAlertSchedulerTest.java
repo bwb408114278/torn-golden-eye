@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
  * 以及历史PENDING通知独立于轮次总开关投递。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.2.14
  * @since 2026.08.02
  */
 @DisplayName("股票提醒调度器测试")
@@ -104,9 +104,11 @@ class VipStockAlertSchedulerTest {
                 .thenReturn(decision(true, true, false, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
         when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
 
         scheduler.executeRound();
 
+        verify(roundDao).insertPendingRoundIgnoreConflict(any());
         verify(roundDao).selectPendingRoundsBefore(any());
         verify(rejectedObservationService, never()).resolveAllDueObservations(any());
         verify(noticeSendService, never()).sendPendingNotices();
@@ -122,6 +124,7 @@ class VipStockAlertSchedulerTest {
 
         verify(noticeSendService).sendPendingNotices();
         verify(roundDao, never()).selectPendingRoundsBefore(any());
+        verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
     }
 
     @Test
@@ -131,6 +134,7 @@ class VipStockAlertSchedulerTest {
         when(runtimeGate.evaluate()).thenReturn(decision(true, false, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
         when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
 
         scheduler.executeRound();
 
@@ -139,18 +143,36 @@ class VipStockAlertSchedulerTest {
     }
 
     @Test
-    @DisplayName("定时入口_必须先补建轮次bar再结算拒绝观察")
+    @DisplayName("定时入口_必须先为最近已结束桶建立PENDING轮次再补建轮次bar再结算拒绝观察")
     void executeRound_buildsPendingRoundsBeforeResolvingRejectedObservations() {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, false, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
         when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
 
         scheduler.executeRound();
 
         InOrder inOrder = inOrder(roundDao, rejectedObservationService);
+        inOrder.verify(roundDao).insertPendingRoundIgnoreConflict(any());
         inOrder.verify(roundDao).selectPendingRoundsBefore(any());
         inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
+    }
+
+    @Test
+    @DisplayName("定时入口_同一最近已结束桶重复调度_幂等插入不再重复落行")
+    void executeRound_sameBucketRepeatedSchedule_noDuplicateInsert() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate())
+                .thenReturn(decision(true, true, false, false, false));
+        when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(0);
+
+        scheduler.executeRound();
+
+        verify(roundDao).insertPendingRoundIgnoreConflict(any());
+        verify(roundDao).selectPendingRoundsBefore(any());
     }
 
     @Test
@@ -159,14 +181,16 @@ class VipStockAlertSchedulerTest {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(marketClock.today()).thenReturn(java.time.LocalDate.now());
         when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
 
         scheduler.onStartup();
 
         verify(portfolioInitService).verifyAndInitSlots();
-        verify(monthlyStateInitService).initCurrentMonth();
         verify(historyRebuildService).rebuildFromLastCompleted(any());
         verify(roundDao).selectPendingRoundsBefore(any());
+        verify(monthlyStateInitService).recalculateCurrentMonthDrafts();
+        verify(monthlyStateInitService).autoConfirmDraftStates(any());
         verify(noticeSendService, never()).sendPendingNotices();
     }
 
@@ -181,22 +205,28 @@ class VipStockAlertSchedulerTest {
         verify(portfolioInitService).verifyAndInitSlots();
         verify(historyRebuildService, never()).rebuildFromLastCompleted(any());
         verify(roundDao, never()).selectPendingRoundsBefore(any());
+        verify(monthlyStateInitService, never()).recalculateCurrentMonthDrafts();
         verify(noticeSendService).sendPendingNotices();
     }
 
     @Test
-    @DisplayName("启动补偿_必须先补建未完成轮次bar再结算到期拒绝观察")
+    @DisplayName("启动补偿_必须先补建历史与轮次数据再重算月度DRAFT再结算拒绝观察")
     void onStartup_buildsPendingRoundsBeforeResolvingRejectedObservations() {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(marketClock.today()).thenReturn(java.time.LocalDate.now());
         when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(monthlyStateInitService.recalculateCurrentMonthDrafts()).thenReturn(0);
 
         scheduler.onStartup();
 
-        InOrder inOrder = inOrder(historyRebuildService, roundDao, rejectedObservationService);
+        InOrder inOrder = inOrder(historyRebuildService, roundDao, monthlyStateInitService,
+                rejectedObservationService);
         inOrder.verify(historyRebuildService).rebuildFromLastCompleted(any());
         inOrder.verify(roundDao).selectPendingRoundsBefore(any());
+        inOrder.verify(monthlyStateInitService).recalculateCurrentMonthDrafts();
+        inOrder.verify(monthlyStateInitService).autoConfirmDraftStates(any());
         inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
         inOrder.verifyNoMoreInteractions();
     }
@@ -211,9 +241,11 @@ class VipStockAlertSchedulerTest {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(roundTime);
+        when(marketClock.today()).thenReturn(java.time.LocalDate.now());
         when(roundDao.selectPendingRoundsBefore(roundTime))
                 .thenReturn(List.of(firstRound))
                 .thenReturn(List.of(secondRound));
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
         when(barBuildService.buildBars(roundTime)).thenReturn(List.of(new TornStockMarketBar15mDO()));
         when(featureBuildService.buildFeatures(roundTime)).thenReturn(List.of());
 

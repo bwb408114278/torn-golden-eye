@@ -67,17 +67,33 @@ public class TornStockMonthlyStateDAO extends ServiceImpl<TornStockMonthlyStateM
     }
 
     /**
-     * 批量查询每支股票最近一个更早生效月份且已确认的月度状态。
+     * 查询上一确认月度状态(含metricSnapshot供读取raw字段)。
      *
-     * @param stocksIds   股票ID列表
+     * @param stockIds    股票ID列表
      * @param targetMonth 目标生效月份(不含)
-     * @return 每支股票至多一条更早CONFIRMED月度状态;无记录时返回空列表
+     * @return 每支股票至多一条更早CONFIRMED月度状态
      */
-    public List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(List<Integer> stocksIds,
+    public List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(List<Integer> stockIds,
                                                                          LocalDate targetMonth) {
-        if (CollectionUtils.isEmpty(stocksIds)) {
+        if (stockIds == null || stockIds.isEmpty()) {
             return List.of();
         }
-        return baseMapper.selectPreviousConfirmedByStocks(stocksIds, targetMonth);
+        return baseMapper.selectPreviousConfirmedByStocks(stockIds, targetMonth);
+    }
+
+    /**
+     * 条件批量重算当月未确认DRAFT月度状态。
+     * <p>
+     * 仅更新 {@code state_status='DRAFT' AND manual_override=false} 的记录,UPDATE自带状态谓词,
+     * 防止并发重算或人工修改在SELECT与UPDATE之间改变状态后被误写。
+     *
+     * @param states 重算后的DRAFT状态列表(须携带主键id)
+     * @return 实际更新行数;空列表返回0
+     */
+    public int recalculateDraftStates(List<TornStockMonthlyStateDO> states) {
+        if (states == null || states.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.recalculateDraftStates(states);
     }
 }

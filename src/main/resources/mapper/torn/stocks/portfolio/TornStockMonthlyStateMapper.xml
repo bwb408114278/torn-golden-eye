@@ -69,4 +69,46 @@
         WHERE row_num = 1
         ORDER BY s.stocks_id ASC
     </select>
+
+    <!-- 条件批量重算当月未确认DRAFT: 仅更新state_status=DRAFT且manual_override=false,防止覆盖人工修改或已确认记录 -->
+    <update id="recalculateDraftStates">
+        UPDATE torn_stock_monthly_state ms
+        SET stocks_shortname = source.stocks_shortname,
+            strategy_fit_prior = source.strategy_fit_prior,
+            maturity = source.maturity,
+            risk_level = source.risk_level,
+            suggested_personality = source.suggested_personality,
+            previous_personality = source.previous_personality,
+            metric_snapshot = source.metric_snapshot,
+            personality_rule_version = source.personality_rule_version,
+            risk_rule_version = source.risk_rule_version,
+            evidence_start_time = source.evidence_start_time,
+            evidence_end_time = source.evidence_end_time,
+            calculated_at = source.calculated_at,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+        <foreach collection="states" item="state" separator=",">
+            (CAST(#{state.id} AS BIGINT),
+             CAST(#{state.stocksShortname} AS VARCHAR(8)),
+             CAST(#{state.strategyFitPrior} AS VARCHAR(32)),
+             CAST(#{state.maturity} AS VARCHAR(32)),
+             CAST(#{state.riskLevel} AS VARCHAR(16)),
+             CAST(#{state.suggestedPersonality} AS VARCHAR(32)),
+             CAST(#{state.previousPersonality} AS VARCHAR(32)),
+             CAST(#{state.metricSnapshot} AS JSONB),
+             CAST(#{state.personalityRuleVersion} AS VARCHAR(32)),
+             CAST(#{state.riskRuleVersion} AS VARCHAR(32)),
+             CAST(#{state.evidenceStartTime} AS TIMESTAMP),
+             CAST(#{state.evidenceEndTime} AS TIMESTAMP),
+             CAST(#{state.calculatedAt} AS TIMESTAMP))
+        </foreach>
+        ) AS source(id, stocks_shortname, strategy_fit_prior, maturity, risk_level,
+                    suggested_personality, previous_personality, metric_snapshot,
+                    personality_rule_version, risk_rule_version,
+                    evidence_start_time, evidence_end_time, calculated_at)
+        WHERE ms.id = source.id
+          AND ms.state_status = 'DRAFT'
+          AND ms.manual_override = false
+          AND ms.deleted = 0
+    </update>
 </mapper>

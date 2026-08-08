@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票策略轮次记录持久层类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Repository
@@ -45,5 +45,19 @@ public class TornStockMarketRoundDAO extends ServiceImpl<TornStockMarketRoundMap
      */
     public TornStockMarketRoundDO selectByRoundTimeForUpdate(LocalDateTime roundTime) {
         return baseMapper.selectByRoundTimeForUpdate(roundTime);
+    }
+
+    /**
+     * 幂等插入最近已结束桶的PENDING轮次。
+     * <p>
+     * 数据库部分唯一索引 {@code uk_stock_market_round_time} 的 {@code (round_time) WHERE deleted = 0}
+     * 与 {@code ON CONFLICT DO NOTHING} 共同保证双入口/重启重试只落一行;
+     * 禁止先SELECT再普通INSERT作为并发正确性保证,查询仅可用于日志。
+     *
+     * @param round 待插入的PENDING轮次(须填充roundTime与全部规则版本字段)
+     * @return 实际插入行数(0表示已存在同round_time有效轮次)
+     */
+    public int insertPendingRoundIgnoreConflict(TornStockMarketRoundDO round) {
+        return baseMapper.insertPendingRoundIgnoreConflict(round);
     }
 }

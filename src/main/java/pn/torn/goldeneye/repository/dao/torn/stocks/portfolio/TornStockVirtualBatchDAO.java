@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票虚拟交易批次持久层类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Repository
@@ -37,7 +37,7 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
-     * 查询全部活跃影子批次(UNLIMITED_SHADOW),批量获取避免N+1
+     * 查询全部活跃影子批次(UNLIMITED_SHADOW与SHADOW_FORMAL_CANDIDATE),批量获取避免N+1
      *
      * @return 影子活跃批次列表
      */
@@ -46,7 +46,7 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
-     * 查询全部无限资金影子活跃批次并加事务行锁。
+     * 查询全部活跃影子批次(UNLIMITED_SHADOW与SHADOW_FORMAL_CANDIDATE)并加事务行锁。
      *
      * @return 已锁定的影子活跃批次列表
      */
@@ -89,9 +89,10 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
-     * 判断是否存在正式或无限资金影子活跃批次。
+     * 判断是否存在正式、候选影子或无限资金影子活跃批次。
      * <p>
      * 用于运行时门禁判断存量持仓是否需要继续管理,使用SELECT EXISTS避免加载全量列表。
+     * 候选影子纳入义务判定,避免ALERT关闭后遗弃该账本。
      *
      * @return 存在活跃批次返回true;否则false
      */

@@ -1695,3 +1695,46 @@ databaseChangeLog:
                   name: theoretical_net_return
                   type: DECIMAL(18,10)
                   remarks: "理论净收益(扣0.1%卖出费;提前退出按退出价,否则按14天截止前最后可用bar期末价)"
+
+  # ========== torn_stock_signal_event: 追加候选影子批次ID(第三批P1-2,追加迁移,不改写已执行changeSet) ==========
+  - changeSet:
+      id: add_shadow_candidate_batch_id_to_signal_event
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_signal_event
+            columns:
+              - column:
+                  name: shadow_candidate_batch_id
+                  type: BIGINT
+                  remarks: "候选影子批次ID(SHADOW模式独立5槽候选影子账本批次,与无限资金影子批次并存)"
+
+  # ========== torn_stock_portfolio_slot: 初始化候选影子组合5个槽位(第三批P1-2,追加迁移) ==========
+  - changeSet:
+      id: insert_stock_portfolio_candidate_shadow_slot_init
+      author: Bai
+      changes:
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_SHADOW_CANDIDATE', 1, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_SHADOW_CANDIDATE', 2, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_SHADOW_CANDIDATE', 3, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_SHADOW_CANDIDATE', 4, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+        - sql:
+            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_SHADOW_CANDIDATE', 5, 2000000000.00, 2000000000.00, 0.00, 'AVAILABLE', 0)"
+
+  # ========== torn_stock_virtual_batch: 候选影子部分唯一索引(第三批P1-2,追加迁移) ==========
+  - changeSet:
+      id: create_index_candidate_shadow_stock_unique
+      author: Bai
+      changes:
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_candidate_shadow_stock ON torn_stock_virtual_batch (stocks_id) WHERE ledger_type = 'SHADOW_FORMAL_CANDIDATE' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
+  - changeSet:
+      id: create_index_candidate_shadow_slot_unique
+      author: Bai
+      changes:
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_candidate_shadow_slot ON torn_stock_virtual_batch (slot_id) WHERE ledger_type = 'SHADOW_FORMAL_CANDIDATE' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"

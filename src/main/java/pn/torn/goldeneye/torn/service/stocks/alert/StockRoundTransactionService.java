@@ -124,13 +124,19 @@ public class StockRoundTransactionService {
         // 步骤1: 创建/锁定轮次记录
         TornStockMarketRoundDO round = lockOrCreateRound(roundTime, snapshot);
 
-        // 行锁落地: 在事务内重新锁定正式组合全部槽位(FOR UPDATE),
+        // 行锁落地: 在事务内重新锁定正式组合与候选影子组合全部槽位(FOR UPDATE),
         // 替换Loader在事务外读取的快照槽位,保证槽位分配与状态变更的并发安全。
-        List<TornStockPortfolioSlotDO> lockedSlots =
+        // 固定portfolio_code顺序: 先锁VIP_FORMAL,再锁VIP_SHADOW_CANDIDATE,避免死锁。
+        List<TornStockPortfolioSlotDO> lockedFormalSlots =
                 portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE);
-        log.debug("槽位行锁已获取: slotCount={}", lockedSlots.size());
+        List<TornStockPortfolioSlotDO> lockedCandidateSlots =
+                portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
+        List<TornStockPortfolioSlotDO> lockedSlots = mergeSlots(lockedFormalSlots, lockedCandidateSlots);
+        log.debug("槽位行锁已获取: formalSlotCount={}, candidateShadowSlotCount={}",
+                lockedFormalSlots.size(), lockedCandidateSlots.size());
 
         // 活跃批次必须在同一事务内重新读取并加行锁,不能继续使用事务外快照。
+        // 影子锁查询已包含候选影子与无限资金影子。
         List<TornStockVirtualBatchDO> lockedFormalBatches =
                 virtualBatchDao.selectActiveFormalBatchesForUpdate();
         List<TornStockVirtualBatchDO> lockedShadowBatches =
@@ -188,19 +194,31 @@ public class StockRoundTransactionService {
             if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
                 allocationResult = buySignalEvaluator.acceptCandidates(
                         rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                        evaluationByStockId, roundTime);
+                        evaluationByStockId, roundTime,
+                        StockBuySignalEvaluator.CandidateAcceptanceTarget.formal());
+            } else if (ruleMode == StockRuleModeEnum.SHADOW) {
+                // SHADOW模式: 同一排序结果喂给独立5槽候选影子账本,第6名及之后记录NO_AVAILABLE_SLOT
+                allocationResult = buySignalEvaluator.acceptCandidates(
+                        rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                        evaluationByStockId, roundTime,
+                        StockBuySignalEvaluator.CandidateAcceptanceTarget.candidateShadow());
             } else {
-                log.info("规则模式[{}]不创建正式批次,跳过候选接纳: candidateCount={}",
+                log.info("规则模式[{}]不推进候选接纳,跳过: candidateCount={}",
                         ruleMode.getCode(), rankedCandidates.size());
             }
 
             // 构建候选排名映射(stocksId -> rank),供事件回写
             Map<Integer, Integer> candidateRankByStockId = buildCandidateRankByStockId(rankedCandidates);
 
-            // 写入原始信号事件、无限资金影子与拒绝观察批次
+            // 写入原始信号事件、候选影子/无限资金影子与拒绝观察批次。
+            // 正式模式: 新建批次均为正式,无候选影子; SHADOW模式: 新建批次均为候选影子,无正式。
+            List<TornStockVirtualBatchDO> formalBatches = ruleMode == StockRuleModeEnum.SHADOW
+                    ? List.of() : allocationResult.formalBatches();
+            List<TornStockVirtualBatchDO> candidateShadowBatches = ruleMode == StockRuleModeEnum.SHADOW
+                    ? allocationResult.formalBatches() : List.of();
             shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(),
-                    allocationResult.formalBatches(), candidateRankByStockId,
-                    allocationResult.resultByStockId(), roundTime);
+                    formalBatches, candidateShadowBatches,
+                    candidateRankByStockId, allocationResult.resultByStockId(), roundTime);
 
             // 推进买入信号边沿状态(仅在新买入开启时)
             signalStateUpdater.updateStates(
@@ -243,6 +261,39 @@ public class StockRoundTransactionService {
             }
         }
         return rankByStockId;
+    }
+
+    /**
+     * 合并正式组合与候选影子组合的槽位列表(保持顺序,按主键去重兜底)。
+     *
+     * @param formalSlots    正式组合槽位
+     * @param candidateSlots 候选影子组合槽位
+     * @return 合并后的槽位列表
+     */
+    private List<TornStockPortfolioSlotDO> mergeSlots(List<TornStockPortfolioSlotDO> formalSlots,
+                                                      List<TornStockPortfolioSlotDO> candidateSlots) {
+        Map<Long, TornStockPortfolioSlotDO> slotsById = new LinkedHashMap<>();
+        addSlotById(slotsById, formalSlots);
+        addSlotById(slotsById, candidateSlots);
+        return new ArrayList<>(slotsById.values());
+    }
+
+    /**
+     * 将槽位加入主键索引;无主键对象不参与合并。
+     *
+     * @param slotsById 槽位索引
+     * @param slots     待加入槽位
+     */
+    private void addSlotById(Map<Long, TornStockPortfolioSlotDO> slotsById,
+                             List<TornStockPortfolioSlotDO> slots) {
+        if (slots == null) {
+            return;
+        }
+        for (TornStockPortfolioSlotDO slot : slots) {
+            if (slot != null && slot.getId() != null) {
+                slotsById.putIfAbsent(slot.getId(), slot);
+            }
+        }
     }
 
     /**

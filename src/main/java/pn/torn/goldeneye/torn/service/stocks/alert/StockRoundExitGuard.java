@@ -12,25 +12,25 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 股票轮次平仓保护工具，避免本轮正式平仓股票立即重新开仓。
+ * 股票轮次平仓保护工具，避免本轮正式/候选影子平仓股票立即重新开仓。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.14
  * @since 2026.07.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public final class StockRoundExitGuard {
 
     /**
-     * 排除本轮已完成正式平仓的股票候选。
+     * 排除本轮已完成正式或候选影子平仓的股票候选。
      * <p>
      * 平仓冷却在轮次末尾统一回写，为避免同一事务内候选接纳使用旧状态快照，
-     * 本方法仅在本轮直接阻止已完成正式平仓的股票创建新的正式批次。
-     * Shadow 平仓不影响正式候选。
+     * 本方法仅在本轮直接阻止已完成正式/候选影子平仓的股票创建新的槽位批次。
+     * 无限资金影子平仓不影响槽位候选。
      *
-     * @param rankedCandidates  已按质量排序的正式候选
+     * @param rankedCandidates  已按质量排序的槽位候选
      * @param exitFilledBatches 本轮已实际成交平仓的批次
-     * @return 排除本轮正式平仓股票后的候选列表
+     * @return 排除本轮正式/候选影子平仓股票后的候选列表
      */
     public static List<CandidateInfo> excludeFormalExitStocks(
             List<CandidateInfo> rankedCandidates,
@@ -49,10 +49,10 @@ public final class StockRoundExitGuard {
     }
 
     /**
-     * 提取本轮已实际完成正式平仓的股票ID。
+     * 提取本轮已实际完成正式或候选影子平仓的股票ID。
      *
      * @param exitFilledBatches 本轮已实际成交平仓的批次
-     * @return 正式平仓股票ID集合
+     * @return 正式/候选影子平仓股票ID集合
      */
     private static Set<Integer> collectFormalExitStockIds(List<TornStockVirtualBatchDO> exitFilledBatches) {
         Set<Integer> formalExitStockIds = new HashSet<>();
@@ -61,7 +61,8 @@ public final class StockRoundExitGuard {
         }
         for (TornStockVirtualBatchDO batch : exitFilledBatches) {
             if (batch != null
-                    && StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                    && (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                    || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(batch.getLedgerType()))
                     && batch.getStocksId() != null) {
                 formalExitStockIds.add(batch.getStocksId());
             }
