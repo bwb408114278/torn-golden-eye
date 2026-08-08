@@ -536,6 +536,18 @@ staleAt = expectedEntryBarEnd + 5分钟
 
 恢复晚于`staleAt`时，即使数据库可补出该桶，也不补发已经过时的群BUY，候选取消。换言之，从信号bar开始最多等待35分钟；参考成交仍只能属于紧邻下一桶，不能使用更晚桶。
 
+精确比较边界冻结为：
+
+```text
+actualProcessingTime <= entryStaleAt
+→ 继续检查紧邻目标bar、可用性和价格偏离；其他条件通过时允许建立参考批次
+
+actualProcessingTime > entryStaleAt
+→ ENTRY_DATA_STALE，禁止补发BUY
+```
+
+即`actualProcessingTime = entryStaleAt`仍在允许边界内。生产与隔离回放必须共用该严格“大于”过期口径，不能一边按`>=`取消、一边按`>`取消。
+
 ### 8.3 OPEN期间数据陈旧
 
 开放批次遇到不可用行情桶时进入`DATA_STALE`。RANGE批次在目标、硬风险和时间退出均未命中后，如缺少`position30/low30d/high30d`或区间无效，也以`EXIT_RANGE_FEATURE_MISSING`进入`DATA_STALE`。该状态暂停普通目标、动态和换仓决策，不得跨缺口模拟成交。服务重启后必须从持久化的最后成功采集/特征水位补算；补算恢复的是历史状态，不要求重新等待完整30日或15分钟窗口。数据与该策略必要特征恢复后，批次返回OPEN并重新评估；不能把“无法评估”写成通用HOLD。
@@ -807,6 +819,24 @@ sentTime, groupId, errorMessage
 - 满仓和其他拒绝观察；
 - 当前Java原始BUY对照。
 
+### 12.1 两类Shadow账本不得混用
+
+`5槽正式影子组合`与`无限槽信号影子批次`是两个独立研究对象：
+
+```text
+5槽正式影子组合
+  = 5槽 × 每槽20亿
+  = 使用正式候选排序、接纳、整数股数、余款、ENTRY、HOLD/SELL、冷却和复位
+  = 不占用正式槽位，不写正式通知，不改变正式组合资金
+
+无限槽信号影子
+  = 无限资金、无限跨股槽
+  = 完整记录全部可接纳信号的独立路径
+  = 不用于代替5槽组合收益、槽位竞争或满仓拒绝证据
+```
+
+Shadow阶段的20个自然日前向证据必须来自两条轨道同时运行。只记录`UNLIMITED_SHADOW`不能证明5槽组合、资金守恒、候选竞争、满仓拒绝或槽位利用率，也不能作为升级`PROVISIONAL`的充分证据。不得为了收集Shadow证据提前用`PROVISIONAL`正式批次代替5槽正式影子组合。
+
 规则状态：
 
 ```text
@@ -826,6 +856,44 @@ RESEARCH → SHADOW_CANDIDATE → PROVISIONAL → VALIDATED → RETIRED
 | 当前趋势回调BUY | `RESEARCH` |
 
 升级为`PROVISIONAL`至少需要20个自然日真实shadow、冻结规则、新增月份方向未明显恶化、消息和状态机质量门禁通过。`VALIDATED`需要接近或超过完整一年、覆盖不同市场状态并获得成熟风格证据。
+
+### 12.2 规则模式、运行开关与首次发布顺序
+
+规则等级和运行开关是两组独立概念：
+
+```text
+RULE_MODE=SHADOW
+→ 允许研究信号、5槽正式影子组合、无限资金影子和拒绝观察
+→ 禁止创建正式资金批次和正式BUY/SELL通知
+
+RULE_MODE=PROVISIONAL
+→ 经单独审批后允许创建正式资金批次
+→ 不自动等于正式群消息已批准
+
+RULE_MODE=FORMAL
+→ 经更长期证据和再次审批后的全量正式规则
+```
+
+四个布尔开关不得一次性打开：
+
+- `VIP_STOCK_ALERT_ENABLED`只允许在持续轮次生产、历史补建和月度冷启动链已验收后开启；
+- `VIP_STOCK_NEW_ENTRY_ENABLED`在Shadow阶段用于开始新的研究信号和两类Shadow账本，不能绕过`RULE_MODE`创建正式批次；
+- `VIP_STOCK_FORMAL_NOTICE_ENABLED`只控制正式BUY/SELL消息，必须在PROVISIONAL及消息链单独审批后开启；
+- `VIP_STOCK_DAILY_SUMMARY_ENABLED`独立直接发送群日报，必须单独审批，不从其他开关推导。
+
+首次发布顺序冻结为：
+
+```text
+建表和部署代码，全部开关false，RULE_MODE=SHADOW
+→ 仅开启轮次数据构建，NEW_ENTRY=false
+→ 完成历史bar/feature补建、月度重算和明确确认
+→ 验证持续产生至少3个新的真实15分钟轮次
+→ 开启NEW_ENTRY，开始两类真实Shadow，正式批次和正式通知仍为0
+→ 连续观察不少于20个自然日并完成长窗口隔离回放
+→ 单独审批PROVISIONAL
+→ 正式消息链验收后最后单独审批正式通知
+→ 更长期证据和再次审批后才考虑FORMAL
+```
 
 ---
 

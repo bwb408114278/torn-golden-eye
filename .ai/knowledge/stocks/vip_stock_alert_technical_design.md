@@ -7,16 +7,16 @@
 - 适用版本：1.2.13及以上
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 设计状态：第一轮修复验收完成，第二轮仅处理遗留发布阻断项
-- 当前实现基线：`a9fae2c474a82f96f6e67eba15e5e15552f1ecca`
-- 技术验收状态：月度重复键、P0-1、P1-1、P1-4、P2-1/P2-2与当前范围SEC-1扫描已闭环；P0-2、P1-2、P1-3未闭环。仅允许继续Shadow和存量批次管理，禁止新的正式BUY及正式群BUY/SELL
+- 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
+- 当前实现Review基线：`e319234`
+- 技术验收状态：核心BUY/SELL、ENTRY真实处理时钟、月度公式、拒绝观察生命周期、灾难关闭、通知审计及隔离回放机制已实现；持续轮次生产、月度冷启动重算/确认、5槽正式候选Shadow、日报动态SELL语义和回放manifest完整性仍须按本文永久验收标准闭环。全部运行开关保持false，规则模式保持SHADOW
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后修订日期：2026-08-05
+- 最后修订日期：2026-08-07
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
-最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review的P0/P1通过后，由AI技术专家根据已验证实现更新本文的基线、状态和验收记录。第一轮已经闭环账实原子性、管理关闭审计、最终payload、存量门禁、启动补偿顺序、冻结PENDING通知审计、月度初始化幂等、迟到ENTRY、拒绝观察理论生命周期及SELL来源前置校验；这些闭环不代表P0-2月度完整自然月统计、P1-2可归属长窗口回放或P1-3 RANGE 7日保护已完成。本文是唯一长期技术基线；`vip_stock_alert_business_acceptance_open_items.md`仅冻结业务开放项，`vip_stock_alert_remediation_implementation_plan.md`仅记录当前一次性工程拆解与验收证据。
+最终技术实施方案仅由AI技术专家维护。开发人员只按方案修改代码、Schema和测试；代码Review通过后，由AI技术专家根据已验证实现更新本文的长期技术契约和验收门禁。本文是永久技术基线；`vip_stock_alert_business_acceptance_open_items.md`和`vip_stock_alert_remediation_implementation_plan.md`均为一次性修复/验收文档，可在全部开放项闭环后删除，但删除不得导致本文、业务主方案、月度规则或机器摘要失去发布标准。
 
 > 本文冻结的实施资金口径为5槽、每槽初始20亿、总初始资金100亿。该口径是用户在技术方案审核阶段对原研究口径“每槽4亿”的明确覆盖。历史研究收益基于每槽4亿，正式实施前必须按每槽20亿重新执行整数股数、余款现金和逐bar净值回放。
 
@@ -316,6 +316,17 @@ strategyFitPrior + maturity + riskLevel
 - previous只读取最近一个更早生效且`CONFIRMED`的月份；
 - 人工确认必须传入真实`confirmedBy`；`SYSTEM`只允许完整性校验通过的自动确认入口；
 - 风格、风险或证据不完整时保持DRAFT并fail-closed。
+
+冷启动和跨月补偿必须先补齐证据再计算月度状态：
+
+```text
+历史bar/feature补建完成
+→ 计算或重算目标月份DRAFT
+→ 人工确认或完整性校验后的系统自动确认
+→ CONFIRMED状态才进入BUY资格
+```
+
+不完整DRAFT不能因“当月记录已存在”而永久跳过重算。重算只允许覆盖尚未确认且无人工覆盖的DRAFT；CONFIRMED、RETIRED和人工覆盖记录必须保持不可覆盖。`autoConfirmDraftStates`必须存在明确生产调用入口，不能只实现无人调用的方法。
 
 - 风格决定策略适配，不是独立买卖信号；
 - 成熟度表达历史长度和不确定性；
@@ -774,6 +785,24 @@ FAILED_FINAL
 ```
 
 当前单实例使用JVM`AtomicBoolean`防止轮次调度重入，数据库`round_time`唯一约束保证重启补偿幂等，不引入分布式锁。
+
+轮次记录必须有持续生产入口，不能只消费数据库中已经存在的轮次：
+
+```text
+每分钟第10秒
+→ 计算最近已结束的15分钟桶
+→ 在存在数据构建、存量管理或拒绝观察义务时，对尚不存在的桶幂等创建PENDING轮次
+→ 再按round_time升序处理全部未完成轮次
+```
+
+持续轮次生产约束：
+
+- 只创建已结束桶，不创建当前桶或未来桶；
+- 同一`round_time`并发或重试只保留一条；
+- `ALERT=true`时持续创建；
+- `ALERT=false`但存在正式/影子活跃批次或未结算拒绝观察时继续创建管理所需轮次；
+- 无任何运行义务时停止创建；
+- 首次启用和重启追平后，至少连续观察3个新的真实桶均完成`PENDING → ... → COMPLETED`，才能认定调度链可用。
 
 ### 8.3 通知审计状态
 
@@ -1367,15 +1396,18 @@ marketRound
 
 ### 11.3 启动补偿
 
-应用启动后，先独立验证5槽完整性和初始化月度状态。存在轮次构建或拒绝观察义务时，启动入口必须与定时入口复用同一JVM内`AtomicBoolean`：
+应用启动后先独立验证5槽完整性。存在轮次构建或拒绝观察义务时，启动入口必须与定时入口复用同一JVM内`AtomicBoolean`，并严格按依赖顺序执行：
 
 ```text
 compareAndSet(false, true)成功
 → 读取最后一个COMPLETED轮次，从下一15分钟桶补算至当前已经结束桶
 → processPendingRounds按bar、特征、轮次顺序处理非完成轮次
+→ 证据补齐后计算/重算当月DRAFT并执行明确确认入口
 → resolveAllDueObservations结算到期拒绝观察
 → finally释放processing
 ```
+
+禁止在历史bar/feature补建之前先创建不完整月度DRAFT。若部署采用分阶段冷启动，也必须保持`NEW_ENTRY=false`，直到历史补建、月度重算及确认全部完成。
 
 约束：
 
@@ -1393,7 +1425,9 @@ Cron：
 zone = Asia/Shanghai
 ```
 
-摘要日期为发送日前一自然日，并附带发送时点的当前正式组合快照。摘要写入通知审计后调用现有Bot一次。
+摘要日期为发送日前一自然日，并附带发送时点的当前正式组合快照。摘要写入通知审计后调用现有Bot一次。`VIP_STOCK_DAILY_SUMMARY_ENABLED`是独立群消息开关，不受正式BUY/SELL消息开关控制，开启即会直接发群，必须单独审批。
+
+动态SELL公式未冻结期间，日报不得显示“动态SELL影子建议：0个/N个”，因为`NOT_EVALUATED`不是规则已评估但未命中。可选择完全不展示，或仅展示：规则未冻结、建议未启用、研究输入覆盖率和缺失率。
 
 ---
 
@@ -1554,11 +1588,12 @@ summaryGeneratedAt - barEndTime <= 30分钟
 - 数据陈旧批次：0
 
 影子研究
-- 原始买入信号：8个
+- 5槽正式候选影子组合：占用3 / 5，昨日买入2批，昨日卖出1批
 - 无限资金影子新批次：5个
 - 满仓拒绝：2个
 - 风格/趋势拒绝：1个
-- 动态卖出影子建议：3个
+- 动态SELL研究：规则未冻结，建议未启用
+- 动态SELL输入覆盖率：98.5%，缺失输入批次：1
 - 高风险观察：2个
 
 提示：影子数据仅用于策略研究，不代表正式操作建议。
@@ -1701,14 +1736,19 @@ src/main/resources/db/changelog/db.changelog-master.yaml
 首期部署流程：
 
 ```text
-先建表和代码
-→ 仅启用SHADOW轮次
-→ 正式消息开关保持false
-→ 验证至少20个自然日
-→ 单独审批后切换PROVISIONAL并开启正式消息
+先建表和代码，四个布尔开关=false，RULE_MODE=SHADOW
+→ 仅开启ALERT，NEW_ENTRY=false
+→ 历史bar/feature补建、月度DRAFT重算和明确确认
+→ 连续验证至少3个新结束桶持续完成
+→ 开启NEW_ENTRY，开始5槽正式候选Shadow + UNLIMITED_SHADOW
+→ 正式批次和正式通知保持0，连续验证至少20个自然日
+→ 完成长窗口双资金轨道回放、状态/资金/消息门禁
+→ 单独审批后切换PROVISIONAL
+→ 正式消息链验收后最后单独开启FORMAL_NOTICE
+→ 更长期前向证据和再次审批后才考虑FORMAL
 ```
 
-Shadow模式也维护一套5槽“正式候选影子组合”，但不发即时买卖消息；日报可按用户确认包含Shadow汇总。
+Shadow模式必须同时维护5槽“正式候选影子组合”和无限资金影子。前者复用正式排序、5槽、每槽20亿、整数股数、余款、ENTRY、SELL、冷却和复位，但使用独立研究账本，不占用正式槽位、不写正式通知；后者完整保留全部可接纳信号。只有无限资金影子不能作为20天Shadow组合证据。
 
 ### 14.1 开关判定矩阵
 
@@ -1717,7 +1757,8 @@ Shadow模式也维护一套5槽“正式候选影子组合”，但不发即时�
 | 无活跃批次，`ALERT=false` | 否 | 不适用 | 否 | 否 | 仅发送历史PENDING时由正式消息开关决定 |
 | 有活跃批次，`ALERT=false` | 只构建完成存量管理所需轮次 | 是 | 否 | 是 | 由正式消息开关决定 |
 | `ALERT=true, NEW_ENTRY=false` | 是 | 是 | 否 | 是 | 由正式消息开关决定 |
-| `ALERT=true, NEW_ENTRY=true` | 是 | 是 | 按`RULE_MODE` | 是 | 由正式消息开关决定 |
+| `ALERT=true, NEW_ENTRY=true, RULE_MODE=SHADOW` | 是 | 是 | 新建5槽正式候选Shadow、无限资金Shadow和拒绝观察；正式批次为0 | 否（正式通知审计为0） | 否 |
+| `ALERT=true, NEW_ENTRY=true, RULE_MODE=PROVISIONAL/FORMAL` | 是 | 是 | 经独立审批后创建正式批次，同时保留研究轨道 | 是 | 由正式消息开关决定 |
 
 兼容现有部署：新增`VIP_STOCK_NEW_ENTRY_ENABLED`后，若配置缺失必须按`false`处理，不能从旧总开关推导为true。调度器入口不得只因`VIP_STOCK_ALERT_ENABLED=false`直接返回；应先批量查询是否存在活跃批次或PENDING通知。有存量批次时继续数据构建、退出、恢复、结算和通知审计，但候选评估与新批次接纳必须关闭。
 
@@ -1900,7 +1941,11 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 - `RULE_MODE=OFF`不阻断存量批次管理；
 - 启动补偿与定时入口使用相同判定；
 - 正式消息关闭只阻止发送，不阻止通知审计落库和存量资金结算；
-- 历史PENDING通知不依赖轮次总开关，可由正式消息开关独立发送。
+- 历史PENDING通知不依赖轮次总开关，可由正式消息开关独立发送；
+- 0行冷启动开启ALERT后能创建第一条已结束桶轮次，追平后连续3个新桶仍持续创建；
+- 月度状态必须在历史补建后重算/确认，不完整DRAFT不得永久阻塞；
+- SHADOW必须同时产生独立5槽候选组合和无限资金影子，正式槽位/正式批次/正式通知保持0；
+- PROVISIONAL与FORMAL不能只作为同一正式入口的两个名称；若业务要求PROVISIONAL为小规模试运行，必须冻结并实现具体规模限制，否则按同等正式资金风险审批。
 
 ### 16.12 回放
 
@@ -1922,6 +1967,8 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 ```
 
 不要求持久化每bar事件流水；逐bar净值在内存计算并输出净值曲线。失败/中断不续跑中间状态。只有`COMPLETED`的完整四产物可作为不可覆盖完成标识；FAILED诊断产物不得占用后续同请求从头运行的完成目录。输入加载必须是单一`READ ONLY + REPEATABLE READ`快照，摘要固化输入manifest/hash、版本、行数和时间边界后，才能宣称确定性。
+
+`contentSha256/sourceManifestHash`必须覆盖所有实际影响回放判断、成交、路径、权益、审计或产物的输入字段。bar摘要至少纳入：`barStartTime/barEndTime/firstSampleTime/lastSampleTime/firstPrice/lastPrice/lowPrice/highPrice/sampleCount/duplicateCount/tailGapSeconds/usable/qualityReason/buildVersion/sourceMaxHistoryId`。不能只摘要派生`usable`而遗漏`isUsable()`重新读取的`sampleCount/lastSampleTime/barEndTime`。任一行为字段单独变化时hash必须变化，相同完整输入必须稳定复算一致。
 
 回放和生产共用同一bar质量、特征、买入、排序、成交、资金和退出纯领域实现，禁止维护两套逻辑。
 
@@ -1947,6 +1994,10 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 正式批次关闭但资金未回笼 = 0
 灾难关闭缺失完整审计字段 = 0
 关闭新买入后存量批次停止管理 = 0
+持续轮次追平后停止创建新桶 = 0
+月度不完整DRAFT在证据补齐后仍永久不重算 = 0
+SHADOW只有无限资金轨道而缺少5槽候选组合 = 0
+动态SELL未评估却在日报展示为建议 = 0
 ```
 
 ### 17.2 数据门禁
@@ -1957,6 +2008,8 @@ bar唯一冲突造成重复计算 = 0
 风格缺失默认稳健 = 0
 旧批次被新月度状态覆盖 = 0
 回放与生产规则版本不一致 = 0
+影响回放行为的输入字段变化但manifest hash不变 = 0
+ENTRY在staleAt等值边界与业务契约不一致 = 0
 ```
 
 ### 17.3 消息门禁

@@ -41,7 +41,11 @@
     "restart_backfill_required": true,
     "restart_requires_new_full_bar_window": false,
     "entry_pending_stale_minutes_from_signal_bar_start": 35,
-    "entry_pending_expected_bucket_only": true
+    "entry_pending_expected_bucket_only": true,
+    "entry_stale_comparator": "actualProcessingTime > entryStaleAt cancels; equality remains eligible",
+    "continuous_round_producer_required": true,
+    "round_producer_contract": "for each newly ended 15m bucket, idempotently create PENDING when build/position/research obligation exists; then process in round_time order",
+    "round_live_acceptance_new_buckets": 3
   },
   "buy": {
     "formal_families": [
@@ -148,7 +152,16 @@
     "missing_default_steady": false,
     "risk_hard_veto_status": "RESEARCH_SHADOW",
     "risk_veto_prior_continuous_annualized": 0.1697,
-    "legacy_continuous_annualized_same_replay": 0.1961
+    "legacy_continuous_annualized_same_replay": 0.1961,
+    "cold_start_order": [
+      "rebuild historical bars/features",
+      "calculate or recalculate DRAFT",
+      "manual or validated SYSTEM confirmation",
+      "CONFIRMED may enter BUY eligibility"
+    ],
+    "incomplete_draft_recalculation_required": true,
+    "confirmed_or_manual_override_overwrite_allowed": false,
+    "auto_confirm_requires_production_entrypoint": true
   },
   "portfolio_results": {
     "trusted_annualized_range": [
@@ -229,7 +242,7 @@
     "rotation": "SHADOW_CANDIDATE_DEFAULT_OFF",
     "wide_java_reversal_buy": "RETIRED_FROM_GROUP_PORTFOLIO",
     "trend_pullback": "RESEARCH",
-    "range_return7d_guard": "BUSINESS_FROZEN_CODE_PENDING"
+    "range_return7d_guard": "BUSINESS_FROZEN_CODE_IMPLEMENTED_PENDING_RELEASE_EVIDENCE"
   },
   "limitations": [
     "history shorter than one year",
@@ -322,7 +335,27 @@
       "equity-curve.csv"
     ],
     "bar_journal_required": false,
-    "resume": "restart from beginning after failure"
+    "resume": "restart from beginning after failure",
+    "manifest_must_cover_all_behavior_fields": true,
+    "bar_digest_required_fields": [
+      "barStartTime",
+      "barEndTime",
+      "firstSampleTime",
+      "lastSampleTime",
+      "firstPrice",
+      "lastPrice",
+      "lowPrice",
+      "highPrice",
+      "sampleCount",
+      "duplicateCount",
+      "tailGapSeconds",
+      "usable",
+      "qualityReason",
+      "buildVersion",
+      "sourceMaxHistoryId"
+    ],
+    "single_behavior_field_change_must_change_hash": true,
+    "manifest_release_evidence_status": "PENDING_COMPLETE_FIELD_COVERAGE_AND_REAL_LONG_WINDOW_RUN"
   },
   "daily_summary_missing_market": {
     "rule": "any open formal position missing fresh actual price makes total equity unavailable",
@@ -444,5 +477,59 @@
         "holdout_win_rate": 0.7741935483870968
       }
     }
+  },
+  "shadow_tracks": {
+    "formal_candidate_5_slot": {
+      "required": true,
+      "slots": 5,
+      "slot_cash": 2000000000,
+      "uses_formal_policy": [
+        "ranking",
+        "allocation",
+        "integer quantity",
+        "remaining cash",
+        "ENTRY",
+        "HOLD/SELL",
+        "cooldown",
+        "reset"
+      ],
+      "writes_formal_slots": false,
+      "writes_formal_notices": false
+    },
+    "unlimited_shadow": {
+      "required": true,
+      "unlimited_capital": true,
+      "unlimited_cross_stock_slots": true
+    },
+    "both_required_for_forward_shadow_gate": true
+  },
+  "runtime_release_contract": {
+    "boolean_switches_open_together_allowed": false,
+    "initial": {
+      "VIP_STOCK_ALERT_ENABLED": false,
+      "VIP_STOCK_NEW_ENTRY_ENABLED": false,
+      "VIP_STOCK_FORMAL_NOTICE_ENABLED": false,
+      "VIP_STOCK_DAILY_SUMMARY_ENABLED": false,
+      "VIP_STOCK_RULE_MODE": "SHADOW"
+    },
+    "activation_order": [
+      "deploy schema/code with all booleans false and SHADOW",
+      "enable ALERT only with NEW_ENTRY false",
+      "finish history rebuild and monthly confirmation",
+      "observe at least 3 new live 15m rounds",
+      "enable NEW_ENTRY to start both shadow ledgers",
+      "observe at least 20 natural days and complete long-window replay",
+      "separate approval for PROVISIONAL",
+      "separate final approval for formal notices",
+      "FORMAL only after longer evidence"
+    ],
+    "provisional_min_shadow_days": 20,
+    "formal_notice_requires_separate_approval": true,
+    "daily_summary_requires_separate_approval": true
+  },
+  "daily_summary_dynamic_sell": {
+    "formula_unfrozen_display": "omit dynamic SELL or show rule not frozen / suggestions disabled / input coverage and missing count",
+    "forbidden_display": "dynamic SELL shadow suggestions: N",
+    "not_evaluated_is_not_zero_hits": true
   }
 }
