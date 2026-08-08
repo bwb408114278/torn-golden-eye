@@ -8,11 +8,11 @@
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
 - 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
-- 当前实现Review基线：`e319234`
-- 技术验收状态：核心BUY/SELL、ENTRY真实处理时钟、月度公式、拒绝观察生命周期、灾难关闭、通知审计及隔离回放机制已实现；持续轮次生产、月度冷启动重算/确认、5槽正式候选Shadow、日报动态SELL语义和回放manifest完整性仍须按本文永久验收标准闭环。全部运行开关保持false，规则模式保持SHADOW
+- 当前实现Review基线：`a972f164762b386f44cd437453ec7740321a8cd3`（2026-08-08）
+- 技术验收状态：业务Review不通过。核心历史修复仅作为已实现基线；持续轮次生产、月度冷启动重算/确认、双Shadow账本、日报动态SELL研究展示、回放manifest完整性和ENTRY等值边界均未实现或未按冻结口径闭环。本文第22节是当前实现差异的永久技术契约；四个运行开关均保持`false`，规则模式保持`SHADOW`
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后修订日期：2026-08-07
+- 最后修订日期：2026-08-08
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
@@ -685,7 +685,7 @@ AND slot.availableCash = batch.remainingCash（按BigDecimal数值比较）
 
 任一条件不满足即视为正式账本一致性破坏，抛出`IllegalStateException`使整个轮次事务回滚。不得跳过`settleSlot`后继续写`ADMIN_CLOSED`；不得返回“成交批次”；不得生成通知或冷却状态。错误日志必须包含`batchId/batchNo/slotId/slotNo`，但不得包含敏感配置。
 
-影子批次必须显式满足`ledgerType = UNLIMITED_SHADOW`，不访问正式槽位，仅计算理论收益。未知或空`ledgerType`同样fail-closed，禁止按“非Shadow即正式”推断。
+影子批次必须显式区分账本类型：`UNLIMITED_SHADOW`不访问任何槽位、仅计算理论收益；`SHADOW_FORMAL_CANDIDATE`仅访问独立的`VIP_SHADOW_CANDIDATE`五槽，不得访问`VIP_FORMAL`；`REJECTED_OBSERVATION`不进入入场/资金结算。未知或空`ledgerType`同样fail-closed，禁止按“非Shadow即正式”推断。
 
 #### 8.1.3 原子结算与终态
 
@@ -749,7 +749,7 @@ batchStatus = DATA_STALE_EXIT
 
 若批次已经是`DATA_STALE_EXIT`，后续轮次不得再次覆盖`originalExitReason`。历史异常数据若`originalExitReason`为空但`exitReason`是合法`CLOSED_*`，迁移脚本允许一次性回填；无法确定原原因时不得自动管理关闭，应保持待人工核对。
 
-股票功能已部署至正式环境。本功能后续所有Schema新增列、约束或索引必须追加新的Liquibase changeSet，禁止改写已执行的`stocks-portfolio.yaml` changeSet及其checksum；实施记录必须写明升级验证结果。
+> **历史部署断言已废止。** 当前基线确认：**第一批股票功能已部署至生产环境；第二批功能尚未部署，正式库尚未执行第二批相关changeSet。** 本轮第三批第一轮修复建立在第二批未部署基线上：仅第二批新增/改写的Schema可按第22.8节直接改写`stocks-portfolio.yaml`中的第二批首次发布定义；第一批已执行changeSet及其checksum一律不可改写。实施前必须按`databasechangelog`重新确认第一批/第二批的执行边界；若任何兼容环境已执行第二批changeSet，立即停止改写第二批定义，保留旧checksum并改用追加changeSet和升级验证。
 
 #### 8.1.5 长时间未恢复与运维告警
 
@@ -823,6 +823,8 @@ PENDING
 ---
 
 ## 9. 数据库设计
+
+> 第22.4和第22.8节对本节的双Shadow结构、事件关联字段、索引及Liquibase策略具有优先级；以下表定义已同步纳入该契约。
 
 ### 9.1 通用约定
 
@@ -1027,7 +1029,8 @@ PENDING
 | `portfolio_decision` | VARCHAR(32) | 否 | 正式、影子或拒绝决定 |
 | `reject_reason` | VARCHAR(64) | 是 | 主要拒绝原因编码 |
 | `formal_batch_id` | BIGINT | 是 | 关联正式批次ID |
-| `shadow_batch_id` | BIGINT | 是 | 关联影子批次ID |
+| `shadow_candidate_batch_id` | BIGINT | 是 | 关联5槽正式候选影子批次ID；与正式、无限资金影子独立 |
+| `shadow_batch_id` | BIGINT | 是 | 仅关联无限资金影子批次ID |
 | `later_mfe/later_mae` | DECIMAL(18,10) | 是 | 后续最大有利/不利变动 |
 | `resolved_at` | TIMESTAMP | 是 | 研究结果解析完成时间 |
 | `deleted/create_time/update_time` | 通用字段 | 否 | 逻辑删除和审计字段 |
@@ -1046,17 +1049,17 @@ PENDING
 
 ### 9.8 `torn_stock_portfolio_slot`
 
-用途：保存正式组合5个独立资金槽位。
+用途：保存带槽位组合的独立资金槽位；包括正式组合和5槽正式候选影子组合。
 
 | 字段 | 类型 | 空值 | 说明 |
 |---|---|---:|---|
 | `id` | BIGINT | 否 | 主键ID |
-| `portfolio_code` | VARCHAR(32) | 否 | 组合编码，首期固定`VIP_FORMAL` |
+| `portfolio_code` | VARCHAR(32) | 否 | 组合编码：`VIP_FORMAL`或`VIP_SHADOW_CANDIDATE` |
 | `slot_no` | INT | 否 | 槽位编号1～5 |
 | `initial_cash` | NUMERIC(24,2) | 否 | 槽位初始资金20亿 |
 | `available_cash` | NUMERIC(24,2) | 否 | 当前可用现金 |
 | `reserved_cash` | NUMERIC(24,2) | 否 | 待买批次已预留现金 |
-| `current_batch_id` | BIGINT | 是 | 当前占用该槽的正式批次ID |
+| `current_batch_id` | BIGINT | 是 | 当前占用该槽的同账本批次ID |
 | `slot_status` | VARCHAR(16) | 否 | `AVAILABLE/RESERVED/OCCUPIED/STALE` |
 | `lock_version` | BIGINT | 否 | 乐观锁版本；组合事务仍使用行锁复核 |
 | `deleted/create_time/update_time` | 通用字段 | 否 | 逻辑删除和审计字段 |
@@ -1071,7 +1074,7 @@ PENDING
 索引：(portfolio_code, slot_status, slot_no)
 ```
 
-初始化5行，每行：
+每个带槽位组合初始化5行，即`VIP_FORMAL`和`VIP_SHADOW_CANDIDATE`各5行；每行：
 
 ```text
 initial_cash = 2000000000.00
@@ -1082,29 +1085,29 @@ slot_status = AVAILABLE
 
 ### 9.9 `torn_stock_virtual_batch`
 
-用途：统一保存正式、无限资金影子和拒绝观察批次。
+用途：统一保存正式、5槽正式候选影子、无限资金影子和拒绝观察批次。
 
 | 字段 | 类型 | 空值 | 说明 |
 |---|---|---:|---|
 | `id` | BIGINT | 否 | 主键ID |
 | `batch_no` | VARCHAR(40) | 否 | 系统批次编号 |
-| `ledger_type` | VARCHAR(32) | 否 | `FORMAL/UNLIMITED_SHADOW/REJECTED_OBSERVATION` |
+| `ledger_type` | VARCHAR(32) | 否 | `FORMAL/SHADOW_FORMAL_CANDIDATE/UNLIMITED_SHADOW/REJECTED_OBSERVATION` |
 | `stocks_id/stocks_shortname` | INT/VARCHAR(8) | 否 | 股票标识及简称快照 |
 | `primary_strategy` | VARCHAR(64) | 否 | 主买入策略编码 |
 | `matched_strategies` | JSONB | 否 | 同时命中的策略编码列表 |
 | `quality_score` | DECIMAL(18,8) | 否 | 入场候选质量分 |
 | `batch_status` | VARCHAR(32) | 否 | 批次状态编码 |
 | `signal_event_id` | BIGINT | 否 | 来源原始信号事件ID |
-| `slot_id/slot_no` | BIGINT/INT | 是 | 正式批次占用槽位，影子为空 |
+| `slot_id/slot_no` | BIGINT/INT | 是 | `FORMAL`或`SHADOW_FORMAL_CANDIDATE`占用对应组合槽位；无限资金影子和拒绝观察为空 |
 | `signal_time` | TIMESTAMP | 否 | 买入信号时间 |
 | `signal_reference_price` | DECIMAL(18,6) | 否 | 信号bar最后实际价格 |
 | `expected_entry_bar_time` | TIMESTAMP | 否 | 预期紧邻下一bar时间 |
 | `entry_stale_at` | TIMESTAMP | 否 | 待买过期时间 |
 | `entry_time` | TIMESTAMP | 是 | 实际参考买入时间 |
 | `entry_reference_price` | DECIMAL(18,6) | 是 | 参考买入价 |
-| `quantity` | BIGINT | 是 | 正式组合整数股数 |
-| `invested_cash` | NUMERIC(24,2) | 是 | 正式批次实际投入资金 |
-| `remaining_cash` | NUMERIC(24,2) | 是 | 建仓后槽位余款 |
+| `quantity` | BIGINT | 是 | 正式或候选影子组合的整数股数；无限资金影子按其理论单位 |
+| `invested_cash` | NUMERIC(24,2) | 是 | 正式或候选影子组合实际投入资金 |
+| `remaining_cash` | NUMERIC(24,2) | 是 | 正式或候选影子组合建仓后的槽位余款 |
 | `style_prior/style_maturity/risk_level` | VARCHAR | 否 | 开仓时冻结的月度状态 |
 | `style_effective_month` | DATE | 否 | 冻结风格生效月份 |
 | 六类规则版本 | VARCHAR(32) | 否 | 买入、卖出、风格、风险、分配、消息版本 |
@@ -1140,6 +1143,8 @@ slot_status = AVAILABLE
   AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT')
   AND deleted=0
 部分唯一：正式活跃批次的slot_id唯一
+部分唯一：候选影子活跃批次中(stocks_id)只能存在一个，条件 ledger_type='SHADOW_FORMAL_CANDIDATE' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted=0
+部分唯一：候选影子活跃批次的slot_id唯一，条件同上且slot_id IS NOT NULL
 索引：(ledger_type, batch_status, signal_time)
 索引：(stocks_id, ledger_type, batch_status)
 索引：(expected_entry_bar_time, batch_status)
@@ -1653,64 +1658,7 @@ repository/mapper/torn/stocks/portfolio/
 resources/mapper/torn/stocks/portfolio/
 ```
 
-第九轮修复预计修改/新增：
-
-```text
-src/main/java/pn/torn/goldeneye/constants/torn/SettingConstants.java
-src/main/java/pn/torn/goldeneye/repository/model/torn/stocks/portfolio/TornStockVirtualBatchDO.java
-src/main/java/pn/torn/goldeneye/repository/model/torn/stocks/portfolio/TornStockNoticeAuditDO.java
-src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockVirtualBatchDAO.java
-src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockNoticeAuditDAO.java
-src/main/java/pn/torn/goldeneye/repository/dao/torn/stocks/portfolio/TornStockSignalEventDAO.java
-src/main/java/pn/torn/goldeneye/repository/mapper/torn/stocks/portfolio/TornStockVirtualBatchMapper.java
-src/main/java/pn/torn/goldeneye/repository/mapper/torn/stocks/portfolio/TornStockNoticeAuditMapper.java
-src/main/resources/mapper/torn/stocks/portfolio/TornStockVirtualBatchMapper.xml
-src/main/resources/mapper/torn/stocks/portfolio/TornStockNoticeAuditMapper.xml
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockEntrySettlementService.java
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockPortfolioService.java
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockRoundTransactionService.java
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockShadowRecordWriter.java
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/VipStockAlertScheduler.java
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/StockAlertRuntimeGate.java（新增）
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticeSendService.java
-src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticePayloadCanonicalizer.java（新增）
-src/main/resources/db/changelog/1.0.1-2.0.0/1.2.0/stocks-portfolio.yaml
-```
-
-对应测试至少修改/新增：
-
-```text
-StockEntrySettlementServiceTest.java
-StockBatchPathServiceTest.java
-StockRoundTransactionServiceTest.java
-StockSignalStateUpdaterTest.java
-StockShadowRecordWriterDecisionTest.java（可扩展或新增专用writer测试）
-StockNoticeComposeServiceTest.java
-StockNoticeSendServiceTest.java
-VipStockAlertSchedulerTest.java（新增）
-StockAlertRuntimeGateTest.java（新增）
-当前HEAD隔离PostgreSQL集成测试（临时资产，验证后按用户要求清理并保留可归属报告）
-```
-
-枚举建议集中在：
-
-```text
-constants/torn/enums/stocks/portfolio/
-```
-
-Liquibase建议新增：
-
-```text
-src/main/resources/db/changelog/1.0.1-2.0.0/1.2.0/stocks-portfolio.yaml
-```
-
-并在：
-
-```text
-src/main/resources/db/changelog/db.changelog-master.yaml
-```
-
-追加一次include。实施时不得修改已执行changeSet。
+> **历史第九轮文件清单和迁移指令（已废止，不得执行）。** 其中“向master追加include”“不得修改`stocks-portfolio.yaml`已执行changeSet”等说法基于当时假定的已部署环境，和当前第22.8节的“第一批已部署、第二批未部署”基线不一致。`stocks-portfolio.yaml`已由master include，开发人员不得重复追加include。当前需要修改的精确文件、测试与Liquibase策略仅以一次性第三批第一轮实施方案和第22节为准。
 
 现有文件原则上只做必要改动：
 
@@ -2122,38 +2070,13 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 
 ---
 
-## 20. 第一轮修复验收记录与第二轮发布门禁
+## 20. 历史修复记录与当前基线说明
 
-第一轮审查基线：
+本节只保留历史修复的可追溯背景，不再把旧编号当作当前开放项或发布结论。历史记录所称“已关闭”只表示当时对应代码差异已处理；当前业务Review新增或重新定性的差异，以第22节和一次性实施方案为准。
 
-```text
-a9fae2c474a82f96f6e67eba15e5e15552f1ecca
-```
-
-已由技术负责人根据当前HEAD、真实Mapper测试、聚焦测试（156项）与全量Maven测试（575项）确认：
-
-- [x] 月度初始化：全有效状态预查询 + PostgreSQL冲突安全插入，DRAFT/CONFIRMED不重复且不覆盖。
-- [x] P0-1：以实际处理时刻判定ENTRY过期；启动补偿不会补发BUY。
-- [x] P1-1：拒绝观察的理论ENTRY/EXIT、净收益和批量结算已完成；无提前退出时按业务口径使用截止前最后可用bar并标记数据不完整。
-- [x] P1-4：正常SELL与灾难关闭均校验来源状态、`exitSignalTime`和原退出事实；异常整轮回滚。
-- [x] P2-1/P2-2：管理关闭中文原因与正式原因码契约已覆盖。
-- [x] SEC-1：当前文档、修复范围和可达`.ai`历史的高置信扫描未发现明文JDBC凭据或高置信secret赋值。
-
-第二轮仍未关闭的发布阻断项：
-
-- [ ] P0-2：完整自然月均价、月变化、负月比例和连续负月必须使用月内全部usable 15分钟价格；完成后须有冻结历史只读抽样重算证据。
-- [ ] P1-2：回放须解决FAILED重跑、输入一致性快照/manifest，并提供生产20亿与历史4亿两个独立资金轨道的可归属长窗口四产物。
-- [ ] P1-3：RANGE按已冻结的`return7d >= -2%`、等值通过、与MA门禁并列AND完成代码和测试。
-
-完成上述事项后的正式发布前置条件：
-
-- [ ] 连续不少于20个自然日Shadow观察；
-- [ ] 每槽20亿、5槽整数股数和逐bar资金回放；
-- [ ] 当前HEAD隔离PostgreSQL可归属验证证据；
-- [ ] 状态机、数据库、审计和消息数量运营门禁；
-- [ ] 正式群发布单独审批。
-
----
+- 已实施基线包括：ENTRY使用实际处理时间而不是历史roundTime；拒绝观察结算顺序、正常SELL/灾难关闭账实原子性、通知payload合并与只读回放基础机制。
+- 这些已实施基线不等于持续轮次生产、冷启动重算、双Shadow、日报语义、完整manifest或ENTRY等值边界已经闭环。
+- 历史测试计数、旧commit和原P编号仅可作为历史辅助证据；不得替代当前HEAD编译、聚焦测试、真实PostgreSQL迁移/事务验证或未来授权后的运行证据。
 
 ## 21. 参考资料
 
@@ -2172,4 +2095,129 @@ a9fae2c474a82f96f6e67eba15e5e15552f1ecca
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文是当前第十二轮局部修复后的技术实施基线。主体代码、Liquibase和Shadow能力已部分实现；账实原子性、管理关闭审计、最终payload、存量门禁和启动补偿顺序已有局部实现，但第20节列出的P0/P1及月度初始化异常仍未闭环。普通工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成修复并取得真实验证；在技术方案与代码逐项一致、开放项经独立Review关闭及正式发布单独审批前，仅允许继续Shadow，禁止开启正式买卖提醒。
+本文是第三批第一轮修复前的永久技术实施基线。本文的设计契约可以完成，但代码、Schema和测试未实施前，相关finding不得关闭。普通工程师必须按`vip_stock_alert_remediation_implementation_plan.md`实施并取得真实验证；在第22节所有P0/P1关闭、长窗口与前向Shadow门禁完成、业务人员单独批准前，不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
+
+---
+
+## 22. 第三批第一轮业务Review后的永久修订契约（2026-08-08）
+
+> 本节覆盖本文中与当前实现矛盾的历史“已具备/仅回归”描述，并作为后续实施的唯一技术基线。一次性任务拆分、命令和具体测试文件见 `vip_stock_alert_remediation_implementation_plan.md`；本节只冻结长期架构、数据、事务、状态与发布契约。
+
+### 22.1 当前差异状态与边界
+
+| 编号 | 当前实现事实 | 永久技术结论 | 状态 |
+|---|---|---|---|
+| P0-1 | 调度器只查询已有未完成round，历史重建和事务内按需创建均不是持续生产者 | 每个已结束桶必须先幂等生产PENDING再处理 | 未实现 |
+| P0-2 | 启动先初始化DRAFT，后重建历史；已有DRAFT会被初始化跳过；自动确认没有入口 | 证据补齐→重算DRAFT→确认的依赖顺序必须落地 | 未实现 |
+| P1-1 | 日报按`exitReason contains DYNAMIC`展示“动态卖出影子建议” | 未冻结动态SELL只能表达研究未启用和输入质量 | 未实现 |
+| P1-2 | 仅有`UNLIMITED_SHADOW`；SHADOW不做候选接纳 | 5槽候选影子与无限资金影子必须同时维护、物理隔离 | 未实现 |
+| P1-3 | bar摘要遗漏质量原始字段 | manifest必须覆盖全部实际行为输入 | 未实现 |
+| P2-1 | `actualProcessingTime >= entryStaleAt`取消 | 只有严格晚于才取消 | 未实现 |
+
+### 22.2 持续轮次生产与调度时序
+
+调度使用 `Asia/Shanghai`，每分钟第10秒。`currentEndedBucket` 是当前业务时刻对齐后回退15分钟得到的**最近已结束桶的开始时间**。禁止生产当前桶和未来桶。
+
+```text
+runtime gate判定存在构建义务
+→ JVM AtomicBoolean compareAndSet(false,true)
+→ INSERT PENDING(round_time=currentEndedBucket) ON CONFLICT DO NOTHING
+→ SELECT 未完成round（round_time ASC）
+→ 对每个round：bar → feature → READY → 短事务编排 → COMPLETED
+→ 结算到期拒绝观察
+→ 投递已有PENDING通知（独立门禁）
+→ finally processing=false
+```
+
+`shouldBuildRounds` 必须为：`ALERT=true OR 存在FORMAL/SHADOW_FORMAL_CANDIDATE/UNLIMITED_SHADOW活跃批次 OR 存在未结算拒绝观察`。因此关闭新入场或总开关不能遗弃存量资金、候选影子或观察义务；三者均不存在时不得创建无意义轮次。
+
+轮次唯一性由 `torn_stock_market_round` 的 `(round_time) WHERE deleted=0` 唯一索引保障。插入必须使用 `ON CONFLICT DO NOTHING`，不能把“先SELECT再INSERT”作为并发保护。单实例仅使用JVM防重入，不引入分布式锁。启动补偿只负责从最后COMPLETED之后补齐历史到当前已结束桶；补齐后持续生产必须由定时入口承担。
+
+### 22.3 月度冷启动、重算与确认
+
+启动与跨月补偿固定顺序：
+
+```text
+verifyAndInitSlots
+→ 获取与定时入口共享的processing标记
+→ rebuildFromLastCompleted(currentEndedBucket)
+→ processPendingRounds(当前门禁的allowNewEntry；首次启用保持false)
+→ calculate/recalculate current-month DRAFT
+→ autoConfirmDraftStates(effectiveMonth)
+→ resolveAllDueObservations
+→ finally release processing
+```
+
+- 不能在bar/feature补建前调用普通初始化并把空DRAFT固化。
+- 需要区分“缺失记录初始化”和“已有DRAFT重算”两个公共操作；重算必须批量加载证据、前序CONFIRMED状态，禁止N+1。
+- 仅可更新 `DRAFT AND manual_override=false`。`CONFIRMED`、`RETIRED`、人工覆盖DRAFT均不可覆盖、不可降级，`confirmedBy/confirmedAt`不可被重算改变。
+- 证据仍不完整时DRAFT继续保持空风格/风险并fail-closed；不得默认STEADY/NONE。
+- `autoConfirmDraftStates` 必须由生产编排入口调用；仅完整、版本匹配、非人工覆盖状态可写 `confirmedBy=SYSTEM`。人工确认仍须保存真实操作者。
+- 若补建失败，自动确认不得发生；已有正式/候选影子存量仍可按各自安全路径管理，但新入场继续关闭。
+
+### 22.4 双Shadow账本
+
+`SHADOW` 不是“不维护组合”，而是禁止正式资金与正式通知。它必须并行维护下列互不污染账本：
+
+| 账本 | ledgerType / portfolioCode | 资金与生命周期 | 禁止事项 |
+|---|---|---|---|
+| 5槽正式候选影子 | `SHADOW_FORMAL_CANDIDATE` / `VIP_SHADOW_CANDIDATE` | 5槽×20亿；正式排序、接纳、整股数、余款、ENTRY、EXIT、冷却、复位、0.999卖出费 | 不访问`VIP_FORMAL`槽位；不写正式批次/正式通知 |
+| 无限资金影子 | `UNLIMITED_SHADOW` / 无slot | 每个可接纳信号一条独立理论路径，不受5槽、同股候选容量限制 | 不用于替代5槽收益、满仓或资金守恒证据 |
+| 拒绝观察 | `REJECTED_OBSERVATION` / 无slot | 保留拒绝事实和冻结观察口径 | 不建立正式仓、资金或通知 |
+
+候选影子新增独立五行槽位、独立批次ledger type、同股活跃唯一索引、slot活跃唯一索引，以及 `torn_stock_signal_event.shadow_candidate_batch_id`。现有`shadow_batch_id`继续专属于无限资金影子，不能复用或覆盖。候选影子与正式槽位、现金、批次和通知必须在SQL和领域分支层面隔离。
+
+同轮先执行信号评估和候选排序一次（`qualityScore DESC → stocksId ASC`），然后将同一排序输入两条影子轨道：前5个可接纳候选进入候选影子；其余候选事件写`NO_AVAILABLE_SLOT`，但无限资金影子仍保留全部可接纳信号。不得用PROVISIONAL正式批次收集Shadow证据。
+
+带槽位的两个组合在同一轮事务内锁定顺序固定为 `VIP_FORMAL → VIP_SHADOW_CANDIDATE`，随后锁定各ledger活跃批次。任一事件、批次、槽位、mark写入失败，整轮回滚；不能留下事件引用已写而槽位未预留的半状态。未知/null ledger type fail-closed。
+
+### 22.5 日报与动态SELL研究口径
+
+动态SELL公式冻结前，`dynamicShadowDecision=NOT_EVALUATED` 与 `dynamicShadowReason=DYNAMIC_RULE_NOT_FROZEN` 是“未进行投资判断”，不是“已评估零命中”。日报必须输出：
+
+```text
+动态SELL研究：规则未冻结，建议未启用
+输入覆盖率：xx%
+缺失输入批次数：N
+```
+
+覆盖率只能从`TornStockBatchMarkDO`的`dynamicShadowDecision/dynamicShadowReason`计算：摘要日内研究mark中，两字段任一非空者为分母；`NOT_EVALUATED + DYNAMIC_RULE_NOT_FROZEN`为完整输入；其余为缺失输入；分母为0显示“无研究输入”而不是0%。不得由影子批次数、`exitReason`字符串或历史预留编码推导。日报应分别展示候选影子组合的槽位/权益/当日动作和无限资金影子新增路径，禁止相加为单一“Shadow收益”。候选影子权益的行情不足处理与正式组合完全相同：任一开放仓缺少新鲜价格，完整权益为不可用，不得回退成本价。
+
+`VIP_STOCK_DAILY_SUMMARY_ENABLED` 独立于正式BUY/SELL消息开关；开关为true即会向群发送日报，始终需要独立业务审批。
+
+### 22.6 回放输入摘要
+
+`contentSha256` 和 `sourceManifestHash` 是输入代际与产物可归属契约。每条bar按稳定顺序至少摘要：
+
+```text
+stocksId, barStartTime, barEndTime,
+firstSampleTime, lastSampleTime,
+firstPrice, lastPrice, lowPrice, highPrice,
+sampleCount, duplicateCount, tailGapSeconds,
+usable, qualityReason, buildVersion, sourceMaxHistoryId
+```
+
+任何影响`isUsable()`、策略、成交、路径、权益、审计或产物的新增输入字段，必须同步加入摘要与“只改该字段hash变化”的测试。固定字段顺序、稳定null表示和UTF-8编码；不能用不受控JSON或对象`toString()`代替。失败attempt和COMPLETED目录占用模型保持不变。
+
+### 22.7 ENTRY精确过期边界
+
+`actualProcessingTime` 是唯一过期判断时钟，不可退回历史`roundTime`。规则为：
+
+```text
+actualProcessingTime <= entryStaleAt → 继续检查紧邻目标bar、可用性、连续性和价格偏离
+actualProcessingTime >  entryStaleAt → CANCELLED / ENTRY_DATA_STALE
+```
+
+生产结算和隔离回放必须复用该严格比较语义。等于边界并不保证成交，仅说明不得因过期原因取消。
+
+### 22.8 Schema、迁移与验证约束
+
+当前确认股票功能未部署、正式库未执行相关changeSet时，双Shadow所需的表/列/索引可直接改写 `stocks-portfolio.yaml` 首次发布基线；实现前必须重新确认。若任何正式或共享兼容环境已执行，则旧changeSet不可改写，改用追加迁移并验证旧checksum升级路径。
+
+必须完成：空PostgreSQL完整Liquibase迁移、真实Mapper首次写入和冲突更新、轮次并发插入、候选影子同股/同槽唯一约束、整轮事务回滚。独立线程或独立事务测试产生的数据，使用`@AfterEach`按测试ID精确物理DELETE清理，不改用`@Rollback`。
+
+### 22.9 发布门禁与实施状态
+
+当前所有修订均为**待实施**。P0/P1代码完成并不授权任何开关。后续顺序固定为：部署代码/Schema且四开关false → 经业务授权仅开启ALERT且NEW_ENTRY=false → 历史补齐、月度重算确认、连续3个新桶验证 → 经授权开启NEW_ENTRY并运行两类Shadow至少20自然日 → 长窗口隔离回放与资金/状态/消息门禁 → 单独审批PROVISIONAL → 单独审批正式通知 → 更长期证据后再考虑FORMAL。
+
+第22节与一次性实施方案均须在每次修复进入HEAD后同步更新基线、实现状态、测试计数和真实数据库证据；不得把“设计已补齐”写成“代码已闭环”。
