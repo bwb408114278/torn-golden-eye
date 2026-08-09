@@ -19,16 +19,6 @@ import java.util.List;
 public class TornStockBatchMarkDAO extends ServiceImpl<TornStockBatchMarkMapper, TornStockBatchMarkDO> {
 
     /**
-     * 按批次ID批量查询全部mark,避免逐条查询产生N+1问题
-     *
-     * @param batchId 批次ID
-     * @return 该批次的全部标记列表(按轮次时间升序)
-     */
-    public List<TornStockBatchMarkDO> selectByBatchId(Long batchId) {
-        return baseMapper.selectByBatchId(batchId);
-    }
-
-    /**
      * 查询摘要日内动态SELL研究mark(关联活跃或当日动作的正式/候选影子批次)。
      * <p>
      * 供日报展示动态SELL研究状态,以{@code torn_stock_batch_mark}为唯一数据源。

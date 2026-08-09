@@ -122,9 +122,9 @@ public class StockShadowRecordWriter {
         if (allEvaluations == null || allEvaluations.isEmpty()) {
             return;
         }
-        Map<Integer, TornStockVirtualBatchDO> formalBatchByStockId = indexFormalBatchesByStockId(newFormalBatches);
+        Map<Integer, TornStockVirtualBatchDO> formalBatchByStockId = indexBatchesByStockId(newFormalBatches);
         Map<Integer, TornStockVirtualBatchDO> candidateShadowBatchByStockId =
-                indexCandidateShadowBatchesByStockId(newCandidateShadowBatches);
+                indexBatchesByStockId(newCandidateShadowBatches);
         Set<String> writtenSignalKeys = new HashSet<>();
         for (SignalEvaluationView evaluation : allEvaluations) {
             if (isWritableSignalEvaluation(evaluation)) {
@@ -150,20 +150,6 @@ public class StockShadowRecordWriter {
      */
     private boolean isWritableSignalEvaluation(SignalEvaluationView evaluation) {
         return evaluation != null && evaluation.edgeTriggered() && evaluation.primaryStrategy() != null;
-    }
-
-    /**
-     * 先保存正式候选对应的原始信号事件,为后续正式批次提供非空事件ID。
-     *
-     * @param evaluation    信号评估结果
-     * @param candidateRank 候选排名
-     * @param roundTime     轮次时间
-     * @return 已保存的信号事件
-     */
-    public TornStockSignalEventDO recordFormalSignalEvent(SignalEvaluationView evaluation,
-                                                          Integer candidateRank,
-                                                          LocalDateTime roundTime) {
-        return recordTrackSignalEvent(evaluation, candidateRank, roundTime, DECISION_FORMAL);
     }
 
     /**
@@ -232,38 +218,18 @@ public class StockShadowRecordWriter {
     }
 
     /**
-     * 按股票ID索引本轮新建正式批次。
+     * 按股票ID索引本轮新建批次(正式或候选影子共用)。
      *
-     * @param newFormalBatches 本轮新建正式批次
+     * @param newBatches 本轮新建批次列表
      * @return 按股票ID索引的批次
      */
-    private Map<Integer, TornStockVirtualBatchDO> indexFormalBatchesByStockId(
-            List<TornStockVirtualBatchDO> newFormalBatches) {
+    private Map<Integer, TornStockVirtualBatchDO> indexBatchesByStockId(
+            List<TornStockVirtualBatchDO> newBatches) {
         Map<Integer, TornStockVirtualBatchDO> map = new HashMap<>();
-        if (newFormalBatches == null) {
+        if (newBatches == null) {
             return map;
         }
-        for (TornStockVirtualBatchDO batch : newFormalBatches) {
-            if (batch != null && batch.getStocksId() != null) {
-                map.put(batch.getStocksId(), batch);
-            }
-        }
-        return map;
-    }
-
-    /**
-     * 按股票ID索引本轮新建候选影子批次。
-     *
-     * @param newCandidateShadowBatches 本轮新建候选影子批次
-     * @return 按股票ID索引的批次
-     */
-    private Map<Integer, TornStockVirtualBatchDO> indexCandidateShadowBatchesByStockId(
-            List<TornStockVirtualBatchDO> newCandidateShadowBatches) {
-        Map<Integer, TornStockVirtualBatchDO> map = new HashMap<>();
-        if (newCandidateShadowBatches == null) {
-            return map;
-        }
-        for (TornStockVirtualBatchDO batch : newCandidateShadowBatches) {
+        for (TornStockVirtualBatchDO batch : newBatches) {
             if (batch != null && batch.getStocksId() != null) {
                 map.put(batch.getStocksId(), batch);
             }
@@ -278,11 +244,11 @@ public class StockShadowRecordWriter {
      * 回填正式/候选影子批次ID、创建无限资金影子批次,或创建拒绝观察批次。
      * 候选影子批次已由候选接纳阶段创建,此处仅回填其signalEventId并继续建立无限资金影子路径。
      *
-     * @param evaluation        信号评估结果
-     * @param formalBatch       对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
+     * @param evaluation           信号评估结果
+     * @param formalBatch          对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
      * @param candidateShadowBatch 对应股票的候选影子批次;SHADOW决策时回填其signalEventId,可为null
-     * @param candidateRank     候选排名;未入选正式时为null
-     * @param roundTime         本轮时间
+     * @param candidateRank        候选排名;未入选正式时为null
+     * @param roundTime            本轮时间
      */
     private void writeSingleShadowRecord(SignalEvaluationView evaluation,
                                          TornStockVirtualBatchDO formalBatch,

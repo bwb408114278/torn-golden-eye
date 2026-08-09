@@ -19,14 +19,6 @@ import java.util.List;
 public interface TornStockBatchMarkMapper extends BaseMapper<TornStockBatchMarkDO> {
 
     /**
-     * 按批次ID批量查询全部mark
-     *
-     * @param batchId 批次ID
-     * @return 该批次的全部标记列表(按轮次时间升序)
-     */
-    List<TornStockBatchMarkDO> selectByBatchId(@Param("batchId") Long batchId);
-
-    /**
      * 查询摘要日内、关联活跃或当日动作的正式/候选影子批次的动态SELL研究mark。
      * <p>
      * 以{@code torn_stock_batch_mark}为唯一数据源统计动态SELL研究状态:

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
@@ -20,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * 候选影子账本真实PostgreSQL集成测试。
  * <p>
- * 使用远端未来股票ID与批次号作为隔离数据,通过{@code @Transactional}回滚保证零残留。验证:
+ * 使用远端未来股票ID与批次号作为隔离数据,显式{@code @Rollback}确保每个测试
+ * 事务回滚、开发库零残留。验证:
  * <ul>
  *   <li>候选影子同股部分唯一索引: 同股活跃候选影子批次只能一行,重复插入被数据库拒绝;</li>
  *   <li>候选影子同槽部分唯一索引: 同slot活跃候选影子批次只能一行;</li>
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 @SpringBootTest
 @Transactional
+@Rollback
 @DisplayName("候选影子账本真实PostgreSQL集成测试")
 class TornStockCandidateShadowMapperTest {
 

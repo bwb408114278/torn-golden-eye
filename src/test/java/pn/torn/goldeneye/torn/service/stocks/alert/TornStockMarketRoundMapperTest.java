@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
@@ -18,8 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 /**
  * 轮次生产者真实PostgreSQL集成测试。
  * <p>
- * 使用远离生产数据的未来桶时间作为隔离测试轮次,通过{@code @Transactional}回滚
- * 保证开发库零残留。验证:
+ * 使用远离生产数据的未来桶时间作为隔离测试轮次,显式{@code @Rollback}确保每个测试
+ * 事务回滚、开发库零残留。验证:
  * <ul>
  *   <li>首次插入成功返回实际行数1;</li>
  *   <li>同round_time重复执行返回0,不抛重复键异常,库中仍仅一行;</li>
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  */
 @SpringBootTest
 @Transactional
+@Rollback
 @DisplayName("轮次生产者真实PostgreSQL集成测试")
 class TornStockMarketRoundMapperTest {
 

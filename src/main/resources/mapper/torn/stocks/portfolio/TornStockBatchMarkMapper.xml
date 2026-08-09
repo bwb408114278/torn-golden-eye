@@ -1,14 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockBatchMarkMapper">
-    <!-- 按批次ID批量查询全部mark -->
-    <select id="selectByBatchId" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMarkDO">
-        SELECT * FROM torn_stock_batch_mark
-        WHERE batch_id = #{batchId}
-          AND deleted = 0
-        ORDER BY round_time ASC
-    </select>
-
     <!-- 查询摘要日内动态SELL研究mark(关联活跃或当日动作的正式/候选影子批次) -->
     <select id="selectDynamicShadowResearchMarks" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMarkDO">
         SELECT mark.*

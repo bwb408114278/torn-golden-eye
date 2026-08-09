@@ -506,9 +506,10 @@ public class StockBuySignalEvaluator {
             }
 
             CandidateAcceptance acceptance = acceptSingleCandidate(
-                    candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
-                    monthlyStateByStock.get(candidate.stocksId()),
-                    evaluationByStockId.get(candidate.stocksId()), candidateRank, roundTime, target);
+                    new AcceptanceInput(candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
+                            monthlyStateByStock.get(candidate.stocksId()),
+                            evaluationByStockId.get(candidate.stocksId())),
+                    candidateRank, roundTime, target);
             resultByStockId.put(candidate.stocksId(), acceptance.result());
             if (acceptance.batch() != null) {
                 newBatches.add(acceptance.batch());
@@ -535,31 +536,26 @@ public class StockBuySignalEvaluator {
     /**
      * 接纳单个候选:校验 bar 与股数,创建目标账本批次并预留槽位。
      * <p>
-     * 以下情况返回 null(原循环中的 continue 分支):
+     * 以下情况返回 {@link CandidateAcceptance#batch()} 为null:
      * <ul>
      *   <li>bar 缺失或价格无效</li>
      *   <li>可用资金不足买入1股</li>
      * </ul>
      *
-     * @param candidate     候选信息
-     * @param slot          已分配的可用槽位
-     * @param bar           该候选股票本轮bar
-     * @param monthlyState  该候选股票的月度状态
-     * @param evaluation    该候选对应的完整信号评估事实
+     * @param input         候选接纳输入(候选、槽位、bar、月度状态与信号评估)
      * @param candidateRank 候选排名(1起始)
      * @param roundTime     本轮时间
      * @param target        候选接纳目标
      * @return 单个候选的批次与接纳结果
      */
     private CandidateAcceptance acceptSingleCandidate(
-            CandidateInfo candidate,
-            TornStockPortfolioSlotDO slot,
-            TornStockMarketBar15mDO bar,
-            TornStockMonthlyStateDO monthlyState,
-            SignalEvaluation evaluation,
+            AcceptanceInput input,
             int candidateRank,
             LocalDateTime roundTime,
             CandidateAcceptanceTarget target) {
+        CandidateInfo candidate = input.candidate();
+        TornStockPortfolioSlotDO slot = input.slot();
+        TornStockMarketBar15mDO bar = input.bar();
         if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
             log.warn("候选[{}]本轮bar无效,跳过", candidate.stocksId());
             return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.DATA_NOT_READY);
@@ -575,9 +571,9 @@ public class StockBuySignalEvaluator {
         }
 
         FormalBatchContext ctx = new FormalBatchContext(
-                candidate, slot, monthlyState, signalReferencePrice, quantity, roundTime);
+                candidate, slot, input.monthlyState(), signalReferencePrice, quantity, roundTime);
         TornStockSignalEventDO event = shadowRecordWriter.recordTrackSignalEvent(
-                evaluation, candidateRank, roundTime, target.eventDecision());
+                input.evaluation(), candidateRank, roundTime, target.eventDecision());
         TornStockVirtualBatchDO batch = createTrackBatch(ctx, target);
         batch.setSignalEventId(event.getId());
 
@@ -705,6 +701,24 @@ public class StockBuySignalEvaluator {
     private record CandidateAcceptance(
             TornStockVirtualBatchDO batch,
             StockCandidateAllocationResultEnum result
+    ) {
+    }
+
+    /**
+     * 候选接纳输入 - 封装单个候选接纳所需的候选、槽位、bar、月度状态与信号评估事实。
+     *
+     * @param candidate    候选信息
+     * @param slot         已分配的可用槽位
+     * @param bar          该候选股票本轮bar
+     * @param monthlyState 该候选股票的月度状态
+     * @param evaluation   该候选对应的完整信号评估事实
+     */
+    private record AcceptanceInput(
+            CandidateInfo candidate,
+            TornStockPortfolioSlotDO slot,
+            TornStockMarketBar15mDO bar,
+            TornStockMonthlyStateDO monthlyState,
+            SignalEvaluation evaluation
     ) {
     }
 
@@ -913,7 +927,7 @@ public class StockBuySignalEvaluator {
     }
 
     /**
-     * 正式批次构建上下文 - 封装 {@link #createFormalBatch} 的参数,避免超过 Sonar 方法参数上限。
+     * 目标账本批次构建上下文 - 封装 {@link #createTrackBatch} 的参数,避免超过 Sonar 方法参数上限。
      *
      * @param candidate            候选信息
      * @param slot                 分配的槽位

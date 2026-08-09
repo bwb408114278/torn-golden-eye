@@ -203,8 +203,8 @@ public class StockPortfolioInitService {
      * <p>
      * 逐个槽位检查:
      * <ul>
-     *   <li>initialCash 是否等于 {@link StockPortfolioService#INITIAL_CASH} (容差 {@value #CASH_TOLERANCE} )</li>
-     *   <li>availableCash + reservedCash 是否等于 initialCash (容差 {@value #CASH_TOLERANCE} )</li>
+     *   <li>initialCash 是否等于 {@link StockPortfolioService#INITIAL_CASH} (容差 {@link #CASH_TOLERANCE} )</li>
+     *   <li>availableCash + reservedCash 是否等于 initialCash (容差 {@link #CASH_TOLERANCE} )</li>
      * </ul>
      * 任意项不匹配时记录警告但不修改数据。所有槽位均通过时返回true。
      *
@@ -223,7 +223,7 @@ public class StockPortfolioInitService {
 
             if (initialCash == null
                     || initialCash.subtract(StockPortfolioService.INITIAL_CASH).abs()
-                            .compareTo(CASH_TOLERANCE) > 0) {
+                    .compareTo(CASH_TOLERANCE) > 0) {
                 log.warn("槽位[{}]initialCash={}与标准值{}不匹配,请人工核查",
                         slotNo, initialCash, StockPortfolioService.INITIAL_CASH);
                 allValid = false;

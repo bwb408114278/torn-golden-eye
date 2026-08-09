@@ -18,7 +18,6 @@ import java.util.stream.IntStream;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -162,7 +161,7 @@ class StockPortfolioInitServiceTest {
         List<TornStockPortfolioSlotDO> slots = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
                 .mapToObj(this::buildCandidateSlot)
                 .toList();
-        when(portfolioSlotDao.selectAllByPortfolioCode(eq(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE)))
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
                 .thenReturn(slots);
 
         int count = portfolioInitService.getSlotCount(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);

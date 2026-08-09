@@ -97,7 +97,8 @@ public class VipStockAlertScheduler {
      * </ol>
      * 通过后按固定顺序执行:
      * <ol>
-     *   <li>需要构建轮次时先调用 {@link #processPendingRounds(boolean)} 处理已结束但未完成的轮次,
+     *   <li>需要构建轮次时先为最近已结束桶幂等建立PENDING轮次,
+     *       再调用 {@link #processPendingRounds(boolean, LocalDateTime)} 处理已结束但未完成的轮次,
      *       先补建可能积压的理论入场bar,避免后续拒绝观察把尚可重建的理论入场误判为缺失</li>
      *   <li>存在未结算拒绝观察时结算到期研究义务(此时理论入场bar已尽可能补建)</li>
      *   <li>存在PENDING通知且正式消息开关允许时调用 {@code noticeSendService.sendPendingNotices()}</li>
@@ -207,7 +208,7 @@ public class VipStockAlertScheduler {
      * 每处理完一个轮次检查防重入标记是否仍持有,标记丢失时中断处理。
      * 单个轮次异常时记录错误并将状态置为FAILED_RETRYABLE,不中断后续轮次。
      *
-     * @param allowNewEntry     是否允许创建新的正式/候选影子批次,透传给轮次事务
+     * @param allowNewEntry      是否允许创建新的正式/候选影子批次,透传给轮次事务
      * @param currentEndedBucket 最近已结束桶时间(含生产者已建立的PENDING轮次)
      */
     public void processPendingRounds(boolean allowNewEntry, LocalDateTime currentEndedBucket) {
