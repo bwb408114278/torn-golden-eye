@@ -111,4 +111,24 @@
           AND ms.manual_override = false
           AND ms.deleted = 0
     </update>
+
+    <!-- 条件批量自动确认DRAFT: 仅更新state_status=DRAFT且manual_override=false,防止覆盖人工确认或并发状态变更 -->
+    <update id="autoConfirmDraftStates">
+        UPDATE torn_stock_monthly_state ms
+        SET state_status = 'CONFIRMED',
+            confirmed_at = source.confirmed_at,
+            confirmed_by = source.confirmed_by,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+        <foreach collection="states" item="state" separator=",">
+            (CAST(#{state.id} AS BIGINT),
+             CAST(#{state.confirmedAt} AS TIMESTAMP),
+             CAST(#{state.confirmedBy} AS VARCHAR(64)))
+        </foreach>
+        ) AS source(id, confirmed_at, confirmed_by)
+        WHERE ms.id = source.id
+          AND ms.state_status = 'DRAFT'
+          AND ms.manual_override = false
+          AND ms.deleted = 0
+    </update>
 </mapper>

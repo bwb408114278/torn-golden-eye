@@ -1,17 +1,23 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.Rollback;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -19,33 +25,44 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 /**
  * 轮次生产者真实PostgreSQL集成测试。
  * <p>
- * 使用远离生产数据的未来桶时间作为隔离测试轮次,显式{@code @Rollback}确保每个测试
- * 事务回滚、开发库零残留。验证:
+ * 使用远离生产数据的未来桶时间作为隔离测试轮次,{@code @AfterEach}在每次测试后按
+ * 专用round_time窗口精确物理DELETE,开发库零残留(不以{@code @Rollback}代替提交态验证)。
+ * 验证:
  * <ul>
  *   <li>首次插入成功返回实际行数1;</li>
- *   <li>同round_time重复执行返回0,不抛重复键异常,库中仍仅一行;</li>
- *   <li>部分唯一索引 {@code uk_stock_market_round_time} 与 {@code ON CONFLICT DO NOTHING}
- *       同语义,启动补偿与定时入口竞争同桶只落一行;</li>
+ *   <li>同round_time顺序重复执行返回0,不抛重复键异常,库中仍仅一行;</li>
+ *   <li>两个独立事务并发竞争同round_time,部分唯一索引 {@code uk_stock_market_round_time}
+ *       与 {@code ON CONFLICT DO NOTHING} 同语义,双入口竞争同桶只落一行;</li>
  *   <li>插入后PENDING轮次可被未完成轮次查询命中。</li>
  * </ul>
  *
  * @author Bai
  * @version 1.2.14
- * @since 2026.08.08
+ * @since 2026.08.09
  */
 @SpringBootTest
-@Transactional
-@Rollback
 @DisplayName("轮次生产者真实PostgreSQL集成测试")
 class TornStockMarketRoundMapperTest {
 
     @Autowired
     private TornStockMarketRoundDAO roundDao;
+    @Autowired
+    private NamedParameterJdbcTemplate namedJdbcTemplate;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     /**
      * 隔离轮次时间(远离生产数据)
      */
     private static final LocalDateTime TEST_ROUND_TIME = LocalDateTime.of(2099, 9, 1, 10, 0);
+
+    @AfterEach
+    void cleanupIsolatedRounds() {
+        namedJdbcTemplate.update(
+                "DELETE FROM torn_stock_market_round "
+                        + "WHERE round_time >= :start AND round_time < :end",
+                Map.of("start", TEST_ROUND_TIME, "end", TEST_ROUND_TIME.plusMinutes(31)));
+    }
 
     @Test
     @DisplayName("真实PG_首次插入PENDING轮次成功,重复执行0行不抛异常")
@@ -76,8 +93,8 @@ class TornStockMarketRoundMapperTest {
     }
 
     @Test
-    @DisplayName("真实PG_部分唯一索引与ON CONFLICT同语义_双入口竞争同桶只落一行")
-    void insertPendingRoundIgnoreConflict_concurrentSameBucket_singleRow() {
+    @DisplayName("真实PG_顺序重复插入同round_time_幂等返回0仅落一行")
+    void insertPendingRoundIgnoreConflict_repeatedInsert_singleRow() {
         roundDao.insertPendingRoundIgnoreConflict(pendingRound(TEST_ROUND_TIME));
 
         TornStockMarketRoundDO existing = roundDao.selectByRoundTimeForUpdate(TEST_ROUND_TIME);
@@ -87,6 +104,46 @@ class TornStockMarketRoundMapperTest {
                 "插入轮次状态必须为PENDING");
         assertEquals(0, existing.getAttemptCount(), "新建轮次attemptCount应为0");
         assertEquals(1, countPending());
+    }
+
+    @Test
+    @DisplayName("真实PG_两个独立事务并发竞争同round_time_提交后仅落一行")
+    void insertPendingRoundIgnoreConflict_twoIndependentTransactions_singleRowCommitted() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicIntegerArray insertedCounts = new AtomicIntegerArray(2);
+        Future<?>[] futures = new Future<?>[2];
+        for (int i = 0; i < 2; i++) {
+            final int idx = i;
+            futures[idx] = pool.submit(() -> {
+                ready.countDown();
+                go.await();
+                int[] inserted = {0};
+                transactionTemplate.executeWithoutResult(status ->
+                        inserted[0] = roundDao.insertPendingRoundIgnoreConflict(pendingRound(TEST_ROUND_TIME)));
+                insertedCounts.set(idx, inserted[0]);
+                return null;
+            });
+        }
+        ready.await();
+        go.countDown();
+        for (Future<?> future : futures) {
+            future.get(30, TimeUnit.SECONDS);
+        }
+        pool.shutdown();
+
+        Set<Integer> insertedSet = new HashSet<>();
+        insertedSet.add(insertedCounts.get(0));
+        insertedSet.add(insertedCounts.get(1));
+        assertEquals(Set.of(1, 0), insertedSet,
+                "两个独立事务竞争同round_time,插入数必须恰好为{1,0}");
+
+        Integer committed = namedJdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM torn_stock_market_round "
+                        + "WHERE round_time = :roundTime AND deleted = 0",
+                Map.of("roundTime", TEST_ROUND_TIME), Integer.class);
+        assertEquals(1, committed, "两个事务均提交后该round_time有效轮次必须仅一行");
     }
 
     /**

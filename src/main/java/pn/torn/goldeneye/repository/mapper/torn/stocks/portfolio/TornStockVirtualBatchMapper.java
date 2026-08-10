@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票虚拟交易批次数据库访问层
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.24
  */
 @Mapper
@@ -66,6 +66,23 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
      */
     List<TornStockVirtualBatchDO> selectShadowActionBatches(@Param("startTime") LocalDateTime startTime,
                                                             @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)的活跃批次,固定SQL替代Java散落OR条件。
+     *
+     * @return 候选影子活跃批次列表
+     */
+    List<TornStockVirtualBatchDO> selectActiveCandidateShadowBatches();
+
+    /**
+     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)指定时间范围内有入场或出场动作的批次。
+     *
+     * @param startTime 时间范围起点(含)
+     * @param endTime   时间范围终点(不含)
+     * @return 候选影子动作批次列表
+     */
+    List<TornStockVirtualBatchDO> selectCandidateShadowActionBatches(@Param("startTime") LocalDateTime startTime,
+                                                                     @Param("endTime") LocalDateTime endTime);
 
     /**
      * 按信号事件ID批量查询拒绝观察批次。

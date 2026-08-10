@@ -12,7 +12,9 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRou
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockCandidateTrackAllocationService.CandidateAcceptanceTarget;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockEntrySettlementService.EntrySettlementResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
@@ -44,7 +46,7 @@ import java.util.stream.Collectors;
  * </ol>
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -55,27 +57,15 @@ public class StockRoundTransactionService {
     /**
      * 买入规则版本(RANGE绝对趋势保护自1.1.0起生效,历史批次保留原版本)
      */
-    public static final String BUY_RULE_VERSION = "1.1.0";
+    public static final String BUY_RULE_VERSION = StockRuleVersion.BUY;
     /**
      * 卖出规则版本
      */
-    public static final String SELL_RULE_VERSION = "1.0.0";
-    /**
-     * 仓位分配规则版本
-     */
-    public static final String ALLOCATION_RULE_VERSION = "1.0.0";
+    public static final String SELL_RULE_VERSION = StockRuleVersion.SELL;
     /**
      * 消息通知规则版本
      */
-    public static final String MESSAGE_RULE_VERSION = "1.0.0";
-    /**
-     * 风格分类规则版本
-     */
-    public static final String STYLE_RULE_VERSION = "1.0.0";
-    /**
-     * 风险分级规则版本
-     */
-    public static final String RISK_RULE_VERSION = "1.0.0";
+    public static final String MESSAGE_RULE_VERSION = StockRuleVersion.MESSAGE;
 
     private final TornStockMarketRoundDAO marketRoundDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
@@ -87,8 +77,12 @@ public class StockRoundTransactionService {
     private final StockBuySignalEvaluator buySignalEvaluator;
     private final StockCandidateRankingPolicy candidateRankingPolicy;
     private final StockShadowRecordWriter shadowRecordWriter;
+    private final StockShadowTrackRecorder shadowTrackRecorder;
+    private final StockCandidateTrackAllocationService candidateTrackAllocationService;
     private final StockSignalStateUpdater signalStateUpdater;
     private final pn.torn.goldeneye.torn.manager.setting.SysSettingManager sysSettingManager;
+    private final StockMarketRoundFactory roundFactory;
+    private final StockMarketClock marketClock;
 
     /**
      * 执行一轮组合决策的全部写操作。
@@ -185,25 +179,25 @@ public class StockRoundTransactionService {
                     snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
             List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
             rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
-            Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evaluationByStockId = signalResult.allEvaluations().stream()
+            Map<Integer, SignalEvaluation> evaluationByStockId = signalResult.allEvaluations().stream()
                     .filter(Objects::nonNull)
                     .filter(evaluation -> evaluation.stocksId() != null)
-                    .collect(Collectors.toMap(StockBuySignalEvaluator.SignalEvaluation::stocksId,
+                    .collect(Collectors.toMap(SignalEvaluation::stocksId,
                             evaluation -> evaluation, (left, right) -> left));
             StockCandidateAllocationResult allocationResult = StockCandidateAllocationResult.empty();
-            if (ruleMode == StockRuleModeEnum.PROVISIONAL || ruleMode == StockRuleModeEnum.FORMAL) {
-                allocationResult = buySignalEvaluator.acceptCandidates(
-                        rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                        evaluationByStockId, roundTime,
-                        StockBuySignalEvaluator.CandidateAcceptanceTarget.formal());
-            } else if (ruleMode == StockRuleModeEnum.SHADOW) {
-                // SHADOW模式: 同一排序结果喂给独立5槽候选影子账本,第6名及之后记录NO_AVAILABLE_SLOT
-                allocationResult = buySignalEvaluator.acceptCandidates(
-                        rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                        evaluationByStockId, roundTime,
-                        StockBuySignalEvaluator.CandidateAcceptanceTarget.candidateShadow());
-            } else {
-                log.info("规则模式[{}]不推进候选接纳,跳过: candidateCount={}",
+            switch (ruleMode) {
+                case StockRuleModeEnum.PROVISIONAL, StockRuleModeEnum.FORMAL ->
+                        allocationResult = candidateTrackAllocationService.acceptCandidates(
+                                rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                                evaluationByStockId, roundTime,
+                                CandidateAcceptanceTarget.formal());
+                case StockRuleModeEnum.SHADOW ->
+                    // SHADOW模式: 同一排序结果喂给独立5槽候选影子账本,第6名及之后记录NO_AVAILABLE_SLOT
+                        allocationResult = candidateTrackAllocationService.acceptCandidates(
+                                rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                                evaluationByStockId, roundTime,
+                                CandidateAcceptanceTarget.candidateShadow());
+                default -> log.info("规则模式[{}]不推进候选接纳,跳过: candidateCount={}",
                         ruleMode.getCode(), rankedCandidates.size());
             }
 
@@ -212,12 +206,12 @@ public class StockRoundTransactionService {
 
             // 写入原始信号事件、候选影子/无限资金影子与拒绝观察批次。
             // 正式模式: 新建批次均为正式,无候选影子; SHADOW模式: 新建批次均为候选影子,无正式。
-            List<TornStockVirtualBatchDO> formalBatches = ruleMode == StockRuleModeEnum.SHADOW
-                    ? List.of() : allocationResult.formalBatches();
+            List<TornStockVirtualBatchDO> allocatedBatches = ruleMode == StockRuleModeEnum.SHADOW
+                    ? List.of() : allocationResult.allocatedBatches();
             List<TornStockVirtualBatchDO> candidateShadowBatches = ruleMode == StockRuleModeEnum.SHADOW
-                    ? allocationResult.formalBatches() : List.of();
-            shadowRecordWriter.writeShadowRecords(signalResult.allEvaluations(),
-                    formalBatches, candidateShadowBatches,
+                    ? allocationResult.allocatedBatches() : List.of();
+            shadowTrackRecorder.writeShadowRecords(signalResult.allEvaluations(),
+                    allocatedBatches, candidateShadowBatches,
                     candidateRankByStockId, allocationResult.resultByStockId(), roundTime);
 
             // 推进买入信号边沿状态(仅在新买入开启时)
@@ -366,7 +360,7 @@ public class StockRoundTransactionService {
             validateRoundNotCompleted(round, roundTime);
             round.setRoundStatus(StockRoundStatusEnum.PROCESSING.getCode());
             round.setAttemptCount(round.getAttemptCount() == null ? 1 : round.getAttemptCount() + 1);
-            round.setStartedAt(LocalDateTime.now());
+            round.setStartedAt(marketClock.now());
             marketRoundDao.updateById(round);
             log.info("轮次记录锁定: roundTime={}, attemptCount={}", roundTime, round.getAttemptCount());
         }
@@ -381,19 +375,11 @@ public class StockRoundTransactionService {
      * @return 未保存的轮次记录
      */
     private TornStockMarketRoundDO buildNewRound(LocalDateTime roundTime, RoundSnapshot snapshot) {
-        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
-        round.setRoundTime(roundTime);
-        round.setRoundStatus(StockRoundStatusEnum.PROCESSING.getCode());
-        round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
-        round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
-        round.setBuyRuleVersion(BUY_RULE_VERSION);
-        round.setSellRuleVersion(SELL_RULE_VERSION);
-        round.setAllocationRuleVersion(ALLOCATION_RULE_VERSION);
-        round.setMessageRuleVersion(MESSAGE_RULE_VERSION);
+        TornStockMarketRoundDO round = roundFactory.createRound(
+                roundTime, StockRoundStatusEnum.PROCESSING.getCode());
         round.setExpectedStockCount(snapshot.bars().size());
         round.setUsableStockCount(countStrategyReady(snapshot));
-        round.setAttemptCount(0);
-        round.setStartedAt(LocalDateTime.now());
+        round.setStartedAt(marketClock.now());
         return round;
     }
 
@@ -453,7 +439,7 @@ public class StockRoundTransactionService {
      */
     private void completeRound(TornStockMarketRoundDO round, RoundSnapshot snapshot) {
         round.setRoundStatus(StockRoundStatusEnum.COMPLETED.getCode());
-        round.setCompletedAt(LocalDateTime.now());
+        round.setCompletedAt(marketClock.now());
         round.setUsableStockCount(countStrategyReady(snapshot));
         marketRoundDao.updateById(round);
     }

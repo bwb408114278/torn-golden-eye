@@ -19,7 +19,8 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketR
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockCandidateTrackAllocationService.CandidateAcceptanceTarget;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.StockCandidateRankingPolicy;
@@ -59,6 +60,10 @@ class StockRoundTransactionServiceTest {
     @Mock
     private StockShadowRecordWriter shadowRecordWriter;
     @Mock
+    private StockShadowTrackRecorder shadowTrackRecorder;
+    @Mock
+    private StockCandidateTrackAllocationService candidateTrackAllocationService;
+    @Mock
     private StockSignalStateUpdater signalStateUpdater;
     @Mock
     private SysSettingManager sysSettingManager;
@@ -74,7 +79,9 @@ class StockRoundTransactionServiceTest {
         transactionService = new StockRoundTransactionService(
                 marketRoundDao, virtualBatchDao, portfolioSlotDao, batchMarkDao,
                 new StockEntrySettlementService(new StockPortfolioService()), batchPathService, buySignalEvaluator,
-                new StockCandidateRankingPolicy(), shadowRecordWriter, signalStateUpdater, sysSettingManager);
+                new StockCandidateRankingPolicy(), shadowRecordWriter, shadowTrackRecorder,
+                candidateTrackAllocationService, signalStateUpdater, sysSettingManager,
+                new StockMarketRoundFactory(), new StockMarketClock());
     }
 
     @Test
@@ -100,9 +107,9 @@ class StockRoundTransactionServiceTest {
 
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
-        verify(buySignalEvaluator).acceptCandidates(
+        verify(candidateTrackAllocationService).acceptCandidates(
                 candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime),
-                eq(StockBuySignalEvaluator.CandidateAcceptanceTarget.formal()));
+                eq(CandidateAcceptanceTarget.formal()));
         assertFalse(candidatesCaptor.getValue().stream()
                 .map(CandidateInfo::stocksId)
                 .toList()
@@ -302,8 +309,8 @@ class StockRoundTransactionServiceTest {
                 .thenReturn(new BuySignalResult(candidates, List.of()));
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
                 .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
-        when(buySignalEvaluator.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
-                eq(StockBuySignalEvaluator.CandidateAcceptanceTarget.formal())))
+        when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
+                eq(CandidateAcceptanceTarget.formal())))
                 .thenReturn(StockCandidateAllocationResult.empty());
     }
 

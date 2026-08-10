@@ -160,7 +160,7 @@ public class StockSignalStateUpdater {
             }
             StockSignalStateKey key = new StockSignalStateKey(
                     evaluation.stocksId(), strategy.getStrategyType().getCode(),
-                    StockRoundTransactionService.BUY_RULE_VERSION);
+                    StockRuleVersion.BUY);
             TornStockSignalStateDO state = toSaveByKey.get(key);
             if (state == null && signalStateByKey != null) {
                 state = signalStateByKey.get(key);
@@ -189,7 +189,7 @@ public class StockSignalStateUpdater {
         target.applyEvaluation(
                 evaluation.stocksId(),
                 strategy.getStrategyType().getCode(),
-                StockRoundTransactionService.BUY_RULE_VERSION,
+                StockRuleVersion.BUY,
                 currentActive,
                 roundTime);
         return target;

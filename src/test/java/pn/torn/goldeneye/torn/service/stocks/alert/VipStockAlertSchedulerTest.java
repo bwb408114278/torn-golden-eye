@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -19,6 +20,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -69,7 +71,7 @@ class VipStockAlertSchedulerTest {
                 barBuildService, featureBuildService, roundDao, historyRebuildService,
                 portfolioInitService, monthlyStateInitService, noticeSendService,
                 rejectedObservationService, roundLoader, transactionService, marketClock,
-                projectProperty, runtimeGate);
+                projectProperty, runtimeGate, new StockMarketRoundFactory());
     }
 
     @Test
@@ -259,6 +261,59 @@ class VipStockAlertSchedulerTest {
 
         scheduler.executeRound();
         verify(barBuildService, times(2)).buildBars(roundTime);
+    }
+
+    @Test
+    @DisplayName("启动补偿_历史补建失败_阻断同次月度重算与自动确认且存量退出继续")
+    void onStartup_historyRebuildFails_blocksMonthlyRecalcAndAutoConfirm() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, true, false));
+        when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        doThrow(new IllegalStateException("首桶创建失败"))
+                .when(historyRebuildService).rebuildFromLastCompleted(any());
+
+        scheduler.onStartup();
+
+        verify(historyRebuildService).rebuildFromLastCompleted(any());
+        verify(monthlyStateInitService, never()).initCurrentMonth();
+        verify(monthlyStateInitService, never()).recalculateCurrentMonthDrafts();
+        verify(monthlyStateInitService, never()).autoConfirmDraftStates(any());
+        verify(roundDao).selectPendingRoundsBefore(any());
+        verify(rejectedObservationService).resolveAllDueObservations(any());
+    }
+
+    @Test
+    @DisplayName("启动补偿_槽位验证失败_强制关闭新买入且存量管理与研究继续")
+    void onStartup_slotVerificationFails_forcesAllowNewEntryFalse() {
+        // 生产强制关闭由 onStartup 构建的 RuntimeDecision 副本(forceNewEntryClosed)保证:
+        // 槽位验证未通过时即使门禁判定允许新买入,也强制 allowNewEntry=false 再交给轮次工作。
+        // 此处通过 processPendingRounds -> processSingleRound 透传的 allowNewEntry 参数
+        // (transactionService.executeRound) 断言强制关闭真实生效,同时存量轮次与月度研究继续。
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 5, 10, 0);
+        TornStockMarketRoundDO round = pendingRound(1L, roundTime);
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, true, false));
+        when(portfolioInitService.verifyAndInitSlots()).thenReturn(false);
+        when(marketClock.currentEndedBucket()).thenReturn(roundTime);
+        when(marketClock.today()).thenReturn(java.time.LocalDate.now());
+        when(roundDao.selectPendingRoundsBefore(roundTime)).thenReturn(List.of(round));
+        when(barBuildService.buildBars(roundTime)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(roundTime)).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        verify(portfolioInitService).verifyAndInitSlots();
+        verify(historyRebuildService).rebuildFromLastCompleted(roundTime);
+        verify(roundDao).selectPendingRoundsBefore(roundTime);
+        verify(monthlyStateInitService).recalculateCurrentMonthDrafts();
+        verify(rejectedObservationService).resolveAllDueObservations(any());
+
+        ArgumentCaptor<Boolean> allowNewEntryCaptor = ArgumentCaptor.forClass(Boolean.class);
+        verify(transactionService).executeRound(any(), any(), allowNewEntryCaptor.capture(), any());
+        assertFalse(allowNewEntryCaptor.getValue(),
+                "槽位验证失败时启动补偿必须将allowNewEntry强制为false,禁止新买入");
     }
 
     /**

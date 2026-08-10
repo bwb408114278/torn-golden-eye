@@ -3,41 +3,37 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockEligibilityService.EligibilityResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
-import pn.torn.goldeneye.utils.JsonUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * 股票买入信号评估器 - 执行轮次事务步骤6-7,评估买入信号(false->true边沿)与资格,
- * 排序候选并接纳槽位账本候选(正式或候选影子)。
+ * 股票买入信号评估器 - 纯规则评估门面,评估买入信号(false-&gt;true边沿)与资格。
  * <p>
  * 从 {@link StockRoundTransactionService} 拆分而来,消除原 732 行 Brain Method。
- * 职责仅包含:
+ * 本类为纯规则 Facade: 无DAO、无事务、无写操作,职责仅包含:
  * <ol>
- *   <li>步骤6: 对每支有特征数据的股票评估买入信号,收集通过资格的形式候选</li>
- *   <li>步骤7: 按排序结果接纳候选,在目标组合内查找可用槽位并预留</li>
+ *   <li>对每支有特征数据的股票评估买入信号,收集通过资格的形式候选与全部评估结果</li>
  * </ol>
- * 信号事件写入、影子批次与拒绝观察批次由 {@link StockShadowService} 消费
- * {@link BuySignalResult#allEvaluations()} 完成,不在本类职责范围内。
- *
- * <h3>Sonar修复要点</h3>
+ * 组合决策写入由 {@link StockCandidateTrackAllocationService} 与
+ * {@link StockShadowTrackRecorder} 消费 {@link BuySignalResult#allEvaluations()} 完成,
+ * 不在本类职责范围内。规则子步骤分别委托给:
  * <ul>
- *   <li>原 Brain Method 拆分为 {@link #evaluateSignals} + {@link #evaluateSingleStock}
- *       + {@link #matchStrategies},降低认知复杂度</li>
- *   <li>{@link SignalEvaluation} 用 record + Builder 模式消除 10 参数构造器问题</li>
- *   <li>{@link #createTrackBatch} 7 参数用 {@link FormalBatchContext} record 封装</li>
- *   <li>循环内多个 continue 提取为 {@link #evaluateSingleStock} 返回 null</li>
+ *   <li>{@link BuyContextAssembler} - 特征与月度状态组装 {@link BuyContext}</li>
+ *   <li>{@link BuyStrategyMatcher} - 策略匹配、质量分与主策略tie-break</li>
+ *   <li>{@link BuyEligibilityEvaluator} - 边沿、资格与绝对趋势守卫</li>
+ *   <li>{@link CandidateFactory} - 信号评估到候选信息的转换</li>
  * </ul>
  *
  * @author Bai
@@ -50,33 +46,28 @@ import java.util.*;
 public class StockBuySignalEvaluator {
 
     /**
-     * 批次编号时间戳格式(正式与候选影子共用)
+     * 买入规则版本(纯规则评估使用的信号状态复合键版本,与批次/事件写入版本一致)
      */
-    private static final String FORMAL_BATCH_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmm";
-    /**
-     * 批次编号格式化器(正式与候选影子共用)
-     */
-    private static final DateTimeFormatter FORMAL_BATCH_NO_FORMATTER =
-            DateTimeFormatter.ofPattern(FORMAL_BATCH_NO_TIMESTAMP_PATTERN);
+    private static final String BUY_RULE_VERSION = StockRuleVersion.BUY;
 
     private final List<StockBuyStrategy> buyStrategies;
-    private final StockEligibilityService eligibilityService;
-    private final StockPortfolioService portfolioService;
-    private final TornStockVirtualBatchDAO virtualBatchDao;
-    private final StockShadowRecordWriter shadowRecordWriter;
+    private final BuyContextAssembler contextAssembler;
+    private final BuyStrategyMatcher strategyMatcher;
+    private final BuyEligibilityEvaluator eligibilityEvaluator;
+    private final CandidateFactory candidateFactory;
 
     // ==================== 步骤6: 评估买入信号 ====================
 
     /**
-     * 评估本轮买入信号(false->true边沿)与资格,收集正式候选与全部评估结果。
+     * 评估本轮买入信号(false-&gt;true边沿)与资格,收集正式候选与全部评估结果。
      * <p>
      * 对每支 strategyReady 的股票:
      * <ol>
      *   <li>组装 {@link BuyContext}</li>
-     *   <li>调用 {@link #matchStrategies} 遍历买入策略,选取主策略(质量分最高)</li>
+     *   <li>调用 {@link BuyStrategyMatcher#match} 遍历买入策略,选取主策略(质量分最高)</li>
      *   <li>按每个策略的复合键(stocksId, strategyType, buyRuleVersion)维护信号状态</li>
-     *   <li>汇总策略命中结果,判断本轮是否存在 false->true 边沿</li>
-     *   <li>边沿触发时调用 {@link StockEligibilityService#checkEligibility}</li>
+     *   <li>汇总策略命中结果,判断本轮是否存在 false-&gt;true 边沿</li>
+     *   <li>边沿触发时调用 {@link BuyEligibilityEvaluator#checkEligibility} 并应用策略守卫</li>
      *   <li>ALLOWED 的候选加入正式候选列表</li>
      * </ol>
      * 单支股票的评估逻辑提取为 {@link #evaluateSingleStock},返回 null 表示该股票被跳过。
@@ -97,20 +88,20 @@ public class StockBuySignalEvaluator {
         Objects.requireNonNull(snapshot, "轮次快照不能为空");
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
 
-        Set<Integer> activeFormalStockIds = collectActiveFormalStockIds(snapshot.activeBatches());
+        Set<Integer> activeSlotBackedStockIds = collectSlotBackedActiveStockIds(snapshot.activeBatches());
         List<CandidateInfo> formalCandidates = new ArrayList<>();
         List<SignalEvaluation> allEvaluations = new ArrayList<>();
 
         for (TornStockStrategyFeature15mDO feature : snapshot.features()) {
             SignalEvaluation evaluation = evaluateSingleStock(
                     feature, barByStock, monthlyStateByStock, signalStateByKey,
-                    activeFormalStockIds, roundTime);
+                    activeSlotBackedStockIds, roundTime);
             if (evaluation == null) {
                 continue;
             }
             allEvaluations.add(evaluation);
             if (evaluation.acceptedFormal()) {
-                formalCandidates.add(buildCandidateInfo(evaluation));
+                formalCandidates.add(candidateFactory.build(evaluation));
             }
         }
         return new BuySignalResult(formalCandidates, allEvaluations);
@@ -125,12 +116,13 @@ public class StockBuySignalEvaluator {
      *   <li>本轮 bar 缺失或不可用</li>
      *   <li>风格缺失导致 {@link BuyContext} 构建失败</li>
      * </ul>
-     * 该字段表示“本轮评估后具备正式候选资格”的事实,不代表已经分配正式槽位或已创建正式批次。
+     * 该字段表示"本轮评估后具备正式候选资格"的事实,不代表已经分配正式槽位或已创建正式批次。
      *
-     * @param feature              该股票的策略特征
-     * @param barByStock           按股票ID索引的bar映射
-     * @param monthlyStateByStock  按股票ID索引的月度状态映射
-     * @param activeFormalStockIds 已有正式活跃批次的股票ID集合
+     * @param feature                  该股票的策略特征
+     * @param barByStock               按股票ID索引的bar映射
+     * @param monthlyStateByStock      按股票ID索引的月度状态映射
+     * @param activeSlotBackedStockIds 已有正式或候选影子活跃批次的股票ID集合
+     * @param roundTime                本轮时间
      * @return 信号评估结果;被跳过时返回 null
      */
     private SignalEvaluation evaluateSingleStock(
@@ -138,7 +130,7 @@ public class StockBuySignalEvaluator {
             Map<Integer, TornStockMarketBar15mDO> barByStock,
             Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
             Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey,
-            Set<Integer> activeFormalStockIds,
+            Set<Integer> activeSlotBackedStockIds,
             LocalDateTime roundTime) {
         if (!Boolean.TRUE.equals(feature.getStrategyReady())) {
             return null;
@@ -151,16 +143,16 @@ public class StockBuySignalEvaluator {
         }
 
         TornStockMonthlyStateDO monthlyState = monthlyStateByStock.get(stocksId);
-        BuyContext context = buildBuyContext(feature, monthlyState);
+        BuyContext context = contextAssembler.assemble(feature, monthlyState);
         if (context == null) {
             return null;
         }
 
-        StrategyMatchResult matchResult = matchStrategies(context);
-        TornStockSignalStateDO signalState = resolveSignalState(
-                stocksId, matchResult.primaryStrategy(), signalStateByKey);
-        boolean edgeTriggered = checkEdgeTriggered(
-                stocksId, matchResult.matchedStrategies(), signalStateByKey);
+        BuyStrategyMatcher.StrategyMatchResult matchResult = strategyMatcher.match(context);
+        TornStockSignalStateDO signalState = eligibilityEvaluator.resolveSignalState(
+                stocksId, matchResult.primaryStrategy(), signalStateByKey, BUY_RULE_VERSION);
+        boolean edgeTriggered = eligibilityEvaluator.checkEdgeTriggered(
+                stocksId, matchResult.matchedStrategies(), signalStateByKey, BUY_RULE_VERSION);
 
         SignalEvaluation.Builder builder = SignalEvaluation.builder(stocksId, context.stocksShortname())
                 .evaluatedStrategies(buyStrategies)
@@ -175,10 +167,10 @@ public class StockBuySignalEvaluator {
             return builder.build();
         }
 
-        boolean hasActiveFormalBatch = activeFormalStockIds.contains(stocksId);
-        EligibilityResult eligibility = eligibilityService.checkEligibility(
-                context, signalState, monthlyState, hasActiveFormalBatch, roundTime);
-        eligibility = applyStrategyGuard(context, matchResult.primaryStrategy(), eligibility);
+        boolean hasActiveSlotBackedBatch = activeSlotBackedStockIds.contains(stocksId);
+        EligibilityResult eligibility = eligibilityEvaluator.checkEligibility(
+                context, signalState, monthlyState, hasActiveSlotBackedBatch, roundTime);
+        eligibility = eligibilityEvaluator.applyStrategyGuard(context, matchResult.primaryStrategy(), eligibility);
         builder.eligibilityResult(eligibility);
 
         boolean accepted = StockEligibilityResultEnum.ALLOWED == eligibility.result()
@@ -196,224 +188,15 @@ public class StockBuySignalEvaluator {
     }
 
     /**
-     * 遍历全部买入策略,返回命中的策略列表、主策略(质量分最高)与最优质量分。
-     * <p>
-     * 对每个策略先调用 {@link StockBuyStrategy#isApplicableStyle} 校验风格适配,
-     * 再调用 {@link StockBuyStrategy#matches} 判断是否命中。命中的策略计入
-     * {@code matchedStrategies} 并计算质量分,质量分最高的策略作为主策略。
-     *
-     * @param context 买入上下文
-     * @return 策略匹配结果,无命中时 primaryStrategy 为 null、bestScore 为 null
-     */
-    private StrategyMatchResult matchStrategies(BuyContext context) {
-        List<StockBuyStrategy> matchedStrategies = new ArrayList<>();
-        StockBuyStrategy primaryStrategy = null;
-        BigDecimal bestScore = null;
-
-        for (StockBuyStrategy strategy : buyStrategies) {
-            if (!isStrategyMatched(strategy, context)) {
-                continue;
-            }
-            matchedStrategies.add(strategy);
-            BigDecimal score = strategy.calculateQualityScore(context);
-            if (primaryStrategy == null || (bestScore != null && score.compareTo(bestScore) > 0)) {
-                primaryStrategy = strategy;
-                bestScore = score;
-            }
-        }
-        return new StrategyMatchResult(primaryStrategy, matchedStrategies, bestScore);
-    }
-
-    /**
-     * 判断策略是否适配风格且命中买入条件。
-     *
-     * @param strategy 买入策略
-     * @param context  买入上下文
-     * @return true表示风格适配且命中
-     */
-    private boolean isStrategyMatched(StockBuyStrategy strategy, BuyContext context) {
-        return strategy.isApplicableStyle(context.stylePrior()) && strategy.matches(context);
-    }
-
-    /**
-     * 应用主策略的绝对趋势保护守卫(RANGE专属资格检查)。
-     * <p>
-     * 守卫独立于通用资格门禁: 仅当通用资格为ALLOWED时执行;守卫失败将结果降级为REJECTED并
-     * 记录冻结原因码(如 {@code ABSOLUTE_TREND_GUARD_FAILED}),使该失败仍写原始信号与拒绝观察,
-     * 不建立正式批次。未设置守卫的策略(默认返回null)保持原资格结果。
-     *
-     * @param context         买入上下文
-     * @param primaryStrategy 主策略;无命中时为null
-     * @param eligibility     通用资格判断结果
-     * @return 应用守卫后的资格结果
-     */
-    private EligibilityResult applyStrategyGuard(BuyContext context,
-                                                 StockBuyStrategy primaryStrategy,
-                                                 EligibilityResult eligibility) {
-        if (primaryStrategy == null || eligibility == null
-                || StockEligibilityResultEnum.ALLOWED != eligibility.result()) {
-            return eligibility;
-        }
-        String guardReason = primaryStrategy.absoluteTrendGuardFailureReason(context);
-        if (guardReason == null || guardReason.isBlank()) {
-            return eligibility;
-        }
-        log.info("买入信号未通过策略绝对趋势守卫: stocksId={}, strategy={}, reason={}",
-                context.stocksId(), primaryStrategy.getStrategyType(), guardReason);
-        return new EligibilityResult(StockEligibilityResultEnum.REJECTED, List.of(guardReason));
-    }
-
-    /**
-     * 判断命中策略是否存在false->true边沿。
-     * <p>
-     * 同一股票命中多个策略时,每个策略读取自己的复合状态键;任一策略首次命中即触发本轮信号事件。
-     *
-     * @param stocksId          股票ID
-     * @param matchedStrategies 本轮命中的策略
-     * @param signalStateByKey  按股票、策略和规则版本索引的状态
-     * @return 存在策略边沿时返回true
-     */
-    private boolean checkEdgeTriggered(Integer stocksId,
-                                       List<StockBuyStrategy> matchedStrategies,
-                                       Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey) {
-        if (stocksId == null || matchedStrategies == null || matchedStrategies.isEmpty()) {
-            return false;
-        }
-        for (StockBuyStrategy strategy : matchedStrategies) {
-            if (strategy == null || strategy.getStrategyType() == null) {
-                continue;
-            }
-            StockSignalStateKey key = new StockSignalStateKey(
-                    stocksId, strategy.getStrategyType().getCode(),
-                    StockRoundTransactionService.BUY_RULE_VERSION);
-            TornStockSignalStateDO state = signalStateByKey == null ? null : signalStateByKey.get(key);
-            if (state == null || !Boolean.TRUE.equals(state.getConditionActive())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-
-    /**
-     * 按主策略的复合键(stocksId, strategyType, buyRuleVersion)从映射中查找信号状态。
-     * <p>
-     * 主策略为null时返回null(无命中策略,无需查找状态)。
-     *
-     * @param stocksId         股票ID
-     * @param primaryStrategy  主策略;为null时返回null
-     * @param signalStateByKey 按复合键索引的信号状态映射
-     * @return 对应策略的信号状态;不存在时返回null
-     */
-    private TornStockSignalStateDO resolveSignalState(
-            Integer stocksId,
-            StockBuyStrategy primaryStrategy,
-            Map<StockSignalStateKey, TornStockSignalStateDO> signalStateByKey) {
-        if (primaryStrategy == null) {
-            return null;
-        }
-        StockSignalStateKey key = new StockSignalStateKey(
-                stocksId,
-                primaryStrategy.getStrategyType().getCode(),
-                StockRoundTransactionService.BUY_RULE_VERSION);
-        return signalStateByKey == null ? null : signalStateByKey.get(key);
-    }
-
-    /**
-     * 从特征组装 {@link BuyContext}。
-     *
-     * @param feature      策略特征
-     * @param monthlyState 月度状态
-     * @return BuyContext;风格缺失时返回 null
-     */
-    private BuyContext buildBuyContext(TornStockStrategyFeature15mDO feature,
-                                       TornStockMonthlyStateDO monthlyState) {
-        StockStrategyFitEnumWrapper styleWrapper = parseStyle(monthlyState);
-        if (styleWrapper == null) {
-            return null;
-        }
-        return new BuyContext(
-                feature.getStocksId(),
-                feature.getStocksShortname(),
-                feature.getReferencePrice(),
-                feature.getMa1d(),
-                feature.getMa7d(),
-                feature.getMa30d(),
-                feature.getZscore1d(),
-                feature.getZscore7d(),
-                feature.getZscore30d(),
-                feature.getReturn6h(),
-                feature.getReturn1d(),
-                feature.getReturn7d(),
-                feature.getReturn14d(),
-                feature.getLow30d(),
-                feature.getHigh30d(),
-                feature.getWidth30d(),
-                feature.getPosition30(),
-                feature.getPctAbove30dLow(),
-                feature.getPctBelow30dHigh(),
-                feature.getStrategyReady(),
-                styleWrapper.style(),
-                styleWrapper.maturity(),
-                styleWrapper.riskLevel()
-        );
-    }
-
-    /**
-     * 从月度状态解析风格、成熟度、风险等级。
-     *
-     * @param monthlyState 月度状态
-     * @return 风格包装对象;风格为空或解析失败时返回 null
-     */
-    private StockStrategyFitEnumWrapper parseStyle(TornStockMonthlyStateDO monthlyState) {
-        if (monthlyState == null) {
-            return null;
-        }
-        if (monthlyState.getStrategyFitPrior() == null || monthlyState.getStrategyFitPrior().isBlank()) {
-            return null;
-        }
-        try {
-            StockStrategyFitEnum style = StockStrategyFitEnum.fromCode(monthlyState.getStrategyFitPrior());
-            StockMaturityEnum maturity = monthlyState.getMaturity() != null
-                    ? StockMaturityEnum.fromCode(monthlyState.getMaturity()) : null;
-            StockRiskLevelEnum riskLevel = monthlyState.getRiskLevel() != null
-                    ? StockRiskLevelEnum.fromCode(monthlyState.getRiskLevel()) : null;
-            return new StockStrategyFitEnumWrapper(style, maturity, riskLevel);
-        } catch (IllegalArgumentException e) {
-            log.warn("月度状态风格解析失败: strategyFitPrior={}, error={}",
-                    monthlyState.getStrategyFitPrior(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 从信号评估结果构建候选信息。
-     *
-     * @param evaluation 已通过资格的信号评估
-     * @return 候选信息
-     */
-    private CandidateInfo buildCandidateInfo(SignalEvaluation evaluation) {
-        List<String> matchedStrategyCodes = evaluation.matchedStrategies().stream()
-                .map(s -> s.getStrategyType().getCode())
-                .toList();
-        return new CandidateInfo(
-                evaluation.stocksId(),
-                evaluation.stocksShortname(),
-                evaluation.primaryStrategy().getStrategyType(),
-                matchedStrategyCodes,
-                evaluation.qualityScore()
-        );
-    }
-
-    /**
      * 收集所有有正式或候选影子活跃批次的股票ID集合。
      * <p>
-     * 候选影子与正式共享同股单活跃规则,避免同股重复建立槽位批次。
+     * 候选影子与正式共享同股单活跃规则(二者均为槽位账本),候选影子与正式都阻塞
+     * 同一股票的再次接纳,避免同股重复建立槽位批次。
      *
      * @param activeBatches 活跃批次列表
      * @return 有正式或候选影子活跃批次的股票ID集合
      */
-    private Set<Integer> collectActiveFormalStockIds(List<TornStockVirtualBatchDO> activeBatches) {
+    private Set<Integer> collectSlotBackedActiveStockIds(List<TornStockVirtualBatchDO> activeBatches) {
         Set<Integer> stockIds = new HashSet<>();
         if (activeBatches == null) {
             return stockIds;
@@ -429,534 +212,5 @@ public class StockBuySignalEvaluator {
             }
         }
         return stockIds;
-    }
-
-    // ==================== 步骤7: 接纳候选 ====================
-
-    /**
-     * 按排序结果接纳正式候选(正式组合),检查可用槽位并预留,返回新建的正式批次列表。
-     * <p>
-     * 兼容入口,等价于以正式组合为目标调用 {@link #acceptCandidates(List, RoundSnapshot, Map, Map, Map, LocalDateTime, CandidateAcceptanceTarget)}。
-     *
-     * @param rankedCandidates    排序后的候选列表
-     * @param snapshot            轮次快照
-     * @param barByStock          按股票ID索引的bar映射
-     * @param monthlyStateByStock 按股票ID索引的月度状态映射
-     * @param roundTime           本轮时间
-     * @return 正式批次与每个候选的实际接纳结果
-     */
-    public StockCandidateAllocationResult acceptCandidates(
-            List<CandidateInfo> rankedCandidates,
-            RoundSnapshot snapshot,
-            Map<Integer, TornStockMarketBar15mDO> barByStock,
-            Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
-            Map<Integer, SignalEvaluation> evaluationByStockId,
-            LocalDateTime roundTime) {
-        return acceptCandidates(rankedCandidates, snapshot, barByStock, monthlyStateByStock,
-                evaluationByStockId, roundTime, CandidateAcceptanceTarget.formal());
-    }
-
-    /**
-     * 按排序结果接纳候选,检查目标组合可用槽位并预留,返回新建批次列表。
-     * <p>
-     * 遍历排序后的候选列表,对每个候选:
-     * <ol>
-     *   <li>在目标组合内查找可用槽位(findFirstAvailableFromSnapshot);无槽位时记录容量事实</li>
-     *   <li>计算股数(calculateQuantity);股数不足时跳过该候选</li>
-     *   <li>按目标账本创建批次(ENTRY_PENDING),预留槽位,并回填事件批次ID</li>
-     * </ol>
-     * 单个候选的接纳逻辑提取为 {@link #acceptSingleCandidate},返回 null 表示该候选被跳过。
-     * 排序结果由调用方保证唯一(每轮只排序一次),不同目标轨道共用同一排序,不得因轨道不同
-     * 产生不同成交价格或时间边界。
-     *
-     * @param rankedCandidates    排序后的候选列表
-     * @param snapshot            轮次快照
-     * @param barByStock          按股票ID索引的bar映射
-     * @param monthlyStateByStock 按股票ID索引的月度状态映射
-     * @param evaluationByStockId 按股票ID索引的信号评估映射
-     * @param roundTime           本轮时间
-     * @param target              候选接纳目标(组合编码+账本类型+批次编号前缀)
-     * @return 新建批次与每个候选的实际接纳结果
-     */
-    public StockCandidateAllocationResult acceptCandidates(
-            List<CandidateInfo> rankedCandidates,
-            RoundSnapshot snapshot,
-            Map<Integer, TornStockMarketBar15mDO> barByStock,
-            Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
-            Map<Integer, SignalEvaluation> evaluationByStockId,
-            LocalDateTime roundTime,
-            CandidateAcceptanceTarget target) {
-        Objects.requireNonNull(roundTime, "轮次时间不能为空");
-        Objects.requireNonNull(target, "候选接纳目标不能为空");
-        List<TornStockVirtualBatchDO> newBatches = new ArrayList<>();
-        Map<Integer, StockCandidateAllocationResultEnum> resultByStockId = new LinkedHashMap<>();
-        if (rankedCandidates == null || rankedCandidates.isEmpty()) {
-            return StockCandidateAllocationResult.empty();
-        }
-
-        int candidateRank = 0;
-        for (CandidateInfo candidate : rankedCandidates) {
-            candidateRank++;
-            Optional<TornStockPortfolioSlotDO> slotOpt = findFirstAvailableFromSnapshot(snapshot, target.portfolioCode());
-            if (slotOpt.isEmpty()) {
-                log.info("无可用槽位,拒绝接纳候选: stocksId={}, rank={}, portfolioCode={}",
-                        candidate.stocksId(), candidateRank, target.portfolioCode());
-                resultByStockId.put(candidate.stocksId(), StockCandidateAllocationResultEnum.NO_AVAILABLE_SLOT);
-                continue;
-            }
-
-            CandidateAcceptance acceptance = acceptSingleCandidate(
-                    new AcceptanceInput(candidate, slotOpt.get(), barByStock.get(candidate.stocksId()),
-                            monthlyStateByStock.get(candidate.stocksId()),
-                            evaluationByStockId.get(candidate.stocksId())),
-                    candidateRank, roundTime, target);
-            resultByStockId.put(candidate.stocksId(), acceptance.result());
-            if (acceptance.batch() != null) {
-                newBatches.add(acceptance.batch());
-            }
-        }
-        return new StockCandidateAllocationResult(newBatches, resultByStockId);
-    }
-
-    /**
-     * 从内存快照中查找目标组合首个可用槽位,避免数据库查询
-     *
-     * @param snapshot      轮次快照
-     * @param portfolioCode 目标组合编码
-     * @return 首个AVAILABLE槽位;无则返回empty
-     */
-    private Optional<TornStockPortfolioSlotDO> findFirstAvailableFromSnapshot(RoundSnapshot snapshot,
-                                                                              String portfolioCode) {
-        return snapshot.slots().stream()
-                .filter(slot -> portfolioCode.equals(slot.getPortfolioCode()))
-                .filter(slot -> StockSlotStatusEnum.AVAILABLE.getCode().equals(slot.getSlotStatus()))
-                .findFirst();
-    }
-
-    /**
-     * 接纳单个候选:校验 bar 与股数,创建目标账本批次并预留槽位。
-     * <p>
-     * 以下情况返回 {@link CandidateAcceptance#batch()} 为null:
-     * <ul>
-     *   <li>bar 缺失或价格无效</li>
-     *   <li>可用资金不足买入1股</li>
-     * </ul>
-     *
-     * @param input         候选接纳输入(候选、槽位、bar、月度状态与信号评估)
-     * @param candidateRank 候选排名(1起始)
-     * @param roundTime     本轮时间
-     * @param target        候选接纳目标
-     * @return 单个候选的批次与接纳结果
-     */
-    private CandidateAcceptance acceptSingleCandidate(
-            AcceptanceInput input,
-            int candidateRank,
-            LocalDateTime roundTime,
-            CandidateAcceptanceTarget target) {
-        CandidateInfo candidate = input.candidate();
-        TornStockPortfolioSlotDO slot = input.slot();
-        TornStockMarketBar15mDO bar = input.bar();
-        if (bar == null || bar.getLastPrice() == null || bar.getLastPrice().signum() <= 0) {
-            log.warn("候选[{}]本轮bar无效,跳过", candidate.stocksId());
-            return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.DATA_NOT_READY);
-        }
-
-        BigDecimal signalReferencePrice = bar.getLastPrice();
-        BigDecimal reservedAmount = slot.getAvailableCash();
-        Long quantity = StockPortfolioService.calculateQuantity(reservedAmount, signalReferencePrice);
-        if (quantity <= 0) {
-            log.info("候选[{}]可用资金不足买入1股,跳过: availableCash={}, price={}",
-                    candidate.stocksId(), reservedAmount, signalReferencePrice);
-            return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.INSUFFICIENT_FUNDS);
-        }
-
-        FormalBatchContext ctx = new FormalBatchContext(
-                candidate, slot, input.monthlyState(), signalReferencePrice, quantity, roundTime);
-        TornStockSignalEventDO event = shadowRecordWriter.recordTrackSignalEvent(
-                input.evaluation(), candidateRank, roundTime, target.eventDecision());
-        TornStockVirtualBatchDO batch = createTrackBatch(ctx, target);
-        batch.setSignalEventId(event.getId());
-
-        virtualBatchDao.save(batch);
-        if (StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(target.ledgerType())) {
-            // 候选影子批次: 回填事件shadowCandidateBatchId并创建无限资金影子孪生批次
-            shadowRecordWriter.linkCandidateShadowEvent(event, batch);
-        } else {
-            target.applyEventBatchId(event, batch.getId());
-            shadowRecordWriter.updateSignalEventBatchIds(event);
-        }
-
-        portfolioService.reserveSlot(slot, reservedAmount, batch.getId());
-
-        log.info("候选接纳: stocksId={}, slotNo={}, signalPrice={}, quantity={}, reserved={}, batchId={}, ledgerType={}",
-                candidate.stocksId(), slot.getSlotNo(),
-                signalReferencePrice, quantity, reservedAmount, batch.getId(), target.ledgerType());
-        return new CandidateAcceptance(batch, target.allocatedResult());
-    }
-
-    /**
-     * 创建目标账本批次DO(ENTRY_PENDING状态)。
-     * <p>
-     * 使用 {@link FormalBatchContext} 封装参数,避免超过 Sonar 方法参数上限(7)。
-     *
-     * @param ctx    批次构建上下文
-     * @param target 候选接纳目标
-     * @return 未保存的目标账本批次DO
-     */
-    private TornStockVirtualBatchDO createTrackBatch(FormalBatchContext ctx, CandidateAcceptanceTarget target) {
-        CandidateInfo candidate = ctx.candidate();
-        TornStockPortfolioSlotDO slot = ctx.slot();
-        LocalDateTime roundTime = ctx.roundTime();
-
-        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
-        batch.setBatchNo(target.batchNoPrefix()
-                + roundTime.format(FORMAL_BATCH_NO_FORMATTER) + candidate.stocksId());
-        batch.setLedgerType(target.ledgerType());
-        batch.setStocksId(candidate.stocksId());
-        batch.setStocksShortname(candidate.stocksShortname());
-        batch.setPrimaryStrategy(candidate.primaryStrategy().getCode());
-        batch.setMatchedStrategies(JsonUtils.objToJson(candidate.matchedStrategies()));
-        batch.setQualityScore(candidate.qualityScore());
-        batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
-        // signalEventId在信号事件保存后回填;目标账本批次尚未进入持久化批量写入。
-        batch.setSlotId(slot.getId());
-        batch.setSlotNo(slot.getSlotNo());
-        batch.setSignalTime(roundTime);
-        batch.setQuantity(ctx.quantity());
-        TornStockVirtualBatchSignalFields fields = StockVirtualBatchAssembler.buildSignalFields(
-                ctx.signalReferencePrice(), roundTime, ctx.monthlyState());
-        StockVirtualBatchAssembler.applySignalFields(batch, fields);
-        return batch;
-    }
-
-    /**
-     * 候选接纳目标 - 定义候选被接纳到哪个组合、以什么账本类型与批次编号前缀创建。
-     * <p>
-     * 仅支持本文定义的正式组合与候选影子组合两种有槽位组合,不建立通用多组合框架。
-     *
-     * @param portfolioCode 目标组合编码(VIP_FORMAL或VIP_SHADOW_CANDIDATE)
-     * @param ledgerType    目标账本类型编码(FORMAL或SHADOW_FORMAL_CANDIDATE)
-     * @param batchNoPrefix 批次编号前缀(F或C)
-     * @param eventDecision 事件组合决策编码(FORMAL或SHADOW)
-     * @param allocatedResult 分配成功的结果枚举(FORMAL_ALLOCATED或SHADOW_CANDIDATE_ALLOCATED)
-     */
-    public record CandidateAcceptanceTarget(
-            String portfolioCode,
-            String ledgerType,
-            String batchNoPrefix,
-            String eventDecision,
-            StockCandidateAllocationResultEnum allocatedResult) {
-
-        /**
-         * 正式组合接纳目标。
-         *
-         * @return 正式目标
-         */
-        public static CandidateAcceptanceTarget formal() {
-            return new CandidateAcceptanceTarget(
-                    StockPortfolioService.PORTFOLIO_CODE,
-                    StockLedgerTypeEnum.FORMAL.getCode(),
-                    "F",
-                    StockPortfolioDecisionEnum.FORMAL.getCode(),
-                    StockCandidateAllocationResultEnum.FORMAL_ALLOCATED);
-        }
-
-        /**
-         * 候选影子组合接纳目标。
-         *
-         * @return 候选影子目标
-         */
-        public static CandidateAcceptanceTarget candidateShadow() {
-            return new CandidateAcceptanceTarget(
-                    StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE,
-                    StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode(),
-                    "C",
-                    StockPortfolioDecisionEnum.SHADOW.getCode(),
-                    StockCandidateAllocationResultEnum.SHADOW_CANDIDATE_ALLOCATED);
-        }
-
-        /**
-         * 将新建批次ID回填到信号事件对应字段。
-         * <p>
-         * 正式目标回填formalBatchId,候选影子目标回填shadowCandidateBatchId。
-         *
-         * @param event   信号事件
-         * @param batchId 新建批次ID
-         */
-        public void applyEventBatchId(TornStockSignalEventDO event, Long batchId) {
-            if (StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)) {
-                event.setFormalBatchId(batchId);
-            } else if (StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(ledgerType)) {
-                event.setShadowCandidateBatchId(batchId);
-            }
-        }
-    }
-
-    /**
-     * 单个候选的正式接纳结果。
-     *
-     * @param batch  已创建正式批次，失败时为空
-     * @param result 实际接纳结果
-     */
-    private record CandidateAcceptance(
-            TornStockVirtualBatchDO batch,
-            StockCandidateAllocationResultEnum result
-    ) {
-    }
-
-    /**
-     * 候选接纳输入 - 封装单个候选接纳所需的候选、槽位、bar、月度状态与信号评估事实。
-     *
-     * @param candidate    候选信息
-     * @param slot         已分配的可用槽位
-     * @param bar          该候选股票本轮bar
-     * @param monthlyState 该候选股票的月度状态
-     * @param evaluation   该候选对应的完整信号评估事实
-     */
-    private record AcceptanceInput(
-            CandidateInfo candidate,
-            TornStockPortfolioSlotDO slot,
-            TornStockMarketBar15mDO bar,
-            TornStockMonthlyStateDO monthlyState,
-            SignalEvaluation evaluation
-    ) {
-    }
-
-    // ==================== 内部值对象 ====================
-
-    /**
-     * 买入信号评估结果。
-     *
-     * @param formalCandidates 通过资格的正式候选列表
-     * @param allEvaluations   全部信号评估结果(含拒绝/观察)
-     */
-    public record BuySignalResult(
-            List<CandidateInfo> formalCandidates,
-            List<SignalEvaluation> allEvaluations
-    ) {
-    }
-
-    /**
-     * 信号评估结果 - 封装单支股票本轮买入信号评估的全部中间结果。
-     * <p>
-     * 使用 record + Builder 模式封装跨步骤只读事实,由 {@link #evaluateSingleStock} 生成,
-     * 供后续影子记录、通知审计与信号状态更新消费。
-     *
-     * @param stocksId            股票ID
-     * @param stocksShortname     股票简称
-     * @param evaluatedStrategies 本轮实际评估的全部买入策略
-     * @param primaryStrategy     主策略(质量分最高的命中策略)
-     * @param matchedStrategies   全部命中策略列表
-     * @param qualityScore        主策略质量分
-     * @param edgeTriggered       是否为 false->true 边沿触发
-     * @param context             买入上下文
-     * @param monthlyState        月度状态记录
-     * @param eligibilityResult   资格判定结果;非边沿触发时为 null
-     * @param acceptedFormal      是否被正式接纳
-     */
-    public record SignalEvaluation(
-            Integer stocksId,
-            String stocksShortname,
-            List<StockBuyStrategy> evaluatedStrategies,
-            StockBuyStrategy primaryStrategy,
-            List<StockBuyStrategy> matchedStrategies,
-            BigDecimal qualityScore,
-            boolean edgeTriggered,
-            BuyContext context,
-            TornStockMonthlyStateDO monthlyState,
-            EligibilityResult eligibilityResult,
-            boolean acceptedFormal
-    ) implements StockShadowRecordWriter.SignalEvaluationView,
-            StockSignalStateUpdater.SignalStateEvaluationView {
-        /**
-         * 创建可变构建器。
-         *
-         * @param stocksId        股票ID
-         * @param stocksShortname 股票简称
-         * @return 构建器实例
-         */
-        public static Builder builder(Integer stocksId, String stocksShortname) {
-            return new Builder(stocksId, stocksShortname);
-        }
-
-        /**
-         * SignalEvaluation 可变构建器,逐步填充字段后构建不可变 record。
-         */
-        public static class Builder {
-            private final Integer stocksId;
-            private final String stocksShortname;
-            private List<StockBuyStrategy> evaluatedStrategies = List.of();
-            private StockBuyStrategy primaryStrategy;
-            private List<StockBuyStrategy> matchedStrategies;
-            private BigDecimal qualityScore;
-            private boolean edgeTriggered;
-            private BuyContext context;
-            private TornStockMonthlyStateDO monthlyState;
-            private EligibilityResult eligibilityResult;
-            private boolean acceptedFormal;
-
-            private Builder(Integer stocksId, String stocksShortname) {
-                this.stocksId = stocksId;
-                this.stocksShortname = stocksShortname;
-            }
-
-            /**
-             * 设置本轮实际评估的全部买入策略。
-             *
-             * @param evaluatedStrategies 已评估策略
-             * @return 当前构建器
-             */
-            public Builder evaluatedStrategies(List<StockBuyStrategy> evaluatedStrategies) {
-                this.evaluatedStrategies = evaluatedStrategies == null ? List.of() : evaluatedStrategies;
-                return this;
-            }
-
-            /**
-             * 设置主策略。
-             *
-             * @param primaryStrategy 主策略
-             * @return 当前构建器
-             */
-            public Builder primaryStrategy(StockBuyStrategy primaryStrategy) {
-                this.primaryStrategy = primaryStrategy;
-                return this;
-            }
-
-            /**
-             * 设置全部命中策略列表。
-             *
-             * @param matchedStrategies 命中策略列表
-             * @return 当前构建器
-             */
-            public Builder matchedStrategies(List<StockBuyStrategy> matchedStrategies) {
-                this.matchedStrategies = matchedStrategies;
-                return this;
-            }
-
-            /**
-             * 设置主策略质量分。
-             *
-             * @param qualityScore 质量分
-             * @return 当前构建器
-             */
-            public Builder qualityScore(BigDecimal qualityScore) {
-                this.qualityScore = qualityScore;
-                return this;
-            }
-
-
-            /**
-             * 设置是否为边沿触发。
-             *
-             * @param edgeTriggered 是否边沿触发
-             * @return 当前构建器
-             */
-            public Builder edgeTriggered(boolean edgeTriggered) {
-                this.edgeTriggered = edgeTriggered;
-                return this;
-            }
-
-            /**
-             * 设置买入上下文。
-             *
-             * @param context 买入上下文
-             * @return 当前构建器
-             */
-            public Builder context(BuyContext context) {
-                this.context = context;
-                return this;
-            }
-
-
-            /**
-             * 设置月度状态记录。
-             *
-             * @param monthlyState 月度状态
-             * @return 当前构建器
-             */
-            public Builder monthlyState(TornStockMonthlyStateDO monthlyState) {
-                this.monthlyState = monthlyState;
-                return this;
-            }
-
-            /**
-             * 设置资格判定结果。
-             *
-             * @param eligibilityResult 资格结果
-             */
-            public void eligibilityResult(EligibilityResult eligibilityResult) {
-                this.eligibilityResult = eligibilityResult;
-            }
-
-            /**
-             * 设置是否被正式接纳。
-             *
-             * @param acceptedFormal 是否正式接纳
-             */
-            public void acceptedFormal(boolean acceptedFormal) {
-                this.acceptedFormal = acceptedFormal;
-            }
-
-            /**
-             * 构建不可变的 SignalEvaluation。
-             *
-             * @return SignalEvaluation 实例
-             */
-            public SignalEvaluation build() {
-                return new SignalEvaluation(
-                        stocksId, stocksShortname, evaluatedStrategies, primaryStrategy, matchedStrategies,
-                        qualityScore, edgeTriggered, context,
-                        monthlyState, eligibilityResult, acceptedFormal
-                );
-            }
-        }
-    }
-
-    /**
-     * 策略匹配结果。
-     *
-     * @param primaryStrategy   主策略(质量分最高);无命中时为 null
-     * @param matchedStrategies 全部命中策略列表
-     * @param bestScore         最优质量分;无命中时为 null
-     */
-    private record StrategyMatchResult(
-            StockBuyStrategy primaryStrategy,
-            List<StockBuyStrategy> matchedStrategies,
-            BigDecimal bestScore
-    ) {
-    }
-
-    /**
-     * 目标账本批次构建上下文 - 封装 {@link #createTrackBatch} 的参数,避免超过 Sonar 方法参数上限。
-     *
-     * @param candidate            候选信息
-     * @param slot                 分配的槽位
-     * @param monthlyState         月度状态(用于填充风格/风险字段)
-     * @param signalReferencePrice 信号参考价
-     * @param quantity             计划买入股数
-     * @param roundTime            本轮时间
-     */
-    private record FormalBatchContext(
-            CandidateInfo candidate,
-            TornStockPortfolioSlotDO slot,
-            TornStockMonthlyStateDO monthlyState,
-            BigDecimal signalReferencePrice,
-            Long quantity,
-            LocalDateTime roundTime
-    ) {
-    }
-
-    /**
-     * 风格枚举包装器 - 封装从月度状态解析出的风格、成熟度、风险等级。
-     *
-     * @param style     策略适配风格
-     * @param maturity  成熟度
-     * @param riskLevel 风险等级
-     */
-    private record StockStrategyFitEnumWrapper(
-            StockStrategyFitEnum style,
-            StockMaturityEnum maturity,
-            StockRiskLevelEnum riskLevel
-    ) {
     }
 }

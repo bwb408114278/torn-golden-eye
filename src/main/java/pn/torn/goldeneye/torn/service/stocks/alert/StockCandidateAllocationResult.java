@@ -7,14 +7,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 股票候选正式接纳结果，明确区分资格通过、实际槽位分配和失败原因。
+ * 股票候选接纳结果，记录本轮实际接纳的轨道批次与逐股接纳结论。
+ * <p>
+ * 结果批次在正式模式下作为正式批次写入，在候选影子模式下被复用为候选影子批次。
  *
+ * @param allocatedBatches 本轮创建的轨道批次（正式模式为正式批次，候选影子模式复用为候选影子批次）
+ * @param resultByStockId  股票ID到接纳结论的映射
  * @author Bai
- * @version 1.2.10
+ * @version 1.2.14
  * @since 2026.07.17
  */
 public record StockCandidateAllocationResult(
-        List<TornStockVirtualBatchDO> formalBatches,
+        List<TornStockVirtualBatchDO> allocatedBatches,
         Map<Integer, StockCandidateAllocationResultEnum> resultByStockId
 ) {
     /**

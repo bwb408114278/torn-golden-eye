@@ -21,15 +21,15 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.verify;
 
 /**
- * 股票影子账本服务测试,覆盖Shadow批次和拒绝观察批次的账本隔离契约。
+ * 股票影子轨道记录器测试,覆盖Shadow批次和拒绝观察批次的账本隔离契约。
  *
  * @author Bai
- * @version 1.2.12
- * @since 2026.07.28
+ * @version 1.2.14
+ * @since 2026.08.09
  */
-@DisplayName("股票影子账本服务测试")
+@DisplayName("股票影子轨道记录器测试")
 @ExtendWith(MockitoExtension.class)
-class StockShadowServiceTest {
+class StockShadowTrackRecorderTest {
 
     private static final LocalDateTime ROUND_TIME = LocalDateTime.of(2026, 7, 28, 10, 0);
 
@@ -42,10 +42,11 @@ class StockShadowServiceTest {
     @Test
     @DisplayName("创建无限资金Shadow批次_携带事件ID且不占正式槽位")
     void createUnlimitedShadowBatch_carriesEventIdWithoutFormalSlot() {
-        StockShadowService service = new StockShadowService(signalEventDAO, virtualBatchDAO);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(
+                signalEventDAO, virtualBatchDAO, new StockMarketClock());
         TornStockSignalEventDO event = buildEvent(11L);
 
-        service.createUnlimitedShadowBatch(event);
+        recorder.createUnlimitedShadowBatch(event);
 
         ArgumentCaptor<TornStockVirtualBatchDO> captor = ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
         verify(virtualBatchDAO).save(captor.capture());
@@ -60,10 +61,11 @@ class StockShadowServiceTest {
     @Test
     @DisplayName("创建拒绝观察批次_直接取消且不占正式槽位")
     void createRejectedObservationBatch_createsCancelledNonSlotBatch() {
-        StockShadowService service = new StockShadowService(signalEventDAO, virtualBatchDAO);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(
+                signalEventDAO, virtualBatchDAO, new StockMarketClock());
         TornStockSignalEventDO event = buildEvent(12L);
 
-        service.createRejectedObservationBatch(event, "COOLDOWN_ACTIVE");
+        recorder.createRejectedObservationBatch(event, "COOLDOWN_ACTIVE");
 
         ArgumentCaptor<TornStockVirtualBatchDO> captor = ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
         verify(virtualBatchDAO).save(captor.capture());
@@ -79,12 +81,13 @@ class StockShadowServiceTest {
     @Test
     @DisplayName("事件批次ID回写_只更新已保存事件")
     void updateEventBatchIds_updatesSavedEvent() {
-        StockShadowService service = new StockShadowService(signalEventDAO, virtualBatchDAO);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(
+                signalEventDAO, virtualBatchDAO, new StockMarketClock());
         TornStockSignalEventDO event = buildEvent(13L);
         event.setFormalBatchId(101L);
         event.setShadowBatchId(202L);
 
-        service.updateEventBatchIds(event);
+        recorder.updateEventBatchIds(event);
 
         verify(signalEventDAO).updateById(event);
     }
@@ -92,23 +95,25 @@ class StockShadowServiceTest {
     @Test
     @DisplayName("创建Shadow批次_事件未保存时拒绝创建")
     void createUnlimitedShadowBatch_eventIdMissing_throwsException() {
-        StockShadowService service = new StockShadowService(signalEventDAO, virtualBatchDAO);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(
+                signalEventDAO, virtualBatchDAO, new StockMarketClock());
         TornStockSignalEventDO event = buildEvent(null);
 
         org.junit.jupiter.api.Assertions.assertThrows(
                 NullPointerException.class,
-                () -> service.createUnlimitedShadowBatch(event));
+                () -> recorder.createUnlimitedShadowBatch(event));
     }
 
     @Test
     @DisplayName("拒绝观察结果回写_保存MFE和MAE并记录结算时间")
     void resolveRejectedObservation_updatesResultAndResolutionTime() {
-        StockShadowService service = new StockShadowService(signalEventDAO, virtualBatchDAO);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(
+                signalEventDAO, virtualBatchDAO, new StockMarketClock());
         TornStockSignalEventDO event = buildEvent(14L);
         BigDecimal laterMfe = new BigDecimal("0.12");
         BigDecimal laterMae = new BigDecimal("-0.08");
 
-        service.resolveRejectedObservation(event, laterMfe, laterMae, ROUND_TIME.plusDays(14));
+        recorder.resolveRejectedObservation(event, laterMfe, laterMae, ROUND_TIME.plusDays(14));
 
         assertEquals(laterMfe, event.getLaterMfe());
         assertEquals(laterMae, event.getLaterMae());
@@ -124,7 +129,7 @@ class StockShadowServiceTest {
         event.setStrategyType("RANGE_LOWER_BUY");
         event.setSignalReferencePrice(new BigDecimal("100.00"));
         event.setRoundTime(ROUND_TIME);
-        event.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
+        event.setBuyRuleVersion(StockRuleVersion.BUY);
         return event;
     }
 }

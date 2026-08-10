@@ -4,36 +4,29 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
-import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.List;
 
 /**
  * VIP股票每日摘要服务 - 每天08:30汇总正式组合与影子研究数据并发送中文摘要
  * <p>
- * 在生产环境下每日08:30(Asia/Shanghai)触发,摘要日期为发送日前一自然日:
+ * 在生产环境下每日08:30(Asia/Shanghai)触发,摘要日期为发送日前一自然日。本类是纯编排入口,
+ * 不含查询、计算、渲染与通知实现:
  * <ol>
  *   <li>检查 {@link SettingConstants#KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED} 开关</li>
  *   <li>检查生产环境({@link BotConstants#ENV_PROD})</li>
- *   <li>调用 {@link #buildSummaryData(LocalDate)} 收集正式组合与影子数据</li>
- *   <li>构建中文摘要文本并写入PENDING通知审计</li>
- *   <li>调用 {@link StockNoticeSendService#sendSingleMessage} 发送至VIP群,根据发送结果更新通知审计状态</li>
+ *   <li>通过 {@link StockMarketClock#summaryDate()} 计算摘要日期</li>
+ *   <li>委托 {@link StockDailySummaryQueryService#buildSummaryData} 收集正式组合与影子数据</li>
+ *   <li>委托 {@link StockDailySummaryRenderer} 构建中文摘要文本</li>
+ *   <li>委托 {@link StockDailySummaryNoticeService} 写入PENDING通知审计并发送至VIP群,更新发送状态</li>
  * </ol>
  * 摘要内容覆盖正式组合(占用槽位、权益、昨日买卖、净收益、开放批次、陈旧批次)、
  * 候选影子组合(独立5槽占用、权益、买卖、净收益)与影子研究
@@ -64,69 +57,10 @@ public class StockDailySummaryService {
      * 开关启用标识
      */
     private static final String SETTING_ENABLED_VALUE = "true";
-    /**
-     * 消息规则版本(与 {@link VipStockAlertScheduler#MESSAGE_RULE_VERSION} 保持一致)
-     */
-    private static final String MESSAGE_RULE_VERSION = "1.0.0";
-    /**
-     * 通知编号前缀
-     */
-    private static final String NOTICE_NO_PREFIX = "D";
-    /**
-     * 通知编号时间戳格式
-     */
-    private static final String NOTICE_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmmssSSS";
-    /**
-     * 摘要日期展示格式
-     */
-    private static final String SUMMARY_DATE_PATTERN = "yyyy-MM-dd";
-    /**
-     * 动态SELL研究固定展示文本(公式冻结前建议未启用)
-     */
-    private static final String DYNAMIC_SELL_RESEARCH_NOT_FROZEN = "动态SELL研究：规则未冻结，建议未启用";
-    /**
-     * 动态SELL研究无研究输入展示文本
-     */
-    private static final String DYNAMIC_SELL_RESEARCH_NO_INPUT = "动态SELL研究：无研究输入";
-    /**
-     * 动态SELL研究完整mark的decision编码(公式冻结前固定NOT_EVALUATED)
-     */
-    private static final String DYNAMIC_SELL_DECISION_NOT_EVALUATED = "NOT_EVALUATED";
-    /**
-     * 动态SELL研究完整mark的reason编码(公式冻结前固定DYNAMIC_RULE_NOT_FROZEN)
-     */
-    private static final String DYNAMIC_SELL_REASON_NOT_FROZEN = "DYNAMIC_RULE_NOT_FROZEN";
-    /**
-     * 日报完整权益允许的最大行情滞后分钟数。
-     */
-    private static final long MAX_PRICE_AGE_MINUTES = 30L;
-    /**
-     * 摘要标题模板
-     */
-    private static final String SUMMARY_TITLE_TEMPLATE = "【VIP股票组合日报｜%s】";
-    /**
-     * 影子研究免责声明
-     */
-    private static final String SHADOW_DISCLAIMER = "提示：影子数据仅用于策略研究，不代表正式操作建议。";
-    /**
-     * 通知编号格式化器
-     */
-    private static final DateTimeFormatter NOTICE_NO_FORMATTER =
-            DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
-    /**
-     * 摘要日期格式化器
-     */
-    private static final DateTimeFormatter SUMMARY_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern(SUMMARY_DATE_PATTERN);
 
-    private final TornStockPortfolioSlotDAO portfolioSlotDAO;
-    private final TornStockVirtualBatchDAO virtualBatchDAO;
-    private final TornStockSignalEventDAO signalEventDAO;
-    private final TornStockBatchMarkDAO batchMarkDAO;
-    private final TornStockNoticeAuditDAO noticeAuditDAO;
-    private final TornStockMarketBar15mDAO bar15mDAO;
-    private final StockPortfolioService portfolioService;
-    private final StockNoticeSendService noticeSendService;
+    private final StockDailySummaryQueryService queryService;
+    private final StockDailySummaryRenderer renderer;
+    private final StockDailySummaryNoticeService noticeService;
     private final StockMarketClock marketClock;
     private final ProjectProperty projectProperty;
     private final SysSettingManager sysSettingManager;
@@ -139,8 +73,8 @@ public class StockDailySummaryService {
      *   <li>非生产环境直接返回</li>
      *   <li> {@link SettingConstants#KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED} 开关不为 "true" 时返回</li>
      * </ol>
-     * 通过后计算摘要日期(发送日前一自然日),构建摘要数据,写入PENDING通知审计,
-     * 调用统一发送服务发送至VIP群,并根据发送结果更新通知审计状态。任一步骤异常时记录日志不中断后续调度。
+     * 通过后通过 {@link StockMarketClock#summaryDate()} 计算摘要日期,委托查询服务构建摘要数据、
+     * 渲染器构建文本、通知服务写入PENDING通知审计并发送至VIP群。任一步骤异常时记录日志不中断后续调度。
      */
     @Scheduled(cron = "0 30 8 * * *", zone = "Asia/Shanghai")
     public void executeDailySummary() {
@@ -153,7 +87,7 @@ public class StockDailySummaryService {
             return;
         }
 
-        LocalDate summaryDate = LocalDate.now().minusDays(1);
+        LocalDate summaryDate = marketClock.summaryDate();
         log.info("VIP股票每日摘要-开始执行, summaryDate={}", summaryDate);
 
         DailySummaryData data;
@@ -165,791 +99,35 @@ public class StockDailySummaryService {
         }
 
         String summaryText = buildSummaryText(data);
-        TornStockNoticeAuditDO notice = savePendingNotice(summaryDate, summaryText);
-        sendAndUpdateNotice(notice, summaryText);
+        TornStockNoticeAuditDO notice = noticeService.savePendingNotice(summaryDate, summaryText);
+        noticeService.sendAndUpdateNotice(notice, summaryText);
     }
 
     /**
      * 构建每日摘要数据,包含正式组合与影子研究两部分。
      * <p>
-     * 正式组合部分:查询VIP组合全部槽位与活跃正式批次,统计占用槽位、组合权益、
-     * 昨日买入/卖出批次、昨日已实现净收益、开放批次股票列表与数据陈旧批次数量。
-     * <br>影子研究部分:查询摘要日期范围内的信号事件,按portfolioDecision与rejectReason分组统计;
-     * 查询昨日影子批次统计动态卖出建议与高风险观察数量。
+     * 委托 {@link StockDailySummaryQueryService#buildSummaryData} 一次性读取三类只读数据:
+     * 正式组合(占用槽位、组合权益、昨日买入/卖出、净收益、开放批次、陈旧批次)、
+     * 候选影子组合(独立5槽占用、权益、昨日买卖与净收益)与影子研究
+     * (信号统计、动态SELL研究状态与高风险观察)。
      *
      * @param summaryDate 摘要日期(发送日前一自然日)
      * @return 摘要数据对象
      */
     public DailySummaryData buildSummaryData(LocalDate summaryDate) {
-        FormalSummary formal = buildFormalSummary(summaryDate);
-        CandidateShadowSummary candidateShadow = buildCandidateShadowSummary(summaryDate);
-        ShadowSummary shadow = buildShadowSummary(summaryDate);
-        return new DailySummaryData(formal, candidateShadow, shadow);
-    }
-
-    /**
-     * 构建候选影子组合摘要数据。
-     * <p>
-     * 候选影子是SHADOW模式独立5槽账本,与正式组合完全隔离: 占用槽位、当日买入/卖出、
-     * 组合权益(现金+预留+开放持仓按最新可用bar市值×0.999)与无限资金影子新增批次分别展示,
-     * 不得与正式组合合计。
-     *
-     * @param summaryDate 摘要日期
-     * @return 候选影子组合摘要
-     */
-    private CandidateShadowSummary buildCandidateShadowSummary(LocalDate summaryDate) {
-        List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(
-                StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
-        List<TornStockVirtualBatchDO> activeBatches = virtualBatchDAO.lambdaQuery()
-                .eq(TornStockVirtualBatchDO::getLedgerType, StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode())
-                .in(TornStockVirtualBatchDO::getBatchStatus, List.of(
-                        StockBatchStatusEnum.ENTRY_PENDING.getCode(), StockBatchStatusEnum.OPEN.getCode(),
-                        StockBatchStatusEnum.DATA_STALE.getCode(), StockBatchStatusEnum.EXIT_PENDING.getCode(),
-                        StockBatchStatusEnum.DATA_STALE_EXIT.getCode()))
-                .eq(TornStockVirtualBatchDO::getDeleted, 0)
-                .list();
-
-        int occupiedSlots = countOccupiedSlots(slots);
-        EquityResult equityResult = calculateEquity(slots, activeBatches);
-
-        LocalDateTime dayStart = summaryDate.atStartOfDay();
-        LocalDateTime dayEnd = summaryDate.plusDays(1).atStartOfDay();
-        List<TornStockVirtualBatchDO> yesterdayBatches = queryCandidateShadowActionBatches(dayStart, dayEnd);
-        int yesterdayBuyCount = countBatchesInRange(yesterdayBatches, dayStart, dayEnd, true);
-        int yesterdaySellCount = countBatchesInRange(yesterdayBatches, dayStart, dayEnd, false);
-        BigDecimal yesterdayNetReturn = sumNetReturn(yesterdayBatches, dayStart, dayEnd);
-        List<String> openBatchStocks = extractOpenBatchStocks(activeBatches);
-
-        return new CandidateShadowSummary(occupiedSlots, equityResult.equity(),
-                equityResult.cashAndReserved(), equityResult.missingPriceStocks(),
-                yesterdayBuyCount, yesterdaySellCount, yesterdayNetReturn, openBatchStocks);
-    }
-
-    /**
-     * 查询摘要日期范围内有入场或出场动作的候选影子批次。
-     *
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @return 候选影子动作批次列表(按批次ID去重)
-     */
-    private List<TornStockVirtualBatchDO> queryCandidateShadowActionBatches(
-            LocalDateTime dayStart, LocalDateTime dayEnd) {
-        List<TornStockVirtualBatchDO> batches = virtualBatchDAO.lambdaQuery()
-                .eq(TornStockVirtualBatchDO::getLedgerType, StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode())
-                .and(wrapper -> wrapper
-                        .ge(TornStockVirtualBatchDO::getEntryTime, dayStart).lt(TornStockVirtualBatchDO::getEntryTime, dayEnd)
-                        .or()
-                        .ge(TornStockVirtualBatchDO::getExitTime, dayStart).lt(TornStockVirtualBatchDO::getExitTime, dayEnd))
-                .eq(TornStockVirtualBatchDO::getDeleted, 0)
-                .list();
-        if (CollectionUtils.isEmpty(batches)) {
-            return List.of();
-        }
-        return batches.stream()
-                .filter(batch -> batch.getId() != null)
-                .collect(Collectors.toMap(
-                        TornStockVirtualBatchDO::getId,
-                        Function.identity(),
-                        (first, duplicate) -> first,
-                        LinkedHashMap::new))
-                .values().stream().toList();
-    }
-
-    /**
-     * 构建正式组合摘要数据。
-     * <p>
-     * 查询VIP组合全部槽位,统计非AVAILABLE状态的占用槽位数;
-     * 查询活跃正式批次,计算组合权益(简化处理:现金+预留+开放仓位投入资金);
-     * 统计昨日entryTime/exitTime落在摘要日期范围内的买入/卖出批次,
-     * 昨日净收益为卖出批次netReturn之和;
-     * 开放批次为OPEN状态的stocksShortname列表,陈旧批次为DATA_STALE状态数量。
-     *
-     * @param summaryDate 摘要日期
-     * @return 正式组合摘要
-     */
-    private FormalSummary buildFormalSummary(LocalDate summaryDate) {
-        List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
-        List<TornStockVirtualBatchDO> activeBatches = virtualBatchDAO.selectActiveFormalBatches();
-
-        int occupiedSlots = countOccupiedSlots(slots);
-        EquityResult equityResult = calculateEquity(slots, activeBatches);
-
-        LocalDateTime dayStart = summaryDate.atStartOfDay();
-        LocalDateTime dayEnd = summaryDate.plusDays(1).atStartOfDay();
-
-        List<TornStockVirtualBatchDO> yesterdayFormalBatches = queryFormalBatchesByTimeRange(dayStart, dayEnd);
-        int yesterdayBuyCount = countBatchesInRange(yesterdayFormalBatches, dayStart, dayEnd, true);
-        int yesterdaySellCount = countBatchesInRange(yesterdayFormalBatches, dayStart, dayEnd, false);
-        BigDecimal yesterdayNetReturn = sumNetReturn(yesterdayFormalBatches, dayStart, dayEnd);
-
-        List<String> openBatchStocks = extractOpenBatchStocks(activeBatches);
-        int staleBatchCount = countStaleBatches(activeBatches);
-
-        return new FormalSummary(occupiedSlots, equityResult.equity(), equityResult.cashAndReserved(),
-                equityResult.missingPriceStocks(), equityResult.priceAsOf(), yesterdayBuyCount, yesterdaySellCount,
-                yesterdayNetReturn, openBatchStocks, staleBatchCount, summaryDate);
-    }
-
-    /**
-     * 构建影子研究摘要数据。
-     * <p>
-     * 查询摘要日期范围内的全部信号事件,按portfolioDecision与rejectReason分组统计:
-     * <ul>
-     *   <li>signalCount - 全部信号事件数</li>
-     *   <li>shadowNewCount - portfolioDecision = SHADOW 的事件数</li>
-     *   <li>fullRejectCount - rejectReason = NO_AVAILABLE_SLOT 的事件数</li>
-     *   <li>styleRejectCount - rejectReason = STYLE_NOT_READY 或 portfolioDecision = REJECTED 的事件数</li>
-     * </ul>
-     * 动态SELL以{@code torn_stock_batch_mark}为唯一数据源表达研究状态而非建议命中:
-     * 分母=摘要日内关联活跃或当日动作的正式/候选影子批次中{@code dynamic_shadow_decision}
-     * 或{@code dynamic_shadow_reason}非空的研究mark数;完整数=decision=NOT_EVALUATED且
-     * reason=DYNAMIC_RULE_NOT_FROZEN的mark数;缺失数=分母-完整数;覆盖率=完整数/分母。
-     * 不得从影子批次数、exitReason或历史编码猜测建议。
-     *
-     * @param summaryDate 摘要日期
-     * @return 影子研究摘要
-     */
-    private ShadowSummary buildShadowSummary(LocalDate summaryDate) {
-        LocalDateTime dayStart = summaryDate.atStartOfDay();
-        LocalDateTime dayEnd = summaryDate.plusDays(1).atStartOfDay();
-
-        List<TornStockSignalEventDO> signalEvents = querySignalEventsByTimeRange(dayStart, dayEnd);
-        int signalCount = signalEvents.size();
-        int shadowNewCount = countShadowDecisions(signalEvents);
-        int fullRejectCount = countNoAvailableSlotRejections(signalEvents);
-        int styleRejectCount = countStyleReject(signalEvents);
-
-        List<TornStockVirtualBatchDO> shadowBatches = queryShadowBatchesByTimeRange(dayStart, dayEnd);
-        int highRiskCount = countHighRisk(shadowBatches);
-
-        List<TornStockBatchMarkDO> researchMarks = batchMarkDAO.selectDynamicShadowResearchMarks(dayStart, dayEnd);
-        int researchMarkCount = researchMarks.size();
-        int completeResearchMarkCount = countCompleteResearchMarks(researchMarks);
-
-        return new ShadowSummary(signalCount, shadowNewCount, fullRejectCount,
-                styleRejectCount, researchMarkCount, completeResearchMarkCount, highRiskCount);
-    }
-
-    /**
-     * 统计完整研究mark数(decision=NOT_EVALUATED且reason=DYNAMIC_RULE_NOT_FROZEN)。
-     *
-     * @param researchMarks 研究mark列表
-     * @return 完整研究mark数
-     */
-    private int countCompleteResearchMarks(List<TornStockBatchMarkDO> researchMarks) {
-        if (CollectionUtils.isEmpty(researchMarks)) {
-            return 0;
-        }
-        return (int) researchMarks.stream()
-                .filter(mark -> DYNAMIC_SELL_DECISION_NOT_EVALUATED.equals(mark.getDynamicShadowDecision())
-                        && DYNAMIC_SELL_REASON_NOT_FROZEN.equals(mark.getDynamicShadowReason()))
-                .count();
-    }
-
-    /**
-     * 统计占用槽位数(状态非AVAILABLE)。
-     *
-     * @param slots 全部槽位
-     * @return 占用槽位数
-     */
-    private int countOccupiedSlots(List<TornStockPortfolioSlotDO> slots) {
-        if (CollectionUtils.isEmpty(slots)) {
-            return 0;
-        }
-        return (int) slots.stream()
-                .filter(slot -> !StockSlotStatusEnum.AVAILABLE.getCode().equals(slot.getSlotStatus()))
-                .count();
-    }
-
-    /**
-     * 计算组合权益(现金+预留+开放仓位当前市值)
-     * <p>
-     * 开放仓位市值 = quantity × currentPrice × 0.999(扣除卖出手续费),
-     * 其中currentPrice取生成时点前30分钟内、最近完整桶的bar.lastPrice。
-     * 批量查询最新bar避免N+1;无bar、价格不可用或行情过期时返回数据不足，
-     * 不使用投入资金近似。
-     *
-     * @param slots         全部槽位
-     * @param activeBatches 活跃正式批次
-     * @return 组合权益总额
-     */
-    private EquityResult calculateEquity(List<TornStockPortfolioSlotDO> slots,
-                                         List<TornStockVirtualBatchDO> activeBatches) {
-        BigDecimal cashAndReserved = portfolioService.calculateCashAndReserved(slots);
-        List<TornStockVirtualBatchDO> openPositionBatches = extractOpenPositionBatches(activeBatches);
-        if (openPositionBatches.isEmpty()) {
-            return new EquityResult(cashAndReserved, cashAndReserved, List.of(), null);
-        }
-
-        LocalDateTime summaryGeneratedAt = marketClock.now();
-        Map<Integer, TornStockMarketBar15mDO> latestBarByStock = loadLatestBars(openPositionBatches, summaryGeneratedAt);
-        List<String> missingPriceStocks = collectMissingPriceStocks(
-                openPositionBatches, latestBarByStock, summaryGeneratedAt);
-        if (!missingPriceStocks.isEmpty()) {
-            return new EquityResult(null, cashAndReserved, missingPriceStocks, null);
-        }
-        Map<Long, BigDecimal> batchMarketValues = new HashMap<>();
-        for (TornStockVirtualBatchDO batch : openPositionBatches) {
-            batchMarketValues.put(batch.getSlotId(), calculateBatchMarketValue(batch, latestBarByStock));
-        }
-        return new EquityResult(portfolioService.calculateEquity(slots, batchMarketValues), cashAndReserved,
-                List.of(), findEarliestPriceAsOf(latestBarByStock));
-    }
-
-    /**
-     * 提取需要当前行情估值的开放正式仓位。
-     *
-     * @param activeBatches 活跃正式批次
-     * @return 具备槽位和持仓数量的开放仓位
-     */
-    private List<TornStockVirtualBatchDO> extractOpenPositionBatches(List<TornStockVirtualBatchDO> activeBatches) {
-        if (CollectionUtils.isEmpty(activeBatches)) {
-            return List.of();
-        }
-        return activeBatches.stream()
-                .filter(batch -> batch.getSlotId() != null && batch.getQuantity() != null)
-                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())
-                        || StockBatchStatusEnum.DATA_STALE.getCode().equals(batch.getBatchStatus())
-                        || StockBatchStatusEnum.EXIT_PENDING.getCode().equals(batch.getBatchStatus())
-                        || StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus()))
-                .toList();
-    }
-
-    /**
-     * 收集缺失有效行情的股票简称，并按股票ID保证展示顺序确定。
-     *
-     * @param openPositionBatches 开放正式仓位
-     * @param latestBarByStock    每股最新可用bar
-     * @param summaryGeneratedAt  日报生成时点
-     * @return 缺失行情股票简称
-     */
-    private List<String> collectMissingPriceStocks(List<TornStockVirtualBatchDO> openPositionBatches,
-                                                   Map<Integer, TornStockMarketBar15mDO> latestBarByStock,
-                                                   LocalDateTime summaryGeneratedAt) {
-        return openPositionBatches.stream()
-                .filter(batch -> calculateBatchMarketValue(batch, latestBarByStock) == null
-                        || !isFreshPrice(latestBarByStock.get(batch.getStocksId()), summaryGeneratedAt))
-                .sorted(Comparator.comparing(TornStockVirtualBatchDO::getStocksId))
-                .map(TornStockVirtualBatchDO::getStocksShortname)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-    }
-
-    /**
-     * 批量加载最新且处于新鲜度窗口内的bar，按股票ID索引避免N+1查询。
-     *
-     * @param openPositionBatches 开放正式仓位
-     * @param summaryGeneratedAt  日报生成时点
-     * @return 按股票ID索引的最新bar映射
-     */
-    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars(List<TornStockVirtualBatchDO> openPositionBatches,
-                                                                 LocalDateTime summaryGeneratedAt) {
-        List<Integer> stocksIds = openPositionBatches.stream()
-                .map(TornStockVirtualBatchDO::getStocksId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-        if (stocksIds.isEmpty()) {
-            return Map.of();
-        }
-        LocalDateTime latestAllowedBarStart = marketClock.currentEndedBucket()
-                .minusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
-        LocalDateTime minBarEndTime = summaryGeneratedAt.minusMinutes(MAX_PRICE_AGE_MINUTES);
-        List<TornStockMarketBar15mDO> bars = bar15mDAO.selectLatestUsableByStocks(
-                stocksIds, latestAllowedBarStart, minBarEndTime, Stock15mBarBuildService.BUILD_VERSION);
-        Map<Integer, TornStockMarketBar15mDO> barByStock = new HashMap<>();
-        if (CollectionUtils.isEmpty(bars)) {
-            return barByStock;
-        }
-        for (TornStockMarketBar15mDO bar : bars) {
-            if (Boolean.TRUE.equals(bar.getUsable()) && bar.getStocksId() != null) {
-                barByStock.put(bar.getStocksId(), bar);
-            }
-        }
-        return barByStock;
-    }
-
-    /**
-     * 校验参与日报估值的行情是否处于允许的新鲜度窗口。
-     *
-     * @param bar                实际选中的行情bar
-     * @param summaryGeneratedAt 日报生成时点
-     * @return bar结束时点位于生成时点前30分钟内时返回true
-     */
-    private boolean isFreshPrice(TornStockMarketBar15mDO bar, LocalDateTime summaryGeneratedAt) {
-        if (bar == null || bar.getBarEndTime() == null) {
-            return false;
-        }
-        LocalDateTime minBarEndTime = summaryGeneratedAt.minusMinutes(MAX_PRICE_AGE_MINUTES);
-        return !bar.getBarEndTime().isBefore(minBarEndTime) && !bar.getBarEndTime().isAfter(summaryGeneratedAt);
-    }
-
-    /**
-     * 获取完整权益中所有实际估值行情的最早结束时点。
-     *
-     * @param latestBarByStock 每股实际参与估值的行情
-     * @return 最早行情结束时点
-     */
-    private LocalDateTime findEarliestPriceAsOf(Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
-        return latestBarByStock.values().stream()
-                .map(TornStockMarketBar15mDO::getBarEndTime)
-                .filter(Objects::nonNull)
-                .min(LocalDateTime::compareTo)
-                .orElse(null);
-    }
-
-    /**
-     * 计算单个批次的当前市值。
-     * <p>
-     * marketValue = quantity × currentPrice × 0.999(扣除0.1%卖出手续费)。
-     * 无最新bar或价格非法时返回null,由上层按数据不足处理,不回退到投入资金近似。
-     *
-     * @param batch            活跃批次
-     * @param latestBarByStock 按股票ID索引的最新bar映射
-     * @return 批次当前市值;行情缺失或不可用时返回null
-     */
-    private BigDecimal calculateBatchMarketValue(TornStockVirtualBatchDO batch,
-                                                 Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
-        TornStockMarketBar15mDO bar = latestBarByStock.get(batch.getStocksId());
-        if (bar != null && Boolean.TRUE.equals(bar.getUsable())
-                && bar.getLastPrice() != null && bar.getLastPrice().signum() > 0) {
-            return bar.getLastPrice()
-                    .multiply(BigDecimal.valueOf(batch.getQuantity()))
-                    .multiply(StockPortfolioService.SELL_FEE_RATE);
-        }
-        return null;
-    }
-
-    /**
-     * 查询指定时间范围内入场的正式批次。
-     * <p>
-     * 使用单次SQL按(entry_time范围 OR exit_time范围)查询,并按批次ID确定性去重。
-     *
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @return 昨日有动作的正式批次列表
-     */
-    private List<TornStockVirtualBatchDO> queryFormalBatchesByTimeRange(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        List<TornStockVirtualBatchDO> batches = virtualBatchDAO.selectFormalActionBatches(dayStart, dayEnd);
-        return batches.stream()
-                .filter(batch -> batch.getId() != null)
-                .collect(Collectors.toMap(
-                        TornStockVirtualBatchDO::getId,
-                        Function.identity(),
-                        (first, duplicate) -> first,
-                        LinkedHashMap::new))
-                .values().stream().toList();
-    }
-
-    /**
-     * 统计昨日买入或卖出批次数。
-     *
-     * @param batches  昨日有动作的正式批次
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @param isBuy    true统计买入(entryTime),false统计卖出(exitTime)
-     * @return 批次数
-     */
-    private int countBatchesInRange(List<TornStockVirtualBatchDO> batches,
-                                    LocalDateTime dayStart, LocalDateTime dayEnd, boolean isBuy) {
-        if (CollectionUtils.isEmpty(batches)) {
-            return 0;
-        }
-        return (int) batches.stream()
-                .filter(batch -> {
-                    LocalDateTime time = isBuy ? batch.getEntryTime() : batch.getExitTime();
-                    return time != null && !time.isBefore(dayStart) && time.isBefore(dayEnd);
-                })
-                .count();
-    }
-
-    /**
-     * 汇总昨日卖出批次的净收益。
-     *
-     * @param batches  昨日有动作的正式批次
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @return 净收益合计;无卖出批次时返回 {@link BigDecimal#ZERO}
-     */
-    private BigDecimal sumNetReturn(List<TornStockVirtualBatchDO> batches,
-                                    LocalDateTime dayStart, LocalDateTime dayEnd) {
-        if (CollectionUtils.isEmpty(batches)) {
-            return BigDecimal.ZERO;
-        }
-        return batches.stream()
-                .filter(batch -> {
-                    LocalDateTime exitTime = batch.getExitTime();
-                    return exitTime != null && !exitTime.isBefore(dayStart) && exitTime.isBefore(dayEnd);
-                })
-                .map(TornStockVirtualBatchDO::getNetReturn)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    /**
-     * 提取OPEN状态批次的股票简称列表。
-     *
-     * @param activeBatches 活跃正式批次
-     * @return 股票简称列表;无开放批次时返回空列表
-     */
-    private List<String> extractOpenBatchStocks(List<TornStockVirtualBatchDO> activeBatches) {
-        if (CollectionUtils.isEmpty(activeBatches)) {
-            return Collections.emptyList();
-        }
-        return activeBatches.stream()
-                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))
-                .map(TornStockVirtualBatchDO::getStocksShortname)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-    }
-
-    /**
-     * 统计DATA_STALE状态批次数。
-     *
-     * @param activeBatches 活跃正式批次
-     * @return 陈旧批次数
-     */
-    private int countStaleBatches(List<TornStockVirtualBatchDO> activeBatches) {
-        if (CollectionUtils.isEmpty(activeBatches)) {
-            return 0;
-        }
-        return (int) activeBatches.stream()
-                .filter(batch -> StockBatchStatusEnum.DATA_STALE.getCode().equals(batch.getBatchStatus())
-                        || StockBatchStatusEnum.DATA_STALE_EXIT.getCode().equals(batch.getBatchStatus()))
-                .count();
-    }
-
-    /**
-     * 查询指定时间范围内的全部信号事件。
-     * <p>
-     * 使用MyBatis-Plus lambdaQuery按roundTime范围过滤,避免逐轮次查询产生N+1。
-     *
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @return 信号事件列表
-     */
-    private List<TornStockSignalEventDO> querySignalEventsByTimeRange(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        return signalEventDAO.lambdaQuery()
-                .ge(TornStockSignalEventDO::getRoundTime, dayStart)
-                .lt(TornStockSignalEventDO::getRoundTime, dayEnd)
-                .list();
-    }
-
-    /**
-     * 按组合决策统计信号事件数。
-     *
-     * @param signalEvents 信号事件列表
-     * @return 匹配的事件数
-     */
-    private int countShadowDecisions(List<TornStockSignalEventDO> signalEvents) {
-        if (CollectionUtils.isEmpty(signalEvents)) {
-            return 0;
-        }
-        return (int) signalEvents.stream()
-                .filter(event -> StockPortfolioDecisionEnum.SHADOW.getCode().equals(event.getPortfolioDecision()))
-                .count();
-    }
-
-    /**
-     * 按拒绝原因统计信号事件数。
-     *
-     * @param signalEvents 信号事件列表
-     * @return 匹配的事件数
-     */
-    private int countNoAvailableSlotRejections(List<TornStockSignalEventDO> signalEvents) {
-        if (CollectionUtils.isEmpty(signalEvents)) {
-            return 0;
-        }
-        return (int) signalEvents.stream()
-                .filter(event -> StockCancelReasonEnum.NO_AVAILABLE_SLOT.getCode().equals(event.getRejectReason()))
-                .count();
-    }
-
-    /**
-     * 统计风格/趋势拒绝的信号事件数。
-     * <p>
-     * 包含两种情形:
-     * <ul>
-     *   <li>rejectReason = STYLE_NOT_READY</li>
-     *   <li>portfolioDecision = REJECTED 且 rejectReason 非 NO_AVAILABLE_SLOT</li>
-     * </ul>
-     *
-     * @param signalEvents 信号事件列表
-     * @return 风格/趋势拒绝事件数
-     */
-    private int countStyleReject(List<TornStockSignalEventDO> signalEvents) {
-        if (CollectionUtils.isEmpty(signalEvents)) {
-            return 0;
-        }
-        return (int) signalEvents.stream()
-                .filter(event -> {
-                    String reason = event.getRejectReason();
-                    if (StockCancelReasonEnum.STYLE_NOT_READY.getCode().equals(reason)) {
-                        return true;
-                    }
-                    return StockPortfolioDecisionEnum.REJECTED.getCode().equals(event.getPortfolioDecision())
-                            && !StockCancelReasonEnum.NO_AVAILABLE_SLOT.getCode().equals(reason);
-                })
-                .count();
-    }
-
-    /**
-     * 查询指定时间范围内的影子批次。
-     * <p>
-     * 使用单次SQL按(signal_time范围 OR exit_time范围)查询,并按批次ID确定性去重。
-     *
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @return 昨日有动作的影子批次列表
-     */
-    private List<TornStockVirtualBatchDO> queryShadowBatchesByTimeRange(LocalDateTime dayStart, LocalDateTime dayEnd) {
-        List<TornStockVirtualBatchDO> batches = virtualBatchDAO.selectShadowActionBatches(dayStart, dayEnd);
-        return batches.stream()
-                .filter(batch -> batch.getId() != null)
-                .collect(Collectors.toMap(
-                        TornStockVirtualBatchDO::getId,
-                        Function.identity(),
-                        (first, duplicate) -> first,
-                        LinkedHashMap::new))
-                .values().stream().toList();
-    }
-
-    /**
-     * 统计高风险观察数(riskLevel=HIGH)。
-     *
-     * @param shadowBatches 影子批次列表
-     * @return 高风险观察数
-     */
-    private int countHighRisk(List<TornStockVirtualBatchDO> shadowBatches) {
-        if (CollectionUtils.isEmpty(shadowBatches)) {
-            return 0;
-        }
-        return (int) shadowBatches.stream()
-                .filter(batch -> StockRiskLevelEnum.HIGH.getCode().equals(batch.getRiskLevel()))
-                .count();
-    }
-
-    /**
-     * 构建动态SELL研究展示文本。
-     * <p>
-     * 公式冻结前固定输出"动态SELL研究：规则未冻结，建议未启用";
-     * 仅当存在研究mark(分母&gt;0)时追加"输入覆盖率：xx%"与"缺失输入批次数：N"。
-     * 分母为0时展示"无研究输入",不得展示伪造的0%。
-     *
-     * @param researchMarkCount       研究mark分母
-     * @param completeResearchMarkCount 完整研究mark数
-     * @return 动态SELL研究展示文本
-     */
-    private String buildDynamicSellResearchText(int researchMarkCount, int completeResearchMarkCount) {
-        if (researchMarkCount <= 0) {
-            return DYNAMIC_SELL_RESEARCH_NO_INPUT;
-        }
-        int missingCount = researchMarkCount - completeResearchMarkCount;
-        long coveragePercent = Math.round(completeResearchMarkCount * 100.0 / researchMarkCount);
-        return DYNAMIC_SELL_RESEARCH_NOT_FROZEN + System.lineSeparator()
-                + "- 输入覆盖率：" + coveragePercent + "%" + System.lineSeparator()
-                + "- 缺失输入批次数：" + missingCount;
+        return queryService.buildSummaryData(summaryDate);
     }
 
     /**
      * 构建中文摘要文本。
      * <p>
-     * 按技术方案第12.5节格式拼接:标题、正式组合区块、影子研究区块、免责声明。
+     * 委托 {@link StockDailySummaryRenderer} 将只读摘要数据纯函数化为中文文本,不触发任何查询与持久化。
      *
      * @param data 摘要数据
      * @return 中文摘要文本
      */
     String buildSummaryText(DailySummaryData data) {
-        FormalSummary formal = data.formal();
-        CandidateShadowSummary candidateShadow = data.candidateShadow();
-        ShadowSummary shadow = data.shadow();
-        String dateText = formal.summaryDate().format(SUMMARY_DATE_FORMATTER);
-        String openStocks = formal.openBatchStocks().isEmpty()
-                ? "无" : String.join("、", formal.openBatchStocks());
-        String candidateOpenStocks = candidateShadow.openBatchStocks().isEmpty()
-                ? "无" : String.join("、", candidateShadow.openBatchStocks());
-        String dynamicSellText = buildDynamicSellResearchText(
-                shadow.researchMarkCount(), shadow.completeResearchMarkCount());
-
-        return String.format(
-                SUMMARY_TITLE_TEMPLATE + "%n%n正式组合%n- 当前占用槽位：%d / %d%n"
-                        + "- 当前组合权益：%s%n%s- 昨日买入：%d批%n- 昨日卖出：%d批%n"
-                        + "- 昨日已实现净收益：%s%n- 当前开放批次：%s%n- 数据陈旧批次：%d%n%n"
-                        + "候选影子组合%n- 当前占用槽位：%d / %d%n"
-                        + "- 当前组合权益：%s%n%s- 昨日买入：%d批%n- 昨日卖出：%d批%n"
-                        + "- 昨日已实现净收益：%s%n- 当前开放批次：%s%n%n"
-                        + "影子研究%n- 原始买入信号：%d个%n- 无限资金影子新批次：%d个%n"
-                        + "- 满仓拒绝：%d个%n- 风格/趋势拒绝：%d个%n- %s%n"
-                        + "- 高风险观察：%d个%n%n%s",
-                dateText,
-                formal.occupiedSlots(), StockPortfolioService.SLOT_COUNT,
-                formatEquity(formal),
-                formatDataInsufficientDetails(formal),
-                formal.yesterdayBuyCount(), formal.yesterdaySellCount(),
-                formal.yesterdayNetReturn().toPlainString(),
-                openStocks, formal.staleBatchCount(),
-                candidateShadow.occupiedSlots(), StockPortfolioService.SLOT_COUNT,
-                formatCandidateShadowEquity(candidateShadow),
-                formatCandidateShadowInsufficientDetails(candidateShadow),
-                candidateShadow.yesterdayBuyCount(), candidateShadow.yesterdaySellCount(),
-                candidateShadow.yesterdayNetReturn().toPlainString(),
-                candidateOpenStocks,
-                shadow.signalCount(), shadow.shadowNewCount(),
-                shadow.fullRejectCount(), shadow.styleRejectCount(),
-                dynamicSellText, shadow.highRiskCount(),
-                SHADOW_DISCLAIMER
-        );
-    }
-
-    /**
-     * 格式化候选影子组合权益，行情不足时明确展示数据不足。
-     *
-     * @param candidateShadow 候选影子组合摘要
-     * @return 权益文本
-     */
-    private String formatCandidateShadowEquity(CandidateShadowSummary candidateShadow) {
-        return candidateShadow.equity() == null
-                ? "暂无法计算（行情数据不足）" : candidateShadow.equity().toPlainString();
-    }
-
-    /**
-     * 构建候选影子组合行情不足时必须展示的缺失股票与现金明细。
-     *
-     * @param candidateShadow 候选影子组合摘要
-     * @return 行情完整时为空字符串，缺失时返回两行详情
-     */
-    private String formatCandidateShadowInsufficientDetails(CandidateShadowSummary candidateShadow) {
-        if (candidateShadow.equity() != null) {
-            return "";
-        }
-        return "- 缺失行情：" + String.join("、", candidateShadow.missingPriceStocks()) + System.lineSeparator()
-                + "- 可用现金及预留资金：" + candidateShadow.cashAndReserved().toPlainString()
-                + System.lineSeparator();
-    }
-
-    /**
-     * 格式化日报权益，行情不足时明确展示数据不足。
-     *
-     * @return 权益文本
-     */
-    private String formatEquity(FormalSummary formal) {
-        return formal.equity() == null ? "暂无法计算（行情数据不足）" : formal.equity().toPlainString();
-    }
-
-    /**
-     * 构建行情不足时必须展示的缺失股票与现金明细。
-     *
-     * @param formal 正式组合摘要
-     * @return 行情完整时为空字符串，缺失时返回两行详情
-     */
-    private String formatDataInsufficientDetails(FormalSummary formal) {
-        if (formal.equity() != null) {
-            return "";
-        }
-        return "- 缺失行情：" + String.join("、", formal.missingPriceStocks()) + System.lineSeparator()
-                + "- 可用现金及预留资金：" + formal.cashAndReserved().toPlainString() + System.lineSeparator();
-    }
-
-    /**
-     * 保存PENDING状态的通知审计记录。
-     * <p>
-     * 构建DAILY_SUMMARY类型的通知审计DO,填充摘要日期、VIP群组ID、载荷快照与PENDING状态,
-     * 通知编号格式为 "D" + yyyyMMddHHmmssSSS + "S"(Summary首字符)。
-     *
-     * @param summaryDate 摘要日期
-     * @param summaryText 摘要文本
-     * @return 已保存的通知审计DO(含主键ID)
-     */
-    private TornStockNoticeAuditDO savePendingNotice(LocalDate summaryDate, String summaryText) {
-        TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-        notice.setNoticeNo(generateNoticeNo());
-        notice.setNoticeType(StockNoticeTypeEnum.DAILY_SUMMARY.getCode());
-        notice.setSummaryDate(summaryDate);
-        notice.setGroupId(projectProperty.getVipGroupId());
-        notice.setSendStatus(StockNoticeStatusEnum.PENDING.getCode());
-        notice.setSendAttemptCount(0);
-        notice.setMessageRuleVersion(MESSAGE_RULE_VERSION);
-        notice.setPayloadSnapshot(buildPayloadSnapshot(summaryDate, summaryText));
-        notice.setPayloadHash(generatePayloadHash(notice.getPayloadSnapshot()));
-        noticeAuditDAO.save(notice);
-        return notice;
-    }
-
-    /**
-     * 生成通知编号。
-     * <p>
-     * 格式: "D" + yyyyMMddHHmmssSSS + "S"
-     *
-     * @return 通知编号
-     */
-    private String generateNoticeNo() {
-        String timestamp = LocalDateTime.now().format(NOTICE_NO_FORMATTER);
-        return NOTICE_NO_PREFIX + timestamp + "S";
-    }
-
-    /**
-     * 生成载荷哈希(SHA-256,基于完整摘要载荷快照的规范化JSON)。
-     * <p>
-     * 使用 {@link StockNoticePayloadCanonicalizer} 做确定性规范化后计算,与创建、发送合并、
-     * 数据库复核共用同一canonicalizer,保证JSONB读回后哈希可复核。
-     *
-     * @param payloadSnapshot 完整载荷快照JSON
-     * @return 载荷哈希
-     */
-    private String generatePayloadHash(String payloadSnapshot) {
-        return StockNoticePayloadCanonicalizer.sha256(payloadSnapshot);
-    }
-
-    /**
-     * 生成载荷快照JSON。
-     *
-     * @param summaryDate 摘要日期
-     * @param summaryText 摘要文本
-     * @return 载荷快照JSON文本
-     */
-    private String buildPayloadSnapshot(LocalDate summaryDate, String summaryText) {
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("noticeType", StockNoticeTypeEnum.DAILY_SUMMARY.getCode());
-        payload.put("summaryDate", summaryDate.toString());
-        payload.put("groupId", projectProperty.getVipGroupId());
-        payload.put("messageText", summaryText);
-        return JsonUtils.objToJson(payload);
-    }
-
-    /**
-     * 调用统一发送服务发送摘要至VIP群,并根据发送结果更新通知审计状态。
-     * <p>
-     * 复用 {@link StockNoticeSendService#sendSingleMessage} 发送(HTTP 2xx且body非空视为成功),
-     * 发送成功时更新sendStatus=SENT并记录sentAt;发送失败时更新sendStatus=FAILED并记录错误信息。
-     * 发送异常时不抛出,仅记录日志并标记FAILED,等待后续重试机制处理。
-     *
-     * @param notice      通知审计DO
-     * @param summaryText 摘要文本
-     */
-    private void sendAndUpdateNotice(TornStockNoticeAuditDO notice, String summaryText) {
-        notice.setSendAttemptCount(notice.getSendAttemptCount() == null ? 1 : notice.getSendAttemptCount() + 1);
-        notice.setAttemptedAt(LocalDateTime.now());
-        try {
-            boolean sent = noticeSendService.sendSingleMessage(summaryText);
-            if (sent) {
-                notice.setSendStatus(StockNoticeStatusEnum.SENT.getCode());
-                notice.setSentAt(LocalDateTime.now());
-                noticeAuditDAO.updateById(notice);
-                log.info("VIP股票每日摘要-发送成功, noticeNo={}", notice.getNoticeNo());
-            } else {
-                notice.setSendStatus(StockNoticeStatusEnum.FAILED.getCode());
-                notice.setErrorMessage("统一发送服务返回失败");
-                noticeAuditDAO.updateById(notice);
-                log.warn("VIP股票每日摘要-发送失败, noticeNo={}", notice.getNoticeNo());
-            }
-        } catch (Exception e) {
-            log.error("VIP股票每日摘要-发送异常, noticeNo={}", notice.getNoticeNo(), e);
-            notice.setSendStatus(StockNoticeStatusEnum.FAILED.getCode());
-            notice.setErrorMessage(e.getMessage());
-            noticeAuditDAO.updateById(notice);
-        }
+        return renderer.render(data);
     }
 
     // ==================== 值对象 ====================
@@ -961,8 +139,10 @@ public class StockDailySummaryService {
      * @param candidateShadow 候选影子组合摘要
      * @param shadow          影子研究摘要
      */
-    public record DailySummaryData(FormalSummary formal, CandidateShadowSummary candidateShadow,
-                                   ShadowSummary shadow) {
+    public record DailySummaryData(
+            FormalSummary formal,
+            CandidateShadowSummary candidateShadow,
+            ShadowSummary shadow) {
     }
 
     /**
@@ -980,10 +160,18 @@ public class StockDailySummaryService {
      * @param staleBatchCount    数据陈旧批次数
      * @param summaryDate        摘要日期
      */
-    public record FormalSummary(int occupiedSlots, BigDecimal equity, BigDecimal cashAndReserved,
-                                List<String> missingPriceStocks, LocalDateTime priceAsOf,
-                                int yesterdayBuyCount, int yesterdaySellCount, BigDecimal yesterdayNetReturn,
-                                List<String> openBatchStocks, int staleBatchCount, LocalDate summaryDate) {
+    public record FormalSummary(
+            int occupiedSlots,
+            BigDecimal equity,
+            BigDecimal cashAndReserved,
+            List<String> missingPriceStocks,
+            LocalDateTime priceAsOf,
+            int yesterdayBuyCount,
+            int yesterdaySellCount,
+            BigDecimal yesterdayNetReturn,
+            List<String> openBatchStocks,
+            int staleBatchCount,
+            LocalDate summaryDate) {
     }
 
     /**
@@ -998,37 +186,35 @@ public class StockDailySummaryService {
      * @param yesterdayNetReturn 昨日已实现净收益合计
      * @param openBatchStocks    当前开放批次的股票简称列表
      */
-    public record CandidateShadowSummary(int occupiedSlots, BigDecimal equity, BigDecimal cashAndReserved,
-                                         List<String> missingPriceStocks, int yesterdayBuyCount,
-                                         int yesterdaySellCount, BigDecimal yesterdayNetReturn,
-                                         List<String> openBatchStocks) {
-    }
-
-    /**
-     * 正式组合权益计算结果。
-     *
-     * @param equity             完整组合权益；缺行情时为null
-     * @param cashAndReserved    可用现金与预留资金
-     * @param missingPriceStocks 缺失有效行情的股票简称
-     * @param priceAsOf          完整权益实际使用行情中的最早结束时点
-     */
-    private record EquityResult(BigDecimal equity, BigDecimal cashAndReserved,
-                                List<String> missingPriceStocks, LocalDateTime priceAsOf) {
+    public record CandidateShadowSummary(
+            int occupiedSlots,
+            BigDecimal equity,
+            BigDecimal cashAndReserved,
+            List<String> missingPriceStocks,
+            int yesterdayBuyCount,
+            int yesterdaySellCount,
+            BigDecimal yesterdayNetReturn,
+            List<String> openBatchStocks) {
     }
 
     /**
      * 影子研究摘要数据。
      *
-     * @param signalCount                原始买入信号总数
-     * @param shadowNewCount             无限资金影子新批次数(portfolioDecision=SHADOW)
-     * @param fullRejectCount            满仓拒绝数(rejectReason=NO_AVAILABLE_SLOT)
-     * @param styleRejectCount           风格/趋势拒绝数
-     * @param researchMarkCount          动态SELL研究mark分母(dynamic_shadow_decision或reason非空)
-     * @param completeResearchMarkCount  完整研究mark数(decision=NOT_EVALUATED且reason=DYNAMIC_RULE_NOT_FROZEN)
-     * @param highRiskCount              高风险观察数(riskLevel=HIGH)
+     * @param signalCount               原始买入信号总数
+     * @param shadowNewCount            无限资金影子新批次数(portfolioDecision=SHADOW)
+     * @param fullRejectCount           满仓拒绝数(rejectReason=NO_AVAILABLE_SLOT)
+     * @param styleRejectCount          风格/趋势拒绝数
+     * @param researchMarkCount         动态SELL研究mark分母(dynamic_shadow_decision或reason非空)
+     * @param completeResearchMarkCount 完整研究mark数(decision=NOT_EVALUATED且reason=DYNAMIC_RULE_NOT_FROZEN)
+     * @param highRiskCount             高风险观察数(riskLevel=HIGH)
      */
-    public record ShadowSummary(int signalCount, int shadowNewCount, int fullRejectCount,
-                                int styleRejectCount, int researchMarkCount, int completeResearchMarkCount,
-                                int highRiskCount) {
+    public record ShadowSummary(
+            int signalCount,
+            int shadowNewCount,
+            int fullRejectCount,
+            int styleRejectCount,
+            int researchMarkCount,
+            int completeResearchMarkCount,
+            int highRiskCount) {
     }
 }

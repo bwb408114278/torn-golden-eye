@@ -162,8 +162,8 @@ class StockDailySummaryServiceTest {
         TornStockMarketBar15mDAO barDao = mock(TornStockMarketBar15mDAO.class);
         TornStockSignalEventDAO signalEventDao = mock(TornStockSignalEventDAO.class);
         TornStockBatchMarkDAO markDao = mock(TornStockBatchMarkDAO.class);
-        StockDailySummaryService service = new StockDailySummaryService(slotDao, batchDao, signalEventDao,
-                markDao, mock(TornStockNoticeAuditDAO.class), barDao, new StockPortfolioService(),
+        StockDailySummaryService service = service(slotDao, batchDao, signalEventDao, markDao,
+                mock(TornStockNoticeAuditDAO.class), barDao, new StockPortfolioService(),
                 mock(pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService.class),
                 fixedMarketClock(), mock(pn.torn.goldeneye.configuration.property.ProjectProperty.class),
                 mock(pn.torn.goldeneye.torn.manager.setting.SysSettingManager.class));
@@ -193,8 +193,8 @@ class StockDailySummaryServiceTest {
         TornStockMarketBar15mDAO barDao = mock(TornStockMarketBar15mDAO.class);
         TornStockSignalEventDAO signalEventDao = mock(TornStockSignalEventDAO.class);
         TornStockBatchMarkDAO markDao = mock(TornStockBatchMarkDAO.class);
-        StockDailySummaryService service = new StockDailySummaryService(slotDao, batchDao, signalEventDao,
-                markDao, mock(TornStockNoticeAuditDAO.class), barDao, new StockPortfolioService(),
+        StockDailySummaryService service = service(slotDao, batchDao, signalEventDao, markDao,
+                mock(TornStockNoticeAuditDAO.class), barDao, new StockPortfolioService(),
                 mock(pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService.class),
                 fixedMarketClock(), mock(pn.torn.goldeneye.configuration.property.ProjectProperty.class),
                 mock(pn.torn.goldeneye.torn.manager.setting.SysSettingManager.class));
@@ -233,7 +233,7 @@ class StockDailySummaryServiceTest {
         TornStockVirtualBatchDAO batchDao = mock(TornStockVirtualBatchDAO.class);
         TornStockSignalEventDAO signalEventDao = mock(TornStockSignalEventDAO.class);
         TornStockPortfolioSlotDAO slotDao = mock(TornStockPortfolioSlotDAO.class);
-        StockDailySummaryService service = new StockDailySummaryService(
+        StockDailySummaryService service = service(
                 slotDao, batchDao, signalEventDao, mock(TornStockBatchMarkDAO.class), noticeDao,
                 mock(TornStockMarketBar15mDAO.class), new StockPortfolioService(), sendService,
                 fixedMarketClock(), property, settings);
@@ -260,7 +260,7 @@ class StockDailySummaryServiceTest {
                 mock(pn.torn.goldeneye.configuration.property.ProjectProperty.class);
         pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService sendService =
                 mock(pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService.class);
-        StockDailySummaryService service = new StockDailySummaryService(
+        StockDailySummaryService service = service(
                 mock(TornStockPortfolioSlotDAO.class), mock(TornStockVirtualBatchDAO.class),
                 mock(TornStockSignalEventDAO.class), mock(TornStockBatchMarkDAO.class),
                 mock(TornStockNoticeAuditDAO.class), mock(TornStockMarketBar15mDAO.class),
@@ -327,6 +327,7 @@ class StockDailySummaryServiceTest {
         StockMarketClock marketClock = mock(StockMarketClock.class);
         when(marketClock.now()).thenReturn(LocalDateTime.of(2026, 7, 31, 10, 30));
         when(marketClock.currentEndedBucket()).thenReturn(LocalDateTime.of(2026, 7, 31, 10, 15));
+        when(marketClock.summaryDate()).thenReturn(LocalDate.of(2026, 7, 30));
         return marketClock;
     }
 
@@ -345,12 +346,52 @@ class StockDailySummaryServiceTest {
                                              TornStockMarketBar15mDAO barDao,
                                              TornStockSignalEventDAO signalEventDao,
                                              StockMarketClock marketClock) {
-        return new StockDailySummaryService(slotDao, batchDao, signalEventDao,
+        return service(slotDao, batchDao, signalEventDao,
                 mock(TornStockBatchMarkDAO.class), mock(TornStockNoticeAuditDAO.class), barDao,
                 new StockPortfolioService(),
                 mock(pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService.class),
                 marketClock, mock(pn.torn.goldeneye.configuration.property.ProjectProperty.class),
                 mock(pn.torn.goldeneye.torn.manager.setting.SysSettingManager.class));
+    }
+
+    /**
+     * 使用拆分后的组件组装日报服务(查询服务 + 渲染器 + 通知服务)。
+     *
+     * @param slotDao           槽位DAO
+     * @param batchDao          批次DAO
+     * @param signalEventDao    信号事件DAO
+     * @param markDao           批次标记DAO
+     * @param noticeAuditDAO    通知审计DAO
+     * @param barDao            行情DAO
+     * @param portfolioService  组合服务
+     * @param sendService       通知发送服务
+     * @param marketClock       市场时钟
+     * @param projectProperty   项目配置
+     * @param sysSettingManager 系统设置管理
+     * @return 日报服务
+     */
+    private StockDailySummaryService service(TornStockPortfolioSlotDAO slotDao,
+                                             TornStockVirtualBatchDAO batchDao,
+                                             TornStockSignalEventDAO signalEventDao,
+                                             TornStockBatchMarkDAO markDao,
+                                             TornStockNoticeAuditDAO noticeAuditDAO,
+                                             TornStockMarketBar15mDAO barDao,
+                                             StockPortfolioService portfolioService,
+                                             pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService sendService,
+                                             StockMarketClock marketClock,
+                                             pn.torn.goldeneye.configuration.property.ProjectProperty projectProperty,
+                                             pn.torn.goldeneye.torn.manager.setting.SysSettingManager sysSettingManager) {
+        PortfolioEquityCalculator equityCalculator = new PortfolioEquityCalculator(portfolioService);
+        DynamicSellResearchSummaryCalculator researchCalculator = new DynamicSellResearchSummaryCalculator();
+        DailySummaryMetricsCalculator metricsCalculator = new DailySummaryMetricsCalculator();
+        StockDailySummaryQueryService queryService = new StockDailySummaryQueryService(
+                slotDao, batchDao, signalEventDao, markDao, barDao, marketClock,
+                equityCalculator, researchCalculator, metricsCalculator);
+        StockDailySummaryRenderer renderer = new StockDailySummaryRenderer();
+        StockDailySummaryNoticeService noticeService = new StockDailySummaryNoticeService(
+                noticeAuditDAO, sendService, marketClock, projectProperty);
+        return new StockDailySummaryService(queryService, renderer, noticeService,
+                marketClock, projectProperty, sysSettingManager);
     }
 
 

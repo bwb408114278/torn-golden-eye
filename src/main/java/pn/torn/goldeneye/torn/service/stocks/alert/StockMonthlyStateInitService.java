@@ -216,9 +216,14 @@ public class StockMonthlyStateInitService {
      * <p>
      * 仅当数据完整性、规则版本、无人工覆盖且已生成迟滞结果时写
      * {@code confirmedBy=SYSTEM};任一条件不满足的草稿继续保持DRAFT。
+     * <p>
+     * 落库为条件UPDATE({@code state_status='DRAFT' AND manual_override=false AND deleted=0}),
+     * 返回实际受影响行数:{@link #isAutoConfirmable} 仅为Java预过滤(减少候选行),数据库自带状态谓词
+     * 才是最终守卫。若人工确认或并发状态变更在SELECT与UPDATE之间抢占了记录(0行受影响),
+     * 不得重试或覆盖,直接保持人工结果。
      *
      * @param effectiveMonth 生效月份
-     * @return 本次自动确认的记录数量
+     * @return 本次实际自动确认的记录数量(数据库实际受影响行数,非候选数量)
      */
     public int autoConfirmDraftStates(LocalDate effectiveMonth) {
         List<TornStockMonthlyStateDO> draftStates = monthlyStateDao.lambdaQuery()
@@ -247,10 +252,10 @@ public class StockMonthlyStateInitService {
             log.warn("月度状态自动确认-没有满足自动确认条件的DRAFT, effectiveMonth={}", effectiveMonth);
             return 0;
         }
-        monthlyStateDao.updateBatchById(confirmableStates);
-        log.info("月度状态自动确认-完成, effectiveMonth={}, 自动确认DRAFT记录={}",
-                effectiveMonth, confirmableStates.size());
-        return confirmableStates.size();
+        int confirmedCount = monthlyStateDao.autoConfirmDraftStates(confirmableStates);
+        log.info("月度状态自动确认-完成, effectiveMonth={}, 自动确认候选={}, 实际确认={}",
+                effectiveMonth, confirmableStates.size(), confirmedCount);
+        return confirmedCount;
     }
 
     /**

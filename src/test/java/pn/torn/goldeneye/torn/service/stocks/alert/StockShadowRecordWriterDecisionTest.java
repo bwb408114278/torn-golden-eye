@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * 股票影子记录写入器决策测试,覆盖资格通过与实际正式接纳事实分离。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.28
  */
 @DisplayName("股票影子记录写入器决策测试")
@@ -24,19 +24,19 @@ class StockShadowRecordWriterDecisionTest {
     @Test
     @DisplayName("资格通过但正式批次为空_组合决策为SHADOW")
     void determinePortfolioDecision_allowedWithoutFormalBatch_returnsShadow() throws Exception {
-        StockShadowRecordWriter writer = new StockShadowRecordWriter(null, null, null);
-        Method method = StockShadowRecordWriter.class.getDeclaredMethod(
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(null, null, null);
+        Method method = StockShadowTrackRecorder.class.getDeclaredMethod(
                 "determinePortfolioDecision",
-                StockShadowRecordWriter.SignalEvaluationView.class,
+                StockShadowTrackRecorder.SignalEvaluationView.class,
                 EligibilityResult.class,
                 TornStockVirtualBatchDO.class);
         method.setAccessible(true);
 
-        StockShadowRecordWriter.SignalEvaluationView evaluation = new EvaluationView(true);
+        StockShadowTrackRecorder.SignalEvaluationView evaluation = new EvaluationView(true);
         EligibilityResult eligibility = new EligibilityResult(
                 StockEligibilityResultEnum.ALLOWED, List.of());
 
-        String decision = (String) method.invoke(writer, evaluation, eligibility, null);
+        String decision = (String) method.invoke(recorder, evaluation, eligibility, null);
 
         assertEquals("SHADOW", decision);
     }
@@ -44,27 +44,27 @@ class StockShadowRecordWriterDecisionTest {
     @Test
     @DisplayName("资格通过且正式批次已保存_组合决策为FORMAL")
     void determinePortfolioDecision_allowedWithSavedFormalBatch_returnsFormal() throws Exception {
-        StockShadowRecordWriter writer = new StockShadowRecordWriter(null, null, null);
-        Method method = StockShadowRecordWriter.class.getDeclaredMethod(
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(null, null, null);
+        Method method = StockShadowTrackRecorder.class.getDeclaredMethod(
                 "determinePortfolioDecision",
-                StockShadowRecordWriter.SignalEvaluationView.class,
+                StockShadowTrackRecorder.SignalEvaluationView.class,
                 EligibilityResult.class,
                 TornStockVirtualBatchDO.class);
         method.setAccessible(true);
 
-        StockShadowRecordWriter.SignalEvaluationView evaluation = new EvaluationView(true);
+        StockShadowTrackRecorder.SignalEvaluationView evaluation = new EvaluationView(true);
         EligibilityResult eligibility = new EligibilityResult(
                 StockEligibilityResultEnum.ALLOWED, List.of());
         TornStockVirtualBatchDO formalBatch = new TornStockVirtualBatchDO();
         formalBatch.setId(100L);
 
-        String decision = (String) method.invoke(writer, evaluation, eligibility, formalBatch);
+        String decision = (String) method.invoke(recorder, evaluation, eligibility, formalBatch);
 
         assertEquals("FORMAL", decision);
     }
 
     private record EvaluationView(boolean acceptedFormal)
-            implements StockShadowRecordWriter.SignalEvaluationView {
+            implements StockShadowTrackRecorder.SignalEvaluationView {
         @Override
         public Integer stocksId() {
             return 1001;

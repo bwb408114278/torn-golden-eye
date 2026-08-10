@@ -26,8 +26,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
@@ -300,11 +299,12 @@ class StockMonthlyStateInitServiceTest {
         when(monthlyStateQuery.eq(any(), eq(effectiveMonth))).thenReturn(monthlyStateQuery);
         when(monthlyStateQuery.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(monthlyStateQuery);
         when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+        when(monthlyStateDao.autoConfirmDraftStates(anyList())).thenReturn(1);
 
         int result = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
 
-        assertEquals(1, result, "应自动确认1条记录");
-        verify(monthlyStateDao).updateBatchById(monthlyStatesCaptor.capture());
+        assertEquals(1, result, "应自动确认1条记录并返回实际受影响行数");
+        verify(monthlyStateDao).autoConfirmDraftStates(monthlyStatesCaptor.capture());
         TornStockMonthlyStateDO updated = monthlyStatesCaptor.getValue().getFirst();
         assertEquals(StockMonthlyStateStatusEnum.CONFIRMED.getCode(), updated.getStateStatus());
         assertEquals("SYSTEM", updated.getConfirmedBy(), "自动确认人应为SYSTEM");
@@ -325,7 +325,7 @@ class StockMonthlyStateInitServiceTest {
         int result = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
 
         assertEquals(0, result, "人工覆盖草稿不得自动确认");
-        verify(monthlyStateDao, never()).updateBatchById(any());
+        verify(monthlyStateDao, never()).autoConfirmDraftStates(any());
     }
 
     @Test
@@ -342,7 +342,7 @@ class StockMonthlyStateInitServiceTest {
         int result = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
 
         assertEquals(0, result, "旧规则版本草稿不得自动确认");
-        verify(monthlyStateDao, never()).updateBatchById(any());
+        verify(monthlyStateDao, never()).autoConfirmDraftStates(any());
     }
 
     // ==================== recalculateCurrentMonthDrafts ====================

@@ -96,4 +96,21 @@ public class TornStockMonthlyStateDAO extends ServiceImpl<TornStockMonthlyStateM
         }
         return baseMapper.recalculateDraftStates(states);
     }
+
+    /**
+     * 条件批量自动确认当月可确认DRAFT月度状态。
+     * <p>
+     * 仅更新 {@code state_status='DRAFT' AND manual_override=false AND deleted=0} 的记录,
+     * UPDATE自带状态谓词,防止人工确认或并发状态变更在SELECT与UPDATE之间发生后,
+     * 被过期的Java对象(读-写竞态)误写为SYSTEM确认。
+     *
+     * @param states 待自动确认的DRAFT状态列表(须携带主键id)
+     * @return 实际受影响行数;空列表返回0
+     */
+    public int autoConfirmDraftStates(List<TornStockMonthlyStateDO> states) {
+        if (states == null || states.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.autoConfirmDraftStates(states);
+    }
 }

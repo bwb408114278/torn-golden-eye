@@ -26,8 +26,8 @@ import java.util.NavigableMap;
  * {@link StockEligibilityService}、{@link StockEntrySettlementService}、
  * {@link StockBatchPathService}、{@link StockBuySignalEvaluator}。</p>
  *
- * <p>注意: {@link StockBuySignalEvaluator} 构造参数中的DAO/Shadow写入器传null,
- * 仅调用其无写副作用的 {@code evaluateSignals} 方法。</p>
+ * <p>注意: {@link StockBuySignalEvaluator} 为纯规则评估门面,回放仅调用其无写副作用的
+ * {@code evaluateSignals} 方法。</p>
  *
  * @author Bai
  * @version 1.2.14
@@ -63,8 +63,13 @@ public class StockReplayContext {
         this.entrySettlementService = new StockEntrySettlementService(portfolioService);
         this.exitService = new StockBatchExitService();
         this.pathService = new StockBatchPathService(exitService);
+        BuyContextAssembler contextAssembler = new BuyContextAssembler();
+        BuyStrategyMatcher strategyMatcher = new BuyStrategyMatcher(buyStrategies);
+        BuyEligibilityEvaluator eligibilityEvaluator =
+                new BuyEligibilityEvaluator(new StockEligibilityService());
+        CandidateFactory candidateFactory = new CandidateFactory();
         this.buyEvaluator = new StockBuySignalEvaluator(
-                buyStrategies, new StockEligibilityService(), portfolioService, null, null);
+                buyStrategies, contextAssembler, strategyMatcher, eligibilityEvaluator, candidateFactory);
     }
 
     /**

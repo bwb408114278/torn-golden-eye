@@ -53,19 +53,19 @@ public class VipStockAlertScheduler {
     /**
      * 买入规则版本(RANGE绝对趋势保护自1.1.0起生效)
      */
-    public static final String BUY_RULE_VERSION = StockRoundTransactionService.BUY_RULE_VERSION;
+    public static final String BUY_RULE_VERSION = StockRuleVersion.BUY;
     /**
      * 卖出规则版本
      */
-    public static final String SELL_RULE_VERSION = "1.0.0";
+    public static final String SELL_RULE_VERSION = StockRuleVersion.SELL;
     /**
      * 仓位分配规则版本
      */
-    public static final String ALLOCATION_RULE_VERSION = "1.0.0";
+    public static final String ALLOCATION_RULE_VERSION = StockRuleVersion.ALLOCATION;
     /**
      * 消息通知规则版本
      */
-    public static final String MESSAGE_RULE_VERSION = "1.0.0";
+    public static final String MESSAGE_RULE_VERSION = StockRuleVersion.MESSAGE;
 
     private final Stock15mBarBuildService barBuildService;
     private final Stock15mFeatureBuildService featureBuildService;
@@ -80,6 +80,7 @@ public class VipStockAlertScheduler {
     private final StockMarketClock marketClock;
     private final ProjectProperty projectProperty;
     private final StockAlertRuntimeGate runtimeGate;
+    private final StockMarketRoundFactory roundFactory;
 
     /**
      * JVM内防重入标记,同一时刻仅允许一个轮次处理流程
@@ -134,7 +135,7 @@ public class VipStockAlertScheduler {
                 processPendingRounds(decision.allowNewEntry(), currentEndedBucket);
             }
             if (decision.manageResearchObligations()) {
-                rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
+                rejectedObservationService.resolveAllDueObservations(marketClock.now());
             }
             if (decision.shouldSendPendingNotices()) {
                 noticeSendService.sendPendingNotices();
@@ -178,19 +179,7 @@ public class VipStockAlertScheduler {
      * @return 未保存的PENDING轮次记录
      */
     private TornStockMarketRoundDO buildPendingRound(LocalDateTime currentEndedBucket) {
-        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
-        round.setRoundTime(currentEndedBucket);
-        round.setRoundStatus(StockRoundStatusEnum.PENDING.getCode());
-        round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
-        round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
-        round.setBuyRuleVersion(BUY_RULE_VERSION);
-        round.setSellRuleVersion(SELL_RULE_VERSION);
-        round.setAllocationRuleVersion(ALLOCATION_RULE_VERSION);
-        round.setMessageRuleVersion(MESSAGE_RULE_VERSION);
-        round.setExpectedStockCount(0);
-        round.setUsableStockCount(0);
-        round.setAttemptCount(0);
-        return round;
+        return roundFactory.createRound(currentEndedBucket, StockRoundStatusEnum.PENDING.getCode());
     }
 
     /**
@@ -247,7 +236,8 @@ public class VipStockAlertScheduler {
      * 待处理轮次被跳过;抢占失败说明已有轮次流程在执行,不得并发处理,通知投递保持独立。
      * 依次执行(每步独立try-catch,单步失败不阻塞后续):
      * <ol>
-     *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位</li>
+     *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位;验证未通过(修复或异常)
+     *        时强制关闭本次启动的新买入({@code allowNewEntry=false}),存量退出管理与研究义务不受影响</li>
      *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史
      *        (先证据补齐,月度重算与自动确认必须在其后)</li>
      *   <li> {@link #processPendingRounds(boolean, LocalDateTime)} 处理未完成轮次(先补建理论入场bar,
@@ -269,7 +259,11 @@ public class VipStockAlertScheduler {
         log.info("VIP股票策略调度-启动补偿开始, shouldBuildRounds={}, allowNewEntry={}, shouldSendPendingNotices={}",
                 decision.shouldBuildRounds(), decision.allowNewEntry(), decision.shouldSendPendingNotices());
 
-        verifyPortfolioSlotsSafely();
+        boolean slotsValid = verifyPortfolioSlotsSafely();
+        if (!slotsValid && decision.allowNewEntry()) {
+            log.warn("VIP股票策略调度-组合槽位验证未通过(修复或失败),启动期强制关闭新买入");
+            decision = forceNewEntryClosed(decision);
+        }
         processStartupRoundWork(decision);
         sendStartupPendingNoticesSafely(decision);
 
@@ -277,14 +271,41 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 验证VIP组合槽位完整性,失败仅记录日志不阻塞后续步骤。
+     * 验证VIP组合槽位完整性。
+     * <p>
+     * 槽位验证失败或服务抛出异常时返回false,由启动补偿据此强制关闭新买入(fail-closed);
+     * 存量管理(未完成轮次处理)与研究义务不受影响。
+     *
+     * @return true表示槽位验证通过(完整且金额校验通过);false表示验证失败或未通过
      */
-    private void verifyPortfolioSlotsSafely() {
+    private boolean verifyPortfolioSlotsSafely() {
         try {
-            portfolioInitService.verifyAndInitSlots();
+            return portfolioInitService.verifyAndInitSlots();
         } catch (Exception e) {
-            log.error("VIP股票策略调度-组合槽位验证失败,继续后续步骤", e);
+            log.error("VIP股票策略调度-组合槽位验证失败,启动期强制关闭新买入", e);
+            return false;
         }
+    }
+
+    /**
+     * 生成关闭新买入的运行时判定副本。
+     * <p>
+     * 仅将 {@code allowNewEntry} 强制为false,其余分量原样透传,保证存量退出/研究义务/通知判定不变。
+     *
+     * @param decision 原始运行时判定
+     * @return allowNewEntry=false的判定副本
+     */
+    private StockAlertRuntimeGate.RuntimeDecision forceNewEntryClosed(
+            StockAlertRuntimeGate.RuntimeDecision decision) {
+        return new StockAlertRuntimeGate.RuntimeDecision(
+                decision.shouldBuildRounds(),
+                decision.manageExistingBatches(),
+                decision.manageResearchObligations(),
+                false,
+                decision.shouldSendPendingNotices(),
+                decision.ruleMode(),
+                decision.existsActiveBatches(),
+                decision.existsPendingRejectedObservation());
     }
 
     /**
@@ -305,6 +326,10 @@ public class VipStockAlertScheduler {
      * 抢占成功后在统一try/finally内按固定顺序执行历史重建、未完成轮次处理、
      * 月度状态缺失初始化、未确认DRAFT重算、自动确认与拒绝观察结算,finally释放标记;
      * 抢占失败说明已有轮次流程在执行,跳过补偿处理。
+     * <p>
+     * 历史补建是月度重算/自动确认的证据前置: 首次历史桶创建或重建失败时必须阻断同次的
+     * 月度状态初始化、重算与自动确认(fail-closed),防止"无证据继续下游";存量退出管理
+     * (未完成轮次处理)仍可继续,但新入场强制关闭。
      *
      * @param decision 运行时判定结果
      */
@@ -321,16 +346,27 @@ public class VipStockAlertScheduler {
 
         try {
             LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
+            boolean historyRebuildOk = true;
             if (decision.shouldBuildRounds()) {
-                rebuildStartupHistorySafely();
-                processStartupPendingRoundsSafely(decision.allowNewEntry(), currentEndedBucket);
-                // 历史重建补齐证据后,再为缺失股票初始化当月DRAFT(先证据、后DRAFT、后确认)
-                initCurrentMonthSafely();
+                historyRebuildOk = rebuildStartupHistorySafely();
+                boolean effectiveAllowNewEntry = decision.allowNewEntry() && historyRebuildOk;
+                processStartupPendingRoundsSafely(effectiveAllowNewEntry, currentEndedBucket);
             }
-            // 月度状态: 先重算当月未确认DRAFT(仅DRAFT且非人工覆盖),
-            // 再自动确认满足冻结条件的记录;历史补建失败时重算保持DRAFT/fail-closed,不误写已确认。
-            recalculateCurrentMonthDraftsSafely();
-            autoConfirmCurrentMonthDraftsSafely();
+            // 月度状态: 历史补建失败时阻断同次初始化/重算/自动确认(证据前置),
+            // 避免"无证据继续下游"的冷启动假象;存量退出管理不受影响。
+            if (historyRebuildOk) {
+                // 历史重建补齐证据后,再为缺失股票初始化当月DRAFT(先证据、后DRAFT、后确认)
+                if (decision.shouldBuildRounds()) {
+                    initCurrentMonthSafely();
+                }
+                // 月度状态: 先重算当月未确认DRAFT(仅DRAFT且非人工覆盖),
+                // 再自动确认满足冻结条件的记录。
+                recalculateCurrentMonthDraftsSafely();
+                autoConfirmCurrentMonthDraftsSafely();
+            } else {
+                log.error("VIP股票策略调度-历史补建失败,阻断同次月度状态初始化/重算/自动确认,"
+                        + "新入场强制关闭, 存量退出管理继续");
+            }
             if (decision.manageResearchObligations()) {
                 resolveStartupObservationsSafely();
             }
@@ -340,14 +376,19 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 从最后已完成轮次之后重建历史bar与特征,失败仅记录日志不阻塞后续步骤。
+     * 从最后已完成轮次之后重建历史bar与特征;失败时阻断同次月度下游并返回false。
+     *
+     * @return true表示历史补建成功(或无需补建);false表示历史补建失败
      */
-    private void rebuildStartupHistorySafely() {
+    private boolean rebuildStartupHistorySafely() {
         try {
             LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
             historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
+            return true;
         } catch (Exception e) {
-            log.error("VIP股票策略调度-历史重建失败,继续处理未完成轮次", e);
+            log.error("VIP股票策略调度-历史重建失败,阻断同次月度初始化/重算/自动确认,"
+                    + "新入场强制关闭", e);
+            return false;
         }
     }
 
@@ -399,7 +440,7 @@ public class VipStockAlertScheduler {
      */
     private void resolveStartupObservationsSafely() {
         try {
-            rejectedObservationService.resolveAllDueObservations(LocalDateTime.now());
+            rejectedObservationService.resolveAllDueObservations(marketClock.now());
         } catch (Exception e) {
             log.error("VIP股票策略调度-拒绝观察启动补偿失败,继续后续步骤", e);
         }
@@ -460,6 +501,7 @@ public class VipStockAlertScheduler {
      * @return true表示数据构建成功可继续事务;false表示无数据(WAITING_DATA)应跳过
      */
     private boolean buildRoundData(TornStockMarketRoundDO round, LocalDateTime roundTime) {
+        LocalDateTime now = marketClock.now();
         round.setRoundStatus(StockRoundStatusEnum.BUILDING_BAR.getCode());
         round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
         round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
@@ -467,7 +509,7 @@ public class VipStockAlertScheduler {
         round.setSellRuleVersion(SELL_RULE_VERSION);
         round.setAllocationRuleVersion(ALLOCATION_RULE_VERSION);
         round.setMessageRuleVersion(MESSAGE_RULE_VERSION);
-        round.setStartedAt(LocalDateTime.now());
+        round.setStartedAt(now);
         roundDao.updateById(round);
 
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(roundTime);
@@ -475,7 +517,7 @@ public class VipStockAlertScheduler {
             log.warn("VIP股票策略调度-轮次bar构建为空, 标记WAITING_DATA, roundTime={}", roundTime);
             round.setRoundStatus(StockRoundStatusEnum.WAITING_DATA.getCode());
             round.setUsableStockCount(0);
-            round.setCompletedAt(LocalDateTime.now());
+            round.setCompletedAt(now);
             roundDao.updateById(round);
             return false;
         }
@@ -504,7 +546,7 @@ public class VipStockAlertScheduler {
         try {
             round.setRoundStatus(StockRoundStatusEnum.FAILED_RETRYABLE.getCode());
             round.setErrorMessage(e.getMessage());
-            round.setCompletedAt(LocalDateTime.now());
+            round.setCompletedAt(marketClock.now());
             roundDao.updateById(round);
         } catch (Exception updateEx) {
             log.error("VIP股票策略调度-标记轮次失败状态异常, roundTime={}", round.getRoundTime(), updateEx);

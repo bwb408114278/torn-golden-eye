@@ -33,7 +33,7 @@ import java.util.List;
  * </ol>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -51,6 +51,8 @@ public class StockHistoryRebuildService {
     private final TornStockMarketRoundDAO roundDao;
     private final TornStocksHistoryDAO stocksHistoryDao;
     private final TornStockMarketBar15mDAO bar15mDao;
+    private final StockMarketRoundFactory roundFactory;
+    private final StockMarketClock marketClock;
 
     // ==================== 公开入口 ====================
 
@@ -58,7 +60,8 @@ public class StockHistoryRebuildService {
      * 从指定起始时间到结束时间,按15分钟桶逐桶重建历史bar与特征
      * <p>
      * 自动将startTime与endTime对齐到15分钟桶边界。对每个桶依次构建bar、构建特征、
-     * 创建/更新轮次记录(BUILDING_BAR -> BUILDING_FEATURE -> COMPLETED)。已存在bar的桶会被跳过以保证幂等。
+     * 创建/更新轮次记录(BUILDING_BAR -> BUILDING_FEATURE -> READY)。已存在bar的桶会被跳过以保证幂等。
+     * 任意桶创建或重建失败立即抛出,由调度层决定是否阻断同次月度下游。
      *
      * @param startTime 重建起始时间(方法内部会自动对齐到桶边界,含)
      * @param endTime   重建结束时间(应为已结束桶的边界,方法内部会自动对齐,不含)
@@ -183,7 +186,14 @@ public class StockHistoryRebuildService {
      * @param bucketStartTime 桶开始时间(已对齐)
      */
     private void rebuildSingleBucket(LocalDateTime bucketStartTime) {
-        TornStockMarketRoundDO round = createRound(bucketStartTime);
+        LocalDateTime now = marketClock.now();
+        TornStockMarketRoundDO round = createRound(bucketStartTime, now);
+        String versionSnapshot = "barBuildVersion=" + round.getBarBuildVersion()
+                + ", featureVersion=" + round.getFeatureVersion()
+                + ", buyRuleVersion=" + round.getBuyRuleVersion()
+                + ", sellRuleVersion=" + round.getSellRuleVersion()
+                + ", allocationRuleVersion=" + round.getAllocationRuleVersion()
+                + ", messageRuleVersion=" + round.getMessageRuleVersion();
         try {
             round.setRoundStatus(StockRoundStatusEnum.BUILDING_BAR.getCode());
             roundDao.updateById(round);
@@ -199,11 +209,12 @@ public class StockHistoryRebuildService {
             featureBuildService.buildFeatures(bucketStartTime);
 
             round.setRoundStatus(StockRoundStatusEnum.READY.getCode());
-            round.setCompletedAt(LocalDateTime.now());
+            round.setCompletedAt(now);
             roundDao.updateById(round);
-            log.debug("桶{}数据构建完成(READY)", bucketStartTime);
+            log.debug("桶{}数据构建完成(READY), 版本快照={}", bucketStartTime, versionSnapshot);
         } catch (Exception e) {
-            log.error("桶{}重建失败: {}", bucketStartTime, e.getMessage(), e);
+            log.error("桶{}重建失败, 阶段=BUILDING, 版本快照={}: {}", bucketStartTime, versionSnapshot,
+                    e.getMessage(), e);
             round.setRoundStatus(StockRoundStatusEnum.FAILED_RETRYABLE.getCode());
             round.setErrorMessage(e.getMessage());
             roundDao.updateById(round);
@@ -212,21 +223,36 @@ public class StockHistoryRebuildService {
     }
 
     /**
-     * 为指定桶创建轮次记录(初始状态PENDING)
+     * 为指定桶幂等创建或复用轮次记录(初始状态PENDING)。
+     * <p>
+     * 使用 {@link StockMarketRoundFactory} 统一填充四个规则版本与全部NOT NULL字段;
+     * 使用数据库部分唯一索引 + {@code ON CONFLICT DO NOTHING} 幂等插入,首次插入后
+     * 重新查询获取自增主键,已存在同桶有效轮次时复用现有记录,避免并发/重复重建产生
+     * 重复round或唯一异常泄漏。
      *
      * @param bucketStartTime 桶开始时间
-     * @return 已保存的轮次记录
+     * @param now             本次重建的审计时间(统一由时钟注入,不取墙钟)
+     * @return 已持久化的轮次记录(含主键)
      */
-    private TornStockMarketRoundDO createRound(LocalDateTime bucketStartTime) {
-        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
-        round.setRoundTime(bucketStartTime);
-        round.setRoundStatus(StockRoundStatusEnum.PENDING.getCode());
-        round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
-        round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
-        round.setAttemptCount(0);
-        round.setStartedAt(LocalDateTime.now());
-        roundDao.save(round);
-        return round;
+    private TornStockMarketRoundDO createRound(LocalDateTime bucketStartTime, LocalDateTime now) {
+        TornStockMarketRoundDO round = roundFactory.createRound(
+                bucketStartTime, StockRoundStatusEnum.PENDING.getCode());
+        round.setStartedAt(now);
+        int inserted = roundDao.insertPendingRoundIgnoreConflict(round);
+        if (inserted > 0) {
+            TornStockMarketRoundDO persisted = roundDao.selectByRoundTimeForUpdate(bucketStartTime);
+            if (persisted == null) {
+                throw new IllegalStateException("历史重建-轮次插入后无法查询到持久化记录: " + bucketStartTime);
+            }
+            return persisted;
+        }
+        TornStockMarketRoundDO existing = roundDao.selectByRoundTimeForUpdate(bucketStartTime);
+        if (existing == null) {
+            throw new IllegalStateException("历史重建-同桶轮次已存在但无法查询: " + bucketStartTime);
+        }
+        log.info("历史重建-同桶轮次已存在,复用现有轮次: roundTime={}, id={}, status={}",
+                bucketStartTime, existing.getId(), existing.getRoundStatus());
+        return existing;
     }
 
     /**

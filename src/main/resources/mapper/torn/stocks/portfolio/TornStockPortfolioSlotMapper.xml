@@ -17,4 +17,18 @@
         ORDER BY slot_no ASC
         FOR UPDATE
     </select>
+
+    <!-- 冲突安全的批量插入组合槽位,与部分唯一索引uk_stock_portfolio_slot_code_no同语义ON CONFLICT DO NOTHING;
+         用于启动补建与Liquibase迁移并发收敛,冲突行静默忽略不抛重复键异常 -->
+    <insert id="insertSlotsIgnoreConflict">
+        INSERT INTO torn_stock_portfolio_slot
+            (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash,
+             current_batch_id, slot_status, lock_version, deleted, create_time, update_time)
+        VALUES
+        <foreach collection="slots" item="slot" separator=",">
+            (#{slot.portfolioCode}, #{slot.slotNo}, #{slot.initialCash}, #{slot.availableCash}, #{slot.reservedCash},
+             #{slot.currentBatchId}, #{slot.slotStatus}, #{slot.lockVersion}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (portfolio_code, slot_no) WHERE deleted = 0 DO NOTHING
+    </insert>
 </mapper>

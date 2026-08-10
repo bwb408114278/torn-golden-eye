@@ -87,4 +87,17 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
      * @return 实际更新行数
      */
     int recalculateDraftStates(@Param("states") List<TornStockMonthlyStateDO> states);
+
+    /**
+     * 条件批量自动确认当月可确认DRAFT月度状态。
+     * <p>
+     * 按主键批量UPDATE,但仅当行满足 {@code state_status='DRAFT' AND manual_override=false AND deleted=0}
+     * 时才实际写入。返回实际受影响行数:已CONFIRMED/RETIRED或人工覆盖(manual_override=true)的行
+     * 不满足谓词,不会被覆盖、降级或改写confirmedBy/confirmedAt。UPDATE自带状态谓词,防止人工确认或
+     * 并发状态变更在SELECT与UPDATE之间发生后,被过期的Java对象(读-写竞态)误写为SYSTEM确认。
+     *
+     * @param states 待自动确认的DRAFT状态列表(须携带主键id,且已置CONFIRMED/confirmedAt/confirmedBy)
+     * @return 实际受影响行数;已确认/已退役/人工覆盖行不满足谓词,不计入返回值
+     */
+    int autoConfirmDraftStates(@Param("states") List<TornStockMonthlyStateDO> states);
 }

@@ -2212,9 +2212,11 @@ actualProcessingTime >  entryStaleAt → CANCELLED / ENTRY_DATA_STALE
 
 ### 22.8 Schema、迁移与验证约束
 
-当前确认股票功能未部署、正式库未执行相关changeSet时，双Shadow所需的表/列/索引可直接改写 `stocks-portfolio.yaml` 首次发布基线；实现前必须重新确认。若任何正式或共享兼容环境已执行，则旧changeSet不可改写，改用追加迁移并验证旧checksum升级路径。
+生产部署事实为：第一批已部署、第二批未部署；第一批已执行 changeSet 永不改写。是否可改写第二批首次发布基线，必须以**目标环境**的 `databasechangelog` 为准。
 
-必须完成：空PostgreSQL完整Liquibase迁移、真实Mapper首次写入和冲突更新、轮次并发插入、候选影子同股/同槽唯一约束、整轮事务回滚。独立线程或独立事务测试产生的数据，使用`@AfterEach`按测试ID精确物理DELETE清理，不改用`@Rollback`。
+本次已核验的开发/测试兼容 PostgreSQL 已执行股票基础表 `94..109` 及 candidate-shadow `110..113` changeSet。因此该库及任何需从其升级的环境，全部旧 changeSet 都不可改写，只能追加迁移并验证历史 checksum。仅在已证明从未执行第二批、且无需兼容上述数据库的全新/隔离基线中，才允许直接改写第二批首次发布定义；不得以“生产未部署”或“本地 up to date”单独推导该权限。
+
+必须完成：空 PostgreSQL 完整 Liquibase 迁移、真实 Mapper 首次写入和冲突更新、轮次并发插入、候选影子同股/同槽唯一约束、整轮事务回滚。独立线程或独立事务测试产生的数据，使用 `@AfterEach` 按测试 ID 精确物理 DELETE 清理，不改用 `@Rollback`。
 
 ### 22.9 发布门禁与实施状态
 

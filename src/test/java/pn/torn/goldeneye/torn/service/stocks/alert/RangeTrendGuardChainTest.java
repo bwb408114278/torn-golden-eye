@@ -7,21 +7,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator.BuySignalResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator.SignalEvaluation;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockShadowService.StockSignalEventContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.DeepMeanReversionBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
@@ -34,11 +34,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.verify;
 
 /**
- * RANGE绝对趋势守卫链路测试 - {@code StockBuySignalEvaluator → StockShadowRecordWriter}。
+ * RANGE绝对趋势守卫链路测试 - {@code StockBuySignalEvaluator → StockShadowTrackRecorder}。
  * <p>
  * 保护R2-P1-4: 缺失 {@code return7d}、缺失 MA7、缺失 MA30 时,守卫必须记录为数据不足
  * ({@link RangeLowerBuyStrategy#TREND_GUARD_DATA_INSUFFICIENT}) 而非
@@ -53,14 +52,11 @@ import static org.mockito.Mockito.*;
 class RangeTrendGuardChainTest {
 
     @Mock
+    private TornStockSignalEventDAO signalEventDao;
+    @Mock
     private TornStockVirtualBatchDAO virtualBatchDao;
-    @Mock
-    private TornStockNoticeAuditDAO noticeAuditDao;
-    @Mock
-    private ProjectProperty projectProperty;
 
-    private StockShadowService shadowService;
-    private StockShadowRecordWriter shadowRecordWriter;
+    private StockShadowTrackRecorder shadowTrackRecorder;
     private StockBuySignalEvaluator evaluator;
 
     private static final Integer STOCKS_ID = 1001;
@@ -69,24 +65,20 @@ class RangeTrendGuardChainTest {
 
     @BeforeEach
     void setUp() {
-        shadowService = mock(StockShadowService.class);
-        when(shadowService.recordSignalEvent(any())).thenAnswer(inv -> {
-            StockSignalEventContext ctx = inv.getArgument(0);
-            TornStockSignalEventDO event = new TornStockSignalEventDO();
+        org.mockito.Mockito.doAnswer(inv -> {
+            TornStockSignalEventDO event = inv.getArgument(0);
             event.setId(1L);
-            event.setStocksId(ctx.stocksId());
-            event.setStocksShortname(ctx.stocksShortname());
-            event.setStrategyType(ctx.strategyType());
-            return event;
-        });
-        shadowRecordWriter = new StockShadowRecordWriter(shadowService, noticeAuditDao, projectProperty);
+            return true;
+        }).when(signalEventDao).save(org.mockito.ArgumentMatchers.any());
+        shadowTrackRecorder = new StockShadowTrackRecorder(
+                signalEventDao, virtualBatchDao, new StockMarketClock());
         List<StockBuyStrategy> strategies = List.of(
                 new DeepMeanReversionBuyStrategy(),
                 new RangeLowerBuyStrategy(),
                 new StrictReboundConfirmBuyStrategy());
         evaluator = new StockBuySignalEvaluator(
-                strategies, new StockEligibilityService(), new StockPortfolioService(),
-                virtualBatchDao, shadowRecordWriter);
+                strategies, new BuyContextAssembler(), new BuyStrategyMatcher(strategies),
+                new BuyEligibilityEvaluator(new StockEligibilityService()), new CandidateFactory());
     }
 
     @Test
@@ -124,24 +116,27 @@ class RangeTrendGuardChainTest {
                 evaluation.eligibilityResult().reasons(),
                 "资格原因必须是数据不足而非阈值失败");
 
-        shadowRecordWriter.writeShadowRecords(
+        shadowTrackRecorder.writeShadowRecords(
                 result.allEvaluations(), List.of(), List.of(), Map.of(), Map.of(), ROUND_TIME);
 
-        ArgumentCaptor<StockSignalEventContext> eventCaptor =
-                ArgumentCaptor.forClass(StockSignalEventContext.class);
-        verify(shadowService).recordSignalEvent(eventCaptor.capture());
-        StockSignalEventContext eventCtx = eventCaptor.getValue();
-        assertEquals("REJECTED", eventCtx.portfolioDecision(), "数据不足时组合决策必须为REJECTED");
-        assertTrue(eventCtx.eligibilityReasons().contains(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT),
+        ArgumentCaptor<TornStockSignalEventDO> eventCaptor =
+                ArgumentCaptor.forClass(TornStockSignalEventDO.class);
+        verify(signalEventDao).save(eventCaptor.capture());
+        TornStockSignalEventDO event = eventCaptor.getValue();
+        assertEquals("REJECTED", event.getPortfolioDecision(), "数据不足时组合决策必须为REJECTED");
+        assertNotNull(event.getEligibilityReasons(), "信号事件资格原因不得为空");
+        assertTrue(event.getEligibilityReasons().contains(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT),
                 "信号事件资格原因必须为数据不足");
-        assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT, eventCtx.rejectReason(),
+        assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT, event.getRejectReason(),
                 "信号事件拒绝原因必须为数据不足");
 
-        ArgumentCaptor<TornStockSignalEventDO> eventCaptor2 =
-                ArgumentCaptor.forClass(TornStockSignalEventDO.class);
-        ArgumentCaptor<String> reasonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shadowService).createRejectedObservationBatch(eventCaptor2.capture(), reasonCaptor.capture());
-        assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT, reasonCaptor.getValue(),
+        ArgumentCaptor<TornStockVirtualBatchDO> batchCaptor =
+                ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
+        verify(virtualBatchDao).save(batchCaptor.capture());
+        TornStockVirtualBatchDO batch = batchCaptor.getValue();
+        assertEquals(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode(), batch.getLedgerType(),
+                "拒绝观察批次账本类型必须为REJECTED_OBSERVATION");
+        assertEquals(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT, batch.getCancelReason(),
                 "拒绝观察批次原因必须为数据不足");
     }
 

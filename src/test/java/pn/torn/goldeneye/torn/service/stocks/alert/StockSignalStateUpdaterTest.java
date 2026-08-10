@@ -26,7 +26,7 @@ import static org.mockito.Mockito.*;
  * 股票信号状态更新器测试,覆盖按股票×策略×规则版本去重、同轮状态合并和冷却回写。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.28
  */
 @DisplayName("股票信号状态更新器测试")

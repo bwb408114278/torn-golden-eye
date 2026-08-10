@@ -2,7 +2,7 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockRoundTransactionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockSignalStateKey;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
@@ -40,9 +40,9 @@ final class StockReplaySignalStateMirror {
      * @param allEvaluations 本轮全部信号评估
      * @param roundTime      本轮时间
      */
-    void updateFromEvaluations(List<StockBuySignalEvaluator.SignalEvaluation> allEvaluations,
+    void updateFromEvaluations(List<SignalEvaluation> allEvaluations,
                                LocalDateTime roundTime) {
-        for (StockBuySignalEvaluator.SignalEvaluation evaluation : allEvaluations) {
+        for (SignalEvaluation evaluation : allEvaluations) {
             if (evaluation.stocksId() == null || evaluation.evaluatedStrategies() == null) {
                 continue;
             }
@@ -79,7 +79,7 @@ final class StockReplaySignalStateMirror {
         }
     }
 
-    private void updateState(StockBuySignalEvaluator.SignalEvaluation evaluation,
+    private void updateState(SignalEvaluation evaluation,
                              StockBuyStrategy strategy, LocalDateTime roundTime) {
         StockSignalStateKey key = new StockSignalStateKey(
                 evaluation.stocksId(), strategy.getStrategyType().getCode(),
@@ -92,7 +92,7 @@ final class StockReplaySignalStateMirror {
         apply(evaluation, strategy, state, roundTime);
     }
 
-    private static void apply(StockBuySignalEvaluator.SignalEvaluation evaluation,
+    private static void apply(SignalEvaluation evaluation,
                               StockBuyStrategy strategy, TornStockSignalStateDO state,
                               LocalDateTime roundTime) {
         boolean currentActive = evaluation.matchedStrategies() != null

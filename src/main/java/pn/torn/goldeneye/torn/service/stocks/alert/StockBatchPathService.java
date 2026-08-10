@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBatchExitService.ExitEvaluation;
@@ -29,7 +30,7 @@ import java.util.Map;
  * 对每个OPEN批次调用退出评估，命中时置为EXIT_PENDING，并将实际决定与规则输入固化到BatchMark。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.25
  */
 @Slf4j
@@ -263,6 +264,14 @@ public class StockBatchPathService {
         boolean shouldExit = evaluation.shouldExit();
         mark.setFormalDecision(shouldExit ? FORMAL_DECISION_SELL : FORMAL_DECISION_HOLD);
         mark.setFormalReason(evaluation.reasonCode());
+        // 动态SELL研究遥测: 仅正式与候选影子槽位账本落库冻结值(研究范围边界与
+        // selectDynamicShadowResearchMarks的FORMAL/SHADOW_FORMAL_CANDIDATE一致),
+        // 无限资金影子与拒绝观察不写入,避免日报分母失真;该值仅用于覆盖统计,不触发任何卖出。
+        if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(batch.getLedgerType())) {
+            mark.setDynamicShadowDecision(StockDynamicSellResearchConstants.DECISION_NOT_EVALUATED);
+            mark.setDynamicShadowReason(StockDynamicSellResearchConstants.REASON_RULE_NOT_FROZEN);
+        }
         mark.setFeatureSnapshot(buildFeatureSnapshot(batch, metrics.currentPrice(), feature));
         return mark;
     }

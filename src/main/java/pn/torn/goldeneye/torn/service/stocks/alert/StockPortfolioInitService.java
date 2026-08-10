@@ -27,6 +27,9 @@ import java.util.stream.IntStream;
  * <ul>
  *   <li>槽位数量不足 {@value pn.torn.goldeneye.torn.service.stocks.alert.StockPortfolioService#SLOT_COUNT} 时补建缺失槽位</li>
  *   <li>槽位全部缺失时一次性创建5个标准初始槽位</li>
+ *   <li>补建使用 {@code INSERT ... ON CONFLICT (portfolio_code, slot_no) WHERE deleted = 0 DO NOTHING}
+ *       与Liquibase迁移并发收敛: 与迁移已插入槽位冲突的行被静默忽略,不抛重复键异常(fail-closed)</li>
+ *   <li>补建后重新查询并校验槽位序号1~5全部存在,任一仍缺失则返回false,不宣称修复成功</li>
  *   <li>已存在且状态正确的槽位不做任何修改</li>
  *   <li>initialCash 不等于20亿时仅记录警告,不自动修正(避免覆盖人工调拨)</li>
  *   <li>availableCash + reservedCash 不等于 initialCash 时记录警告(资金口径异常)</li>
@@ -87,6 +90,9 @@ public class StockPortfolioInitService {
 
     /**
      * 验证并初始化单个组合编码的5个20亿槽位。
+     * <p>
+     * 槽位全部缺失或数量不足时先补建,补建后重新查询并校验1~5槽位齐全
+     * (fail-closed: 补建后仍缺失则返回false,不宣称修复成功)。
      *
      * @param portfolioCode 组合编码
      * @return true表示该组合槽位完整且金额校验全部通过
@@ -95,41 +101,50 @@ public class StockPortfolioInitService {
         List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(portfolioCode);
 
         boolean repaired = false;
+        List<Integer> missingSlotNos;
         if (slots == null || slots.isEmpty()) {
             log.warn("组合[{}]槽位全部缺失,创建{}个标准初始槽位",
                     portfolioCode, StockPortfolioService.SLOT_COUNT);
             createSlots(portfolioCode, 1, StockPortfolioService.SLOT_COUNT);
-            return false;
-        }
-
-        Set<Integer> existingSlotNos = new HashSet<>();
-        for (TornStockPortfolioSlotDO slot : slots) {
-            if (slot.getSlotNo() != null) {
-                existingSlotNos.add(slot.getSlotNo());
-            }
-        }
-
-        List<Integer> missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
-                .filter(no -> !existingSlotNos.contains(no))
-                .boxed()
-                .toList();
-
-        if (!missingSlotNos.isEmpty()) {
-            log.warn("组合[{}]缺失槽位序号{},开始补建",
-                    portfolioCode, missingSlotNos);
-            for (Integer slotNo : missingSlotNos) {
-                createSlots(portfolioCode, slotNo, slotNo);
-            }
             repaired = true;
+            missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                    .boxed()
+                    .toList();
+        } else {
+            Set<Integer> existingSlotNos = new HashSet<>();
+            for (TornStockPortfolioSlotDO slot : slots) {
+                if (slot.getSlotNo() != null) {
+                    existingSlotNos.add(slot.getSlotNo());
+                }
+            }
+
+            missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                    .filter(no -> !existingSlotNos.contains(no))
+                    .boxed()
+                    .toList();
+
+            if (!missingSlotNos.isEmpty()) {
+                log.warn("组合[{}]缺失槽位序号{},开始补建",
+                        portfolioCode, missingSlotNos);
+                for (Integer slotNo : missingSlotNos) {
+                    createSlots(portfolioCode, slotNo, slotNo);
+                }
+                repaired = true;
+            }
         }
 
-        boolean allValid = validateExistingSlots(slots);
         if (repaired) {
             log.info("组合[{}]槽位补建完成,本次共补建{}个槽位",
                     portfolioCode, missingSlotNos.size());
+            if (!verifyCompleteAfterRepair(portfolioCode)) {
+                log.error("组合[{}]修复后槽位仍不完整(slot_no 1~{}必须全部存在),拒绝判定成功",
+                        portfolioCode, StockPortfolioService.SLOT_COUNT);
+                return false;
+            }
             return false;
         }
-        return allValid;
+
+        return validateExistingSlots(slots);
     }
 
     /**
@@ -162,7 +177,9 @@ public class StockPortfolioInitService {
      * <p>
      * 使用 {@link StockPortfolioService#INITIAL_CASH} 作为initialCash与availableCash,
      * reservedCash置零,slotStatus置为 {@link StockSlotStatusEnum#AVAILABLE} ,
-     * lockVersion初始化为 {@value #INITIAL_LOCK_VERSION} 。批量保存到数据库。
+     * lockVersion初始化为 {@value #INITIAL_LOCK_VERSION} 。使用冲突安全批量插入
+     * {@code INSERT ... ON CONFLICT DO NOTHING},与Liquibase迁移并发时冲突行被忽略,
+     * 返回实际插入行数并记录。
      *
      * @param portfolioCode 组合编码
      * @param fromNo        起始槽位序号(含)
@@ -172,10 +189,34 @@ public class StockPortfolioInitService {
         List<TornStockPortfolioSlotDO> newSlots = IntStream.rangeClosed(fromNo, toNo)
                 .mapToObj(slotNo -> buildStandardSlot(portfolioCode, slotNo))
                 .toList();
-        portfolioSlotDAO.saveBatch(newSlots);
-        log.info("组合[{}]创建槽位序号{}~{}共{}个,每个初始资金{}",
-                portfolioCode, fromNo, toNo, newSlots.size(),
+        int inserted = portfolioSlotDAO.insertSlotsIgnoreConflict(newSlots);
+        log.info("组合[{}]创建槽位序号{}~{}共{}个,本次实际插入{}个,每个初始资金{}",
+                portfolioCode, fromNo, toNo, newSlots.size(), inserted,
                 StockPortfolioService.INITIAL_CASH);
+    }
+
+    /**
+     * 补建后重新查询指定组合槽位,校验槽位序号1~5是否全部存在。
+     * <p>
+     * fail-closed复查: 补建插入可能与Liquibase迁移并发被部分冲突吸收,插入返回数不能证明收敛,
+     * 必须重新查询数据库确认每个槽位序号均存在。
+     *
+     * @param portfolioCode 组合编码
+     * @return true表示该组合当前存在全部5个有效槽位
+     */
+    private boolean verifyCompleteAfterRepair(String portfolioCode) {
+        List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(portfolioCode);
+        if (slots == null || slots.isEmpty()) {
+            return false;
+        }
+        Set<Integer> existingSlotNos = new HashSet<>();
+        for (TornStockPortfolioSlotDO slot : slots) {
+            if (slot.getSlotNo() != null) {
+                existingSlotNos.add(slot.getSlotNo());
+            }
+        }
+        return IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                .allMatch(existingSlotNos::contains);
     }
 
     /**

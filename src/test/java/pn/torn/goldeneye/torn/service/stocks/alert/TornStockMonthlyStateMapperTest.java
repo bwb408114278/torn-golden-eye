@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * </ul>
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.2.14
  * @since 2026.08.06
  */
 @SpringBootTest

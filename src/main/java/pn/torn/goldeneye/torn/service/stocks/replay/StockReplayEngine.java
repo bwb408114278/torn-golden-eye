@@ -3,6 +3,8 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.buy.RangeLowerBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
@@ -156,15 +158,15 @@ public class StockReplayEngine {
             dynamicResearch.collect(portfolio.activeBatches(), barByStock, featureByStock, t);
         }
 
-        StockBuySignalEvaluator.BuySignalResult buyResult = context.buyEvaluator()
+        BuySignalResult buyResult = context.buyEvaluator()
                 .evaluateSignals(snapshot, barByStock, monthlyByStock, portfolio.signalStates(), t);
         if (!buyResult.allEvaluations().isEmpty()) {
             List<CandidateInfo> ranked = context.rankingPolicy().rank(buyResult.formalCandidates());
             List<CandidateInfo> candidates =
                     StockRoundExitGuard.excludeFormalExitStocks(ranked, formalExitFilled);
-            Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evalByStock =
+            Map<Integer, SignalEvaluation> evalByStock =
                     buyResult.allEvaluations().stream()
-                            .collect(Collectors.toMap(StockBuySignalEvaluator.SignalEvaluation::stocksId,
+                            .collect(Collectors.toMap(SignalEvaluation::stocksId,
                                     Function.identity(), (left, right) -> left));
             allocate(candidates, barByStock, monthlyByStock, t, evalByStock);
             if (collectObservations) {
@@ -220,7 +222,7 @@ public class StockReplayEngine {
                           Map<Integer, TornStockMarketBar15mDO> barByStock,
                           Map<Integer, TornStockMonthlyStateDO> monthlyByStock,
                           LocalDateTime t,
-                          Map<Integer, StockBuySignalEvaluator.SignalEvaluation> evalByStock) {
+                          Map<Integer, SignalEvaluation> evalByStock) {
         int candidateRank = 0;
         for (CandidateInfo candidate : candidates) {
             candidateRank++;
@@ -243,7 +245,7 @@ public class StockReplayEngine {
     private void tryAcceptCandidate(CandidateInfo candidate, int candidateRank,
                                     Map<Integer, TornStockMarketBar15mDO> barByStock,
                                     Map<Integer, TornStockMonthlyStateDO> monthlyByStock,
-                                    StockBuySignalEvaluator.SignalEvaluation evaluation,
+                                    SignalEvaluation evaluation,
                                     LocalDateTime t) {
         TornStockPortfolioSlotDO slot = portfolio.firstAvailableSlot();
         if (slot == null) {
@@ -306,7 +308,7 @@ public class StockReplayEngine {
      * @param t             轮次时间
      * @param bar           该候选本轮bar
      */
-    private void handleCapacityReject(StockBuySignalEvaluator.SignalEvaluation evaluation,
+    private void handleCapacityReject(SignalEvaluation evaluation,
                                       String rejectReason, int candidateRank, LocalDateTime t,
                                       TornStockMarketBar15mDO bar) {
         if (collectShadow && evaluation != null && evaluation.edgeTriggered() && isUsablePrice(bar)) {
@@ -347,7 +349,7 @@ public class StockReplayEngine {
      * @param signalPrice 信号参考价
      * @param t           轮次时间
      */
-    private void createShadowBatch(StockBuySignalEvaluator.SignalEvaluation evaluation,
+    private void createShadowBatch(SignalEvaluation evaluation,
                                    BigDecimal signalPrice, LocalDateTime t) {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setBatchNo("S" + t.format(FORMATTER) + evaluation.stocksId());
@@ -372,8 +374,8 @@ public class StockReplayEngine {
      * @param t              轮次时间
      */
     private void collectObservationFeeds(
-            List<StockBuySignalEvaluator.SignalEvaluation> allEvaluations, LocalDateTime t) {
-        for (StockBuySignalEvaluator.SignalEvaluation evaluation : allEvaluations) {
+            List<SignalEvaluation> allEvaluations, LocalDateTime t) {
+        for (SignalEvaluation evaluation : allEvaluations) {
             if (!evaluation.edgeTriggered() || evaluation.primaryStrategy() == null) {
                 continue;
             }
@@ -396,7 +398,7 @@ public class StockReplayEngine {
      * @param evaluation 信号评估
      * @return 冻结拒绝原因编码
      */
-    static String mapRejectionReason(StockBuySignalEvaluator.SignalEvaluation evaluation) {
+    static String mapRejectionReason(SignalEvaluation evaluation) {
         if (evaluation == null || evaluation.eligibilityResult() == null
                 || evaluation.eligibilityResult().reasons().isEmpty()) {
             return "UNKNOWN";

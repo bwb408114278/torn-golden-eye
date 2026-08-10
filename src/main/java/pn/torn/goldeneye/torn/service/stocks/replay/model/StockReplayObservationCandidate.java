@@ -1,7 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.replay.model;
 
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalEvaluator;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -61,7 +61,7 @@ public record StockReplayObservationCandidate(
      * @return 拒绝观察候选
      */
     public static StockReplayObservationCandidate ofRejection(
-            StockBuySignalEvaluator.SignalEvaluation evaluation, String rejectReason,
+            SignalEvaluation evaluation, String rejectReason,
             Integer candidateRank, LocalDateTime t) {
         return new StockReplayObservationCandidate(
                 StockReplayTrackEnum.REJECTION_OBSERVATION.getCode(),
@@ -85,7 +85,7 @@ public record StockReplayObservationCandidate(
      * @return 原始BUY对照候选
      */
     public static StockReplayObservationCandidate ofRawBuy(
-            StockBuySignalEvaluator.SignalEvaluation evaluation, LocalDateTime t) {
+            SignalEvaluation evaluation, LocalDateTime t) {
         return new StockReplayObservationCandidate(
                 StockReplayTrackEnum.RAW_BUY_CONTROL.getCode(),
                 t, evaluation.stocksId(), evaluation.stocksShortname(),
@@ -106,8 +106,7 @@ public record StockReplayObservationCandidate(
      * @param t          信号轮次时间
      * @return 高风险观察候选
      */
-    public static StockReplayObservationCandidate ofHighRisk(
-            StockBuySignalEvaluator.SignalEvaluation evaluation, LocalDateTime t) {
+    public static StockReplayObservationCandidate ofHighRisk(SignalEvaluation evaluation, LocalDateTime t) {
         return new StockReplayObservationCandidate(
                 StockReplayTrackEnum.HIGH_RISK_OBSERVATION.getCode(),
                 t, evaluation.stocksId(), evaluation.stocksShortname(),
@@ -121,21 +120,21 @@ public record StockReplayObservationCandidate(
                 t.plusMinutes(35));
     }
 
-    private static String monthlyStyle(StockBuySignalEvaluator.SignalEvaluation evaluation) {
+    private static String monthlyStyle(SignalEvaluation evaluation) {
         return evaluation.monthlyState() == null ? null : evaluation.monthlyState().getStrategyFitPrior();
     }
 
-    private static String riskLevel(StockBuySignalEvaluator.SignalEvaluation evaluation) {
+    private static String riskLevel(SignalEvaluation evaluation) {
         return evaluation.context() == null || evaluation.context().riskLevel() == null
                 ? null : evaluation.context().riskLevel().getCode();
     }
 
-    private static String resultCode(StockBuySignalEvaluator.SignalEvaluation evaluation) {
+    private static String resultCode(SignalEvaluation evaluation) {
         return evaluation.eligibilityResult() == null ? null
                 : evaluation.eligibilityResult().result().getCode();
     }
 
-    private static String reasons(StockBuySignalEvaluator.SignalEvaluation evaluation) {
+    private static String reasons(SignalEvaluation evaluation) {
         if (evaluation.eligibilityResult() == null
                 || evaluation.eligibilityResult().reasons().isEmpty()) {
             return null;
@@ -143,7 +142,7 @@ public record StockReplayObservationCandidate(
         return String.join("|", evaluation.eligibilityResult().reasons());
     }
 
-    private static BigDecimal referencePrice(StockBuySignalEvaluator.SignalEvaluation evaluation) {
+    private static BigDecimal referencePrice(SignalEvaluation evaluation) {
         return evaluation.context() == null ? null : evaluation.context().referencePrice();
     }
 }

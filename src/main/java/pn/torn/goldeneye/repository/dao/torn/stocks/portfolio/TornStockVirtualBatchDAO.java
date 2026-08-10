@@ -79,6 +79,27 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
+     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)的活跃批次。
+     *
+     * @return 候选影子活跃批次列表
+     */
+    public List<TornStockVirtualBatchDO> selectActiveCandidateShadowBatches() {
+        return baseMapper.selectActiveCandidateShadowBatches();
+    }
+
+    /**
+     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)指定时间范围内有入场或出场动作的批次。
+     *
+     * @param startTime 时间范围起点(含)
+     * @param endTime   时间范围终点(不含)
+     * @return 候选影子动作批次列表
+     */
+    public List<TornStockVirtualBatchDO> selectCandidateShadowActionBatches(
+            LocalDateTime startTime, LocalDateTime endTime) {
+        return baseMapper.selectCandidateShadowActionBatches(startTime, endTime);
+    }
+
+    /**
      * 按信号事件ID批量查询拒绝观察批次。
      *
      * @param signalEventIds 信号事件ID列表

@@ -6,38 +6,24 @@ import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockEligibilityService.EligibilityResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockShadowService.StockSignalEventContext;
-import pn.torn.goldeneye.torn.service.stocks.alert.buy.BuyContext;
-import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
 import pn.torn.goldeneye.utils.JsonUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * 股票影子记录写入器 - 步骤8-9:写入原始信号事件、候选影子/无限资金影子批次、拒绝观察批次与通知审计
+ * 股票通知审计写入器 - 步骤9:为已成交的买入/卖出批次写入PENDING状态的通知审计记录。
  * <p>
- * 从 {@link StockRoundTransactionService} 提取的影子记录与通知审计写入逻辑,职责单一:
- * <ul>
- *   <li>步骤8: 对每个边沿触发的信号评估写入原始信号事件,并根据决策创建候选影子/无限资金
- *       影子批次或拒绝观察批次</li>
- *   <li>步骤9: 为已成交的买入/卖出批次写入PENDING状态的通知审计记录</li>
- * </ul>
- *
- * <h3>组合决策编码</h3>
- * <ul>
- *   <li>{@value #DECISION_FORMAL} - ALLOWED且已入选正式组合</li>
- *   <li>{@value #DECISION_SHADOW} - ALLOWED但未入选正式组合(含入选候选影子槽位、无槽位或资金不足)</li>
- *   <li>{@value #DECISION_REJECTED} - REJECTED或OBSERVED</li>
- * </ul>
+ * P1-1 写入职责收敛后,本类仅保留通知审计职责;信号事件、无限资金影子批次与拒绝观察批次
+ * 的写入全部移交 {@link StockShadowTrackRecorder},正式/候选影子槽位批次写入移交
+ * {@link StockCandidateTrackAllocationService}。
  *
  * @author Bai
  * @version 1.2.14
@@ -57,26 +43,6 @@ public class StockShadowRecordWriter {
      */
     private static final String NOTICE_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmmssSSS";
     /**
-     * 组合决策编码-正式建立
-     */
-    private static final String DECISION_FORMAL = "FORMAL";
-    /**
-     * 组合决策编码-影子建立
-     */
-    private static final String DECISION_SHADOW = "SHADOW";
-    /**
-     * 组合决策编码-拒绝建立
-     */
-    private static final String DECISION_REJECTED = "REJECTED";
-    /**
-     * 未知拒绝原因默认编码
-     */
-    private static final String UNKNOWN_REJECT_REASON = "UNKNOWN";
-    /**
-     * 空JSON对象文本
-     */
-    private static final String EMPTY_JSON = "{}";
-    /**
      * 通知编号batchId后缀取模基数
      */
     private static final int BATCH_ID_MODULUS = 1000000;
@@ -86,353 +52,9 @@ public class StockShadowRecordWriter {
     private static final DateTimeFormatter NOTICE_NO_FORMATTER =
             DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
 
-    private final StockShadowService shadowService;
     private final TornStockNoticeAuditDAO noticeAuditDao;
     private final ProjectProperty projectProperty;
-
-    // ==================== 步骤8: 写入影子记录 ====================
-
-    /**
-     * 为全部信号评估结果写入原始信号事件、候选影子/无限资金影子批次和拒绝观察批次,
-     * 并回填已创建正式与候选影子批次的signalEventId。
-     * <p>
-     * 每个股票×策略×买入规则版本在同一轮只写入一次,避免重复评估结果造成重复事件和影子批次。
-     * 对每个边沿触发的信号评估:
-     * <ul>
-     *   <li>记录原始信号事件(recordSignalEvent)</li>
-     *   <li>ALLOWED且已入选正式 -> 回填对应正式批次的signalEventId</li>
-     *   <li>ALLOWED且已入选候选影子 -> 回填对应候选影子批次的signalEventId,并创建无限资金影子批次</li>
-     *   <li>ALLOWED且未入选任一槽位 -> 创建无限资金影子批次</li>
-     *   <li>REJECTED/OBSERVED -> 创建拒绝观察批次</li>
-     * </ul>
-     *
-     * @param allEvaluations            全部信号评估结果
-     * @param newFormalBatches          本轮新建的正式批次列表(需回填signalEventId)
-     * @param newCandidateShadowBatches 本轮新建的候选影子批次列表(需回填signalEventId)
-     * @param candidateRankByStockId    候选排名映射(stocksId -> rank),供事件回写
-     * @param allocationResultByStockId 候选实际接纳结果,供拒绝原因回写
-     * @param roundTime                 本轮时间
-     */
-    public void writeShadowRecords(List<? extends SignalEvaluationView> allEvaluations,
-                                   List<TornStockVirtualBatchDO> newFormalBatches,
-                                   List<TornStockVirtualBatchDO> newCandidateShadowBatches,
-                                   Map<Integer, Integer> candidateRankByStockId,
-                                   Map<Integer, StockCandidateAllocationResultEnum> allocationResultByStockId,
-                                   LocalDateTime roundTime) {
-        if (allEvaluations == null || allEvaluations.isEmpty()) {
-            return;
-        }
-        Map<Integer, TornStockVirtualBatchDO> formalBatchByStockId = indexBatchesByStockId(newFormalBatches);
-        Map<Integer, TornStockVirtualBatchDO> candidateShadowBatchByStockId =
-                indexBatchesByStockId(newCandidateShadowBatches);
-        Set<String> writtenSignalKeys = new HashSet<>();
-        for (SignalEvaluationView evaluation : allEvaluations) {
-            if (isWritableSignalEvaluation(evaluation)) {
-                String signalKey = buildSignalKey(evaluation);
-                if (writtenSignalKeys.add(signalKey)) {
-                    Integer rank = candidateRankByStockId != null
-                            ? candidateRankByStockId.get(evaluation.stocksId()) : null;
-                    writeSingleShadowRecord(evaluation, formalBatchByStockId.get(evaluation.stocksId()),
-                            candidateShadowBatchByStockId.get(evaluation.stocksId()), rank,
-                            allocationResultByStockId, roundTime);
-                } else {
-                    log.debug("同轮重复信号评估已跳过: key={}", signalKey);
-                }
-            }
-        }
-    }
-
-    /**
-     * 判断评估结果是否允许进入影子记录写入流程。
-     *
-     * @param evaluation 信号评估结果
-     * @return 非空、触发边沿且存在主策略时返回true
-     */
-    private boolean isWritableSignalEvaluation(SignalEvaluationView evaluation) {
-        return evaluation != null && evaluation.edgeTriggered() && evaluation.primaryStrategy() != null;
-    }
-
-    /**
-     * 按目标轨道组合决策保存原始信号事件。
-     * <p>
-     * 正式候选(FORMAL)与候选影子候选(SHADOW)在候选接纳阶段提前保存事件,
-     * 为对应批次提供非空signalEventId。
-     *
-     * @param evaluation    信号评估结果
-     * @param candidateRank 候选排名
-     * @param roundTime     轮次时间
-     * @param decision      组合决策编码(FORMAL或SHADOW)
-     * @return 已保存的信号事件
-     */
-    public TornStockSignalEventDO recordTrackSignalEvent(SignalEvaluationView evaluation,
-                                                         Integer candidateRank,
-                                                         LocalDateTime roundTime,
-                                                         String decision) {
-        return shadowService.recordSignalEvent(buildSignalEventContext(
-                evaluation, candidateRank, decision, null, roundTime));
-    }
-
-    /**
-     * 回写正式批次ID到已保存的信号事件。
-     *
-     * @param event 已保存的信号事件
-     */
-    public void updateSignalEventBatchIds(TornStockSignalEventDO event) {
-        shadowService.updateEventBatchIds(event);
-    }
-
-    /**
-     * 为候选影子批次链接其信号事件与无限资金影子孪生批次。
-     * <p>
-     * 候选影子接纳阶段已创建事件与候选影子批次,此处回填事件{@code shadowCandidateBatchId},
-     * 并为同一信号建立无限资金影子孪生批次(保留所有可接纳信号的独立理论路径),
-     * 最终一次性回写事件两个批次ID。
-     *
-     * @param event          已保存的信号事件
-     * @param candidateBatch 候选影子批次(须已保存,含主键)
-     */
-    public void linkCandidateShadowEvent(TornStockSignalEventDO event,
-                                         TornStockVirtualBatchDO candidateBatch) {
-        Objects.requireNonNull(event, "信号事件不能为空");
-        Objects.requireNonNull(candidateBatch, "候选影子批次不能为空");
-        Objects.requireNonNull(candidateBatch.getId(), "候选影子批次主键不能为空");
-        event.setShadowCandidateBatchId(candidateBatch.getId());
-        TornStockVirtualBatchDO unlimitedShadow = shadowService.createUnlimitedShadowBatch(event);
-        event.setShadowBatchId(unlimitedShadow.getId());
-        shadowService.updateEventBatchIds(event);
-        log.info("候选影子事件链接-完成: eventNo={}, shadowCandidateBatchId={}, shadowBatchId={}",
-                event.getEventNo(), candidateBatch.getId(), unlimitedShadow.getId());
-    }
-
-
-    /**
-     * 构建同轮信号幂等键。
-     *
-     * @param evaluation 信号评估结果
-     * @return 股票、策略和买入规则版本组成的键
-     */
-    private String buildSignalKey(SignalEvaluationView evaluation) {
-        return evaluation.stocksId() + "|"
-                + evaluation.primaryStrategy().getStrategyType().getCode() + "|"
-                + StockRoundTransactionService.BUY_RULE_VERSION;
-    }
-
-    /**
-     * 按股票ID索引本轮新建批次(正式或候选影子共用)。
-     *
-     * @param newBatches 本轮新建批次列表
-     * @return 按股票ID索引的批次
-     */
-    private Map<Integer, TornStockVirtualBatchDO> indexBatchesByStockId(
-            List<TornStockVirtualBatchDO> newBatches) {
-        Map<Integer, TornStockVirtualBatchDO> map = new HashMap<>();
-        if (newBatches == null) {
-            return map;
-        }
-        for (TornStockVirtualBatchDO batch : newBatches) {
-            if (batch != null && batch.getStocksId() != null) {
-                map.put(batch.getStocksId(), batch);
-            }
-        }
-        return map;
-    }
-
-    /**
-     * 写入单个边沿触发信号的影子记录。
-     * <p>
-     * 组装信号事件上下文(含月度风格字段与信号参考价)并记录事件,然后根据组合决策:
-     * 回填正式/候选影子批次ID、创建无限资金影子批次,或创建拒绝观察批次。
-     * 候选影子批次已由候选接纳阶段创建,此处仅回填其signalEventId并继续建立无限资金影子路径。
-     *
-     * @param evaluation           信号评估结果
-     * @param formalBatch          对应股票的正式批次;FORMAL决策时回填其signalEventId,可为null
-     * @param candidateShadowBatch 对应股票的候选影子批次;SHADOW决策时回填其signalEventId,可为null
-     * @param candidateRank        候选排名;未入选正式时为null
-     * @param roundTime            本轮时间
-     */
-    private void writeSingleShadowRecord(SignalEvaluationView evaluation,
-                                         TornStockVirtualBatchDO formalBatch,
-                                         TornStockVirtualBatchDO candidateShadowBatch,
-                                         Integer candidateRank,
-                                         Map<Integer, StockCandidateAllocationResultEnum> allocationResultByStockId,
-                                         LocalDateTime roundTime) {
-        EligibilityResult eligibility = evaluation.eligibilityResult();
-        String portfolioDecision = determinePortfolioDecision(
-                evaluation, eligibility, formalBatch);
-        String rejectReason = determineRejectReason(
-                eligibility, allocationResultByStockId == null ? null : allocationResultByStockId.get(evaluation.stocksId()));
-
-        if (DECISION_FORMAL.equals(portfolioDecision)
-                && formalBatch != null && formalBatch.getSignalEventId() != null) {
-            return;
-        }
-        // 候选影子批次在接纳阶段已创建并回填signalEventId与无限资金孪生批次,
-        // 事件已完整链接,无需在此重复创建。
-        if (DECISION_SHADOW.equals(portfolioDecision)
-                && candidateShadowBatch != null && candidateShadowBatch.getSignalEventId() != null) {
-            return;
-        }
-
-        StockSignalEventContext eventContext = buildSignalEventContext(
-                evaluation, candidateRank, portfolioDecision, rejectReason, roundTime);
-        TornStockSignalEventDO event = shadowService.recordSignalEvent(eventContext);
-
-        if (DECISION_FORMAL.equals(portfolioDecision) && formalBatch != null) {
-            formalBatch.setSignalEventId(event.getId());
-            event.setFormalBatchId(formalBatch.getId());
-            shadowService.updateEventBatchIds(event);
-        } else if (DECISION_SHADOW.equals(portfolioDecision)) {
-            if (candidateShadowBatch != null) {
-                candidateShadowBatch.setSignalEventId(event.getId());
-                event.setShadowCandidateBatchId(candidateShadowBatch.getId());
-            }
-            TornStockVirtualBatchDO shadowBatch = shadowService.createUnlimitedShadowBatch(event);
-            event.setShadowBatchId(shadowBatch.getId());
-            shadowService.updateEventBatchIds(event);
-        } else if (DECISION_REJECTED.equals(portfolioDecision)) {
-            shadowService.createRejectedObservationBatch(event, rejectReason);
-        }
-    }
-
-    /**
-     * 构建信号事件上下文。
-     *
-     * @param evaluation        信号评估结果
-     * @param candidateRank     候选排名
-     * @param portfolioDecision 组合决策
-     * @param rejectReason      拒绝原因
-     * @param roundTime         轮次时间
-     * @return 信号事件上下文
-     */
-    private StockSignalEventContext buildSignalEventContext(SignalEvaluationView evaluation,
-                                                            Integer candidateRank,
-                                                            String portfolioDecision,
-                                                            String rejectReason,
-                                                            LocalDateTime roundTime) {
-        TornStockMonthlyStateDO monthlyState = evaluation.monthlyState();
-        BuyContext context = evaluation.context();
-        EligibilityResult eligibility = evaluation.eligibilityResult();
-        return new StockSignalEventContext(
-                evaluation.stocksId(),
-                evaluation.stocksShortname(),
-                evaluation.primaryStrategy().getStrategyType().getCode(),
-                context != null ? context.referencePrice() : null,
-                monthlyState != null ? monthlyState.getStrategyFitPrior() : null,
-                monthlyState != null ? monthlyState.getMaturity() : null,
-                monthlyState != null ? monthlyState.getRiskLevel() : null,
-                monthlyState != null ? monthlyState.getEffectiveMonth() : null,
-                StockRoundTransactionService.BUY_RULE_VERSION,
-                evaluation.qualityScore(),
-                buildFeatureSnapshot(context),
-                buildStyleSnapshot(monthlyState),
-                eligibility != null ? eligibility.result().getCode() : null,
-                eligibility != null ? eligibility.reasons() : List.of(),
-                candidateRank,
-                portfolioDecision,
-                rejectReason,
-                roundTime
-        );
-    }
-
-    /**
-     * 判定组合决策编码。
-     * <p>
-     * ALLOWED且已入选正式 -> FORMAL; ALLOWED但未入选(无槽位/资金不足) -> SHADOW;
-     * REJECTED/OBSERVED -> REJECTED。
-     *
-     * @param evaluation  信号评估
-     * @param eligibility 资格结果
-     * @param formalBatch 本轮实际创建的正式批次,为空表示未实际接纳
-     * @return 组合决策编码
-     */
-    private String determinePortfolioDecision(SignalEvaluationView evaluation,
-                                              EligibilityResult eligibility,
-                                              TornStockVirtualBatchDO formalBatch) {
-        if (eligibility == null || StockEligibilityResultEnum.ALLOWED != eligibility.result()) {
-            return DECISION_REJECTED;
-        }
-        if (!evaluation.acceptedFormal() || formalBatch == null || formalBatch.getId() == null) {
-            return DECISION_SHADOW;
-        }
-        return DECISION_FORMAL;
-    }
-
-    /**
-     * 判定拒绝原因编码。
-     * <p>
-     * 非拒绝时返回null;拒绝但无原因时返回{@value #UNKNOWN_REJECT_REASON};
-     * 否则返回原因列表的首个编码。正式分配与候选影子分配都不视为拒绝。
-     *
-     * @param eligibility 资格结果
-     * @return 拒绝原因编码;非拒绝时返回null
-     */
-    private String determineRejectReason(EligibilityResult eligibility,
-                                         StockCandidateAllocationResultEnum allocationResult) {
-        if (allocationResult != null
-                && allocationResult != StockCandidateAllocationResultEnum.FORMAL_ALLOCATED
-                && allocationResult != StockCandidateAllocationResultEnum.SHADOW_CANDIDATE_ALLOCATED) {
-            return allocationResult.getCode();
-        }
-        if (eligibility == null || StockEligibilityResultEnum.ALLOWED == eligibility.result()) {
-            return null;
-        }
-        List<String> reasons = eligibility.reasons();
-        if (reasons == null || reasons.isEmpty()) {
-            return UNKNOWN_REJECT_REASON;
-        }
-        return reasons.getFirst();
-    }
-
-    /**
-     * 构建特征快照JSON。
-     *
-     * @param context 买入上下文
-     * @return 特征快照JSON文本;上下文为null时返回{@value #EMPTY_JSON}
-     */
-    private String buildFeatureSnapshot(BuyContext context) {
-        if (context == null) {
-            return EMPTY_JSON;
-        }
-        Map<String, Object> snapshot = new HashMap<>();
-        snapshot.put("referencePrice", context.referencePrice());
-        snapshot.put("ma1d", context.ma1d());
-        snapshot.put("ma7d", context.ma7d());
-        snapshot.put("ma30d", context.ma30d());
-        snapshot.put("zscore1d", context.zscore1d());
-        snapshot.put("zscore7d", context.zscore7d());
-        snapshot.put("zscore30d", context.zscore30d());
-        snapshot.put("return6h", context.return6h());
-        snapshot.put("return1d", context.return1d());
-        snapshot.put("return7d", context.return7d());
-        snapshot.put("return14d", context.return14d());
-        snapshot.put("low30d", context.low30d());
-        snapshot.put("high30d", context.high30d());
-        snapshot.put("width30d", context.width30d());
-        snapshot.put("position30", context.position30());
-        snapshot.put("pctAbove30dLow", context.pctAbove30dLow());
-        snapshot.put("pctBelow30dHigh", context.pctBelow30dHigh());
-        return JsonUtils.objToJson(snapshot);
-    }
-
-    /**
-     * 构建风格快照JSON。
-     *
-     * @param monthlyState 月度状态
-     * @return 风格快照JSON文本;月度状态为null时返回{@value #EMPTY_JSON}
-     */
-    private String buildStyleSnapshot(TornStockMonthlyStateDO monthlyState) {
-        if (monthlyState == null) {
-            return EMPTY_JSON;
-        }
-        Map<String, Object> snapshot = new HashMap<>();
-        snapshot.put("strategyFitPrior", monthlyState.getStrategyFitPrior());
-        snapshot.put("maturity", monthlyState.getMaturity());
-        snapshot.put("riskLevel", monthlyState.getRiskLevel());
-        snapshot.put("effectiveMonth", monthlyState.getEffectiveMonth());
-        return JsonUtils.objToJson(snapshot);
-    }
-
-    // ==================== 步骤9: 写入通知审计 ====================
+    private final StockMarketClock marketClock;
 
     /**
      * 为已成交的买入/卖出写入PENDING通知审计。
@@ -524,7 +146,7 @@ public class StockShadowRecordWriter {
         notice.setScheduledRoundTime(roundTime);
         notice.setSendStatus(StockNoticeStatusEnum.PENDING.getCode());
         notice.setSendAttemptCount(0);
-        notice.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
+        notice.setMessageRuleVersion(StockRuleVersion.MESSAGE);
         String payloadSnapshot = buildNoticePayload(batch, noticeType);
         notice.setPayloadSnapshot(payloadSnapshot);
         notice.setPayloadHash(generatePayloadHash(payloadSnapshot));
@@ -541,7 +163,7 @@ public class StockShadowRecordWriter {
      * @return 通知编号
      */
     private String generateNoticeNo(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType) {
-        String timestamp = LocalDateTime.now().format(NOTICE_NO_FORMATTER);
+        String timestamp = marketClock.now().format(NOTICE_NO_FORMATTER);
         String batchSuffix = batch.getId() != null
                 ? String.valueOf(batch.getId() % BATCH_ID_MODULUS) : "0";
         return NOTICE_NO_PREFIX + timestamp + batchSuffix + noticeType.getCode().charAt(0);
@@ -635,92 +257,5 @@ public class StockShadowRecordWriter {
             case "CLOSED_TIME" -> StockFormalReasonEnum.SELL_MAX_HOLD.getCode();
             default -> exitReason;
         };
-    }
-
-    // ==================== 信号评估视图接口 ====================
-
-    /**
-     * 信号评估结果接口 - 供影子记录写入器消费。
-     * <p>
-     * 从评估器的内部SignalEvaluation抽象出的最小只读视图,
-     * 使写入器不直接依赖评估器内部实现,降低耦合。
-     *
-     * @author Bai
-     * @version 1.2.12
-     * @since 2026.07.25
-     */
-    public interface SignalEvaluationView {
-
-        /**
-         * 股票ID。
-         *
-         * @return 股票ID
-         */
-        Integer stocksId();
-
-        /**
-         * 股票简称。
-         *
-         * @return 股票简称
-         */
-        String stocksShortname();
-
-        /**
-         * 主策略(质量分最高的命中策略)。
-         *
-         * @return 主策略;无命中时为null
-         */
-        StockBuyStrategy primaryStrategy();
-
-        /**
-         * 全部命中策略列表。
-         *
-         * @return 命中策略列表
-         */
-        List<StockBuyStrategy> matchedStrategies();
-
-        /**
-         * 主策略质量分。
-         *
-         * @return 质量分
-         */
-        BigDecimal qualityScore();
-
-
-        /**
-         * 是否为false->true边沿触发。
-         *
-         * @return 边沿触发时返回true
-         */
-        boolean edgeTriggered();
-
-        /**
-         * 买入上下文。
-         *
-         * @return 买入上下文
-         */
-        BuyContext context();
-
-
-        /**
-         * 月度状态记录。
-         *
-         * @return 月度状态记录
-         */
-        TornStockMonthlyStateDO monthlyState();
-
-        /**
-         * 资格评估结果。
-         *
-         * @return 资格评估结果;未执行资格检查时为null
-         */
-        EligibilityResult eligibilityResult();
-
-        /**
-         * 是否已被正式组合接纳。
-         *
-         * @return 已接纳时返回true
-         */
-        boolean acceptedFormal();
     }
 }

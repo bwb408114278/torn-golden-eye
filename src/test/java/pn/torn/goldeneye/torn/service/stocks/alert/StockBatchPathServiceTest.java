@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockFormalReasonEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMarkDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
@@ -32,7 +33,7 @@ import static org.mockito.Mockito.when;
  * 股票批次路径服务测试，覆盖开放批次路径更新(peak/trough/MFE/MAE)和退出条件评估的核心逻辑。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.26
  */
 @DisplayName("股票批次路径服务测试")
@@ -97,6 +98,76 @@ class StockBatchPathServiceTest {
         assertFeatureText(mark.getFeatureSnapshot(), "featureVersion", "feature-1");
         assertFeatureText(mark.getFeatureSnapshot(), "sellRuleVersion",
                 StockRoundTransactionService.SELL_RULE_VERSION);
+    }
+
+    @Test
+    @DisplayName("动态SELL研究遥测_正式槽位账本mark写入冻结决策与原因")
+    void updatePathsAndEvaluateExits_formalLedger_writesDynamicShadowTelemetry() {
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.00"));
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        ExitEvaluation noExit = new ExitEvaluation(false, null,
+                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "未命中任何退出规则");
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertEquals(1, marks.size());
+        TornStockBatchMarkDO mark = marks.getFirst();
+        assertEquals(StockDynamicSellResearchConstants.DECISION_NOT_EVALUATED, mark.getDynamicShadowDecision(),
+                "正式账本mark必须写入动态SELL研究冻结决策");
+        assertEquals(StockDynamicSellResearchConstants.REASON_RULE_NOT_FROZEN, mark.getDynamicShadowReason(),
+                "正式账本mark必须写入动态SELL研究冻结原因");
+    }
+
+    @Test
+    @DisplayName("动态SELL研究遥测_候选影子账本mark写入冻结决策与原因")
+    void updatePathsAndEvaluateExits_candidateShadowLedger_writesDynamicShadowTelemetry() {
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setLedgerType(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.00"));
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        ExitEvaluation noExit = new ExitEvaluation(false, null,
+                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "未命中任何退出规则");
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertEquals(1, marks.size());
+        TornStockBatchMarkDO mark = marks.getFirst();
+        assertEquals(StockDynamicSellResearchConstants.DECISION_NOT_EVALUATED, mark.getDynamicShadowDecision(),
+                "候选影子账本mark必须写入动态SELL研究冻结决策");
+        assertEquals(StockDynamicSellResearchConstants.REASON_RULE_NOT_FROZEN, mark.getDynamicShadowReason(),
+                "候选影子账本mark必须写入动态SELL研究冻结原因");
+    }
+
+    @Test
+    @DisplayName("动态SELL研究遥测_无限资金影子mark不写动态字段避免日报分母失真")
+    void updatePathsAndEvaluateExits_unlimitedShadow_doesNotWriteDynamicTelemetry() {
+        TornStockVirtualBatchDO batch = buildOpenBatch();
+        batch.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("101.00"));
+        TornStockStrategyFeature15mDO feature = buildFeature();
+        ExitEvaluation noExit = new ExitEvaluation(false, null,
+                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "未命中任何退出规则");
+        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
+        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
+                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
+
+        assertEquals(1, marks.size());
+        TornStockBatchMarkDO mark = marks.getFirst();
+        assertNull(mark.getDynamicShadowDecision(), "无限资金影子mark不得写动态决策");
+        assertNull(mark.getDynamicShadowReason(), "无限资金影子mark不得写动态原因");
     }
 
     @Test

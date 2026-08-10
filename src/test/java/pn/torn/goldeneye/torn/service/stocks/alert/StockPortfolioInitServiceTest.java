@@ -30,7 +30,7 @@ import static org.mockito.Mockito.*;
  *   <li>任一组合槽位数量不足时按缺失序号补建并返回false</li>
  *   <li>{@code getSlotCount} 正确返回指定组合槽位数,空集合返回0</li>
  * </ul>
- * 通过 Mockito mock {@link TornStockPortfolioSlotDAO},使用 ArgumentCaptor 验证批量保存的槽位字段。
+ * 通过 Mockito mock {@link TornStockPortfolioSlotDAO},使用 ArgumentCaptor 验证冲突安全批量插入的槽位字段。
  *
  * @author Bai
  * @version 1.2.14
@@ -65,24 +65,26 @@ class StockPortfolioInitServiceTest {
         boolean result = portfolioInitService.verifyAndInitSlots();
 
         assertTrue(result, "两个组合槽位完整且金额正确时应返回true");
-        verify(portfolioSlotDao, never()).saveBatch(any());
+        verify(portfolioSlotDao, never()).insertSlotsIgnoreConflict(any());
     }
 
     @Test
     @DisplayName("验证并初始化槽位_ 正式组合槽位全部缺失,创建5个标准槽位并返回false")
     void verifyAndInitSlots_formalMissing_createsFiveStandardSlotsAndReturnsFalse() {
         when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
-                .thenReturn(List.of());
+                .thenReturn(List.of(), IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
         when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
                 .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
                         .mapToObj(this::buildCandidateSlot).toList());
+        when(portfolioSlotDao.insertSlotsIgnoreConflict(any())).thenReturn(StockPortfolioService.SLOT_COUNT);
 
         boolean result = portfolioInitService.verifyAndInitSlots();
 
         assertFalse(result, "任一组合槽位全部缺失时应返回false");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<TornStockPortfolioSlotDO>> captor = ArgumentCaptor.forClass(List.class);
-        verify(portfolioSlotDao).saveBatch(captor.capture());
+        verify(portfolioSlotDao).insertSlotsIgnoreConflict(captor.capture());
         List<TornStockPortfolioSlotDO> saved = captor.getValue();
         assertEquals(StockPortfolioService.SLOT_COUNT, saved.size(), "应创建5个标准槽位");
         List<Integer> savedSlotNos = saved.stream().map(TornStockPortfolioSlotDO::getSlotNo).sorted().toList();
@@ -104,14 +106,17 @@ class StockPortfolioInitServiceTest {
                 .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
                         .mapToObj(this::buildFormalSlot).toList());
         when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot1, slot3, slot5));
+                .thenReturn(List.of(slot1, slot3, slot5),
+                        IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                                .mapToObj(this::buildCandidateSlot).toList());
+        when(portfolioSlotDao.insertSlotsIgnoreConflict(any())).thenReturn(1);
 
         boolean result = portfolioInitService.verifyAndInitSlots();
 
         assertFalse(result, "候选影子组合槽位数量不足补建后应返回false");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<TornStockPortfolioSlotDO>> captor = ArgumentCaptor.forClass(List.class);
-        verify(portfolioSlotDao, times(2)).saveBatch(captor.capture());
+        verify(portfolioSlotDao, times(2)).insertSlotsIgnoreConflict(captor.capture());
         List<TornStockPortfolioSlotDO> supplemented = captor.getAllValues().stream()
                 .flatMap(List::stream)
                 .toList();
@@ -126,6 +131,24 @@ class StockPortfolioInitServiceTest {
                     "补建槽位组合编码应为VIP_SHADOW_CANDIDATE");
             assertStandardSlotFields(slot);
         }
+    }
+
+    @Test
+    @DisplayName("验证并初始化槽位_ 补建后重新查询仍缺失槽位,返回false且不宣称成功")
+    void verifyAndInitSlots_repairFailsToConverge_returnsFalse() {
+        List<TornStockPortfolioSlotDO> incompleteCandidate =
+                List.of(buildCandidateSlot(1), buildCandidateSlot(2), buildCandidateSlot(3), buildCandidateSlot(4));
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(incompleteCandidate);
+        when(portfolioSlotDao.insertSlotsIgnoreConflict(any())).thenReturn(1);
+
+        boolean result = portfolioInitService.verifyAndInitSlots();
+
+        assertFalse(result, "补建后仍缺槽位时应返回false(fail-closed)");
+        verify(portfolioSlotDao).insertSlotsIgnoreConflict(any());
     }
 
     // ==================== getSlotCount ====================

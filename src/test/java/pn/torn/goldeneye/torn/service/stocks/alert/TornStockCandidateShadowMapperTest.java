@@ -1,12 +1,14 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.test.annotation.Rollback;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
@@ -14,6 +16,13 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,27 +30,31 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * 候选影子账本真实PostgreSQL集成测试。
  * <p>
- * 使用远端未来股票ID与批次号作为隔离数据,显式{@code @Rollback}确保每个测试
- * 事务回滚、开发库零残留。验证:
+ * 使用远端未来股票ID与批次号前缀作为隔离数据,{@code @AfterEach}在每次测试后按本测试
+ * 专用前缀(C2099/F2099/S2099)精确物理DELETE,开发库零残留(不以{@code @Rollback}
+ * 代替提交态验证)。验证:
  * <ul>
  *   <li>候选影子同股部分唯一索引: 同股活跃候选影子批次只能一行,重复插入被数据库拒绝;</li>
  *   <li>候选影子同槽部分唯一索引: 同slot活跃候选影子批次只能一行;</li>
+ *   <li>两个独立事务并发插入同股候选影子,恰好一个提交成功、一个被唯一索引拒绝;</li>
  *   <li>候选影子与正式账本唯一约束完全隔离: 同股正式与候选影子可同时存在;</li>
  *   <li>无限资金影子不受候选影子容量影响。</li>
  * </ul>
  *
  * @author Bai
  * @version 1.2.14
- * @since 2026.08.08
+ * @since 2026.08.09
  */
 @SpringBootTest
-@Transactional
-@Rollback
 @DisplayName("候选影子账本真实PostgreSQL集成测试")
 class TornStockCandidateShadowMapperTest {
 
     @Autowired
     private TornStockVirtualBatchDAO virtualBatchDao;
+    @Autowired
+    private NamedParameterJdbcTemplate namedJdbcTemplate;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     /**
      * 隔离股票ID(远离生产数据)
@@ -59,6 +72,14 @@ class TornStockCandidateShadowMapperTest {
      * 隔离批次时间
      */
     private static final LocalDateTime TEST_TIME = LocalDateTime.of(2099, 9, 1, 10, 0);
+
+    @AfterEach
+    void cleanupIsolatedBatches() {
+        namedJdbcTemplate.update(
+                "DELETE FROM torn_stock_virtual_batch "
+                        + "WHERE batch_no LIKE 'C2099%' OR batch_no LIKE 'F2099%' OR batch_no LIKE 'S2099%'",
+                Map.of());
+    }
 
     @Test
     @DisplayName("真实PG_候选影子同股部分唯一索引_重复活跃批次被数据库拒绝")
@@ -108,6 +129,72 @@ class TornStockCandidateShadowMapperTest {
 
         assertEquals(2, virtualBatchDao.count(),
                 "无限资金影子与候选影子是独立账本,可同股同时存在");
+    }
+
+    @Test
+    @DisplayName("真实PG_两个独立事务并发插入同股候选影子_仅一个活跃批次提交成功")
+    void candidateShadowSameStock_concurrentInserts_onlyOneActiveBatchCommitted() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger duplicateFailureCount = new AtomicInteger();
+        Future<?> first = pool.submit(() ->
+                insertCandidateConcurrently("C20991051", successCount, duplicateFailureCount, ready, go));
+        Future<?> second = pool.submit(() ->
+                insertCandidateConcurrently("C20991052", successCount, duplicateFailureCount, ready, go));
+        ready.await();
+        go.countDown();
+        first.get(30, TimeUnit.SECONDS);
+        second.get(30, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertEquals(1, successCount.get(), "同股候选影子并发插入必须恰好一个提交成功");
+        assertEquals(1, duplicateFailureCount.get(), "同股候选影子并发插入必须恰好一个被唯一索引拒绝");
+        assertEquals(1, countActiveCandidate(TEST_STOCK), "提交后同股活跃候选影子批次必须仅一行");
+    }
+
+    /**
+     * 在独立事务中插入同股候选影子批次,统计提交成功与唯一索引拒绝次数。
+     *
+     * @param batchNo              批次编号
+     * @param successCount         提交成功计数
+     * @param duplicateFailureCount 唯一索引拒绝计数
+     * @param ready                就绪屏障
+     * @param go                   开跑屏障
+     * @return 恒为null
+     */
+    private Void insertCandidateConcurrently(String batchNo, AtomicInteger successCount,
+                                             AtomicInteger duplicateFailureCount,
+                                             CountDownLatch ready, CountDownLatch go)
+            throws InterruptedException {
+        ready.countDown();
+        go.await();
+        try {
+            transactionTemplate.executeWithoutResult(status ->
+                    virtualBatchDao.save(candidateShadowBatch(batchNo, TEST_STOCK, null)));
+            successCount.incrementAndGet();
+        } catch (DataIntegrityViolationException e) {
+            duplicateFailureCount.incrementAndGet();
+        }
+        return null;
+    }
+
+    /**
+     * 统计指定股票活跃候选影子批次行数(与部分唯一索引活跃状态集合一致)。
+     *
+     * @param stocksId 股票ID
+     * @return 活跃候选影子批次行数
+     */
+    private int countActiveCandidate(int stocksId) {
+        return namedJdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM torn_stock_virtual_batch "
+                        + "WHERE stocks_id = :stock AND ledger_type = :ledger "
+                        + "AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE',"
+                        + "'EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0",
+                Map.of("stock", stocksId,
+                        "ledger", StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode()),
+                Integer.class);
     }
 
     /**

@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 虚拟批次字段组装器，将服务层事实转换为数据库批次字段。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.14
  * @since 2026.07.29
  */
 public final class StockVirtualBatchAssembler {
@@ -43,11 +43,11 @@ public final class StockVirtualBatchAssembler {
         batch.setRiskLevel(fields.getRiskLevel());
         batch.setStyleEffectiveMonth(fields.getStyleEffectiveMonth());
         batch.setBuyRuleVersion(fields.getBuyRuleVersion());
-        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
-        batch.setStyleRuleVersion(StockRoundTransactionService.STYLE_RULE_VERSION);
-        batch.setRiskRuleVersion(StockRoundTransactionService.RISK_RULE_VERSION);
-        batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
-        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
+        batch.setSellRuleVersion(StockRuleVersion.SELL);
+        batch.setStyleRuleVersion(StockRuleVersion.STYLE);
+        batch.setRiskRuleVersion(StockRuleVersion.RISK);
+        batch.setAllocationRuleVersion(StockRuleVersion.ALLOCATION);
+        batch.setMessageRuleVersion(StockRuleVersion.MESSAGE);
         batch.setResetObserved(false);
     }
 
@@ -70,7 +70,7 @@ public final class StockVirtualBatchAssembler {
         fields.setStyleMaturity(monthlyState == null ? null : monthlyState.getMaturity());
         fields.setRiskLevel(monthlyState == null ? null : monthlyState.getRiskLevel());
         fields.setStyleEffectiveMonth(monthlyState == null ? null : monthlyState.getEffectiveMonth());
-        fields.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
+        fields.setBuyRuleVersion(StockRuleVersion.BUY);
         return fields;
     }
 
@@ -116,9 +116,9 @@ public final class StockVirtualBatchAssembler {
                 : fields.getEntryTime().plusMinutes(StockNoticeComposeService.FOLLOW_MINUTES));
         batch.setFollowMaxPrice(fields.getEntryReferencePrice() == null ? null
                 : fields.getEntryReferencePrice().multiply(StockNoticeComposeService.FOLLOW_PRICE_MULTIPLIER));
-        batch.setBuyRuleVersion(StockRoundTransactionService.BUY_RULE_VERSION);
-        batch.setSellRuleVersion(StockRoundTransactionService.SELL_RULE_VERSION);
-        batch.setAllocationRuleVersion(StockRoundTransactionService.ALLOCATION_RULE_VERSION);
-        batch.setMessageRuleVersion(StockRoundTransactionService.MESSAGE_RULE_VERSION);
+        batch.setBuyRuleVersion(StockRuleVersion.BUY);
+        batch.setSellRuleVersion(StockRuleVersion.SELL);
+        batch.setAllocationRuleVersion(StockRuleVersion.ALLOCATION);
+        batch.setMessageRuleVersion(StockRuleVersion.MESSAGE);
     }
 }

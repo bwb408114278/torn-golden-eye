@@ -57,6 +57,24 @@
         ORDER BY id ASC
     </select>
 
+    <!-- 查询候选影子账本活跃批次 -->
+    <select id="selectActiveCandidateShadowBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'SHADOW_FORMAL_CANDIDATE'
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+    </select>
+
+    <!-- 查询候选影子账本指定时间范围内有入场或出场动作的批次 -->
+    <select id="selectCandidateShadowActionBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'SHADOW_FORMAL_CANDIDATE'
+          AND deleted = 0
+          AND ((entry_time <![CDATA[>=]]> #{startTime} AND entry_time <![CDATA[<]]> #{endTime})
+            OR (exit_time <![CDATA[>=]]> #{startTime} AND exit_time <![CDATA[<]]> #{endTime}))
+        ORDER BY id ASC
+    </select>
+
     <!-- 按信号事件ID批量查询拒绝观察批次 -->
     <select id="selectRejectedObservationBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
