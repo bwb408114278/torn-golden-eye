@@ -19,6 +19,30 @@ import java.util.List;
 public class TornStockSignalEventDAO extends ServiceImpl<TornStockSignalEventMapper, TornStockSignalEventDO> {
 
     /**
+     * 按业务唯一键查询并锁定信号事件。
+     *
+     * @param stocksId       股票ID
+     * @param strategyType   策略类型
+     * @param roundTime      信号轮次
+     * @param buyRuleVersion 买入规则版本
+     * @return 已存在的业务事件;不存在时返回null
+     */
+    public TornStockSignalEventDO selectByBusinessKeyForUpdate(Integer stocksId, String strategyType,
+                                                               LocalDateTime roundTime, String buyRuleVersion) {
+        return baseMapper.selectByBusinessKeyForUpdate(stocksId, strategyType, roundTime, buyRuleVersion);
+    }
+
+    /**
+     * 按业务唯一键冲突安全插入信号事件。
+     *
+     * @param event 待插入事件
+     * @return 实际插入行数;冲突时返回0
+     */
+    public int insertIgnoreConflict(TornStockSignalEventDO event) {
+        return baseMapper.insertIgnoreConflict(event);
+    }
+
+    /**
      * 批量查询未结算拒绝观察事件。
      *
      * @param startTime 轮次起点(含)

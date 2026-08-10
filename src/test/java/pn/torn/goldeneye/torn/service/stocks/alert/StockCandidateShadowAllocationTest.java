@@ -29,7 +29,8 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
 
 /**
  * 候选影子接纳目标领域测试。
@@ -87,8 +88,10 @@ class StockCandidateShadowAllocationTest {
         doAnswer(inv -> {
             TornStockVirtualBatchDO batch = inv.getArgument(0);
             batch.setId(idSeq.getAndIncrement());
-            return true;
-        }).when(virtualBatchDao).save(any());
+            return 1;
+        }).when(virtualBatchDao).insertIgnoreConflict(any());
+        when(virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(anyLong(), anyString()))
+                .thenReturn(null);
         when(shadowTrackRecorder.recordTrackSignalEvent(any(), anyInt(), eq(roundTime), anyString()))
                 .thenAnswer(inv -> {
                     TornStockSignalEventDO event = new TornStockSignalEventDO();

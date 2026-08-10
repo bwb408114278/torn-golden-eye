@@ -102,7 +102,7 @@ public class StockShadowTrackRecorder {
 
     private final TornStockSignalEventDAO signalEventDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
-    private final StockMarketClock marketClock;
+
 
     // ==================== 原始信号事件 ====================
 
@@ -110,7 +110,7 @@ public class StockShadowTrackRecorder {
      * 记录原始信号事件并保存。
      * <p>
      * 创建并保存一次 false -&gt; true 信号事件的完整快照,生成业务唯一事件编号
-     * (格式: "E" + yyyyMMddHHmm + stocksId + strategyType前3字符),
+     * (格式: "E" + 业务轮次yyyyMMddHHmm + stocksId + strategyType前3字符),
      * 写入特征快照、风格快照、资格结果与原因、候选排名与组合决策等字段。
      * 不发送即时群消息。
      *
@@ -123,7 +123,7 @@ public class StockShadowTrackRecorder {
         Objects.requireNonNull(context.strategyType(), "策略类型不能为空");
 
         TornStockSignalEventDO event = new TornStockSignalEventDO();
-        event.setEventNo(generateEventNo(context.stocksId(), context.strategyType()));
+        event.setEventNo(generateEventNo(context.roundTime(), context.stocksId(), context.strategyType()));
         event.setRoundTime(context.roundTime());
         event.setStocksId(context.stocksId());
         event.setStocksShortname(context.stocksShortname());
@@ -143,10 +143,18 @@ public class StockShadowTrackRecorder {
         event.setPortfolioDecision(context.portfolioDecision());
         event.setRejectReason(context.rejectReason());
 
-        signalEventDao.save(event);
+        signalEventDao.insertIgnoreConflict(event);
+        TornStockSignalEventDO persisted = signalEventDao.selectByBusinessKeyForUpdate(
+                context.stocksId(), context.strategyType(), context.roundTime(), context.buyRuleVersion());
+        if (persisted == null || persisted.getId() == null) {
+            throw new IllegalStateException("信号事件插入后无法读取业务唯一事件: stocksId="
+                    + context.stocksId() + ", strategyType=" + context.strategyType()
+                    + ", roundTime=" + context.roundTime());
+        }
         log.info("信号事件记录-完成: eventNo={}, stocksId={}, strategy={}, decision={}",
-                event.getEventNo(), event.getStocksId(), event.getStrategyType(), event.getPortfolioDecision());
-        return event;
+                persisted.getEventNo(), persisted.getStocksId(), persisted.getStrategyType(),
+                persisted.getPortfolioDecision());
+        return persisted;
     }
 
     // ==================== 无限资金影子批次 ====================
@@ -155,7 +163,7 @@ public class StockShadowTrackRecorder {
      * 创建无限资金影子批次。
      * <p>
      * 为指定信号事件创建无限资金影子批次(ledgerType = UNLIMITED_SHADOW),
-     * 批次状态初始为 ENTRY_PENDING,批次编号格式为 "S" + yyyyMMddHHmm + stocksId。
+     * 批次状态初始为 ENTRY_PENDING,批次编号格式为 "S" + signalEventId。
      * 不分配正式槽位(slotId/slotNo 为 null),不受正式5槽限制。不发送即时群消息。
      *
      * @param event 关联的信号事件(须已保存,含主键ID)
@@ -165,15 +173,26 @@ public class StockShadowTrackRecorder {
         Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
         Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
 
+        TornStockVirtualBatchDO existing = virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                event.getId(), StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        if (existing != null) {
+            return existing;
+        }
+
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
-        batch.setBatchNo(generateBatchNo(SHADOW_BATCH_NO_PREFIX, event.getStocksId()));
+        batch.setBatchNo(generateBatchNo(SHADOW_BATCH_NO_PREFIX, event.getId()));
         batch.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
 
-        virtualBatchDao.save(batch);
+        virtualBatchDao.insertIgnoreConflict(batch);
+        TornStockVirtualBatchDO persisted = virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                event.getId(), StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        if (persisted == null || persisted.getId() == null) {
+            throw new IllegalStateException("无限资金影子批次插入后无法读取: signalEventId=" + event.getId());
+        }
         log.info("无限资金影子批次创建-完成: batchNo={}, stocksId={}, signalEventId={}",
-                batch.getBatchNo(), batch.getStocksId(), event.getId());
-        return batch;
+                persisted.getBatchNo(), persisted.getStocksId(), event.getId());
+        return persisted;
     }
 
     // ==================== 拒绝观察批次 ====================
@@ -183,7 +202,7 @@ public class StockShadowTrackRecorder {
      * <p>
      * 为被拒绝的信号事件创建拒绝观察批次(ledgerType = REJECTED_OBSERVATION),
      * 批次状态直接置为 CANCELLED(拒绝观察只跟踪理论路径,不进入买入流程),
-     * 批次编号格式为 "R" + yyyyMMddHHmm + stocksId。不占正式槽位、不发正式买入。
+     * 批次编号格式为 "R" + signalEventId。不占正式槽位、不发正式买入。
      *
      * @param event        关联的信号事件(须已保存,含主键ID)
      * @param rejectReason 拒绝原因编码
@@ -192,15 +211,26 @@ public class StockShadowTrackRecorder {
         Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
         Objects.requireNonNull(event.getId(), MSG_SIGNAL_EVENT_ID_NULL);
 
+        TornStockVirtualBatchDO existing = virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                event.getId(), StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
+        if (existing != null) {
+            return;
+        }
+
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
-        batch.setBatchNo(generateBatchNo(REJECTED_BATCH_NO_PREFIX, event.getStocksId()));
+        batch.setBatchNo(generateBatchNo(REJECTED_BATCH_NO_PREFIX, event.getId()));
         batch.setLedgerType(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
         batch.setBatchStatus(StockBatchStatusEnum.CANCELLED.getCode());
         batch.setCancelReason(rejectReason);
 
-        virtualBatchDao.save(batch);
+        virtualBatchDao.insertIgnoreConflict(batch);
+        TornStockVirtualBatchDO persisted = virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                event.getId(), StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
+        if (persisted == null || persisted.getId() == null) {
+            throw new IllegalStateException("拒绝观察批次插入后无法读取: signalEventId=" + event.getId());
+        }
         log.info("拒绝观察批次创建-完成: batchNo={}, stocksId={}, signalEventId={}, rejectReason={}",
-                batch.getBatchNo(), batch.getStocksId(), event.getId(), rejectReason);
+                persisted.getBatchNo(), persisted.getStocksId(), event.getId(), rejectReason);
     }
 
     /**
@@ -586,15 +616,16 @@ public class StockShadowTrackRecorder {
     /**
      * 生成事件编号。
      * <p>
-     * 格式: "E" + yyyyMMddHHmm + stocksId + strategyType前3字符。
-     * 时间戳取市场时钟当前时间,保证同一分钟内同股同策略的事件编号唯一。
+     * 格式: "E" + 业务轮次yyyyMMddHHmm + stocksId + strategyType前3字符。
+     * 事件编号由稳定业务轮次生成,重试不会因当前墙钟分钟变化而产生不同编号。
      *
+     * @param roundTime    业务轮次时间
      * @param stocksId     股票ID
      * @param strategyType 策略类型编码
      * @return 事件编号
      */
-    private String generateEventNo(Integer stocksId, String strategyType) {
-        String timestamp = marketClock.now().format(NO_TIMESTAMP_FORMATTER);
+    private String generateEventNo(LocalDateTime roundTime, Integer stocksId, String strategyType) {
+        String timestamp = roundTime.format(NO_TIMESTAMP_FORMATTER);
         String strategySuffix = truncateStrategyType(strategyType);
         return EVENT_NO_PREFIX + timestamp + stocksId + strategySuffix;
     }
@@ -602,16 +633,14 @@ public class StockShadowTrackRecorder {
     /**
      * 生成批次编号。
      * <p>
-     * 格式: prefix + yyyyMMddHHmm + stocksId。
-     * 时间戳取市场时钟当前时间,保证同一分钟内同股同前缀的批次编号唯一。
+     * 格式: prefix + signalEventId,保证同一事件不同账本编号稳定且可重试复用。
      *
-     * @param prefix   批次编号前缀("S"或"R")
-     * @param stocksId 股票ID
+     * @param prefix  批次编号前缀("S"或"R")
+     * @param eventId 来源信号事件ID
      * @return 批次编号
      */
-    private String generateBatchNo(String prefix, Integer stocksId) {
-        String timestamp = marketClock.now().format(NO_TIMESTAMP_FORMATTER);
-        return prefix + timestamp + stocksId;
+    private String generateBatchNo(String prefix, Long eventId) {
+        return prefix + eventId;
     }
 
     /**

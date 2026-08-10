@@ -178,10 +178,23 @@ public class StockCandidateTrackAllocationService {
                 candidate, slot, input.monthlyState(), signalReferencePrice, quantity, roundTime);
         TornStockSignalEventDO event = shadowTrackRecorder.recordTrackSignalEvent(
                 input.evaluation(), candidateRank, roundTime, target.eventDecision());
+        TornStockVirtualBatchDO existingBatch = virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                event.getId(), target.ledgerType());
+        if (existingBatch != null) {
+            return new CandidateAcceptance(existingBatch, target.allocatedResult());
+        }
         TornStockVirtualBatchDO batch = createTrackBatch(ctx, target);
         batch.setSignalEventId(event.getId());
+        batch.setBatchNo(target.batchNoPrefix() + event.getId());
 
-        virtualBatchDao.save(batch);
+        virtualBatchDao.insertIgnoreConflict(batch);
+        TornStockVirtualBatchDO persistedBatch = virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                event.getId(), target.ledgerType());
+        if (persistedBatch == null || persistedBatch.getId() == null) {
+            throw new IllegalStateException("候选批次插入后无法读取: signalEventId=" + event.getId()
+                    + ", ledgerType=" + target.ledgerType());
+        }
+        batch = persistedBatch;
         if (StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(target.ledgerType())) {
             // 候选影子批次: 回填事件shadowCandidateBatchId并创建无限资金影子孪生批次
             shadowTrackRecorder.linkCandidateShadowEvent(event, batch);

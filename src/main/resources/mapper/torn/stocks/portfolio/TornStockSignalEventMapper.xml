@@ -1,6 +1,50 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockSignalEventMapper">
+    <!-- 按稳定业务键锁定事件,用于轮次重试幂等复用 -->
+    <select id="selectByBusinessKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
+        SELECT * FROM torn_stock_signal_event
+        WHERE stocks_id = #{stocksId}
+          AND strategy_type = #{strategyType}
+          AND round_time = #{roundTime}
+          AND buy_rule_version = #{buyRuleVersion}
+          AND deleted = 0
+        ORDER BY id ASC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <!-- 业务唯一键冲突安全插入,并发重试由数据库收敛 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_stock_signal_event
+            (event_no, round_time, stocks_id, stocks_shortname, strategy_type,
+             signal_reference_price, style_prior, style_maturity, risk_level,
+             style_effective_month, buy_rule_version, quality_score,
+             feature_snapshot, style_snapshot, eligibility_result, eligibility_reasons,
+             candidate_rank, portfolio_decision, reject_reason, formal_batch_id,
+             shadow_batch_id, shadow_candidate_batch_id, later_mfe, later_mae, resolved_at,
+             observation_result, observation_data_incomplete, theoretical_entry_time,
+             theoretical_entry_price, theoretical_exit_signal_time, theoretical_exit_time,
+             theoretical_exit_price, theoretical_close_type, theoretical_net_return,
+             deleted, create_time, update_time)
+        VALUES
+            (#{event.eventNo}, #{event.roundTime}, #{event.stocksId}, #{event.stocksShortname}, #{event.strategyType},
+             #{event.signalReferencePrice}, #{event.stylePrior}, #{event.styleMaturity}, #{event.riskLevel},
+             #{event.styleEffectiveMonth}, #{event.buyRuleVersion}, #{event.qualityScore},
+             #{event.featureSnapshot, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{event.styleSnapshot, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{event.eligibilityResult},
+             #{event.eligibilityReasons, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{event.candidateRank}, #{event.portfolioDecision}, #{event.rejectReason},
+             #{event.formalBatchId}, #{event.shadowBatchId}, #{event.shadowCandidateBatchId},
+             #{event.laterMfe}, #{event.laterMae}, #{event.resolvedAt}, #{event.observationResult},
+             #{event.observationDataIncomplete}, #{event.theoreticalEntryTime}, #{event.theoreticalEntryPrice},
+             #{event.theoreticalExitSignalTime}, #{event.theoreticalExitTime}, #{event.theoreticalExitPrice},
+             #{event.theoreticalCloseType}, #{event.theoreticalNetReturn},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (stocks_id, strategy_type, round_time, buy_rule_version) WHERE deleted = 0 DO NOTHING
+    </insert>
+
     <!-- 批量查询未结算拒绝观察事件 -->
     <select id="selectPendingRejectedObservationEvents" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
         SELECT event.* FROM torn_stock_signal_event event

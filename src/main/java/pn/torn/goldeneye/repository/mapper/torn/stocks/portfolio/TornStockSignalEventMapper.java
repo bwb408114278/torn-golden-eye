@@ -19,6 +19,28 @@ import java.util.List;
 public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEventDO> {
 
     /**
+     * 按股票、策略、轮次和买入规则版本查询并锁定业务唯一事件。
+     *
+     * @param stocksId       股票ID
+     * @param strategyType   策略类型
+     * @param roundTime      信号轮次
+     * @param buyRuleVersion 买入规则版本
+     * @return 已存在的业务事件;不存在时返回null
+     */
+    TornStockSignalEventDO selectByBusinessKeyForUpdate(@Param("stocksId") Integer stocksId,
+                                                        @Param("strategyType") String strategyType,
+                                                        @Param("roundTime") LocalDateTime roundTime,
+                                                        @Param("buyRuleVersion") String buyRuleVersion);
+
+    /**
+     * 按业务唯一键冲突安全插入信号事件。
+     *
+     * @param event 待插入事件
+     * @return 实际插入行数;冲突时返回0
+     */
+    int insertIgnoreConflict(@Param("event") TornStockSignalEventDO event);
+
+    /**
      * 批量查询未结算拒绝观察事件。
      *
      * @param startTime 轮次起点(含)

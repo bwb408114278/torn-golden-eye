@@ -24,7 +24,7 @@ class StockShadowRecordWriterDecisionTest {
     @Test
     @DisplayName("资格通过但正式批次为空_组合决策为SHADOW")
     void determinePortfolioDecision_allowedWithoutFormalBatch_returnsShadow() throws Exception {
-        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(null, null, null);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(null, null);
         Method method = StockShadowTrackRecorder.class.getDeclaredMethod(
                 "determinePortfolioDecision",
                 StockShadowTrackRecorder.SignalEvaluationView.class,
@@ -44,7 +44,7 @@ class StockShadowRecordWriterDecisionTest {
     @Test
     @DisplayName("资格通过且正式批次已保存_组合决策为FORMAL")
     void determinePortfolioDecision_allowedWithSavedFormalBatch_returnsFormal() throws Exception {
-        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(null, null, null);
+        StockShadowTrackRecorder recorder = new StockShadowTrackRecorder(null, null);
         Method method = StockShadowTrackRecorder.class.getDeclaredMethod(
                 "determinePortfolioDecision",
                 StockShadowTrackRecorder.SignalEvaluationView.class,

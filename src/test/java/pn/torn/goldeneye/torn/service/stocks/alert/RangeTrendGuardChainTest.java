@@ -7,18 +7,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockEligibilityResultEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.BuySignalResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
@@ -68,10 +60,18 @@ class RangeTrendGuardChainTest {
         org.mockito.Mockito.doAnswer(inv -> {
             TornStockSignalEventDO event = inv.getArgument(0);
             event.setId(1L);
-            return true;
-        }).when(signalEventDao).save(org.mockito.ArgumentMatchers.any());
+            return 1;
+        }).when(signalEventDao).insertIgnoreConflict(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.when(signalEventDao.selectByBusinessKeyForUpdate(
+                        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> {
+                    TornStockSignalEventDO event = new TornStockSignalEventDO();
+                    event.setId(1L);
+                    return event;
+                });
         shadowTrackRecorder = new StockShadowTrackRecorder(
-                signalEventDao, virtualBatchDao, new StockMarketClock());
+                signalEventDao, virtualBatchDao);
         List<StockBuyStrategy> strategies = List.of(
                 new DeepMeanReversionBuyStrategy(),
                 new RangeLowerBuyStrategy(),
@@ -121,7 +121,7 @@ class RangeTrendGuardChainTest {
 
         ArgumentCaptor<TornStockSignalEventDO> eventCaptor =
                 ArgumentCaptor.forClass(TornStockSignalEventDO.class);
-        verify(signalEventDao).save(eventCaptor.capture());
+        verify(signalEventDao).insertIgnoreConflict(eventCaptor.capture());
         TornStockSignalEventDO event = eventCaptor.getValue();
         assertEquals("REJECTED", event.getPortfolioDecision(), "数据不足时组合决策必须为REJECTED");
         assertNotNull(event.getEligibilityReasons(), "信号事件资格原因不得为空");
@@ -132,7 +132,14 @@ class RangeTrendGuardChainTest {
 
         ArgumentCaptor<TornStockVirtualBatchDO> batchCaptor =
                 ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
-        verify(virtualBatchDao).save(batchCaptor.capture());
+        TornStockVirtualBatchDO persistedBatch = new TornStockVirtualBatchDO();
+        persistedBatch.setLedgerType(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
+        persistedBatch.setCancelReason(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT);
+        org.mockito.Mockito.when(virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.eq(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode())))
+                .thenReturn(null, persistedBatch);
+        verify(virtualBatchDao).insertIgnoreConflict(batchCaptor.capture());
         TornStockVirtualBatchDO batch = batchCaptor.getValue();
         assertEquals(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode(), batch.getLedgerType(),
                 "拒绝观察批次账本类型必须为REJECTED_OBSERVATION");

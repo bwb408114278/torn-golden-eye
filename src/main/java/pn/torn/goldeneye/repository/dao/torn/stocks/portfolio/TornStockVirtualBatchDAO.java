@@ -19,6 +19,28 @@ import java.util.List;
 public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchMapper, TornStockVirtualBatchDO> {
 
     /**
+     * 按来源事件和账本类型查询并锁定批次。
+     *
+     * @param signalEventId 来源信号事件ID
+     * @param ledgerType    账本类型
+     * @return 已存在的批次;不存在时返回null
+     */
+    public TornStockVirtualBatchDO selectBySignalEventIdAndLedgerTypeForUpdate(Long signalEventId,
+                                                                               String ledgerType) {
+        return baseMapper.selectBySignalEventIdAndLedgerTypeForUpdate(signalEventId, ledgerType);
+    }
+
+    /**
+     * 按批次编号冲突安全插入批次。
+     *
+     * @param batch 待插入批次
+     * @return 实际插入行数;冲突时返回0
+     */
+    public int insertIgnoreConflict(TornStockVirtualBatchDO batch) {
+        return baseMapper.insertIgnoreConflict(batch);
+    }
+
+    /**
      * 查询全部正式活跃批次,批量获取避免N+1
      *
      * @return 正式活跃批次列表
