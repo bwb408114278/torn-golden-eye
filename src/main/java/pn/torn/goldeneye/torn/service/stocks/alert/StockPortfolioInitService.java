@@ -93,6 +93,7 @@ public class StockPortfolioInitService {
      * <p>
      * 槽位全部缺失或数量不足时先补建,补建后重新查询并校验1~5槽位齐全
      * (fail-closed: 补建后仍缺失则返回false,不宣称修复成功)。
+     * 缺失槽位计算与补建委托 {@link #collectMissingSlotNos(List, String)}。
      *
      * @param portfolioCode 组合编码
      * @return true表示该组合槽位完整且金额校验全部通过
@@ -100,39 +101,8 @@ public class StockPortfolioInitService {
     private boolean verifyAndInitPortfolio(String portfolioCode) {
         List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(portfolioCode);
 
-        boolean repaired = false;
-        List<Integer> missingSlotNos;
-        if (slots == null || slots.isEmpty()) {
-            log.warn("组合[{}]槽位全部缺失,创建{}个标准初始槽位",
-                    portfolioCode, StockPortfolioService.SLOT_COUNT);
-            createSlots(portfolioCode, 1, StockPortfolioService.SLOT_COUNT);
-            repaired = true;
-            missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
-                    .boxed()
-                    .toList();
-        } else {
-            Set<Integer> existingSlotNos = new HashSet<>();
-            for (TornStockPortfolioSlotDO slot : slots) {
-                if (slot.getSlotNo() != null) {
-                    existingSlotNos.add(slot.getSlotNo());
-                }
-            }
-
-            missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
-                    .filter(no -> !existingSlotNos.contains(no))
-                    .boxed()
-                    .toList();
-
-            if (!missingSlotNos.isEmpty()) {
-                log.warn("组合[{}]缺失槽位序号{},开始补建",
-                        portfolioCode, missingSlotNos);
-                for (Integer slotNo : missingSlotNos) {
-                    createSlots(portfolioCode, slotNo, slotNo);
-                }
-                repaired = true;
-            }
-        }
-
+        List<Integer> missingSlotNos = collectMissingSlotNos(slots, portfolioCode);
+        boolean repaired = !missingSlotNos.isEmpty();
         if (repaired) {
             log.info("组合[{}]槽位补建完成,本次共补建{}个槽位",
                     portfolioCode, missingSlotNos.size());
@@ -145,6 +115,55 @@ public class StockPortfolioInitService {
         }
 
         return validateExistingSlots(slots);
+    }
+
+    /**
+     * 计算指定组合缺失的槽位序号,并补建缺失槽位。
+     * <p>
+     * 槽位全部缺失时一次性创建1~5全部槽位;部分缺失时按序号逐个补建。
+     *
+     * @param slots         已查询到的槽位列表(可能为空)
+     * @param portfolioCode 组合编码
+     * @return 本次补建的缺失槽位序号列表;无缺失时返回空列表
+     */
+    private List<Integer> collectMissingSlotNos(List<TornStockPortfolioSlotDO> slots,
+                                                String portfolioCode) {
+        if (slots == null || slots.isEmpty()) {
+            log.warn("组合[{}]槽位全部缺失,创建{}个标准初始槽位",
+                    portfolioCode, StockPortfolioService.SLOT_COUNT);
+            createSlots(portfolioCode, 1, StockPortfolioService.SLOT_COUNT);
+            return IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                    .boxed()
+                    .toList();
+        }
+        Set<Integer> existingSlotNos = collectExistingSlotNos(slots);
+        List<Integer> missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                .filter(no -> !existingSlotNos.contains(no))
+                .boxed()
+                .toList();
+        if (!missingSlotNos.isEmpty()) {
+            log.warn("组合[{}]缺失槽位序号{},开始补建", portfolioCode, missingSlotNos);
+            for (Integer slotNo : missingSlotNos) {
+                createSlots(portfolioCode, slotNo, slotNo);
+            }
+        }
+        return missingSlotNos;
+    }
+
+    /**
+     * 收集指定槽位列表已存在的槽位序号集合。
+     *
+     * @param slots 槽位列表
+     * @return 已存在槽位序号集合
+     */
+    private Set<Integer> collectExistingSlotNos(List<TornStockPortfolioSlotDO> slots) {
+        Set<Integer> existingSlotNos = new HashSet<>();
+        for (TornStockPortfolioSlotDO slot : slots) {
+            if (slot.getSlotNo() != null) {
+                existingSlotNos.add(slot.getSlotNo());
+            }
+        }
+        return existingSlotNos;
     }
 
     /**
@@ -209,12 +228,7 @@ public class StockPortfolioInitService {
         if (slots == null || slots.isEmpty()) {
             return false;
         }
-        Set<Integer> existingSlotNos = new HashSet<>();
-        for (TornStockPortfolioSlotDO slot : slots) {
-            if (slot.getSlotNo() != null) {
-                existingSlotNos.add(slot.getSlotNo());
-            }
-        }
+        Set<Integer> existingSlotNos = collectExistingSlotNos(slots);
         return IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
                 .allMatch(existingSlotNos::contains);
     }

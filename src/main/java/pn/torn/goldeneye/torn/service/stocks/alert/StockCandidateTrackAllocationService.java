@@ -2,18 +2,9 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCandidateAllocationResultEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockPortfolioDecisionEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchSignalFields;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.policy.CandidateInfo;
 import pn.torn.goldeneye.utils.JsonUtils;
@@ -21,12 +12,7 @@ import pn.torn.goldeneye.utils.JsonUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * 股票候选轨道接纳服务 - 在短事务内将候选接纳到正式或候选影子槽位账本。
@@ -64,8 +50,8 @@ public class StockCandidateTrackAllocationService {
     /**
      * 构造候选轨道接纳服务。
      *
-     * @param virtualBatchDao    虚拟批次持久层
-     * @param portfolioService   槽位资金领域服务
+     * @param virtualBatchDao     虚拟批次持久层
+     * @param portfolioService    槽位资金领域服务
      * @param shadowTrackRecorder 影子轨道记录器(信号事件与无限资金影子批次写入)
      */
     public StockCandidateTrackAllocationService(TornStockVirtualBatchDAO virtualBatchDao,
@@ -74,30 +60,6 @@ public class StockCandidateTrackAllocationService {
         this.virtualBatchDao = virtualBatchDao;
         this.portfolioService = portfolioService;
         this.shadowTrackRecorder = shadowTrackRecorder;
-    }
-
-    /**
-     * 按排序结果接纳正式候选(正式组合),检查可用槽位并预留,返回新建的正式批次列表。
-     * <p>
-     * 兼容入口,等价于以正式组合为目标调用 {@link #acceptCandidates(List, RoundSnapshot, Map, Map, Map, LocalDateTime, CandidateAcceptanceTarget)}。
-     *
-     * @param rankedCandidates    排序后的候选列表
-     * @param snapshot            轮次快照
-     * @param barByStock          按股票ID索引的bar映射
-     * @param monthlyStateByStock 按股票ID索引的月度状态映射
-     * @param evaluationByStockId 按股票ID索引的信号评估映射
-     * @param roundTime           本轮时间
-     * @return 正式批次与每个候选的实际接纳结果
-     */
-    public StockCandidateAllocationResult acceptCandidates(
-            List<CandidateInfo> rankedCandidates,
-            RoundSnapshot snapshot,
-            Map<Integer, TornStockMarketBar15mDO> barByStock,
-            Map<Integer, TornStockMonthlyStateDO> monthlyStateByStock,
-            Map<Integer, StockBuySignalResult.SignalEvaluation> evaluationByStockId,
-            LocalDateTime roundTime) {
-        return acceptCandidates(rankedCandidates, snapshot, barByStock, monthlyStateByStock,
-                evaluationByStockId, roundTime, CandidateAcceptanceTarget.formal());
     }
 
     /**

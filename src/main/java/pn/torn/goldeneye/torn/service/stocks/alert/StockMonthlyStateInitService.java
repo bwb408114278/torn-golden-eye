@@ -93,17 +93,14 @@ public class StockMonthlyStateInitService {
         }
 
         List<Integer> missingStockIds = missingStocks.stream().map(TornStocksDO::getId).toList();
-        LocalDateTime now = marketClock.now();
-        Map<Integer, TornStockMarketBar15mDO> evidenceEdges = loadEvidenceEdges(missingStockIds, effectiveMonth);
-        Map<Integer, List<TornStockMarketBar15mDO>> barsByStock = loadEvidenceBars(missingStockIds, effectiveMonth);
-        Map<Integer, TornStockMonthlyStateDO> previousByStock = loadPreviousByStocks(missingStockIds, effectiveMonth);
+        EvidenceContext evidence = loadEvidenceContext(missingStockIds, effectiveMonth);
 
         List<TornStockMonthlyStateDO> draftStates = missingStocks.stream()
                 .map(stock -> buildDraftState(stock, effectiveMonth,
-                        evidenceEdges.get(stock.getId()),
-                        barsByStock.getOrDefault(stock.getId(), List.of()),
-                        previousByStock.get(stock.getId()),
-                        now))
+                        evidence.evidenceEdges().get(stock.getId()),
+                        evidence.barsByStock().getOrDefault(stock.getId(), List.of()),
+                        evidence.previousByStock().get(stock.getId()),
+                        evidence.now()))
                 .toList();
 
         if (draftStates.isEmpty()) {
@@ -161,11 +158,8 @@ public class StockMonthlyStateInitService {
                 .filter(stock -> stock.getId() != null)
                 .collect(Collectors.toMap(TornStocksDO::getId, stock -> stock, (left, right) -> left));
 
-        LocalDateTime now = marketClock.now();
-        Map<Integer, TornStockMarketBar15mDO> evidenceEdges = loadEvidenceEdges(stockIds, effectiveMonth);
-        Map<Integer, List<TornStockMarketBar15mDO>> barsByStock = loadEvidenceBars(stockIds, effectiveMonth);
-        Map<Integer, TornStockMonthlyStateDO> previousByStock = loadPreviousByStocks(stockIds, effectiveMonth);
-
+        EvidenceContext evidence = loadEvidenceContext(stockIds, effectiveMonth);
+        LocalDateTime now = evidence.now();
         List<TornStockMonthlyStateDO> recalculated = new ArrayList<>();
         for (TornStockMonthlyStateDO draft : drafts) {
             TornStocksDO stock = stockById.get(draft.getStocksId());
@@ -174,9 +168,9 @@ public class StockMonthlyStateInitService {
                 continue;
             }
             TornStockMonthlyStateDO updated = buildDraftState(stock, effectiveMonth,
-                    evidenceEdges.get(draft.getStocksId()),
-                    barsByStock.getOrDefault(draft.getStocksId(), List.of()),
-                    previousByStock.get(draft.getStocksId()), now);
+                    evidence.evidenceEdges().get(draft.getStocksId()),
+                    evidence.barsByStock().getOrDefault(draft.getStocksId(), List.of()),
+                    evidence.previousByStock().get(draft.getStocksId()), now);
             updated.setId(draft.getId());
             recalculated.add(updated);
         }
@@ -366,6 +360,24 @@ public class StockMonthlyStateInitService {
     // ==================== 私有方法: 数据加载 ====================
 
     /**
+     * 批量加载证据上下文: 计算时间、证据首尾bar、证据窗口bar与上一确认月度状态。
+     * <p>
+     * 初始化与重算共用同一批证据装载语义,避免重复代码;单次计算时间戳保证
+     * 批量内所有草稿的 {@code calculatedAt} 一致。
+     *
+     * @param stockIds       股票ID列表
+     * @param effectiveMonth 生效月份
+     * @return 证据上下文(计算时间+三份证据映射)
+     */
+    private EvidenceContext loadEvidenceContext(List<Integer> stockIds, LocalDate effectiveMonth) {
+        return new EvidenceContext(
+                marketClock.now(),
+                loadEvidenceEdges(stockIds, effectiveMonth),
+                loadEvidenceBars(stockIds, effectiveMonth),
+                loadPreviousByStocks(stockIds, effectiveMonth));
+    }
+
+    /**
      * 批量加载每支股票证据首尾bar时间。
      *
      * @param stockIds       股票ID列表
@@ -503,5 +515,21 @@ public class StockMonthlyStateInitService {
         monthlyStateDao.updateBatchById(confirmableStates);
         log.info("月度状态确认-完成, effectiveMonth={}, 确认DRAFT记录={}", effectiveMonth, confirmableStates.size());
         return confirmableStates.size();
+    }
+
+    /**
+     * 证据上下文 - 封装一次批量初始化/重算所需的计算时间与三份证据映射。
+     *
+     * @param now             批量计算时间戳
+     * @param evidenceEdges   股票ID到证据首尾bar的映射
+     * @param barsByStock     股票ID到证据窗口内可用bar的映射
+     * @param previousByStock 股票ID到上一确认月度状态的映射
+     */
+    private record EvidenceContext(
+            LocalDateTime now,
+            Map<Integer, TornStockMarketBar15mDO> evidenceEdges,
+            Map<Integer, List<TornStockMarketBar15mDO>> barsByStock,
+            Map<Integer, TornStockMonthlyStateDO> previousByStock
+    ) {
     }
 }
