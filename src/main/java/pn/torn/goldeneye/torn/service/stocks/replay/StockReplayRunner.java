@@ -198,23 +198,21 @@ public class StockReplayRunner {
     private static void validateProcessingMode(StockReplayProcessingModeEnum mode,
                                                LocalDateTime recoveredAt,
                                                LocalDateTime start) {
-        switch (mode) {
-            case ONLINE_BASELINE -> {
-                if (recoveredAt != null) {
-                    throw new IllegalArgumentException(
-                            "ONLINE_BASELINE不允许携带recoveredAt,实际=" + recoveredAt);
-                }
-            }
-            case RESTART_STRESS -> {
-                if (recoveredAt == null) {
-                    throw new IllegalArgumentException("RESTART_STRESS必须指定recoveredAt");
-                }
-                if (recoveredAt.isBefore(start)) {
-                    throw new IllegalArgumentException(
-                            "recoveredAt不得早于需要按该时刻处理的回放轮次, recoveredAt=" + recoveredAt
-                                    + ", start=" + start);
-                }
-            }
+        if (mode == StockReplayProcessingModeEnum.ONLINE_BASELINE
+                && recoveredAt != null) {
+            throw new IllegalArgumentException(
+                    "ONLINE_BASELINE不允许携带recoveredAt,实际=" + recoveredAt);
+        }
+        if (mode != StockReplayProcessingModeEnum.RESTART_STRESS) {
+            return;
+        }
+        if (recoveredAt == null) {
+            throw new IllegalArgumentException("RESTART_STRESS必须指定recoveredAt");
+        }
+        if (recoveredAt.isBefore(start)) {
+            throw new IllegalArgumentException(
+                    "recoveredAt不得早于需要按该时刻处理的回放轮次, recoveredAt=" + recoveredAt
+                            + ", start=" + start);
         }
     }
 

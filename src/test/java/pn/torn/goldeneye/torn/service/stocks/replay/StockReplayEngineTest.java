@@ -318,24 +318,32 @@ class StockReplayEngineTest {
                 "未显式指定模式必须归一化为ONLINE_BASELINE");
         assertNull(baseline.recoveredAt(), "未指定模式时recoveredAt必须为空");
 
-        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(
-                        new StockReplayRequest(
-                                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
-                                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
-                                StockReplayProcessingModeEnum.ONLINE_BASELINE, T0.plusMinutes(1))),
+        StockReplayRequest baselineWithRecoveredAt = invalidModeRequest(
+                StockReplayProcessingModeEnum.ONLINE_BASELINE, T0.plusMinutes(1));
+        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(baselineWithRecoveredAt),
                 "ONLINE_BASELINE携带recoveredAt必须fail-fast");
-        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(
-                        new StockReplayRequest(
-                                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
-                                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
-                                StockReplayProcessingModeEnum.RESTART_STRESS, null)),
+        StockReplayRequest stressWithoutRecoveredAt = invalidModeRequest(
+                StockReplayProcessingModeEnum.RESTART_STRESS, null);
+        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(stressWithoutRecoveredAt),
                 "RESTART_STRESS缺失recoveredAt必须fail-fast");
-        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(
-                        new StockReplayRequest(
-                                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
-                                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
-                                StockReplayProcessingModeEnum.RESTART_STRESS, T0.minusMinutes(1))),
+        StockReplayRequest stressWithEarlyRecovery = invalidModeRequest(
+                StockReplayProcessingModeEnum.RESTART_STRESS, T0.minusMinutes(1));
+        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(stressWithEarlyRecovery),
                 "recoveredAt早于窗口起点必须fail-fast");
+    }
+
+    /**
+     * 构建违反处理模式与恢复时刻契约的非法请求(固定模式契约测试维度)。
+     *
+     * @param mode        处理模式
+     * @param recoveredAt 恢复时刻
+     * @return 非法请求
+     */
+    private StockReplayRequest invalidModeRequest(StockReplayProcessingModeEnum mode, LocalDateTime recoveredAt) {
+        return new StockReplayRequest(
+                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
+                mode, recoveredAt);
     }
 
     @Test
