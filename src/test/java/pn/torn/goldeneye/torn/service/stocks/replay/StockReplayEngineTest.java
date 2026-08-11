@@ -261,49 +261,96 @@ class StockReplayEngineTest {
     }
 
     @Test
-    @DisplayName("回放_实际处理时刻等于staleAt边界_共享结算服务仍允许成交且晚于边界补发BUY为0可复核")
-    void entryStale_equalityBoundary_fillsAndLateReissueZero() {
-        // 生产与回放共用同一个StockEntrySettlementService(actualProcessingTime=t),
-        // 严格大于才取消: 等于staleAt边界在其他入场条件成立时仍成交。
-        LocalDateTime start = T0;
-        StockReplayRequest request = new StockReplayRequest(
-                start, start, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
-                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/entry-stale-boundary");
-        StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E,
-                "entry-stale-boundary", new StockReplayContext(request, staleBoundaryWindowData(start)));
+    @DisplayName("回放_处理模式决定ENTRY过期边界_在线基线与晚恢复压力")
+    void entryStale_processingMode_decidesExpiryBoundary() {
+        // 表驱动覆盖三个边界: 在线基线 actualProcessingTime=staleAt-1ns / =staleAt 均不因过期取消,
+        // 可成交时写BUY;晚恢复压力 recoveredAt=staleAt+1ns 必须CANCELLED/ENTRY_DATA_STALE且无BUY。
+        record Case(String name, StockReplayProcessingModeEnum mode, LocalDateTime staleAt,
+                    LocalDateTime recoveredAt, boolean expectFill) {
+        }
+        List<Case> cases = List.of(
+                new Case("baseline-before", StockReplayProcessingModeEnum.ONLINE_BASELINE,
+                        T0.plusNanos(1), null, true),
+                new Case("baseline-equal", StockReplayProcessingModeEnum.ONLINE_BASELINE,
+                        T0, null, true),
+                new Case("stress-after", StockReplayProcessingModeEnum.RESTART_STRESS,
+                        T0.plusNanos(1), T0.plusNanos(2), false));
 
-        TornStockVirtualBatchDO batch = seedEntryPendingAtStaleAt(engine, start, start);
-        engine.run();
+        for (Case testCase : cases) {
+            StockReplayRequest request = new StockReplayRequest(
+                    T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                    Set.of(StockReplayTrackEnum.FORMAL_20E),
+                    "target/replay-unit/entry-stale-" + testCase.name(),
+                    testCase.mode(), testCase.recoveredAt());
+            StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E,
+                    "entry-stale-" + testCase.name(),
+                    new StockReplayContext(request, staleBoundaryWindowData(T0)));
 
-        assertNotNull(batch.getEntryTime(), "等于staleAt边界且其他条件成立时批次应成交");
-        List<StockReplayTrade> buys = engine.tradesByTrack().get(StockReplayTrackEnum.FORMAL_20E.getCode())
-                .stream().filter(t -> "BUY".equals(t.side())).toList();
-        assertTrue(buys.stream().anyMatch(t -> t.stocksId().equals(STALE_STOCK)),
-                "等于边界成交应记录BUY");
+            TornStockVirtualBatchDO batch = seedEntryPendingAtStaleAt(engine, testCase.staleAt(), T0);
+            engine.run();
+
+            List<StockReplayTrade> buys = engine.tradesByTrack()
+                    .get(StockReplayTrackEnum.FORMAL_20E.getCode()).stream()
+                    .filter(t -> "BUY".equals(t.side())).toList();
+            boolean staleBuy = buys.stream().anyMatch(t -> t.stocksId().equals(STALE_STOCK));
+            if (testCase.expectFill()) {
+                assertNotNull(batch.getEntryTime(),
+                        testCase.name() + ": 实际处理时刻未晚于staleAt不得因过期取消");
+                assertTrue(staleBuy, testCase.name() + ": 满足目标bar/连续性/价格偏离时应写BUY trade");
+            } else {
+                assertEquals(StockBatchStatusEnum.CANCELLED.getCode(), batch.getBatchStatus(),
+                        testCase.name() + ": 晚于staleAt必须取消");
+                assertEquals(StockCancelReasonEnum.ENTRY_DATA_STALE.getCode(), batch.getCancelReason(),
+                        testCase.name() + ": 取消原因必须为ENTRY_DATA_STALE");
+                assertNull(batch.getEntryTime(), testCase.name() + ": 取消批次不得写入入场时间");
+                assertFalse(staleBuy, testCase.name() + ": 晚于边界的补发BUY必须为0");
+            }
+        }
     }
 
     @Test
-    @DisplayName("回放_实际处理时刻晚于staleAt边界_批次取消且晚于边界补发BUY为0")
-    void entryStale_afterBoundary_cancelledNoLateBuy() {
-        LocalDateTime start = T0;
-        StockReplayRequest request = new StockReplayRequest(
-                start, start, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
-                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/entry-stale-after");
-        StockReplayEngine engine = new StockReplayEngine(StockReplayTrackEnum.FORMAL_20E,
-                "entry-stale-after", new StockReplayContext(request, staleBoundaryWindowData(start)));
+    @DisplayName("归一化_处理模式与恢复时刻契约fail-fast")
+    void normalize_processingModeContract() {
+        StockReplayRequest baseline = StockReplayRunner.normalize(new StockReplayRequest(
+                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract"));
+        assertEquals(StockReplayProcessingModeEnum.ONLINE_BASELINE, baseline.processingMode(),
+                "未显式指定模式必须归一化为ONLINE_BASELINE");
+        assertNull(baseline.recoveredAt(), "未指定模式时recoveredAt必须为空");
 
-        TornStockVirtualBatchDO batch = seedEntryPendingAtStaleAt(engine, start.minusNanos(1), start);
-        engine.run();
+        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(
+                        new StockReplayRequest(
+                                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
+                                StockReplayProcessingModeEnum.ONLINE_BASELINE, T0.plusMinutes(1))),
+                "ONLINE_BASELINE携带recoveredAt必须fail-fast");
+        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(
+                        new StockReplayRequest(
+                                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
+                                StockReplayProcessingModeEnum.RESTART_STRESS, null)),
+                "RESTART_STRESS缺失recoveredAt必须fail-fast");
+        assertThrows(IllegalArgumentException.class, () -> StockReplayRunner.normalize(
+                        new StockReplayRequest(
+                                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/mode-contract",
+                                StockReplayProcessingModeEnum.RESTART_STRESS, T0.minusMinutes(1))),
+                "recoveredAt早于窗口起点必须fail-fast");
+    }
 
-        assertEquals(StockBatchStatusEnum.CANCELLED.getCode(), batch.getBatchStatus(),
-                "晚于staleAt边界批次必须取消");
-        assertEquals(StockCancelReasonEnum.ENTRY_DATA_STALE.getCode(), batch.getCancelReason(),
-                "取消原因必须为ENTRY_DATA_STALE");
-        assertNull(batch.getEntryTime(), "取消批次不得写入入场时间");
-        List<StockReplayTrade> buys = engine.tradesByTrack().get(StockReplayTrackEnum.FORMAL_20E.getCode())
-                .stream().filter(t -> "BUY".equals(t.side())).toList();
-        assertEquals(0, buys.stream().filter(t -> t.stocksId().equals(STALE_STOCK)).count(),
-                "晚于边界的补发BUY必须为0");
+    @Test
+    @DisplayName("runId_处理模式与恢复时刻参与计算_不同语义不占用同一产物目录")
+    void runId_processingModeAndRecoveredAtParticipate() {
+        StockReplayRequest baseline = StockReplayRunner.normalize(new StockReplayRequest(
+                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/runid-mode"));
+        StockReplayRequest stress = StockReplayRunner.normalize(new StockReplayRequest(
+                T0, T0, Stock15mBarBuildService.BUILD_VERSION, "1.0.0", "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.FORMAL_20E), "target/replay-unit/runid-mode",
+                StockReplayProcessingModeEnum.RESTART_STRESS, T0.plusMinutes(30)));
+
+        assertNotEquals(StockReplayRunner.computeRunId(baseline), StockReplayRunner.computeRunId(stress),
+                "处理模式不同runId必须不同,禁止占用同一产物目录");
     }
 
     private static final int STALE_STOCK = 999;

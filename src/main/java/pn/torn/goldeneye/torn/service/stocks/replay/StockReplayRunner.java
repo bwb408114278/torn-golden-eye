@@ -140,10 +140,15 @@ public class StockReplayRunner {
     }
 
     /**
-     * 归一化请求: 对齐15分钟桶、填充默认值、自动补充正式生产轨道。
+     * 归一化请求: 对齐15分钟桶、填充默认值、校验处理模式契约、自动补充正式生产轨道。
+     * <p>
+     * 处理模式契约: 未显式提供模式时归一化为{@code ONLINE_BASELINE}且{@code recoveredAt=null};
+     * {@code ONLINE_BASELINE}携带{@code recoveredAt}、{@code RESTART_STRESS}缺失{@code recoveredAt}、
+     * 或{@code recoveredAt}早于窗口起点时均fail-fast。
      *
      * @param request 原始请求
      * @return 归一化请求
+     * @throws IllegalArgumentException 模式契约或窗口参数非法时抛出
      */
     static StockReplayRequest normalize(StockReplayRequest request) {
         if (request == null) {
@@ -162,6 +167,15 @@ public class StockReplayRunner {
                 && !tracks.contains(StockReplayTrackEnum.FORMAL_20E)) {
             tracks.add(StockReplayTrackEnum.FORMAL_20E);
         }
+        StockReplayProcessingModeEnum mode = request.processingMode();
+        LocalDateTime recoveredAt = request.recoveredAt();
+        if (mode == null) {
+            if (recoveredAt != null) {
+                throw new IllegalArgumentException("未指定处理模式时不允许携带recoveredAt,仅RESTART_STRESS使用");
+            }
+            mode = StockReplayProcessingModeEnum.ONLINE_BASELINE;
+        }
+        validateProcessingMode(mode, recoveredAt, start);
         return new StockReplayRequest(start, end,
                 request.barBuildVersion() == null ? Stock15mBarBuildService.BUILD_VERSION
                         : request.barBuildVersion(),
@@ -170,11 +184,42 @@ public class StockReplayRunner {
                 request.buyRuleVersion() == null ? StockRoundTransactionService.BUY_RULE_VERSION
                         : request.buyRuleVersion(),
                 request.sellRuleVersion() == null ? "1.0.0" : request.sellRuleVersion(),
-                tracks, outputRoot);
+                tracks, outputRoot, mode, recoveredAt);
     }
 
     /**
-     * 确定性runId: 输入参数与轨道集合的SHA-256前12位。
+     * 校验处理模式与恢复时刻契约。
+     *
+     * @param mode        处理模式(已归一化,非空)
+     * @param recoveredAt 恢复时刻
+     * @param start       窗口起点(含)
+     * @throws IllegalArgumentException 模式与时间字段不匹配或恢复时刻早于窗口起点时抛出
+     */
+    private static void validateProcessingMode(StockReplayProcessingModeEnum mode,
+                                               LocalDateTime recoveredAt,
+                                               LocalDateTime start) {
+        switch (mode) {
+            case ONLINE_BASELINE -> {
+                if (recoveredAt != null) {
+                    throw new IllegalArgumentException(
+                            "ONLINE_BASELINE不允许携带recoveredAt,实际=" + recoveredAt);
+                }
+            }
+            case RESTART_STRESS -> {
+                if (recoveredAt == null) {
+                    throw new IllegalArgumentException("RESTART_STRESS必须指定recoveredAt");
+                }
+                if (recoveredAt.isBefore(start)) {
+                    throw new IllegalArgumentException(
+                            "recoveredAt不得早于需要按该时刻处理的回放轮次, recoveredAt=" + recoveredAt
+                                    + ", start=" + start);
+                }
+            }
+        }
+    }
+
+    /**
+     * 确定性runId: 输入参数、处理模式、恢复时刻与轨道集合的SHA-256前12位。
      *
      * @param request 归一化请求
      * @return runId
@@ -188,7 +233,9 @@ public class StockReplayRunner {
                 request.buyRuleVersion(),
                 request.sellRuleVersion(),
                 request.outputRootDir(),
-                request.tracks().stream().map(StockReplayTrackEnum::getCode).sorted().collect(Collectors.joining(",")));
+                request.tracks().stream().map(StockReplayTrackEnum::getCode).sorted().collect(Collectors.joining(",")),
+                String.valueOf(request.processingMode()),
+                request.recoveredAt() == null ? "" : request.recoveredAt().toString());
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(payload.getBytes(StandardCharsets.UTF_8));
@@ -253,6 +300,7 @@ public class StockReplayRunner {
                 request.startTime(), request.endTime(), windowDays,
                 request.barBuildVersion(), request.featureVersion(),
                 request.buyRuleVersion(), request.sellRuleVersion(),
+                request.processingMode(), request.recoveredAt(),
                 sourceManifest, orderedTracks, error);
     }
 }

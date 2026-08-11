@@ -28,13 +28,26 @@ public class TornStockMarketRoundDAO extends ServiceImpl<TornStockMarketRoundMap
     }
 
     /**
-     * 查询指定时间前未完成的轮次,批量获取避免N+1
+     * 查询指定时间之前(含该时间)未完成的轮次,批量获取避免N+1。
+     * <p>
+     * 与生产者创建最近已结束桶使用同一包含上界语义:定时入口先为{@code currentEndedBucket}
+     * 幂等建立PENDING轮次,再以同一时间作为包含上界查询,保证新桶本次调度即被处理。
      *
-     * @param maxRoundTime 最大轮次时间(不含)
+     * @param maxRoundTime 最大轮次时间(包含该时间)
      * @return 未完成轮次列表(按轮次时间升序)
      */
-    public List<TornStockMarketRoundDO> selectPendingRoundsBefore(LocalDateTime maxRoundTime) {
-        return baseMapper.selectPendingRoundsBefore(maxRoundTime);
+    public List<TornStockMarketRoundDO> selectPendingRoundsUpTo(LocalDateTime maxRoundTime) {
+        return baseMapper.selectPendingRoundsUpTo(maxRoundTime);
+    }
+
+    /**
+     * 按round_time普通读取轮次(不加行锁),用于历史重建完整性判定等只读阶段。
+     *
+     * @param roundTime 轮次时间
+     * @return 轮次记录,无则返回null
+     */
+    public TornStockMarketRoundDO selectByRoundTime(LocalDateTime roundTime) {
+        return baseMapper.selectByRoundTime(roundTime);
     }
 
     /**

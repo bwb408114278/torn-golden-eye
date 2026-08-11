@@ -186,8 +186,9 @@ public class VipStockAlertScheduler {
      * 处理已结束但尚未完成的轮次
      * <p>
      * 使用调用方计算的当前已结束桶时间(与生产者 {@link #ensurePendingRound(LocalDateTime)}
-     * 共用同一桶,避免重复计算),查询该时间之前全部未完成轮次并按
-     * round_time升序逐个处理。每个轮次:
+     * 共用同一桶,避免重复计算),以该时间作为<b>包含上界</b>查询全部未完成轮次并按
+     * round_time升序逐个处理。包含上界语义保证本次刚建立的{@code currentEndedBucket}轮次
+     * 当次即被读取处理,不会延迟到下一个边界。每个轮次:
      * <ol>
      *   <li>状态置为BUILDING_BAR,调用 {@link Stock15mBarBuildService#buildBars(LocalDateTime)}</li>
      *   <li>bar构建为空时状态置为WAITING_DATA,跳过特征构建</li>
@@ -198,10 +199,10 @@ public class VipStockAlertScheduler {
      * 单个轮次异常时记录错误并将状态置为FAILED_RETRYABLE,不中断后续轮次。
      *
      * @param allowNewEntry      是否允许创建新的正式/候选影子批次,透传给轮次事务
-     * @param currentEndedBucket 最近已结束桶时间(含生产者已建立的PENDING轮次)
+     * @param currentEndedBucket 最近已结束桶时间(包含该时间,含生产者已建立的PENDING轮次)
      */
     public void processPendingRounds(boolean allowNewEntry, LocalDateTime currentEndedBucket) {
-        List<TornStockMarketRoundDO> pendingRounds = roundDao.selectPendingRoundsBefore(currentEndedBucket);
+        List<TornStockMarketRoundDO> pendingRounds = roundDao.selectPendingRoundsUpTo(currentEndedBucket);
         if (CollectionUtils.isEmpty(pendingRounds)) {
             log.debug("VIP股票策略调度-无待处理轮次, currentEndedBucket={}", currentEndedBucket);
             return;

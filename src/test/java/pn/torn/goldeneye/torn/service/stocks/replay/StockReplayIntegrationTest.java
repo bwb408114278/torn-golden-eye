@@ -15,10 +15,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRequest;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayResult;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySummary;
-import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayTrackEnum;
+import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -175,6 +172,54 @@ class StockReplayIntegrationTest {
         assertEquals(eventsBefore, signalEventDao.count(), "回放不得写信号事件");
         assertEquals(statesBefore, signalStateDao.count(), "回放不得写信号状态");
         assertEquals(noticesBefore, noticeAuditDao.count(), "回放不得写通知审计");
+    }
+
+    @Test
+    @DisplayName("RESTART_STRESS晚恢复回放_产物记录处理模式与恢复时刻且不写业务表")
+    void restartStress_producesFourArtifactsWithRecoveryTimeWithoutBusinessWrites() throws Exception {
+        transactionTemplate.executeWithoutResult(status -> {
+            seedBars(START, END);
+            seedFeatures(START, END);
+            seedMonthlyStates();
+        });
+
+        long batchesBefore = virtualBatchDao.count();
+        long eventsBefore = signalEventDao.count();
+        long statesBefore = signalStateDao.count();
+        long noticesBefore = noticeAuditDao.count();
+
+        LocalDateTime recoveredAt = Stock15mBarBuildService.alignToBucket(START).plusMinutes(60);
+        StockReplayRequest request = new StockReplayRequest(
+                START, END, Stock15mBarBuildService.BUILD_VERSION, SEED_FEATURE_VERSION, "1.0.0", "1.0.0",
+                Set.of(StockReplayTrackEnum.values()), OUTPUT_ROOT,
+                StockReplayProcessingModeEnum.RESTART_STRESS, recoveredAt);
+        StockReplayResult result = runner.run(request);
+
+        assertEquals("COMPLETED", result.summary().status(), "压力回放应正常完成");
+        assertEquals(StockReplayProcessingModeEnum.RESTART_STRESS, result.summary().processingMode(),
+                "summary必须记录处理模式RESTART_STRESS");
+        assertEquals(recoveredAt, result.summary().recoveredAt(),
+                "summary必须准确记录恢复时刻");
+
+        Path dir = Paths.get(OUTPUT_ROOT, result.runId());
+        for (String suffix : List.of("-summary.json", "-trades.csv", "-rejections.csv", "-equity-curve.csv")) {
+            assertTrue(Files.exists(dir.resolve(result.runId() + suffix)),
+                    "缺少压力回放产物: " + result.runId() + suffix);
+        }
+
+        ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
+                .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        StockReplaySummary parsed = mapper
+                .readValue(dir.resolve(result.runId() + "-summary.json").toFile(), StockReplaySummary.class);
+        assertEquals(StockReplayProcessingModeEnum.RESTART_STRESS, parsed.processingMode(),
+                "summary.json必须输出processingMode=RESTART_STRESS");
+        assertEquals(recoveredAt, parsed.recoveredAt(), "summary.json必须输出recoveredAt");
+
+        assertEquals(batchesBefore, virtualBatchDao.count(), "压力回放不得写正式/影子批次");
+        assertEquals(eventsBefore, signalEventDao.count(), "压力回放不得写信号事件");
+        assertEquals(statesBefore, signalStateDao.count(), "压力回放不得写信号状态");
+        assertEquals(noticesBefore, noticeAuditDao.count(), "压力回放不得写通知审计");
     }
 
     @Test

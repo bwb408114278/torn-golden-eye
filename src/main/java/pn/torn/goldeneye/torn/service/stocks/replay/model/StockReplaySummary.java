@@ -25,6 +25,8 @@ import java.util.TreeMap;
  * @param featureVersion  特征计算规则版本
  * @param buyRuleVersion  买入规则版本
  * @param sellRuleVersion 退出规则版本
+ * @param processingMode  实际处理模式(用于区分在线基线与停机压力结果)
+ * @param recoveredAt     晚恢复模拟时刻(仅RESTART_STRESS非空)
  * @param sourceManifest  本次输入来源清单(含SHA-256摘要,与runId共同构成成功完成标识)
  * @param tracks          各轨道摘要
  * @param error           失败原因(仅FAILED/INCOMPLETE时非空)
@@ -43,6 +45,8 @@ public record StockReplaySummary(
         String featureVersion,
         String buyRuleVersion,
         String sellRuleVersion,
+        StockReplayProcessingModeEnum processingMode,
+        LocalDateTime recoveredAt,
         StockReplaySourceManifest sourceManifest,
         List<TrackSummary> tracks,
         String error

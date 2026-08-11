@@ -116,13 +116,39 @@ class TornStockMarketRoundMapperTest {
         assertEquals(1, committed, "两个事务均提交后该round_time有效轮次必须仅一行");
     }
 
+    @Test
+    @DisplayName("真实PG_包含上界查询返回新建立的同桶PENDING轮次")
+    void selectPendingRoundsUpTo_inclusiveBoundary_returnsBucket() {
+        // 生产链: 先INSERT PENDING(currentEndedBucket),再以同一时间作为包含上界查询,
+        // 该新桶必须被本次查询读取,不得被严格上界排除。
+        roundDao.insertPendingRoundIgnoreConflict(pendingRound(TEST_ROUND_TIME));
+
+        List<TornStockMarketRoundDO> rounds = roundDao.selectPendingRoundsUpTo(TEST_ROUND_TIME);
+
+        assertEquals(1, rounds.stream()
+                        .filter(round -> TEST_ROUND_TIME.equals(round.getRoundTime()))
+                        .count(),
+                "round_time <= 上界的待处理查询必须包含新建立的同桶轮次");
+        assertEquals(1, countPending(), "库中该桶应仅一行");
+    }
+
+    @Test
+    @DisplayName("真实PG_普通按round_time读取_不加行锁返回轮次")
+    void selectByRoundTime_plainRead_returnsRound() {
+        roundDao.insertPendingRoundIgnoreConflict(pendingRound(TEST_ROUND_TIME));
+
+        TornStockMarketRoundDO round = roundDao.selectByRoundTime(TEST_ROUND_TIME);
+
+        assertEquals(TEST_ROUND_TIME, round.getRoundTime(), "普通读取应返回同桶轮次");
+    }
+
     /**
      * 查询测试轮次时间的PENDING轮次行数。
      *
      * @return 行数
      */
     private int countPending() {
-        List<TornStockMarketRoundDO> rounds = roundDao.selectPendingRoundsBefore(TEST_ROUND_TIME.plusMinutes(60));
+        List<TornStockMarketRoundDO> rounds = roundDao.selectPendingRoundsUpTo(TEST_ROUND_TIME.plusMinutes(60));
         return (int) rounds.stream()
                 .filter(round -> round.getRoundTime().isAfter(TEST_ROUND_TIME.minusMinutes(1)))
                 .filter(round -> round.getRoundTime().isBefore(TEST_ROUND_TIME.plusMinutes(31)))

@@ -128,6 +128,11 @@ public class StockReplayEngine {
 
     /**
      * 运行单个轮次。
+     * <p>
+     * 时间语义拆分: {@code t}为历史bar、特征、信号与理论成交锚点;
+     * {@code actualProcessingTime}由 {@link #resolveActualProcessingTime} 按处理模式解析,
+     * 仅用于ENTRY过期(entryStaleAt)判断,不得用于重新选择bar、特征、策略、成交价格、
+     * 退出价格、净值或月度状态。
      *
      * @param t 轮次时间
      */
@@ -137,8 +142,9 @@ public class StockReplayEngine {
         Map<Integer, TornStockMonthlyStateDO> monthlyByStock = context.monthlyStatesFor(t);
         RoundSnapshot snapshot = buildSnapshot(t, barByStock, featureByStock, monthlyByStock);
 
+        LocalDateTime actualProcessingTime = resolveActualProcessingTime(t);
         StockEntrySettlementService.EntrySettlementResult entryResult =
-                context.entrySettlementService().processEntryPending(snapshot, barByStock, t, t);
+                context.entrySettlementService().processEntryPending(snapshot, barByStock, t, actualProcessingTime);
         for (TornStockVirtualBatchDO batch : entryResult.filledBatches()) {
             recordBuyTrade(batch, t);
         }
@@ -177,6 +183,25 @@ public class StockReplayEngine {
         signalStateMirror.updateFromFormalExits(formalExitFilled);
 
         metrics.recordEquityPoint(t, barByStock);
+    }
+
+    /**
+     * 按处理模式解析本轮实际处理时刻(仅用于ENTRY过期判断)。
+     * <p>
+     * {@code ONLINE_BASELINE}等于roundTime;{@code RESTART_STRESS}下,停机积压轮次
+     * (roundTime不晚于recoveredAt)使用请求指定的recoveredAt,晚于恢复时刻的轮次按roundTime处理。
+     * 未显式指定模式(后向兼容)按ONLINE_BASELINE处理。
+     *
+     * @param roundTime 轮次锚定的历史bar时间
+     * @return 本次模拟的实际处理时刻
+     */
+    private LocalDateTime resolveActualProcessingTime(LocalDateTime roundTime) {
+        StockReplayProcessingModeEnum mode = context.request().processingMode();
+        if (mode != StockReplayProcessingModeEnum.RESTART_STRESS) {
+            return roundTime;
+        }
+        LocalDateTime recoveredAt = context.request().recoveredAt();
+        return roundTime.isAfter(recoveredAt) ? roundTime : recoveredAt;
     }
 
     /**

@@ -20,6 +20,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -82,7 +83,7 @@ class VipStockAlertSchedulerTest {
         scheduler.executeRound();
 
         verify(runtimeGate, never()).evaluate();
-        verify(roundDao, never()).selectPendingRoundsBefore(any());
+        verify(roundDao, never()).selectPendingRoundsUpTo(any());
     }
 
     @Test
@@ -93,7 +94,7 @@ class VipStockAlertSchedulerTest {
 
         scheduler.executeRound();
 
-        verify(roundDao, never()).selectPendingRoundsBefore(any());
+        verify(roundDao, never()).selectPendingRoundsUpTo(any());
         verify(noticeSendService, never()).sendPendingNotices();
         verify(rejectedObservationService, never()).resolveAllDueObservations(any());
     }
@@ -105,13 +106,13 @@ class VipStockAlertSchedulerTest {
         when(runtimeGate.evaluate())
                 .thenReturn(decision(true, true, false, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
         when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
 
         scheduler.executeRound();
 
         verify(roundDao).insertPendingRoundIgnoreConflict(any());
-        verify(roundDao).selectPendingRoundsBefore(any());
+        verify(roundDao).selectPendingRoundsUpTo(any());
         verify(rejectedObservationService, never()).resolveAllDueObservations(any());
         verify(noticeSendService, never()).sendPendingNotices();
     }
@@ -125,7 +126,7 @@ class VipStockAlertSchedulerTest {
         scheduler.executeRound();
 
         verify(noticeSendService).sendPendingNotices();
-        verify(roundDao, never()).selectPendingRoundsBefore(any());
+        verify(roundDao, never()).selectPendingRoundsUpTo(any());
         verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
     }
 
@@ -135,13 +136,13 @@ class VipStockAlertSchedulerTest {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, false, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
         when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
 
         scheduler.executeRound();
 
         verify(rejectedObservationService).resolveAllDueObservations(any());
-        verify(roundDao).selectPendingRoundsBefore(any());
+        verify(roundDao).selectPendingRoundsUpTo(any());
     }
 
     @Test
@@ -150,14 +151,14 @@ class VipStockAlertSchedulerTest {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, false, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
         when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
 
         scheduler.executeRound();
 
         InOrder inOrder = inOrder(roundDao, rejectedObservationService);
         inOrder.verify(roundDao).insertPendingRoundIgnoreConflict(any());
-        inOrder.verify(roundDao).selectPendingRoundsBefore(any());
+        inOrder.verify(roundDao).selectPendingRoundsUpTo(any());
         inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
     }
 
@@ -168,13 +169,46 @@ class VipStockAlertSchedulerTest {
         when(runtimeGate.evaluate())
                 .thenReturn(decision(true, true, false, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
         when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(0);
 
         scheduler.executeRound();
 
         verify(roundDao).insertPendingRoundIgnoreConflict(any());
-        verify(roundDao).selectPendingRoundsBefore(any());
+        verify(roundDao).selectPendingRoundsUpTo(any());
+    }
+
+    @Test
+    @DisplayName("定时入口_新建立的09:45桶被包含上界查询当次读取并进入轮次事务_actualProcessingTime为10:10")
+    void executeRound_inclusiveUpperBound_processesNewlyCreatedBucketImmediately() {
+        // 固定时钟10:10,currentEndedBucket=09:45: 生产者先幂等建立09:45的PENDING轮次,
+        // 消费查询 round_time <= 09:45 必须返回该桶,并在本次调度进入bar/特征/轮次事务,
+        // actualProcessingTime必须为10:10真实处理时刻而非09:45历史锚点。
+        LocalDateTime currentEndedBucket = LocalDateTime.of(2026, 8, 5, 9, 45);
+        LocalDateTime actualTime = LocalDateTime.of(2026, 8, 5, 10, 10);
+        TornStockMarketRoundDO round = pendingRound(1L, currentEndedBucket);
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, true, false));
+        when(marketClock.currentEndedBucket()).thenReturn(currentEndedBucket);
+        when(marketClock.now()).thenReturn(actualTime);
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(currentEndedBucket)).thenReturn(List.of(round));
+        when(barBuildService.buildBars(currentEndedBucket)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(currentEndedBucket)).thenReturn(List.of());
+
+        scheduler.executeRound();
+
+        verify(roundDao).insertPendingRoundIgnoreConflict(any());
+        verify(roundDao).selectPendingRoundsUpTo(currentEndedBucket);
+        ArgumentCaptor<LocalDateTime> roundTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> actualTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(transactionService).executeRound(roundTimeCaptor.capture(), any(), anyBoolean(),
+                actualTimeCaptor.capture());
+        assertEquals(currentEndedBucket, roundTimeCaptor.getValue(),
+                "包含上界查询必须将09:45新桶传入本轮次事务,不得延后至10:15或10:30");
+        assertEquals(actualTime, actualTimeCaptor.getValue(),
+                "actualProcessingTime必须为10:10真实处理时刻,不得退回09:45历史轮次时刻");
     }
 
     @Test
@@ -184,13 +218,13 @@ class VipStockAlertSchedulerTest {
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
         when(marketClock.today()).thenReturn(java.time.LocalDate.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
 
         scheduler.onStartup();
 
         verify(portfolioInitService).verifyAndInitSlots();
         verify(historyRebuildService).rebuildFromLastCompleted(any());
-        verify(roundDao).selectPendingRoundsBefore(any());
+        verify(roundDao).selectPendingRoundsUpTo(any());
         verify(monthlyStateInitService).recalculateCurrentMonthDrafts();
         verify(monthlyStateInitService).autoConfirmDraftStates(any());
         verify(noticeSendService, never()).sendPendingNotices();
@@ -206,7 +240,7 @@ class VipStockAlertSchedulerTest {
 
         verify(portfolioInitService).verifyAndInitSlots();
         verify(historyRebuildService, never()).rebuildFromLastCompleted(any());
-        verify(roundDao, never()).selectPendingRoundsBefore(any());
+        verify(roundDao, never()).selectPendingRoundsUpTo(any());
         verify(monthlyStateInitService, never()).recalculateCurrentMonthDrafts();
         verify(noticeSendService).sendPendingNotices();
     }
@@ -218,7 +252,7 @@ class VipStockAlertSchedulerTest {
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
         when(marketClock.today()).thenReturn(java.time.LocalDate.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
         when(monthlyStateInitService.recalculateCurrentMonthDrafts()).thenReturn(0);
 
         scheduler.onStartup();
@@ -226,7 +260,7 @@ class VipStockAlertSchedulerTest {
         InOrder inOrder = inOrder(historyRebuildService, roundDao, monthlyStateInitService,
                 rejectedObservationService);
         inOrder.verify(historyRebuildService).rebuildFromLastCompleted(any());
-        inOrder.verify(roundDao).selectPendingRoundsBefore(any());
+        inOrder.verify(roundDao).selectPendingRoundsUpTo(any());
         inOrder.verify(monthlyStateInitService).recalculateCurrentMonthDrafts();
         inOrder.verify(monthlyStateInitService).autoConfirmDraftStates(any());
         inOrder.verify(rejectedObservationService).resolveAllDueObservations(any());
@@ -244,7 +278,7 @@ class VipStockAlertSchedulerTest {
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, false, false));
         when(marketClock.currentEndedBucket()).thenReturn(roundTime);
         when(marketClock.today()).thenReturn(java.time.LocalDate.now());
-        when(roundDao.selectPendingRoundsBefore(roundTime))
+        when(roundDao.selectPendingRoundsUpTo(roundTime))
                 .thenReturn(List.of(firstRound))
                 .thenReturn(List.of(secondRound));
         when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
@@ -269,7 +303,7 @@ class VipStockAlertSchedulerTest {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, true, false));
         when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
-        when(roundDao.selectPendingRoundsBefore(any())).thenReturn(List.of());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
         doThrow(new IllegalStateException("首桶创建失败"))
                 .when(historyRebuildService).rebuildFromLastCompleted(any());
 
@@ -279,7 +313,7 @@ class VipStockAlertSchedulerTest {
         verify(monthlyStateInitService, never()).initCurrentMonth();
         verify(monthlyStateInitService, never()).recalculateCurrentMonthDrafts();
         verify(monthlyStateInitService, never()).autoConfirmDraftStates(any());
-        verify(roundDao).selectPendingRoundsBefore(any());
+        verify(roundDao).selectPendingRoundsUpTo(any());
         verify(rejectedObservationService).resolveAllDueObservations(any());
     }
 
@@ -298,7 +332,7 @@ class VipStockAlertSchedulerTest {
         when(portfolioInitService.verifyAndInitSlots()).thenReturn(false);
         when(marketClock.currentEndedBucket()).thenReturn(roundTime);
         when(marketClock.today()).thenReturn(java.time.LocalDate.now());
-        when(roundDao.selectPendingRoundsBefore(roundTime)).thenReturn(List.of(round));
+        when(roundDao.selectPendingRoundsUpTo(roundTime)).thenReturn(List.of(round));
         when(barBuildService.buildBars(roundTime)).thenReturn(List.of(new TornStockMarketBar15mDO()));
         when(featureBuildService.buildFeatures(roundTime)).thenReturn(List.of());
 
@@ -306,7 +340,7 @@ class VipStockAlertSchedulerTest {
 
         verify(portfolioInitService).verifyAndInitSlots();
         verify(historyRebuildService).rebuildFromLastCompleted(roundTime);
-        verify(roundDao).selectPendingRoundsBefore(roundTime);
+        verify(roundDao).selectPendingRoundsUpTo(roundTime);
         verify(monthlyStateInitService).recalculateCurrentMonthDrafts();
         verify(rejectedObservationService).resolveAllDueObservations(any());
 

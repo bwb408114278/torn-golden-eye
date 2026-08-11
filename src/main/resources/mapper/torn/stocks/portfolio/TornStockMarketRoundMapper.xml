@@ -10,13 +10,20 @@
         LIMIT 1
     </select>
 
-    <!-- 查询指定时间前未完成的轮次 -->
-    <select id="selectPendingRoundsBefore" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO">
+    <!-- 查询指定时间之前(含该时间)未完成的轮次,与生产者currentEndedBucket使用同一包含上界 -->
+    <select id="selectPendingRoundsUpTo" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO">
         SELECT * FROM torn_stock_market_round
-        WHERE round_time <![CDATA[<]]> #{maxRoundTime}
+        WHERE round_time <![CDATA[<=]]> #{maxRoundTime}
           AND round_status NOT IN ('COMPLETED', 'FAILED_FINAL')
           AND deleted = 0
         ORDER BY round_time ASC
+    </select>
+
+    <!-- 按round_time普通读取轮次(不加行锁),供历史重建完整性判定等只读阶段 -->
+    <select id="selectByRoundTime" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO">
+        SELECT * FROM torn_stock_market_round
+        WHERE round_time = #{roundTime}
+          AND deleted = 0
     </select>
 
     <!-- 按round_time查询轮次并加行锁(FOR UPDATE) -->

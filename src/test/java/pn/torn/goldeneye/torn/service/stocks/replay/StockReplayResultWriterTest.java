@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayProcessingModeEnum;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayResult;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySourceManifest;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySummary;
@@ -181,6 +182,7 @@ class StockReplayResultWriterTest {
                 RUN_ID, status, StockReplayRunner.ANNUALIZED_BACKTEST_MARKER,
                 LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 1, 31, 0, 0), 31,
                 "1.0.0", "1.0.0", "1.1.0", "1.0.0",
+                StockReplayProcessingModeEnum.ONLINE_BASELINE, null,
                 manifest, List.of(), null);
         return new StockReplayResult(RUN_ID, summary, List.of(), List.of(), List.of());
     }

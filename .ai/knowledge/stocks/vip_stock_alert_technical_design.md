@@ -8,11 +8,11 @@
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
 - 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
-- 当前实现Review基线：`a972f164762b386f44cd437453ec7740321a8cd3`（2026-08-08）
-- 技术验收状态：业务Review不通过。核心历史修复仅作为已实现基线；持续轮次生产、月度冷启动重算/确认、双Shadow账本、日报动态SELL研究展示、回放manifest完整性和ENTRY等值边界均未实现或未按冻结口径闭环。本文第22节是当前实现差异的永久技术契约；四个运行开关均保持`false`，规则模式保持`SHADOW`
+- 当前实现Review基线：`4836e12a18161820f4cad1f987963983db2e8f1a`（2026-08-11）
+- 技术验收状态：第三批业务Review不通过。持续轮次生产、月度冷启动重算/确认、双Shadow账本、日报动态SELL研究展示、回放manifest与ENTRY等值边界已作为当前已实现基线；第四批仅待修复：轮次生产/消费包含上界、历史重建完整数据义务恢复、回放晚恢复ENTRY压力语义。四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4尚未关闭
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后修订日期：2026-08-08
+- 最后修订日期：2026-08-11
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
@@ -2095,17 +2095,17 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文是第三批第一轮修复前的永久技术实施基线。本文的设计契约可以完成，但代码、Schema和测试未实施前，相关finding不得关闭。普通工程师必须按`vip_stock_alert_remediation_implementation_plan.md`实施并取得真实验证；在第22节所有P0/P1关闭、长窗口与前向Shadow门禁完成、业务人员单独批准前，不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
+本文是长期技术实施基线。当前第四批开发仅处理第23节定义的三个实现差异，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据；AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使第23节P0/P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
 
 ---
 
 ## 22. 第三批第一轮业务Review后的永久修订契约（2026-08-08）
 
-> 本节覆盖本文中与当前实现矛盾的历史“已具备/仅回归”描述，并作为后续实施的唯一技术基线。一次性任务拆分、命令和具体测试文件见 `vip_stock_alert_remediation_implementation_plan.md`；本节只冻结长期架构、数据、事务、状态与发布契约。
+> 本节是2026-08-08第一轮Review的**历史输入**，保留用于追溯当时的差异和设计来源。其“当前实现事实”“未实现”均不再表示当前HEAD状态：除第23.1节列出的三个第四批问题外，均已被`4836e12`覆盖。当前唯一有效的长期技术基线为第23节；一次性工程拆分、命令和具体测试文件见 `vip_stock_alert_remediation_implementation_plan.md`。
 
 ### 22.1 当前差异状态与边界
 
-| 编号 | 当前实现事实 | 永久技术结论 | 状态 |
+| 历史编号 | 2026-08-08时的实现事实 | 历史修订结论 | 历史状态 |
 |---|---|---|---|
 | P0-1 | 调度器只查询已有未完成round，历史重建和事务内按需创建均不是持续生产者 | 每个已结束桶必须先幂等生产PENDING再处理 | 未实现 |
 | P0-2 | 启动先初始化DRAFT，后重建历史；已有DRAFT会被初始化跳过；自动确认没有入口 | 证据补齐→重算DRAFT→确认的依赖顺序必须落地 | 未实现 |
@@ -2218,8 +2218,119 @@ actualProcessingTime >  entryStaleAt → CANCELLED / ENTRY_DATA_STALE
 
 必须完成：空 PostgreSQL 完整 Liquibase 迁移、真实 Mapper 首次写入和冲突更新、轮次并发插入、候选影子同股/同槽唯一约束、整轮事务回滚。独立线程或独立事务测试产生的数据，使用 `@AfterEach` 按测试 ID 精确物理 DELETE 清理，不改用 `@Rollback`。
 
-### 22.9 发布门禁与实施状态
+### 22.9 第三批第一轮修订的实施状态（历史）
 
-当前所有修订均为**待实施**。P0/P1代码完成并不授权任何开关。后续顺序固定为：部署代码/Schema且四开关false → 经业务授权仅开启ALERT且NEW_ENTRY=false → 历史补齐、月度重算确认、连续3个新桶验证 → 经授权开启NEW_ENTRY并运行两类Shadow至少20自然日 → 长窗口隔离回放与资金/状态/消息门禁 → 单独审批PROVISIONAL → 单独审批正式通知 → 更长期证据后再考虑FORMAL。
+本节所列第一轮待实施项，除第23节明确保留的三个第四批差异外，均已进入`4836e12`基线。P0/P1代码完成从不授权任何开关；当前发布顺序和第四批剩余项以第23.5节为准。
 
-第22节与一次性实施方案均须在每次修复进入HEAD后同步更新基线、实现状态、测试计数和真实数据库证据；不得把“设计已补齐”写成“代码已闭环”。
+本节仅保留第一轮历史修订背景；不得将其“待实施”文字继续作为当前状态。每次修复进入HEAD后，须由AI技术负责人同步更新当前永久契约、一次性方案基线、真实测试和数据库证据；不得把“设计已补齐”写成“代码已闭环”。
+
+---
+
+## 23. 第三批业务Review后的第四批永久修订契约（2026-08-11）
+
+> 本节覆盖第22节中已经实现的历史差异状态，并冻结第四批的长期技术约束。具体工程任务、文件、测试和命令仅见一次性文档`vip_stock_alert_remediation_implementation_plan.md`；开发人员不得直接修改本节。第四批代码完成后，由AI技术负责人基于真实Review证据更新状态。
+
+### 23.1 当前实现基线与剩余差异
+
+以下已进入`4836e12`实现基线，属于回归约束而非第四批开发范围：持续轮次生产入口、历史补建后月度DRAFT初始化/重算/自动确认、`actualProcessingTime = entryStaleAt`允许继续ENTRY、候选5槽Shadow与无限资金Shadow隔离、动态SELL `RESEARCH_DATA_ONLY`日报语义、bar manifest行为字段。
+
+第四批只保留：
+
+| 编号 | 当前可达差异 | 长期技术结论 | 状态 |
+|---|---|---|---|
+| P0-1 | 调度先创建`currentEndedBucket`，但严格`round_time < currentEndedBucket`查询排除该新桶 | 创建与消费使用同一包含上界：`round_time <= currentEndedBucket` | 待实施 |
+| P1-2 | 回放以历史`roundTime`同时作为`actualProcessingTime`，不能模拟晚恢复 | 回放必须显式区分在线基线和晚恢复压力处理时刻，且复用生产ENTRY结算 | 待实施 |
+| P1-3 | 历史重建仅凭bar存在跳过，feature/round缺口可永久遗留 | 重建按bar、feature、round和版本的完整数据义务恢复至`READY` | 待实施 |
+
+本轮不改变资金、策略、Shadow、通知、月度状态、Schema或Liquibase。若实现需要扩大到这些范围，必须停止并由AI技术负责人修订方案。
+
+### 23.2 轮次生产与消费的包含上界
+
+`currentEndedBucket`仍是按`Asia/Shanghai`对齐后回退15分钟得到的最近已结束桶开始时间。只允许生产已结束桶，禁止生产当前桶和未来桶。
+
+固定顺序为：
+
+```text
+runtime gate判定存在构建义务
+→ AtomicBoolean.compareAndSet(false, true)
+→ INSERT PENDING(round_time=currentEndedBucket) ON CONFLICT DO NOTHING
+→ SELECT未完成round WHERE round_time <= currentEndedBucket ORDER BY round_time ASC
+→ bar → feature → READY → 短事务编排 → COMPLETED
+→ 结算到期拒绝观察
+→ 投递已有PENDING通知
+→ finally释放processing
+```
+
+DAO、Mapper、Javadoc和调用方均使用“包含上界”的同一语义；不得通过调用方额外传入`currentEndedBucket + 15分钟`规避问题。`COMPLETED`、`FAILED_FINAL`和逻辑删除记录继续排除。启动补偿复用同一待处理查询，不得创建第二套边界规则。
+
+验收必须以固定10:10时钟证明09:45桶在本次调度中创建并进入bar、feature与轮次事务，不得延后至10:15或10:30。`actualProcessingTime`仍取本次真实处理时刻，不得退回09:45历史轮次时刻。
+
+### 23.3 历史重建的完整数据义务
+
+对指定桶和当前构建版本，只有同时满足下列条件才能完整跳过：
+
+1. bar完整存在；
+2. feature完整存在，且与bar按`stocksId + barStartTime`一一对应；
+3. round存在；
+4. round状态为`READY`或`COMPLETED`；
+5. round中的bar/feature版本与当前构建版本一致。
+
+`PENDING`、`BUILDING_BAR`、`BUILDING_FEATURE`、`WAITING_DATA`和`FAILED_RETRYABLE`均不是完整状态，必须按实际缺口恢复。`FAILED_FINAL`保留终态和错误事实，不允许启动补偿自动重开。
+
+恢复职责严格限定为：
+
+```text
+bar缺失/版本不一致 → buildBars → buildFeatures → round READY
+bar完整但feature缺失 → buildFeatures → round READY
+bar+feature完整但round缺失/可重试 → 创建或恢复round READY
+bar+feature+READY/COMPLETED完整 → 跳过
+```
+
+历史重建不得调用`StockRoundTransactionService`，不得创建交易、Shadow、通知、冷却或月度状态。只有既有调度器消费`READY`轮次并在组合事务成功后置为`COMPLETED`。任何修复异常继续转为可重试失败并向上抛出，使启动补偿维持现有“阻断同次月度重算/自动确认和新入场”的fail-closed行为。
+
+### 23.4 回放的实际处理时钟与压力模式
+
+回放时间语义固定为：
+
+```text
+roundTime = 历史bar、特征、信号和理论成交锚点
+actualProcessingTime = 模拟的实际执行/恢复时刻，仅用于ENTRY过期判断
+```
+
+只允许以下两个模式：
+
+| 模式 | actualProcessingTime | 要求 |
+|---|---|---|
+| `ONLINE_BASELINE` | 等于每个`roundTime` | 用于理想连续在线基线；`recoveredAt`必须为空 |
+| `RESTART_STRESS` | 由请求显式指定`recoveredAt` | 用于停机晚恢复压力验证；`recoveredAt`必填且不得早于其处理的回放轮次 |
+
+未知/空模式、模式与`recoveredAt`不匹配必须fail-fast。为兼容既有显式回放调用，未提供模式时归一化为`ONLINE_BASELINE`。
+
+两种模式都必须复用`StockEntrySettlementService.processEntryPending`，不得复制`entryStaleAt`比较或另建回放结算逻辑。处理时刻不得改变bar、feature、策略、成交价格、退出、净值或月度状态读取。模式和`recoveredAt`必须纳入确定性`runId`，并在summary JSON中输出；不得将在线基线与压力结果混合为同一收益结论。回放继续只读生产输入，不得写任何业务账本表。
+
+### 23.5 第四批验收、发布门禁与状态更新
+
+第四批最小验收如下：
+
+1. 固定时钟下，新建最近已结束桶当次被包含上界查询读取并处理；
+2. 历史重建覆盖bar已存在时的feature缺失、round缺失、`FAILED_RETRYABLE`恢复和`COMPLETED`完整跳过；
+3. 回放覆盖`entryStaleAt - 1ns / = / +1ns`，并在`RESTART_STRESS`产物中记录恢复时刻且不写业务表；
+4. 真实PostgreSQL保留轮次首次写入、冲突更新/并发插入和包含上界查询证据；
+5. 编译、聚焦测试和单一干净进程全量测试通过；独立事务测试精确物理清理、回放产物清理完成。
+
+第四批代码和测试通过不关闭以下发布门禁：
+
+```text
+GATE-1：真实月度状态旧空证据DRAFT尚未经真实数据重算
+GATE-2：当前30日连续窗口尚未恢复
+GATE-3：5槽×20亿真实长窗口四产物回放尚未完成
+GATE-4：两类Shadow前向证据尚未连续运行20个自然日
+
+VIP_STOCK_ALERT_ENABLED=false
+VIP_STOCK_NEW_ENTRY_ENABLED=false
+VIP_STOCK_FORMAL_NOTICE_ENABLED=false
+VIP_STOCK_DAILY_SUMMARY_ENABLED=false
+VIP_STOCK_RULE_MODE=SHADOW
+```
+
+开发人员完成后必须提交diff、实际Maven/Surefire结果、真实PG隔离与零残留证据、回放产物清理证据，由AI技术负责人进行第四批Review。只有Review确认无P0/P1后，才能将本节状态更新为已实现；即使如此，GATE-1至GATE-4和开关结论保持不变。
