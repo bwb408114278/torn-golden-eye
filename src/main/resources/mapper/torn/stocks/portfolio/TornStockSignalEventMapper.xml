@@ -42,7 +42,7 @@
              #{event.theoreticalExitSignalTime}, #{event.theoreticalExitTime}, #{event.theoreticalExitPrice},
              #{event.theoreticalCloseType}, #{event.theoreticalNetReturn},
              0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON CONFLICT (stocks_id, strategy_type, round_time, buy_rule_version) WHERE deleted = 0 DO NOTHING
+        ON CONFLICT DO NOTHING
     </insert>
 
     <!-- 批量查询未结算拒绝观察事件 -->

@@ -189,6 +189,8 @@ class StockShadowTrackRecorderTest {
         event.setSignalReferencePrice(new BigDecimal("100.00"));
         event.setRoundTime(ROUND_TIME);
         event.setBuyRuleVersion(StockRuleVersion.BUY);
+        event.setQualityScore(BigDecimal.ONE);
+        event.setEventNo("E" + (id == null ? 0 : id) + "RAN");
         return event;
     }
 }

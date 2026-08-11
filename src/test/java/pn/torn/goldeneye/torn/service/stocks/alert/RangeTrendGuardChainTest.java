@@ -65,11 +65,19 @@ class RangeTrendGuardChainTest {
         org.mockito.Mockito.when(signalEventDao.selectByBusinessKeyForUpdate(
                         org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString()))
-                .thenAnswer(invocation -> {
-                    TornStockSignalEventDO event = new TornStockSignalEventDO();
-                    event.setId(1L);
-                    return event;
-                });
+                .thenAnswer(invocation -> persistedEvent());
+        Map<String, TornStockVirtualBatchDO> persistedBatches = new java.util.HashMap<>();
+        java.util.concurrent.atomic.AtomicLong batchIdSeq = new java.util.concurrent.atomic.AtomicLong(2);
+        org.mockito.Mockito.doAnswer(inv -> {
+            TornStockVirtualBatchDO batch = inv.getArgument(0);
+            batch.setId(batchIdSeq.getAndIncrement());
+            persistedBatches.put(batch.getSignalEventId() + "|" + batch.getLedgerType(), batch);
+            return 1;
+        }).when(virtualBatchDao).insertIgnoreConflict(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.when(virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
+                        org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation ->
+                        persistedBatches.get(invocation.getArgument(0) + "|" + invocation.getArgument(1)));
         shadowTrackRecorder = new StockShadowTrackRecorder(
                 signalEventDao, virtualBatchDao);
         List<StockBuyStrategy> strategies = List.of(
@@ -79,6 +87,28 @@ class RangeTrendGuardChainTest {
         evaluator = new StockBuySignalEvaluator(
                 strategies, new BuyContextAssembler(), new BuyStrategyMatcher(strategies),
                 new BuyEligibilityEvaluator(new StockEligibilityService()), new CandidateFactory());
+    }
+
+    /**
+     * 构造完整的持久化信号事件(填充 buildBaseBatch 消费的全部关键字段)。
+     * <p>
+     * 真实 Schema 对这些字段均 NOT NULL,冲突插入后读回的持久化对象必须携带完整字段,
+     * 才能通过 {@code buildBaseBatch} 的持久化契约校验并成功构造拒绝观察批次。
+     *
+     * @return 完整持久化信号事件
+     */
+    private TornStockSignalEventDO persistedEvent() {
+        TornStockSignalEventDO event = new TornStockSignalEventDO();
+        event.setId(1L);
+        event.setStocksId(STOCKS_ID);
+        event.setStocksShortname("RANGE");
+        event.setStrategyType(StockBuyStrategyEnum.RANGE_LOWER_BUY.getCode());
+        event.setQualityScore(BigDecimal.ONE);
+        event.setRoundTime(ROUND_TIME);
+        event.setSignalReferencePrice(new BigDecimal("100.00"));
+        event.setBuyRuleVersion(StockRuleVersion.BUY);
+        event.setEventNo("E2026080110001001RAN");
+        return event;
     }
 
     @Test
@@ -132,13 +162,6 @@ class RangeTrendGuardChainTest {
 
         ArgumentCaptor<TornStockVirtualBatchDO> batchCaptor =
                 ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
-        TornStockVirtualBatchDO persistedBatch = new TornStockVirtualBatchDO();
-        persistedBatch.setLedgerType(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
-        persistedBatch.setCancelReason(RangeLowerBuyStrategy.TREND_GUARD_DATA_INSUFFICIENT);
-        org.mockito.Mockito.when(virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(
-                        org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.eq(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode())))
-                .thenReturn(null, persistedBatch);
         verify(virtualBatchDao).insertIgnoreConflict(batchCaptor.capture());
         TornStockVirtualBatchDO batch = batchCaptor.getValue();
         assertEquals(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode(), batch.getLedgerType(),

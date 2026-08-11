@@ -142,6 +142,7 @@ public class StockShadowTrackRecorder {
         event.setCandidateRank(context.candidateRank());
         event.setPortfolioDecision(context.portfolioDecision());
         event.setRejectReason(context.rejectReason());
+        event.setObservationDataIncomplete(false);
 
         signalEventDao.insertIgnoreConflict(event);
         TornStockSignalEventDO persisted = signalEventDao.selectByBusinessKeyForUpdate(
@@ -177,6 +178,17 @@ public class StockShadowTrackRecorder {
                 event.getId(), StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
         if (existing != null) {
             return existing;
+        }
+        // 同股同策略同版本活跃无限资金影子批次全局唯一(uk_stock_virtual_batch_shadow_stock_strat_ver):
+        // 积压/回放同一墙钟分钟处理多个历史round时, 同股同策略的第二个round必须复用已存在批次,
+        // 否则触发唯一约束异常导致整轮回滚并进入FAILED_RETRYABLE。
+        TornStockVirtualBatchDO existingByStock = virtualBatchDao
+                .selectActiveUnlimitedShadowByStockStrategyForUpdate(
+                        event.getStocksId(), event.getStrategyType(), event.getBuyRuleVersion());
+        if (existingByStock != null) {
+            log.info("同股同策略活跃无限资金影子批次已存在,复用: stocksId={}, strategy={}, batchNo={}, signalEventId={}",
+                    event.getStocksId(), event.getStrategyType(), existingByStock.getBatchNo(), event.getId());
+            return existingByStock;
         }
 
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
@@ -687,6 +699,7 @@ public class StockShadowTrackRecorder {
      * @return 已填充基础字段的批次DO
      */
     private TornStockVirtualBatchDO buildBaseBatch(TornStockSignalEventDO event) {
+        validatePersistedEventFields(event);
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setStocksId(event.getStocksId());
         batch.setStocksShortname(event.getStocksShortname());
@@ -699,6 +712,50 @@ public class StockShadowTrackRecorder {
         StockVirtualBatchAssembler.applySignalFields(batch, fields);
         // slotId/slotNo 保持 null: 影子与拒绝观察批次不占正式槽位
         return batch;
+    }
+
+    /**
+     * 校验已持久化信号事件的关键字段是否满足批次构造前置条件。
+     * <p>
+     * {@code buildBaseBatch} 依赖事件的主要字段构造影子/拒绝观察批次,而这些字段在
+     * {@code torn_stock_signal_event} 中均为 NOT NULL。当冲突插入后读回的对象缺失字段时,
+     * 必须在构造批次前抛出包含 eventId 与字段名的持久化契约异常,而不是在
+     * {@code List.of(event.getStrategyType())} 处产生无上下文的 NullPointerException。
+     *
+     * @param event 已持久化的信号事件
+     * @throws IllegalStateException 任一关键字段缺失时抛出
+     */
+    private void validatePersistedEventFields(TornStockSignalEventDO event) {
+        Objects.requireNonNull(event, MSG_SIGNAL_EVENT_NULL);
+        List<String> missing = new ArrayList<>();
+        if (event.getId() == null) {
+            missing.add("id");
+        }
+        if (event.getStocksId() == null) {
+            missing.add("stocksId");
+        }
+        if (event.getStocksShortname() == null) {
+            missing.add("stocksShortname");
+        }
+        if (event.getStrategyType() == null) {
+            missing.add("strategyType");
+        }
+        if (event.getQualityScore() == null) {
+            missing.add("qualityScore");
+        }
+        if (event.getRoundTime() == null) {
+            missing.add("roundTime");
+        }
+        if (event.getSignalReferencePrice() == null) {
+            missing.add("signalReferencePrice");
+        }
+        if (event.getBuyRuleVersion() == null) {
+            missing.add("buyRuleVersion");
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("信号事件持久化字段缺失,无法构造影子/拒绝观察批次: eventId="
+                    + event.getId() + ", missingFields=" + missing);
+        }
     }
 
     /**

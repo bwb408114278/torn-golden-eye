@@ -29,6 +29,22 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
                                                                         @Param("ledgerType") String ledgerType);
 
     /**
+     * 按股票+主策略+版本锁定同股同策略活跃无限资金影子批次。
+     * <p>
+     * 部分唯一索引 {@code uk_stock_virtual_batch_shadow_stock_strat_ver} 约束同股同策略
+     * 同版本仅存在一条活跃无限资金影子批次; 积压/回放在同一墙钟分钟处理多个历史round时,
+     * 同股同策略的第二个round必须复用已存在批次而非新建, 否则触发唯一约束异常。
+     *
+     * @param stocksId        股票ID
+     * @param primaryStrategy 主策略编码
+     * @param buyRuleVersion  买入规则版本
+     * @return 已存在的同股同策略活跃无限资金影子批次;不存在时返回null
+     */
+    TornStockVirtualBatchDO selectActiveUnlimitedShadowByStockStrategyForUpdate(@Param("stocksId") Integer stocksId,
+                                                                                @Param("primaryStrategy") String primaryStrategy,
+                                                                                @Param("buyRuleVersion") String buyRuleVersion);
+
+    /**
      * 按批次编号冲突安全插入批次。
      *
      * @param batch 待插入批次

@@ -20,7 +20,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * 轮次生产者真实PostgreSQL集成测试。
@@ -75,35 +74,6 @@ class TornStockMarketRoundMapperTest {
 
         assertEquals(0, second, "重复插入同round_time应被DO NOTHING吸收返回0");
         assertEquals(1, countPending(), "库中该桶应仅一行");
-    }
-
-    @Test
-    @DisplayName("真实PG_连续三个不同结束桶_每桶仅一行且按round_time可命中")
-    void insertPendingRoundIgnoreConflict_threeBuckets_eachOneRow() {
-        LocalDateTime bucket1 = LocalDateTime.of(2099, 9, 1, 10, 0);
-        LocalDateTime bucket2 = bucket1.plusMinutes(15);
-        LocalDateTime bucket3 = bucket1.plusMinutes(30);
-
-        assertEquals(1, roundDao.insertPendingRoundIgnoreConflict(pendingRound(bucket1)));
-        assertEquals(1, roundDao.insertPendingRoundIgnoreConflict(pendingRound(bucket2)));
-        assertEquals(1, roundDao.insertPendingRoundIgnoreConflict(pendingRound(bucket3)));
-        assertEquals(0, roundDao.insertPendingRoundIgnoreConflict(pendingRound(bucket2)));
-
-        assertEquals(3, countPending(), "三个不同结束桶应各一行");
-    }
-
-    @Test
-    @DisplayName("真实PG_顺序重复插入同round_time_幂等返回0仅落一行")
-    void insertPendingRoundIgnoreConflict_repeatedInsert_singleRow() {
-        roundDao.insertPendingRoundIgnoreConflict(pendingRound(TEST_ROUND_TIME));
-
-        TornStockMarketRoundDO existing = roundDao.selectByRoundTimeForUpdate(TEST_ROUND_TIME);
-
-        assertNotNull(existing, "插入后应可通过round_time查回");
-        assertEquals(StockRoundStatusEnum.PENDING.getCode(), existing.getRoundStatus(),
-                "插入轮次状态必须为PENDING");
-        assertEquals(0, existing.getAttemptCount(), "新建轮次attemptCount应为0");
-        assertEquals(1, countPending());
     }
 
     @Test

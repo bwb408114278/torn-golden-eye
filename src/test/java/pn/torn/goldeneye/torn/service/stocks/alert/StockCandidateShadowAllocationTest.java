@@ -85,13 +85,16 @@ class StockCandidateShadowAllocationTest {
         }
 
         AtomicLong idSeq = new AtomicLong(1);
+        Map<String, TornStockVirtualBatchDO> persistedByKey = new HashMap<>();
         doAnswer(inv -> {
             TornStockVirtualBatchDO batch = inv.getArgument(0);
             batch.setId(idSeq.getAndIncrement());
+            persistedByKey.put(batch.getSignalEventId() + "|" + batch.getLedgerType(), batch);
             return 1;
         }).when(virtualBatchDao).insertIgnoreConflict(any());
         when(virtualBatchDao.selectBySignalEventIdAndLedgerTypeForUpdate(anyLong(), anyString()))
-                .thenReturn(null);
+                .thenAnswer(inv ->
+                        persistedByKey.get(inv.getArgument(0) + "|" + inv.getArgument(1)));
         when(shadowTrackRecorder.recordTrackSignalEvent(any(), anyInt(), eq(roundTime), anyString()))
                 .thenAnswer(inv -> {
                     TornStockSignalEventDO event = new TornStockSignalEventDO();

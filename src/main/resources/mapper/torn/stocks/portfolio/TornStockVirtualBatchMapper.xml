@@ -12,6 +12,20 @@
         FOR UPDATE
     </select>
 
+    <!-- 按股票+策略+版本锁定同股同策略活跃无限资金影子批次,用于积压/回放跨round复用 -->
+    <select id="selectActiveUnlimitedShadowByStockStrategyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'UNLIMITED_SHADOW'
+          AND stocks_id = #{stocksId}
+          AND primary_strategy = #{primaryStrategy}
+          AND buy_rule_version = #{buyRuleVersion}
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+        ORDER BY id ASC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
     <!-- 批次编号冲突安全插入,重试时由数据库收敛 -->
     <insert id="insertIgnoreConflict">
         INSERT INTO torn_stock_virtual_batch

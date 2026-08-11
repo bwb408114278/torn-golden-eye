@@ -31,6 +31,21 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
+     * 按股票+主策略+版本锁定同股同策略活跃无限资金影子批次。
+     *
+     * @param stocksId        股票ID
+     * @param primaryStrategy 主策略编码
+     * @param buyRuleVersion  买入规则版本
+     * @return 已存在的同股同策略活跃无限资金影子批次;不存在时返回null
+     */
+    public TornStockVirtualBatchDO selectActiveUnlimitedShadowByStockStrategyForUpdate(Integer stocksId,
+                                                                                       String primaryStrategy,
+                                                                                       String buyRuleVersion) {
+        return baseMapper.selectActiveUnlimitedShadowByStockStrategyForUpdate(
+                stocksId, primaryStrategy, buyRuleVersion);
+    }
+
+    /**
      * 按批次编号冲突安全插入批次。
      *
      * @param batch 待插入批次

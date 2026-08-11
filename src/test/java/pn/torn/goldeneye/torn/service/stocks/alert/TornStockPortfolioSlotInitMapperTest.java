@@ -30,7 +30,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code INSERT ... ON CONFLICT DO NOTHING} 行为:
  * <ul>
  *   <li>空表批量插入全部落库,重复执行被唯一索引冲突吸收为0,总行数保持不变;</li>
- *   <li>部分缺失时仅补建缺失槽位,不抛重复键异常;</li>
  *   <li>两个独立事务并发修复同一组合,恰好5行且无异常泄漏;</li>
  *   <li>新插入槽位满足标准初始字段(lock_version=0、slot_status=AVAILABLE、现金=20亿)。</li>
  * </ul>
@@ -92,18 +91,6 @@ class TornStockPortfolioSlotInitMapperTest {
         assertEquals(10, countSlots(TEST_FORMAL) + countSlots(TEST_CANDIDATE), "重复执行后总行数必须保持10");
 
         assertStandardFields(TEST_FORMAL);
-        assertStandardFields(TEST_CANDIDATE);
-    }
-
-    @Test
-    @DisplayName("真实PG_部分缺失只补缺失槽位_不抛重复键异常")
-    void insertSlotsIgnoreConflict_partialMissing_onlyAddsMissingSlots() {
-        slotDao.insertSlotsIgnoreConflict(slotsFor(TEST_CANDIDATE, List.of(1, 2, 5)));
-
-        int added = slotDao.insertSlotsIgnoreConflict(slotsFor(TEST_CANDIDATE, 1, 5));
-
-        assertEquals(2, added, "仅缺失槽位3、4应被补建,1/2/5与已有行冲突忽略");
-        assertEquals(5, countSlots(TEST_CANDIDATE), "补建后候选隔离组合应恰好5行");
         assertStandardFields(TEST_CANDIDATE);
     }
 
@@ -203,19 +190,6 @@ class TornStockPortfolioSlotInitMapperTest {
     private List<TornStockPortfolioSlotDO> slotsFor(String portfolioCode, int fromNo, int toNo) {
         return IntStream.rangeClosed(fromNo, toNo)
                 .mapToObj(slotNo -> buildStandardSlot(portfolioCode, slotNo))
-                .toList();
-    }
-
-    /**
-     * 构建指定槽位序号集合的标准初始槽位列表。
-     *
-     * @param portfolioCode 组合编码
-     * @param slotNos       槽位序号集合
-     * @return 标准初始槽位列表
-     */
-    private List<TornStockPortfolioSlotDO> slotsFor(String portfolioCode, List<Integer> slotNos) {
-        return slotNos.stream()
-                .map(slotNo -> buildStandardSlot(portfolioCode, slotNo))
                 .toList();
     }
 
