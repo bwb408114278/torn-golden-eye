@@ -8,8 +8,8 @@
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
 - 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
-- 当前实现Review基线：`9cd92a3`（2026-08-12）
-- 技术验收状态：第五批业务Review不通过。第五批已将启动补偿的`currentEndedBucket`幂等创建和包含上界消费纳入实现基线，原合法ENTRY延迟处理P1转为回归约束；但该创建步骤的DAO异常会从`ApplicationReadyEvent`逃逸，阻断存量轮次、拒绝观察和独立PENDING通知，形成启动可用性P0。第六批仅修复该启动异常边界并补齐历史重建失败下的存量事务证据；四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及股票全集完整性专题仍未关闭
+- 当前实现Review基线：`294acf1`（2026-08-12）
+- 技术验收状态：第六批第一轮Review不通过。第一轮已关闭启动桶插入DAO异常逃逸P0，以及历史重建失败下存量事务继续的P1证据；但启动补偿对`currentEndedBucket`读取两次，跨15分钟边界时历史重建与后续创建/消费可能使用不同桶快照，遗漏新结束桶并延迟合法ENTRY处理，形成当前P1。第六批第二轮仅修复该唯一时间快照契约；四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及股票全集完整性专题仍未关闭
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
 - 最后修订日期：2026-08-12
@@ -2098,7 +2098,7 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文是长期技术实施基线。第五批`currentEndedBucket`创建并当次消费已进入`9cd92a3`代码基线，但业务Review发现其DAO异常会逃逸启动事件的P0；当前第六批仅处理该启动异常边界与历史重建失败下的直接测试证据，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据。AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使第六批P0/P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
+本文是长期技术实施基线。第五批`currentEndedBucket`创建并当次消费已进入`9cd92a3`代码基线；第六批第一轮的启动桶插入异常P0和历史重建失败存量处理证据已进入`294acf1`基线。当前第六批第二轮唯一开放项为第25节的“单次启动唯一结束桶快照”P1，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据。AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使该P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
 
 ---
 
@@ -2409,59 +2409,62 @@ GATE-4：两类Shadow前向证据尚未连续运行20个自然日
 
 > 本节覆盖第24节的实施状态，不改变已冻结的策略、资金、Schema、Shadow、通知和发布约束。具体工程任务、文件和验收命令仅见一次性文档`vip_stock_alert_remediation_implementation_plan.md`；开发人员不得修改本节。
 
-### 25.1 当前基线与开放项
+### 25.1 第一轮实现基线与第二轮唯一开放P1
 
-`9cd92a3`已将第24节的启动当前结束桶P1纳入实现基线，以下均为回归约束：
+`294acf1`已关闭以下第六批第一轮事项，全部转为第二轮回归约束：
 
-1. 启动补偿在历史重建（上界不含）后，对`currentEndedBucket`执行`ON CONFLICT DO NOTHING`幂等创建；
-2. 启动待处理查询以`round_time <= currentEndedBucket`包含上界，目标桶在本次启动进入bar、feature和轮次事务；
-3. 轮次事务使用`marketClock.now()`作为`actualProcessingTime`，而非历史`roundTime`。
+1. 启动补偿在最新结束桶插入DAO异常时，不再使异常从`ApplicationReadyEvent`逃逸；启动路径关闭新入场、阻断月度下游，但继续处理已有未完成轮次、结算拒绝观察、释放`processing`并独立投递历史PENDING通知；
+2. 历史重建失败且存在PENDING轮次时，存量轮次仍进入bar、feature和事务，事务接收`allowNewEntry=false`；
+3. 第五批建立的“启动创建`currentEndedBucket`后按包含上界当次消费、事务使用实际处理时刻”继续有效。
 
-第五批时钟透传测试证明的是启动编排接线，不是带真实批次、`entryStaleAt`和成交结果的ENTRY端到端证明；不得扩大其证据含义。
+第一轮Review新增当前唯一P1：启动编排在外层获取`currentEndedBucket`后，`rebuildStartupHistorySafely()`又从时钟读取一次。跨15分钟边界时，历史重建可能使用新桶上界而创建/消费仍使用旧桶，导致新结束桶不属于本次历史重建区间（上界不含），也不属于本次创建/包含上界消费范围。该桶只能等待下一cron，重新暴露合法ENTRY延迟处理风险。
 
-当前唯一生产阻断为P0：`ensurePendingRound(currentEndedBucket)`在DAO插入异常时记录后重新抛出，启动调用方未安全包装，异常可从`onStartup()`逃逸并跳过已有未完成轮次处理、拒绝观察结算和独立PENDING通知。P1为直接测试证据缺口：历史重建失败测试必须以已存在PENDING轮次证明存量事务继续且新入场关闭。
+“bar非空不代表每桶股票全集完整”仍为需另行冻结数据源、停牌及无样本语义的P2专题，不进入第六批第二轮实现或发布阻断。
 
-“bar非空不代表每桶股票全集完整”仍为需要另行冻结数据源、停牌及无样本语义的P2专题，不进入第六批实现或发布阻断。
+### 25.2 单次启动的唯一结束桶快照契约
 
-### 25.2 启动桶创建异常的fail-closed契约
-
-当启动入口已取得共享`processing`标记且`runtimeGate.shouldBuildRounds()`为true时：
+启动入口成功获取共享`processing`标记后，必须恰好一次调用：
 
 ```text
 currentEndedBucket = marketClock.currentEndedBucket()
-→ rebuildFromLastCompleted(currentEndedBucket)
-→ 尝试ensurePendingRound(currentEndedBucket)
-  ├─ 成功或冲突已存在：currentBucketEnsureOk=true
-  └─ DAO异常：记录ERROR（roundTime + 原始堆栈），currentBucketEnsureOk=false
-→ processPendingRounds(
+```
+
+随后整个启动补偿轮次必须传递同一个`LocalDateTime`值：
+
+```text
+rebuildFromLastCompleted(currentEndedBucket)          // 上界不含
+→ ensureStartupPendingRoundSafely(currentEndedBucket) // ON CONFLICT DO NOTHING
+→ processStartupPendingRoundsSafely(
       decision.allowNewEntry && historyRebuildOk && currentBucketEnsureOk,
       currentEndedBucket
-  )
-→ historyRebuildOk && currentBucketEnsureOk时才执行月度初始化、DRAFT重算和自动确认
-→ 仍结算到期拒绝观察
-→ finally释放processing
-→ onStartup继续按独立门禁投递历史PENDING通知
+  )                                                    // round_time <= currentEndedBucket
 ```
 
 约束：
 
-- 启动专用安全包装必须复用`ensurePendingRound()`；不得复制DAO插入、增加SELECT-then-INSERT或新建第二套轮次创建规则；
-- 创建失败不得向`ApplicationReadyEvent`继续抛出，不得伪装成功；日志必须包含`currentEndedBucket`与原始异常堆栈；
-- 创建失败或历史重建失败均必须使本次`allowNewEntry=false`，并阻断本次月度初始化、重算和自动确认；
-- 上述失败不得阻断数据库已有未完成轮次的处理、拒绝观察结算、`finally`释放防重入标记和独立PENDING通知投递；
-- 不改变定时入口调用`ensurePendingRound()`时的异常上抛语义；后续cron仍可利用已有`ON CONFLICT DO NOTHING`和未完成轮次查询恢复；
-- 不新增Schema、SQL、锁、重试框架、消息基础设施或运行开关。
+- `rebuildStartupHistorySafely`必须接收调用方传入的`currentEndedBucket`，不得在其内部或其它启动子方法中重新调用`marketClock.currentEndedBucket()`；
+- 不得将“更接近当前时间”的二次读取用于替代固定快照；一次启动补偿的重建、创建、消费范围必须一致；
+- 历史重建继续上界不含，当前桶创建与待处理查询继续包含上界；
+- 第一轮的插入异常fail-closed契约不变：创建异常不逃逸启动事件，`allowNewEntry=false`，月度下游跳过，已有轮次/拒绝观察/独立通知继续；
+- 不改变定时入口`executeRound()`的异常上抛语义，不新增Schema、SQL、锁、重试或运行开关。
 
-### 25.3 第六批最小验证与发布结论
+固定回归反例：若首次读取为`09:45`、潜在第二次读取为`10:00`，历史重建、PENDING创建和待处理查询均必须使用`09:45`。不得使`10:00`的二次读值部分参与同一次启动补偿。
 
-必须以`VipStockAlertSchedulerTest`完成下列聚焦行为证据：
+### 25.3 第六批第二轮最小验证、共同验收与发布结论
 
-1. 最新桶插入抛异常时，`onStartup()`不向外抛出；已有PENDING轮次仍进入bar、feature和轮次事务，事务接收`allowNewEntry=false`；
-2. 同一场景中，月度初始化、重算和自动确认均不执行，拒绝观察继续结算，且正式通知开关允许时历史PENDING通知继续投递；启动完成后定时入口可再次进入，以证明`processing`已释放；
-3. 历史重建异常且存在PENDING轮次时，存量轮次仍进入事务且`allowNewEntry=false`，月度下游不执行；
-4. 运行JDK 21编译、`VipStockAlertSchedulerTest`聚焦测试与`git diff --check`。本批未修改Schema/SQL，不重复建设真实PostgreSQL异常注入矩阵；保留既有轮次Mapper首次插入、冲突与包含上界真实证据。
+本节与一次性方案`vip_stock_alert_remediation_implementation_plan.md`共同构成第六批第二轮验收标准：本节冻结架构和发布边界，一次性方案仅拆解当前P1的文件、测试和停止条件。
 
-第六批通过不授权数据构建、Shadow新入场、正式通知、日报或规则模式升级。以下结论继续有效：
+必须以`VipStockAlertSchedulerTest`新增一个固定跨边界测试，并证明：
+
+1. 单次启动补偿只调用一次`marketClock.currentEndedBucket()`；
+2. `rebuildFromLastCompleted`、当前桶幂等创建和`selectPendingRoundsUpTo`均接收首次快照（如`09:45`）；
+3. 该PENDING轮次本次进入bar、feature和轮次事务；
+4. 第一轮P0异常收敛、历史重建失败存量处理、拒绝观察、独立通知与防重入释放测试继续通过；
+5. 运行JDK 21编译、`VipStockAlertSchedulerTest`聚焦测试与`git diff --check`。本轮不修改Schema/SQL，不重复建设真实PostgreSQL、并发或ENTRY端到端测试矩阵。
+
+性能验收：实现不得新增数据库查询、锁、循环、线程、重试或定时入口；修复应消除启动路径的一次重复时钟读取。
+
+第六批第二轮通过不授权数据构建、Shadow新入场、正式通知、日报或规则模式升级。以下结论继续有效：
 
 ```text
 VIP_STOCK_ALERT_ENABLED=false

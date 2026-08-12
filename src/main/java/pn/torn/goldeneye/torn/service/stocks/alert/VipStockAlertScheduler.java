@@ -239,6 +239,9 @@ public class VipStockAlertScheduler {
      * 存在轮次构建或研究义务时,必须与定时入口复用同一JVM防重入标记:抢占成功后在
      * 同一try/finally内执行,finally释放标记,避免启动补偿因防重入标记未持有导致真实
      * 待处理轮次被跳过;抢占失败说明已有轮次流程在执行,不得并发处理,通知投递保持独立。
+     * 抢占成功后启动轮次工作只读取一次{@code currentEndedBucket}快照,历史重建、当前桶幂等创建
+     * 与包含上界消费均复用同一快照(详见
+     * {@link #processStartupRoundWork(StockAlertRuntimeGate.RuntimeDecision)})。
      * 依次执行(每步独立try-catch,单步失败不阻塞后续):
      * <ol>
      *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位;验证未通过(修复或异常)
@@ -338,6 +341,10 @@ public class VipStockAlertScheduler {
      * 历史重建与最新已结束桶创建是月度重算/自动确认的证据前置: 任一失败都必须阻断同次的
      * 月度状态初始化、重算与自动确认(fail-closed),防止"无证据继续下游";存量退出管理
      * (未完成轮次处理)仍可继续,但新入场强制关闭;拒绝观察结算不依赖上述两个结果。
+     * <p>
+     * 抢占成功后恰好调用一次 {@code marketClock.currentEndedBucket()} 取得本次启动的唯一结束桶快照,
+     * 该快照依次传给历史重建(上界不含)、当前桶幂等创建与包含上界消费,各子方法禁止再次读取时钟;
+     * 确保一次启动补偿的重建/创建/消费使用同一时间范围,不跨15分钟边界遗漏新结束桶。
      *
      * @param decision 运行时判定结果
      */
@@ -357,7 +364,7 @@ public class VipStockAlertScheduler {
             boolean historyRebuildOk = true;
             boolean currentBucketEnsureOk = true;
             if (decision.shouldBuildRounds()) {
-                historyRebuildOk = rebuildStartupHistorySafely();
+                historyRebuildOk = rebuildStartupHistorySafely(currentEndedBucket);
                 currentBucketEnsureOk = ensureStartupPendingRoundSafely(currentEndedBucket);
                 boolean effectiveAllowNewEntry = decision.allowNewEntry()
                         && historyRebuildOk && currentBucketEnsureOk;
@@ -387,13 +394,18 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 从最后已完成轮次之后重建历史bar与特征;失败时阻断同次月度下游并返回false。
+     * 从最后已完成轮次之后重建历史bar与特征(上界不含调用方传入的结束桶);失败时阻断同次月度下游并返回false。
+     * <p>
+     * 必须接收并复用启动编排 {@link #processStartupRoundWork(StockAlertRuntimeGate.RuntimeDecision)}
+     * 在抢占成功后单次读取的 {@code currentEndedBucket} 快照,禁止在本方法内再次调用
+     * {@code marketClock.currentEndedBucket()}。历史重建、当前桶幂等创建与包含上界消费必须使用
+     * 同一时间快照,避免跨15分钟边界时重建范围与创建/消费范围不一致而遗漏新结束桶。
      *
+     * @param currentEndedBucket 调用方提供的本次启动唯一结束桶快照(历史重建上界不含)
      * @return true表示历史补建成功(或无需补建);false表示历史补建失败
      */
-    private boolean rebuildStartupHistorySafely() {
+    private boolean rebuildStartupHistorySafely(LocalDateTime currentEndedBucket) {
         try {
-            LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
             historyRebuildService.rebuildFromLastCompleted(currentEndedBucket);
             return true;
         } catch (Exception e) {

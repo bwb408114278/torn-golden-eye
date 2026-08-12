@@ -343,6 +343,52 @@ class VipStockAlertSchedulerTest {
     }
 
     @Test
+    @DisplayName("启动补偿_跨15分钟边界仍复用首次结束桶快照_只读取一次时钟")
+    void onStartup_crossBucketBoundary_reusesFirstEndedBucketSnapshot() {
+        // 固定反例: 首次读取 currentEndedBucket() 返回09:45, 若实现发生第二次读取则返回10:00。
+        // 修复前 rebuildStartupHistorySafely 内部再次调用时钟, 跨15分钟边界时历史重建(上界不含10:00)
+        // 与创建/消费(09:45)使用不同桶, 新结束桶10:00既不在重建区间也不被本次创建/消费, 只能等待下一cron。
+        // 修复后单次启动补偿必须恰好一次读取 currentEndedBucket, 历史重建、幂等创建与
+        // selectPendingRoundsUpTo(09:45) 均复用首次快照, 该PENDING轮次本次进入bar/feature/事务。
+        LocalDateTime firstEndedBucket = LocalDateTime.of(2026, 8, 5, 9, 45);
+        LocalDateTime secondPotentialRead = LocalDateTime.of(2026, 8, 5, 10, 0);
+        LocalDateTime actualTime = LocalDateTime.of(2026, 8, 5, 10, 14, 59);
+        TornStockMarketRoundDO round = pendingRound(1L, firstEndedBucket);
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, true, false));
+        when(portfolioInitService.verifyAndInitSlots()).thenReturn(true);
+        when(marketClock.currentEndedBucket())
+                .thenReturn(firstEndedBucket)
+                .thenReturn(secondPotentialRead);
+        when(marketClock.now()).thenReturn(actualTime);
+        when(marketClock.today()).thenReturn(LocalDate.of(2026, 8, 5));
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(firstEndedBucket)).thenReturn(List.of(round));
+        when(barBuildService.buildBars(firstEndedBucket)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(firstEndedBucket)).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        // 1. 单次启动补偿只读取一次结束桶快照(第二次潜在读取10:00不得参与本次启动范围)
+        verify(marketClock, times(1)).currentEndedBucket();
+        // 2. 历史重建、当前桶幂等创建与包含上界消费均使用首次快照09:45
+        verify(historyRebuildService).rebuildFromLastCompleted(firstEndedBucket);
+        ArgumentCaptor<TornStockMarketRoundDO> createdRoundCaptor = ArgumentCaptor.forClass(TornStockMarketRoundDO.class);
+        verify(roundDao).insertPendingRoundIgnoreConflict(createdRoundCaptor.capture());
+        assertEquals(firstEndedBucket, createdRoundCaptor.getValue().getRoundTime(),
+                "启动补偿创建轮次必须使用首次快照09:45, 不得使用二次读取的10:00");
+        verify(roundDao).selectPendingRoundsUpTo(firstEndedBucket);
+        // 3. 该PENDING轮次本次进入bar、feature与轮次事务, 事务收到09:45轮次
+        verify(barBuildService).buildBars(firstEndedBucket);
+        verify(featureBuildService).buildFeatures(firstEndedBucket);
+        ArgumentCaptor<LocalDateTime> roundTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(transactionService).executeRound(roundTimeCaptor.capture(), any(), anyBoolean(), any());
+        assertEquals(firstEndedBucket, roundTimeCaptor.getValue(),
+                "事务必须收到09:45轮次, 不得使用10:00二次快照或延后至下一cron");
+    }
+
+    @Test
     @DisplayName("启动补偿_历史补建失败_存量轮次仍进入事务且allowNewEntry=false")
     void onStartup_historyRebuildFails_processesExistingRoundsWithNewEntryClosed() {
         // 历史重建失败必须关闭新入场并阻断月度下游, 但已存在PENDING轮次仍真实进入bar/特征/轮次事务,
