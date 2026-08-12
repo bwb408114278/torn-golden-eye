@@ -8,8 +8,8 @@
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
 - 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
-- 当前实现Review基线：`4836e12a18161820f4cad1f987963983db2e8f1a`（2026-08-11）
-- 技术验收状态：第三批业务Review不通过。持续轮次生产、月度冷启动重算/确认、双Shadow账本、日报动态SELL研究展示、回放manifest与ENTRY等值边界已作为当前已实现基线；第四批仅待修复：轮次生产/消费包含上界、历史重建完整数据义务恢复、回放晚恢复ENTRY压力语义。四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4尚未关闭
+- 当前实现Review基线：`50467b6`（2026-08-11）
+- 技术验收状态：第四批业务Review不通过。第四批原定的定时包含上界、历史重建缺口恢复和回放晚恢复压力语义已进入实现基线；但启动补偿遗漏`currentEndedBucket`，存在服务在`entryStaleAt`前恢复却延至下一cron后误取消合法ENTRY的P1。第五批仅修复该启动入口接线，四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及新增的股票全集完整性专题仍未关闭
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
 - 最后修订日期：2026-08-11
@@ -1405,8 +1405,9 @@ marketRound
 
 ```text
 compareAndSet(false, true)成功
-→ 读取最后一个COMPLETED轮次，从下一15分钟桶补算至当前已经结束桶
-→ processPendingRounds按bar、特征、轮次顺序处理非完成轮次
+→ 读取最后一个COMPLETED轮次，从下一15分钟桶补算至currentEndedBucket（重建区间上界不含）
+→ 幂等创建PENDING(round_time=currentEndedBucket)，不得遗漏最新已结束桶
+→ processPendingRounds以包含上界处理非完成轮次
 → 证据补齐后计算/重算当月DRAFT并执行明确确认入口
 → resolveAllDueObservations结算到期拒绝观察
 → finally释放processing
@@ -1418,6 +1419,7 @@ compareAndSet(false, true)成功
 
 - 历史重建失败不阻断待处理轮次尝试；单个待处理轮次失败转`FAILED_RETRYABLE`且不阻断后续轮次；
 - `ENTRY_PENDING`恢复时重新检查`staleAt`，晚于`staleAt`不补发买入；已完成轮次不重复执行；
+- 启动补偿必须和定时入口一样为`currentEndedBucket`执行`ON CONFLICT DO NOTHING`幂等创建后再处理；禁止仅依赖不含上界的历史重建。特别是`staleAt`前恢复但距离下一cron不足一分钟时，必须在当前启动中处理目标桶，不得延后到`staleAt`后误取消；
 - 拒绝观察的`resolvedAt`不可逆；必须在可补理论入场bar已经尝试构建后，才可写`NO_THEORETICAL_ENTRY`；
 - 抢占失败说明已有轮次流程在执行，启动补偿不得并发处理轮次或拒绝观察；PENDING通知投递仍可由正式消息开关独立处理。
 
@@ -2095,7 +2097,7 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文是长期技术实施基线。当前第四批开发仅处理第23节定义的三个实现差异，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据；AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使第23节P0/P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
+本文是长期技术实施基线。第四批原定的三个实现差异已进入`50467b6`代码基线，但第四批业务Review发现启动补偿遗漏`currentEndedBucket`的P1；当前第五批仅处理该入口接线，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据。AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使第五批P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
 
 ---
 
@@ -2334,3 +2336,67 @@ VIP_STOCK_RULE_MODE=SHADOW
 ```
 
 开发人员完成后必须提交diff、实际Maven/Surefire结果、真实PG隔离与零残留证据、回放产物清理证据，由AI技术负责人进行第四批Review。只有Review确认无P0/P1后，才能将本节状态更新为已实现；即使如此，GATE-1至GATE-4和开关结论保持不变。
+
+
+---
+
+## 24. 第四批业务Review后的第五批永久修订契约（2026-08-12）
+
+> 本节覆盖第23节的实施状态，不改写其已冻结的架构、资金、策略、Schema与发布约束。第五批一次性工程任务和验收命令仅见`vip_stock_alert_remediation_implementation_plan.md`；开发人员不得修改本节。
+
+### 24.1 当前基线与唯一开放P1
+
+`50467b6`已实现以下第四批契约，均转为回归约束：
+
+1. 定时入口为`currentEndedBucket`幂等创建PENDING后，以`round_time <= currentEndedBucket`同次消费；
+2. 历史重建按bar、feature、round、状态与版本恢复至READY；
+3. 回放区分`ONLINE_BASELINE`与`RESTART_STRESS`，以`actualProcessingTime`复用生产ENTRY过期判断。
+
+但启动补偿仅执行`rebuildFromLastCompleted(currentEndedBucket)`和待处理查询。历史重建上界不含，故最后完成轮次为前一桶时，启动入口不会建立当前桶；即使进程在`entryStaleAt`前恢复，也可能等待下一次cron后按过期取消ENTRY。该问题为生产可达P1，当前第五批只修复这一入口缺口。
+
+业务Review提出的“bar非空不代表股票全集完整”属于P2专题：它不进入第五批代码、测试或发布阻断。升级`PROVISIONAL`前，须另行冻结每桶期望股票集合的历史数据源与停牌/无样本语义后再实施，禁止把残留bar数量作为自证的`expectedStockCount`。
+
+### 24.2 启动补偿当前结束桶契约
+
+当启动入口已成功取得与定时入口共享的`processing`标记、且`runtimeGate.shouldBuildRounds()`为true时，固定顺序如下：
+
+```text
+currentEndedBucket = marketClock.currentEndedBucket()
+→ rebuildFromLastCompleted(currentEndedBucket)       // 仅补历史区间，上界不含
+→ ensurePendingRound(currentEndedBucket)             // ON CONFLICT DO NOTHING
+→ processPendingRounds(allowNewEntry, currentEndedBucket) // round_time <= currentEndedBucket
+→ 在历史补建成功时再执行月度初始化、重算与自动确认
+→ 结算到期拒绝观察
+→ finally释放processing
+```
+
+要求：
+
+- 启动与定时入口复用`ensurePendingRound`、`TornStockMarketRoundDAO.insertPendingRoundIgnoreConflict`、`StockMarketRoundFactory`和数据库部分唯一索引；禁止新增SELECT-then-INSERT或第二套创建规则；
+- `actualProcessingTime`继续在`processSingleRound`以`marketClock.now()`取得，不能用历史`roundTime`替代；
+- 抢占失败不并发创建/消费轮次；PENDING通知仍由既有独立门禁投递；
+- 本修订不改变历史补建失败时月度下游fail-closed、新入场关闭和存量管理的既有边界。
+
+固定验收时间线：`recoverAt=10:19:30`、`currentEndedBucket=10:00`、`signalTime=09:45`、`expectedEntryBarTime=10:00`、`entryStaleAt=10:20`。启动本次必须创建并处理10:00桶，事务收到的实际处理时刻必须为10:19:30，不得等待10:20:10 cron。
+
+### 24.3 第五批最小验证与状态更新
+
+1. 行为测试证明启动顺序为历史重建 → 当前桶幂等创建 → 包含上界消费，并证明目标轮次进入bar、feature和事务；
+2. 测试捕获`StockRoundTransactionService`参数，证明`roundTime=10:00`且`actualProcessingTime=10:19:30`；
+3. 保留第四批真实PostgreSQL轮次首次插入、冲突和包含上界查询证据，不以源码/XML字符串断言替代；
+4. 单一干净进程完成编译、第五批聚焦测试和全量测试；独立事务测试继续精确物理清理。
+
+第五批通过仅可将本节P1更新为已实现，不授权开关。以下结论维持：
+
+```text
+VIP_STOCK_ALERT_ENABLED=false
+VIP_STOCK_NEW_ENTRY_ENABLED=false
+VIP_STOCK_FORMAL_NOTICE_ENABLED=false
+VIP_STOCK_DAILY_SUMMARY_ENABLED=false
+VIP_STOCK_RULE_MODE=SHADOW
+
+GATE-1：真实月度状态旧空证据DRAFT尚未经真实数据重算
+GATE-2：当前30日连续窗口尚未恢复
+GATE-3：5槽×20亿真实长窗口四产物回放尚未完成
+GATE-4：两类Shadow前向证据尚未连续运行20个自然日
+```

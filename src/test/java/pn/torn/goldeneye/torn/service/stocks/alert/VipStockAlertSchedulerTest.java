@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -295,6 +296,50 @@ class VipStockAlertSchedulerTest {
 
         scheduler.executeRound();
         verify(barBuildService, times(2)).buildBars(roundTime);
+    }
+
+    @Test
+    @DisplayName("启动补偿_最近已结束桶幂等创建PENDING后当次消费_事务收到真实恢复时刻")
+    void onStartup_createsCurrentEndedBucketPendingRound_processesItInStartup() {
+        // 固定时间线: recoverAt=10:19:30, currentEndedBucket=10:00, entryStaleAt=10:20。
+        // 修复前启动补偿只做历史重建(上界不含当前桶)不创建10:00桶, selectPendingRoundsUpTo查不到该桶,
+        // 合法ENTRY须等到下一次cron 10:20:10才处理,可能超过entryStaleAt被误取消。
+        // 修复后启动入口必须在本次启动中幂等创建并当次消费10:00桶, 事务收到actualProcessingTime=10:19:30。
+        LocalDateTime recoverAt = LocalDateTime.of(2026, 8, 5, 10, 19, 30);
+        LocalDateTime currentEndedBucket = LocalDateTime.of(2026, 8, 5, 10, 0);
+        TornStockMarketRoundDO round = pendingRound(1L, currentEndedBucket);
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, true, false));
+        when(portfolioInitService.verifyAndInitSlots()).thenReturn(true);
+        when(marketClock.currentEndedBucket()).thenReturn(currentEndedBucket);
+        when(marketClock.now()).thenReturn(recoverAt);
+        when(marketClock.today()).thenReturn(LocalDate.of(2026, 8, 5));
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(currentEndedBucket)).thenReturn(List.of(round));
+        when(barBuildService.buildBars(currentEndedBucket)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(currentEndedBucket)).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        InOrder inOrder = inOrder(historyRebuildService, roundDao, barBuildService,
+                featureBuildService, transactionService);
+        inOrder.verify(historyRebuildService).rebuildFromLastCompleted(currentEndedBucket);
+        ArgumentCaptor<TornStockMarketRoundDO> createdRoundCaptor = ArgumentCaptor.forClass(TornStockMarketRoundDO.class);
+        inOrder.verify(roundDao).insertPendingRoundIgnoreConflict(createdRoundCaptor.capture());
+        assertEquals(currentEndedBucket, createdRoundCaptor.getValue().getRoundTime(),
+                "启动补偿必须为最近已结束桶幂等建立PENDING轮次, roundTime=10:00");
+        inOrder.verify(roundDao).selectPendingRoundsUpTo(currentEndedBucket);
+        inOrder.verify(barBuildService).buildBars(currentEndedBucket);
+        inOrder.verify(featureBuildService).buildFeatures(currentEndedBucket);
+        ArgumentCaptor<LocalDateTime> roundTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> actualTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        inOrder.verify(transactionService).executeRound(roundTimeCaptor.capture(), any(), anyBoolean(),
+                actualTimeCaptor.capture());
+        assertEquals(currentEndedBucket, roundTimeCaptor.getValue(),
+                "事务必须收到10:00轮次, 不得延后到下一次cron才处理");
+        assertEquals(recoverAt, actualTimeCaptor.getValue(),
+                "actualProcessingTime必须为10:19:30真实恢复时刻, 不得退回10:00历史轮次时刻");
     }
 
     @Test

@@ -45,7 +45,10 @@
     "entry_stale_comparator": "actualProcessingTime > entryStaleAt cancels; equality remains eligible",
     "continuous_round_producer_required": true,
     "round_producer_contract": "for each newly ended 15m bucket, idempotently create PENDING when build/position/research obligation exists; then process in round_time order",
-    "round_live_acceptance_new_buckets": 3
+    "round_live_acceptance_new_buckets": 3,
+    "startup_current_ended_bucket_creation_required": true,
+    "startup_recovery_before_stale_at_must_process_immediately": true,
+    "startup_must_not_wait_for_next_cron": true
   },
   "buy": {
     "formal_families": [
@@ -525,7 +528,10 @@
     ],
     "provisional_min_shadow_days": 20,
     "formal_notice_requires_separate_approval": true,
-    "daily_summary_requires_separate_approval": true
+    "daily_summary_requires_separate_approval": true,
+    "current_code_gate": "BLOCKED_BY_STARTUP_CURRENT_ENDED_BUCKET_P1",
+    "alert_enable_allowed_now": false,
+    "alert_enable_prerequisite": "startup path idempotently creates and processes currentEndedBucket before next cron, including recoverAt just before entryStaleAt"
   },
   "daily_summary_dynamic_sell": {
     "formula_unfrozen_display": "omit dynamic SELL or show rule not frozen / suggestions disabled / input coverage and missing count",

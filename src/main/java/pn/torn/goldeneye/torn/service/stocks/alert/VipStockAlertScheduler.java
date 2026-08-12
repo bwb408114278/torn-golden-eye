@@ -37,8 +37,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>验证VIP组合槽位完整性</li>
  *   <li>初始化当月风格/成熟度/风险草稿记录</li>
  *   <li>存在轮次构建或研究义务时,与定时入口复用同一JVM防重入标记抢占处理权</li>
- *   <li>抢占成功后在同一try/finally内执行历史重建、未完成轮次处理与拒绝观察结算,
- *       finally释放标记,确保启动补偿真实补建bar</li>
+ *   <li>抢占成功后在同一try/finally内执行历史重建(上界不含)、当前结束桶幂等创建、
+ *       未完成轮次处理与拒绝观察结算,finally释放标记,确保启动补偿真实补建bar</li>
  * </ol>
  * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续;通知投递保持独立语义。
  *
@@ -240,7 +240,9 @@ public class VipStockAlertScheduler {
      *   <li> {@link StockPortfolioInitService#verifyAndInitSlots()} 验证VIP组合槽位;验证未通过(修复或异常)
      *        时强制关闭本次启动的新买入({@code allowNewEntry=false}),存量退出管理与研究义务不受影响</li>
      *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史
-     *        (先证据补齐,月度重算与自动确认必须在其后)</li>
+     *        (上界不含当前结束桶,月度重算与自动确认必须在其后)</li>
+     *   <li> {@link #ensurePendingRound(LocalDateTime)} 为最近已结束桶幂等建立PENDING轮次
+     *        (历史重建上界不含,当前结束桶由幂等创建补齐,避免合法ENTRY等待下一次cron被误取消)</li>
      *   <li> {@link #processPendingRounds(boolean, LocalDateTime)} 处理未完成轮次(先补建理论入场bar,
      *        再结算拒绝观察,避免历史重建跳过的早期失败/积压轮次被误结算)</li>
      *   <li> {@link StockMonthlyStateInitService#recalculateCurrentMonthDrafts()} 重算当月未确认DRAFT
@@ -324,9 +326,9 @@ public class VipStockAlertScheduler {
 
     /**
      * 启动补偿的轮次工作区: 存在轮次构建或研究义务时,与定时入口复用同一JVM防重入标记,
-     * 抢占成功后在统一try/finally内按固定顺序执行历史重建、未完成轮次处理、
-     * 月度状态缺失初始化、未确认DRAFT重算、自动确认与拒绝观察结算,finally释放标记;
-     * 抢占失败说明已有轮次流程在执行,跳过补偿处理。
+     * 抢占成功后在统一try/finally内按固定顺序执行历史重建、当前结束桶幂等创建、
+     * 未完成轮次处理、月度状态缺失初始化、未确认DRAFT重算、自动确认与拒绝观察结算,
+     * finally释放标记;抢占失败说明已有轮次流程在执行,跳过补偿处理。
      * <p>
      * 历史补建是月度重算/自动确认的证据前置: 首次历史桶创建或重建失败时必须阻断同次的
      * 月度状态初始化、重算与自动确认(fail-closed),防止"无证据继续下游";存量退出管理
@@ -350,6 +352,7 @@ public class VipStockAlertScheduler {
             boolean historyRebuildOk = true;
             if (decision.shouldBuildRounds()) {
                 historyRebuildOk = rebuildStartupHistorySafely();
+                ensurePendingRound(currentEndedBucket);
                 boolean effectiveAllowNewEntry = decision.allowNewEntry() && historyRebuildOk;
                 processStartupPendingRoundsSafely(effectiveAllowNewEntry, currentEndedBucket);
             }
