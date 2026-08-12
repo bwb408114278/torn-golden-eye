@@ -343,22 +343,38 @@ class VipStockAlertSchedulerTest {
     }
 
     @Test
-    @DisplayName("启动补偿_历史补建失败_阻断同次月度重算与自动确认且存量退出继续")
-    void onStartup_historyRebuildFails_blocksMonthlyRecalcAndAutoConfirm() {
+    @DisplayName("启动补偿_历史补建失败_存量轮次仍进入事务且allowNewEntry=false")
+    void onStartup_historyRebuildFails_processesExistingRoundsWithNewEntryClosed() {
+        // 历史重建失败必须关闭新入场并阻断月度下游, 但已存在PENDING轮次仍真实进入bar/特征/轮次事务,
+        // 事务收到 allowNewEntry=false, 拒绝观察继续结算。空待处理轮次不能证明"存量事务继续",
+        // 故本测试必须以非空PENDING轮次捕获 executeRound 参数。
+        LocalDateTime currentEndedBucket = LocalDateTime.of(2026, 8, 5, 10, 0);
+        TornStockMarketRoundDO round = pendingRound(1L, currentEndedBucket);
+
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
         when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, true, false));
-        when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
-        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
+        when(portfolioInitService.verifyAndInitSlots()).thenReturn(true);
+        when(marketClock.currentEndedBucket()).thenReturn(currentEndedBucket);
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(currentEndedBucket)).thenReturn(List.of(round));
+        when(barBuildService.buildBars(currentEndedBucket)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(currentEndedBucket)).thenReturn(List.of());
         doThrow(new IllegalStateException("首桶创建失败"))
                 .when(historyRebuildService).rebuildFromLastCompleted(any());
 
         scheduler.onStartup();
 
         verify(historyRebuildService).rebuildFromLastCompleted(any());
+        verify(roundDao).selectPendingRoundsUpTo(currentEndedBucket);
+        verify(barBuildService).buildBars(currentEndedBucket);
+        verify(featureBuildService).buildFeatures(currentEndedBucket);
+        ArgumentCaptor<Boolean> allowNewEntryCaptor = ArgumentCaptor.forClass(Boolean.class);
+        verify(transactionService).executeRound(any(), any(), allowNewEntryCaptor.capture(), any());
+        assertFalse(allowNewEntryCaptor.getValue(),
+                "历史重建失败时存量轮次事务必须收到allowNewEntry=false,关闭本次新入场");
         verify(monthlyStateInitService, never()).initCurrentMonth();
         verify(monthlyStateInitService, never()).recalculateCurrentMonthDrafts();
         verify(monthlyStateInitService, never()).autoConfirmDraftStates(any());
-        verify(roundDao).selectPendingRoundsUpTo(any());
         verify(rejectedObservationService).resolveAllDueObservations(any());
     }
 
@@ -393,6 +409,58 @@ class VipStockAlertSchedulerTest {
         verify(transactionService).executeRound(any(), any(), allowNewEntryCaptor.capture(), any());
         assertFalse(allowNewEntryCaptor.getValue(),
                 "槽位验证失败时启动补偿必须将allowNewEntry强制为false,禁止新买入");
+    }
+
+    @Test
+    @DisplayName("启动补偿_最新桶插入异常_不向外抛出且存量轮次继续处理并关闭新入场")
+    void onStartup_pendingRoundInsertFails_continuesExistingRoundsWithNewEntryClosed() {
+        // 修复前 ensurePendingRound 在DAO插入异常时记录后重新抛出, onStartup 会向 ApplicationReadyEvent
+        // 逃逸并跳过已有未完成轮次处理、拒绝观察结算与独立PENDING通知。
+        // 修复后启动专用安全包装收敛异常: 本次关闭新入场并阻断月度下游, 但存量轮次/拒绝观察/独立通知继续,
+        // finally释放防重入标记, 启动结束后定时入口可再次进入轮次查询/处理路径。
+        LocalDateTime currentEndedBucket = LocalDateTime.of(2026, 8, 5, 10, 0);
+        LocalDateTime recoverAt = LocalDateTime.of(2026, 8, 5, 10, 19, 30);
+        TornStockMarketRoundDO round = pendingRound(1L, currentEndedBucket);
+        TornStockMarketRoundDO roundForCron = pendingRound(2L, currentEndedBucket);
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, true, true, true));
+        when(portfolioInitService.verifyAndInitSlots()).thenReturn(true);
+        when(marketClock.currentEndedBucket()).thenReturn(currentEndedBucket);
+        when(marketClock.now()).thenReturn(recoverAt);
+        when(roundDao.insertPendingRoundIgnoreConflict(any()))
+                .thenThrow(new IllegalStateException("最新桶插入瞬时故障"))
+                .thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(currentEndedBucket))
+                .thenReturn(List.of(round))
+                .thenReturn(List.of(roundForCron));
+        when(barBuildService.buildBars(currentEndedBucket)).thenReturn(List.of(new TornStockMarketBar15mDO()));
+        when(featureBuildService.buildFeatures(currentEndedBucket)).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        // P0: 插入异常不向启动事件逃逸; 存量PENDING轮次真实进入bar/特征/轮次事务且allowNewEntry=false
+        verify(roundDao).insertPendingRoundIgnoreConflict(any());
+        verify(roundDao).selectPendingRoundsUpTo(currentEndedBucket);
+        verify(barBuildService).buildBars(currentEndedBucket);
+        verify(featureBuildService).buildFeatures(currentEndedBucket);
+        ArgumentCaptor<Boolean> allowNewEntryCaptor = ArgumentCaptor.forClass(Boolean.class);
+        verify(transactionService).executeRound(any(), any(), allowNewEntryCaptor.capture(), any());
+        assertFalse(allowNewEntryCaptor.getValue(),
+                "最新桶插入异常时启动补偿必须将allowNewEntry强制为false,关闭本次新入场");
+
+        // 月度状态下游全部阻断, 拒绝观察与独立PENDING通知继续
+        verify(monthlyStateInitService, never()).initCurrentMonth();
+        verify(monthlyStateInitService, never()).recalculateCurrentMonthDrafts();
+        verify(monthlyStateInitService, never()).autoConfirmDraftStates(any());
+        verify(rejectedObservationService).resolveAllDueObservations(any());
+        verify(noticeSendService).sendPendingNotices();
+
+        // 防重入: 启动处理结束后, 定时入口能重新进入轮次查询/处理路径, 证明processing已释放
+        scheduler.executeRound();
+        verify(roundDao, times(2)).insertPendingRoundIgnoreConflict(any());
+        verify(roundDao, times(2)).selectPendingRoundsUpTo(currentEndedBucket);
+        verify(barBuildService, times(2)).buildBars(currentEndedBucket);
     }
 
     /**

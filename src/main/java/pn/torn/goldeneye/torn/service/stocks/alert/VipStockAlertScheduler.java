@@ -41,6 +41,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       未完成轮次处理与拒绝观察结算,finally释放标记,确保启动补偿真实补建bar</li>
  * </ol>
  * 每个初始化步骤独立try-catch,单步失败仅记录日志不阻塞后续;通知投递保持独立语义。
+ * <p>
+ * 最新已结束桶的幂等创建失败时按fail-closed收敛:本次关闭新入场并阻断月度状态下游,
+ * 但仍继续处理数据库已有未完成轮次与拒绝观察,启动完成后独立投递历史PENDING通知,
+ * 异常不向{@code ApplicationReadyEvent}逃逸;定时入口的异常上抛语义保持不变。
  *
  * @author Bai
  * @version 1.2.14
@@ -241,8 +245,9 @@ public class VipStockAlertScheduler {
      *        时强制关闭本次启动的新买入({@code allowNewEntry=false}),存量退出管理与研究义务不受影响</li>
      *   <li> {@link StockHistoryRebuildService#rebuildFromLastCompleted(LocalDateTime)} 重建历史
      *        (上界不含当前结束桶,月度重算与自动确认必须在其后)</li>
-     *   <li> {@link #ensurePendingRound(LocalDateTime)} 为最近已结束桶幂等建立PENDING轮次
-     *        (历史重建上界不含,当前结束桶由幂等创建补齐,避免合法ENTRY等待下一次cron被误取消)</li>
+     *   <li> {@link #ensureStartupPendingRoundSafely(LocalDateTime)} 为最近已结束桶幂等创建PENDING轮次
+     *        (历史重建上界不含,当前结束桶由幂等创建补齐,避免合法ENTRY等待下一次cron被误取消;
+     *        创建异常按fail-closed收敛:关闭本次新入场并阻断月度下游,不向启动事件逃逸)</li>
      *   <li> {@link #processPendingRounds(boolean, LocalDateTime)} 处理未完成轮次(先补建理论入场bar,
      *        再结算拒绝观察,避免历史重建跳过的早期失败/积压轮次被误结算)</li>
      *   <li> {@link StockMonthlyStateInitService#recalculateCurrentMonthDrafts()} 重算当月未确认DRAFT
@@ -330,9 +335,9 @@ public class VipStockAlertScheduler {
      * 未完成轮次处理、月度状态缺失初始化、未确认DRAFT重算、自动确认与拒绝观察结算,
      * finally释放标记;抢占失败说明已有轮次流程在执行,跳过补偿处理。
      * <p>
-     * 历史补建是月度重算/自动确认的证据前置: 首次历史桶创建或重建失败时必须阻断同次的
+     * 历史重建与最新已结束桶创建是月度重算/自动确认的证据前置: 任一失败都必须阻断同次的
      * 月度状态初始化、重算与自动确认(fail-closed),防止"无证据继续下游";存量退出管理
-     * (未完成轮次处理)仍可继续,但新入场强制关闭。
+     * (未完成轮次处理)仍可继续,但新入场强制关闭;拒绝观察结算不依赖上述两个结果。
      *
      * @param decision 运行时判定结果
      */
@@ -350,16 +355,18 @@ public class VipStockAlertScheduler {
         try {
             LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
             boolean historyRebuildOk = true;
+            boolean currentBucketEnsureOk = true;
             if (decision.shouldBuildRounds()) {
                 historyRebuildOk = rebuildStartupHistorySafely();
-                ensurePendingRound(currentEndedBucket);
-                boolean effectiveAllowNewEntry = decision.allowNewEntry() && historyRebuildOk;
+                currentBucketEnsureOk = ensureStartupPendingRoundSafely(currentEndedBucket);
+                boolean effectiveAllowNewEntry = decision.allowNewEntry()
+                        && historyRebuildOk && currentBucketEnsureOk;
                 processStartupPendingRoundsSafely(effectiveAllowNewEntry, currentEndedBucket);
             }
-            // 月度状态: 历史补建失败时阻断同次初始化/重算/自动确认(证据前置),
+            // 月度状态: 历史补建或最新已结束桶创建失败时阻断同次初始化/重算/自动确认(证据前置),
             // 避免"无证据继续下游"的冷启动假象;存量退出管理不受影响。
-            if (historyRebuildOk) {
-                // 历史重建补齐证据后,再为缺失股票初始化当月DRAFT(先证据、后DRAFT、后确认)
+            if (historyRebuildOk && currentBucketEnsureOk) {
+                // 证据补齐后,再为缺失股票初始化当月DRAFT(先证据、后DRAFT、后确认)
                 if (decision.shouldBuildRounds()) {
                     initCurrentMonthSafely();
                 }
@@ -368,7 +375,7 @@ public class VipStockAlertScheduler {
                 recalculateCurrentMonthDraftsSafely();
                 autoConfirmCurrentMonthDraftsSafely();
             } else {
-                log.error("VIP股票策略调度-历史补建失败,阻断同次月度状态初始化/重算/自动确认,"
+                log.error("VIP股票策略调度-历史补建或最新已结束桶创建失败,阻断同次月度状态初始化/重算/自动确认,"
                         + "新入场强制关闭, 存量退出管理继续");
             }
             if (decision.manageResearchObligations()) {
@@ -392,6 +399,30 @@ public class VipStockAlertScheduler {
         } catch (Exception e) {
             log.error("VIP股票策略调度-历史重建失败,阻断同次月度初始化/重算/自动确认,"
                     + "新入场强制关闭", e);
+            return false;
+        }
+    }
+
+    /**
+     * 启动专用安全包装: 为最近已结束桶幂等创建PENDING轮次,失败时收敛为可恢复的fail-closed结果。
+     * <p>
+     * 复用 {@link #ensurePendingRound(LocalDateTime)}: 成功插入或数据库冲突返回0均视为创建成功并返回true;
+     * 捕获其抛出的DAO异常后,以ERROR记录含当前桶时间与原始堆栈的信息并返回false,不向启动事件继续抛出。
+     * 调用方据返回值关闭本次新入场并阻断月度状态下游,但仍继续处理数据库已有未完成轮次与拒绝观察。
+     * 本方法只在启动路径消化异常,不得改变定时入口调用 {@link #ensurePendingRound(LocalDateTime)}
+     * "记录错误后抛出"的语义(后续cron可依赖幂等插入或未完成查询恢复)。
+     *
+     * @param currentEndedBucket 最近已结束桶时间
+     * @return true表示创建成功或冲突已存在;false表示DAO插入异常,本次关闭新入场并阻断月度下游
+     */
+    private boolean ensureStartupPendingRoundSafely(LocalDateTime currentEndedBucket) {
+        try {
+            ensurePendingRound(currentEndedBucket);
+            return true;
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿创建最近已结束桶失败,"
+                    + "roundTime={}, 本次关闭新入场并阻断月度状态下游,"
+                    + "仍继续处理已有未完成轮次和拒绝观察", currentEndedBucket, e);
             return false;
         }
     }

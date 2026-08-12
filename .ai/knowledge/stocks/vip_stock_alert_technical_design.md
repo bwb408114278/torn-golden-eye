@@ -8,11 +8,11 @@
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
 - 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
-- 当前实现Review基线：`50467b6`（2026-08-11）
-- 技术验收状态：第四批业务Review不通过。第四批原定的定时包含上界、历史重建缺口恢复和回放晚恢复压力语义已进入实现基线；但启动补偿遗漏`currentEndedBucket`，存在服务在`entryStaleAt`前恢复却延至下一cron后误取消合法ENTRY的P1。第五批仅修复该启动入口接线，四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及新增的股票全集完整性专题仍未关闭
+- 当前实现Review基线：`9cd92a3`（2026-08-12）
+- 技术验收状态：第五批业务Review不通过。第五批已将启动补偿的`currentEndedBucket`幂等创建和包含上界消费纳入实现基线，原合法ENTRY延迟处理P1转为回归约束；但该创建步骤的DAO异常会从`ApplicationReadyEvent`逃逸，阻断存量轮次、拒绝观察和独立PENDING通知，形成启动可用性P0。第六批仅修复该启动异常边界并补齐历史重建失败下的存量事务证据；四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及股票全集完整性专题仍未关闭
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后修订日期：2026-08-11
+- 最后修订日期：2026-08-12
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
@@ -1418,6 +1418,7 @@ compareAndSet(false, true)成功
 约束：
 
 - 历史重建失败不阻断待处理轮次尝试；单个待处理轮次失败转`FAILED_RETRYABLE`且不阻断后续轮次；
+- 启动路径为`currentEndedBucket`执行幂等创建时发生DAO异常，必须在启动编排层记录包含桶时间与异常堆栈的`ERROR`并安全收敛：本次`allowNewEntry=false`、月度初始化/重算/自动确认全部跳过，但仍查询处理数据库中已有未完成轮次、继续结算拒绝观察、在`finally`释放`processing`，并由`onStartup()`继续独立投递历史PENDING通知；不得将异常伪装为创建成功，也不得改变定时入口的异常上抛语义；
 - `ENTRY_PENDING`恢复时重新检查`staleAt`，晚于`staleAt`不补发买入；已完成轮次不重复执行；
 - 启动补偿必须和定时入口一样为`currentEndedBucket`执行`ON CONFLICT DO NOTHING`幂等创建后再处理；禁止仅依赖不含上界的历史重建。特别是`staleAt`前恢复但距离下一cron不足一分钟时，必须在当前启动中处理目标桶，不得延后到`staleAt`后误取消；
 - 拒绝观察的`resolvedAt`不可逆；必须在可补理论入场bar已经尝试构建后，才可写`NO_THEORETICAL_ENTRY`；
@@ -2097,7 +2098,7 @@ NapCat本期不建设高可用，因此“永久漏发为0”和网络层精确�
 - `src/main/java/pn/torn/goldeneye/napcat/send/msg/GroupMsgHttpBuilder.java`
 - `src/main/java/pn/torn/goldeneye/configuration/property/ProjectProperty.java`
 
-本文是长期技术实施基线。第四批原定的三个实现差异已进入`50467b6`代码基线，但第四批业务Review发现启动补偿遗漏`currentEndedBucket`的P1；当前第五批仅处理该入口接线，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据。AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使第五批P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
+本文是长期技术实施基线。第五批`currentEndedBucket`创建并当次消费已进入`9cd92a3`代码基线，但业务Review发现其DAO异常会逃逸启动事件的P0；当前第六批仅处理该启动异常边界与历史重建失败下的直接测试证据，工程师必须按`vip_stock_alert_remediation_implementation_plan.md`完成代码和测试并提交实际验证证据。AI技术负责人Review通过并更新本方案前，任何finding不得自行关闭。即使第六批P0/P1实现通过，GATE-1至GATE-4、长窗口回放、前向Shadow和业务单独审批仍未完成；不得开启任何股票提醒开关，不得创建正式资金批次或发送正式买卖消息。
 
 ---
 
@@ -2387,6 +2388,80 @@ currentEndedBucket = marketClock.currentEndedBucket()
 4. 单一干净进程完成编译、第五批聚焦测试和全量测试；独立事务测试继续精确物理清理。
 
 第五批通过仅可将本节P1更新为已实现，不授权开关。以下结论维持：
+
+```text
+VIP_STOCK_ALERT_ENABLED=false
+VIP_STOCK_NEW_ENTRY_ENABLED=false
+VIP_STOCK_FORMAL_NOTICE_ENABLED=false
+VIP_STOCK_DAILY_SUMMARY_ENABLED=false
+VIP_STOCK_RULE_MODE=SHADOW
+
+GATE-1：真实月度状态旧空证据DRAFT尚未经真实数据重算
+GATE-2：当前30日连续窗口尚未恢复
+GATE-3：5槽×20亿真实长窗口四产物回放尚未完成
+GATE-4：两类Shadow前向证据尚未连续运行20个自然日
+```
+
+
+---
+
+## 25. 第五批业务Review后的第六批永久修订契约（2026-08-12）
+
+> 本节覆盖第24节的实施状态，不改变已冻结的策略、资金、Schema、Shadow、通知和发布约束。具体工程任务、文件和验收命令仅见一次性文档`vip_stock_alert_remediation_implementation_plan.md`；开发人员不得修改本节。
+
+### 25.1 当前基线与开放项
+
+`9cd92a3`已将第24节的启动当前结束桶P1纳入实现基线，以下均为回归约束：
+
+1. 启动补偿在历史重建（上界不含）后，对`currentEndedBucket`执行`ON CONFLICT DO NOTHING`幂等创建；
+2. 启动待处理查询以`round_time <= currentEndedBucket`包含上界，目标桶在本次启动进入bar、feature和轮次事务；
+3. 轮次事务使用`marketClock.now()`作为`actualProcessingTime`，而非历史`roundTime`。
+
+第五批时钟透传测试证明的是启动编排接线，不是带真实批次、`entryStaleAt`和成交结果的ENTRY端到端证明；不得扩大其证据含义。
+
+当前唯一生产阻断为P0：`ensurePendingRound(currentEndedBucket)`在DAO插入异常时记录后重新抛出，启动调用方未安全包装，异常可从`onStartup()`逃逸并跳过已有未完成轮次处理、拒绝观察结算和独立PENDING通知。P1为直接测试证据缺口：历史重建失败测试必须以已存在PENDING轮次证明存量事务继续且新入场关闭。
+
+“bar非空不代表每桶股票全集完整”仍为需要另行冻结数据源、停牌及无样本语义的P2专题，不进入第六批实现或发布阻断。
+
+### 25.2 启动桶创建异常的fail-closed契约
+
+当启动入口已取得共享`processing`标记且`runtimeGate.shouldBuildRounds()`为true时：
+
+```text
+currentEndedBucket = marketClock.currentEndedBucket()
+→ rebuildFromLastCompleted(currentEndedBucket)
+→ 尝试ensurePendingRound(currentEndedBucket)
+  ├─ 成功或冲突已存在：currentBucketEnsureOk=true
+  └─ DAO异常：记录ERROR（roundTime + 原始堆栈），currentBucketEnsureOk=false
+→ processPendingRounds(
+      decision.allowNewEntry && historyRebuildOk && currentBucketEnsureOk,
+      currentEndedBucket
+  )
+→ historyRebuildOk && currentBucketEnsureOk时才执行月度初始化、DRAFT重算和自动确认
+→ 仍结算到期拒绝观察
+→ finally释放processing
+→ onStartup继续按独立门禁投递历史PENDING通知
+```
+
+约束：
+
+- 启动专用安全包装必须复用`ensurePendingRound()`；不得复制DAO插入、增加SELECT-then-INSERT或新建第二套轮次创建规则；
+- 创建失败不得向`ApplicationReadyEvent`继续抛出，不得伪装成功；日志必须包含`currentEndedBucket`与原始异常堆栈；
+- 创建失败或历史重建失败均必须使本次`allowNewEntry=false`，并阻断本次月度初始化、重算和自动确认；
+- 上述失败不得阻断数据库已有未完成轮次的处理、拒绝观察结算、`finally`释放防重入标记和独立PENDING通知投递；
+- 不改变定时入口调用`ensurePendingRound()`时的异常上抛语义；后续cron仍可利用已有`ON CONFLICT DO NOTHING`和未完成轮次查询恢复；
+- 不新增Schema、SQL、锁、重试框架、消息基础设施或运行开关。
+
+### 25.3 第六批最小验证与发布结论
+
+必须以`VipStockAlertSchedulerTest`完成下列聚焦行为证据：
+
+1. 最新桶插入抛异常时，`onStartup()`不向外抛出；已有PENDING轮次仍进入bar、feature和轮次事务，事务接收`allowNewEntry=false`；
+2. 同一场景中，月度初始化、重算和自动确认均不执行，拒绝观察继续结算，且正式通知开关允许时历史PENDING通知继续投递；启动完成后定时入口可再次进入，以证明`processing`已释放；
+3. 历史重建异常且存在PENDING轮次时，存量轮次仍进入事务且`allowNewEntry=false`，月度下游不执行；
+4. 运行JDK 21编译、`VipStockAlertSchedulerTest`聚焦测试与`git diff --check`。本批未修改Schema/SQL，不重复建设真实PostgreSQL异常注入矩阵；保留既有轮次Mapper首次插入、冲突与包含上界真实证据。
+
+第六批通过不授权数据构建、Shadow新入场、正式通知、日报或规则模式升级。以下结论继续有效：
 
 ```text
 VIP_STOCK_ALERT_ENABLED=false
