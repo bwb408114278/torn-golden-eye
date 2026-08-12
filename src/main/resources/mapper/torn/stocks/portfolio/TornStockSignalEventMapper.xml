@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockSignalEventMapper">
+    <!-- 按稳定业务键锁定事件,用于轮次重试幂等复用 -->
+    <select id="selectByBusinessKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
+        SELECT * FROM torn_stock_signal_event
+        WHERE stocks_id = #{stocksId}
+          AND strategy_type = #{strategyType}
+          AND round_time = #{roundTime}
+          AND buy_rule_version = #{buyRuleVersion}
+          AND deleted = 0
+        ORDER BY id ASC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <!-- 业务唯一键冲突安全插入,并发重试由数据库收敛 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_stock_signal_event
+            (event_no, round_time, stocks_id, stocks_shortname, strategy_type,
+             signal_reference_price, style_prior, style_maturity, risk_level,
+             style_effective_month, buy_rule_version, quality_score,
+             feature_snapshot, style_snapshot, eligibility_result, eligibility_reasons,
+             candidate_rank, portfolio_decision, reject_reason, formal_batch_id,
+             shadow_batch_id, shadow_candidate_batch_id, later_mfe, later_mae, resolved_at,
+             observation_result, observation_data_incomplete, theoretical_entry_time,
+             theoretical_entry_price, theoretical_exit_signal_time, theoretical_exit_time,
+             theoretical_exit_price, theoretical_close_type, theoretical_net_return,
+             deleted, create_time, update_time)
+        VALUES
+            (#{event.eventNo}, #{event.roundTime}, #{event.stocksId}, #{event.stocksShortname}, #{event.strategyType},
+             #{event.signalReferencePrice}, #{event.stylePrior}, #{event.styleMaturity}, #{event.riskLevel},
+             #{event.styleEffectiveMonth}, #{event.buyRuleVersion}, #{event.qualityScore},
+             #{event.featureSnapshot, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{event.styleSnapshot, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{event.eligibilityResult},
+             #{event.eligibilityReasons, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{event.candidateRank}, #{event.portfolioDecision}, #{event.rejectReason},
+             #{event.formalBatchId}, #{event.shadowBatchId}, #{event.shadowCandidateBatchId},
+             #{event.laterMfe}, #{event.laterMae}, #{event.resolvedAt}, #{event.observationResult},
+             #{event.observationDataIncomplete}, #{event.theoreticalEntryTime}, #{event.theoreticalEntryPrice},
+             #{event.theoreticalExitSignalTime}, #{event.theoreticalExitTime}, #{event.theoreticalExitPrice},
+             #{event.theoreticalCloseType}, #{event.theoreticalNetReturn},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <!-- 批量查询未结算拒绝观察事件 -->
+    <select id="selectPendingRejectedObservationEvents" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
+        SELECT event.* FROM torn_stock_signal_event event
+        WHERE round_time &gt;= #{startTime}
+          AND round_time &lt; #{endTime}
+          AND portfolio_decision = 'REJECTED'
+          AND EXISTS (
+              SELECT 1 FROM torn_stock_virtual_batch batch
+              WHERE batch.signal_event_id = event.id
+                AND batch.ledger_type = 'REJECTED_OBSERVATION'
+                AND batch.deleted = 0
+          )
+          AND resolved_at IS NULL
+          AND deleted = 0
+        ORDER BY round_time ASC, id ASC
+    </select>
+
+    <!-- 批量查询全部未结算拒绝观察事件,用于停机补偿 -->
+    <select id="selectAllPendingRejectedObservationEvents" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO">
+        SELECT event.* FROM torn_stock_signal_event event
+        WHERE portfolio_decision = 'REJECTED'
+          AND EXISTS (
+              SELECT 1 FROM torn_stock_virtual_batch batch
+              WHERE batch.signal_event_id = event.id
+                AND batch.ledger_type = 'REJECTED_OBSERVATION'
+                AND batch.deleted = 0
+          )
+          AND resolved_at IS NULL
+          AND deleted = 0
+        ORDER BY round_time ASC, id ASC
+    </select>
+
+    <!-- 只回写尚未结算的拒绝观察结果,避免并发调度覆盖已完成结果 -->
+    <update id="updateObservationResultsByIds">
+        UPDATE torn_stock_signal_event
+        SET later_mfe = source.later_mfe,
+            later_mae = source.later_mae,
+            resolved_at = source.resolved_at,
+            observation_result = source.observation_result,
+            observation_data_incomplete = source.observation_data_incomplete,
+            theoretical_entry_time = source.theoretical_entry_time,
+            theoretical_entry_price = source.theoretical_entry_price,
+            theoretical_exit_signal_time = source.theoretical_exit_signal_time,
+            theoretical_exit_time = source.theoretical_exit_time,
+            theoretical_exit_price = source.theoretical_exit_price,
+            theoretical_close_type = source.theoretical_close_type,
+            theoretical_net_return = source.theoretical_net_return,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+            <foreach collection="events" item="event" separator=",">
+                (CAST(#{event.id} AS BIGINT), CAST(#{event.laterMfe} AS NUMERIC(18,10)),
+                 CAST(#{event.laterMae} AS NUMERIC(18,10)), CAST(#{event.resolvedAt} AS TIMESTAMP),
+                 CAST(#{event.observationResult} AS VARCHAR(64)),
+                 CAST(#{event.observationDataIncomplete} AS BOOLEAN),
+                 CAST(#{event.theoreticalEntryTime} AS TIMESTAMP),
+                 CAST(#{event.theoreticalEntryPrice} AS NUMERIC(18,6)),
+                 CAST(#{event.theoreticalExitSignalTime} AS TIMESTAMP),
+                 CAST(#{event.theoreticalExitTime} AS TIMESTAMP),
+                 CAST(#{event.theoreticalExitPrice} AS NUMERIC(18,6)),
+                 CAST(#{event.theoreticalCloseType} AS VARCHAR(32)),
+                 CAST(#{event.theoreticalNetReturn} AS NUMERIC(18,10)))
+            </foreach>
+        ) AS source(id, later_mfe, later_mae, resolved_at, observation_result,
+                    observation_data_incomplete, theoretical_entry_time, theoretical_entry_price,
+                    theoretical_exit_signal_time, theoretical_exit_time, theoretical_exit_price,
+                    theoretical_close_type, theoretical_net_return)
+        WHERE torn_stock_signal_event.id = source.id
+          AND torn_stock_signal_event.resolved_at IS NULL
+    </update>
+
+    <!-- 判断是否存在未结算的拒绝观察事件 -->
+    <select id="existsPendingRejectedObservationEvents" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM torn_stock_signal_event event
+            WHERE portfolio_decision = 'REJECTED'
+              AND resolved_at IS NULL
+              AND deleted = 0
+              AND EXISTS (
+                  SELECT 1 FROM torn_stock_virtual_batch batch
+                  WHERE batch.signal_event_id = event.id
+                    AND batch.ledger_type = 'REJECTED_OBSERVATION'
+                    AND batch.deleted = 0
+              )
+        )
+    </select>
+</mapper>

@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockMarketBar15mMapper">
+    <!-- 按bar开始时间和构建版本批量查询全部股票bar -->
+    <select id="selectByBarStartTime" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM torn_stock_market_bar_15m
+        WHERE bar_start_time = #{barStartTime}
+          AND build_version = #{buildVersion}
+          AND deleted = 0
+        ORDER BY stocks_id ASC
+    </select>
+
+    <!-- 按时间范围批量查询全部股票bar -->
+    <select id="selectByTimeRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM torn_stock_market_bar_15m
+        WHERE bar_start_time >= #{startTime}
+          AND bar_start_time <![CDATA[<=]]> #{endTime}
+          AND build_version = #{buildVersion}
+          AND deleted = 0
+        ORDER BY stocks_id ASC, bar_start_time ASC
+    </select>
+
+    <!-- 按唯一键执行UPSERT -->
+    <insert id="upsertBar">
+        INSERT INTO torn_stock_market_bar_15m
+            (stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+             first_sample_time, last_sample_time, first_price, last_price,
+             low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+             usable, quality_reason, build_version, source_max_history_id,
+             deleted, create_time, update_time)
+        VALUES
+            (#{bar.stocksId}, #{bar.stocksShortname}, #{bar.barStartTime}, #{bar.barEndTime},
+             #{bar.firstSampleTime}, #{bar.lastSampleTime}, #{bar.firstPrice}, #{bar.lastPrice},
+             #{bar.lowPrice}, #{bar.highPrice}, #{bar.sampleCount}, #{bar.duplicateCount}, #{bar.tailGapSeconds},
+             #{bar.usable}, #{bar.qualityReason}, #{bar.buildVersion}, #{bar.sourceMaxHistoryId},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (stocks_id, bar_start_time, build_version) WHERE deleted = 0
+        DO UPDATE SET
+             stocks_shortname = EXCLUDED.stocks_shortname,
+             bar_end_time = EXCLUDED.bar_end_time,
+             first_sample_time = EXCLUDED.first_sample_time,
+             last_sample_time = EXCLUDED.last_sample_time,
+             first_price = EXCLUDED.first_price,
+             last_price = EXCLUDED.last_price,
+             low_price = EXCLUDED.low_price,
+             high_price = EXCLUDED.high_price,
+             sample_count = EXCLUDED.sample_count,
+             duplicate_count = EXCLUDED.duplicate_count,
+             tail_gap_seconds = EXCLUDED.tail_gap_seconds,
+             usable = EXCLUDED.usable,
+             quality_reason = EXCLUDED.quality_reason,
+             source_max_history_id = EXCLUDED.source_max_history_id,
+             update_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- 按股票集合和时间范围批量查询bar -->
+    <select id="selectByStocksAndTimeRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM torn_stock_market_bar_15m
+        WHERE stocks_id IN
+        <foreach collection="stocksIds" item="stocksId" open="(" separator="," close=")">
+            #{stocksId}
+        </foreach>
+          AND bar_start_time &gt;= #{startTime}
+          AND bar_start_time &lt;= #{endTime}
+          AND build_version = #{buildVersion}
+          AND deleted = 0
+        ORDER BY stocks_id ASC, bar_start_time ASC
+    </select>
+
+    <!-- 查询摘要时点前每支股票最新可用bar -->
+    <select id="selectLatestUsableByStocks" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM (
+            SELECT b.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY b.stocks_id
+                       ORDER BY b.bar_start_time DESC, b.id DESC
+                   ) AS row_num
+            FROM torn_stock_market_bar_15m b
+            WHERE b.stocks_id IN
+            <foreach collection="stocksIds" item="stocksId" open="(" separator="," close=")">
+                #{stocksId}
+            </foreach>
+              AND b.bar_start_time <![CDATA[<=]]> #{cutoffTime}
+              AND b.bar_end_time <![CDATA[>=]]> #{minBarEndTime}
+              AND b.build_version = #{buildVersion}
+              AND b.usable = true
+              AND b.last_price > 0
+              AND b.deleted = 0
+        ) latest
+        WHERE row_num = 1
+        ORDER BY stocks_id ASC
+    </select>
+
+    <!-- 批量查询指定截止时间前每支股票可用bar的首尾时间(末桶使用bar_end_time闭合语义,映射到DO.barEndTime) -->
+    <select id="selectUsableEvidenceEdges" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT stocks_id,
+               MIN(bar_start_time) AS first_sample_time,
+               MAX(bar_end_time) AS bar_end_time
+        FROM torn_stock_market_bar_15m
+        WHERE stocks_id IN
+        <foreach collection="stocksIds" item="stocksId" open="(" separator="," close=")">
+            #{stocksId}
+        </foreach>
+          AND bar_start_time <![CDATA[<]]> #{cutoffTime}
+          AND build_version = #{buildVersion}
+          AND usable = true
+          AND last_price > 0
+          AND deleted = 0
+        GROUP BY stocks_id
+        ORDER BY stocks_id ASC
+    </select>
+
+    <!-- 按股票集合和时间范围批量查询可用bar -->
+    <select id="selectUsableByStocksAndTimeRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO">
+        SELECT id, stocks_id, stocks_shortname, bar_start_time, bar_end_time,
+               first_sample_time, last_sample_time, first_price, last_price,
+               low_price, high_price, sample_count, duplicate_count, tail_gap_seconds,
+               usable, quality_reason, build_version, source_max_history_id,
+               deleted, create_time, update_time
+        FROM torn_stock_market_bar_15m
+        WHERE stocks_id IN
+        <foreach collection="stocksIds" item="stocksId" open="(" separator="," close=")">
+            #{stocksId}
+        </foreach>
+          AND bar_start_time &gt;= #{startTime}
+          AND bar_start_time &lt;= #{endTime}
+          AND build_version = #{buildVersion}
+          AND usable = true
+          AND last_price > 0
+          AND deleted = 0
+        ORDER BY stocks_id ASC, bar_start_time ASC
+    </select>
+</mapper>

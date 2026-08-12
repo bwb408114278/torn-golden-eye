@@ -1,0 +1,541 @@
+{
+  "schema_version": 2,
+  "status": "SHADOW_CANDIDATE",
+  "data": {
+    "range": "2026-01-26/2026-07-23",
+    "stocks": 35,
+    "bars_15m": 587650,
+    "sell_fee": 0.001,
+    "history_note": "less than six months; annualized values are comparative backtest metrics"
+  },
+  "objective": {
+    "early_stage_annualized_idea": 0.2,
+    "is_upper_bound": false,
+    "principle": "seek higher risk-adjusted return without holdout tuning, higher unexplained drawdown, or degraded executability",
+    "user_reported_manual_annualized": 0.24,
+    "manual_value_verified": false,
+    "manual_log_status": "July records not updated; reference only"
+  },
+  "execution": {
+    "bar_minutes": 15,
+    "signal_fill": "next contiguous bar",
+    "slots": 5,
+    "slot_cash": 2000000000,
+    "initial_cash": 10000000000,
+    "research_slot_cash": 400000000,
+    "research_initial_cash": 2000000000,
+    "capital_note": "production technical design uses 5 slots x 2B; historical validation results below used 5 slots x 400M and require exact replay under the production capital setting",
+    "same_stock_open_batches": 1,
+    "normal_cooldown_hours": 24,
+    "risk_cooldown_hours": 48,
+    "requires_false_reset": true,
+    "equity": "cash + open positions marked at current price with sell fee",
+    "continuous_bar_gap_minutes": 15,
+    "entry_must_use_immediate_next_bucket": true,
+    "entry_upward_deviation_cancel": 0.0015,
+    "entry_deviation_direction": "upward_only",
+    "bar_continuity_basis": "adjacent 15-minute market buckets, independent of process uptime",
+    "bar_minute_sample_minimum": 10,
+    "bar_tail_freshness_minutes": 5,
+    "max_missing_minute_samples_per_bucket": 5,
+    "restart_backfill_required": true,
+    "restart_requires_new_full_bar_window": false,
+    "entry_pending_stale_minutes_from_signal_bar_start": 35,
+    "entry_pending_expected_bucket_only": true,
+    "entry_stale_comparator": "actualProcessingTime > entryStaleAt cancels; equality remains eligible",
+    "continuous_round_producer_required": true,
+    "round_producer_contract": "for each newly ended 15m bucket, idempotently create PENDING when build/position/research obligation exists; then process in round_time order",
+    "round_live_acceptance_new_buckets": 3,
+    "startup_current_ended_bucket_creation_required": true,
+    "startup_recovery_before_stale_at_must_process_immediately": true,
+    "startup_must_not_wait_for_next_cron": true
+  },
+  "buy": {
+    "formal_families": [
+      "DEEP_MEAN_REVERSION_BUY",
+      "RANGE_LOWER_BUY",
+      "STRICT_REBOUND_CONFIRM_BUY"
+    ],
+    "deep": {
+      "styles": [
+        "NARROW",
+        "RANGING",
+        "STEADY"
+      ],
+      "entry": "low30_distance<=0.3%; effectiveZ1<=-2; return7d>=-1%; MA7/MA30-1>=-2%"
+    },
+    "range": {
+      "styles": [
+        "NARROW",
+        "RANGING"
+      ],
+      "entry": "width30<=8%; position30<=10%; effectiveZ1<=-0.5; return6h<=0"
+    },
+    "strict_rebound": {
+      "styles": [
+        "WEAK",
+        "DECLINER"
+      ],
+      "entry": "low30_distance<=0.5%; return1d>0; Z1>=0.8; price<=MA30*1.002"
+    },
+    "narrow_z_adjustment": 0.6,
+    "retired_from_group": [
+      "current wide SWING_REVERSAL_BUY"
+    ],
+    "research": [
+      "TREND_PULLBACK_BUY",
+      "price breakout without volume claim"
+    ],
+    "candidate_ranking": {
+      "comparator": [
+        "qualityScore DESC",
+        "stocksId ASC"
+      ],
+      "family_priority": null,
+      "deep_score": "100 + max(0,-effectiveZ1)*10 + max(0,0.003-low30Distance)*1000",
+      "range_score": "80 + max(0,0.10-position30)*100 + max(0,-effectiveZ1)*5",
+      "strict_rebound_score": "60 + Z1*5 + max(0,0.005-low30Distance)*1000",
+      "historical_same_round_max_candidates": 3,
+      "ranking_sensitivity_changed_result": false
+    }
+  },
+  "sell": {
+    "formal_baseline": {
+      "target_net_return": 0.008,
+      "risk_net_return": -0.015,
+      "max_hold_days": 14,
+      "range_profitable_upper_exit": true,
+      "range_upper_position30": 0.6
+    },
+    "dynamic": {
+      "status": "RESEARCH_DATA_ONLY",
+      "independent_of_rotation": true,
+      "inputs": [
+        "netReturn",
+        "MFE",
+        "MAE",
+        "peakDrawdown",
+        "Z1",
+        "return6h",
+        "return1d",
+        "MA7/MA30",
+        "position30",
+        "width30",
+        "holdTime",
+        "buyFamily"
+      ],
+      "best_continuous_annualized": 0.1608,
+      "executable_formula_frozen": false,
+      "shadow_decision": "NOT_EVALUATED",
+      "shadow_reason": "DYNAMIC_RULE_NOT_FROZEN",
+      "allowed_outputs": [
+        "per-bar research inputs",
+        "input coverage",
+        "missing rate",
+        "path distribution"
+      ],
+      "forbidden_outputs": [
+        "dynamic SELL suggestion",
+        "dynamic trade",
+        "CLOSED_DYNAMIC",
+        "formal state/fund/slot/notice impact"
+      ],
+      "replay_behavior": "collect inputs only; zero dynamic suggestions/trades/closes until a new rule version is frozen"
+    },
+    "bare_down_sequence_allowed": false
+  },
+  "style": {
+    "fields": [
+      "strategyFitPrior",
+      "maturity",
+      "riskLevel"
+    ],
+    "personality_window_days": 365,
+    "insufficient_history": "all available history with maturity",
+    "missing_default_steady": false,
+    "risk_hard_veto_status": "RESEARCH_SHADOW",
+    "risk_veto_prior_continuous_annualized": 0.1697,
+    "legacy_continuous_annualized_same_replay": 0.1961,
+    "cold_start_order": [
+      "rebuild historical bars/features",
+      "calculate or recalculate DRAFT",
+      "manual or validated SYSTEM confirmation",
+      "CONFIRMED may enter BUY eligibility"
+    ],
+    "incomplete_draft_recalculation_required": true,
+    "confirmed_or_manual_override_overwrite_allowed": false,
+    "auto_confirm_requires_production_entrypoint": true
+  },
+  "portfolio_results": {
+    "trusted_annualized_range": [
+      0.1961,
+      0.2051
+    ],
+    "trusted_period_return_range": [
+      0.073,
+      0.077
+    ],
+    "trusted_mdd_range": [
+      -0.007,
+      -0.006
+    ],
+    "final_candidate": {
+      "trades": 96,
+      "win_rate": 0.8229,
+      "median_net_return": 0.00799,
+      "slot_utilization": 0.8706,
+      "median_hold_hours": 132.1,
+      "message_rounds_per_day": 1.32,
+      "estimated_messages_with_daily_summary": 2.32,
+      "orphan_sells": 0
+    },
+    "windows_annualized": {
+      "train": 0.2741,
+      "validation": 0.1671,
+      "holdout": 0.2184,
+      "continuous": 0.2051
+    },
+    "family_trade_stats": {
+      "deep": {
+        "trades": 24,
+        "mean_net_return": 0.0041,
+        "win_rate": 0.833
+      },
+      "range": {
+        "trades": 44,
+        "mean_net_return": 0.00366,
+        "win_rate": 0.795
+      },
+      "strict_rebound": {
+        "trades": 28,
+        "mean_net_return": 0.00441,
+        "win_rate": 0.857
+      }
+    }
+  },
+  "current_java_buy_audit": {
+    "all_buy_continuous_annualized": 0.07,
+    "low_buy_continuous_annualized": 0.1874,
+    "wide_reversal_continuous_annualized": 0.0366,
+    "buy_bars_suppressed_by_market_sell_score": 249
+  },
+  "rotation": {
+    "enabled_by_default": false,
+    "status": "SHADOW_CANDIDATE",
+    "balanced_exploratory_annualized": 0.2214,
+    "events": 16,
+    "mean_edge": 0.00195,
+    "positive_edge_rate": 0.688,
+    "bootstrap_95": [
+      -0.00208,
+      0.00542
+    ],
+    "note": "interval crosses zero; rotation is optional and never blocks natural sell"
+  },
+  "message_gates": {
+    "average_messages_per_day_max": 4,
+    "p95_messages_per_day_max": 6,
+    "sell_may_be_silently_dropped": false,
+    "buy_sell_batch_pair_required": true
+  },
+  "rule_status": {
+    "final_buy_and_wide_lifecycle": "SHADOW_CANDIDATE",
+    "dynamic_sell": "RESEARCH_DATA_ONLY_FORMULA_NOT_FROZEN",
+    "high_risk_hard_veto": "RESEARCH",
+    "rotation": "SHADOW_CANDIDATE_DEFAULT_OFF",
+    "wide_java_reversal_buy": "RETIRED_FROM_GROUP_PORTFOLIO",
+    "trend_pullback": "RESEARCH",
+    "range_return7d_guard": "BUSINESS_FROZEN_CODE_IMPLEMENTED_PENDING_RELEASE_EVIDENCE"
+  },
+  "limitations": [
+    "history shorter than one year",
+    "all style states below M4 maturity",
+    "manual July log does not include user's reported 24% annualized state",
+    "no real volume, OHLC, orderbook, member execution delay, or slippage",
+    "annualized backtest is not a return promise or target ceiling"
+  ],
+  "parameter_freeze_evidence": {
+    "raw_candidate_edges": 1305,
+    "continuous_candidate_edges": 1303,
+    "entry_upward_deviation_max": 0.001495226776061287,
+    "entry_upward_deviation_p99": 0.0011831429341093726,
+    "range_position_neighborhood": [
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7
+    ],
+    "range_frozen_value": 0.6,
+    "total_15m_buckets": 13646,
+    "buckets_under_10_samples": 21,
+    "buckets_under_10_samples_rate": 0.001539,
+    "buckets_tail_stale_over_5m": 11,
+    "buckets_tail_stale_over_5m_rate": 0.000806
+  },
+  "monthly_state_rule_v1": {
+    "personality_order": [
+      "DECLINER",
+      "WEAK",
+      "NARROW",
+      "RANGING",
+      "STRONG",
+      "STEADY"
+    ],
+    "maturity_days": {
+      "M0_UNMATURE": "<60",
+      "M1_EARLY": "60-119",
+      "M2_PROVISIONAL": "120-239",
+      "M3_SEASONED": "240-364",
+      "M4_MATURE": ">=365"
+    },
+    "decliner": "(annualized<=-8% AND trend30<=-0.6% AND half<=-1%) OR (negativeStreak>=3 AND quarter<=-1.5%)",
+    "weak": "(annualized<=-2.5% AND trend30<=-0.25%) OR (negativeRatio>=60% AND half<0) OR (half<=-2.5% AND trend30<0)",
+    "narrow": "band<=4.5% AND abs(annualized)<=5% AND abs(trend30)<=0.4%",
+    "ranging": "band<=10% AND abs(annualized)<=7% AND abs(trend30)<=0.6%",
+    "strong": "annualized>=8% AND trend30>=0.6% AND half>=0",
+    "risk_high": "highVotes>=2 OR (trend30High<-0.6% AND quarter<0)",
+    "risk_medium": "not HIGH AND mediumVotes>=2",
+    "risk_release": "two consecutive effective-month raw NONE observations",
+    "confirmation": "manual caller identity required; SYSTEM only through validated auto-confirm path"
+  },
+  "rejected_observation": {
+    "batch_status": "CANCELLED",
+    "ledger_type": "REJECTED_OBSERVATION",
+    "formal_position": false,
+    "entry": "immediate next contiguous usable 15m bar; upward deviation <=0.15%",
+    "entry_failure": "resolve NO_THEORETICAL_ENTRY; do not wait later bar",
+    "window_days": 14,
+    "mfe_mae_fee_adjusted": false,
+    "data_gap": "no interpolation; calendar deadline not extended",
+    "path_reasons": [
+      "STYLE_NOT_FIT",
+      "RISK_HIGH_SHADOW_REJECT",
+      "ABSOLUTE_TREND_GUARD_FAILED",
+      "SAME_STOCK_OPEN",
+      "COOLDOWN_ACTIVE",
+      "SIGNAL_NOT_RESET",
+      "PORTFOLIO_FULL"
+    ],
+    "no_entry_reasons": [
+      "STYLE_MISSING",
+      "STYLE_STALE",
+      "DATA_NOT_CONTIGUOUS",
+      "ENTRY_DATA_STALE",
+      "ENTRY_PRICE_DEVIATION"
+    ]
+  },
+  "isolated_replay": {
+    "database": "read_only_input_only",
+    "run_id": "memory_and_output_only",
+    "new_replay_tables": false,
+    "writes_business_tables": false,
+    "engine": "reuse pure domain strategies/policies; no DAO-writing or messaging orchestration services",
+    "required_outputs": [
+      "summary.json",
+      "trades.csv",
+      "rejections.csv",
+      "equity-curve.csv"
+    ],
+    "bar_journal_required": false,
+    "resume": "restart from beginning after failure",
+    "manifest_must_cover_all_behavior_fields": true,
+    "bar_digest_required_fields": [
+      "barStartTime",
+      "barEndTime",
+      "firstSampleTime",
+      "lastSampleTime",
+      "firstPrice",
+      "lastPrice",
+      "lowPrice",
+      "highPrice",
+      "sampleCount",
+      "duplicateCount",
+      "tailGapSeconds",
+      "usable",
+      "qualityReason",
+      "buildVersion",
+      "sourceMaxHistoryId"
+    ],
+    "single_behavior_field_change_must_change_hash": true,
+    "manifest_release_evidence_status": "PENDING_COMPLETE_FIELD_COVERAGE_AND_REAL_LONG_WINDOW_RUN"
+  },
+  "daily_summary_missing_market": {
+    "rule": "any open formal position missing fresh actual price makes total equity unavailable",
+    "equity_status": "DATA_INSUFFICIENT",
+    "equity": null,
+    "cash_may_display_separately": true,
+    "cost_fallback_allowed": false,
+    "partial_equity_allowed": false,
+    "max_price_age_minutes": 30,
+    "age_basis": "summaryGeneratedAt - actual barEndTime",
+    "inclusive_boundary": true,
+    "price_as_of": "minimum barEndTime among all bars used for complete equity",
+    "normal_0830_expected_latest_bar_end": "08:15",
+    "one_missing_15m_bucket_tolerated": true
+  },
+  "formal_reason_codes": {
+    "CLOSED_TARGET": "SELL_TARGET_REACHED",
+    "CLOSED_RANGE": "SELL_RANGE_RECOVERED",
+    "CLOSED_RISK": "SELL_HARD_RISK",
+    "CLOSED_TIME": "SELL_MAX_HOLD",
+    "HOLD": "HOLD_NO_EXIT_TRIGGERED",
+    "SELL_STRUCTURAL_RISK": "reserved for future multi-evidence structural-risk state machine; not used by initial fixed -1.5% rule",
+    "hold_generic_precondition": "all required inputs complete and all initial formal exit rules evaluated without trigger"
+  },
+  "exit_evaluation_contract": {
+    "base_inputs": [
+      "entryReferencePrice>0",
+      "currentPrice>0",
+      "entryTime!=null",
+      "roundTime!=null"
+    ],
+    "non_range": {
+      "applicable_rules": [
+        "TARGET",
+        "HARD_RISK",
+        "MAX_HOLD"
+      ],
+      "range_features_required": false,
+      "hold_allowed_when_applicable_rules_miss": true
+    },
+    "range": {
+      "applicable_rules": [
+        "TARGET",
+        "HARD_RISK",
+        "MAX_HOLD",
+        "RANGE_RECOVERY"
+      ],
+      "range_features_required_after_first_three_miss": true,
+      "missing_feature_result": "DATA_INSUFFICIENT/EXIT_RANGE_FEATURE_MISSING",
+      "batch_transition": "DATA_STALE",
+      "hold_allowed": false
+    },
+    "priority_note": "RANGE missing features do not block TARGET/HARD_RISK/MAX_HOLD already determined earlier in priority order"
+  },
+  "data_stale_exit_disaster_close": {
+    "trigger": "first usable 15m bar after DATA_STALE_EXIT",
+    "requires_contiguous_with_expected_exit_bar": false,
+    "price": "recoveryBar.lastPrice",
+    "batch_status": "ADMIN_CLOSED",
+    "close_type": "ADMIN_CLOSED",
+    "formal_reason": "SELL_DATA_ADMIN_CLOSE",
+    "net_return": "price/entryReferencePrice*0.999-1",
+    "sell_proceeds": "quantity*price*0.999",
+    "release_slot_same_transaction": true,
+    "cooldown_hours": 48,
+    "reset_observed": false,
+    "formal_notice": true,
+    "notice_title": "数据异常关闭",
+    "ordinary_sell_performance": false,
+    "preserve": [
+      "originalExitReason",
+      "expectedExitBarTime",
+      "recoveryBarStart/End",
+      "staleExitDuration"
+    ],
+    "no_recovery_price": "remain DATA_STALE_EXIT, occupy slot, alert; no cost/old/zero price settlement"
+  },
+  "buy_execution_parameters": {
+    "range_return7d_guard": {
+      "rule_version_status": "BUSINESS_FROZEN_IMPLEMENTATION_PENDING",
+      "formula": "return7d >= -0.02 AND ma7d/ma30d - 1 >= -0.02",
+      "return7d_floor": -0.02,
+      "comparator": ">=",
+      "equal_boundary_passes": true,
+      "ma_trend_floor": -0.02,
+      "combination": "AND",
+      "missing_behavior": "DATA_INSUFFICIENT_FAIL_CLOSED",
+      "reject_reason": "ABSOLUTE_TREND_GUARD_FAILED",
+      "applies_to": [
+        "RANGE_LOWER_BUY"
+      ],
+      "does_not_apply_to": [
+        "STRICT_REBOUND_CONFIRM_BUY"
+      ],
+      "deep_uses_own_floor": -0.01,
+      "selection_evidence": {
+        "data_cutoff": "2026-07-23T09:44:05",
+        "selection_windows": [
+          "2026-03-01/2026-04-30",
+          "2026-05-01/2026-06-30"
+        ],
+        "candidate_floors": [
+          null,
+          -0.02,
+          -0.015,
+          -0.01,
+          -0.0075,
+          -0.005,
+          0.0
+        ],
+        "selected_without_holdout": -0.02,
+        "train_trades": 68,
+        "train_mean_net_return": 0.001925830595711584,
+        "validation_trades": 72,
+        "validation_mean_net_return": 0.0031709726089472726,
+        "holdout_usage": "one-time confirmation after freeze; not used for selection",
+        "holdout_trades": 31,
+        "holdout_mean_net_return": 0.004278124626614853,
+        "holdout_win_rate": 0.7741935483870968
+      }
+    }
+  },
+  "shadow_tracks": {
+    "formal_candidate_5_slot": {
+      "required": true,
+      "slots": 5,
+      "slot_cash": 2000000000,
+      "uses_formal_policy": [
+        "ranking",
+        "allocation",
+        "integer quantity",
+        "remaining cash",
+        "ENTRY",
+        "HOLD/SELL",
+        "cooldown",
+        "reset"
+      ],
+      "writes_formal_slots": false,
+      "writes_formal_notices": false
+    },
+    "unlimited_shadow": {
+      "required": true,
+      "unlimited_capital": true,
+      "unlimited_cross_stock_slots": true
+    },
+    "both_required_for_forward_shadow_gate": true
+  },
+  "runtime_release_contract": {
+    "boolean_switches_open_together_allowed": false,
+    "initial": {
+      "VIP_STOCK_ALERT_ENABLED": false,
+      "VIP_STOCK_NEW_ENTRY_ENABLED": false,
+      "VIP_STOCK_FORMAL_NOTICE_ENABLED": false,
+      "VIP_STOCK_DAILY_SUMMARY_ENABLED": false,
+      "VIP_STOCK_RULE_MODE": "SHADOW"
+    },
+    "activation_order": [
+      "deploy schema/code with all booleans false and SHADOW",
+      "enable ALERT only with NEW_ENTRY false",
+      "finish history rebuild and monthly confirmation",
+      "observe at least 3 new live 15m rounds",
+      "enable NEW_ENTRY to start both shadow ledgers",
+      "observe at least 20 natural days and complete long-window replay",
+      "separate approval for PROVISIONAL",
+      "separate final approval for formal notices",
+      "FORMAL only after longer evidence"
+    ],
+    "provisional_min_shadow_days": 20,
+    "formal_notice_requires_separate_approval": true,
+    "daily_summary_requires_separate_approval": true,
+    "current_code_gate": "BLOCKED_BY_STARTUP_CURRENT_ENDED_BUCKET_P1",
+    "alert_enable_allowed_now": false,
+    "alert_enable_prerequisite": "startup path idempotently creates and processes currentEndedBucket before next cron, including recoverAt just before entryStaleAt"
+  },
+  "daily_summary_dynamic_sell": {
+    "formula_unfrozen_display": "omit dynamic SELL or show rule not frozen / suggestions disabled / input coverage and missing count",
+    "forbidden_display": "dynamic SELL shadow suggestions: N",
+    "not_evaluated_is_not_zero_hits": true
+  }
+}

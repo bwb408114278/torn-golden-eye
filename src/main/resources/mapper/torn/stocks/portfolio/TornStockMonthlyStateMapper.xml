@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockMonthlyStateMapper">
+    <!-- 查询指定月份已确认的月度状态 -->
+    <select id="selectConfirmedByMonth" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO">
+        SELECT * FROM torn_stock_monthly_state
+        WHERE effective_month = #{effectiveMonth}
+          AND state_status = 'CONFIRMED'
+          AND deleted = 0
+    </select>
+
+    <!-- 范围批量查询已确认月度状态: 隔离回放一次性加载,避免按月循环发SQL -->
+    <select id="selectConfirmedByMonthRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO">
+        SELECT * FROM torn_stock_monthly_state
+        WHERE effective_month &gt;= #{startMonth}
+          AND effective_month &lt;= #{endMonth}
+          AND state_status = 'CONFIRMED'
+          AND deleted = 0
+        ORDER BY effective_month ASC, stocks_id ASC
+    </select>
+
+    <!-- 查询指定月份存在任意有效状态的股票ID集合,不按state_status过滤 -->
+    <select id="selectExistingStockIdsByMonth" resultType="java.lang.Integer">
+        SELECT stocks_id
+        FROM torn_stock_monthly_state
+        WHERE effective_month = #{effectiveMonth}
+          AND deleted = 0
+    </select>
+
+    <!-- 批量冲突安全插入月度状态草稿: 部分唯一索引(stocks_id,effective_month) WHERE deleted=0 冲突时DO NOTHING -->
+    <insert id="insertDraftStatesIgnoreConflict">
+        INSERT INTO torn_stock_monthly_state
+            (stocks_id, stocks_shortname, effective_month, strategy_fit_prior, maturity, risk_level,
+             suggested_personality, previous_personality, manual_override, override_reason,
+             metric_snapshot, personality_rule_version, risk_rule_version,
+             evidence_start_time, evidence_end_time, state_status, calculated_at,
+             confirmed_at, confirmed_by, deleted, create_time, update_time)
+        VALUES
+        <foreach collection="states" item="state" separator=",">
+            (#{state.stocksId}, #{state.stocksShortname}, #{state.effectiveMonth}, #{state.strategyFitPrior},
+             #{state.maturity}, #{state.riskLevel}, #{state.suggestedPersonality}, #{state.previousPersonality},
+             #{state.manualOverride}, #{state.overrideReason},
+             #{state.metricSnapshot, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
+             #{state.personalityRuleVersion}, #{state.riskRuleVersion},
+             #{state.evidenceStartTime}, #{state.evidenceEndTime}, #{state.stateStatus}, #{state.calculatedAt},
+             #{state.confirmedAt}, #{state.confirmedBy}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (stocks_id, effective_month) WHERE deleted = 0 DO NOTHING
+    </insert>
+
+    <!-- 批量查询每支股票最近一个更早生效月份且已确认的月度状态 -->
+    <select id="selectPreviousConfirmedByStocks" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO">
+        SELECT s.*
+        FROM (
+            SELECT ms.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ms.stocks_id
+                       ORDER BY ms.effective_month DESC, ms.id DESC
+                   ) AS row_num
+            FROM torn_stock_monthly_state ms
+            WHERE ms.stocks_id IN
+            <foreach collection="stocksIds" item="stocksId" open="(" separator="," close=")">
+                #{stocksId}
+            </foreach>
+              AND ms.effective_month <![CDATA[<]]> #{targetMonth}
+              AND ms.state_status = 'CONFIRMED'
+              AND ms.deleted = 0
+        ) s
+        WHERE row_num = 1
+        ORDER BY s.stocks_id ASC
+    </select>
+
+    <!-- 条件批量重算当月未确认DRAFT: 仅更新state_status=DRAFT且manual_override=false,防止覆盖人工修改或已确认记录 -->
+    <update id="recalculateDraftStates">
+        UPDATE torn_stock_monthly_state ms
+        SET stocks_shortname = source.stocks_shortname,
+            strategy_fit_prior = source.strategy_fit_prior,
+            maturity = source.maturity,
+            risk_level = source.risk_level,
+            suggested_personality = source.suggested_personality,
+            previous_personality = source.previous_personality,
+            metric_snapshot = source.metric_snapshot,
+            personality_rule_version = source.personality_rule_version,
+            risk_rule_version = source.risk_rule_version,
+            evidence_start_time = source.evidence_start_time,
+            evidence_end_time = source.evidence_end_time,
+            calculated_at = source.calculated_at,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+        <foreach collection="states" item="state" separator=",">
+            (CAST(#{state.id} AS BIGINT),
+             CAST(#{state.stocksShortname} AS VARCHAR(8)),
+             CAST(#{state.strategyFitPrior} AS VARCHAR(32)),
+             CAST(#{state.maturity} AS VARCHAR(32)),
+             CAST(#{state.riskLevel} AS VARCHAR(16)),
+             CAST(#{state.suggestedPersonality} AS VARCHAR(32)),
+             CAST(#{state.previousPersonality} AS VARCHAR(32)),
+             CAST(#{state.metricSnapshot} AS JSONB),
+             CAST(#{state.personalityRuleVersion} AS VARCHAR(32)),
+             CAST(#{state.riskRuleVersion} AS VARCHAR(32)),
+             CAST(#{state.evidenceStartTime} AS TIMESTAMP),
+             CAST(#{state.evidenceEndTime} AS TIMESTAMP),
+             CAST(#{state.calculatedAt} AS TIMESTAMP))
+        </foreach>
+        ) AS source(id, stocks_shortname, strategy_fit_prior, maturity, risk_level,
+                    suggested_personality, previous_personality, metric_snapshot,
+                    personality_rule_version, risk_rule_version,
+                    evidence_start_time, evidence_end_time, calculated_at)
+        WHERE ms.id = source.id
+          AND ms.state_status = 'DRAFT'
+          AND ms.manual_override = false
+          AND ms.deleted = 0
+    </update>
+
+    <!-- 条件批量自动确认DRAFT: 仅更新state_status=DRAFT且manual_override=false,防止覆盖人工确认或并发状态变更 -->
+    <update id="autoConfirmDraftStates">
+        UPDATE torn_stock_monthly_state ms
+        SET state_status = 'CONFIRMED',
+            confirmed_at = source.confirmed_at,
+            confirmed_by = source.confirmed_by,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+        <foreach collection="states" item="state" separator=",">
+            (CAST(#{state.id} AS BIGINT),
+             CAST(#{state.confirmedAt} AS TIMESTAMP),
+             CAST(#{state.confirmedBy} AS VARCHAR(64)))
+        </foreach>
+        ) AS source(id, confirmed_at, confirmed_by)
+        WHERE ms.id = source.id
+          AND ms.state_status = 'DRAFT'
+          AND ms.manual_override = false
+          AND ms.deleted = 0
+    </update>
+</mapper>

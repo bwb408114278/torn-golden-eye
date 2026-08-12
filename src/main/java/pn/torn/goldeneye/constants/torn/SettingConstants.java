@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 1.2.9
+ * @version 1.2.12
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -96,4 +96,24 @@ public class SettingConstants {
      * 活跃度帮派列表刷新时间
      */
     public static final String KEY_ACTIVITY_FACTION_LOAD = "ACTIVITY_FACTION_LOAD_DATE";
+    /**
+     * VIP股票组合轮次处理总开关
+     */
+    public static final String KEY_VIP_STOCK_ALERT_ENABLED = "VIP_STOCK_ALERT_ENABLED";
+    /**
+     * VIP股票新买入批次开关(紧急回滚时关闭此项即可停止新买入;缺失配置按false处理)
+     */
+    public static final String KEY_VIP_STOCK_NEW_ENTRY_ENABLED = "VIP_STOCK_NEW_ENTRY_ENABLED";
+    /**
+     * VIP股票正式买卖消息开关
+     */
+    public static final String KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED = "VIP_STOCK_FORMAL_NOTICE_ENABLED";
+    /**
+     * VIP股票每日摘要开关
+     */
+    public static final String KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED = "VIP_STOCK_DAILY_SUMMARY_ENABLED";
+    /**
+     * VIP股票规则模式(OFF/SHADOW/PROVISIONAL/FORMAL)
+     */
+    public static final String KEY_VIP_STOCK_RULE_MODE = "VIP_STOCK_RULE_MODE";
 }

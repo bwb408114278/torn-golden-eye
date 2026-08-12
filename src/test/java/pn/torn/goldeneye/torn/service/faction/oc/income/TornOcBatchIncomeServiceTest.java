@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -27,6 +28,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -109,11 +111,28 @@ class TornOcBatchIncomeServiceTest {
             jdbcTemplate.update("DELETE FROM torn_faction_oc WHERE id IN (" + ids + ")");
         }
         incomeSummaryDaoCleanup();
+        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         if (!testChainCodes.isEmpty()) {
-            ocChainDao.lambdaUpdate().in(TornSettingOcChainDO::getChainCode, testChainCodes).remove();
+            namedJdbcTemplate.update(
+                    "DELETE FROM torn_setting_oc_chain WHERE chain_code IN (:chainCodes)",
+                    Map.of("chainCodes", testChainCodes));
         }
         if (!testCoefficientIds.isEmpty()) {
-            coefficientDao.lambdaUpdate().in(TornSettingOcCoefficientDO::getId, testCoefficientIds).remove();
+            namedJdbcTemplate.update(
+                    "DELETE FROM torn_setting_oc_coefficient WHERE id IN (:coefficientIds)",
+                    Map.of("coefficientIds", testCoefficientIds));
+        }
+        if (!testChainCodes.isEmpty()) {
+            Long chainCount = namedJdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM torn_setting_oc_chain WHERE chain_code IN (:chainCodes)",
+                    Map.of("chainCodes", testChainCodes), Long.class);
+            assertEquals(0L, chainCount, "测试链配置物理清理后应计数为0");
+        }
+        if (!testCoefficientIds.isEmpty()) {
+            Long coefficientCount = namedJdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM torn_setting_oc_coefficient WHERE id IN (:coefficientIds)",
+                    Map.of("coefficientIds", testCoefficientIds), Long.class);
+            assertEquals(0L, coefficientCount, "测试系数配置物理清理后应计数为0");
         }
         coefficientManager.refreshCache();
         if (originalRotationList == null) {
