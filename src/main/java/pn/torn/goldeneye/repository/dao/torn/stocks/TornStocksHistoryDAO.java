@@ -3,10 +3,7 @@ package pn.torn.goldeneye.repository.dao.torn.stocks;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.stocks.TornStocksHistoryMapper;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,7 +12,7 @@ import java.util.List;
  * Torn股票历史持久层类
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.2.15
  * @since 2026.01.26
  */
 @Repository
@@ -66,5 +63,37 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
      */
     public List<StockPricePoint> selectHistoryPointsRange(LocalDateTime since, LocalDateTime endTime) {
         return baseMapper.selectHistoryPointsRange(since, endTime);
+    }
+
+    /**
+     * 批量读取指定股票集合在时间范围内已占用的自然分钟槽位，减少回填无效写入
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 已存在的自然分钟槽位列表
+     */
+    public List<StockHistoryMinuteSlot> selectExistingMinuteSlots(List<Integer> stocksIds,
+                                                                  LocalDateTime start, LocalDateTime end) {
+        return baseMapper.selectExistingMinuteSlots(stocksIds, start, end);
+    }
+
+    /**
+     * 冲突安全批量写入历史事实（自然分钟部分唯一索引 + ON CONFLICT DO NOTHING）
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入行数（已存在则跳过，不计入返回）
+     */
+    public int insertBackfillIgnoreConflict(List<TornStocksHistoryDO> historyList) {
+        return baseMapper.insertBackfillIgnoreConflict(historyList);
+    }
+
+    /**
+     * 查询最新历史记录时间（用于启动/日志的历史进度观察）
+     *
+     * @return 最新记录时间，表为空时返回 null
+     */
+    public LocalDateTime selectLatestHistoryTime() {
+        return baseMapper.selectLatestHistoryTime();
     }
 }

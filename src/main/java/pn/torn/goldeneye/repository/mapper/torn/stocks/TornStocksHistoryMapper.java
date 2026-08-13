@@ -3,10 +3,7 @@ package pn.torn.goldeneye.repository.mapper.torn.stocks;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,7 +12,7 @@ import java.util.List;
  * Torn股票历史数据库访问层
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.2.15
  * @since 2026.01.26
  */
 @Mapper
@@ -61,4 +58,31 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
      */
     List<StockPricePoint> selectHistoryPointsRange(@Param("since") LocalDateTime since,
                                                    @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 批量读取指定股票集合在时间范围内已占用的自然分钟槽位
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 已存在的自然分钟槽位列表
+     */
+    List<StockHistoryMinuteSlot> selectExistingMinuteSlots(@Param("stocksIds") List<Integer> stocksIds,
+                                                           @Param("start") LocalDateTime start,
+                                                           @Param("end") LocalDateTime end);
+
+    /**
+     * 冲突安全批量写入历史事实，匹配自然分钟部分唯一索引表达式与谓词
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入行数
+     */
+    int insertBackfillIgnoreConflict(@Param("historyList") List<TornStocksHistoryDO> historyList);
+
+    /**
+     * 查询最新历史记录时间
+     *
+     * @return 最新记录时间，表为空时返回 null
+     */
+    LocalDateTime selectLatestHistoryTime();
 }

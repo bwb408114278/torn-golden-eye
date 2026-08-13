@@ -1,0 +1,70 @@
+databaseChangeLog:
+  # ========== 1. market_cap 删除 NOT NULL ==========
+  - changeSet:
+      id: drop_not_null_torn_stocks_history_market_cap
+      author: Bai
+      changes:
+        - dropNotNullConstraint:
+            tableName: torn_stocks_history
+            columnName: market_cap
+            columnDataType: BIGINT
+
+  # ========== 2. investors 删除 NOT NULL ==========
+  - changeSet:
+      id: drop_not_null_torn_stocks_history_investors
+      author: Bai
+      changes:
+        - dropNotNullConstraint:
+            tableName: torn_stocks_history
+            columnName: investors
+            columnDataType: INT
+
+  # ========== 3. 新增 data_source 来源字段 ==========
+  - changeSet:
+      id: add_column_torn_stocks_history_data_source
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stocks_history
+            columns:
+              - column:
+                  name: data_source
+                  type: VARCHAR(32)
+                  defaultValueComputed: "'TORN_API'"
+                  constraints:
+                    nullable: false
+                  remarks: "数据来源(TORN_API实时采集/TORNSY_BACKFILL回填)"
+
+  # ========== 4. 更新三个字段的中文 remarks ==========
+  - changeSet:
+      id: set_remarks_torn_stocks_history_backfill
+      author: Bai
+      changes:
+        - setColumnRemarks:
+            tableName: torn_stocks_history
+            columnName: market_cap
+            remarks: "市值(Torn API正常写值;外部补数未提供时允许为空,禁止以0代表未知)"
+        - setColumnRemarks:
+            tableName: torn_stocks_history
+            columnName: investors
+            remarks: "投资人数(Torn API正常写值;外部补数固定为空,禁止以0代表未知)"
+        - setColumnRemarks:
+            tableName: torn_stocks_history
+            columnName: data_source
+            remarks: "数据来源(TORN_API实时采集/TORNSY_BACKFILL回填)"
+
+  # ========== 5. 自然分钟部分唯一索引(部署前须先完成重复数据处置) ==========
+  - changeSet:
+      id: create_unique_index_torn_stocks_history_stock_minute
+      author: Bai
+      changes:
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_torn_stocks_history_stock_minute ON torn_stocks_history (stocks_id, date_trunc('minute', reg_date_time)) WHERE deleted = 0"
+
+  # ========== 6. 来源值约束 ==========
+  - changeSet:
+      id: add_check_torn_stocks_history_data_source
+      author: Bai
+      changes:
+        - sql:
+            sql: "ALTER TABLE torn_stocks_history ADD CONSTRAINT ck_torn_stocks_history_data_source CHECK (data_source IN ('TORN_API', 'TORNSY_BACKFILL'))"

@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * Torn股票历史表
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.2.15
  * @since 2026.01.26
  */
 @Data
@@ -40,7 +40,7 @@ public class TornStocksHistoryDO extends BaseDO {
      */
     private BigDecimal currentPrice;
     /**
-     * 市值
+     * 市值；Torn API 正常写值，外部补数未提供时允许为 {@code null}，禁止以 0 代表未知
      */
     private Long marketCap;
     /**
@@ -48,11 +48,15 @@ public class TornStocksHistoryDO extends BaseDO {
      */
     private Long totalShares;
     /**
-     * 投资人数
+     * 投资人数；Torn API 正常写值，外部补数固定为 {@code null}，禁止以 0 代表未知
      */
     private Integer investors;
     /**
      * 记录时间
      */
     private LocalDateTime regDateTime;
+    /**
+     * 数据来源（{@code TORN_API} 实时采集 / {@code TORNSY_BACKFILL} Tornsy 历史回填）
+     */
+    private String dataSource;
 }
