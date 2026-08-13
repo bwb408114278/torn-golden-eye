@@ -1,12 +1,9 @@
 package pn.torn.goldeneye.torn.service.stocks.backfill;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -14,7 +11,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.utils.JsonUtils;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +29,7 @@ import java.util.Locale;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class TornsyStockHistoryClient {
 
     /**
@@ -51,36 +48,8 @@ public class TornsyStockHistoryClient {
      * 退避基数（毫秒）
      */
     private static final long BACKOFF_BASE_MILLIS = 500L;
-    /**
-     * 连接/响应超时（秒）
-     */
-    private static final int TIMEOUT_SECONDS = 20;
 
     private final RestClient restClient;
-
-    /**
-     * 生产构造：基于默认超时与 Accept 头构建 RestClient
-     */
-    @Autowired
-    public TornsyStockHistoryClient() {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS));
-        requestFactory.setReadTimeout(Duration.ofSeconds(TIMEOUT_SECONDS));
-        this.restClient = RestClient.builder()
-                .requestFactory(requestFactory)
-                .baseUrl(BASE_URL)
-                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                .build();
-    }
-
-    /**
-     * 测试构造：注入自定义 RestClient
-     *
-     * @param restClient RestClient 实例
-     */
-    TornsyStockHistoryClient(RestClient restClient) {
-        this.restClient = restClient;
-    }
 
     /**
      * 拉取指定股票、指定时间范围内的 m1 分钟数据（自动分页）
@@ -97,17 +66,33 @@ public class TornsyStockHistoryClient {
         long currentFrom = fromEpochSecond;
         while (currentFrom < toEpochSecond) {
             List<JsonNode> page = fetchPage(stocksShortname, currentFrom, toEpochSecond, pageLimit);
-            if (page.isEmpty()) {
-                break;
-            }
             rows.addAll(page);
-            long lastEpoch = extractEpochSecond(page.get(page.size() - 1));
-            if (page.size() < pageLimit || lastEpoch <= currentFrom) {
-                break;
-            }
-            currentFrom = lastEpoch + 60;
+            currentFrom = nextPageFrom(page, currentFrom, toEpochSecond, pageLimit);
         }
         return rows;
+    }
+
+    /**
+     * 计算下一页的起始 epoch 秒
+     * <p>
+     * 满页（行数等于上限）且最后一行 epoch 有进展时推进到最后 epoch 下一分钟；
+     * 空页、非满页或无进展时返回结束时间以终止分页循环。
+     *
+     * @param page          当前页行数组
+     * @param currentFrom   当前页起始 epoch 秒
+     * @param toEpochSecond 结束 epoch 秒（不含）
+     * @param pageLimit     单页返回上限
+     * @return 下一页起始 epoch 秒，或结束时间以终止循环
+     */
+    private long nextPageFrom(List<JsonNode> page, long currentFrom, long toEpochSecond, int pageLimit) {
+        if (page.isEmpty() || page.size() < pageLimit) {
+            return toEpochSecond;
+        }
+        long lastEpoch = extractEpochSecond(page.getLast());
+        if (lastEpoch <= currentFrom) {
+            return toEpochSecond;
+        }
+        return Math.min(lastEpoch + 60, toEpochSecond);
     }
 
     /**

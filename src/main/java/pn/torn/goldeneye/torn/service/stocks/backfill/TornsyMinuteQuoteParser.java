@@ -33,6 +33,11 @@ public class TornsyMinuteQuoteParser {
     public static final ZoneId ZONE_ID = ZoneId.of("Asia/Shanghai");
 
     /**
+     * 市值解析无效哨兵值（有效市值必为正数，Long.MIN_VALUE 不会与合法值冲突）
+     */
+    private static final Long INVALID_MARKET_CAP = Long.MIN_VALUE;
+
+    /**
      * 将 Unix epoch 秒转换为 Asia/Shanghai 自然分钟时间（秒与纳秒均为 0）
      *
      * @param epochSecond Unix epoch 秒（须为整分钟）
@@ -65,20 +70,9 @@ public class TornsyMinuteQuoteParser {
         Map<LocalDateTime, TornsyMinuteQuote> byMinute = new HashMap<>();
         for (JsonNode row : rows) {
             TornsyMinuteQuote quote = parseRow(row, requestStart, requestEnd, stableEndExclusive);
-            if (quote == null) {
-                continue;
+            if (quote != null && byMinute.putIfAbsent(quote.minuteTime(), quote) == null) {
+                result.add(quote);
             }
-            TornsyMinuteQuote existing = byMinute.get(quote.minuteTime());
-            if (existing != null) {
-                boolean conflict = existing.price().compareTo(quote.price()) != 0
-                        || existing.totalShares() != quote.totalShares();
-                if (conflict) {
-                    continue;
-                }
-                continue;
-            }
-            byMinute.put(quote.minuteTime(), quote);
-            result.add(quote);
         }
         return result;
     }
@@ -94,18 +88,8 @@ public class TornsyMinuteQuoteParser {
      */
     private TornsyMinuteQuote parseRow(JsonNode row, LocalDateTime requestStart,
                                        LocalDateTime requestEnd, LocalDateTime stableEndExclusive) {
-        if (row == null || !row.isArray()) {
-            return null;
-        }
-        int size = row.size();
-        if (size < 3 || size > 4) {
-            return null;
-        }
-        if (!row.get(0).isNumber()) {
-            return null;
-        }
-        long epochSecond = row.get(0).asLong();
-        if (epochSecond % 60 != 0) {
+        Long epochSecond = parseEpochSecond(row);
+        if (epochSecond == null) {
             return null;
         }
 
@@ -122,30 +106,75 @@ public class TornsyMinuteQuoteParser {
             return null;
         }
 
-        if (!row.get(2).isNumber()) {
-            return null;
-        }
-        long totalShares = row.get(2).asLong();
-        if (totalShares <= 0) {
+        Long totalShares = parseTotalShares(row.get(2));
+        if (totalShares == null) {
             return null;
         }
 
-        Long marketCap = null;
-        if (size == 4) {
-            JsonNode capNode = row.get(3);
-            if (capNode != null && !capNode.isNull()) {
-                if (!capNode.isNumber()) {
-                    return null;
-                }
-                long cap = capNode.asLong();
-                if (cap <= 0) {
-                    return null;
-                }
-                marketCap = cap;
-            }
+        Long marketCap = parseMarketCap(row);
+        if (INVALID_MARKET_CAP.equals(marketCap)) {
+            return null;
         }
-
         return new TornsyMinuteQuote(minuteTime, price, totalShares, marketCap);
+    }
+
+    /**
+     * 校验数组结构并解析整分钟 epoch 秒
+     *
+     * @param row 单个 m1 数组节点
+     * @return epoch 秒；非法（非数组、长度错误、epoch 非数值或非整分钟）时返回 null
+     */
+    private Long parseEpochSecond(JsonNode row) {
+        if (row == null || !row.isArray()) {
+            return null;
+        }
+        int size = row.size();
+        if (size < 3 || size > 4) {
+            return null;
+        }
+        if (!row.get(0).isNumber()) {
+            return null;
+        }
+        long epochSecond = row.get(0).asLong();
+        if (epochSecond % 60 != 0) {
+            return null;
+        }
+        return epochSecond;
+    }
+
+    /**
+     * 解析并校验总股数（必为正数）
+     *
+     * @param node 总股数节点
+     * @return 总股数；非法（非数值或非正数）时返回 null
+     */
+    private Long parseTotalShares(JsonNode node) {
+        if (node == null || !node.isNumber()) {
+            return null;
+        }
+        long totalShares = node.asLong();
+        return totalShares > 0 ? totalShares : null;
+    }
+
+    /**
+     * 解析并校验可选市值
+     *
+     * @param row 单个 m1 数组节点（已通过结构与长度校验）
+     * @return 市值（缺失时为 null）；非法（非数值或非正数）时返回 {@link #INVALID_MARKET_CAP}
+     */
+    private Long parseMarketCap(JsonNode row) {
+        if (row.size() < 4) {
+            return null;
+        }
+        JsonNode capNode = row.get(3);
+        if (capNode == null || capNode.isNull()) {
+            return null;
+        }
+        if (!capNode.isNumber()) {
+            return INVALID_MARKET_CAP;
+        }
+        long cap = capNode.asLong();
+        return cap > 0 ? cap : INVALID_MARKET_CAP;
     }
 
     /**
