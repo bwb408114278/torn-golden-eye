@@ -1738,3 +1738,136 @@ databaseChangeLog:
       changes:
         - sql:
             sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_candidate_shadow_slot ON torn_stock_virtual_batch (slot_id) WHERE ledger_type = 'SHADOW_FORMAL_CANDIDATE' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
+
+  # ========== 生产故障修复: 15分钟特征预热空值语义 ==========
+  # 生产代码已将"窗口不可计算的指标"真实表达为NULL并持久化(strategyReady=false +
+  # data_quality_reason=INSUFFICIENT_HISTORY),但原建表将条件性指标错误声明为NOT NULL。
+  # 本迁移仅追加释放这些条件性指标的非空约束,禁止改写原 create_table_stock_portfolio_strategy_feature_15m。
+  # 保留: 主键、唯一索引、reference_price非空与正值CHECK、strategy_ready非空、
+  #       feature_version非空、逻辑删除与审计字段非空、position30既有可空语义。
+  - changeSet:
+      id: release_not_null_conditional_metrics_feature_15m
+      author: Bai
+      changes:
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: ma1d
+            columnDataType: DECIMAL(18,8)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: ma7d
+            columnDataType: DECIMAL(18,8)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: ma30d
+            columnDataType: DECIMAL(18,8)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: zscore1d
+            columnDataType: DECIMAL(18,8)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: zscore7d
+            columnDataType: DECIMAL(18,8)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: zscore30d
+            columnDataType: DECIMAL(18,8)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return6h
+            columnDataType: DECIMAL(18,10)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return1d
+            columnDataType: DECIMAL(18,10)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return7d
+            columnDataType: DECIMAL(18,10)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return14d
+            columnDataType: DECIMAL(18,10)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: low30d
+            columnDataType: DECIMAL(18,6)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: high30d
+            columnDataType: DECIMAL(18,6)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: width30d
+            columnDataType: DECIMAL(18,10)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: pct_above_30d_low
+            columnDataType: DECIMAL(18,10)
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: pct_below_30d_high
+            columnDataType: DECIMAL(18,10)
+        # ===== 同步列注释,明确空值语义,避免未来再次误收紧Schema =====
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: ma1d
+            remarks: "1日bar均价;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: ma7d
+            remarks: "7日bar均价;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: ma30d
+            remarks: "30日bar均价;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: zscore1d
+            remarks: "1日标准化偏离;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: zscore7d
+            remarks: "7日标准化偏离;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: zscore30d
+            remarks: "30日标准化偏离;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return6h
+            remarks: "6小时收益率;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return1d
+            remarks: "1日收益率;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return7d
+            remarks: "7日收益率;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: return14d
+            remarks: "14日收益率;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: low30d
+            remarks: "30日最低实际bar价格;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: high30d
+            remarks: "30日最高实际bar价格;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: width30d
+            remarks: "30日价格带宽;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: pct_above_30d_low
+            remarks: "距30日低点涨幅;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature_15m
+            columnName: pct_below_30d_high
+            remarks: "距30日高点跌幅;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
+
