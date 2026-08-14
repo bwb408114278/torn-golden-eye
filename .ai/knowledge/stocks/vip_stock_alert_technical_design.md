@@ -291,7 +291,7 @@ entryDeviation > 0.0015
 - `pctAbove30dLow`、`pctBelow30dHigh`；
 - `strategyReady`和数据质量原因。
 
-特征只使用`bar_time`及以前的可见bar。数据断层后的预热期可继续为开放持仓提供市场报价，但不得产生新买入信号，直到全部策略窗口重新满足`strategyReady`。
+特征只使用`bar_time`及以前的可见bar。对每个可用当前bar必须保留一条特征记录；时间窗口不足或指标在该因果时点不可计算时，对应条件性指标为`NULL`，并以`strategyReady=false + dataQualityReason`明确解释。`NULL`不代表价格/收益为零，也不得以参考价、前值或其它伪造值替代。数据断层后的预热期可继续为开放持仓提供市场报价，但不得产生新买入信号，直到全部策略窗口重新满足`strategyReady`。
 
 ---
 
@@ -889,14 +889,14 @@ PENDING
 | `stocks_shortname` | VARCHAR(8) | 否 | 股票简称快照 |
 | `bar_start_time` | TIMESTAMP | 否 | 对应决策bar开始时间 |
 | `reference_price` | DECIMAL(18,6) | 否 | 本bar最后一个实际价格 |
-| `ma1d/ma7d/ma30d` | DECIMAL(18,8) | 否 | 1/7/30日bar均价 |
-| `zscore1d/zscore7d/zscore30d` | DECIMAL(18,8) | 否 | 1/7/30日标准化偏离 |
-| `return6h/return1d/return7d/return14d` | DECIMAL(18,10) | 否 | 对应时间窗口收益率 |
-| `low30d/high30d` | DECIMAL(18,6) | 否 | 30日最低/最高实际bar价格 |
-| `width30d` | DECIMAL(18,10) | 否 | 30日价格带宽 |
+| `ma1d/ma7d/ma30d` | DECIMAL(18,8) | 条件性是 | 对应时间窗口不足或均值不可计算时为空；`strategy_ready=false`和质量原因解释空值 |
+| `zscore1d/zscore7d/zscore30d` | DECIMAL(18,8) | 条件性是 | 对应MA/窗口不可计算时为空；不得填充伪造值 |
+| `return6h/return1d/return7d/return14d` | DECIMAL(18,10) | 条件性是 | 对应历史价格窗口不足时为空 |
+| `low30d/high30d` | DECIMAL(18,6) | 条件性是 | 可用bar窗口不足或不可计算时为空 |
+| `width30d` | DECIMAL(18,10) | 条件性是 | 30日高低值不可用时为空 |
 | `position30` | DECIMAL(18,10) | 是 | 当前价格在30日区间的位置，高低价相同则为空 |
-| `pct_above_30d_low` | DECIMAL(18,10) | 否 | 距30日低点涨幅 |
-| `pct_below_30d_high` | DECIMAL(18,10) | 否 | 距30日高点跌幅 |
+| `pct_above_30d_low` | DECIMAL(18,10) | 条件性是 | 30日低点不可用时为空 |
+| `pct_below_30d_high` | DECIMAL(18,10) | 条件性是 | 30日高点不可用时为空 |
 | `strategy_ready` | BOOLEAN | 否 | 是否具备产生新买入信号的完整窗口 |
 | `data_quality_reason` | VARCHAR(64) | 是 | 特征不可用于买入的原因编码 |
 | `feature_version` | VARCHAR(32) | 否 | 特征计算版本 |
@@ -908,8 +908,8 @@ PENDING
 唯一：(stocks_id, bar_start_time, feature_version) WHERE deleted=0
 索引：(bar_start_time, strategy_ready, feature_version)
 索引：(stocks_id, bar_start_time DESC) WHERE deleted=0
-检查：reference_price、ma、low30d、high30d > 0
-检查：width30d >= 0
+检查：reference_price > 0；当`low30d/high30d`均非空时二者均 > 0 且 high30d >= low30d
+检查：width30d非空时 >= 0
 检查：position30为空或位于合理数值范围；不使用该检查限制极端审计值时由服务校验
 ```
 
@@ -1789,6 +1789,8 @@ bar和特征年增量约各123万行，PostgreSQL普通表和复合索引足以�
 - 30日高低、带宽和位置；
 - `high30 == low30`时`position30`为空；
 - 缺口后`strategyReady=false`；
+- 预热期窗口不足时，只将不可计算的条件性指标置空，仍持久化特征并写入`strategyReady=false + dataQualityReason`；
+- 30日连续窗口完整且可计算时，全部条件性指标非空；不得以`NULL`、0或参考价替代完整窗口计算结果；
 - 与冻结历史样本随机抽样复算一致。
 
 ### 16.3 买入策略
@@ -2479,3 +2481,54 @@ GATE-2：当前30日连续窗口尚未恢复
 GATE-3：5槽×20亿真实长窗口四产物回放尚未完成
 GATE-4：两类Shadow前向证据尚未连续运行20个自然日
 ```
+
+---
+
+## 26. 生产15分钟特征预热空值修复与历史恢复边界（2026-08-14）
+
+> 本节由AI技术专家根据生产故障日志、`e3c607f`实现、真实PostgreSQL Mapper写入/回读和Schema只读核验维护。开发人员只实现代码、Schema和测试，无权修改本节或宣告技术验收状态。
+
+### 26.1 已关闭的Schema契约缺陷
+
+生产桶`2026-08-13T08:15`曾因`ma1d NOT NULL`失败；失败行同时具有`strategy_ready=false`和`data_quality_reason=INSUFFICIENT_HISTORY`。根因不是参数错位或计算异常：可用当前bar的预热特征应持久化，时间窗口不足时仅相应指标不可计算。
+
+`e3c607f`以追加Liquibase changeSet释放15个条件性窗口指标的非空约束，并保留身份、当前价格、策略状态、版本与审计字段非空。真实生产`upsertFeature`的PostgreSQL回读已证明：非就绪预热记录可保存条件性`NULL`、`strategy_ready=false`和原因码；不得用0、参考价或前值伪造指标，也不得跳过该bar的特征记录。
+
+条件性`NULL`的下游契约：
+
+```text
+strategyReady=false
+→ 买入评估不进入策略匹配、事件、候选或Shadow新建
+
+开放RANGE批次所需区间特征为NULL/缺失
+→ 退出规则不可评估
+→ 既有DATA_STALE路径
+→ 不伪造HOLD或退出事实
+```
+
+### 26.2 “数据补齐”与“历史策略补跑”必须分离
+
+现有`StockHistoryRebuildService`的职责仅到数据层：按bar/feature/round完整性补bar、补feature，并将可恢复round置为`READY`。它不调用`StockRoundTransactionService`，不重建信号事件、批次、影子、通知、冷却或月度状态。
+
+因此，补齐功能本身只能在其实际遍历到目标桶时修复以下数据事实：
+
+```text
+bar存在 + feature缺失/不完整
+→ 以当前特征版本重新计算并UPSERT
+→ 预热期窗口指标保留条件性NULL
+→ round恢复为READY
+```
+
+它**不能单独保证**随后业务决策自动补跑。既有调度器只有在`StockAlertRuntimeGate.shouldBuildRounds=true`时才查询未完成round并调用`processPendingRounds`；该门禁目前来自总开关、活跃批次或未结算拒绝观察，未把`READY/FAILED_RETRYABLE`的历史round本身作为触发条件。若所有这些条件均为false，单独运行数据补齐后，历史`READY` round不会自动进入事务。
+
+即使由既有调度入口消费历史round，策略补跑也必须遵守历史与墙钟的分离：`actualProcessingTime > entryStaleAt`时，过期ENTRY必须取消，不能因补齐历史bar而补发过期买入。存量批次的退出/灾难管理可以继续按当前可用bar与特征执行；新的信号、Shadow、通知及历史账本重建不得被“补数据”隐式触发。
+
+### 26.3 后续恢复的冻结边界与验收前置
+
+历史失败特征、失败轮次与后续策略事实需要单独的恢复专题，不能把它并入普通数据补齐。实施前必须先冻结恢复模式及范围：
+
+1. **仅数据修复**：补bar/feature/round至`READY`，不进入事务；
+2. **存量管理恢复**：只处理当前仍活跃批次的ENTRY过期取消、EXIT与DATA_STALE恢复，不新建历史信号/Shadow/通知；
+3. **研究/策略历史重跑**：若业务需要历史信号、Shadow或拒绝观察重算，必须使用独立、显式的回放/恢复入口和审计产物，禁止由启动补偿或普通定时任务隐式执行。
+
+当前默认仅允许模式1，且股票开关与`SHADOW`冻结结论保持不变。模式2或模式3须由业务明确授权，并以独立一次性方案冻结目标时间范围、允许写入的表、ENTRY过期处理、幂等键、已有终态保护、通知禁止项、真实PostgreSQL验证与发布后只读核验。
