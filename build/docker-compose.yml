@@ -90,7 +90,7 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:1.2.15
+    image: golden-eye:1.2.17
     ports:
       - 10779:18180
     volumes:
@@ -98,6 +98,7 @@ services:
     networks:
       - golden-eye-net
     environment:
+      - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATASOURCE_URL=jdbc:postgresql://pgsql:5432/golden-eye
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
       - SPRING_DATA_REDIS_HOST=redis

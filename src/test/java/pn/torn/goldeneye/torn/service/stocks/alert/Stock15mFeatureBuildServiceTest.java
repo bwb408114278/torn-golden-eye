@@ -32,11 +32,12 @@ import static org.mockito.Mockito.*;
  *   <li>position30 在 high30d == low30d 时为null(fail-closed)</li>
  *   <li>strategyReady 需总bar数 >= 2880(BARS_30D)且窗口连续可用</li>
  *   <li>当前bar不可用时不产生特征</li>
+ *   <li>窗口不足或指标不可计算时窗口指标为null(不伪造值),特征仍UPSERT且strategyReady=false</li>
  * </ul>
  * 通过Mock DAO注入固定历史bar,验证特征输出数值。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.17
  * @since 2026.07.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -62,11 +63,11 @@ class Stock15mFeatureBuildServiceTest {
     // ==================== 正常计算 ====================
 
     @Test
-    @DisplayName("特征构建_正常计算特征值正确(ma1d等)")
-    void buildFeatures_normalCalc_featureValuesCorrect() {
+    @DisplayName("特征构建_97根bar预热_未计算窗口指标为null且仍调用UPSERT")
+    void buildFeatures_97BarsPrewarm_uncomputedWindowMetricsNullAndUpsertCalled() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("200.00"));
-        // 构造96条历史bar,价格均为100 -> ma1d = 100
+        // 96条历史bar,价格均为100 -> 总bar数97
         List<TornStockMarketBar15mDO> historyBars = buildHistoryBars(barStart, BARS_PER_DAY,
                 new BigDecimal("100.00"));
 
@@ -80,21 +81,34 @@ class Stock15mFeatureBuildServiceTest {
         assertEquals(barStart, f.getBarStartTime());
         assertEquals(0, f.getReferencePrice().compareTo(new BigDecimal("200.00")),
                 "参考价应为当前bar收盘价");
-        // ma1d: 最近96个bar的均价 = (96*100 + 200)/96... 不对,总共97个bar取最后96个 = 95*100+200 = 9700/96
+        // 97根bar可计算ma1d/return6h/return1d及可用窗口的30日高低区间
         // historyBars(96条,100) + currentBar(200) = 97条,取最后96条 = historyBars[1..95] + currentBar
         BigDecimal expectedMa1d = new BigDecimal("100.00").multiply(new BigDecimal("95"))
                 .add(new BigDecimal("200.00"))
                 .divide(new BigDecimal("96"), 18, java.math.RoundingMode.HALF_UP);
         assertEquals(0, f.getMa1d().compareTo(expectedMa1d), "ma1d应为最近96个bar均价");
+        assertNotNull(f.getZscore1d(), "97根bar满足1日窗口,zscore1d应可计算");
+        assertNotNull(f.getReturn6h(), "97根bar满足6小时窗口,return6h应可计算");
+        assertNotNull(f.getReturn1d(), "97根bar满足1日窗口,return1d应可计算");
+        assertNotNull(f.getLow30d(), "30日高低按可用bar计算,low30d不应为空");
+        assertNotNull(f.getHigh30d(), "30日高低按可用bar计算,high30d不应为空");
+        // 窗口不足的指标必须为null,而非0/参考价等伪造值
+        assertNull(f.getMa7d(), "97根bar不足7日窗口,ma7d应为null");
+        assertNull(f.getMa30d(), "97根bar不足30日窗口,ma30d应为null");
+        assertNull(f.getZscore7d(), "ma7d为null则zscore7d应为null");
+        assertNull(f.getZscore30d(), "ma30d为null则zscore30d应为null");
+        assertNull(f.getReturn7d(), "97根bar不足7日窗口,return7d应为null");
+        assertNull(f.getReturn14d(), "97根bar不足14日窗口,return14d应为null");
         assertFalse(f.getStrategyReady(), "总bar数97 < 2880 -> 策略未就绪");
         assertEquals("INSUFFICIENT_HISTORY", f.getDataQualityReason());
+        // 预热特征仍必须UPSERT,不允许跳过写入
         verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 
     // ==================== high30 == low30 ====================
 
     @Test
-    @DisplayName("特征构建_high30d等于low30d时position30为null")
+    @DisplayName("特征构建_high30d等于low30d时position30为null且特征仍可持久化")
     void buildFeatures_high30EqualsLow30_position30Null() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         BigDecimal fixedPrice = new BigDecimal("100.00");
@@ -106,20 +120,22 @@ class Stock15mFeatureBuildServiceTest {
 
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
-        assertEquals(1, features.size());
+        assertEquals(1, features.size(), "position30为空不能当作整个特征不完整,特征仍应产生");
         TornStockStrategyFeature15mDO f = features.getFirst();
         assertEquals(0, f.getLow30d().compareTo(fixedPrice));
         assertEquals(0, f.getHigh30d().compareTo(fixedPrice));
         assertNull(f.getPosition30(), "高低价相同时position30应为null");
         assertEquals(0, f.getWidth30d().compareTo(BigDecimal.ZERO),
                 "高低价相同时width30d应为0");
+        assertNotNull(f.getMa1d(), "除position30外其它条件性指标仍应可计算");
         assertTrue(f.getStrategyReady(), "总bar数2880 -> 策略就绪");
+        verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 
     // ==================== 历史不足 ====================
 
     @Test
-    @DisplayName("特征构建_历史不足2880个bar -> strategyReady为false")
+    @DisplayName("特征构建_2879根bar_不就绪且30日相关指标不可计算")
     void buildFeatures_historyLessThan2880Bars_strategyReadyFalse() {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("100.00"));
@@ -132,9 +148,20 @@ class Stock15mFeatureBuildServiceTest {
         List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
 
         assertEquals(1, features.size());
-        assertFalse(features.getFirst().getStrategyReady(),
+        TornStockStrategyFeature15mDO f = features.getFirst();
+        assertFalse(f.getStrategyReady(),
                 "总bar数2879 < 2880 -> 策略未就绪");
-        assertEquals("INSUFFICIENT_HISTORY", features.getFirst().getDataQualityReason());
+        assertEquals("INSUFFICIENT_HISTORY", f.getDataQualityReason());
+        // 30日相关指标不可计算: ma30d/zscore30d必须为null
+        assertNull(f.getMa30d(), "2879根bar不足30日窗口,ma30d应为null");
+        assertNull(f.getZscore30d(), "ma30d为null则zscore30d应为null");
+        // 短窗口指标仍按可计算结果保留
+        assertNotNull(f.getMa1d(), "2879根bar满足1日窗口,ma1d应可计算");
+        assertNotNull(f.getMa7d(), "2879根bar满足7日窗口,ma7d应可计算");
+        assertNotNull(f.getReturn14d(), "2879根bar满足14日窗口,return14d应可计算");
+        assertNotNull(f.getLow30d(), "30日高低按可用bar计算,low30d不应为空");
+        assertNotNull(f.getHigh30d(), "30日高低按可用bar计算,high30d不应为空");
+        verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 
     // ==================== 历史充足 ====================
@@ -156,6 +183,83 @@ class Stock15mFeatureBuildServiceTest {
         assertTrue(features.getFirst().getStrategyReady(),
                 "总bar数2880 >= 2880 -> 策略就绪");
         assertNull(features.getFirst().getDataQualityReason());
+    }
+
+    @Test
+    @DisplayName("特征构建_2880根连续bar_所有条件性指标非空且strategyReady为true")
+    void buildFeatures_2880ConsecutiveBars_allConditionalMetricsNonNull() {
+        LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
+        BigDecimal lowPrice = new BigDecimal("100.00");
+        BigDecimal highPrice = new BigDecimal("150.00");
+        BigDecimal currentPrice = new BigDecimal("120.00");
+
+        TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, currentPrice);
+        // 2879条历史bar + 当前bar = 2880根连续可用bar,价格跨档使high30d > low30d
+        List<TornStockMarketBar15mDO> historyBars = IntStream.range(0, BARS_30D - 1)
+                .mapToObj(i -> {
+                    BigDecimal p = (i < 1439) ? lowPrice : highPrice;
+                    return buildUsableBar(
+                            barStart.minusMinutes(15L * (BARS_30D - 1 - i)), p);
+                })
+                .toList();
+
+        mockBarDao(barStart, currentBar, historyBars);
+
+        List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
+
+        assertEquals(1, features.size());
+        TornStockStrategyFeature15mDO f = features.getFirst();
+        assertTrue(f.getStrategyReady(), "2880根连续bar -> 策略就绪");
+        assertNull(f.getDataQualityReason());
+        assertNotNull(f.getMa1d(), "ma1d应可计算");
+        assertNotNull(f.getMa7d(), "ma7d应可计算");
+        assertNotNull(f.getMa30d(), "ma30d应可计算");
+        assertNotNull(f.getZscore1d(), "zscore1d应可计算");
+        assertNotNull(f.getZscore7d(), "zscore7d应可计算");
+        assertNotNull(f.getZscore30d(), "zscore30d应可计算");
+        assertNotNull(f.getReturn6h(), "return6h应可计算");
+        assertNotNull(f.getReturn1d(), "return1d应可计算");
+        assertNotNull(f.getReturn7d(), "return7d应可计算");
+        assertNotNull(f.getReturn14d(), "return14d应可计算");
+        assertNotNull(f.getLow30d(), "low30d应可计算");
+        assertNotNull(f.getHigh30d(), "high30d应可计算");
+        assertNotNull(f.getWidth30d(), "width30d应可计算");
+        assertNotNull(f.getPosition30(), "high30d > low30d,position30应可计算");
+        assertNotNull(f.getPctAbove30dLow(), "pctAbove30dLow应可计算");
+        assertNotNull(f.getPctBelow30dHigh(), "pctBelow30dHigh应可计算");
+        verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
+    }
+
+    @Test
+    @DisplayName("特征构建_2880根bar含15分钟缺口_指标按可计算结果保留且strategyReady为false")
+    void buildFeatures_2880BarsWithGap_strategyReadyFalseNotConsecutive() {
+        LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
+        BigDecimal price = new BigDecimal("100.00");
+
+        TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, price);
+        // 构造2879条历史bar,但跳过中间一个15分钟槽位(缺口),总bar数仍为2880
+        List<TornStockMarketBar15mDO> historyBars = IntStream.range(0, BARS_30D - 1)
+                .mapToObj(i -> {
+                    // i从0..2878,时间 = barStart - 15*(i+1);跳过i=1000对应的槽位
+                    long offsetSlots = i + 1 + (i >= 1000 ? 1 : 0);
+                    return buildUsableBar(barStart.minusMinutes(15L * offsetSlots), price);
+                })
+                .toList();
+
+        mockBarDao(barStart, currentBar, historyBars);
+
+        List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(barStart);
+
+        assertEquals(1, features.size());
+        TornStockStrategyFeature15mDO f = features.getFirst();
+        assertFalse(f.getStrategyReady(), "窗口内存在15分钟缺口 -> 策略不就绪");
+        assertEquals("HISTORY_NOT_CONSECUTIVE", f.getDataQualityReason(),
+                "缺口应识别为历史不连续");
+        // 缺口不影响按可用bar计算指标: 数量仍满足窗口
+        assertNotNull(f.getMa1d(), "缺口后指标仍按可计算结果保留,ma1d应可计算");
+        assertNotNull(f.getMa30d(), "缺口后指标仍按可计算结果保留,ma30d应可计算");
+        assertNotNull(f.getReturn14d(), "缺口后指标仍按可计算结果保留,return14d应可计算");
+        verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 
     // ==================== 当前bar不可用 ====================

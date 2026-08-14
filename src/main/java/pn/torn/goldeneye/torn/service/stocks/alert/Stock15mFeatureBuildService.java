@@ -37,8 +37,19 @@ import java.util.stream.Collectors;
  *   <li>strategyReady + dataQualityReason: 策略就绪状态与不可用原因</li>
  * </ul>
  *
+ * <h3>空值语义</h3>
+ * <p>
+ * 当对应时间窗口不足或指标不可计算时,窗口指标(ma、zscore、return 等以及
+ * low30d/high30d、width30d、pct_above/below)返回并持久化为{@code null},
+ * 绝不填充0、参考价或前值等伪造值;
+ * 此时{@code strategyReady=false},由{@code dataQualityReason}解释该空值。
+ * 预热期(历史样本不足)仍会为每个可用当前bar构造并UPSERT特征记录,以便下游
+ * {@link StockMarketRoundLoader} 加载、存量RANGE持仓退出链取回区间特征以及历史重建
+ * 判定bar与feature一一对应;买入评估仅在{@code strategyReady=true}时执行。
+ * </p>
+ *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.17
  * @since 2026.07.24
  */
 @Slf4j
@@ -120,7 +131,15 @@ public class Stock15mFeatureBuildService {
         for (TornStockStrategyFeature15mDO feature : features) {
             feature15mDao.upsertFeature(feature);
         }
-        log.info("桶{}成功构建并保存{}支股票的策略特征", alignedTime, features.size());
+        long readyCount = features.stream()
+                .filter(TornStockStrategyFeature15mDO::getStrategyReady)
+                .count();
+        Map<String, Long> notReadyCountByReason = features.stream()
+                .filter(feature -> !Boolean.TRUE.equals(feature.getStrategyReady()))
+                .collect(Collectors.groupingBy(TornStockStrategyFeature15mDO::getDataQualityReason,
+                        Collectors.counting()));
+        log.info("桶{}成功构建并保存{}支股票的策略特征, readyCount={}, notReadyCount={}, notReadyCountByReason={}",
+                alignedTime, features.size(), readyCount, features.size() - readyCount, notReadyCountByReason);
         return features;
     }
 

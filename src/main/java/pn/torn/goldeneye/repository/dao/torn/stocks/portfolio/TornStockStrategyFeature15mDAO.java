@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征持久层类
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.17
  * @since 2026.07.24
  */
 @Repository
@@ -62,6 +62,9 @@ public class TornStockStrategyFeature15mDAO
 
     /**
      * 按唯一键执行UPSERT,支持幂等重试
+     * <p>
+     * 窗口指标允许为空并原样持久化: 对应时间窗口不足或指标不可计算时为{@code null},
+     * 由{@code strategyReady=false}与{@code dataQualityReason}解释该空值,不得填充伪造值。
      *
      * @param feature 待插入或更新的特征
      */
