@@ -53,5 +53,11 @@
         <appender-ref ref="LOKI"/>
     </root>
 
-    <logger name="pn.torn.goldeneye" level="DEBUG"/>
+    <!-- 本地开发保留完整调试日志；生产环境仅保留INFO及以上，避免批量SQL调试日志写入Docker log.db。 -->
+    <springProfile name="prod">
+        <logger name="pn.torn.goldeneye" level="INFO"/>
+    </springProfile>
+    <springProfile name="!prod">
+        <logger name="pn.torn.goldeneye" level="DEBUG"/>
+    </springProfile>
 </configuration>

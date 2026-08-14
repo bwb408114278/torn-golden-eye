@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征数据库访问层
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.17
  * @since 2026.07.24
  */
 @Mapper
@@ -56,6 +56,10 @@ public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockS
 
     /**
      * 按唯一键(stocks_id, bar_start_time, feature_version)执行UPSERT
+     * <p>
+     * 窗口指标(ma、zscore、return 等以及 low30d/high30d、width30d、pct_above/below)
+     * 允许为空并原样持久化: 对应时间窗口不足或指标不可计算时为空,由{@code strategy_ready=false}
+     * 与{@code data_quality_reason}解释该空值。
      *
      * @param feature 待插入或更新的特征
      * @return 影响行数
