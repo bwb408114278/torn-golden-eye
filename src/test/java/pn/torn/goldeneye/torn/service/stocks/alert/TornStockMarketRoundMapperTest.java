@@ -6,8 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.test.annotation.Rollback;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
@@ -56,10 +54,6 @@ class TornStockMarketRoundMapperTest {
      * 隔离轮次时间(远离生产数据)
      */
     private static final LocalDateTime TEST_ROUND_TIME = LocalDateTime.of(2099, 9, 1, 10, 0);
-    /**
-     * 隔离轮次ID(远离生产数据与本地同步库identity序列,显式赋值避免序列滞后冲突)
-     */
-    private static final Long ISOLATED_TEST_ROUND_ID = 900_000_000L;
 
     @AfterEach
     void cleanupIsolatedRounds() {
@@ -149,17 +143,15 @@ class TornStockMarketRoundMapperTest {
     }
 
     @Test
-    @Transactional
-    @Rollback
     @DisplayName("真实PG_生产白名单查询排除REPAIRED_DATA_ONLY数据修复终态轮次")
     void selectPendingRoundsUpTo_whitelist_excludesDataRepairOnlyRound() {
-        // 全程通过DAO方法操作并在测试事务内回滚,开发库零残留:
-        // Tornsy回填数据修复终态REPAIRED_DATA_ONLY绝不进入生产策略消费队列。
-        // 本地同步库的id identity序列落后于生产同步数据,故显式指定隔离id避免序列冲突。
-        TornStockMarketRoundDO repaired = pendingRound(TEST_ROUND_TIME);
-        repaired.setId(ISOLATED_TEST_ROUND_ID);
-        roundDao.save(repaired);
+        // 生产一致入口隐式生成id:identity序列已由Liquibase迁移校准到最大主键之后,
+        // 首次隐式插入必须返回1且不发生主键冲突。
+        assertEquals(1, roundDao.insertPendingRoundIgnoreConflict(pendingRound(TEST_ROUND_TIME)),
+                "序列校准后生产Mapper首次隐式插入必须成功,不得发生主键冲突");
 
+        // Tornsy回填数据修复终态REPAIRED_DATA_ONLY绝不进入生产策略消费队列
+        TornStockMarketRoundDO repaired = roundDao.selectByRoundTime(TEST_ROUND_TIME);
         repaired.setRoundStatus(StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode());
         roundDao.updateById(repaired);
 
