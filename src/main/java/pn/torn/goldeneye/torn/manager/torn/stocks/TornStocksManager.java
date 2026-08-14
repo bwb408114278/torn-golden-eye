@@ -79,6 +79,7 @@ public class TornStocksManager {
             return;
         }
 
+        LocalDateTime regDateTime = LocalDateTime.now();
         TornStocksVO resp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
         List<TornStocksDO> stocksList = resp.getStocks().stream().map(this::convert2DO).toList();
         List<TornStocksDO> oldDataList = stocksDao.list();
@@ -101,7 +102,6 @@ public class TornStocksManager {
             stocksDao.updateBatchById(upadteDataList);
         }
 
-        LocalDateTime regDateTime = LocalDateTime.now();
         saveStocksHistory(resp, regDateTime);
         sendGreatTradeChangeMsg(regDateTime);
         calcStockFeature(regDateTime);
