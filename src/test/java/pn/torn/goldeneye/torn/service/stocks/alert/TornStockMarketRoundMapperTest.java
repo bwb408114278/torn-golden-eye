@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.test.annotation.Rollback;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
@@ -19,7 +21,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 轮次生产者真实PostgreSQL集成测试。
@@ -36,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.08.09
  */
 @SpringBootTest
@@ -54,6 +56,10 @@ class TornStockMarketRoundMapperTest {
      * 隔离轮次时间(远离生产数据)
      */
     private static final LocalDateTime TEST_ROUND_TIME = LocalDateTime.of(2099, 9, 1, 10, 0);
+    /**
+     * 隔离轮次ID(远离生产数据与本地同步库identity序列,显式赋值避免序列滞后冲突)
+     */
+    private static final Long ISOLATED_TEST_ROUND_ID = 900_000_000L;
 
     @AfterEach
     void cleanupIsolatedRounds() {
@@ -140,6 +146,34 @@ class TornStockMarketRoundMapperTest {
         TornStockMarketRoundDO round = roundDao.selectByRoundTime(TEST_ROUND_TIME);
 
         assertEquals(TEST_ROUND_TIME, round.getRoundTime(), "普通读取应返回同桶轮次");
+    }
+
+    @Test
+    @Transactional
+    @Rollback
+    @DisplayName("真实PG_生产白名单查询排除REPAIRED_DATA_ONLY数据修复终态轮次")
+    void selectPendingRoundsUpTo_whitelist_excludesDataRepairOnlyRound() {
+        // 全程通过DAO方法操作并在测试事务内回滚,开发库零残留:
+        // Tornsy回填数据修复终态REPAIRED_DATA_ONLY绝不进入生产策略消费队列。
+        // 本地同步库的id identity序列落后于生产同步数据,故显式指定隔离id避免序列冲突。
+        TornStockMarketRoundDO repaired = pendingRound(TEST_ROUND_TIME);
+        repaired.setId(ISOLATED_TEST_ROUND_ID);
+        roundDao.save(repaired);
+
+        repaired.setRoundStatus(StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode());
+        roundDao.updateById(repaired);
+
+        assertFalse(roundDao.selectPendingRoundsUpTo(TEST_ROUND_TIME.plusMinutes(60)).stream()
+                        .anyMatch(round -> TEST_ROUND_TIME.equals(round.getRoundTime())),
+                "REPAIRED_DATA_ONLY轮次不得被生产待处理查询命中");
+
+        // READY仍属生产白名单,必须可被查询命中(防止白名单修复误伤生产主链)
+        repaired.setRoundStatus(StockRoundStatusEnum.READY.getCode());
+        roundDao.updateById(repaired);
+
+        assertTrue(roundDao.selectPendingRoundsUpTo(TEST_ROUND_TIME.plusMinutes(60)).stream()
+                        .anyMatch(round -> TEST_ROUND_TIME.equals(round.getRoundTime())),
+                "READY轮次必须被生产待处理查询命中");
     }
 
     /**

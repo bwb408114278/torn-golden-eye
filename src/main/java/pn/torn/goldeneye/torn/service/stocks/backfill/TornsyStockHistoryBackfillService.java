@@ -234,10 +234,10 @@ public class TornsyStockHistoryBackfillService {
         StockHistoryRebuildService.BackfillRepairResult result = rebuildService.repairBackfilledHistory(
                 affectedBuckets, featureRebuildEndExclusive, runId);
         log.info("历史回填-派生数据修复完成, runId={}, affectedBucketCount={}, featureRebuildEndExclusive={}, "
-                        + "forcedBarBuckets={}, restoredRounds={}, recomputedFeatureBuckets={}, "
+                        + "forcedBarBuckets={}, dataOnlyRoundCount={}, recomputedFeatureBuckets={}, "
                         + "skippedNoBarBuckets={}, rebuiltBucketCount={}",
                 runId, affectedBuckets.size(), featureRebuildEndExclusive,
-                result.forcedBarBuckets(), result.restoredRounds(),
+                result.forcedBarBuckets(), result.dataOnlyRoundCount(),
                 result.recomputedFeatureBuckets(), result.skippedNoBarBuckets(), result.rebuiltBucketCount());
         return result.rebuiltBucketCount();
     }

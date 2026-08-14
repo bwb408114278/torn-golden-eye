@@ -85,7 +85,8 @@ class TornsyStockHistoryBackfillServiceTest {
     }
 
     /**
-     * 装配派生数据修复返回桩,避免服务对空结果执行统计。
+     * 装配派生数据修复返回桩(仅数据层统计:强制bar桶/数据修复终态轮次/重算feature桶/无bar跳过桶),
+     * 避免服务对空结果执行统计。
      */
     private void stubRepairResult() {
         when(rebuildService.repairBackfilledHistory(anyCollection(), any(), anyString()))

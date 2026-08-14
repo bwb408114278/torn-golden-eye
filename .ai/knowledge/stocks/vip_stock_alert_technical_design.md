@@ -8,11 +8,11 @@
 - 适用功能：VIP群股票买入/卖出提醒、系统虚拟组合、影子研究、每日组合摘要
 - 业务依据：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
 - 设计状态：长期生产技术基线；未闭环实现差异由一次性验收清单维护
-- 当前实现Review基线：`bd98f3e`（2026-08-12）
-- 技术验收状态：第六批第二轮技术Review通过。启动补偿现在在成功取得`processing`后只读取一次`currentEndedBucket`，并将同一快照传给历史重建、当前桶幂等创建和包含上界消费；第一轮的启动插入异常fail-closed与历史重建失败存量处理继续回归通过。四个运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及股票全集完整性专题仍未关闭，仍须业务验收和后续发布门禁。
+- 当前实现Review基线：`3772bfb`（2026-08-14）；Tornsy 回填第一轮代码已合并，但本轮 P0“回填数据修复状态不得被生产策略消费”尚待开发修复与再次Review。
+- 技术验收状态：第六批第二轮启动补偿契约继续有效。实时采集隔离、自然分钟幂等、Tornsy 实际插入驱动 bar/feature 重算已进入第一轮实现；但回填将历史 round 写为生产`READY`会导致调度器可能执行历史策略事务，故任何 Tornsy 自动/实验回填仍不得开启。四个股票运行开关均保持`false`，规则模式保持`SHADOW`；GATE-1至GATE-4及股票全集完整性专题仍未关闭，仍须业务验收和后续发布门禁。
 - 时区：`Asia/Shanghai`
 - 维护人：Bai
-- 最后修订日期：2026-08-12
+- 最后修订日期：2026-08-14
 
 本文定义VIP群股票提醒功能的技术架构、数据库结构、状态机、调度流程、消息格式、实施边界和验收标准。策略业务语义以股票知识库为准；本文由AI技术专家负责将业务规则完整映射为可实施、可审计、低侵入的Java/Spring/PostgreSQL方案，并作为普通工程师开发、测试和验收的唯一技术基线。工程师不得在本文未定义或互相冲突时自行猜测，应停止实施并反馈技术专家修订。
 
@@ -776,6 +776,16 @@ PENDING
 → COMPLETED
 ```
 
+上述链路仅适用于正常 cron / 启动补偿产生、需要进入策略事务的生产轮次。`READY`的唯一语义是“数据已就绪，下一步由生产编排消费并执行策略事务”；它不得用于 Tornsy 历史数据回填的纯派生修复。
+
+Tornsy 回填专用终态：
+
+```text
+REPAIRED_DATA_ONLY
+```
+
+它表示回填已使对应 bar/feature 按当前版本重算，仅是数据修复审计事实；它不是待处理、可重试、等待数据或交易状态，生产调度器不得查询或消费它，禁止进入`StockRoundTransactionService`。Tornsy 修复已`COMPLETED`或`FAILED_FINAL`的历史 round 时保持原终态，不得降级。
+
 异常状态：
 
 ```text
@@ -1391,6 +1401,8 @@ marketRound
 ```
 
 不固定假设每个15分钟边界时特征已经完成。
+
+待处理查询必须采用生产可消费状态的**显式白名单**，而非“排除少数终态”的否定条件。正常状态集合可包含`PENDING/BUILDING_BAR/BUILDING_FEATURE/WAITING_DATA/FAILED_RETRYABLE/READY/PROCESSING`，以当前重试语义为准；`COMPLETED`、`FAILED_FINAL`、`REPAIRED_DATA_ONLY`和任何未来审计/隔离状态不得被消费。这样新增状态默认安全，不会被隐式送入策略事务。
 
 ### 11.2 防重入
 
@@ -2508,7 +2520,7 @@ strategyReady=false
 
 ### 26.2 “数据补齐”与“历史策略补跑”必须分离
 
-现有`StockHistoryRebuildService`的职责仅到数据层：按bar/feature/round完整性补bar、补feature，并将可恢复round置为`READY`。它不调用`StockRoundTransactionService`，不重建信号事件、批次、影子、通知、冷却或月度状态。
+现有`StockHistoryRebuildService`的职责仅到数据层：按bar/feature/round完整性补bar、补feature。普通启动补偿中、由生产运行时门禁创建且确有策略/存量管理义务的可恢复 round 可置为`READY`；Tornsy 回填导致的纯派生修复必须置为`REPAIRED_DATA_ONLY`，或保持既有`COMPLETED`/`FAILED_FINAL`。它不调用`StockRoundTransactionService`，不重建信号事件、批次、影子、通知、冷却或月度状态。
 
 因此，补齐功能本身只能在其实际遍历到目标桶时修复以下数据事实：
 
@@ -2516,7 +2528,7 @@ strategyReady=false
 bar存在 + feature缺失/不完整
 → 以当前特征版本重新计算并UPSERT
 → 预热期窗口指标保留条件性NULL
-→ round恢复为READY
+→ 普通生产恢复 round 按既有语义恢复为READY；Tornsy 回填 round 为REPAIRED_DATA_ONLY或保持既有不可消费终态
 ```
 
 它**不能单独保证**随后业务决策自动补跑。既有调度器只有在`StockAlertRuntimeGate.shouldBuildRounds=true`时才查询未完成round并调用`processPendingRounds`；该门禁目前来自总开关、活跃批次或未结算拒绝观察，未把`READY/FAILED_RETRYABLE`的历史round本身作为触发条件。若所有这些条件均为false，单独运行数据补齐后，历史`READY` round不会自动进入事务。
@@ -2527,7 +2539,7 @@ bar存在 + feature缺失/不完整
 
 历史失败特征、失败轮次与后续策略事实需要单独的恢复专题，不能把它并入普通数据补齐。实施前必须先冻结恢复模式及范围：
 
-1. **仅数据修复**：补bar/feature/round至`READY`，不进入事务；
+1. **仅数据修复**：补bar/feature；Tornsy 回填 round 置`REPAIRED_DATA_ONLY`或保持既有`COMPLETED`/`FAILED_FINAL`，不进入事务；
 2. **存量管理恢复**：只处理当前仍活跃批次的ENTRY过期取消、EXIT与DATA_STALE恢复，不新建历史信号/Shadow/通知；
 3. **研究/策略历史重跑**：若业务需要历史信号、Shadow或拒绝观察重算，必须使用独立、显式的回放/恢复入口和审计产物，禁止由启动补偿或普通定时任务隐式执行。
 

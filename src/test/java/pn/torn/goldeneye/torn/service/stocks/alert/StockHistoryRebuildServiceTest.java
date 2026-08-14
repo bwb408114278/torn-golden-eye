@@ -34,6 +34,9 @@ import static org.mockito.Mockito.*;
  *   <li>完整桶跳过: bar+feature完整、round=COMPLETED且版本一致 - 无任何写入;</li>
  *   <li>FAILED_FINAL: 保留终态与失败事实,不自动重开。</li>
  * </ul>
+ * 回填修复入口({@code repairBackfilledHistory})状态隔离:受影响桶强制重建bar/feature,
+ * 但轮次只落数据修复终态REPAIRED_DATA_ONLY(不存在时幂等创建),COMPLETED/FAILED_FINAL
+ * 保持既有终态,绝不写生产消费语义的READY。
  *
  * @author Bai
  * @version 1.2.18
@@ -173,8 +176,8 @@ class StockHistoryRebuildServiceTest {
     // ==================== 回填驱动数据修复 ====================
 
     @Test
-    @DisplayName("回填修复_受影响桶已有bar -> 仍强制调用buildBars并恢复READY")
-    void repair_affectedBucketExistingBar_forceRebuildsBar() {
+    @DisplayName("回填修复_受影响桶已有bar -> 仍强制调用buildBars,COMPLETED轮次保持终态")
+    void repair_affectedBucketExistingBar_forceRebuildsBarKeepsCompleted() {
         when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
         when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
         when(roundDao.selectByRoundTime(BUCKET))
@@ -188,8 +191,55 @@ class StockHistoryRebuildServiceTest {
 
         verify(barBuildService, atLeastOnce()).buildBars(BUCKET);
         verify(featureBuildService, atLeastOnce()).buildFeatures(BUCKET);
-        assertLastRoundStatus(StockRoundStatusEnum.READY.getCode());
+        // COMPLETED轮次只更新bar/feature,轮次状态保持终态,不得降级也不得置READY
+        verify(roundDao, never()).updateById(any());
+        verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
         assertEquals(1, result.forcedBarBuckets(), "受影响桶必须计入强制重建bar");
+        assertEquals(0, result.dataOnlyRoundCount(), "COMPLETED轮次不得计入数据修复终态");
+    }
+
+    @Test
+    @DisplayName("回填修复_READY轮次 -> 落REPAIRED_DATA_ONLY而非READY,禁止策略消费")
+    void repair_readyRound_marksDataRepairOnlyInsteadOfReady() {
+        when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
+        when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
+        // 历史遗留READY轮次被回填命中后,必须写数据修复终态,防止生产调度器消费修复后的历史数据
+        when(roundDao.selectByRoundTime(BUCKET))
+                .thenReturn(existingRound(8L, StockRoundStatusEnum.READY.getCode()));
+        when(bar15mDao.selectByBarStartTime(BUCKET, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(1)));
+
+        StockHistoryRebuildService.BackfillRepairResult result = service.repairBackfilledHistory(
+                List.of(BUCKET), BUCKET.plusMinutes(15), "run-1");
+
+        verify(barBuildService, atLeastOnce()).buildBars(BUCKET);
+        verify(featureBuildService, atLeastOnce()).buildFeatures(BUCKET);
+        ArgumentCaptor<TornStockMarketRoundDO> captor = ArgumentCaptor.forClass(TornStockMarketRoundDO.class);
+        verify(roundDao).updateById(captor.capture());
+        assertEquals(StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode(),
+                captor.getValue().getRoundStatus(), "回填修复轮次必须落REPAIRED_DATA_ONLY");
+        assertEquals(1, result.dataOnlyRoundCount(), "READY轮次被回填修复后计入数据修复终态");
+    }
+
+    @Test
+    @DisplayName("回填修复_轮次不存在 -> 幂等创建后写REPAIRED_DATA_ONLY")
+    void repair_missingRound_createsDataRepairOnlyRound() {
+        when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
+        when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
+        when(roundDao.selectByRoundTime(BUCKET)).thenReturn(null, persistedRound(BUCKET));
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(bar15mDao.selectByBarStartTime(BUCKET, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(1)));
+
+        StockHistoryRebuildService.BackfillRepairResult result = service.repairBackfilledHistory(
+                List.of(BUCKET), BUCKET.plusMinutes(15), "run-1");
+
+        verify(roundDao).insertPendingRoundIgnoreConflict(any());
+        ArgumentCaptor<TornStockMarketRoundDO> captor = ArgumentCaptor.forClass(TornStockMarketRoundDO.class);
+        verify(roundDao).updateById(captor.capture());
+        assertEquals(StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode(),
+                captor.getValue().getRoundStatus(), "新建轮次必须直接落数据修复终态");
+        assertEquals(1, result.dataOnlyRoundCount(), "新建轮次计入数据修复终态");
     }
 
     @Test
@@ -227,7 +277,7 @@ class StockHistoryRebuildServiceTest {
 
         verify(roundDao, never()).updateById(any());
         verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
-        assertEquals(0, result.restoredRounds(), "FAILED_FINAL轮次不得恢复为READY");
+        assertEquals(0, result.dataOnlyRoundCount(), "FAILED_FINAL轮次不得改写状态");
     }
 
     @Test

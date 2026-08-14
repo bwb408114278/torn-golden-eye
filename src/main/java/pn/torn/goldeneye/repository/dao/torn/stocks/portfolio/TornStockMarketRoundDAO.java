@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票策略轮次记录持久层类
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.07.24
  */
 @Repository
@@ -28,13 +28,15 @@ public class TornStockMarketRoundDAO extends ServiceImpl<TornStockMarketRoundMap
     }
 
     /**
-     * 查询指定时间之前(含该时间)未完成的轮次,批量获取避免N+1。
+     * 查询指定时间之前(含该时间)生产可消费的轮次,批量获取避免N+1。
      * <p>
      * 与生产者创建最近已结束桶使用同一包含上界语义:定时入口先为{@code currentEndedBucket}
      * 幂等建立PENDING轮次,再以同一时间作为包含上界查询,保证新桶本次调度即被处理。
+     * 状态过滤为显式生产白名单,数据修复终态{@code REPAIRED_DATA_ONLY}与
+     * {@code COMPLETED}/{@code FAILED_FINAL}均不在可消费集合内。
      *
      * @param maxRoundTime 最大轮次时间(包含该时间)
-     * @return 未完成轮次列表(按轮次时间升序)
+     * @return 生产可消费轮次列表(按轮次时间升序)
      */
     public List<TornStockMarketRoundDO> selectPendingRoundsUpTo(LocalDateTime maxRoundTime) {
         return baseMapper.selectPendingRoundsUpTo(maxRoundTime);
