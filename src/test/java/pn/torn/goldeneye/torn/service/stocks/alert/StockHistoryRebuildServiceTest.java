@@ -36,7 +36,7 @@ import static org.mockito.Mockito.*;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.08.11
  */
 @DisplayName("历史重建完整数据义务测试")
@@ -168,6 +168,86 @@ class StockHistoryRebuildServiceTest {
         verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
         verify(bar15mDao, never()).selectByBarStartTime(any(), any());
         verify(feature15mDao, never()).selectByBarStartTime(any(), any());
+    }
+
+    // ==================== 回填驱动数据修复 ====================
+
+    @Test
+    @DisplayName("回填修复_受影响桶已有bar -> 仍强制调用buildBars并恢复READY")
+    void repair_affectedBucketExistingBar_forceRebuildsBar() {
+        when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
+        when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
+        when(roundDao.selectByRoundTime(BUCKET))
+                .thenReturn(existingRound(6L, StockRoundStatusEnum.COMPLETED.getCode()));
+        // 数据库已存在bar(范围重算查询命中),但受影响桶仍必须强制重建bar
+        when(bar15mDao.selectByBarStartTime(BUCKET, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(1)));
+
+        StockHistoryRebuildService.BackfillRepairResult result = service.repairBackfilledHistory(
+                List.of(BUCKET), BUCKET.plusMinutes(15), "run-1");
+
+        verify(barBuildService, atLeastOnce()).buildBars(BUCKET);
+        verify(featureBuildService, atLeastOnce()).buildFeatures(BUCKET);
+        assertLastRoundStatus(StockRoundStatusEnum.READY.getCode());
+        assertEquals(1, result.forcedBarBuckets(), "受影响桶必须计入强制重建bar");
+    }
+
+    @Test
+    @DisplayName("回填修复_后续桶feature已存在 -> 仍强制buildFeatures重算")
+    void repair_rangeExistingFeature_forceRecompute() {
+        LocalDateTime laterBucket = BUCKET.plusMinutes(15);
+        when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
+        when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
+        when(featureBuildService.buildFeatures(laterBucket)).thenReturn(List.of(feature(2)));
+        when(roundDao.selectByRoundTime(BUCKET))
+                .thenReturn(existingRound(6L, StockRoundStatusEnum.COMPLETED.getCode()));
+        when(bar15mDao.selectByBarStartTime(BUCKET, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(1)));
+        when(bar15mDao.selectByBarStartTime(laterBucket, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(2)));
+
+        service.repairBackfilledHistory(List.of(BUCKET), BUCKET.plusMinutes(30), "run-1");
+
+        verify(featureBuildService).buildFeatures(laterBucket);
+    }
+
+    @Test
+    @DisplayName("回填修复_FAILED_FINAL轮次 -> 保持终态不自动恢复")
+    void repair_failedFinalRound_keepsTerminal() {
+        TornStockMarketRoundDO failedFinal = existingRound(7L, StockRoundStatusEnum.FAILED_FINAL.getCode());
+        failedFinal.setErrorMessage("历史最终失败");
+        when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
+        when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
+        when(roundDao.selectByRoundTime(BUCKET)).thenReturn(failedFinal);
+        when(bar15mDao.selectByBarStartTime(BUCKET, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(1)));
+
+        StockHistoryRebuildService.BackfillRepairResult result = service.repairBackfilledHistory(
+                List.of(BUCKET), BUCKET.plusMinutes(15), "run-1");
+
+        verify(roundDao, never()).updateById(any());
+        verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
+        assertEquals(0, result.restoredRounds(), "FAILED_FINAL轮次不得恢复为READY");
+    }
+
+    @Test
+    @DisplayName("回填修复_范围无bar桶 -> 仅跳过不伪造bar")
+    void repair_rangeWithoutBar_skipsNoFabrication() {
+        when(barBuildService.buildBars(BUCKET)).thenReturn(List.of(bar(1)));
+        when(featureBuildService.buildFeatures(BUCKET)).thenReturn(List.of(feature(1)));
+        when(roundDao.selectByRoundTime(BUCKET))
+                .thenReturn(existingRound(6L, StockRoundStatusEnum.COMPLETED.getCode()));
+        when(bar15mDao.selectByBarStartTime(BUCKET, Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of(bar(1)));
+        // 后续桶无bar -> 不得调用buildFeatures伪造feature
+        when(bar15mDao.selectByBarStartTime(BUCKET.plusMinutes(15), Stock15mBarBuildService.BUILD_VERSION))
+                .thenReturn(List.of());
+
+        StockHistoryRebuildService.BackfillRepairResult result = service.repairBackfilledHistory(
+                List.of(BUCKET), BUCKET.plusMinutes(30), "run-1");
+
+        assertEquals(1, result.skippedNoBarBuckets(), "无bar桶必须计入跳过");
+        verify(featureBuildService, never()).buildFeatures(BUCKET.plusMinutes(15));
     }
 
     private void assertLastRoundStatus(String expectedStatus) {

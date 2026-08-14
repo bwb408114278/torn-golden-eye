@@ -10,6 +10,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.configuration.property.StockHistoryBackfillProperty;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
 
 import java.time.LocalDateTime;
@@ -21,14 +22,15 @@ import static org.mockito.Mockito.*;
 
 /**
  * 股票历史回填调度器单元测试 - 覆盖防重入、最近5分钟排除、24小时自动上限、
- * 实验窗口重试不漂移与成功后关闭实验开关
+ * 实验窗口重试不漂移、专用回填执行器派发与成功后关闭实验开关
  * <p>
  * 验证 {@link TornsyStockHistoryBackfillScheduler} 的自动补正窗口计算（排除最近 5 分钟、
- * 最多 24 小时）、JVM 防重入，以及实验固定窗口不随执行时刻漂移且成功后不再重复执行。
+ * 最多 24 小时）、JVM 防重入、专用回填执行器派发（不占用调度线程），以及实验固定窗口
+ * 不随执行时刻漂移、成功/失败后不再错误标记完成。
  *
  * @author Bai
- * @version 1.2.15
- * @since 2026.08.13
+ * @version 1.2.18
+ * @since 2026.08.14
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("股票历史回填调度器测试")
@@ -43,7 +45,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
     @Mock
     private ProjectProperty projectProperty;
     @Mock
-    private ThreadPoolTaskExecutor virtualThreadExecutor;
+    private ThreadPoolTaskExecutor stockBackfillExecutor;
 
     @InjectMocks
     private TornsyStockHistoryBackfillScheduler scheduler;
@@ -97,5 +99,42 @@ class TornsyStockHistoryBackfillSchedulerTest {
         scheduler.runExperimentOnce(now);
 
         verify(backfillService, times(1)).backfillRange(any(LocalDateTime.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("实验_失败切片/段 -> 不标记experiment complete,下次继续执行")
+    void runExperimentOnce_failure_keepsExperimentIncomplete() {
+        when(property.getExperimentStart()).thenReturn("2026-01-01 00:00:00");
+        when(property.getExperimentEnd()).thenReturn("2026-07-01 00:00:00");
+        when(backfillService.backfillRange(any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenThrow(new RuntimeException("segment fail"));
+
+        LocalDateTime now = LocalDateTime.of(2026, 8, 1, 10, 0, 0);
+        scheduler.runExperimentOnce(now);
+        scheduler.runExperimentOnce(now);
+
+        verify(backfillService, times(2)).backfillRange(any(LocalDateTime.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("小时补正_生产且自动开关开启 -> 派发到专用回填执行器")
+    void runHourlyCorrection_prodEnabled_dispatchesToBackfillExecutor() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(property.isAutoEnabled()).thenReturn(true);
+
+        scheduler.runHourlyCorrection();
+
+        verify(stockBackfillExecutor).execute(any(Runnable.class));
+    }
+
+    @Test
+    @DisplayName("小时补正_自动开关关闭 -> 不派发")
+    void runHourlyCorrection_autoDisabled_doesNotDispatch() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(property.isAutoEnabled()).thenReturn(false);
+
+        scheduler.runHourlyCorrection();
+
+        verify(stockBackfillExecutor, never()).execute(any(Runnable.class));
     }
 }

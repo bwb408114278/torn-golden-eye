@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.manager.torn.stocks;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
@@ -17,7 +18,7 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
-import pn.torn.goldeneye.repository.model.torn.*;
+import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
@@ -28,6 +29,7 @@ import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBonusVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
+import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TextImageUtils;
@@ -40,6 +42,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -48,9 +51,10 @@ import java.util.stream.Collectors;
  * Torn股票公共逻辑层
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.2.18
  * @since 2025.09.26
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TornStocksManager {
@@ -63,6 +67,7 @@ public class TornStocksManager {
     private final TornStocksDAO stocksDao;
     private final TornStocksHistoryDAO stocksHistoryDao;
     private final ProjectProperty projectProperty;
+    private final StockMarketClock marketClock;
     private static final long NOTICE_THRESHOLD = 100_000_000_000L;
     private static final String BUY_COUNT = "买入量: ";
     private static final String SELL_COUNT = "卖出量: ";
@@ -73,14 +78,47 @@ public class TornStocksManager {
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("\\$(\\d{1,3}(?:,\\d{3})*)");
     private static final Pattern ITEM_PATTERN = Pattern.compile("1x (.+)");
 
-    @Scheduled(cron = "5 * * * * ?")
+    /**
+     * JVM内实时采集防重入标记,同一时刻仅允许一个采集流程
+     */
+    private final AtomicBoolean realtimeProcessing = new AtomicBoolean(false);
+
+    @Scheduled(cron = "5 * * * * ?", scheduler = "realtimeStockScheduler")
     public void spiderStockData() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
         }
 
-        LocalDateTime regDateTime = LocalDateTime.now();
-        TornStocksVO resp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
+        if (!realtimeProcessing.compareAndSet(false, true)) {
+            log.warn("股票实时采集-上一轮采集尚未完成, 跳过本次, 避免同JVM重入");
+            return;
+        }
+
+        LocalDateTime startedAt = marketClock.now();
+        LocalDateTime plannedMinute = startedAt.withSecond(0).withNano(0);
+        try {
+            TornStocksVO resp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
+            LocalDateTime apiCompletedAt = marketClock.now();
+            upsertStocksSnapshot(resp);
+            HistoryInsertResult insertResult = saveStocksHistory(resp, plannedMinute);
+            LocalDateTime historyPersistedAt = marketClock.now();
+            logCollectionTiming(plannedMinute, startedAt, apiCompletedAt, historyPersistedAt,
+                    insertResult.expectedCount(), insertResult.insertedCount());
+            handleInsertResult(insertResult, plannedMinute);
+        } catch (Exception e) {
+            log.error("股票实时采集-异常, plannedMinute={}, startedAt={}, 不写半成功结论", plannedMinute, startedAt, e);
+            throw e;
+        } finally {
+            realtimeProcessing.set(false);
+        }
+    }
+
+    /**
+     * 更新股票当前快照（新增/更新 torn_stocks）
+     *
+     * @param resp Torn 股票行情响应
+     */
+    private void upsertStocksSnapshot(TornStocksVO resp) {
         List<TornStocksDO> stocksList = resp.getStocks().stream().map(this::convert2DO).toList();
         List<TornStocksDO> oldDataList = stocksDao.list();
 
@@ -101,10 +139,74 @@ public class TornStocksManager {
         if (!CollectionUtils.isEmpty(upadteDataList)) {
             stocksDao.updateBatchById(upadteDataList);
         }
+    }
 
-        saveStocksHistory(resp, regDateTime);
-        sendGreatTradeChangeMsg(regDateTime);
-        calcStockFeature(regDateTime);
+    /**
+     * 保存股票历史（以计划自然分钟为分钟事实键,冲突安全写入）
+     *
+     * @param resp          Torn 股票行情响应
+     * @param plannedMinute 计划自然分钟采样键（Asia/Shanghai,秒与纳秒清零）
+     * @return 预期与实际插入行数
+     */
+    private HistoryInsertResult saveStocksHistory(TornStocksVO resp, LocalDateTime plannedMinute) {
+        List<TornStocksHistoryDO> historyList = resp.getStocks().stream()
+                .map(i -> i.convert2HistoryDO(plannedMinute)).toList();
+        int expectedCount = historyList.size();
+        int insertedCount = expectedCount == 0 ? 0 : stocksHistoryDao.insertRealtimeIgnoreConflict(historyList);
+        return new HistoryInsertResult(expectedCount, insertedCount);
+    }
+
+    /**
+     * 依据实际插入结果控制下游：全量插入才派发大额交易消息与旧分钟特征异步处理。
+     * <p>
+     * <ul>
+     *   <li>{@code inserted == expected}: 正常完成,异步派发大额交易检测与旧分钟特征处理;</li>
+     *   <li>{@code inserted == 0}: 本分钟已写入,INFO 后返回,不发消息、不推进旧特征游标;</li>
+     *   <li>{@code 0 < inserted < expected}: 部分冲突,fail-closed 抛异常,不发消息、不推进旧特征游标。</li>
+     * </ul>
+     *
+     * @param insertResult  插入结果
+     * @param plannedMinute 计划自然分钟采样键
+     */
+    private void handleInsertResult(HistoryInsertResult insertResult, LocalDateTime plannedMinute) {
+        if (insertResult.insertedCount() == insertResult.expectedCount()) {
+            log.info("股票实时采集-本分钟写入完成, 派发下游异步处理, plannedMinute={}, expected={}, inserted={}",
+                    plannedMinute, insertResult.expectedCount(), insertResult.insertedCount());
+            virtualThreadExecutor.execute(() -> sendGreatTradeChangeMsg(plannedMinute));
+            calcStockFeature(plannedMinute);
+        } else if (insertResult.insertedCount() == 0) {
+            log.info("股票实时采集-本分钟已写入(全冲突跳过), 不发消息不推进旧特征游标, plannedMinute={}", plannedMinute);
+        } else {
+            log.error("股票实时采集-部分分钟冲突, fail-closed不发消息不推进旧特征游标, plannedMinute={}, "
+                            + "expected={}, inserted={}",
+                    plannedMinute, insertResult.expectedCount(), insertResult.insertedCount());
+            throw new IllegalStateException("股票实时采集部分分钟冲突, plannedMinute=" + plannedMinute
+                    + ", expected=" + insertResult.expectedCount()
+                    + ", inserted=" + insertResult.insertedCount());
+        }
+    }
+
+    /**
+     * 记录采集时序指标日志（不额外建审计表）
+     *
+     * @param plannedMinute      计划自然分钟采样键
+     * @param startedAt          采集方法实际开始时间
+     * @param apiCompletedAt     Torn API 请求完成时间
+     * @param historyPersistedAt 历史插入完成时间
+     * @param expectedStockCount 预期股票数
+     * @param insertedStockCount 实际插入行数
+     */
+    private void logCollectionTiming(LocalDateTime plannedMinute, LocalDateTime startedAt,
+                                     LocalDateTime apiCompletedAt, LocalDateTime historyPersistedAt,
+                                     int expectedStockCount, int insertedStockCount) {
+        log.info("股票实时采集-时序, plannedMinute={}, startedAt={}, apiCompletedAt={}, historyPersistedAt={}, "
+                        + "queueOrStartDelayMillis={}, apiCostMillis={}, dbCostMillis={}, "
+                        + "expectedStockCount={}, insertedStockCount={}",
+                plannedMinute, startedAt, apiCompletedAt, historyPersistedAt,
+                Duration.between(plannedMinute, startedAt).toMillis(),
+                Duration.between(startedAt, apiCompletedAt).toMillis(),
+                Duration.between(apiCompletedAt, historyPersistedAt).toMillis(),
+                expectedStockCount, insertedStockCount);
     }
 
     /**
@@ -149,15 +251,6 @@ public class TornStocksManager {
         }
 
         return 0L;
-    }
-
-    /**
-     * 保存股票历史
-     */
-    private void saveStocksHistory(TornStocksVO resp, LocalDateTime regDateTime) {
-        List<TornStocksHistoryDO> historyList = resp.getStocks().stream()
-                .map(i -> i.convert2HistoryDO(regDateTime)).toList();
-        stocksHistoryDao.saveBatch(historyList);
     }
 
     /**
@@ -252,5 +345,14 @@ public class TornStocksManager {
             settingManager.updateSetting(SettingConstants.KEY_STOCK_FEATURE_LOAD,
                     DateTimeUtils.convertToString(regDateTime));
         });
+    }
+
+    /**
+     * 历史写入结果
+     *
+     * @param expectedCount 预期写入行数
+     * @param insertedCount 实际插入行数（自然分钟冲突跳过不计入）
+     */
+    private record HistoryInsertResult(int expectedCount, int insertedCount) {
     }
 }

@@ -15,7 +15,9 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketR
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,7 +50,7 @@ import java.util.stream.Collectors;
  * fail-closed行为。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.07.25
  */
 @Slf4j
@@ -60,6 +62,10 @@ public class StockHistoryRebuildService {
      * 进度日志输出间隔(每处理多少个桶输出一次info日志)
      */
     private static final int PROGRESS_LOG_INTERVAL = 10;
+    /**
+     * feature 后向重算单段最大跨度(天): 每段最多 96 个 15 分钟桶
+     */
+    private static final int FEATURE_SEGMENT_DAYS = 1;
 
     private final Stock15mBarBuildService barBuildService;
     private final Stock15mFeatureBuildService featureBuildService;
@@ -177,6 +183,195 @@ public class StockHistoryRebuildService {
         LocalDateTime earliestTime = earliest.getRegDateTime();
         log.info("torn_stocks_history最早记录时间: {}", earliestTime);
         return earliestTime;
+    }
+
+    // ==================== 回填驱动数据修复入口 ====================
+
+    /**
+     * 回填驱动的派生数据修复：受影响桶强制 bar 重建 + 后向 30 天 feature 分段重算。
+     * <p>
+     * 仅修复数据层，不调用 {@link StockRoundTransactionService}、不创建历史交易、消息、
+     * Shadow、冷却或月度状态。处理顺序：
+     * <ol>
+     *   <li>对每个受影响桶:无论 bar 是否存在都强制 UPSERT bar,并重建 feature,
+     *       仅在已有/新建 round 可恢复时写 {@code READY}(FAILED_FINAL 保持终态);</li>
+     *   <li>对 {@code [earliestAffected, featureRebuildEndExclusive)} 按 15 分钟因果顺序
+     *       遍历,只要目标桶存在当前 build version 的 bar 就强制 UPSERT feature,
+     *       无 bar 的桶仅记录/跳过,绝不伪造 bar;</li>
+     *   <li>后向重算按连续 1 天(96 桶)分段执行,每 10 桶记录一次进度;
+     *       任一段失败立即停止后续段并向上抛出,由调度层保持"实验未完成"语义。</li>
+     * </ol>
+     *
+     * @param affectedBuckets            实际插入分钟所属的受影响桶集合(已对齐)
+     * @param featureRebuildEndExclusive 后向 feature 重算结束时间(不含,应为
+     *                                   {@code alignToBucket(latestAffected) + 30天 + 15分钟})
+     * @param backfillRunId              本次回填运行标识(仅用于进度日志)
+     * @return 修复统计结果
+     */
+    public BackfillRepairResult repairBackfilledHistory(Collection<LocalDateTime> affectedBuckets,
+                                                        LocalDateTime featureRebuildEndExclusive,
+                                                        String backfillRunId) {
+        List<LocalDateTime> sortedBuckets = affectedBuckets.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        if (sortedBuckets.isEmpty()) {
+            log.info("历史回填修复-无受影响桶, 跳过派生数据修复, runId={}", backfillRunId);
+            return new BackfillRepairResult(0, 0, 0, 0);
+        }
+
+        LocalDateTime earliestAffected = sortedBuckets.getFirst();
+        LocalDateTime featureEnd = Stock15mBarBuildService.alignToBucket(featureRebuildEndExclusive);
+        log.info("历史回填修复-开始, runId={}, affectedBucketCount={}, earliestAffected={}, "
+                        + "featureRebuildEndExclusive={}", backfillRunId, sortedBuckets.size(),
+                earliestAffected, featureEnd);
+
+        int[] affectedStats = repairAffectedBuckets(sortedBuckets);
+        int[] featureStats = recomputeFeaturesBySegments(earliestAffected, featureEnd, backfillRunId,
+                affectedStats[0]);
+
+        BackfillRepairResult result = new BackfillRepairResult(
+                affectedStats[0], affectedStats[1], featureStats[0], featureStats[1]);
+        log.info("历史回填修复-完成, runId={}, forcedBarBuckets={}, restoredRounds={}, "
+                        + "recomputedFeatureBuckets={}, skippedNoBarBuckets={}, rebuiltBucketCount={}",
+                backfillRunId, result.forcedBarBuckets(), result.restoredRounds(),
+                result.recomputedFeatureBuckets(), result.skippedNoBarBuckets(), result.rebuiltBucketCount());
+        return result;
+    }
+
+    /**
+     * 修复受影响桶：强制重建 bar 与 feature,并在可恢复时把轮次置为 READY。
+     * <p>
+     * 每个受影响桶无论 bar 是否已存在都调用 {@link Stock15mBarBuildService#buildBars(LocalDateTime)}
+     * 强制 UPSERT,使新回填的分钟事实合并进既有 bar;随后重建 feature;
+     * round 仅当非 {@code FAILED_FINAL} 时恢复至 READY。
+     *
+     * @param affectedBuckets 受影响桶列表(已排序去重)
+     * @return {@code [forcedBarBuckets, restoredRounds]}
+     */
+    private int[] repairAffectedBuckets(List<LocalDateTime> affectedBuckets) {
+        int forcedBarBuckets = 0;
+        int restoredRounds = 0;
+        for (LocalDateTime bucket : affectedBuckets) {
+            LocalDateTime now = marketClock.now();
+            List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(bucket);
+            if (!bars.isEmpty()) {
+                forcedBarBuckets++;
+            } else {
+                log.warn("历史回填修复-受影响桶强制重建bar为空(无分钟采样), bucket={}", bucket);
+            }
+            List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(bucket);
+            if (restoreRecoverableRound(bucket, now, bars.size(), features.size())) {
+                restoredRounds++;
+            }
+        }
+        log.info("历史回填修复-受影响桶处理完成, forcedBarBuckets={}, restoredRounds={}",
+                forcedBarBuckets, restoredRounds);
+        return new int[]{forcedBarBuckets, restoredRounds};
+    }
+
+    /**
+     * 将指定桶的轮次恢复至 READY(仅数据层终态)。
+     * <p>
+     * 桶存在 {@code FAILED_FINAL} 终态轮次时保留失败事实不自动恢复;其余情况下
+     * 复用或幂等创建轮次并按当前 bar/feature 数量写 READY。
+     *
+     * @param bucket       桶开始时间
+     * @param now          本次修复审计时间
+     * @param barCount     bar 数
+     * @param featureCount feature 数
+     * @return true 表示已恢复为 READY;false 表示 FAILED_FINAL 保持终态
+     */
+    private boolean restoreRecoverableRound(LocalDateTime bucket, LocalDateTime now,
+                                            int barCount, int featureCount) {
+        TornStockMarketRoundDO round = roundDao.selectByRoundTime(bucket);
+        if (round != null && StockRoundStatusEnum.FAILED_FINAL.getCode().equals(round.getRoundStatus())) {
+            log.info("历史回填修复-桶{}为FAILED_FINAL终态, 保留失败事实, 不自动恢复", bucket);
+            return false;
+        }
+        TornStockMarketRoundDO target = round != null ? round : createRound(bucket, now);
+        markRoundReady(target, barCount, featureCount, now);
+        return true;
+    }
+
+    /**
+     * 按连续 1 天区间分段后向重算 feature。
+     * <p>
+     * 从 earliestAffected 到 featureRebuildEndExclusive,每段最多 96 个桶;
+     * 段失败时异常向上抛出,停止本次后续段。
+     *
+     * @param startInclusive   起始桶(含)
+     * @param endExclusive     结束桶(不含)
+     * @param backfillRunId    回填运行标识
+     * @param forcedBarBuckets 已强制重建的 bar 桶数(仅用于进度日志)
+     * @return {@code [recomputedFeatureBuckets, skippedNoBarBuckets]}
+     */
+    private int[] recomputeFeaturesBySegments(LocalDateTime startInclusive, LocalDateTime endExclusive,
+                                              String backfillRunId, int forcedBarBuckets) {
+        int recomputed = 0;
+        int skippedNoBar = 0;
+        int segmentNo = 0;
+        LocalDateTime segmentStart = startInclusive;
+        while (segmentStart.isBefore(endExclusive)) {
+            LocalDateTime segmentEnd = segmentStart.plusDays(FEATURE_SEGMENT_DAYS);
+            if (segmentEnd.isAfter(endExclusive)) {
+                segmentEnd = endExclusive;
+            }
+            segmentNo++;
+            RecomputeSegmentStats stats = recomputeFeatureSegment(
+                    segmentStart, segmentEnd, backfillRunId, segmentNo, forcedBarBuckets);
+            recomputed += stats.recomputed();
+            skippedNoBar += stats.skippedNoBar();
+            segmentStart = segmentEnd;
+        }
+        return new int[]{recomputed, skippedNoBar};
+    }
+
+    /**
+     * 重算单个 1 天 feature 段,每 10 桶输出一次进度日志。
+     *
+     * @param segmentStart     段起始桶(含)
+     * @param segmentEnd       段结束桶(不含)
+     * @param backfillRunId    回填运行标识
+     * @param segmentNo        段序号
+     * @param forcedBarBuckets 已强制重建的 bar 桶数(仅用于进度日志)
+     * @return 段内统计
+     */
+    private RecomputeSegmentStats recomputeFeatureSegment(LocalDateTime segmentStart, LocalDateTime segmentEnd,
+                                                          String backfillRunId, int segmentNo,
+                                                          int forcedBarBuckets) {
+        int recomputed = 0;
+        int skippedNoBar = 0;
+        int processed = 0;
+        long segmentStartMillis = System.currentTimeMillis();
+        LocalDateTime current = segmentStart;
+        while (current.isBefore(segmentEnd)) {
+            processed++;
+            List<TornStockMarketBar15mDO> currentBars = bar15mDao.selectByBarStartTime(
+                    current, Stock15mBarBuildService.BUILD_VERSION);
+            if (currentBars.isEmpty()) {
+                skippedNoBar++;
+            } else {
+                List<TornStockStrategyFeature15mDO> features = featureBuildService.buildFeatures(current);
+                if (!features.isEmpty()) {
+                    recomputed++;
+                }
+            }
+
+            if (processed % PROGRESS_LOG_INTERVAL == 0) {
+                log.info("历史回填修复-进度, runId={}, segment={}, processedBuckets={}, forcedBars={}, "
+                                + "recomputedFeatures={}, skippedNoBar={}, elapsedMs={}, currentBucket={}",
+                        backfillRunId, segmentNo, processed, forcedBarBuckets, recomputed, skippedNoBar,
+                        System.currentTimeMillis() - segmentStartMillis, current);
+            }
+            current = current.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
+        }
+        log.info("历史回填修复-段完成, runId={}, segment={}, processedBuckets={}, forcedBars={}, "
+                        + "recomputedFeatures={}, skippedNoBar={}, elapsedMs={}",
+                backfillRunId, segmentNo, processed, forcedBarBuckets, recomputed, skippedNoBar,
+                System.currentTimeMillis() - segmentStartMillis);
+        return new RecomputeSegmentStats(recomputed, skippedNoBar);
     }
 
     // ==================== 私有方法 ====================
@@ -518,5 +713,38 @@ public class StockHistoryRebuildService {
             List<TornStockMarketBar15mDO> bars,
             List<TornStockStrategyFeature15mDO> features,
             TornStockMarketRoundDO round) {
+    }
+
+    /**
+     * 回填驱动派生数据修复统计结果。
+     *
+     * @param forcedBarBuckets         受影响桶中强制重建出 bar 的桶数
+     * @param restoredRounds           恢复为 READY 的轮次数(FAILED_FINAL 不计入)
+     * @param recomputedFeatureBuckets 后向重算范围内实际重算出 feature 的桶数
+     * @param skippedNoBarBuckets      后向重算范围内无 bar 而跳过的桶数
+     */
+    public record BackfillRepairResult(
+            int forcedBarBuckets,
+            int restoredRounds,
+            int recomputedFeatureBuckets,
+            int skippedNoBarBuckets) {
+
+        /**
+         * 实际产生数据写入的桶数(强制重建 bar 桶 + 重算 feature 桶)。
+         *
+         * @return 重建桶总数
+         */
+        public int rebuiltBucketCount() {
+            return forcedBarBuckets + recomputedFeatureBuckets;
+        }
+    }
+
+    /**
+     * 单段 feature 重算统计。
+     *
+     * @param recomputed   段内重算出 feature 的桶数
+     * @param skippedNoBar 段内无 bar 而跳过的桶数
+     */
+    private record RecomputeSegmentStats(int recomputed, int skippedNoBar) {
     }
 }

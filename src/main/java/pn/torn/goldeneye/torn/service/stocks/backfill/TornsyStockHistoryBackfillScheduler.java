@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 不得以新「当前时刻 - 13 个月」重置边界。JVM 内通过 {@link AtomicBoolean} 防重入。
  *
  * @author Bai
- * @version 1.2.15
+ * @version 1.2.18
  * @since 2026.08.13
  */
 @Slf4j
@@ -51,7 +51,7 @@ public class TornsyStockHistoryBackfillScheduler {
     private final StockHistoryBackfillProperty property;
     private final StockMarketClock clock;
     private final ProjectProperty projectProperty;
-    private final ThreadPoolTaskExecutor virtualThreadExecutor;
+    private final ThreadPoolTaskExecutor stockBackfillExecutor;
 
     /**
      * 自动补正防重入标记
@@ -79,21 +79,21 @@ public class TornsyStockHistoryBackfillScheduler {
     }
 
     /**
-     * 每小时低峰自动补正最近 24 小时内的短缺口
+     * 每小时低峰自动补正最近 24 小时内的短缺口（派发到专用回填执行器,不占用调度线程）
      */
     @Scheduled(cron = "0 30 * * * ?", zone = "Asia/Shanghai")
     public void runHourlyCorrection() {
         if (!isProd() || !property.isAutoEnabled()) {
             return;
         }
-        autoBackfill(clock.now());
+        stockBackfillExecutor.execute(() -> autoBackfill(clock.now()));
     }
 
     /**
-     * 异步触发启动短窗口恢复
+     * 异步触发启动短窗口恢复（使用专用回填执行器）
      */
     private void triggerStartupRecoveryAsync() {
-        virtualThreadExecutor.execute(() -> {
+        stockBackfillExecutor.execute(() -> {
             try {
                 autoBackfill(clock.now());
             } catch (Exception e) {
@@ -103,10 +103,10 @@ public class TornsyStockHistoryBackfillScheduler {
     }
 
     /**
-     * 异步触发一次性实验
+     * 异步触发一次性实验（使用专用回填执行器）
      */
     private void triggerExperimentAsync() {
-        virtualThreadExecutor.execute(() -> runExperimentOnce(clock.now()));
+        stockBackfillExecutor.execute(() -> runExperimentOnce(clock.now()));
     }
 
     /**

@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票历史持久层类
  *
  * @author Bai
- * @version 1.2.15
+ * @version 1.2.18
  * @since 2026.01.26
  */
 @Repository
@@ -79,13 +79,29 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
     }
 
     /**
-     * 冲突安全批量写入历史事实（自然分钟部分唯一索引 + ON CONFLICT DO NOTHING）
+     * 实时采集自然分钟冲突安全批量写入（显式来源 TORNS_API,与自然分钟唯一索引精确匹配）。
+     * <p>
+     * 供实时采集短路径使用,{@code reg_date_time} 为计划自然分钟采样键;
+     * 禁止复用普通 {@code saveBatch()} 作为最终幂等方案。
      *
      * @param historyList 待写入历史记录列表
-     * @return 实际插入行数（已存在则跳过，不计入返回）
+     * @return 实际插入行数（自然分钟冲突跳过不计入）
      */
-    public int insertBackfillIgnoreConflict(List<TornStocksHistoryDO> historyList) {
-        return baseMapper.insertBackfillIgnoreConflict(historyList);
+    public int insertRealtimeIgnoreConflict(List<TornStocksHistoryDO> historyList) {
+        return baseMapper.insertRealtimeIgnoreConflict(historyList);
+    }
+
+    /**
+     * 冲突安全批量写入历史事实并返回实际插入的自然分钟槽位集合。
+     * <p>
+     * 使用 {@code INSERT ... ON CONFLICT DO NOTHING RETURNING} 返回真正写入的
+     * {@code (stocksId, minuteTime)},冲突行不产生派生数据重建义务。
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入的自然分钟槽位列表（可能为空）
+     */
+    public List<StockHistoryMinuteSlot> insertBackfillReturningSlots(List<TornStocksHistoryDO> historyList) {
+        return baseMapper.insertBackfillReturningSlots(historyList);
     }
 
     /**

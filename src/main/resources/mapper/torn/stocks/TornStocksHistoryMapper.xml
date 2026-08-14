@@ -154,8 +154,22 @@
           AND reg_date_time &lt; #{end}
     </select>
 
-    <!-- 冲突安全批量写入历史事实,匹配自然分钟部分唯一索引uk_torn_stocks_history_stock_minute -->
-    <insert id="insertBackfillIgnoreConflict">
+    <!-- 实时采集自然分钟冲突安全批量写入,显式来源TORN_API,匹配自然分钟部分唯一索引 -->
+    <insert id="insertRealtimeIgnoreConflict">
+        INSERT INTO torn_stocks_history
+            (stocks_id, stocks_name, stocks_shortname, current_price, market_cap, total_shares,
+             investors, reg_date_time, data_source, deleted, create_time, update_time)
+        VALUES
+            <foreach collection="historyList" item="item" separator=",">
+                (#{item.stocksId}, #{item.stocksName}, #{item.stocksShortname}, #{item.currentPrice},
+                 #{item.marketCap}, #{item.totalShares}, #{item.investors}, #{item.regDateTime},
+                 'TORN_API', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            </foreach>
+        ON CONFLICT (stocks_id, date_trunc('minute', reg_date_time)) WHERE deleted = 0 DO NOTHING
+    </insert>
+
+    <!-- 冲突安全批量写入历史事实并返回实际插入的自然分钟槽位(RETURNING) -->
+    <select id="insertBackfillReturningSlots" resultType="pn.torn.goldeneye.repository.model.torn.stocks.StockHistoryMinuteSlot">
         INSERT INTO torn_stocks_history
             (stocks_id, stocks_name, stocks_shortname, current_price, market_cap, total_shares,
              investors, reg_date_time, data_source, deleted, create_time, update_time)
@@ -166,7 +180,8 @@
                  0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             </foreach>
         ON CONFLICT (stocks_id, date_trunc('minute', reg_date_time)) WHERE deleted = 0 DO NOTHING
-    </insert>
+        RETURNING stocks_id AS stocksId, date_trunc('minute', reg_date_time) AS minuteTime
+    </select>
 
     <!-- 查询最新历史记录时间 -->
     <select id="selectLatestHistoryTime" resultType="java.time.LocalDateTime">

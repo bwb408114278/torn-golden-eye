@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 异常不向{@code ApplicationReadyEvent}逃逸;定时入口的异常上抛语义保持不变。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.07.25
  */
 @Slf4j
@@ -111,7 +111,7 @@ public class VipStockAlertScheduler {
      * 总开关关闭但存在活跃批次时,仍继续构建存量管理所需轮次(退出/恢复/灾难关闭/冷却),
      * 仅禁止新买入;历史PENDING通知投递不受轮次总开关与数据构建结果影响。
      */
-    @Scheduled(cron = "10 * * * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "10 * * * * ?", zone = "Asia/Shanghai", scheduler = "vipStockRoundScheduler")
     public void executeRound() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
@@ -128,6 +128,10 @@ public class VipStockAlertScheduler {
             return;
         }
 
+        log.info("VIP股票策略调度-任务开始, shouldBuildRounds={}, shouldSendPendingNotices={}, "
+                        + "manageResearchObligations={}",
+                decision.shouldBuildRounds(), decision.shouldSendPendingNotices(),
+                decision.manageResearchObligations());
         try {
             // 固定顺序: 先为最近已结束桶幂等建立PENDING轮次, 再补建未完成轮次bar,
             // 再结算到期拒绝观察, 最后投递PENDING通知。
@@ -147,6 +151,7 @@ public class VipStockAlertScheduler {
         } finally {
             processing.set(false);
         }
+        log.info("VIP股票策略调度-任务结束");
     }
 
     /**

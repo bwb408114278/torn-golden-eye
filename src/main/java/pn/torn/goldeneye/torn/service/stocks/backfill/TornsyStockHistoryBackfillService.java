@@ -30,7 +30,7 @@ import java.util.*;
  * 外网调用不进入 VIP 轮次事务，按股票 × 最多 1 天时间片串行请求、短事务写入。
  *
  * @author Bai
- * @version 1.2.15
+ * @version 1.2.18
  * @since 2026.08.13
  */
 @Slf4j
@@ -43,9 +43,9 @@ public class TornsyStockHistoryBackfillService {
      */
     private static final int SLICE_HOURS = 24;
     /**
-     * 重建区间单次最大跨度（天）
+     * 后向 feature 重算窗口（天）：feature 最大回看窗口 30 天
      */
-    private static final int REBUILD_MAX_DAYS = 1;
+    private static final int FEATURE_REBUILD_WINDOW_DAYS = 30;
 
     private final TornStocksDAO stocksDao;
     private final TornStocksHistoryDAO stocksHistoryDao;
@@ -90,9 +90,10 @@ public class TornsyStockHistoryBackfillService {
 
         List<Integer> stocksIds = stocks.stream().map(TornStocksDO::getId).toList();
         BackfillAccumulator acc = new BackfillAccumulator();
+        String runId = generateRunId();
         LocalDateTime latestHistoryTime = stocksHistoryDao.selectLatestHistoryTime();
-        log.info("历史回填-开始, 区间=[{}, {}), 股票数={}, 当前最新历史时间={}",
-                startInclusive, endExclusive, stocks.size(), latestHistoryTime);
+        log.info("历史回填-开始, 区间=[{}, {}), 股票数={}, 当前最新历史时间={}, runId={}",
+                startInclusive, endExclusive, stocks.size(), latestHistoryTime, runId);
 
         LocalDateTime sliceStart = startInclusive;
         while (sliceStart.isBefore(endExclusive)) {
@@ -104,14 +105,14 @@ public class TornsyStockHistoryBackfillService {
             sliceStart = sliceEnd;
         }
 
-        int rebuilt = rebuildAffectedBuckets(acc.affectedBuckets);
+        int rebuilt = repairAffectedHistory(acc.affectedBuckets, runId);
         BackfillSummary summary = acc.toSummary(rebuilt);
         log.info("历史回填完成, 区间=[{}, {}), sourceRows={}, validRows={}, rejectedRows={}, "
                         + "existedSkippedRows={}, insertedRows={}, failedSlices={}, "
-                        + "affectedBucketCount={}, rebuiltBucketCount={}",
+                        + "affectedBucketCount={}, rebuiltBucketCount={}, runId={}",
                 startInclusive, endExclusive, summary.sourceRows(), summary.validRows(),
                 summary.rejectedRows(), summary.existedSkippedRows(), summary.insertedRows(),
-                summary.failedSlices(), summary.affectedBucketCount(), summary.rebuiltBucketCount());
+                summary.failedSlices(), summary.affectedBucketCount(), summary.rebuiltBucketCount(), runId);
         return summary;
     }
 
@@ -162,15 +163,15 @@ public class TornsyStockHistoryBackfillService {
                 .toList();
         int existedByQuery = candidates.size() - toInsert.size();
 
-        int inserted = 0;
+        List<StockHistoryMinuteSlot> insertedSlots = List.of();
         if (!toInsert.isEmpty()) {
-            inserted = stocksHistoryDao.insertBackfillIgnoreConflict(toInsert);
+            insertedSlots = stocksHistoryDao.insertBackfillReturningSlots(toInsert);
         }
-        acc.insertedRows += inserted;
-        acc.existedSkippedRows += existedByQuery + (toInsert.size() - inserted);
+        acc.insertedRows += insertedSlots.size();
+        acc.existedSkippedRows += existedByQuery + (toInsert.size() - insertedSlots.size());
 
-        for (TornStocksHistoryDO candidate : toInsert) {
-            acc.affectedBuckets.add(Stock15mBarBuildService.alignToBucket(candidate.getRegDateTime()));
+        for (StockHistoryMinuteSlot slot : insertedSlots) {
+            acc.affectedBuckets.add(Stock15mBarBuildService.alignToBucket(slot.minuteTime()));
         }
     }
 
@@ -211,36 +212,43 @@ public class TornsyStockHistoryBackfillService {
     }
 
     /**
-     * 合并相邻受影响桶为区间并定向重建派生数据，单次最多 1 天桶
+     * 由实际插入分钟驱动派生数据修复：受影响桶强制 bar 重建 + 后向 30 天 feature 重算。
+     * <p>
+     * 仅对实际插入槽所属桶调用 {@link StockHistoryRebuildService#repairBackfilledHistory(
+     *Collection, LocalDateTime, String)},冲突跳过行不产生重建义务;
+     * feature 重算范围从最早受影响桶到 {@code latestAffected + 30天 + 15分钟}(不含)。
+     *
+     * @param affectedBuckets 实际插入分钟所属的受影响桶集合
+     * @param runId           本次回填运行标识
+     * @return 重建桶总数
      */
-    private int rebuildAffectedBuckets(Set<LocalDateTime> affectedBuckets) {
+    private int repairAffectedHistory(Set<LocalDateTime> affectedBuckets, String runId) {
         if (affectedBuckets.isEmpty()) {
+            log.info("历史回填-无实际插入分钟, 无需派生数据修复, runId={}", runId);
             return 0;
         }
-        List<LocalDateTime> sorted = affectedBuckets.stream().sorted().toList();
-        int rebuilt = 0;
-        LocalDateTime intervalStart = null;
-        LocalDateTime lastBucket = null;
-        for (LocalDateTime bucket : sorted) {
-            if (intervalStart == null) {
-                intervalStart = bucket;
-                lastBucket = bucket;
-                continue;
-            }
-            boolean adjacent = bucket.equals(lastBucket.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
-            boolean withinDay = bucket.isBefore(intervalStart.plusDays(REBUILD_MAX_DAYS));
-            if (!adjacent || !withinDay) {
-                rebuilt += rebuildService.rebuildHistory(intervalStart,
-                        lastBucket.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
-                intervalStart = bucket;
-            }
-            lastBucket = bucket;
-        }
-        if (intervalStart != null) {
-            rebuilt += rebuildService.rebuildHistory(intervalStart,
-                    lastBucket.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
-        }
-        return rebuilt;
+        LocalDateTime latestAffected = affectedBuckets.stream().max(LocalDateTime::compareTo).orElseThrow();
+        LocalDateTime featureRebuildEndExclusive = Stock15mBarBuildService.alignToBucket(latestAffected)
+                .plusDays(FEATURE_REBUILD_WINDOW_DAYS)
+                .plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES);
+        StockHistoryRebuildService.BackfillRepairResult result = rebuildService.repairBackfilledHistory(
+                affectedBuckets, featureRebuildEndExclusive, runId);
+        log.info("历史回填-派生数据修复完成, runId={}, affectedBucketCount={}, featureRebuildEndExclusive={}, "
+                        + "forcedBarBuckets={}, restoredRounds={}, recomputedFeatureBuckets={}, "
+                        + "skippedNoBarBuckets={}, rebuiltBucketCount={}",
+                runId, affectedBuckets.size(), featureRebuildEndExclusive,
+                result.forcedBarBuckets(), result.restoredRounds(),
+                result.recomputedFeatureBuckets(), result.skippedNoBarBuckets(), result.rebuiltBucketCount());
+        return result.rebuiltBucketCount();
+    }
+
+    /**
+     * 生成本次回填运行标识（短 UUID,仅用于进度日志关联）
+     *
+     * @return 运行标识
+     */
+    private String generateRunId() {
+        return UUID.randomUUID().toString().substring(0, 8);
     }
 
     /**

@@ -37,7 +37,7 @@ import static org.mockito.Mockito.*;
  * 通过Mock DAO注入固定历史bar,验证特征输出数值。
  *
  * @author Bai
- * @version 1.2.17
+ * @version 1.2.18
  * @since 2026.07.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -357,6 +357,38 @@ class Stock15mFeatureBuildServiceTest {
         BigDecimal expectedPosition = new BigDecimal("0.4");
         assertEquals(0, f.getPosition30().compareTo(expectedPosition),
                 "position30 = (120-100)/(150-100) = 0.4");
+    }
+
+    // ==================== 回填后重算 ====================
+
+    @Test
+    @DisplayName("特征重算_更新前序bar后_后续MA/收益重新计算并UPSERT")
+    void buildFeatures_recomputeAfterPredecessorBarUpdate_reflectsUpdatedInput() {
+        LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
+        TornStockMarketBar15mDO currentBar = buildUsableBar(barStart, new BigDecimal("200.00"));
+        // 第一轮: 96条历史bar价格100
+        List<TornStockMarketBar15mDO> oldHistory = buildHistoryBars(barStart, BARS_PER_DAY,
+                new BigDecimal("100.00"));
+        mockBarDao(barStart, currentBar, oldHistory);
+        List<TornStockStrategyFeature15mDO> first = featureBuildService.buildFeatures(barStart);
+        BigDecimal oldMa1d = first.getFirst().getMa1d();
+
+        // 第二轮: 前序bar回填更新为价格150,再次重算必须反映更新后的输入
+        List<TornStockMarketBar15mDO> newHistory = buildHistoryBars(barStart, BARS_PER_DAY,
+                new BigDecimal("150.00"));
+        mockBarDao(barStart, currentBar, newHistory);
+        List<TornStockStrategyFeature15mDO> second = featureBuildService.buildFeatures(barStart);
+
+        BigDecimal expectedNewMa1d = new BigDecimal("150.00").multiply(new BigDecimal("95"))
+                .add(new BigDecimal("200.00"))
+                .divide(new BigDecimal("96"), 18, java.math.RoundingMode.HALF_UP);
+        assertEquals(0, expectedNewMa1d.compareTo(second.getFirst().getMa1d()),
+                "重算后ma1d必须反映更新后的前序bar");
+        assertEquals(0, oldMa1d.compareTo(new BigDecimal("100.00").multiply(new BigDecimal("95"))
+                        .add(new BigDecimal("200.00"))
+                        .divide(new BigDecimal("96"), 18, java.math.RoundingMode.HALF_UP)),
+                "首轮ma1d应基于旧前序bar");
+        verify(feature15mDAO, times(2)).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 
     // ==================== 辅助方法 ====================

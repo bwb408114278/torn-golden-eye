@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票历史数据库访问层
  *
  * @author Bai
- * @version 1.2.15
+ * @version 1.2.18
  * @since 2026.01.26
  */
 @Mapper
@@ -72,12 +72,20 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
                                                            @Param("end") LocalDateTime end);
 
     /**
-     * 冲突安全批量写入历史事实，匹配自然分钟部分唯一索引表达式与谓词
+     * 实时采集自然分钟冲突安全批量写入（显式来源 TORNS_API,与自然分钟唯一索引精确匹配）
      *
      * @param historyList 待写入历史记录列表
-     * @return 实际插入行数
+     * @return 实际插入行数（自然分钟冲突跳过不计入）
      */
-    int insertBackfillIgnoreConflict(@Param("historyList") List<TornStocksHistoryDO> historyList);
+    int insertRealtimeIgnoreConflict(@Param("historyList") List<TornStocksHistoryDO> historyList);
+
+    /**
+     * 冲突安全批量写入历史事实并返回实际插入的自然分钟槽位集合
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入的自然分钟槽位列表
+     */
+    List<StockHistoryMinuteSlot> insertBackfillReturningSlots(@Param("historyList") List<TornStocksHistoryDO> historyList);
 
     /**
      * 查询最新历史记录时间

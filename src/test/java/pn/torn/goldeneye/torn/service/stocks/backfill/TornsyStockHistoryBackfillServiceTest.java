@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -28,14 +29,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tornsy 股票历史回填服务单元测试 - 覆盖已有分钟跳过、缺失分钟插入、来源与可空字段、定向重建编排
+ * Tornsy 股票历史回填服务单元测试 - 覆盖已有分钟跳过、缺失分钟插入、来源与可空字段、实际插入槽驱动重建
  * <p>
  * 验证 {@link TornsyStockHistoryBackfillService} 只补缺不覆盖、投资人固定 NULL、市值未知为 NULL、
- * 来源为 TORNSY_BACKFILL，并仅对实际插入分钟影响的 15 分钟桶调用定向重建。
+ * 来源为 TORNSY_BACKFILL；并仅以 SQL 实际插入槽（RETURNING）驱动派生数据修复：
+ * 冲突跳过行不产生重建义务，受影响桶从最早到最晚桶后 30 天重算 feature。
  *
  * @author Bai
- * @version 1.2.15
- * @since 2026.08.13
+ * @version 1.2.18
+ * @since 2026.08.14
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("Tornsy 股票历史回填服务测试")
@@ -78,13 +80,25 @@ class TornsyStockHistoryBackfillServiceTest {
         when(parser.parse(anyList(), eq(START), eq(END), eq(END))).thenReturn(quotes);
     }
 
+    private void stubExistingSlots(List<StockHistoryMinuteSlot> existing) {
+        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(START), eq(END))).thenReturn(existing);
+    }
+
+    /**
+     * 装配派生数据修复返回桩,避免服务对空结果执行统计。
+     */
+    private void stubRepairResult() {
+        when(rebuildService.repairBackfilledHistory(anyCollection(), any(), anyString()))
+                .thenReturn(new StockHistoryRebuildService.BackfillRepairResult(1, 1, 2, 0));
+    }
+
     @Test
     @DisplayName("回填_已有分钟 -> 跳过写入并计入existedSkippedRows")
     void backfillStocks_existingMinutes_skipsInsert() {
         stubSlice(List.of(
                 new TornsyMinuteQuote(START.plusMinutes(5), new BigDecimal("10.00"), 100L, null),
                 new TornsyMinuteQuote(START.plusMinutes(6), new BigDecimal("11.00"), 100L, null)));
-        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(START), eq(END))).thenReturn(List.of(
+        stubExistingSlots(List.of(
                 new StockHistoryMinuteSlot(32, START.plusMinutes(5)),
                 new StockHistoryMinuteSlot(32, START.plusMinutes(6))));
 
@@ -93,7 +107,8 @@ class TornsyStockHistoryBackfillServiceTest {
 
         assertEquals(0, summary.insertedRows());
         assertEquals(2, summary.existedSkippedRows());
-        verify(stocksHistoryDao, never()).insertBackfillIgnoreConflict(anyList());
+        verify(stocksHistoryDao, never()).insertBackfillReturningSlots(anyList());
+        verify(rebuildService, never()).repairBackfilledHistory(anyCollection(), any(), anyString());
     }
 
     @Test
@@ -102,8 +117,11 @@ class TornsyStockHistoryBackfillServiceTest {
         stubSlice(List.of(
                 new TornsyMinuteQuote(START.plusMinutes(5), new BigDecimal("10.00"), 100L, null),
                 new TornsyMinuteQuote(START.plusMinutes(6), new BigDecimal("11.00"), 100L, 5000L)));
-        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(START), eq(END))).thenReturn(List.of());
-        when(stocksHistoryDao.insertBackfillIgnoreConflict(anyList())).thenReturn(2);
+        stubExistingSlots(List.of());
+        stubRepairResult();
+        when(stocksHistoryDao.insertBackfillReturningSlots(anyList())).thenReturn(List.of(
+                new StockHistoryMinuteSlot(32, START.plusMinutes(5)),
+                new StockHistoryMinuteSlot(32, START.plusMinutes(6))));
 
         TornsyStockHistoryBackfillService.BackfillSummary summary =
                 service.backfillStocks(List.of(stock()), START, END);
@@ -113,7 +131,7 @@ class TornsyStockHistoryBackfillServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<TornStocksHistoryDO>> captor = ArgumentCaptor.forClass(List.class);
-        verify(stocksHistoryDao).insertBackfillIgnoreConflict(captor.capture());
+        verify(stocksHistoryDao).insertBackfillReturningSlots(captor.capture());
         List<TornStocksHistoryDO> inserted = captor.getValue();
         assertEquals(2, inserted.size());
 
@@ -129,34 +147,98 @@ class TornsyStockHistoryBackfillServiceTest {
     }
 
     @Test
-    @DisplayName("回填_插入分钟映射到正确15分钟桶 -> 仅重建受影响区间")
-    void backfillStocks_insertedMinutes_rebuildsAffectedBucketsOnly() {
+    @DisplayName("回填_实际插入分钟映射到正确15分钟桶 -> 强制bar重建并按最晚桶后30天重算feature")
+    void backfillStocks_insertedMinutes_repairsAffectedBucketsAnd30DayRange() {
         stubSlice(List.of(
                 new TornsyMinuteQuote(LocalDateTime.of(2026, 8, 1, 10, 5), new BigDecimal("10.00"), 100L, null),
                 new TornsyMinuteQuote(LocalDateTime.of(2026, 8, 1, 10, 20), new BigDecimal("11.00"), 100L, null)));
-        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(START), eq(END))).thenReturn(List.of());
-        when(stocksHistoryDao.insertBackfillIgnoreConflict(anyList())).thenReturn(2);
+        stubExistingSlots(List.of());
+        stubRepairResult();
+        when(stocksHistoryDao.insertBackfillReturningSlots(anyList())).thenReturn(List.of(
+                new StockHistoryMinuteSlot(32, LocalDateTime.of(2026, 8, 1, 10, 5)),
+                new StockHistoryMinuteSlot(32, LocalDateTime.of(2026, 8, 1, 10, 20))));
 
         service.backfillStocks(List.of(stock()), START, END);
 
-        // 10:05 -> 10:00 桶, 10:20 -> 10:15 桶, 相邻合并为 [10:00, 10:30)
-        verify(rebuildService, times(1)).rebuildHistory(
-                LocalDateTime.of(2026, 8, 1, 10, 0),
-                LocalDateTime.of(2026, 8, 1, 10, 30));
-        verify(rebuildService, times(1)).rebuildHistory(any(LocalDateTime.class), any(LocalDateTime.class));
+        // 10:05 -> 10:00 桶, 10:20 -> 10:15 桶; 最晚10:15后30天+15分钟为结束边界
+        verify(rebuildService, times(1)).repairBackfilledHistory(
+                eq(Set.of(LocalDateTime.of(2026, 8, 1, 10, 0), LocalDateTime.of(2026, 8, 1, 10, 15))),
+                eq(LocalDateTime.of(2026, 8, 31, 10, 30)),
+                anyString());
+        verify(rebuildService, times(1)).repairBackfilledHistory(anyCollection(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("回填_冲突插入0 -> 不产生派生数据修复")
+    void backfillStocks_conflictInsertZero_noRebuild() {
+        stubSlice(List.of(
+                new TornsyMinuteQuote(START.plusMinutes(5), new BigDecimal("10.00"), 100L, null)));
+        stubExistingSlots(List.of());
+        when(stocksHistoryDao.insertBackfillReturningSlots(anyList())).thenReturn(List.of());
+
+        TornsyStockHistoryBackfillService.BackfillSummary summary =
+                service.backfillStocks(List.of(stock()), START, END);
+
+        assertEquals(0, summary.insertedRows());
+        assertEquals(1, summary.existedSkippedRows(), "冲突跳过行计入existedSkippedRows");
+        verify(rebuildService, never()).repairBackfilledHistory(anyCollection(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("回填_部分冲突 -> 仅实际插入槽驱动重建")
+    void backfillStocks_partialConflict_onlyActualSlotsDriveRebuild() {
+        stubSlice(List.of(
+                new TornsyMinuteQuote(LocalDateTime.of(2026, 8, 1, 10, 5), new BigDecimal("10.00"), 100L, null),
+                new TornsyMinuteQuote(LocalDateTime.of(2026, 8, 1, 10, 20), new BigDecimal("11.00"), 100L, null),
+                new TornsyMinuteQuote(LocalDateTime.of(2026, 8, 1, 10, 35), new BigDecimal("12.00"), 100L, null)));
+        stubExistingSlots(List.of());
+        stubRepairResult();
+        // 3个候选,实际仅插入2个(10:05与10:20),10:35冲突跳过
+        when(stocksHistoryDao.insertBackfillReturningSlots(anyList())).thenReturn(List.of(
+                new StockHistoryMinuteSlot(32, LocalDateTime.of(2026, 8, 1, 10, 5)),
+                new StockHistoryMinuteSlot(32, LocalDateTime.of(2026, 8, 1, 10, 20))));
+
+        TornsyStockHistoryBackfillService.BackfillSummary summary =
+                service.backfillStocks(List.of(stock()), START, END);
+
+        assertEquals(2, summary.insertedRows());
+        assertEquals(1, summary.existedSkippedRows());
+        // 10:35 冲突跳过,不得进入受影响桶
+        verify(rebuildService).repairBackfilledHistory(
+                eq(Set.of(LocalDateTime.of(2026, 8, 1, 10, 0), LocalDateTime.of(2026, 8, 1, 10, 15))),
+                any(), anyString());
+    }
+
+    @Test
+    @DisplayName("回填_单桶分钟 -> 从最早受影响桶后30天+15分钟作为feature重算结束边界")
+    void backfillStocks_featureRange_latestAffectedPlus30DaysPlus15Minutes() {
+        stubSlice(List.of(
+                new TornsyMinuteQuote(LocalDateTime.of(2026, 8, 1, 10, 5), new BigDecimal("10.00"), 100L, null)));
+        stubExistingSlots(List.of());
+        stubRepairResult();
+        when(stocksHistoryDao.insertBackfillReturningSlots(anyList())).thenReturn(List.of(
+                new StockHistoryMinuteSlot(32, LocalDateTime.of(2026, 8, 1, 10, 5))));
+
+        service.backfillStocks(List.of(stock()), START, END);
+
+        // 最晚受影响桶 10:00 + 30天 + 15分钟 = 2026-08-31 10:15
+        verify(rebuildService).repairBackfilledHistory(
+                eq(Set.of(LocalDateTime.of(2026, 8, 1, 10, 0))),
+                eq(LocalDateTime.of(2026, 8, 31, 10, 15)),
+                anyString());
     }
 
     @Test
     @DisplayName("回填_无合法报价 -> 不写入不重建")
     void backfillStocks_noValidQuotes_doesNothing() {
         stubSlice(List.of());
-        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(START), eq(END))).thenReturn(List.of());
+        stubExistingSlots(List.of());
 
         TornsyStockHistoryBackfillService.BackfillSummary summary =
                 service.backfillStocks(List.of(stock()), START, END);
 
         assertEquals(0, summary.insertedRows());
-        verify(stocksHistoryDao, never()).insertBackfillIgnoreConflict(anyList());
-        verify(rebuildService, never()).rebuildHistory(any(LocalDateTime.class), any(LocalDateTime.class));
+        verify(stocksHistoryDao, never()).insertBackfillReturningSlots(anyList());
+        verify(rebuildService, never()).repairBackfilledHistory(anyCollection(), any(), anyString());
     }
 }
