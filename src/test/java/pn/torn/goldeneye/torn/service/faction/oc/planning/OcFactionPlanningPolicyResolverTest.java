@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionOcPlanDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionOcPlanningPolicyDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcPlanningManager;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcFactionPlanningPolicy;
@@ -17,53 +18,66 @@ import static org.mockito.Mockito.when;
  * 帮派OC规划策略解析器测试。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.3.0
  * @since 2026.07.17
  */
 @DisplayName("帮派规划策略解析")
 class OcFactionPlanningPolicyResolverTest {
 
     @Test
-    @DisplayName("应优先使用帮派策略并对非法比例回退")
-    void shouldPreferFactionPolicyAndFallbackInvalidPercent() {
+    @DisplayName("应优先使用帮派策略并解析显式规划范围")
+    void shouldPreferFactionPolicyAndResolveExplicitScope() {
         TornSettingOcPlanningManager manager = mock(TornSettingOcPlanningManager.class);
-        TornSettingFactionOcPlanningPolicyDO global = policy(0L, 10, 20, 30);
-        TornSettingFactionOcPlanningPolicyDO faction = policy(20465L, 0, 150, 90);
-        when(manager.getPolicies()).thenReturn(List.of(global, faction));
-        when(manager.getFactionPlans()).thenReturn(List.of());
+        when(manager.getPolicies()).thenReturn(List.of(policy(0L), policy(20465L)));
+        when(manager.getFactionPlans()).thenReturn(List.of(plan(20465L, 8, "Planned", true)));
 
         OcFactionPlanningPolicy result = new OcFactionPlanningPolicyResolver(manager).resolve(20465L);
 
-        assertEquals(25, result.conservativeCapacityPercent());
-        assertEquals(50, result.balancedCapacityPercent());
-        assertEquals(90, result.profitCapacityPercent());
-        assertTrue(result.validationWarnings().stream()
-                .anyMatch(message -> message.contains("保守模式安全刷新容量比例")));
+        assertEquals(List.of("8:Planned"), result.enabledOcKeys().stream().sorted().toList());
+        assertTrue(result.validationWarnings().isEmpty());
     }
 
     @Test
-    @DisplayName("帮派策略缺失时应使用全局策略")
+    @DisplayName("帮派策略缺失时应回退全局策略")
     void shouldUseGlobalPolicyWhenFactionPolicyIsMissing() {
         TornSettingOcPlanningManager manager = mock(TornSettingOcPlanningManager.class);
-        when(manager.getPolicies()).thenReturn(List.of(policy(0L, 15, 45, 95)));
-        when(manager.getFactionPlans()).thenReturn(List.of());
+        when(manager.getPolicies()).thenReturn(List.of(policy(0L)));
+        when(manager.getFactionPlans()).thenReturn(List.of(plan(999L, 8, "Planned", true)));
 
         OcFactionPlanningPolicy result = new OcFactionPlanningPolicyResolver(manager).resolve(999L);
 
-        assertEquals(15, result.conservativeCapacityPercent());
-        assertEquals(45, result.balancedCapacityPercent());
-        assertEquals(95, result.profitCapacityPercent());
+        assertEquals(1, result.enabledOcKeys().size());
+        assertTrue(result.validationWarnings().isEmpty());
     }
 
-    private TornSettingFactionOcPlanningPolicyDO policy(long factionId, int conservative,
-                                                         int balanced, int profit) {
+    @Test
+    @DisplayName("无显式规划范围或无启用项时应输出禁用警告")
+    void shouldWarnWhenExplicitScopeMissingOrDisabled() {
+        TornSettingOcPlanningManager manager = mock(TornSettingOcPlanningManager.class);
+        when(manager.getPolicies()).thenReturn(List.of(policy(0L)));
+        when(manager.getFactionPlans()).thenReturn(List.of(
+                plan(999L, 8, "Disabled", false)));
+
+        OcFactionPlanningPolicy result = new OcFactionPlanningPolicyResolver(manager).resolve(999L);
+
+        assertTrue(result.enabledOcKeys().isEmpty());
+        assertTrue(result.validationWarnings().stream()
+                .anyMatch(message -> message.contains("自动规划已禁用")));
+    }
+
+    private TornSettingFactionOcPlanningPolicyDO policy(long factionId) {
         TornSettingFactionOcPlanningPolicyDO policy = new TornSettingFactionOcPlanningPolicyDO();
         policy.setFactionId(factionId);
         policy.setEvaluationMode("POSITION_WEIGHT");
-        policy.setNormalPoolReservePercent(20);
-        policy.setConservativeCapacityPercent(conservative);
-        policy.setBalancedCapacityPercent(balanced);
-        policy.setProfitCapacityPercent(profit);
         return policy;
+    }
+
+    private TornSettingFactionOcPlanDO plan(long factionId, int rank, String ocName, boolean enabled) {
+        TornSettingFactionOcPlanDO plan = new TornSettingFactionOcPlanDO();
+        plan.setFactionId(factionId);
+        plan.setRank(rank);
+        plan.setOcName(ocName);
+        plan.setEnabled(enabled);
+        return plan;
     }
 }

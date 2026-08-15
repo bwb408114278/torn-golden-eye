@@ -4,11 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcEvaluationMode;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcFactionPlanningPolicy;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * 高阶链模板构造服务测试。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.3.0
  * @since 2026.07.17
  */
 @DisplayName("高阶链模板构造")
@@ -34,14 +30,13 @@ class OcChainPlanningServiceTest {
         String rootKey = OcPlanningSnapshot.ocKey(8, "Root");
         String childKey = OcPlanningSnapshot.ocKey(9, "Child");
         OcPlanningSnapshot snapshot = new OcPlanningSnapshot(1L, NOW,
-                new OcFactionPlanningPolicy(1L, OcEvaluationMode.POSITION_WEIGHT,
-                        20, 25, 50, 100, Set.of(rootKey), List.of()),
+                new OcFactionPlanningPolicy(1L, OcEvaluationMode.POSITION_WEIGHT, Set.of(rootKey), List.of()),
                 List.of(), Map.of(), List.of(),
                 Map.of(rootKey, profile("Root", 8, "HIGH_CHAIN_ROOT"),
                         childKey, profile("Child", 9, "CHAIN_ONLY")),
                 List.of(edge()),
                 Map.of(rootKey, List.of(slot()), childKey, List.of(slot())),
-                Set.of(), List.of());
+                Set.of(), Map.of(), List.of());
 
         List<List<OcTeamDemand>> chains = new OcChainPlanningService().buildReadyChains(snapshot);
 
@@ -54,8 +49,8 @@ class OcChainPlanningServiceTest {
     @DisplayName("应拒绝父子节点不连续的高阶链")
     void shouldRejectBrokenChain() {
         OcPlanningSnapshot snapshot = snapshot(List.of(
-                edge("BROKEN", "Root", 8, "Child", 9, 1),
-                edge("BROKEN", "Other", 9, "Last", 10, 2)),
+                        edge("BROKEN", "Root", 8, "Child", 9, 1),
+                        edge("BROKEN", "Other", 9, "Last", 10, 2)),
                 Set.of(OcPlanningSnapshot.ocKey(8, "Root")));
 
         var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
@@ -68,8 +63,8 @@ class OcChainPlanningServiceTest {
     @DisplayName("应拒绝同一根节点配置多条高阶链")
     void shouldRejectMultipleChainsSharingSameRoot() {
         OcPlanningSnapshot snapshot = snapshot(List.of(
-                edge("CHAIN_A", "Root", 8, "Child", 9, 1),
-                edge("CHAIN_B", "Root", 8, "Last", 10, 1)),
+                        edge("CHAIN_A", "Root", 8, "Child", 9, 1),
+                        edge("CHAIN_B", "Root", 8, "Last", 10, 1)),
                 Set.of(OcPlanningSnapshot.ocKey(8, "Root")));
 
         var result = new OcChainPlanningService().buildReadyChainResult(snapshot);
@@ -129,9 +124,9 @@ class OcChainPlanningServiceTest {
         profiles.keySet().forEach(key -> slots.put(key, List.of(slot())));
         return new OcPlanningSnapshot(1L, NOW,
                 new OcFactionPlanningPolicy(1L, OcEvaluationMode.POSITION_WEIGHT,
-                        20, 25, 50, 100, enabledKeys, List.of()),
+                        enabledKeys, List.of()),
                 List.of(), Map.of(), List.of(), profiles, edges,
-                slots, Set.of(), List.of());
+                slots, Set.of(), Map.of(), List.of());
     }
 
     private TornSettingOcChainDO edge(String code, String parentName, int parentRank,

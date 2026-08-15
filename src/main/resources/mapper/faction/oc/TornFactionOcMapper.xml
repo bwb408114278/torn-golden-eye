@@ -9,4 +9,18 @@
             #{item}
         </foreach>
     </delete>
+
+    <!-- 按OC键批量查询已完成状态的历史OC奖励原始记录 -->
+    <select id="selectCompletedByOcKeys"
+            resultType="pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO">
+        SELECT id, "rank", name, status, ready_time, executed_time, previous_oc_id,
+               reward_money, reward_items, reward_items_value, create_time
+        FROM torn_faction_oc
+        WHERE deleted = 0
+        AND status IN ('Successful', 'Failure')
+        AND ("rank"::text || ':' || name) IN
+        <foreach collection="keys" item="item" separator="," open="(" close=")">
+            #{item}
+        </foreach>
+    </select>
 </mapper>

@@ -14,7 +14,7 @@ import java.util.List;
  * Torn Oc持久层类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.3.0
  * @since 2025.07.29
  */
 @Repository
@@ -30,6 +30,20 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         }
 
         baseMapper.deleteByIdList(idList);
+    }
+
+    /**
+     * 按OC规划键集合批量查询已完成状态的历史OC记录
+     *
+     * @param keys OC规划键集合，格式为等级:名称
+     * @return 已完成状态的历史OC记录；键为空时返回空集合
+     */
+    public List<TornFactionOcDO> queryCompletedByOcKeys(Collection<String> keys) {
+        if (CollectionUtils.isEmpty(keys)) {
+            return List.of();
+        }
+
+        return baseMapper.selectCompletedByOcKeys(keys);
     }
 
     /**

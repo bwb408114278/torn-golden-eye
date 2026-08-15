@@ -7,6 +7,7 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
+import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
@@ -26,21 +27,28 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
  * 批量加载一次规划需要的所有数据。搜索过程中不得再访问数据库。
  *
+ * <p>成员释放时间不在此处猜测：占用语义由时间线重建器按可证明事实写入。</p>
+ *
  * @author Bai
- * @version 1.2.10
+ * @version 1.3.0
  * @since 2026.07.15
  */
 @Component
 @RequiredArgsConstructor
 public class OcPlanningSnapshotLoader {
-    private static final int OC_EXPIRE_DAYS = 7;
+    private static final String READY = "READY";
 
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
@@ -52,13 +60,14 @@ public class OcPlanningSnapshotLoader {
     private final TornSettingOcPlanningManager planningManager;
     private final OcFactionPlanningPolicyResolver policyResolver;
     private final OcPlanCatalogValidator catalogValidator;
+    private final OcRewardEvidenceCalculator rewardEvidenceCalculator;
 
     /**
      * 批量加载指定帮派在同一时间点的不可变规划快照。
      *
      * @param factionId    帮派ID
      * @param snapshotTime 快照时间
-     * @return 包含活跃OC、岗位、成员能力和配置校验结果的规划快照
+     * @return 包含活跃OC、岗位、成员能力、收益统计和配置校验结果的规划快照
      */
     public OcPlanningSnapshot load(long factionId, LocalDateTime snapshotTime) {
         OcFactionPlanningPolicy policy = policyResolver.resolve(factionId);
@@ -77,9 +86,6 @@ public class OcPlanningSnapshotLoader {
                 .list();
         Map<Long, List<TornFactionOcSlotDO>> slotsByOc = activeSlots.stream()
                 .collect(Collectors.groupingBy(TornFactionOcSlotDO::getOcId));
-        Map<Long, LocalDateTime> occupiedUntil = calculateOccupiedUntil(activeOcs, activeSlots, snapshotTime);
-        Set<Long> fixedUserIds = activeSlots.stream().map(TornFactionOcSlotDO::getUserId)
-                .filter(java.util.Objects::nonNull).collect(Collectors.toSet());
 
         List<TornFactionOcUserDO> capabilityRows = ocUserDao.lambdaQuery()
                 .eq(TornFactionOcUserDO::getFactionId, factionId)
@@ -90,44 +96,50 @@ public class OcPlanningSnapshotLoader {
         Map<Long, TornUserDO> users = userDao.queryUserMap(memberIds);
         Map<Long, List<TornFactionOcUserDO>> capabilitiesByUser = capabilityRows.stream()
                 .collect(Collectors.groupingBy(TornFactionOcUserDO::getUserId));
-        List<OcMemberCandidate> members = buildMembers(capabilitiesByUser, users, fixedUserIds,
-                occupiedUntil, factionId, snapshotTime);
+        List<OcMemberCandidate> members = buildMembers(capabilitiesByUser, users,
+                factionId, snapshotTime);
 
         Map<String, TornSettingOcPlanProfileDO> profiles = planningManager.getProfiles().stream()
                 .collect(Collectors.toMap(profile -> OcPlanningSnapshot.ocKey(profile.getRank(),
                         profile.getOcName()), Function.identity()));
         Map<String, List<OcPlanSlot>> slotTemplates = buildSlotTemplates(factionId);
+        Map<String, OcPlanningRewardStatsDO> rewardStats = loadRewardStats(policy, profiles);
         return new OcPlanningSnapshot(factionId, snapshotTime, policy, activeOcs, slotsByOc, members,
                 profiles, planningManager.getChains(), slotTemplates,
-                validation.invalidOcKeys(), warnings);
+                validation.invalidOcKeys(), rewardStats, warnings);
     }
 
-    private Map<Long, LocalDateTime> calculateOccupiedUntil(List<TornFactionOcDO> activeOcs,
-                                                            List<TornFactionOcSlotDO> slots,
-                                                            LocalDateTime snapshotTime) {
-        Map<Long, LocalDateTime> result = new HashMap<>();
-        Map<Long, TornFactionOcDO> ocMap = activeOcs.stream()
-                .collect(Collectors.toMap(TornFactionOcDO::getId, Function.identity()));
-        for (TornFactionOcSlotDO slot : slots) {
-            if (slot.getUserId() == null) {
-                continue;
+    /**
+     * 按当前启用档案范围批量加载历史收益统计。
+     *
+     * @param policy 帮派规划策略
+     * @param profiles 按OC键索引的规划档案
+     * @return 按OC键索引的收益统计
+     */
+    private Map<String, OcPlanningRewardStatsDO> loadRewardStats(
+            OcFactionPlanningPolicy policy, Map<String, TornSettingOcPlanProfileDO> profiles) {
+        Set<String> targetKeys = new HashSet<>();
+        profiles.forEach((key, profile) -> {
+            if (policy.enabledOcKeys().contains(key) && READY.equals(profile.getPlanStatus())) {
+                targetKeys.add(key);
             }
-            TornFactionOcDO oc = ocMap.get(slot.getOcId());
-            LocalDateTime releaseAt = snapshotTime.plusDays(OC_EXPIRE_DAYS);
-            if (oc != null && TornOcStatusEnum.PLANNING.getCode().equals(oc.getStatus())
-                    && oc.getReadyTime() != null) {
-                releaseAt = oc.getReadyTime();
-            }
-            result.merge(slot.getUserId(), releaseAt,
-                    (left, right) -> left.isAfter(right) ? left : right);
-        }
-        return result;
+        });
+        List<TornFactionOcDO> completedOcs = ocDao.queryCompletedByOcKeys(targetKeys);
+        return rewardEvidenceCalculator.aggregate(completedOcs);
     }
 
+    /**
+     * 构造候选成员能力视图。
+     *
+     * @param capabilitiesByUser 按用户ID分组的能力记录
+     * @param users 用户基础信息映射
+     * @param factionId 帮派ID
+     * @param snapshotTime 快照时间
+     * @return 候选成员列表
+     */
     private List<OcMemberCandidate> buildMembers(
             Map<Long, List<TornFactionOcUserDO>> capabilitiesByUser,
-            Map<Long, TornUserDO> users, Set<Long> fixedUserIds,
-            Map<Long, LocalDateTime> occupiedUntil, long factionId, LocalDateTime snapshotTime) {
+            Map<Long, TornUserDO> users, long factionId, LocalDateTime snapshotTime) {
         List<TornSettingOcCoefficientDO> coefficients = coefficientManager.getList();
         List<OcMemberCandidate> result = new ArrayList<>(capabilitiesByUser.size());
         for (Map.Entry<Long, List<TornFactionOcUserDO>> entry : capabilitiesByUser.entrySet()) {
@@ -160,14 +172,18 @@ public class OcPlanningSnapshotLoader {
                     || !user.getFactionId().equals(factionId)) {
                 continue;
             }
-            String nickname = user.getNickname();
-            result.add(new OcMemberCandidate(userId, nickname,
-                    occupiedUntil.getOrDefault(userId, snapshotTime), false,
-                    passRates, userCoefficients));
+            result.add(new OcMemberCandidate(userId, user.getNickname(),
+                    snapshotTime, false, passRates, userCoefficients));
         }
         return result;
     }
 
+    /**
+     * 构造按OC键索引的岗位模板。
+     *
+     * @param factionId 帮派ID
+     * @return 岗位模板映射
+     */
     private Map<String, List<OcPlanSlot>> buildSlotTemplates(long factionId) {
         Map<String, TornSettingFactionOcSlotDO> overrides = factionOcManager.getSlotList().stream()
                 .filter(item -> item.getFactionId().equals(factionId))

@@ -1,69 +1,171 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcCurrentOccupancySummary;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanMode;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshPlanningContext;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.LocalDateTime;
+import java.util.*;
 
 /**
  * 基于不可变快照生成匿名刷新指令的纯规划器。
  *
+ * <p>同时输出匿名结构化Shadow日志，日志不包含成员、岗位、内部排程或奖励明细。</p>
+ *
  * @author Bai
- * @version 1.2.11
+ * @version 1.3.0
  * @since 2026.07.17
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class OcRefreshInstructionPlanner {
-    private static final Duration SEARCH_TIMEOUT = Duration.ofMillis(1_000);
+    private static final Duration SEARCH_TIMEOUT = Duration.ofMillis(5_000);
     private static final int MAX_REFRESH_SEARCH_COUNT = 20;
 
     private final OcRefreshSafetyRequestFactory requestFactory;
     private final OcRefreshModeSelector modeSelector;
     private final OcCurrentOccupancyCalculator occupancyCalculator;
+    private final OcReplanWindowCalculator replanWindowCalculator;
+    private final OcLiquidityPathVerifier liquidityPathVerifier;
 
     /**
      * 生成指定模式的刷新指令。
      *
      * @param snapshot 同一规划周期内的不可变快照
-     * @param mode 刷新策略模式
+     * @param mode     刷新策略模式
      * @return 不包含成员分配的刷新操作指令
      */
     public OcRefreshInstructionPlan plan(OcPlanningSnapshot snapshot, OcPlanMode mode) {
         OcRefreshPlanningContext context = requestFactory.create(snapshot);
-        boolean configurationValid = snapshot.policy().validationWarnings().isEmpty()
-                && context.warnings().isEmpty();
+        boolean configurationValid = context.configurationStatus() == OcConfigurationStatusEnum.VALID;
+        Map<String, OcValueEvidence> evidence = requestFactory.buildEvidenceByTemplate(context,
+                snapshot);
         OcRefreshSafetyResult safety = configurationValid
                 ? new OcRefreshSafetySolver(SEARCH_TIMEOUT, MAX_REFRESH_SEARCH_COUNT)
-                .solve(context.request())
-                : new OcRefreshSafetyResult(List.of(new OcRefreshVector(0, 0)),
-                false, 0, List.of());
-        OcRefreshVector selected = configurationValid
-                ? modeSelector.select(safety, snapshot.policy(), mode)
-                : new OcRefreshVector(0, 0);
+                .solve(context.request(), evidence)
+                : notEvaluatedResult(context);
+        Optional<SafeCandidate> selected = configurationValid
+                ? modeSelector.selectCandidate(safety, mode) : Optional.empty();
+        OcRefreshVector vector = selected.map(SafeCandidate::vector)
+                .orElse(new OcRefreshVector(0, 0));
         OcCurrentOccupancySummary occupancySummary = occupancyCalculator.calculate(snapshot);
+        return buildPlan(snapshot, mode, context, safety, selected, vector, occupancySummary);
+    }
+
+    /**
+     * 构造配置无效时未参与求解的空结果。
+     *
+     * @param context 刷新规划上下文
+     * @return 证明状态为未求解的空结果
+     */
+    private OcRefreshSafetyResult notEvaluatedResult(OcRefreshPlanningContext context) {
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                context.configurationStatus(), OcProofStatusEnum.NOT_EVALUATED, Set.of(), false,
+                Set.of(), List.of(), null, context.request().planningTime());
+        return new OcRefreshSafetyResult(assessment, List.of(), false, 0, List.of());
+    }
+
+    /**
+     * 组装最终匿名刷新指令。
+     *
+     * @param snapshot         规划快照
+     * @param mode             刷新策略模式
+     * @param context          刷新规划上下文
+     * @param safety           时间线求解结果
+     * @param selected         已选安全候选
+     * @param vector           已选刷新向量
+     * @param occupancySummary 当前现实占用摘要
+     * @return 匿名刷新指令
+     */
+    private OcRefreshInstructionPlan buildPlan(OcPlanningSnapshot snapshot, OcPlanMode mode,
+                                               OcRefreshPlanningContext context,
+                                               OcRefreshSafetyResult safety,
+                                               Optional<SafeCandidate> selected,
+                                               OcRefreshVector vector,
+                                               OcCurrentOccupancySummary occupancySummary) {
+        OcTimelineSafetyAssessment assessment = safety.assessment();
+        Set<OcRiskFlagEnum> riskFlags = new LinkedHashSet<>(assessment.riskFlags());
+        Set<OcPlanReasonCodeEnum> reasonCodes = new LinkedHashSet<>(assessment.reasonCodes());
+        OcReplanWindow replanWindow = replanWindow(snapshot, context, assessment);
+        LocalDateTime nextCriticalReleaseAt = liquidityPathVerifier
+                .nextCriticalReleaseAt(assessment.anchors());
+        boolean pauseAllowed = OcTimelinePolicy.allowsNewPause(mode);
+        boolean pauseSelected = selected.isPresent()
+                && selected.get().pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE;
+        if (pauseSelected) {
+            riskFlags.add(OcRiskFlagEnum.RECOVERABLE_PAUSE_PRESENT);
+        }
+        OcValueEvidence.Level evidenceLevel = selected.map(SafeCandidate::valueEvidenceLevel)
+                .orElse(OcValueEvidence.Level.INSUFFICIENT);
+        if (vector.totalCount() > 0 && selected.get().windowValue() == null) {
+            riskFlags.add(OcRiskFlagEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
+            reasonCodes.add(OcPlanReasonCodeEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
+        }
         List<String> warnings = collectWarnings(snapshot, context, safety);
-        return new OcRefreshInstructionPlan(snapshot.factionId(), snapshot.snapshotTime(), mode,
-                context.plannedEmptyOcCounts(), selected.normalCount(), selected.highCount(),
-                safety.lowerBound(), reason(selected, context, configurationValid),
-                occupancySummary, warnings);
+        OcRefreshInstructionPlan plan = new OcRefreshInstructionPlan(snapshot.factionId(),
+                snapshot.snapshotTime(), mode, context.plannedEmptyOcCounts(),
+                vector.normalCount(), vector.highCount(), safety.lowerBound(),
+                reason(vector, context, assessment), context.configurationStatus(),
+                assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
+                pauseAllowed, pauseSelected, selected.map(candidate -> pauseDuration(mode))
+                .orElse(null),
+                replanWindow, evidenceLevel, occupancySummary, warnings);
+        logShadow(plan);
+        return plan;
+    }
+
+    /**
+     * 计算当前建议的重新评估窗口。
+     *
+     * @param snapshot   规划快照
+     * @param context    刷新规划上下文
+     * @param assessment 时间线安全评估
+     * @return 重新评估窗口
+     */
+    private OcReplanWindow replanWindow(OcPlanningSnapshot snapshot,
+                                        OcRefreshPlanningContext context,
+                                        OcTimelineSafetyAssessment assessment) {
+        List<LocalDateTime> events = new ArrayList<>();
+        List<LocalDateTime> boundaries = new ArrayList<>();
+        if (assessment.nextCriticalReleaseAt() != null) {
+            events.add(assessment.nextCriticalReleaseAt());
+        }
+        context.request().obligations().forEach(obligation -> {
+            if (obligation.firstJoinDeadline() != null) {
+                boundaries.add(obligation.firstJoinDeadline());
+            }
+            LocalDateTime readyAt = obligation.demand().readyAt();
+            if (readyAt != null && readyAt.isAfter(snapshot.snapshotTime())) {
+                boundaries.add(readyAt);
+                events.add(readyAt);
+            }
+        });
+        if (assessment.proofWindowEnd() != null) {
+            boundaries.add(assessment.proofWindowEnd().plus(OcTimelinePolicy.REPLAN_LEAD));
+        }
+        return replanWindowCalculator.calculate(snapshot.snapshotTime(), events, boundaries);
+    }
+
+    /**
+     * 获取模式允许的匿名停转时长说明。
+     *
+     * @param mode 刷新策略模式
+     * @return 模式停转上限
+     */
+    private Duration pauseDuration(OcPlanMode mode) {
+        return OcTimelinePolicy.maxNewPause(mode);
     }
 
     /**
      * 合并快照、策略、上下文和求解警告。
      *
      * @param snapshot 规划快照
-     * @param context 刷新规划上下文
-     * @param safety 安全边界结果
+     * @param context  刷新规划上下文
+     * @param safety   时间线求解结果
      * @return 合并后的警告
      */
     private List<String> collectWarnings(OcPlanningSnapshot snapshot,
@@ -77,25 +179,55 @@ public class OcRefreshInstructionPlanner {
     }
 
     /**
-     * 根据配置状态、可用池和已选安全向量生成用户可读原因。
+     * 根据配置状态、证明状态和已选向量生成用户可读原因。
      *
-     * @param selected 已选刷新向量
-     * @param context 刷新规划上下文
-     * @param configurationValid 配置是否有效
+     * @param selected   已选刷新向量
+     * @param context    刷新规划上下文
+     * @param assessment 时间线安全评估
      * @return 刷新建议原因
      */
     private String reason(OcRefreshVector selected, OcRefreshPlanningContext context,
-                          boolean configurationValid) {
-        if (!configurationValid) {
+                          OcTimelineSafetyAssessment assessment) {
+        if (context.configurationStatus() != OcConfigurationStatusEnum.VALID) {
             return "规划配置存在错误，已停止自动刷新建议";
         }
+        if (assessment.riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK)) {
+            return "当前存在全帮卡死或被迫拆队风险，两个刷新池建议均为0";
+        }
+        if (assessment.riskFlags().contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK)) {
+            return "已启动链义务存在无法履约风险，已阻断全部新增刷新";
+        }
         if (selected.totalCount() > 0) {
-            return "已按当前OC占用、达标成员和成员释放时间证明建议次数可承接";
+            return "已按当前OC占用、达标成员和成员释放时间线证明建议次数可承接";
+        }
+        if (assessment.proofStatus() == OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS) {
+            return "当前预算内未证明可安全承接新的完整阵容";
         }
         if (context.request().normalTemplates().isEmpty()
                 && context.request().highChains().isEmpty()) {
             return "当前没有有效的计划刷新池配置";
         }
         return "当前剩余达标成员无法证明可安全承接新的完整阵容";
+    }
+
+    /**
+     * 输出匿名结构化Shadow日志，不记录成员、岗位、内部排程或奖励明细。
+     *
+     * @param plan 已生成的刷新指令
+     */
+    private void logShadow(OcRefreshInstructionPlan plan) {
+        log.info("OC新队Shadow: factionId={}, mode={}, snapshotTime={}, configurationStatus={}, "
+                        + "proofStatus={}, riskFlags={}, lowerBound={}, selectedVector=({},{}), "
+                        + "nextCriticalReleaseAt={}, nextReplanAt={}, latestReplanAt={}, "
+                        + "pauseAllowed={}, pauseSelected={}, pendingEmptyCount={}, "
+                        + "reasonCodes={}, warningCount={}",
+                plan.factionId(), plan.mode(), plan.snapshotTime(),
+                plan.configurationStatus(), plan.proofStatus(), plan.riskFlags(),
+                plan.lowerBound(), plan.normalRefreshCount(), plan.highRefreshCount(),
+                plan.nextCriticalReleaseAt(), plan.replanWindow().nextReplanAt(),
+                plan.replanWindow().latestReplanAt(), plan.pauseAllowed(),
+                plan.pauseSelected(), plan.plannedEmptyOcCounts().values().stream()
+                        .mapToInt(Integer::intValue).sum(),
+                plan.reasonCodes(), plan.warnings().size());
     }
 }

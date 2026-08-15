@@ -5,12 +5,7 @@ import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcCurrentOccupancySummary;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcEvaluationMode;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcFactionPlanningPolicy;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -23,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * OC现实占用摘要统计测试。
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.3.0
  * @since 2026.07.17
  */
 @DisplayName("OC现实占用摘要统计")
@@ -51,13 +46,13 @@ class OcCurrentOccupancyCalculatorTest {
         profile.setPlanStatus("READY");
         profile.setSpawnPool("NORMAL_7_8");
         OcFactionPlanningPolicy policy = new OcFactionPlanningPolicy(1L,
-                OcEvaluationMode.POSITION_WEIGHT, 20, 25, 50, 100,
+                OcEvaluationMode.POSITION_WEIGHT,
                 Set.of(plannedKey), List.of());
         OcPlanningSnapshot snapshot = new OcPlanningSnapshot(1L, NOW, policy,
                 List.of(joinedPlanned, joinedUnplanned, empty), slots, members,
                 Map.of(plannedKey, profile), List.of(),
                 Map.of(plannedKey, List.of(new OcPlanSlot(
-                        "Worker#1", "Worker", 60, 1, null))), Set.of(), List.of());
+                        "Worker#1", "Worker", 60, 1, null))), Set.of(), Map.of(), List.of());
 
         OcCurrentOccupancySummary result = new OcCurrentOccupancyCalculator().calculate(snapshot);
 

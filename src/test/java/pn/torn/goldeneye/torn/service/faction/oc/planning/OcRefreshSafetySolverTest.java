@@ -3,222 +3,238 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcProofStatusEnum;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRiskFlagEnum;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineObligation;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * OC刷新联合安全边界求解器测试。
+ * OC刷新时间线求解器测试。
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.3.0
  * @since 2026.07.17
  */
-@DisplayName("OC刷新安全边界求解")
+@DisplayName("OC刷新时间线求解")
 class OcRefreshSafetySolverTest {
-    private static final LocalDateTime NOW = LocalDateTime.of(2026, 7, 16, 15, 0);
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 7, 16, 8, 0);
 
     @Test
-    @DisplayName("计划内无人OC应占用刷新容量")
-    void shouldCountPlannedEmptyDemandAgainstCapacity() {
-        OcMemberCandidate member = memberForBoth(1L);
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(List.of(member),
-                List.of(demand("Normal")), List.of(demand("Normal")), List.of(), NOW);
-        OcRefreshSafetyRequest withoutBase = new OcRefreshSafetyRequest(List.of(member),
-                List.of(), List.of(demand("Normal")), List.of(), NOW);
+    @DisplayName("确定性岗位矛盾时应证明不可行并标记卡死风险")
+    void shouldProveInfeasibleWithDeadlockRiskOnDeterministicContradiction() {
+        OcTimelineObligation first = joinedObligation(1L, NOW.plusHours(24));
+        OcTimelineObligation second = joinedObligation(2L, NOW.plusHours(24));
+        OcRefreshSafetyRequest request = request(List.of(), List.of(first, second),
+                templates("Normal"), List.of());
 
-        OcRefreshSafetyResult result = solver(8).solve(request);
-        OcRefreshSafetyResult resultWithoutBase = solver(8).solve(withoutBase);
+        OcRefreshSafetyResult result = solver().solve(request, evidence("Normal"));
 
-        assertTrue(isUnsafe(result, 1, 0), result.toString());
-        assertTrue(isSafe(resultWithoutBase, 1, 0), resultWithoutBase.toString());
-        assertTrue(isUnsafe(resultWithoutBase, 2, 0), resultWithoutBase.toString());
+        assertEquals(OcProofStatusEnum.PROVEN_INFEASIBLE, result.assessment().proofStatus());
+        assertTrue(result.assessment().riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK));
+        assertTrue(result.candidates().isEmpty());
+        assertTrue(result.assessment().reasonCodes()
+                .contains(OcPlanReasonCodeEnum.NO_REPLACEMENT_LIQUIDITY_ANCHOR));
     }
 
     @Test
-    @DisplayName("应保障普通池所有计划内随机结果")
+    @DisplayName("高负载但存在确定释放事件时不得误判卡死")
+    void shouldNotFlagDeadlockWhenReleaseEventProven() {
+        OcMemberCandidate member = member(1L, "Normal", NOW.plusHours(8));
+        OcTimelineObligation full = fullObligation(10L, NOW.plusHours(8));
+        OcRefreshSafetyRequest request = request(List.of(member), List.of(full),
+                templates("Normal"), List.of());
+
+        OcRefreshSafetyResult result = solver().solve(request, evidence("Normal"));
+
+        assertFalse(result.assessment().riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK));
+        assertTrue(isSafe(result, 1, 0), result.toString());
+    }
+
+    @Test
+    @DisplayName("成员在A完成后可非重叠复用加入B")
+    void shouldAllowFiniteNonOverlappingReuseAfterCompletion() {
+        OcMemberCandidate member = member(1L, "Normal", NOW.plusHours(8));
+        OcTimelineObligation full = fullObligation(10L, NOW.plusHours(8));
+        OcRefreshSafetyRequest request = request(List.of(member), List.of(full),
+                templates("Normal"), List.of());
+
+        OcRefreshSafetyResult result = solver().solve(request, evidence("Normal"));
+
+        assertTrue(isSafe(result, 1, 0), result.toString());
+        assertTrue(isSafe(result, 2, 0), result.toString());
+    }
+
+    @Test
+    @DisplayName("无任何确定释放边界时不能凭串行吞吐提高刷新次数")
+    void shouldNotIncreaseRefreshWithoutAnyProvenReleaseBoundary() {
+        OcMemberCandidate occupied = member(1L, "Normal", NOW.plusDays(99));
+        OcRefreshSafetyRequest request = request(List.of(occupied), List.of(),
+                templates("Normal"), List.of());
+
+        OcRefreshSafetyResult result = solver().solve(request, evidence("Normal"));
+
+        assertFalse(isSafe(result, 1, 0), result.toString());
+        assertFalse(result.assessment().riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK));
+    }
+
+    @Test
+    @DisplayName("计划内无人OC无法启动时应输出过期压力且无新增刷新候选")
+    void shouldFlagExpiryPressureWhenPlannedEmptyCannotStart() {
+        OcTimelineObligation plannedEmpty = plannedEmpty(20L, NOW);
+        OcRefreshSafetyRequest request = request(List.of(), List.of(plannedEmpty),
+                templates("Normal"), List.of());
+
+        OcRefreshSafetyResult result = solver().solve(request, evidence("Normal"));
+
+        assertTrue(result.assessment().riskFlags()
+                .contains(OcRiskFlagEnum.EMPTY_OC_EXPIRY_PRESSURE));
+        assertTrue(result.candidates().isEmpty());
+    }
+
+    @Test
+    @DisplayName("应保障普通池所有计划内随机结果组合")
     void shouldProtectAgainstEveryPlannedNormalPoolOutcome() {
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(member(1L, "Easy"), member(2L, "Hard"), member(3L, "Hard"),
-                        member(4L, "Hard"), member(5L, "Hard")),
-                List.of(), List.of(demand("Easy"), multiSlotDemand("Hard")),
-                List.of(), NOW);
+        OcMemberCandidate easyMember = member(1L, "Easy", NOW);
+        List<OcMemberCandidate> lateHardMembers = List.of(
+                member(2L, "Hard", NOW.plusDays(8)), member(3L, "Hard", NOW.plusDays(8)));
+        List<OcTeamDemand> templates = List.of(template("Easy", 1), template("Hard", 2));
+        OcRefreshSafetyRequest request = request(
+                concat(easyMember, lateHardMembers), List.of(), templates, List.of());
 
-        OcRefreshSafetyResult result = solver(3).solve(request);
+        OcRefreshSafetyResult result = solver().solve(
+                request, Map.of("8:Easy", evidenceOf(100), "8:Hard", evidenceOf(100)));
 
-        assertTrue(isSafe(result, 1, 0), result.toString());
-        assertTrue(isUnsafe(result, 2, 0), result.toString());
+        assertTrue(isSafe(result, 0, 0), result.toString());
+        assertFalse(isSafe(result, 1, 0), result.toString());
+        assertFalse(result.assessment().riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK));
     }
 
     @Test
-    @DisplayName("根节点成员释放后可加入后继")
+    @DisplayName("根节点成员释放后可加入链后继")
     void shouldAllowRootMemberToJoinSuccessorAfterRelease() {
-        List<OcTeamDemand> chain = List.of(demand("Root"), demand("Child"));
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(memberForChain(1L)), List.of(), List.of(), List.of(chain), NOW);
-
-        OcRefreshSafetyResult result = solver(2).solve(request);
-
-        assertTrue(isSafe(result, 0, 1), result.toString());
-    }
-
-    @Test
-    @DisplayName("未来释放的固定成员不能支撑本轮新增OC")
-    void shouldNotUseFutureReleasedFixedMemberForCurrentBatch() {
-        OcMemberCandidate fixedMember = new OcMemberCandidate(1L, "fixed",
-                NOW.plusDays(7), true,
-                Map.of(OcMemberCandidate.capabilityKey(8, "Normal", "Worker"), 90),
-                Map.of());
-        OcTeamDemand current = new OcTeamDemand(100L, "Current", 8,
-                NOW.plusDays(1), NOW.plusYears(1), false,
-                List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
-                Set.of("Worker#1"), Set.of(1L));
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(fixedMember), List.of(current), List.of(demand("Normal")),
-                List.of(), NOW);
-
-        OcRefreshSafetyResult result = solver(1).solve(request);
-
-        assertTrue(isUnsafe(result, 1, 0), result.toString());
-    }
-
-    @Test
-    @DisplayName("当前计划内高阶链应预留后继")
-    void shouldReserveSuccessorForCurrentPlannedHighChain() {
-        OcMemberCandidate member = new OcMemberCandidate(1L, "chain-member", NOW, false,
+        OcMemberCandidate member = member(1L, "Root", NOW);
+        member = new OcMemberCandidate(member.userId(), member.nickname(), NOW, false,
                 Map.of(OcMemberCandidate.capabilityKey(8, "Root", "Worker"), 90,
-                        OcMemberCandidate.capabilityKey(8, "Child", "Worker"), 90,
-                        OcMemberCandidate.capabilityKey(8, "Normal", "Worker"), 90),
+                        OcMemberCandidate.capabilityKey(9, "Child", "Worker"), 90),
                 Map.of());
-        List<OcTeamDemand> currentChain = List.of(demand("Root"), demand("Child"));
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(member), List.of(), List.of(currentChain),
-                List.of(demand("Normal")), List.of(), NOW);
+        List<OcTeamDemand> chain = List.of(template("Root", 1), childTemplate("Child", 1));
+        OcRefreshSafetyRequest request = request(List.of(member), List.of(),
+                List.of(), List.of(chain));
 
-        OcRefreshSafetyResult result = solver(7).solve(request);
-
-        assertTrue(isUnsafe(result, 1, 0), result.toString());
-    }
-
-    @Test
-    @DisplayName("应保障高阶池所有计划内随机结果")
-    void shouldProtectAgainstEveryPlannedHighPoolOutcome() {
-        List<OcTeamDemand> easyChain = List.of(demand("EasyRoot"));
-        List<OcTeamDemand> hardChain = List.of(multiSlotDemand("HardRoot"));
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(member(1L, "EasyRoot"), member(2L, "HardRoot"),
-                        member(3L, "HardRoot"), member(4L, "HardRoot"),
-                        member(5L, "HardRoot")),
-                List.of(), List.of(), List.of(), List.of(easyChain, hardChain), NOW);
-
-        OcRefreshSafetyResult result = solver(3).solve(request);
+        OcRefreshSafetyResult result = solver().solve(request, Map.of());
 
         assertTrue(isSafe(result, 0, 1), result.toString());
-        assertTrue(isUnsafe(result, 0, 2), result.toString());
     }
 
     @Test
-    @DisplayName("刷新池没有计划模板时应拒绝刷新")
-    void shouldRejectRefreshWhenPoolHasNoPlannedTemplate() {
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(member(1L, "Unused")), List.of(), List.of(), List.of(), NOW);
+    @DisplayName("同一快照重复求解应产生确定结果")
+    void shouldProduceDeterministicResultForSameSnapshot() {
+        OcMemberCandidate member = member(1L, "Normal", NOW);
+        OcRefreshSafetyRequest request = request(List.of(member), List.of(),
+                templates("Normal"), List.of());
 
-        OcRefreshSafetyResult result = solver(2).solve(request);
+        OcRefreshSafetyResult first = solver().solve(request, evidence("Normal"));
+        OcRefreshSafetyResult second = solver().solve(request, evidence("Normal"));
 
-        assertTrue(isUnsafe(result, 1, 0), result.toString());
-        assertTrue(isUnsafe(result, 0, 1), result.toString());
+        assertEquals(first.candidates().stream().map(
+                        candidate -> candidate.vector()).toList(),
+                second.candidates().stream().map(
+                        candidate -> candidate.vector()).toList());
     }
 
-
-    @Test
-    @DisplayName("时间预算耗尽时应返回已证明安全下界")
-    void shouldReturnProvenLowerBoundWhenTimeBudgetIsExhausted() {
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(member(1L, "Normal")), List.of(),
-                List.of(demand("Normal")), List.of(), NOW);
-
-        OcRefreshSafetyResult result = new OcRefreshSafetySolver(Duration.ZERO, 20).solve(request);
-
-        assertTrue(result.lowerBound());
-        assertTrue(result.warnings().stream()
-                .anyMatch(message -> message.contains("时间预算")));
-    }
-
-    @Test
-    @DisplayName("本轮新增普通OC之间不得复用同一成员")
-    void shouldNotReuseMemberAcrossNewNormalOcsInSameBatch() {
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(member(1L, "Normal")), List.of(),
-                List.of(demand("Normal")), List.of(), NOW);
-
-        OcRefreshSafetyResult result = solver(2).solve(request);
-
-        assertTrue(isSafe(result, 1, 0), result.toString());
-        assertTrue(isUnsafe(result, 2, 0), result.toString());
-    }
-
-    @Test
-    @DisplayName("同一高阶链内部允许复用成员但不同链之间禁止复用")
-    void shouldReuseMemberInsideHighChainButNotAcrossHighChains() {
-        List<OcTeamDemand> chain = List.of(demand("Root"), demand("Child"));
-        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
-                List.of(memberForChain(1L)), List.of(), List.of(), List.of(chain), NOW);
-
-        OcRefreshSafetyResult result = solver(2).solve(request);
-
-        assertTrue(isSafe(result, 0, 1), result.toString());
-        assertTrue(isUnsafe(result, 0, 2), result.toString());
-    }
-
-    private OcRefreshSafetySolver solver(int maxSearch) {
-        return new OcRefreshSafetySolver(Duration.ofSeconds(1), maxSearch);
+    private OcRefreshSafetySolver solver() {
+        return new OcRefreshSafetySolver(Duration.ofSeconds(5), 8);
     }
 
     private boolean isSafe(OcRefreshSafetyResult result, int normal, int high) {
-        return result.frontier().stream().anyMatch(bound -> bound.normalCount() >= normal
-                && bound.highCount() >= high);
+        return result.candidates().stream().anyMatch(candidate ->
+                candidate.vector().equals(new OcRefreshVector(normal, high)));
     }
 
-    private boolean isUnsafe(OcRefreshSafetyResult result, int normal, int high) {
-        return !isSafe(result, normal, high);
+    private List<OcMemberCandidate> concat(OcMemberCandidate first,
+                                           List<OcMemberCandidate> rest) {
+        return java.util.stream.Stream.concat(java.util.stream.Stream.of(first),
+                rest.stream()).toList();
     }
 
-    private OcTeamDemand demand(String name) {
-        return new OcTeamDemand(0L, name, 8, null, NOW.plusDays(7), false,
-                List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
-                Set.of(), Set.of());
+    private OcRefreshSafetyRequest request(List<OcMemberCandidate> members,
+                                           List<OcTimelineObligation> obligations,
+                                           List<OcTeamDemand> normalTemplates,
+                                           List<List<OcTeamDemand>> highChains) {
+        return new OcRefreshSafetyRequest(members, Set.of(), obligations, Map.of(),
+                normalTemplates, highChains, NOW);
     }
 
-    private OcTeamDemand multiSlotDemand(String name) {
-        List<OcPlanSlot> slots = java.util.stream.IntStream.rangeClosed(1, 4)
-                .mapToObj(index -> new OcPlanSlot("Worker#" + index, "Worker", 60,
-                        index, null))
+    private List<OcTeamDemand> templates(String name) {
+        return List.of(template(name, 1));
+    }
+
+    private OcTeamDemand template(String name, int slots) {
+        return new OcTeamDemand(0L, name, 8, null,
+                NOW.plusDays(OcTimelinePolicy.FIRST_JOIN_EXPIRE_DAYS), false,
+                slotList(name, slots), Set.of(), Set.of());
+    }
+
+    private OcTeamDemand childTemplate(String name, int slots) {
+        return new OcTeamDemand(0L, name, 9, null, null, true,
+                slotList(name, slots), Set.of(), Set.of());
+    }
+
+    private List<OcPlanSlot> slotList(String name, int count) {
+        return java.util.stream.IntStream.rangeClosed(1, count)
+                .mapToObj(index -> new OcPlanSlot("Worker#" + index, "Worker", 60, 1, null))
                 .toList();
-        return new OcTeamDemand(0L, name, 8, null, NOW.plusDays(7), false,
-                slots, Set.of(), Set.of());
     }
 
-    private OcMemberCandidate member(long id, String ocName) {
-        return new OcMemberCandidate(id, "u" + id, NOW, false,
+    private OcTimelineObligation joinedObligation(long ocId, LocalDateTime readyAt) {
+        OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, readyAt, null, false,
+                slotList("Normal", 1), Set.of(), Set.of(ocId * 100));
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
+    }
+
+    private OcTimelineObligation fullObligation(long ocId, LocalDateTime readyAt) {
+        OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, readyAt, null, false,
+                slotList("Normal", 1), Set.of("Worker#1"), Set.of(ocId * 100));
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
+    }
+
+    private OcTimelineObligation plannedEmpty(long ocId, LocalDateTime deadline) {
+        OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, null, deadline, false,
+                slotList("Normal", 1), Set.of(), Set.of());
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.PLANNED_EMPTY, demand, deadline, null);
+    }
+
+    private OcMemberCandidate member(long id, String ocName, LocalDateTime availableAt) {
+        return new OcMemberCandidate(id, "user" + id, availableAt, false,
                 Map.of(OcMemberCandidate.capabilityKey(8, ocName, "Worker"), 90), Map.of());
     }
 
-    private OcMemberCandidate memberForBoth(long id) {
-        return member(id, "Normal");
+    private Map<String, OcValueEvidence> evidence(String name) {
+        return Map.of("8:" + name, evidenceOf(100));
     }
 
-    private OcMemberCandidate memberForChain(long id) {
-        return new OcMemberCandidate(id, "u" + id, NOW, false,
-                Map.of(OcMemberCandidate.capabilityKey(8, "Root", "Worker"), 90,
-                        OcMemberCandidate.capabilityKey(8, "Child", "Worker"), 90), Map.of());
+    private OcValueEvidence evidenceOf(long value) {
+        return new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
+                BigDecimal.valueOf(value), 1, NOW.plusHours(24), true);
     }
 }

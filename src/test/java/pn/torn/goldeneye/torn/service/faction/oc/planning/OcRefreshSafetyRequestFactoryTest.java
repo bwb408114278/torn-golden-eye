@@ -3,48 +3,46 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcEvaluationMode;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcFactionPlanningPolicy;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshPlanningContext;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * OC刷新安全请求工厂测试。
+ * OC刷新时间线求解请求工厂测试。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.3.0
  * @since 2026.07.17
  */
-@DisplayName("OC刷新安全请求构造")
+@DisplayName("OC刷新时间线求解请求构造")
 class OcRefreshSafetyRequestFactoryTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 7, 16, 15, 0);
 
+    private final OcRefreshSafetyRequestFactory factory = new OcRefreshSafetyRequestFactory(
+            new OcChainPlanningService(), new OcExistingTimelineReconstructor(),
+            new OcRewardEvidenceCalculator());
+
     @Test
-    @DisplayName("仅计划内无人OC应进入需求和展示")
-    void shouldIncludeOnlyPlannedEmptyOcInDemandAndDisplay() {
+    @DisplayName("仅计划内无人OC应进入义务和展示")
+    void shouldIncludeOnlyPlannedEmptyOcInObligationsAndDisplay() {
         String plannedKey = OcPlanningSnapshot.ocKey(8, "Planned");
         String ignoredKey = OcPlanningSnapshot.ocKey(8, "Ignored");
-        OcPlanningSnapshot snapshot = snapshot(plannedKey, ignoredKey);
-        OcRefreshSafetyRequestFactory factory = new OcRefreshSafetyRequestFactory(
-                new OcChainPlanningService());
+        OcPlanningSnapshot snapshot = snapshot(plannedKey, ignoredKey, false);
 
         OcRefreshPlanningContext context = factory.create(snapshot);
 
         assertEquals(Map.of(plannedKey, 1), context.plannedEmptyOcCounts());
-        assertEquals(List.of("Planned"), context.request().baseDemands().stream()
-                .map(OcTeamDemand::ocName).toList());
+        assertEquals(OcConfigurationStatusEnum.VALID, context.configurationStatus());
+        assertEquals(1, context.request().obligations().size());
+        assertEquals(OcTimelineObligation.ObligationKind.PLANNED_EMPTY,
+                context.request().obligations().getFirst().kind());
         assertFalse(context.request().members().getFirst().fixed());
     }
 
@@ -53,50 +51,81 @@ class OcRefreshSafetyRequestFactoryTest {
     void shouldIgnoreEnabledOcWhoseProfileIsNotReady() {
         String plannedKey = OcPlanningSnapshot.ocKey(8, "Planned");
         String ignoredKey = OcPlanningSnapshot.ocKey(8, "Ignored");
-        OcPlanningSnapshot snapshot = snapshot(plannedKey, ignoredKey);
+        OcPlanningSnapshot snapshot = snapshot(plannedKey, ignoredKey, false);
         snapshot.profiles().get(plannedKey).setPlanStatus("OBSERVE_ONLY");
-        OcRefreshSafetyRequestFactory factory = new OcRefreshSafetyRequestFactory(
-                new OcChainPlanningService());
 
         OcRefreshPlanningContext context = factory.create(snapshot);
 
         assertEquals(Map.of(), context.plannedEmptyOcCounts());
-        assertEquals(List.of(), context.request().baseDemands());
+        assertEquals(0, context.request().obligations().size());
     }
 
-    private OcPlanningSnapshot snapshot(String plannedKey, String ignoredKey) {
-        TornFactionOcDO planned = oc(1L, "Planned");
-        TornFactionOcDO ignored = oc(2L, "Ignored");
-        TornSettingOcPlanProfileDO plannedProfile = profile("Planned");
-        TornSettingOcPlanProfileDO ignoredProfile = profile("Ignored");
+    @Test
+    @DisplayName("已有人OC缺少阶段时间时应标记不可证明占用")
+    void shouldMarkJoinedOcWithoutReadyTimeAsUnprovable() {
+        String plannedKey = OcPlanningSnapshot.ocKey(8, "Planned");
+        OcPlanningSnapshot snapshot = snapshot(plannedKey, plannedKey, true);
+
+        OcRefreshPlanningContext context = factory.create(snapshot);
+
+        assertTrue(context.request().unprovableMemberIds().contains(10L));
+        assertEquals(0, context.request().obligations().size());
+    }
+
+    @Test
+    @DisplayName("高阶链配置冲突时配置状态应为无效")
+    void shouldReturnInvalidConfigurationWhenChainConflicts() {
+        String rootKey = OcPlanningSnapshot.ocKey(8, "Planned");
+        OcPlanningSnapshot snapshot = snapshot(rootKey, rootKey, false);
+        snapshot.profiles().get(rootKey).setSpawnPool("HIGH_CHAIN_ROOT");
+
+        OcRefreshPlanningContext context = factory.create(snapshot);
+
+        assertEquals(OcConfigurationStatusEnum.INVALID, context.configurationStatus());
+        assertFalse(context.warnings().isEmpty());
+    }
+
+    private OcPlanningSnapshot snapshot(String plannedKey, String ignoredKey,
+                                        boolean joinedWithoutReadyTime) {
+        TornFactionOcDO planned = oc(1L, "Planned", null);
+        TornFactionOcDO ignored = oc(2L, "Ignored", null);
+        TornFactionOcSlotDO joinedSlot = new TornFactionOcSlotDO();
+        joinedSlot.setOcId(1L);
+        joinedSlot.setPosition("Worker#1");
+        joinedSlot.setUserId(10L);
         OcFactionPlanningPolicy policy = new OcFactionPlanningPolicy(1L,
-                OcEvaluationMode.POSITION_WEIGHT, 20, 25, 50, 100,
-                Set.of(plannedKey), List.of());
-        OcMemberCandidate member = new OcMemberCandidate(10L, "member", NOW.plusDays(1),
-                true, Map.of(), Map.of());
-        Map<String, List<OcPlanSlot>> templates = Map.of(
-                plannedKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
-                ignoredKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+                OcEvaluationMode.POSITION_WEIGHT, Set.of(plannedKey), List.of());
+        OcMemberCandidate member = new OcMemberCandidate(10L, "member", NOW,
+                false, Map.of(), Map.of());
+        Map<String, List<OcPlanSlot>> templates = new java.util.HashMap<>();
+        templates.put(plannedKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+        templates.put(ignoredKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+        Map<String, TornSettingOcPlanProfileDO> profiles = new java.util.HashMap<>();
+        profiles.put(plannedKey, profile("Planned", "NORMAL_7_8"));
+        profiles.put(ignoredKey, profile("Ignored", "NORMAL_7_8"));
+        Map<Long, List<TornFactionOcSlotDO>> slots = joinedWithoutReadyTime
+                ? Map.of(1L, List.of(joinedSlot)) : Map.of();
         return new OcPlanningSnapshot(1L, NOW, policy, List.of(planned, ignored),
-                Map.of(), List.of(member), Map.of(plannedKey, plannedProfile,
-                ignoredKey, ignoredProfile), List.of(), templates, Set.of(), List.of());
+                slots, List.of(member), profiles, List.of(), templates,
+                Set.of(), Map.of(), List.of());
     }
 
-    private TornFactionOcDO oc(long id, String name) {
+    private TornFactionOcDO oc(long id, String name, LocalDateTime readyTime) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(id);
         oc.setName(name);
         oc.setRank(8);
         oc.setStatus("Recruiting");
+        oc.setReadyTime(readyTime);
         oc.setCreateTime(NOW);
         return oc;
     }
 
-    private TornSettingOcPlanProfileDO profile(String name) {
+    private TornSettingOcPlanProfileDO profile(String name, String pool) {
         TornSettingOcPlanProfileDO profile = new TornSettingOcPlanProfileDO();
         profile.setOcName(name);
         profile.setRank(8);
-        profile.setSpawnPool("NORMAL_7_8");
+        profile.setSpawnPool(pool);
         profile.setPlanStatus("READY");
         return profile;
     }
