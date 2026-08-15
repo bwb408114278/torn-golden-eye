@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 异常不向{@code ApplicationReadyEvent}逃逸;定时入口的异常上抛语义保持不变。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.07.25
  */
 @Slf4j
@@ -111,7 +111,7 @@ public class VipStockAlertScheduler {
      * 总开关关闭但存在活跃批次时,仍继续构建存量管理所需轮次(退出/恢复/灾难关闭/冷却),
      * 仅禁止新买入;历史PENDING通知投递不受轮次总开关与数据构建结果影响。
      */
-    @Scheduled(cron = "10 * * * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "10 * * * * ?", zone = "Asia/Shanghai", scheduler = "vipStockRoundScheduler")
     public void executeRound() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
@@ -128,6 +128,10 @@ public class VipStockAlertScheduler {
             return;
         }
 
+        log.info("VIP股票策略调度-任务开始, shouldBuildRounds={}, shouldSendPendingNotices={}, "
+                        + "manageResearchObligations={}",
+                decision.shouldBuildRounds(), decision.shouldSendPendingNotices(),
+                decision.manageResearchObligations());
         try {
             // 固定顺序: 先为最近已结束桶幂等建立PENDING轮次, 再补建未完成轮次bar,
             // 再结算到期拒绝观察, 最后投递PENDING通知。
@@ -147,6 +151,7 @@ public class VipStockAlertScheduler {
         } finally {
             processing.set(false);
         }
+        log.info("VIP股票策略调度-任务结束");
     }
 
     /**
@@ -192,7 +197,8 @@ public class VipStockAlertScheduler {
      * 使用调用方计算的当前已结束桶时间(与生产者 {@link #ensurePendingRound(LocalDateTime)}
      * 共用同一桶,避免重复计算),以该时间作为<b>包含上界</b>查询全部未完成轮次并按
      * round_time升序逐个处理。包含上界语义保证本次刚建立的{@code currentEndedBucket}轮次
-     * 当次即被读取处理,不会延迟到下一个边界。每个轮次:
+     * 当次即被读取处理,不会延迟到下一个边界。待处理查询为显式生产状态白名单,
+     * 数据修复终态{@code REPAIRED_DATA_ONLY}不在可消费集合内。每个轮次:
      * <ol>
      *   <li>状态置为BUILDING_BAR,调用 {@link Stock15mBarBuildService#buildBars(LocalDateTime)}</li>
      *   <li>bar构建为空时状态置为WAITING_DATA,跳过特征构建</li>
@@ -523,6 +529,14 @@ public class VipStockAlertScheduler {
      */
     private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime, boolean allowNewEntry) {
         log.info("VIP股票策略调度-开始处理轮次, roundTime={}, 当前状态={}", roundTime, round.getRoundStatus());
+
+        // 防御式第二道防线:查询层白名单(selectPendingRoundsUpTo)已过滤数据修复终态,
+        // 此处再遇 REPAIRED_DATA_ONLY 时跳过策略消费,防止白名单外的旁路写入。
+        if (StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode().equals(round.getRoundStatus())) {
+            log.warn("VIP股票策略调度-轮次为数据修复终态REPAIRED_DATA_ONLY,禁止进入策略消费,跳过, roundTime={}",
+                    roundTime);
+            return;
+        }
 
         boolean needsDataBuild = !StockRoundStatusEnum.READY.getCode().equals(round.getRoundStatus());
         if (needsDataBuild) {

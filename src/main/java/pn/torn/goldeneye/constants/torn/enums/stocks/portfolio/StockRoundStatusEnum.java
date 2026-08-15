@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票轮次状态枚举 - 描述数据轮次（Bar/特征构建）的处理状态
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.18
  * @since 2026.07.24
  */
 @Getter
@@ -51,6 +51,12 @@ public enum StockRoundStatusEnum {
      * 最终失败 - 重试耗尽后的最终失败
      */
     FAILED_FINAL("FAILED_FINAL", "最终失败"),
+    /**
+     * 仅数据修复 - Tornsy历史回填实际插入分钟导致的派生数据(bar/feature)已按当前版本重算;
+     * 仅表达"数据已修复且已隔离策略副作用"的审计事实,不属于生产策略待处理队列,
+     * 永不进入策略事务,生产轮次消费白名单查询绝不返回该状态。
+     */
+    REPAIRED_DATA_ONLY("REPAIRED_DATA_ONLY", "仅数据修复"),
     ;
 
     /**

@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票策略轮次记录数据库访问层
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.2.18
  * @since 2026.07.24
  */
 @Mapper
@@ -26,14 +26,18 @@ public interface TornStockMarketRoundMapper extends BaseMapper<TornStockMarketRo
     TornStockMarketRoundDO selectLastCompleted();
 
     /**
-     * 查询指定时间之前(含该时间)未完成的轮次。
+     * 查询指定时间之前(含该时间)生产可消费的轮次。
      * <p>
      * 与生产者创建最近已结束桶使用同一包含上界语义:调度器先为{@code currentEndedBucket}
      * 幂等建立PENDING轮次,再以同一时间作为包含上界查询,保证新建立的桶在本次调度中即被
      * 读取并处理,不会延迟到下一个边界。
+     * <p>
+     * 状态过滤使用显式生产白名单(PENDING/BUILDING_BAR/BUILDING_FEATURE/WAITING_DATA/
+     * FAILED_RETRYABLE/READY/PROCESSING),未来新增的审计/隔离状态(如数据修复终态
+     * {@code REPAIRED_DATA_ONLY})默认不被策略消费,不得改回排除式SQL。
      *
      * @param maxRoundTime 最大轮次时间(包含该时间)
-     * @return 未完成轮次列表(按轮次时间升序)
+     * @return 生产可消费轮次列表(按轮次时间升序)
      */
     List<TornStockMarketRoundDO> selectPendingRoundsUpTo(@Param("maxRoundTime") LocalDateTime maxRoundTime);
 

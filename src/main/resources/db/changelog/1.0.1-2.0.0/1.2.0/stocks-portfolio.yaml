@@ -1871,3 +1871,36 @@ databaseChangeLog:
             columnName: pct_below_30d_high
             remarks: "距30日高点跌幅;对应时间窗口不足或指标不可计算时为空,strategy_ready=false和data_quality_reason解释该空值"
 
+  # ========== torn_stock_market_round: 修复identity序列落后于既有数据 ==========
+  # 生产同步/手工导入数据自带主键时不会推进identity序列,导致 insertPendingRoundIgnoreConflict
+  # 的隐式主键取值落在既有主键上,ON CONFLICT (round_time) DO NOTHING 无法吸收主键冲突。
+  # 本迁移将序列仅向前推进到表内最大主键;序列已对齐或领先时不动,保证幂等且绝不回拨;
+  # 空表且序列尚未被调用时不推进,首次隐式INSERT仍生成1。
+  # 序列名通过 pg_get_serial_sequence 动态解析,不硬编码schema/序列名。
+  - changeSet:
+      id: repair_stock_market_round_identity_sequence
+      author: Bai
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            sql: |
+              DO $$
+              DECLARE
+                  round_id_seq text;
+                  current_max_id bigint;
+                  seq_last_value bigint;
+                  seq_is_called boolean;
+                  seq_position bigint;
+              BEGIN
+                  round_id_seq := pg_get_serial_sequence('torn_stock_market_round', 'id');
+                  SELECT COALESCE(MAX(id), 0) INTO current_max_id FROM torn_stock_market_round;
+                  EXECUTE format('SELECT last_value, is_called FROM %s', round_id_seq)
+                      INTO seq_last_value, seq_is_called;
+                  -- 序列尚未被调用时nextval首值即last_value,已生成过的最大值视为last_value-1
+                  seq_position := CASE WHEN seq_is_called THEN seq_last_value ELSE seq_last_value - 1 END;
+
+                  IF current_max_id > seq_position THEN
+                      PERFORM setval(round_id_seq, current_max_id, true);
+                  END IF;
+              END $$;

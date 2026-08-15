@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.model.torn.stocks;
 import lombok.Data;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
+import pn.torn.goldeneye.torn.service.stocks.backfill.StockHistoryDataSourceEnum;
 
 import java.time.LocalDateTime;
 
@@ -10,7 +11,7 @@ import java.time.LocalDateTime;
  * Torn股票详情响应参数
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.2.15
  * @since 2025.09.26
  */
 @Data
@@ -62,6 +63,7 @@ public class TornStocksDetailVO {
         history.setTotalShares(this.market.getShares());
         history.setInvestors(this.market.getInvestors());
         history.setRegDateTime(regDatetime);
+        history.setDataSource(StockHistoryDataSourceEnum.TORN_API.getCode());
         return history;
     }
 }

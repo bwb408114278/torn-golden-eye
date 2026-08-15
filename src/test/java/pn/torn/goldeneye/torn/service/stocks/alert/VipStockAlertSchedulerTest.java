@@ -31,7 +31,7 @@ import static org.mockito.Mockito.*;
  * 以及历史PENDING通知独立于轮次总开关投递。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.2.18
  * @since 2026.08.02
  */
 @DisplayName("股票提醒调度器测试")
@@ -509,6 +509,57 @@ class VipStockAlertSchedulerTest {
         verify(barBuildService, times(2)).buildBars(currentEndedBucket);
     }
 
+    @Test
+    @DisplayName("防御式隔离_DAO返回REPAIRED_DATA_ONLY轮次_不构建数据不加载快照不进事务")
+    void processPendingRounds_dataRepairOnlyRound_defensivelySkipped() {
+        // 查询层白名单是第一道隔离;本测试模拟白名单失效/旁路写入的防御场景:
+        // 调度器即使拿到REPAIRED_DATA_ONLY轮次,也不得构建bar/feature、加载快照或调用交易事务。
+        LocalDateTime currentEndedBucket = LocalDateTime.of(2026, 8, 5, 10, 0);
+        TornStockMarketRoundDO dataOnlyRound =
+                roundWithStatus(1L, currentEndedBucket, StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode());
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, true, false));
+        when(marketClock.currentEndedBucket()).thenReturn(currentEndedBucket);
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(currentEndedBucket)).thenReturn(List.of(dataOnlyRound));
+
+        scheduler.executeRound();
+
+        verify(barBuildService, never()).buildBars(any());
+        verify(featureBuildService, never()).buildFeatures(any());
+        verify(roundLoader, never()).loadRoundSnapshot(any());
+        verify(transactionService, never()).executeRound(any(), any(), anyBoolean(), any());
+        verify(roundDao, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("正常READY轮次_跳过数据构建直接加载快照进入事务_主链不受影响")
+    void processPendingRounds_readyRound_skipsBuildAndEntersTransaction() {
+        LocalDateTime currentEndedBucket = LocalDateTime.of(2026, 8, 5, 10, 0);
+        LocalDateTime actualTime = LocalDateTime.of(2026, 8, 5, 10, 20);
+        TornStockMarketRoundDO readyRound =
+                roundWithStatus(1L, currentEndedBucket, StockRoundStatusEnum.READY.getCode());
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, true, false));
+        when(marketClock.currentEndedBucket()).thenReturn(currentEndedBucket);
+        when(marketClock.now()).thenReturn(actualTime);
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.selectPendingRoundsUpTo(currentEndedBucket)).thenReturn(List.of(readyRound));
+
+        scheduler.executeRound();
+
+        // READY轮次不重复构建bar/feature,但必须加载快照并进入轮次事务(事务失败重试场景)
+        verify(barBuildService, never()).buildBars(any());
+        verify(featureBuildService, never()).buildFeatures(any());
+        verify(roundLoader).loadRoundSnapshot(currentEndedBucket);
+        ArgumentCaptor<LocalDateTime> roundTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(transactionService).executeRound(roundTimeCaptor.capture(), any(), anyBoolean(), any());
+        assertEquals(currentEndedBucket, roundTimeCaptor.getValue(),
+                "正常READY轮次必须继续进入交易事务,防止隔离修复误伤生产主链");
+    }
+
     /**
      * 构建运行时判定结果。
      */
@@ -531,10 +582,22 @@ class VipStockAlertSchedulerTest {
      * @return 初始PENDING轮次记录
      */
     private TornStockMarketRoundDO pendingRound(Long id, LocalDateTime roundTime) {
+        return roundWithStatus(id, roundTime, StockRoundStatusEnum.PENDING.getCode());
+    }
+
+    /**
+     * 构建指定状态的轮次记录。
+     *
+     * @param id        轮次ID
+     * @param roundTime 轮次锚定的bar时间
+     * @param status    轮次状态编码
+     * @return 指定状态轮次记录
+     */
+    private TornStockMarketRoundDO roundWithStatus(Long id, LocalDateTime roundTime, String status) {
         TornStockMarketRoundDO round = new TornStockMarketRoundDO();
         round.setId(id);
         round.setRoundTime(roundTime);
-        round.setRoundStatus(StockRoundStatusEnum.PENDING.getCode());
+        round.setRoundStatus(status);
         return round;
     }
 }

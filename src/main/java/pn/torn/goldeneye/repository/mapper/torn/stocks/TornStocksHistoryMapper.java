@@ -3,10 +3,7 @@ package pn.torn.goldeneye.repository.mapper.torn.stocks;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,7 +12,7 @@ import java.util.List;
  * Torn股票历史数据库访问层
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.2.18
  * @since 2026.01.26
  */
 @Mapper
@@ -61,4 +58,54 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
      */
     List<StockPricePoint> selectHistoryPointsRange(@Param("since") LocalDateTime since,
                                                    @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 批量读取指定股票集合在时间范围内已占用的自然分钟槽位
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 已存在的自然分钟槽位列表
+     */
+    List<StockHistoryMinuteSlot> selectExistingMinuteSlots(@Param("stocksIds") List<Integer> stocksIds,
+                                                           @Param("start") LocalDateTime start,
+                                                           @Param("end") LocalDateTime end);
+
+    /**
+     * 实时采集自然分钟冲突安全批量写入（显式来源 TORNS_API,与自然分钟唯一索引精确匹配）
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入行数（自然分钟冲突跳过不计入）
+     */
+    int insertRealtimeIgnoreConflict(@Param("historyList") List<TornStocksHistoryDO> historyList);
+
+    /**
+     * 冲突安全批量写入历史事实并返回实际插入的自然分钟槽位集合
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入的自然分钟槽位列表
+     */
+    List<StockHistoryMinuteSlot> insertBackfillReturningSlots(@Param("historyList") List<TornStocksHistoryDO> historyList);
+
+    /**
+     * 查询最新历史记录时间
+     *
+     * @return 最新记录时间，表为空时返回 null
+     */
+    LocalDateTime selectLatestHistoryTime();
+
+    /**
+     * 一条聚合 SQL 统计指定股票集合在时间窗口 [start, end) 内每支股票的有效自然分钟数
+     * <p>
+     * 供每日连续性巡检使用：按 {@code COUNT(DISTINCT date_trunc('minute', ...))} 统计，
+     * 不区分 {@code data_source}，不按来源分组；缺失 SQL 行由调用方解释为 {@code minuteCount=0}。
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 每支有数据股票的自然分钟计数列表（无数据的股票不返回行）
+     */
+    List<StockHistoryMinuteCount> selectMinuteCountsByStocksAndRange(@Param("stocksIds") List<Integer> stocksIds,
+                                                                     @Param("start") LocalDateTime start,
+                                                                     @Param("end") LocalDateTime end);
 }

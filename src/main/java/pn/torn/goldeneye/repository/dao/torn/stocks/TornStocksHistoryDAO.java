@@ -3,10 +3,7 @@ package pn.torn.goldeneye.repository.dao.torn.stocks;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.stocks.TornStocksHistoryMapper;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksChangeDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
-import pn.torn.goldeneye.repository.model.torn.stocks.StocksTradeStatsDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,7 +12,7 @@ import java.util.List;
  * Torn股票历史持久层类
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.2.18
  * @since 2026.01.26
  */
 @Repository
@@ -66,5 +63,69 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
      */
     public List<StockPricePoint> selectHistoryPointsRange(LocalDateTime since, LocalDateTime endTime) {
         return baseMapper.selectHistoryPointsRange(since, endTime);
+    }
+
+    /**
+     * 批量读取指定股票集合在时间范围内已占用的自然分钟槽位，减少回填无效写入
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 已存在的自然分钟槽位列表
+     */
+    public List<StockHistoryMinuteSlot> selectExistingMinuteSlots(List<Integer> stocksIds,
+                                                                  LocalDateTime start, LocalDateTime end) {
+        return baseMapper.selectExistingMinuteSlots(stocksIds, start, end);
+    }
+
+    /**
+     * 实时采集自然分钟冲突安全批量写入（显式来源 TORNS_API,与自然分钟唯一索引精确匹配）。
+     * <p>
+     * 供实时采集短路径使用,{@code reg_date_time} 为计划自然分钟采样键;
+     * 禁止复用普通 {@code saveBatch()} 作为最终幂等方案。
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入行数（自然分钟冲突跳过不计入）
+     */
+    public int insertRealtimeIgnoreConflict(List<TornStocksHistoryDO> historyList) {
+        return baseMapper.insertRealtimeIgnoreConflict(historyList);
+    }
+
+    /**
+     * 冲突安全批量写入历史事实并返回实际插入的自然分钟槽位集合。
+     * <p>
+     * 使用 {@code INSERT ... ON CONFLICT DO NOTHING RETURNING} 返回真正写入的
+     * {@code (stocksId, minuteTime)},冲突行不产生派生数据重建义务。
+     *
+     * @param historyList 待写入历史记录列表
+     * @return 实际插入的自然分钟槽位列表（可能为空）
+     */
+    public List<StockHistoryMinuteSlot> insertBackfillReturningSlots(List<TornStocksHistoryDO> historyList) {
+        return baseMapper.insertBackfillReturningSlots(historyList);
+    }
+
+    /**
+     * 查询最新历史记录时间（用于启动/日志的历史进度观察）
+     *
+     * @return 最新记录时间，表为空时返回 null
+     */
+    public LocalDateTime selectLatestHistoryTime() {
+        return baseMapper.selectLatestHistoryTime();
+    }
+
+    /**
+     * 一条聚合 SQL 统计指定股票集合在时间窗口 [start, end) 内每支股票的有效自然分钟数
+     * <p>
+     * 供每日连续性巡检判断分钟缺口使用；不区分 {@code data_source}。
+     * 缺失 SQL 行必须由调用方解释为 {@code minuteCount=0}。
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 每支有数据股票的自然分钟计数列表（无数据的股票不返回行）
+     */
+    public List<StockHistoryMinuteCount> selectMinuteCountsByStocksAndRange(List<Integer> stocksIds,
+                                                                            LocalDateTime start, LocalDateTime end) {
+        return baseMapper.selectMinuteCountsByStocksAndRange(stocksIds, start, end);
     }
 }
