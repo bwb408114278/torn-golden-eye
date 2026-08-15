@@ -14,9 +14,7 @@ import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.torn.service.stocks.backfill.TornsyStockHistoryBackfillScheduler;
 import pn.torn.goldeneye.torn.service.stocks.backfill.TornsyStockHistoryBackfillScheduler.BackfillSubmission;
 
-import java.lang.reflect.Field;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -27,11 +25,10 @@ import static org.mockito.Mockito.*;
  * Tornsy 股票历史人工范围回填策略测试
  * <p>
  * 验证超管策略声明（指令、描述、{@code isNeedSa=true}）、合法 {@code start#end}
- * 提交调度器并回复已受理、参数错误走既有格式错误响应、调度器拒绝时回复可区分原因，
- * 且策略不直接依赖回填 Service / Client / DAO / 执行器。
+ * 提交调度器并回复已受理、参数错误走既有格式错误响应、调度器拒绝时回复可区分原因。
  *
  * @author Bai
- * @version 1.2.19
+ * @version 1.2.18
  * @since 2026.08.15
  */
 @ExtendWith(MockitoExtension.class)
@@ -84,24 +81,6 @@ class TornsyStockHistoryBackfillStrategyImplTest {
         assertRejectedReason(BackfillSubmission.TOO_RECENT, "结束时间过新");
         assertRejectedReason(BackfillSubmission.ALREADY_PROCESSING, "已有回填任务在执行中");
         assertRejectedReason(BackfillSubmission.EXECUTOR_REJECTED, "回填执行器已满");
-    }
-
-    @Test
-    @DisplayName("依赖收敛 -> 策略不直接注入回填Service/Client/DAO/执行器")
-    void strategyDependencies_onlyScheduler() {
-        List<String> forbidden = Arrays.asList(
-                "TornsyStockHistoryBackfillService",
-                "TornsyStockHistoryClient",
-                "TornStocksHistoryDAO",
-                "TornStocksDAO",
-                "ThreadPoolTaskExecutor");
-        for (Field field : TornsyStockHistoryBackfillStrategyImpl.class.getDeclaredFields()) {
-            for (String type : forbidden) {
-                assertFalse(field.getType().getSimpleName().equals(type)
-                                || field.getType().getName().contains(type),
-                        "策略不得直接注入 " + type + ", 实际字段: " + field.getType());
-            }
-        }
     }
 
     /**

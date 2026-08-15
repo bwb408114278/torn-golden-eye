@@ -49,6 +49,12 @@ class TornsyStockHistoryBackfillSchedulerTest {
     private static final LocalDateTime YESTERDAY_START = LocalDateTime.of(2026, 8, 14, 0, 0);
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 15, 10, 0, 30);
 
+    /**
+     * 成功回填汇总（failedSlices=0），成功路径显式stub，避免以Mockito默认null触发NPE假覆盖执行成功
+     */
+    private static final TornsyStockHistoryBackfillService.BackfillSummary SUCCESS_SUMMARY =
+            new TornsyStockHistoryBackfillService.BackfillSummary(100, 100, 50, 50, 0, 0, 3, 3);
+
     @Mock
     private TornsyStockHistoryBackfillService backfillService;
     @Mock
@@ -94,6 +100,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
     @DisplayName("每日巡检_任一股票缺SQL行(计0) -> 投递一次执行器, Runnable回填昨天完整窗口")
     void dailyInspection_missingSqlRow_dispatchesYesterdayWindow() {
         stubProdYesterdayWithCounts(new StockHistoryMinuteCount(1, 1440L));
+        stubBackfillSuccess();
 
         scheduler.inspectYesterdayAndBackfillIfNeeded();
 
@@ -109,6 +116,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
         stubProdYesterdayWithCounts(
                 new StockHistoryMinuteCount(1, 1440L),
                 new StockHistoryMinuteCount(2, 1439L));
+        stubBackfillSuccess();
 
         scheduler.inspectYesterdayAndBackfillIfNeeded();
 
@@ -175,6 +183,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
     void manualSubmit_validRange_acceptedAndRuns() {
         stubProd();
         when(clock.now()).thenReturn(NOW);
+        stubBackfillSuccess();
 
         LocalDateTime start = LocalDateTime.of(2026, 7, 1, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 7, 2, 0, 0);
@@ -229,6 +238,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
         stubProd();
         when(clock.now()).thenReturn(NOW);
         when(clock.today()).thenReturn(LocalDate.of(2026, 8, 15));
+        stubBackfillSuccess();
 
         // 人工先受理并占住 processing(Runnable 未执行模拟任务运行中)
         assertEquals(BackfillSubmission.ACCEPTED, scheduler.submitManualBackfill(
@@ -287,7 +297,8 @@ class TornsyStockHistoryBackfillSchedulerTest {
         stubProd();
         when(clock.now()).thenReturn(NOW);
         when(backfillService.backfillRange(any(LocalDateTime.class), any(LocalDateTime.class)))
-                .thenThrow(new RuntimeException("http fail"));
+                .thenThrow(new RuntimeException("http fail"))
+                .thenReturn(SUCCESS_SUMMARY);
 
         assertEquals(BackfillSubmission.ACCEPTED, submitValidManual());
         Runnable task = captureSingleRunnable();
@@ -359,6 +370,14 @@ class TornsyStockHistoryBackfillSchedulerTest {
      */
     private void stubProd() {
         when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+    }
+
+    /**
+     * 桩: 回填服务成功完成（failedSlices=0），供成功路径执行Runnable时显式返回
+     */
+    private void stubBackfillSuccess() {
+        when(backfillService.backfillRange(any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(SUCCESS_SUMMARY);
     }
 
     /**

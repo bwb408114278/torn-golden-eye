@@ -66,10 +66,6 @@ public class TornsyStockHistoryBackfillScheduler {
      * 人工范围回填提交结果
      * <p>
      * {@code ACCEPTED} 仅表示已成功投递专用执行器，不表示 Tornsy HTTP、入库或重建完成。
-     *
-     * @author Bai
-     * @version 1.2.19
-     * @since 2026.08.15
      */
     public enum BackfillSubmission {
         /**
