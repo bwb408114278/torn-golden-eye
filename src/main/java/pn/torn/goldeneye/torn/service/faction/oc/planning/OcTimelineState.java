@@ -1,23 +1,16 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcLiquidityAnchor;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberInterval;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPauseAssessment;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 有限事件时间线推进过程中的可变成员占用状态。
  *
  * <p>同一成员的实际占用区间不得重叠：通过按占用推进availableAt并在每次占用后追加区间实现。
- * 占用区间同时用于最终一致性校验。纯内存对象，不访问数据库、HTTP或Redis。</p>
+ * 占用区间用于最终一致性校验，已证明事件按时间稳定排序。纯内存对象，
+ * 不访问数据库、HTTP或Redis。</p>
  *
  * @author Bai
  * @version 1.3.0
@@ -34,6 +27,7 @@ final class OcTimelineState {
     private final List<OcMemberInterval> intervals = new ArrayList<>();
     private final List<OcLiquidityAnchor> anchors = new ArrayList<>();
     private final List<OcPauseAssessment> pauses = new ArrayList<>();
+    private final List<OcTimelineEvent> events = new ArrayList<>();
 
     /**
      * 从求解请求构造初始状态。
@@ -46,25 +40,6 @@ final class OcTimelineState {
             availableAt.put(member.userId(), request.isUnprovableMember(member.userId())
                     ? NEVER : member.availableAt());
         }
-    }
-
-    private OcTimelineState(LocalDateTime snapshotTime, Map<Long, LocalDateTime> availableAt,
-                            List<OcMemberInterval> intervals, List<OcLiquidityAnchor> anchors,
-                            List<OcPauseAssessment> pauses) {
-        this.snapshotTime = snapshotTime;
-        this.availableAt.putAll(availableAt);
-        this.intervals.addAll(intervals);
-        this.anchors.addAll(anchors);
-        this.pauses.addAll(pauses);
-    }
-
-    /**
-     * 深拷贝当前状态，供分支搜索使用。
-     *
-     * @return 可独立推进的状态副本
-     */
-    OcTimelineState copy() {
-        return new OcTimelineState(snapshotTime, availableAt, intervals, anchors, pauses);
     }
 
     /**
@@ -92,8 +67,8 @@ final class OcTimelineState {
      * 记录一次成员占用并在占用结束后释放成员。占用区间首尾相接不算重叠。
      *
      * @param userId 成员用户ID
-     * @param from 占用开始时间
-     * @param until 占用结束（释放）时间
+     * @param from   占用开始时间
+     * @param until  占用结束（释放）时间
      * @param source 占用来源
      */
     void occupy(long userId, LocalDateTime from, LocalDateTime until,
@@ -124,6 +99,15 @@ final class OcTimelineState {
     }
 
     /**
+     * 追加一个时间线事件。
+     *
+     * @param event 时间线事件
+     */
+    void addEvent(OcTimelineEvent event) {
+        events.add(event);
+    }
+
+    /**
      * 获取全部已证明锚点，按释放时间排序。
      *
      * @return 流动性锚点链
@@ -145,12 +129,16 @@ final class OcTimelineState {
     }
 
     /**
-     * 获取全部成员占用区间。
+     * 获取全部时间线事件，按事件时间、事件类型和关联义务键稳定排序。
      *
-     * @return 占用区间列表
+     * @return 时间线事件列表
      */
-    List<OcMemberInterval> intervals() {
-        return List.copyOf(intervals);
+    List<OcTimelineEvent> events() {
+        return events.stream()
+                .sorted(Comparator.comparing(OcTimelineEvent::eventTime)
+                        .thenComparing(OcTimelineEvent::type)
+                        .thenComparing(OcTimelineEvent::obligationKey))
+                .toList();
     }
 
     /**
@@ -163,7 +151,7 @@ final class OcTimelineState {
     }
 
     /**
-     * 校验同一成员不存在重叠占用区间。
+     * 校验同一成员不存在重叠占用区间，作为时间线推进的最终一致性校验。
      *
      * @return 全部区间互不重叠时返回true
      */

@@ -33,26 +33,27 @@ import java.util.Set;
  * @version 1.3.0
  * @since 2026.07.17
  */
-public record OcRefreshInstructionPlan(long factionId,
-                                       LocalDateTime snapshotTime,
-                                       OcPlanMode mode,
-                                       Map<String, Integer> plannedEmptyOcCounts,
-                                       int normalRefreshCount,
-                                       int highRefreshCount,
-                                       boolean lowerBound,
-                                       String reason,
-                                       OcConfigurationStatusEnum configurationStatus,
-                                       OcProofStatusEnum proofStatus,
-                                       Set<OcRiskFlagEnum> riskFlags,
-                                       Set<OcPlanReasonCodeEnum> reasonCodes,
-                                       LocalDateTime nextCriticalReleaseAt,
-                                       boolean pauseAllowed,
-                                       boolean pauseSelected,
-                                       Duration selectedPauseDuration,
-                                       OcReplanWindow replanWindow,
-                                       OcValueEvidence.Level valueEvidenceLevel,
-                                       OcCurrentOccupancySummary occupancySummary,
-                                       List<String> warnings) {
+public record OcRefreshInstructionPlan(
+        long factionId,
+        LocalDateTime snapshotTime,
+        OcPlanMode mode,
+        Map<String, Integer> plannedEmptyOcCounts,
+        int normalRefreshCount,
+        int highRefreshCount,
+        boolean lowerBound,
+        String reason,
+        OcConfigurationStatusEnum configurationStatus,
+        OcProofStatusEnum proofStatus,
+        Set<OcRiskFlagEnum> riskFlags,
+        Set<OcPlanReasonCodeEnum> reasonCodes,
+        LocalDateTime nextCriticalReleaseAt,
+        boolean pauseAllowed,
+        boolean pauseSelected,
+        Duration selectedPauseDuration,
+        OcReplanWindow replanWindow,
+        OcValueEvidence.Level valueEvidenceLevel,
+        OcCurrentOccupancySummary occupancySummary,
+        List<String> warnings) {
     public OcRefreshInstructionPlan {
         plannedEmptyOcCounts = plannedEmptyOcCounts == null
                 ? Map.of() : Map.copyOf(plannedEmptyOcCounts);

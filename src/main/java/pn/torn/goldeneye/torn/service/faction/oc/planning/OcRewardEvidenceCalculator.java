@@ -8,7 +8,6 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,10 +92,10 @@ public class OcRewardEvidenceCalculator {
     /**
      * 按业务冻结降级顺序构造价值证据。
      *
-     * @param stats 该OC的收益统计；无样本时为null
-     * @param minSampleSize 业务最小有效样本数
+     * @param stats                 该OC的收益统计；无样本时为null
+     * @param minSampleSize         业务最小有效样本数
      * @param incrementalMemberDays 增量剩余成员人天
-     * @param expectedReleaseAt 预计完整释放时间
+     * @param expectedReleaseAt     预计完整释放时间
      * @return 价值证据
      */
     public OcValueEvidence buildEvidence(OcPlanningRewardStatsDO stats, Integer minSampleSize,
@@ -153,20 +152,10 @@ public class OcRewardEvidenceCalculator {
     }
 
     /**
-     * 计算满编N人OC的标准成员人天 N×(N+1)/2。
-     *
-     * @param totalMembers OC完整岗位数
-     * @return 标准成员人天
-     */
-    public int standardMemberDays(int totalMembers) {
-        return totalMembers * (totalMembers + 1) / 2;
-    }
-
-    /**
      * 计算当前快照下的增量剩余成员人天：剩余待加入岗位数的倒序加和。
      *
      * @param totalMembers OC完整岗位数
-     * @param joinedCount 已加入成员数
+     * @param joinedCount  已加入成员数
      * @return 增量剩余成员人天
      */
     public int incrementalMemberDays(int totalMembers, int joinedCount) {

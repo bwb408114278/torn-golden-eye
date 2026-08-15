@@ -15,9 +15,12 @@ import java.time.LocalDateTime;
  * @version 1.3.0
  * @since 2026.08.15
  */
-public record OcPauseAssessment(String obligationKey, Duration newPauseDuration,
-                                LocalDateTime recoverAt, boolean preExistingPause,
-                                boolean withinModePolicy) {
+public record OcPauseAssessment(
+        String obligationKey,
+        Duration newPauseDuration,
+        LocalDateTime recoverAt,
+        boolean preExistingPause,
+        boolean withinModePolicy) {
 
     /**
      * 构造一个未产生新增停转的评估。

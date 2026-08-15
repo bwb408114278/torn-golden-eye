@@ -7,18 +7,21 @@ import java.util.Set;
 /**
  * 时间线上的一条规划义务。四类义务共用同一载体，通过kind区分硬约束强度。
  *
- * @param key 匿名义务键，真实实例使用OC ID，模板使用规划键加序号
- * @param kind 义务类别
- * @param demand 对应的岗位需求模板
- * @param firstJoinDeadline 首人最晚加入期限；已有成员的义务为null
+ * @param key                    匿名义务键，真实实例使用OC ID，模板使用规划键加序号
+ * @param kind                   义务类别
+ * @param demand                 对应的岗位需求模板
+ * @param firstJoinDeadline      首人最晚加入期限；已有成员的义务为null
  * @param predecessorCompletedAt 链后继义务的前置实际完成或生成时间；非链义务为null
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
  */
-public record OcTimelineObligation(String key, ObligationKind kind, OcTeamDemand demand,
-                                   LocalDateTime firstJoinDeadline,
-                                   LocalDateTime predecessorCompletedAt) {
+public record OcTimelineObligation(
+        String key,
+        ObligationKind kind,
+        OcTeamDemand demand,
+        LocalDateTime firstJoinDeadline,
+        LocalDateTime predecessorCompletedAt) {
 
     /**
      * 时间线义务类别。
@@ -50,15 +53,6 @@ public record OcTimelineObligation(String key, ObligationKind kind, OcTeamDemand
     public boolean isHardObligation() {
         return kind == ObligationKind.EXISTING_JOINED
                 || kind == ObligationKind.COMMITTED_CHAIN_SUCCESSOR;
-    }
-
-    /**
-     * 判断义务是否已属于已启动高阶链节点。
-     *
-     * @return 已启动链根或后继节点时返回true
-     */
-    public boolean isCommittedChainNode() {
-        return kind == ObligationKind.COMMITTED_CHAIN_SUCCESSOR || demand.chain();
     }
 
     /**

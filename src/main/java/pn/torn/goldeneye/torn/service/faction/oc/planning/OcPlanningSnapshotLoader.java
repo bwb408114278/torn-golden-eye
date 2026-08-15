@@ -27,12 +27,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -112,7 +107,7 @@ public class OcPlanningSnapshotLoader {
     /**
      * 按当前启用档案范围批量加载历史收益统计。
      *
-     * @param policy 帮派规划策略
+     * @param policy   帮派规划策略
      * @param profiles 按OC键索引的规划档案
      * @return 按OC键索引的收益统计
      */
@@ -132,9 +127,9 @@ public class OcPlanningSnapshotLoader {
      * 构造候选成员能力视图。
      *
      * @param capabilitiesByUser 按用户ID分组的能力记录
-     * @param users 用户基础信息映射
-     * @param factionId 帮派ID
-     * @param snapshotTime 快照时间
+     * @param users              用户基础信息映射
+     * @param factionId          帮派ID
+     * @param snapshotTime       快照时间
      * @return 候选成员列表
      */
     private List<OcMemberCandidate> buildMembers(
@@ -144,38 +139,84 @@ public class OcPlanningSnapshotLoader {
         List<OcMemberCandidate> result = new ArrayList<>(capabilitiesByUser.size());
         for (Map.Entry<Long, List<TornFactionOcUserDO>> entry : capabilitiesByUser.entrySet()) {
             long userId = entry.getKey();
-            Map<String, Integer> passRates = new HashMap<>();
-            Map<String, BigDecimal> userCoefficients = new HashMap<>();
-            for (TornFactionOcUserDO row : entry.getValue()) {
-                String key = OcMemberCandidate.capabilityKey(row.getRank(), row.getOcName(),
-                        row.getPosition());
-                passRates.merge(key, row.getPassRate(), Math::max);
-                Map<String, TornSettingOcCoefficientDO> selectedBySlot = new HashMap<>();
-                for (TornSettingOcCoefficientDO item : coefficients) {
-                    if (!(item.getFactionId().equals(factionId) || item.getFactionId().equals(0L))
-                            || !item.getRank().equals(row.getRank())
-                            || !item.getOcName().equals(row.getOcName())
-                            || !item.getSlotCode().startsWith(row.getPosition() + "#")
-                            || item.getPassRateMin() >= row.getPassRate()
-                            || item.getPassRateMax() < row.getPassRate()) {
-                        continue;
-                    }
-                    selectedBySlot.merge(item.getSlotCode(), item,
-                            (left, right) -> right.getFactionId().equals(factionId) ? right : left);
-                }
-                selectedBySlot.values().forEach(selected -> userCoefficients.put(
-                        OcMemberCandidate.capabilityKey(row.getRank(), row.getOcName(),
-                                selected.getSlotCode()), selected.getCoefficient()));
-            }
             TornUserDO user = users.get(userId);
             if (user == null || user.getFactionId() == null
                     || !user.getFactionId().equals(factionId)) {
                 continue;
             }
-            result.add(new OcMemberCandidate(userId, user.getNickname(),
-                    snapshotTime, false, passRates, userCoefficients));
+            result.add(buildMember(userId, user.getNickname(), entry.getValue(), coefficients,
+                    factionId, snapshotTime));
         }
         return result;
+    }
+
+    /**
+     * 构造单个候选成员的能力视图。
+     *
+     * @param userId       用户ID
+     * @param nickname     用户昵称
+     * @param rows         该用户的能力记录
+     * @param coefficients 全部系数配置
+     * @param factionId    帮派ID
+     * @param snapshotTime 快照时间
+     * @return 候选成员
+     */
+    private OcMemberCandidate buildMember(long userId, String nickname,
+                                          List<TornFactionOcUserDO> rows,
+                                          List<TornSettingOcCoefficientDO> coefficients,
+                                          long factionId, LocalDateTime snapshotTime) {
+        Map<String, Integer> passRates = new HashMap<>();
+        Map<String, BigDecimal> userCoefficients = new HashMap<>();
+        for (TornFactionOcUserDO row : rows) {
+            String key = OcMemberCandidate.capabilityKey(row.getRank(), row.getOcName(),
+                    row.getPosition());
+            passRates.merge(key, row.getPassRate(), Math::max);
+            selectedCoefficients(row, coefficients, factionId).forEach((slotCode, coefficient) ->
+                    userCoefficients.put(OcMemberCandidate.capabilityKey(row.getRank(),
+                            row.getOcName(), slotCode), coefficient));
+        }
+        return new OcMemberCandidate(userId, nickname, snapshotTime, false, passRates,
+                userCoefficients);
+    }
+
+    /**
+     * 按岗位选择适用于当前能力记录的系数：帮派级优先于全局默认。
+     *
+     * @param row          用户能力记录
+     * @param coefficients 全部系数配置
+     * @param factionId    帮派ID
+     * @return 按完整岗位编码索引的系数
+     */
+    private Map<String, BigDecimal> selectedCoefficients(TornFactionOcUserDO row,
+                                                         List<TornSettingOcCoefficientDO> coefficients,
+                                                         long factionId) {
+        Map<String, BigDecimal> selected = new HashMap<>();
+        for (TornSettingOcCoefficientDO item : coefficients) {
+            if (!coefficientMatches(item, row, factionId)) {
+                continue;
+            }
+            selected.merge(item.getSlotCode(), item.getCoefficient(),
+                    (left, right) -> item.getFactionId().equals(factionId) ? right : left);
+        }
+        return selected;
+    }
+
+    /**
+     * 判断系数配置是否适用于当前能力记录。
+     *
+     * @param item      系数配置
+     * @param row       用户能力记录
+     * @param factionId 帮派ID
+     * @return 帮派范围、OC、岗位前缀和通过率区间均匹配时返回true
+     */
+    private boolean coefficientMatches(TornSettingOcCoefficientDO item, TornFactionOcUserDO row,
+                                       long factionId) {
+        return (item.getFactionId().equals(factionId) || item.getFactionId().equals(0L))
+                && item.getRank().equals(row.getRank())
+                && item.getOcName().equals(row.getOcName())
+                && item.getSlotCode().startsWith(row.getPosition() + "#")
+                && item.getPassRateMin() < row.getPassRate()
+                && item.getPassRateMax() >= row.getPassRate();
     }
 
     /**

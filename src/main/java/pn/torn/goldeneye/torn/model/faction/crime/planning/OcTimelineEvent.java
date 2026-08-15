@@ -5,14 +5,17 @@ import java.time.LocalDateTime;
 /**
  * 时间线上的一个匿名规划事件。
  *
- * @param eventTime 事件发生时间
- * @param type 事件类型
+ * @param eventTime     事件发生时间
+ * @param type          事件类型
  * @param obligationKey 关联OC实例或匿名义务键
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
  */
-public record OcTimelineEvent(LocalDateTime eventTime, EventType type, String obligationKey) {
+public record OcTimelineEvent(
+        LocalDateTime eventTime,
+        EventType type,
+        String obligationKey) {
 
     /**
      * 时间线事件类型。

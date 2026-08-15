@@ -6,25 +6,11 @@ import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcChainTemplateResult;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcConfigurationStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshPlanningContext;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.OcExistingTimelineReconstructor.ReconstructionResult;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * 将不可变规划快照转换为匿名时间线求解上下文。
@@ -81,7 +67,7 @@ public class OcRefreshSafetyRequestFactory {
     /**
      * 构造价值证据映射：普通模板按OC键，高阶链按chain前缀根键。
      *
-     * @param context 刷新规划上下文
+     * @param context  刷新规划上下文
      * @param snapshot 规划快照
      * @return 按模板键索引的价值证据
      */
@@ -99,7 +85,7 @@ public class OcRefreshSafetyRequestFactory {
             List<OcValueEvidence> nodeEvidences = chain.stream()
                     .map(template -> singleEvidence(snapshot, template)).toList();
             result.put(CHAIN_EVIDENCE_PREFIX + ocKey(chain.getFirst().rank(),
-                    chain.getFirst().ocName()),
+                            chain.getFirst().ocName()),
                     rewardEvidenceCalculator.aggregateChainEvidence(nodeEvidences));
         }
         return result;
@@ -109,8 +95,8 @@ public class OcRefreshSafetyRequestFactory {
      * 按当前可用性重建成员时间线：不可证明占用成员整窗不可用，
      * 计划内已有人成员由义务排程释放，其余按快照可用时间。
      *
-     * @param snapshot 规划快照
-     * @param reconstruction 时间线重建结果
+     * @param snapshot         规划快照
+     * @param reconstruction   时间线重建结果
      * @param plannedJoinedIds 计划内已加入成员ID集合
      * @return 成员时间线
      */
@@ -119,24 +105,36 @@ public class OcRefreshSafetyRequestFactory {
                                                  Set<Long> plannedJoinedIds) {
         List<OcMemberCandidate> result = new ArrayList<>();
         for (OcMemberCandidate member : snapshot.members()) {
-            long userId = member.userId();
-            if (reconstruction.unprovableMemberIds().contains(userId)) {
-                result.add(member.withAvailability(OcTimelineState.NEVER, true));
-                continue;
-            }
-            LocalDateTime provableRelease = reconstruction.provableReleaseByMember().get(userId);
-            if (provableRelease != null) {
-                result.add(member.withAvailability(
-                        later(member.availableAt(), provableRelease), false));
-                continue;
-            }
-            if (plannedJoinedIds.contains(userId)) {
-                result.add(member.withAvailability(OcTimelineState.NEVER, true));
-                continue;
-            }
-            result.add(member.withAvailability(member.availableAt(), false));
+            result.add(resolveMemberAvailability(member, reconstruction, plannedJoinedIds));
         }
         return result;
+    }
+
+    /**
+     * 按当前可证明事实解析单个成员的时间线可用性：不可证明占用成员整窗不可用，
+     * 计划内已有人成员由义务排程释放，其余按快照可用时间。
+     *
+     * @param member           快照候选成员
+     * @param reconstruction   时间线重建结果
+     * @param plannedJoinedIds 计划内已加入成员ID集合
+     * @return 更新可用性后的成员
+     */
+    private OcMemberCandidate resolveMemberAvailability(OcMemberCandidate member,
+                                                        ReconstructionResult reconstruction,
+                                                        Set<Long> plannedJoinedIds) {
+        long userId = member.userId();
+        if (reconstruction.unprovableMemberIds().contains(userId)) {
+            return member.withAvailability(OcTimelineState.NEVER, true);
+        }
+        LocalDateTime provableRelease = reconstruction.provableReleaseByMember().get(userId);
+        if (provableRelease != null) {
+            return member.withAvailability(
+                    later(member.availableAt(), provableRelease), false);
+        }
+        if (plannedJoinedIds.contains(userId)) {
+            return member.withAvailability(OcTimelineState.NEVER, true);
+        }
+        return member.withAvailability(member.availableAt(), false);
     }
 
     /**
@@ -211,10 +209,10 @@ public class OcRefreshSafetyRequestFactory {
     /**
      * 判定配置状态：任何显式配置错误均返回无效并选择(0,0)。
      *
-     * @param snapshot 规划快照
-     * @param chainResult 链模板结果
+     * @param snapshot       规划快照
+     * @param chainResult    链模板结果
      * @param reconstruction 时间线重建结果
-     * @param warnings 输出配置警告
+     * @param warnings       输出配置警告
      * @return 配置状态
      */
     private OcConfigurationStatusEnum configurationStatus(OcPlanningSnapshot snapshot,
@@ -242,7 +240,7 @@ public class OcRefreshSafetyRequestFactory {
      * 判断OC键是否属于当前自动规划范围。
      *
      * @param snapshot 规划快照
-     * @param key OC规划键
+     * @param key      OC规划键
      * @return 档案READY、已启用且通过校验时返回true
      */
     private boolean isInScope(OcPlanningSnapshot snapshot, String key) {
@@ -256,7 +254,7 @@ public class OcRefreshSafetyRequestFactory {
     /**
      * 取两个时间中较晚的一个；空值按另一侧处理。
      *
-     * @param left 时间一
+     * @param left  时间一
      * @param right 时间二
      * @return 较晚时间
      */
@@ -283,7 +281,7 @@ public class OcRefreshSafetyRequestFactory {
     /**
      * 构造OC规划键。
      *
-     * @param rank OC等级
+     * @param rank   OC等级
      * @param ocName OC名称
      * @return OC规划键
      */

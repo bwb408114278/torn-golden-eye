@@ -1,28 +1,13 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcConfigurationStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcLiquidityAnchor;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcProofStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRiskFlagEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineObligation;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineSafetyAssessment;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.OcTimelineEventScheduler.CandidateRoot;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.OcTimelineEventScheduler.SimulationResult;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * 有限事件时间线规划引擎。在单个快照上枚举普通/高阶随机结果联合向量，
@@ -44,12 +29,11 @@ public class OcTimelinePlanningEngine {
     private final OcTimelineEventScheduler scheduler = new OcTimelineEventScheduler();
     private final OcLiquidityPathVerifier liquidityVerifier = new OcLiquidityPathVerifier();
     private final OcPausePolicyEvaluator pauseEvaluator = new OcPausePolicyEvaluator();
-    private final OcReplanWindowCalculator replanCalculator = new OcReplanWindowCalculator();
 
     /**
      * 创建时间线规划引擎。
      *
-     * @param timeout 单次求解时间预算
+     * @param timeout   单次求解时间预算
      * @param maxSearch 单个池的最大搜索次数
      */
     public OcTimelinePlanningEngine(Duration timeout, int maxSearch) {
@@ -60,8 +44,8 @@ public class OcTimelinePlanningEngine {
     /**
      * 求解普通池与高阶池的联合安全候选集合。
      *
-     * @param request 求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据；高阶链使用chain前缀键
+     * @param request             求解请求
+     * @param evidenceByTemplate  按模板键索引的价值证据；高阶链使用chain前缀键
      * @param configurationStatus 配置状态
      * @return 含安全评估与已评分候选向量的求解结果
      */
@@ -70,23 +54,14 @@ public class OcTimelinePlanningEngine {
                                        OcConfigurationStatusEnum configurationStatus) {
         long startedAt = System.nanoTime();
         long deadline = startedAt + timeout.toNanos();
-        Set<OcRiskFlagEnum> riskFlags = new LinkedHashSet<>();
-        Set<OcPlanReasonCodeEnum> reasonCodes = new LinkedHashSet<>();
-        List<String> warnings = new ArrayList<>();
-
+        AssessmentInputs inputs = new AssessmentInputs(request, configurationStatus, startedAt);
         SimulationResult baseline = scheduler.simulate(request, List.of(),
-                OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, false);        List<OcLiquidityAnchor> anchors = baseline.anchors();
+                OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, false);
+        List<OcLiquidityAnchor> anchors = baseline.anchors();
         LocalDateTime nextCriticalReleaseAt = liquidityVerifier.nextCriticalReleaseAt(anchors);
-        if (!baseline.pauses().isEmpty()) {
-            riskFlags.add(OcRiskFlagEnum.RECOVERABLE_PAUSE_PRESENT);
-        }
-        if (baseline.plannedEmptyExpired()) {
-            riskFlags.add(OcRiskFlagEnum.EMPTY_OC_EXPIRY_PRESSURE);
-            reasonCodes.add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
-        }
+        collectBaselineFlags(baseline, inputs);
         if (!baseline.feasible()) {
-            return infeasibleBaselineResult(request, baseline, riskFlags, reasonCodes,
-                    nextCriticalReleaseAt, configurationStatus, startedAt, warnings);
+            return infeasibleBaselineResult(baseline, inputs, nextCriticalReleaseAt);
         }
 
         SearchOutcome outcome = searchVectors(request, evidenceByTemplate, deadline);
@@ -94,76 +69,108 @@ public class OcTimelinePlanningEngine {
         boolean budgetExhausted = outcome.budgetExhausted();
         boolean touchesLimit = touchesSearchLimit(outcome.candidates());
         boolean lowerBound = timedOut || budgetExhausted || touchesLimit;
-        if (timedOut) {
-            warnings.add("时间线求解达到时间预算，仅返回已证明安全下界");
-            reasonCodes.add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
-        } else if (budgetExhausted) {
-            warnings.add("时间线求解达到组合评估预算，仅返回已证明安全下界");
-            reasonCodes.add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
-        } else if (touchesLimit) {
-            warnings.add("时间线求解达到搜索上限，仅返回已证明安全下界");
-            reasonCodes.add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
-        }
+        recordLowerBoundReason(timedOut, budgetExhausted, touchesLimit, inputs);
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
-                configurationStatus, proofStatus(outcome), riskFlags, lowerBound,
-                reasonCodes, anchors, nextCriticalReleaseAt,
+                configurationStatus, proofStatus(outcome), inputs.riskFlags(), lowerBound,
+                inputs.reasonCodes(), anchors, nextCriticalReleaseAt,
                 latestReplanAt(request));
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         return new OcRefreshSafetyResult(assessment, outcome.candidates(), lowerBound,
-                elapsedMillis, warnings);
+                elapsedMillis, inputs.warnings());
+    }
+
+    /**
+     * 记录基线模拟的风险标记与原因码。
+     *
+     * @param baseline 基线模拟结果
+     * @param inputs   评估输入
+     */
+    private void collectBaselineFlags(SimulationResult baseline, AssessmentInputs inputs) {
+        if (!baseline.pauses().isEmpty()) {
+            inputs.riskFlags().add(OcRiskFlagEnum.RECOVERABLE_PAUSE_PRESENT);
+        }
+        if (baseline.plannedEmptyExpired()) {
+            inputs.riskFlags().add(OcRiskFlagEnum.EMPTY_OC_EXPIRY_PRESSURE);
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
+        }
+    }
+
+    /**
+     * 记录仅返回已证明安全下界的原因与警告。
+     *
+     * @param timedOut        是否达到时间预算
+     * @param budgetExhausted 是否达到组合评估预算
+     * @param touchesLimit    是否触及单池搜索上限
+     * @param inputs          评估输入
+     */
+    private void recordLowerBoundReason(boolean timedOut, boolean budgetExhausted,
+                                        boolean touchesLimit, AssessmentInputs inputs) {
+        if (timedOut) {
+            inputs.warnings().add("时间线求解达到时间预算，仅返回已证明安全下界");
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
+        } else if (budgetExhausted) {
+            inputs.warnings().add("时间线求解达到组合评估预算，仅返回已证明安全下界");
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
+        } else if (touchesLimit) {
+            inputs.warnings().add("时间线求解达到搜索上限，仅返回已证明安全下界");
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
+        }
     }
 
     /**
      * 构造基线不可行时的求解结果。
      *
-     * @param request 求解请求
-     * @param baseline 基线模拟结果
-     * @param riskFlags 风险标记集合
-     * @param reasonCodes 原因码集合
+     * @param baseline              基线模拟结果
+     * @param inputs                评估输入
      * @param nextCriticalReleaseAt 下一关键释放时间
-     * @param configurationStatus 配置状态
-     * @param startedAt 求解开始纳秒时间
-     * @param warnings 求解警告
      * @return 无安全候选的求解结果
      */
-    private OcRefreshSafetyResult infeasibleBaselineResult(
-            OcRefreshSafetyRequest request, SimulationResult baseline,
-            Set<OcRiskFlagEnum> riskFlags, Set<OcPlanReasonCodeEnum> reasonCodes,
-            LocalDateTime nextCriticalReleaseAt,
-            OcConfigurationStatusEnum configurationStatus, long startedAt, List<String> warnings) {
+    private OcRefreshSafetyResult infeasibleBaselineResult(SimulationResult baseline,
+                                                           AssessmentInputs inputs,
+                                                           LocalDateTime nextCriticalReleaseAt) {
         if (baseline.deterministicFailure()) {
-            if (!liquidityVerifier.hasContinuousAnchor(baseline.anchors())) {
-                riskFlags.add(OcRiskFlagEnum.DEADLOCK_RISK);
-                reasonCodes.add(OcPlanReasonCodeEnum.NO_REPLACEMENT_LIQUIDITY_ANCHOR);
-            }
-            reasonCodes.add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
+            collectDeterministicFailureReasons(baseline, inputs);
         } else {
-            reasonCodes.add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
-            warnings.add("当前预算内未证明存在可行时间线，建议已保守降为0");
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
+            inputs.warnings().add("当前预算内未证明存在可行时间线，建议已保守降为0");
         }
         if (baseline.hardObligationFailed()) {
-            riskFlags.add(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK);
-            reasonCodes.add(OcPlanReasonCodeEnum.COMMITTED_CHAIN_BLOCKED);
+            inputs.riskFlags().add(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK);
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.COMMITTED_CHAIN_BLOCKED);
         }
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
-                configurationStatus,
+                inputs.configurationStatus(),
                 baseline.deterministicFailure()
                         ? OcProofStatusEnum.PROVEN_INFEASIBLE
                         : OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS,
-                riskFlags, false, reasonCodes, baseline.anchors(), nextCriticalReleaseAt,
-                latestReplanAt(request));
-        long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
-        return new OcRefreshSafetyResult(assessment, List.of(), false, elapsedMillis, warnings);
+                inputs.riskFlags(), false, inputs.reasonCodes(), baseline.anchors(),
+                nextCriticalReleaseAt, latestReplanAt(inputs.request()));
+        long elapsedMillis = Duration.ofNanos(System.nanoTime() - inputs.startedAt()).toMillis();
+        return new OcRefreshSafetyResult(assessment, List.of(), false, elapsedMillis,
+                inputs.warnings());
+    }
+
+    /**
+     * 记录确定性矛盾时的卡死风险与原因码。
+     *
+     * @param baseline 基线模拟结果
+     * @param inputs   评估输入
+     */
+    private void collectDeterministicFailureReasons(SimulationResult baseline,
+                                                    AssessmentInputs inputs) {
+        if (!liquidityVerifier.hasContinuousAnchor(baseline.anchors())) {
+            inputs.riskFlags().add(OcRiskFlagEnum.DEADLOCK_RISK);
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.NO_REPLACEMENT_LIQUIDITY_ANCHOR);
+        }
+        inputs.reasonCodes().add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
     }
 
     /**
      * 按总刷新次数递增搜索全部普通池和高阶池向量。
      *
-     * @param request 求解请求
+     * @param request            求解请求
      * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param deadline 求解截止纳秒时间
-     * @param warnings 求解警告
-     * @param reasonCodes 原因码集合
+     * @param deadline           求解截止纳秒时间
      * @return 向量搜索结果
      */
     private SearchOutcome searchVectors(OcRefreshSafetyRequest request,
@@ -174,40 +181,84 @@ public class OcTimelinePlanningEngine {
         CombinationBudget budget = new CombinationBudget(MAX_COMBINATION_EVALUATIONS);
         boolean timedOut = false;
         for (int total = 0; total <= maxSearch * 2 && !timedOut; total++) {
-            int minHigh = Math.max(0, total - maxSearch);
-            int maxHigh = Math.min(maxSearch, total);
-            for (int high = minHigh; high <= maxHigh; high++) {
-                OcRefreshVector vector = new OcRefreshVector(total - high, high);
-                if (hasFailedSubset(vector, failed)) {
-                    continue;
-                }
-                VectorEvaluation evaluation = evaluateVector(request, evidenceByTemplate,
-                        vector, deadline, budget);
-                if (evaluation.status() == VectorEvaluation.Status.TIMEOUT
-                        || evaluation.status() == VectorEvaluation.Status.BUDGET_EXHAUSTED) {
-                    timedOut |= evaluation.status() == VectorEvaluation.Status.TIMEOUT;
-                    return new SearchOutcome(safe, timedOut, true);
-                }
-                if (evaluation.status() == VectorEvaluation.Status.FAILED) {
-                    failed.add(vector);
-                } else {
-                    safe.add(evaluation.candidate());
-                }
-                if (budget.exhausted()) {
-                    return new SearchOutcome(safe, timedOut, true);
-                }
+            timedOut = searchTotal(request, evidenceByTemplate, total, deadline, budget,
+                    safe, failed);
+        }
+        return new SearchOutcome(safe, timedOut, budget.exhausted());
+    }
+
+    /**
+     * 搜索指定总刷新次数下的全部普通/高阶次数分配。
+     *
+     * @param request            求解请求
+     * @param evidenceByTemplate 按模板键索引的价值证据
+     * @param total              当前总刷新次数
+     * @param deadline           求解截止纳秒时间
+     * @param budget             组合评估预算
+     * @param safe               已证明安全候选输出集合
+     * @param failed             已失败向量输出集合
+     * @return 是否因时间预算终止
+     */
+    private boolean searchTotal(OcRefreshSafetyRequest request,
+                                Map<String, OcValueEvidence> evidenceByTemplate,
+                                int total, long deadline, CombinationBudget budget,
+                                List<OcRefreshSafetyResult.SafeCandidate> safe,
+                                List<OcRefreshVector> failed) {
+        for (int high = Math.max(0, total - maxSearch); high <= Math.min(maxSearch, total);
+             high++) {
+            StepStatus status = tryVector(request, evidenceByTemplate,
+                    new OcRefreshVector(total - high, high), deadline, budget, safe, failed);
+            if (status != StepStatus.CONTINUE) {
+                return status == StepStatus.STOP_TIMEOUT;
             }
         }
-        return new SearchOutcome(safe, timedOut, false);
+        return false;
+    }
+
+    /**
+     * 评估单个刷新向量并归类结果。
+     *
+     * @param request            求解请求
+     * @param evidenceByTemplate 按模板键索引的价值证据
+     * @param vector             待评估刷新向量
+     * @param deadline           求解截止纳秒时间
+     * @param budget             组合评估预算
+     * @param safe               已证明安全候选输出集合
+     * @param failed             已失败向量输出集合
+     * @return 向量处理结果
+     */
+    private StepStatus tryVector(OcRefreshSafetyRequest request,
+                                 Map<String, OcValueEvidence> evidenceByTemplate,
+                                 OcRefreshVector vector, long deadline, CombinationBudget budget,
+                                 List<OcRefreshSafetyResult.SafeCandidate> safe,
+                                 List<OcRefreshVector> failed) {
+        if (hasFailedSubset(vector, failed)) {
+            return StepStatus.CONTINUE;
+        }
+        VectorEvaluation evaluation = evaluateVector(request, evidenceByTemplate, vector,
+                deadline, budget);
+        if (evaluation.status() == VectorEvaluation.Status.TIMEOUT) {
+            return StepStatus.STOP_TIMEOUT;
+        }
+        if (evaluation.status() == VectorEvaluation.Status.BUDGET_EXHAUSTED) {
+            return StepStatus.STOP_BUDGET;
+        }
+        if (evaluation.status() == VectorEvaluation.Status.FAILED) {
+            failed.add(vector);
+        } else {
+            safe.add(evaluation.candidate());
+        }
+        return StepStatus.CONTINUE;
     }
 
     /**
      * 验证单个刷新向量的全部随机结果组合，并确定其最小停转层级和评分。
      *
-     * @param request 求解请求
+     * @param request            求解请求
      * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param vector 待验证刷新向量
-     * @param deadline 求解截止纳秒时间
+     * @param vector             待验证刷新向量
+     * @param deadline           求解截止纳秒时间
+     * @param budget             组合评估预算
      * @return 向量验证结果
      */
     private VectorEvaluation evaluateVector(OcRefreshSafetyRequest request,
@@ -221,57 +272,97 @@ public class OcTimelinePlanningEngine {
                 request.normalTemplates().size(), vector.normalCount());
         List<int[]> highCombinations = nonEmptyCombinations(
                 request.highChains().size(), vector.highCount());
-        OcRefreshSafetyResult.SafeCandidate.PauseTier tier =
-                OcRefreshSafetyResult.SafeCandidate.PauseTier.ZERO_PAUSE;
-        BigDecimal worstValue = null;
-        int worstMemberDays = 0;
-        LocalDateTime earliestCompletion = null;
-        int minAnchorCount = Integer.MAX_VALUE;
-        boolean anyValued = true;
-        OcValueEvidence.Level level = OcValueEvidence.Level.OBSERVED_REWARD;
+        WorstCase worst = new WorstCase();
         for (int[] normalCombination : normalCombinations) {
             for (int[] highCombination : highCombinations) {
-                if (System.nanoTime() >= deadline) {
-                    return VectorEvaluation.timeout();
+                VectorEvaluation terminal = evaluateCombination(request, evidenceByTemplate,
+                        normalCombination, highCombination, deadline, budget, worst);
+                if (terminal != null) {
+                    return terminal;
                 }
-                if (!budget.tryConsume()) {
-                    return VectorEvaluation.budgetExhausted();
-                }
-                List<CandidateRoot> roots = candidateRoots(request, normalCombination,
-                        highCombination);
-                SimulationResult result = simulateTiered(request, roots);
-                if (result == null) {
-                    return VectorEvaluation.failed();
-                }
-                tier = maxTier(tier, result);
-                worstValue = minEvidence(worstValue, combinationValue(roots,
-                        evidenceByTemplate));
-                anyValued &= combinationValued(roots, evidenceByTemplate);
-                worstMemberDays = Math.max(worstMemberDays,
-                        combinationMemberDays(roots, evidenceByTemplate));
-                LocalDateTime completion = liquidityVerifier.nextCriticalReleaseAt(
-                        result.anchors());
-                earliestCompletion = earliestCompletion == null || completion != null
-                        && completion.isBefore(earliestCompletion) ? completion : earliestCompletion;
-                minAnchorCount = Math.min(minAnchorCount, result.anchors().size());
-                level = level == null ? evidenceLevel(roots, evidenceByTemplate)
-                        : minLevel(level, evidenceLevel(roots, evidenceByTemplate));
             }
         }
-        if (minAnchorCount == Integer.MAX_VALUE) {
-            minAnchorCount = 0;
+        return worst.toEvaluation(vector);
+    }
+
+    /**
+     * 评估单个随机结果组合并累积最坏评分。
+     *
+     * @param request            求解请求
+     * @param evidenceByTemplate 按模板键索引的价值证据
+     * @param normalCombination  普通池各模板出现次数
+     * @param highCombination    各高阶链出现次数
+     * @param deadline           求解截止纳秒时间
+     * @param budget             组合评估预算
+     * @param worst              最坏评分累积状态
+     * @return 终止性验证结果；组合可继续评估时返回null
+     */
+    private VectorEvaluation evaluateCombination(OcRefreshSafetyRequest request,
+                                                 Map<String, OcValueEvidence> evidenceByTemplate,
+                                                 int[] normalCombination, int[] highCombination,
+                                                 long deadline, CombinationBudget budget,
+                                                 WorstCase worst) {
+        if (System.nanoTime() >= deadline) {
+            return VectorEvaluation.timeout();
         }
-        return new VectorEvaluation(VectorEvaluation.Status.SAFE,
-                new OcRefreshSafetyResult.SafeCandidate(vector,
-                        tier, anyValued ? worstValue : null, worstMemberDays, earliestCompletion,
-                        minAnchorCount, level));
+        if (!budget.tryConsume()) {
+            return VectorEvaluation.budgetExhausted();
+        }
+        List<CandidateRoot> roots = candidateRoots(request, normalCombination,
+                highCombination);
+        SimulationResult result = simulateTiered(request, roots);
+        if (result == null) {
+            return VectorEvaluation.failed();
+        }
+        mergeWorstCase(worst, result, roots, evidenceByTemplate);
+        return null;
+    }
+
+    /**
+     * 将单个组合的模拟结果合并进最坏评分累积状态。
+     *
+     * @param worst              最坏评分累积状态
+     * @param result             组合模拟结果
+     * @param roots              候选根义务
+     * @param evidenceByTemplate 按模板键索引的价值证据
+     */
+    private void mergeWorstCase(WorstCase worst, SimulationResult result,
+                                List<CandidateRoot> roots,
+                                Map<String, OcValueEvidence> evidenceByTemplate) {
+        worst.tier = maxTier(worst.tier, result);
+        worst.worstValue = minEvidence(worst.worstValue,
+                combinationValue(roots, evidenceByTemplate));
+        worst.anyValued &= combinationValued(roots, evidenceByTemplate);
+        worst.worstMemberDays = Math.max(worst.worstMemberDays,
+                combinationMemberDays(roots, evidenceByTemplate));
+        LocalDateTime completion = earliestCompletion(result.events());
+        if (worst.earliestCompletion == null || completion != null
+                && completion.isBefore(worst.earliestCompletion)) {
+            worst.earliestCompletion = completion;
+        }
+        worst.minAnchorCount = Math.min(worst.minAnchorCount, result.anchors().size());
+        worst.level = minLevel(worst.level, evidenceLevel(roots, evidenceByTemplate));
+    }
+
+    /**
+     * 从完成释放事件中获取本组合的最早完整释放时间。
+     *
+     * @param events 时间线事件列表
+     * @return 最早完成释放时间；无完成事件时为null
+     */
+    private LocalDateTime earliestCompletion(List<OcTimelineEvent> events) {
+        return events.stream()
+                .filter(event -> event.type() == OcTimelineEvent.EventType.COMPLETION_RELEASE)
+                .map(OcTimelineEvent::eventTime)
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
     }
 
     /**
      * 按停转层级从零到收益上限逐级尝试模拟组合。
      *
      * @param request 求解请求
-     * @param roots 随机结果候选根义务
+     * @param roots   随机结果候选根义务
      * @return 第一个可行层级的模拟结果；全部层级不可行时返回null
      */
     private SimulationResult simulateTiered(OcRefreshSafetyRequest request,
@@ -293,9 +384,9 @@ public class OcTimelinePlanningEngine {
     /**
      * 构造一组随机结果组合对应的候选根义务集合。
      *
-     * @param request 求解请求
+     * @param request           求解请求
      * @param normalCombination 普通池各模板出现次数
-     * @param highCombination 各高阶链出现次数
+     * @param highCombination   各高阶链出现次数
      * @return 候选根义务集合
      */
     private List<CandidateRoot> candidateRoots(OcRefreshSafetyRequest request,
@@ -324,7 +415,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 根据随机结果模板创建新的无人OC义务。
      *
-     * @param template 随机结果模板
+     * @param template  随机结果模板
      * @param createdAt 创建时间
      * @param keyPrefix 义务键前缀
      * @return 带首人期限的条件性随机结果义务
@@ -342,7 +433,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 计算组合内全部候选的价值合计；任一候选金额证据不足时返回null。
      *
-     * @param roots 候选根义务
+     * @param roots              候选根义务
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @return 组合价值合计；证据不足时为null
      */
@@ -362,7 +453,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 判断组合内全部候选是否均具备金额证据。
      *
-     * @param roots 候选根义务
+     * @param roots              候选根义务
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @return 全部候选均有金额证据时返回true
      */
@@ -374,7 +465,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 计算组合内全部候选的增量成员人天合计。
      *
-     * @param roots 候选根义务
+     * @param roots              候选根义务
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @return 增量成员人天合计
      */
@@ -393,7 +484,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 获取组合内全部候选的最弱价值证据层级。
      *
-     * @param roots 候选根义务
+     * @param roots              候选根义务
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @return 最弱证据层级
      */
@@ -413,7 +504,7 @@ public class OcTimelinePlanningEngine {
      * 查询候选根义务对应的价值证据；链候选使用chain前缀键。
      *
      * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param root 候选根义务
+     * @param root               候选根义务
      * @return 价值证据；缺失时为null
      */
     private OcValueEvidence evidence(Map<String, OcValueEvidence> evidenceByTemplate,
@@ -428,7 +519,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 取两个证据层级中较弱的一个。
      *
-     * @param left 层级一
+     * @param left  层级一
      * @param right 层级二
      * @return 较弱层级
      */
@@ -439,7 +530,7 @@ public class OcTimelinePlanningEngine {
     /**
      * 取两个非空金额中较小的一个作为最坏组合价值。
      *
-     * @param current 当前最坏价值
+     * @param current   当前最坏价值
      * @param candidate 新组合价值
      * @return 较小价值；任一为null时返回null
      */
@@ -454,7 +545,7 @@ public class OcTimelinePlanningEngine {
      * 合并向量在全部组合下的最小停转层级。
      *
      * @param current 当前层级
-     * @param result 组合模拟结果
+     * @param result  组合模拟结果
      * @return 更宽的层级
      */
     private OcRefreshSafetyResult.SafeCandidate.PauseTier maxTier(
@@ -473,7 +564,7 @@ public class OcTimelinePlanningEngine {
      * 判断待刷新池是否缺少计划模板。
      *
      * @param request 求解请求
-     * @param vector 待验证刷新向量
+     * @param vector  待验证刷新向量
      * @return 任一正次数刷新池缺少模板时返回true
      */
     private boolean hasMissingTemplate(OcRefreshSafetyRequest request, OcRefreshVector vector) {
@@ -550,7 +641,7 @@ public class OcTimelinePlanningEngine {
      * 计算组合列表，并为零类型零次数场景补充空组合。
      *
      * @param typeCount 随机结果类型数
-     * @param total 刷新总次数
+     * @param total     刷新总次数
      * @return 组合列表
      */
     private List<int[]> nonEmptyCombinations(int typeCount, int total) {
@@ -562,7 +653,7 @@ public class OcTimelinePlanningEngine {
      * 枚举指定次数在随机结果类型之间的全部非负整数分配。
      *
      * @param typeCount 随机结果类型数
-     * @param total 刷新总次数
+     * @param total     刷新总次数
      * @return 计数组合列表
      */
     private List<int[]> combinations(int typeCount, int total) {
@@ -580,9 +671,9 @@ public class OcTimelinePlanningEngine {
     /**
      * 递归构造随机结果计数组合。
      *
-     * @param result 组合结果集合
-     * @param current 当前组合缓冲区
-     * @param index 当前类型索引
+     * @param result    组合结果集合
+     * @param current   当前组合缓冲区
+     * @param index     当前类型索引
      * @param remaining 尚未分配的次数
      */
     private void buildCombinations(List<int[]> result, int[] current,
@@ -601,11 +692,12 @@ public class OcTimelinePlanningEngine {
     /**
      * 单个刷新向量的验证结果。
      *
-     * @param status 验证状态
+     * @param status    验证状态
      * @param candidate 已证明安全的候选；仅SAFE状态非空
      */
-    private record VectorEvaluation(Status status,
-                                    OcRefreshSafetyResult.SafeCandidate candidate) {
+    private record VectorEvaluation(
+            Status status,
+            OcRefreshSafetyResult.SafeCandidate candidate) {
         private enum Status {
             SAFE, FAILED, TIMEOUT, BUDGET_EXHAUSTED
         }
@@ -626,12 +718,79 @@ public class OcTimelinePlanningEngine {
     /**
      * 向量搜索结果。
      *
-     * @param candidates 已证明安全的候选集合
-     * @param timedOut 是否达到时间预算
+     * @param candidates      已证明安全的候选集合
+     * @param timedOut        是否达到时间预算
      * @param budgetExhausted 是否达到组合评估预算
      */
-    private record SearchOutcome(List<OcRefreshSafetyResult.SafeCandidate> candidates,
-                                 boolean timedOut, boolean budgetExhausted) {
+    private record SearchOutcome(
+            List<OcRefreshSafetyResult.SafeCandidate> candidates,
+            boolean timedOut,
+            boolean budgetExhausted) {
+    }
+
+    /**
+     * 构造安全评估所需的可变输入。
+     *
+     * @param request             求解请求
+     * @param configurationStatus 配置状态
+     * @param startedAt           求解开始纳秒时间
+     * @param riskFlags           风险标记集合
+     * @param reasonCodes         原因码集合
+     * @param warnings            求解警告
+     */
+    private record AssessmentInputs(
+            OcRefreshSafetyRequest request,
+            OcConfigurationStatusEnum configurationStatus,
+            long startedAt,
+            Set<OcRiskFlagEnum> riskFlags,
+            Set<OcPlanReasonCodeEnum> reasonCodes,
+            List<String> warnings) {
+        private AssessmentInputs(OcRefreshSafetyRequest request,
+                                 OcConfigurationStatusEnum configurationStatus,
+                                 long startedAt) {
+            this(request, configurationStatus, startedAt, new LinkedHashSet<>(),
+                    new LinkedHashSet<>(), new ArrayList<>());
+        }
+    }
+
+    /**
+     * 单个向量在向量搜索循环中的处理结果。
+     */
+    private enum StepStatus {
+        /**
+         * 继续评估下一个向量。
+         */
+        CONTINUE,
+        /**
+         * 达到时间预算，终止搜索。
+         */
+        STOP_TIMEOUT,
+        /**
+         * 达到组合评估预算，终止搜索。
+         */
+        STOP_BUDGET
+    }
+
+    /**
+     * 向量在全部随机组合下的最坏评分累积状态。
+     */
+    private static final class WorstCase {
+        private OcRefreshSafetyResult.SafeCandidate.PauseTier tier =
+                OcRefreshSafetyResult.SafeCandidate.PauseTier.ZERO_PAUSE;
+        private BigDecimal worstValue = null;
+        private boolean anyValued = true;
+        private int worstMemberDays = 0;
+        private LocalDateTime earliestCompletion = null;
+        private int minAnchorCount = Integer.MAX_VALUE;
+        private OcValueEvidence.Level level = OcValueEvidence.Level.OBSERVED_REWARD;
+
+        private VectorEvaluation toEvaluation(OcRefreshVector vector) {
+            int anchorCount = minAnchorCount == Integer.MAX_VALUE ? 0 : minAnchorCount;
+            return new VectorEvaluation(VectorEvaluation.Status.SAFE,
+                    new OcRefreshSafetyResult.SafeCandidate(vector, tier,
+                            anyValued ? worstValue : null, worstMemberDays,
+                            earliestCompletion, anchorCount, level));
+        }
     }
 
     /**

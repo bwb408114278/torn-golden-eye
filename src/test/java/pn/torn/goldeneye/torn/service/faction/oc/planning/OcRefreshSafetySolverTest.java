@@ -2,17 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcProofStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRiskFlagEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTeamDemand;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineObligation;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -21,9 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * OC刷新时间线求解器测试。
@@ -153,10 +141,10 @@ class OcRefreshSafetySolverTest {
         OcRefreshSafetyResult first = solver().solve(request, evidence("Normal"));
         OcRefreshSafetyResult second = solver().solve(request, evidence("Normal"));
 
-        assertEquals(first.candidates().stream().map(
-                        candidate -> candidate.vector()).toList(),
-                second.candidates().stream().map(
-                        candidate -> candidate.vector()).toList());
+        assertEquals(first.candidates().stream()
+                        .map(OcRefreshSafetyResult.SafeCandidate::vector).toList(),
+                second.candidates().stream()
+                        .map(OcRefreshSafetyResult.SafeCandidate::vector).toList());
     }
 
     private OcRefreshSafetySolver solver() {
@@ -189,15 +177,15 @@ class OcRefreshSafetySolverTest {
     private OcTeamDemand template(String name, int slots) {
         return new OcTeamDemand(0L, name, 8, null,
                 NOW.plusDays(OcTimelinePolicy.FIRST_JOIN_EXPIRE_DAYS), false,
-                slotList(name, slots), Set.of(), Set.of());
+                slotList(slots), Set.of(), Set.of());
     }
 
     private OcTeamDemand childTemplate(String name, int slots) {
         return new OcTeamDemand(0L, name, 9, null, null, true,
-                slotList(name, slots), Set.of(), Set.of());
+                slotList(slots), Set.of(), Set.of());
     }
 
-    private List<OcPlanSlot> slotList(String name, int count) {
+    private List<OcPlanSlot> slotList(int count) {
         return java.util.stream.IntStream.rangeClosed(1, count)
                 .mapToObj(index -> new OcPlanSlot("Worker#" + index, "Worker", 60, 1, null))
                 .toList();
@@ -205,21 +193,21 @@ class OcRefreshSafetySolverTest {
 
     private OcTimelineObligation joinedObligation(long ocId, LocalDateTime readyAt) {
         OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, readyAt, null, false,
-                slotList("Normal", 1), Set.of(), Set.of(ocId * 100));
+                slotList(1), Set.of(), Set.of(ocId * 100));
         return new OcTimelineObligation("oc:" + ocId,
                 OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
     }
 
     private OcTimelineObligation fullObligation(long ocId, LocalDateTime readyAt) {
         OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, readyAt, null, false,
-                slotList("Normal", 1), Set.of("Worker#1"), Set.of(ocId * 100));
+                slotList(1), Set.of("Worker#1"), Set.of(ocId * 100));
         return new OcTimelineObligation("oc:" + ocId,
                 OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
     }
 
     private OcTimelineObligation plannedEmpty(long ocId, LocalDateTime deadline) {
         OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, null, deadline, false,
-                slotList("Normal", 1), Set.of(), Set.of());
+                slotList(1), Set.of(), Set.of());
         return new OcTimelineObligation("oc:" + ocId,
                 OcTimelineObligation.ObligationKind.PLANNED_EMPTY, demand, deadline, null);
     }
