@@ -166,12 +166,17 @@
 │   │   │           │   └── oc/                                                 # Crime相关功能
 │   │   │           │       ├── recommend/                                      # OC推荐功能
 │   │   │           │       │   └── TornOcRecommendService.java                 # OC推荐逻辑层
+│   │   │           │       ├── planning/                                       # OC新队规划（8个子包）
+│   │   │           │       │   ├── api/                                        # 门面、指令规划器、渲染（唯一生产入口包）
+│   │   │           │       │   ├── snapshot/                                   # 快照加载、求解请求构造、占用统计
+│   │   │           │       │   ├── chain/                                      # 高阶链模板与既有时间线重建
+│   │   │           │       │   ├── timeline/                                   # 事件推进、状态剪枝、流动性验证、停转政策
+│   │   │           │       │   ├── matching/                                   # 成员—岗位最小费用流匹配与准备时间
+│   │   │           │       │   ├── search/                                     # 刷新向量搜索与组合评估
+│   │   │           │       │   ├── evidence/                                   # 收益证据计算与经济价值比较
+│   │   │           │       │   └── policy/                                     # 模式选点策略
 │   │   │           │       ├── TornFactionOcBenefitService.java                # 帮派OC收益逻辑层
-│   │   │           │       ├── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
-│   │   │           │       └── planning/                                       # OC阵容规划与安全边界算法
-│   │   │           │           ├── OcRosterMatcher.java                        # OC阵容匹配统一门面
-│   │   │           │           ├── OcFlowRosterMatcher.java                    # 最小费用最大流岗位匹配与排程
-│   │   │           │           └── OcNoPauseRosterMatcher.java                 # 无停转联合搜索匹配
+│   │   │           │       └── TornOcCompleteNoticeService.java                # OC完成通知逻辑层
 │   │   │           ├── stocks/                                                 # VIP股票虚拟组合与消息提醒
 │   │   │           │   └── alert/                                              # 股票提醒核心服务
 │   │   │           │       ├── StockMarketRoundLoader.java                     # 轮次快照批量加载(事务外)

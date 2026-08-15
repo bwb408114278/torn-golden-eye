@@ -12,8 +12,8 @@ import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanMode;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.OcNewTeamPlanRenderer;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.OcNewTeamPlanningFacade;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.api.OcNewTeamPlanRenderer;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.api.OcNewTeamPlanningFacade;
 
 import java.util.List;
 
@@ -58,13 +58,12 @@ public class OcNewTeamStrategyImpl extends BaseGroupMsgStrategy {
             return super.buildTextMsg("二级指令仅支持：g#OC新队#保守、g#OC新队#均衡、g#OC新队#收益");
         }
         long factionId = super.getTornFactionIdBySender(sender);
-        boolean randomOutcomeRefreshed = false;
         if (BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             ocRefreshManager.refreshOc(1, factionId);
-            randomOutcomeRefreshed = true;
         }
-        OcRefreshInstructionPlan plan = planningFacade.plan(factionId, mode,
-                randomOutcomeRefreshed);
+        // 本地数据同步不等同于游戏随机结果刷新；当前产品没有已确认的随机结果变化事件入口，
+        // 命令策略不得向规划器宣称随机结果已变化。
+        OcRefreshInstructionPlan plan = planningFacade.plan(factionId, mode, false);
         return super.buildTextMsg(renderer.render(plan));
     }
 }
