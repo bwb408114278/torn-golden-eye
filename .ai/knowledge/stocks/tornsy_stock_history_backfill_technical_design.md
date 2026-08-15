@@ -2,7 +2,7 @@
 
 > **文档类型：** 开发实施方案（技术基线）  
 > **适用项目：** Golden-Eye 1.2.14+  
-> **状态：** 已实施待review；本文不构成代码、数据库变更或生产任务执行授权  
+> **状态：** 已实施且 Review 通过（`e562573`）；本文不构成生产回填执行授权
 > **风险等级：** L3（生产历史事实表迁移、批量补数、第三方 HTTP、派生数据重建）  
 > **业务时区：** `Asia/Shanghai`  
 > **外部数据源：** `https://tornsy.com/api`，只允许使用 `m1` 分钟点接口
@@ -34,7 +34,7 @@ torn_stocks_history 缺分钟
 6. 回填入口只有两个：**超管机器人指令**人工指定任意历史范围 `[start,end)` 执行一次补数；**每日巡检**（08:45，Asia/Shanghai）检查昨天自然日的分钟连续性，发现缺口才自动补数。不使用 `sys_setting` 开关、启动自动恢复、每小时 AUTO 或 13 个月 EXPERIMENT 环境变量。
 7. 实际插入后，定向重建受影响的 15 分钟 bar/feature；不直接操作买卖、资金、Shadow、消息或月度状态。
 8. 本期不建自动归档、历史删除、表分区。全量历史补数由超管按小范围 → 较大范围逐步扩大人工执行；容量与性能另行专题设计。
-9. 本期不新增真实 PostgreSQL 集成测试代码，也不要求开发人员给出生产全量补数报告。部署/生产后数据验收由 AI 技术负责人使用 MCP 只读查询完成。
+9. 不要求开发人员给出生产全量补数报告。仅保留 `TornStocksHistoryMapperTest` 这一项无法由 mock 证明的最小真实 PostgreSQL Mapper 测试，用于验证每日巡检的自然分钟聚合 SQL；部署/生产后数据验收由 AI 技术负责人使用 MCP 只读查询完成。
 
 ---
 
@@ -141,14 +141,15 @@ Torn API → TornStocksManager → torn_stocks_history
 缺口补数（新增）
 Tornsy m1 → TornsyStockHistoryBackfillService
           → 校验、股票映射、同分钟去重
-          → INSERT ... ON CONFLICT DO NOTHING
+          → INSERT ... ON CONFLICT DO NOTHING RETURNING 实际插入 slot
           → torn_stocks_history
              data_source=TORNSY_BACKFILL
              investors=NULL
              market_cap=API未提供时NULL
           → 收集实际插入分钟所属的15分钟桶
-          → StockHistoryRebuildService.rebuildHistory(...)
-          → 15m bar / feature / round 恢复至 READY
+          → StockHistoryRebuildService.repairBackfilledHistory(...)
+          → 15m bar / feature / round 数据修复；非终态 round 写为 REPAIRED_DATA_ONLY
+          → 不进入生产策略消费
 ```
 
 来源字段仅用于审计。运行时没有双数据源选择：数据库自然分钟唯一索引保证同一股票、同一分钟只有一条有效历史事实。
@@ -311,16 +312,17 @@ src/main/resources/mapper/torn/stocks/TornStocksHistoryMapper.xml
 | 方法 | 用途 |
 |---|---|
 | `selectExistingMinuteSlots(stocksIds, start, end)` | 批量读取已经占用的 `(stocksId, naturalMinute)`，减少无效写入 |
-| `insertBackfillIgnoreConflict(historyList)` | 用 `INSERT ... ON CONFLICT DO NOTHING` 写入，匹配自然分钟表达式部分唯一索引 |
+| `insertBackfillReturningSlots(historyList)` | 用 `INSERT ... ON CONFLICT DO NOTHING RETURNING` 写入，返回实际插入 slot，匹配自然分钟表达式部分唯一索引 |
 | `selectLatestHistoryTime()` | 启动/日志的历史进度观察 |
 
-`insertBackfillIgnoreConflict` 要求：
+`insertBackfillReturningSlots` 要求：
 
 ```sql
 INSERT INTO torn_stocks_history (...)
 VALUES (...)
 ON CONFLICT (stocks_id, date_trunc('minute', reg_date_time)) WHERE deleted = 0
 DO NOTHING
+RETURNING stocks_id, date_trunc('minute', reg_date_time)
 ```
 
 必须与 Liquibase 唯一索引表达式和谓词完全一致。
@@ -514,7 +516,7 @@ JVM AtomicBoolean 防本实例重入
 5. 对每个桶按完整数据义务判断：
    - bar 缺失/版本不一致：buildBars(bucket)
    - bar 存在但 feature 缺失：buildFeatures(bucket)
-   - bar + feature 存在但 round 缺失/可重试：恢复 round 为 READY
+   - bar + feature 存在但 round 缺失/可重试：标记 round 为 `REPAIRED_DATA_ONLY`
    - 三者完整且版本一致：跳过
 6. 不执行 StockRoundTransactionService；不直接创建交易、Shadow、通知、冷却或月度状态
 ```
@@ -525,7 +527,7 @@ JVM AtomicBoolean 防本实例重入
 - bar 仍必须满足既有正式标准：`sampleCount >= 10`，且最后实际样本不早于 `barEnd - 5分钟`。补数不会虚构样本；若 Tornsy 也缺数据，bar 仍不可用。
 - `Stock15mFeatureBuildService.buildFeatures(bucketStart)` 读取当前 bar 和此前最多 30 天 bar，以当前及过去可见数据计算 MA、Z-score、收益、30日区间等，UPSERT `torn_stock_strategy_feature_15m`。
 - 特征的 `strategyReady` 要求完整 30 天、即 2880 个 15 分钟 bar 严格连续且可用。补上局部历史数据能恢复被缺口打断的连续窗口；但若仍有任意 bar 缺失/不可用，就继续 `strategyReady=false`，不放宽规则。
-- `StockHistoryRebuildService` 的目标终态是 `READY`；既有 `VipStockAlertScheduler` 是否继续消费该 round，仍由现有运行开关和存量义务决定。
+- Tornsy 回填调用 `StockHistoryRebuildService.repairBackfilledHistory(...)`；其目标终态不是 `READY`：`COMPLETED` / `FAILED_FINAL` 保持原终态，其余既有或新建 round 标记为 `REPAIRED_DATA_ONLY`。生产 pending SQL 使用显式可消费状态白名单排除它，`VipStockAlertScheduler` 也防御性跳过它；因此历史补数绝不进入交易、Shadow、通知、资金、持仓或月度状态链。
 
 重建资源限制：
 
@@ -572,11 +574,11 @@ src/test/java/pn/torn/goldeneye/torn/service/stocks/backfill/
 | client | URI 参数、HTTP 非2xx、空 body、解析失败、有限重试 |
 | backfill service | 已有分钟跳过；缺失分钟插入；`investors=null`；市值未知为 `null`；来源为 `TORNSY_BACKFILL`；不调用消息/旧特征入口 |
 | scheduler | 每日巡检非生产跳过/全连续不请求 Tornsy/缺口投递专用执行器；人工 30 分钟稳定截止与提交结果；人工与每日共用防重入；failedSlices/异常/拒绝后释放 |
-| 策略入口 | 指令声明、合法范围提交与已受理反馈、参数错误走既有格式错误、拒绝原因可区分、依赖收敛 |
+| 策略入口 | 指令声明、合法范围提交与已受理反馈、参数错误走既有格式错误、拒绝原因可区分 |
 | 分钟计数聚合 Mapper | 真实 PostgreSQL：1440 distinct 计数、重复原始行不虚增、缺失分钟 <1440、`[start,end)` 边界、逻辑删除不计入 |
 | 定向重建编排 | 插入分钟映射到正确15分钟桶；只调用受影响区间；不创建交易/通知/月度状态 |
 
-不新增真实 PostgreSQL 集成测试代码，不为 Liquibase 失败或生产数据补数写模拟测试代码。
+不扩展真实 PostgreSQL 集成测试矩阵：只保留上述 `TornStocksHistoryMapperTest` 聚合 SQL 契约测试；不为 Liquibase 失败或生产数据补数写模拟测试代码。
 
 ### 9.2 部署后 MCP 数据验收（AI 执行）
 
@@ -602,7 +604,7 @@ Liquibase 在目标环境执行失败时，开发人员立刻通知用户；由�
 
 ```bash
 JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd compile -q -DskipTests -Dmaven.compiler.showDeprecation=true
-JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd test -Dtest="TornsyMinuteQuoteParserTest,TornsyStockHistoryBackfillStrategyImplTest,TornsyStockHistoryBackfillSchedulerTest,TornsyStockHistoryBackfillServiceTest,TornStocksHistoryMapperTest,StockHistoryRebuildServiceTest,Stock15mFeatureBuildServiceTest,VipStockAlertSchedulerTest,TornStockMarketRoundMapperTest,StockSchedulingConfigurationTest"
+JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd test -Dtest="TornsyMinuteQuoteParserTest,TornsyStockHistoryBackfillStrategyImplTest,TornsyStockHistoryBackfillSchedulerTest,TornsyStockHistoryBackfillServiceTest,TornStocksHistoryMapperTest,StockHistoryRebuildServiceTest,Stock15mFeatureBuildServiceTest,VipStockAlertSchedulerTest,StockSchedulingConfigurationTest"
 JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd test -q
 git diff --check
 ```
@@ -699,7 +701,7 @@ HTTP 并发：回填仅运行于 stockBackfillExecutor（单并发 + 队列1）
 - 不发送历史消息；
 - 不自动改 `VIP_STOCK_*` 开关；
 - 不实现自动归档、物理删除、表分区、NAS 目录；
-- 不要求真实 PostgreSQL 集成测试代码或生产补数报告。
+- 不新增除分钟聚合 Mapper 契约外的真实 PostgreSQL 集成测试，也不要求生产补数报告。
 
 ---
 
