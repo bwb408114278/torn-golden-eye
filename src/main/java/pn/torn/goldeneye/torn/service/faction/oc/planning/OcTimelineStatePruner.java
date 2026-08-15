@@ -35,18 +35,18 @@ public class OcTimelineStatePruner {
     /**
      * 保留非支配状态并限制状态数量。当且仅当某状态在全部维度不差且至少一维更优时支配另一状态。
      *
-     * @param states           当前候选状态列表，按探索顺序排列
-     * @param scheduledCount   已排程数量维度
-     * @param anchorCount      锚点数量维度
-     * @param pauseNanos       停转时长维度
-     * @param availabilitySum  成员可用性维度
-     * @param <T>              状态类型
+     * @param states          当前候选状态列表，按探索顺序排列
+     * @param scheduledCount  已排程数量维度
+     * @param anchorCount     锚点数量维度
+     * @param pauseNanos      停转时长维度
+     * @param availabilitySum 成员可用性维度
+     * @param <T>             状态类型
      * @return 裁剪结果
      */
-    public <T> PruneResult prune(List<T> states, ToLongFunction<T> scheduledCount,
-                                 ToLongFunction<T> anchorCount,
-                                 ToLongFunction<T> pauseNanos,
-                                 ToLongFunction<T> availabilitySum) {
+    public <T> PruneResult<T> prune(List<T> states, ToLongFunction<T> scheduledCount,
+                                    ToLongFunction<T> anchorCount,
+                                    ToLongFunction<T> pauseNanos,
+                                    ToLongFunction<T> availabilitySum) {
         List<T> kept = new ArrayList<>();
         boolean truncated = false;
         for (T state : states) {
@@ -57,7 +57,7 @@ public class OcTimelineStatePruner {
             appendIfNotDominated(kept, state, scheduledCount, anchorCount, pauseNanos,
                     availabilitySum);
         }
-        return new PruneResult(kept, truncated);
+        return new PruneResult<>(kept, truncated);
     }
 
     /**

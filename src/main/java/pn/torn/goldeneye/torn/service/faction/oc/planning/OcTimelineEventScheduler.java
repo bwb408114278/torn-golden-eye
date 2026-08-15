@@ -102,9 +102,9 @@ final class OcTimelineEventScheduler {
     /**
      * 多状态搜索中的一个分支：一份时间线状态及其剩余任务。
      *
-     * @param state              分支时间线状态
-     * @param remaining          按处理顺序排列的剩余任务
-     * @param completedCount     已完整排程的义务数量，用于支配剪枝
+     * @param state               分支时间线状态
+     * @param remaining           按处理顺序排列的剩余任务
+     * @param completedCount      已完整排程的义务数量，用于支配剪枝
      * @param plannedEmptyExpired 分支内是否出现过被跳过的计划内无人OC
      */
     private record SearchBranch(
@@ -210,8 +210,8 @@ final class OcTimelineEventScheduler {
     /**
      * 装配一次模拟的最终结果：可行分支经锚点替换验证，不可行时输出累积失败语义。
      *
-     * @param complete    可行完成分支；不可行时为null
-     * @param progress    搜索进度与失败标记
+     * @param complete        可行完成分支；不可行时为null
+     * @param progress        搜索进度与失败标记
      * @param budgetExhausted 搜索是否因预算截断
      * @return 时间线模拟结果
      */
@@ -242,7 +242,7 @@ final class OcTimelineEventScheduler {
     private OcTimelineStatePruner.PruneResult<SearchBranch> pruneBranches(
             List<SearchBranch> branches, OcRefreshSafetyRequest request) {
         return statePruner.prune(branches,
-                branch -> branch.completedCount(),
+                SearchBranch::completedCount,
                 branch -> branch.state().anchors().size(),
                 branch -> pauseNanos(branch.state()),
                 branch -> availabilitySum(branch.state(), request));
@@ -390,16 +390,16 @@ final class OcTimelineEventScheduler {
             case COMMITTED_CHAIN_SUCCESSOR -> Duration.ZERO;
             case PLANNED_EMPTY, CONDITIONAL_RANDOM -> allowedPause;
         };
-        Map<String, StageSchedule> unique = new LinkedHashMap<>();
+        ScheduleSearch search = new ScheduleSearch(new LinkedHashMap<>(), state,
+                obligation, stateMembers, effectivePause);
         for (boolean earliestFirst : List.of(false, true)) {
-            addSchedule(unique, state, obligation, stateMembers, effectivePause,
-                    earliestFirst);
+            addSchedule(search, earliestFirst);
         }
-        if (unique.isEmpty()) {
+        if (search.unique().isEmpty()) {
             return List.of();
         }
-        appendAlternativeMatches(unique, state, obligation, stateMembers, effectivePause);
-        return List.copyOf(unique.values());
+        appendAlternativeMatches(search);
+        return List.copyOf(search.unique().values());
     }
 
     /**
@@ -409,49 +409,78 @@ final class OcTimelineEventScheduler {
      * <p>交换后的安排仍是完整且互不重复的匹配：被换入成员具备该岗位资格，
      * 且不在基础匹配已被占用的成员之中。</p>
      *
-     * @param unique         去重方案累积集合
-     * @param state          当前时间线状态
-     * @param obligation     待排程义务
-     * @param stateMembers   当前可用候选成员
-     * @param effectivePause 该义务的停转上限
+     * @param search 候选方案搜索上下文
      */
-    private void appendAlternativeMatches(Map<String, StageSchedule> unique,
-                                          OcTimelineState state,
-                                          OcTimelineObligation obligation,
-                                          List<OcMemberCandidate> stateMembers,
-                                          Duration effectivePause) {
-        OcTeamDemand demand = obligation.demand();
-        OcRosterMatchResult base = rosterMatcher.matchDeterministic(demand, stateMembers,
-                state.snapshotTime());
+    private void appendAlternativeMatches(ScheduleSearch search) {
+        OcTeamDemand demand = search.obligation().demand();
+        OcRosterMatchResult base = rosterMatcher.matchDeterministic(demand,
+                search.stateMembers(), search.state().snapshotTime());
         if (!base.complete()) {
             return;
         }
         Set<Long> assignedIds = new HashSet<>();
         base.assignments().forEach(assignment -> assignedIds.add(assignment.userId()));
         for (OcPlannedAssignment assigned : base.assignments()) {
-            OcPlanSlot slot = slotOf(demand, assigned.slotCode());
-            if (slot == null) {
+            if (appendAlternativesForAssignment(search, base.assignments(), assigned,
+                    assignedIds)) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * 为基础匹配的单个岗位安排追加替代成员方案。
+     *
+     * @param search      候选方案搜索上下文
+     * @param assignments 基础匹配的全部岗位安排
+     * @param assigned    当前岗位安排
+     * @param assignedIds 基础匹配已占用成员ID集合
+     * @return 替代方案数已达上限时返回true
+     */
+    private boolean appendAlternativesForAssignment(ScheduleSearch search,
+                                                    List<OcPlannedAssignment> assignments,
+                                                    OcPlannedAssignment assigned,
+                                                    Set<Long> assignedIds) {
+        OcTeamDemand demand = search.obligation().demand();
+        OcPlanSlot slot = slotOf(demand, assigned.slotCode());
+        if (slot == null) {
+            return false;
+        }
+        for (OcMemberCandidate alternative : eligibleAlternatives(demand, slot,
+                search.stateMembers(), assigned.userId())) {
+            if (assignedIds.contains(alternative.userId())) {
                 continue;
             }
-            for (OcMemberCandidate alternative : eligibleAlternatives(demand, slot,
-                    stateMembers, assigned.userId())) {
-                if (assignedIds.contains(alternative.userId())) {
-                    continue;
-                }
-                OcPlannedAssignment forced = forcedAssignment(state, demand, slot,
-                        alternative);
-                List<OcPlannedAssignment> swapped = swapAssignment(base.assignments(),
-                        assigned, forced);
-                for (boolean earliestFirst : List.of(false, true)) {
-                    StageSchedule schedule = buildStageSchedule(state, obligation, swapped,
-                            stateMembers, effectivePause, earliestFirst);
-                    if (schedule != null) {
-                        unique.putIfAbsent(scheduleSignature(schedule), schedule);
-                    }
-                }
-                if (unique.size() > MAX_MATCH_ALTERNATIVES) {
-                    return;
-                }
+            appendSwapSchedule(search, assignments, assigned, slot, alternative);
+            if (search.unique().size() > MAX_MATCH_ALTERNATIVES) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 追加一个替代成员方案：替换该岗位成员后按两种加入顺序尝试排程。
+     *
+     * @param search      候选方案搜索上下文
+     * @param assignments 基础匹配的全部岗位安排
+     * @param assigned    被替换的岗位安排
+     * @param slot        被替换的岗位
+     * @param alternative 替代成员
+     */
+    private void appendSwapSchedule(ScheduleSearch search,
+                                    List<OcPlannedAssignment> assignments,
+                                    OcPlannedAssignment assigned, OcPlanSlot slot,
+                                    OcMemberCandidate alternative) {
+        OcPlannedAssignment forced = forcedAssignment(search.state(),
+                search.obligation().demand(), slot, alternative);
+        List<OcPlannedAssignment> swapped = swapAssignment(assignments, assigned, forced);
+        for (boolean earliestFirst : List.of(false, true)) {
+            StageSchedule schedule = buildStageSchedule(search.state(),
+                    search.obligation(), swapped, search.stateMembers(),
+                    search.effectivePause(), earliestFirst);
+            if (schedule != null) {
+                search.unique().putIfAbsent(scheduleSignature(schedule), schedule);
             }
         }
     }
@@ -530,28 +559,39 @@ final class OcTimelineEventScheduler {
     /**
      * 计算基础完整匹配在指定加入顺序策略下的候选方案。
      *
+     * @param search        候选方案搜索上下文
+     * @param earliestFirst 成员加入顺序回退策略
+     */
+    private void addSchedule(ScheduleSearch search, boolean earliestFirst) {
+        OcTeamDemand demand = search.obligation().demand();
+        OcRosterMatchResult match = rosterMatcher.matchDeterministic(demand,
+                search.stateMembers(), search.state().snapshotTime());
+        if (!match.complete()) {
+            return;
+        }
+        StageSchedule schedule = buildStageSchedule(search.state(), search.obligation(),
+                match.assignments(), search.stateMembers(), search.effectivePause(),
+                earliestFirst);
+        if (schedule != null) {
+            search.unique().putIfAbsent(scheduleSignature(schedule), schedule);
+        }
+    }
+
+    /**
+     * 单个义务候选方案搜索的共享上下文。
+     *
      * @param unique         去重方案累积集合
      * @param state          当前时间线状态
      * @param obligation     待排程义务
      * @param stateMembers   当前可用候选成员
      * @param effectivePause 该义务的停转上限
-     * @param earliestFirst  成员加入顺序回退策略
      */
-    private void addSchedule(Map<String, StageSchedule> unique, OcTimelineState state,
-                             OcTimelineObligation obligation,
-                             List<OcMemberCandidate> stateMembers, Duration effectivePause,
-                             boolean earliestFirst) {
-        OcTeamDemand demand = obligation.demand();
-        OcRosterMatchResult match = rosterMatcher.matchDeterministic(demand, stateMembers,
-                state.snapshotTime());
-        if (!match.complete()) {
-            return;
-        }
-        StageSchedule schedule = buildStageSchedule(state, obligation, match.assignments(),
-                stateMembers, effectivePause, earliestFirst);
-        if (schedule != null) {
-            unique.putIfAbsent(scheduleSignature(schedule), schedule);
-        }
+    private record ScheduleSearch(
+            Map<String, StageSchedule> unique,
+            OcTimelineState state,
+            OcTimelineObligation obligation,
+            List<OcMemberCandidate> stateMembers,
+            Duration effectivePause) {
     }
 
     /**

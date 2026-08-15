@@ -5,6 +5,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Rollback;
+import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
@@ -15,9 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * OC规划收益统计Mapper测试。使用测试专属帮派命名空间并在结束后物理删除数据。
@@ -27,6 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026.08.15
  */
 @SpringBootTest
+@Transactional
+@Rollback
 @DisplayName("OC规划收益统计Mapper")
 class OcPlanningRewardStatsMapperTest {
     private static final long TEST_FACTION = 999_901L;

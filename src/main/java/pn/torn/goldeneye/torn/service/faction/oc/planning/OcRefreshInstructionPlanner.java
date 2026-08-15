@@ -66,10 +66,8 @@ public class OcRefreshInstructionPlanner {
                 : notEvaluatedResult(context);
         Optional<SafeCandidate> selected = configurationValid
                 ? modeSelector.selectCandidate(safety, mode) : Optional.empty();
-        OcRefreshVector vector = selected.map(SafeCandidate::vector)
-                .orElse(new OcRefreshVector(0, 0));
         OcCurrentOccupancySummary occupancySummary = occupancyCalculator.calculate(snapshot);
-        return buildPlan(snapshot, mode, context, safety, selected, vector, occupancySummary,
+        return buildPlan(snapshot, mode, context, safety, selected, occupancySummary,
                 randomOutcomeRefreshed);
     }
 
@@ -94,7 +92,6 @@ public class OcRefreshInstructionPlanner {
      * @param context                刷新规划上下文
      * @param safety                 时间线求解结果
      * @param selected               已选安全候选
-     * @param vector                 已选刷新向量
      * @param occupancySummary       当前现实占用摘要
      * @param randomOutcomeRefreshed 本次规划前是否刚从Torn刷新随机结果
      * @return 匿名刷新指令
@@ -103,12 +100,13 @@ public class OcRefreshInstructionPlanner {
                                                OcRefreshPlanningContext context,
                                                OcRefreshSafetyResult safety,
                                                Optional<SafeCandidate> selected,
-                                               OcRefreshVector vector,
                                                OcCurrentOccupancySummary occupancySummary,
                                                boolean randomOutcomeRefreshed) {
         OcTimelineSafetyAssessment assessment = safety.assessment();
         Set<OcRiskFlagEnum> riskFlags = new LinkedHashSet<>(assessment.riskFlags());
         Set<OcPlanReasonCodeEnum> reasonCodes = new LinkedHashSet<>(assessment.reasonCodes());
+        OcRefreshVector vector = selected.map(SafeCandidate::vector)
+                .orElse(new OcRefreshVector(0, 0));
         OcReplanWindow replanWindow = replanWindow(snapshot, context, assessment);
         if (randomOutcomeRefreshed) {
             reasonCodes.add(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED);
@@ -117,28 +115,40 @@ public class OcRefreshInstructionPlanner {
         LocalDateTime nextCriticalReleaseAt = liquidityPathVerifier
                 .nextCriticalReleaseAt(assessment.anchors());
         boolean pauseAllowed = OcTimelinePolicy.allowsNewPause(mode);
-        boolean pauseSelected = selected.isPresent()
-                && selected.get().pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE;
+        boolean pauseSelected = selected.map(candidate ->
+                candidate.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE).orElse(false);
         if (pauseSelected) {
             riskFlags.add(OcRiskFlagEnum.RECOVERABLE_PAUSE_PRESENT);
         }
         OcValueEvidence.Level evidenceLevel = selected.map(SafeCandidate::valueEvidenceLevel)
                 .orElse(OcValueEvidence.Level.INSUFFICIENT);
-        if (vector.totalCount() > 0 && selected.get().windowValue() == null) {
-            riskFlags.add(OcRiskFlagEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
-            reasonCodes.add(OcPlanReasonCodeEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
-        }
+        selected.filter(candidate -> Objects.requireNonNull(candidate.vector()).totalCount() > 0
+                        && candidate.windowValue() == null)
+                .ifPresent(ignored -> markEconomicEvidenceInsufficient(riskFlags,
+                        reasonCodes));
         List<String> warnings = collectWarnings(snapshot, context, safety);
         OcRefreshInstructionPlan plan = new OcRefreshInstructionPlan(snapshot.factionId(),
                 snapshot.snapshotTime(), mode, context.plannedEmptyOcCounts(),
                 vector.normalCount(), vector.highCount(), safety.lowerBound(),
                 reason(vector, context, assessment), context.configurationStatus(),
                 assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
-                pauseAllowed, pauseSelected, selected.map(candidate -> pauseDuration(mode))
-                .orElse(null),
+                pauseAllowed, pauseSelected, selected.isPresent()
+                ? pauseDuration(mode) : null,
                 replanWindow, evidenceLevel, occupancySummary, warnings);
         logShadow(plan);
         return plan;
+    }
+
+    /**
+     * 标记收益证据不足：仅作为匿名事实提示，不得据此提高刷新或停转建议。
+     *
+     * @param riskFlags   风险标记输出集合
+     * @param reasonCodes 原因码输出集合
+     */
+    private void markEconomicEvidenceInsufficient(Set<OcRiskFlagEnum> riskFlags,
+                                                  Set<OcPlanReasonCodeEnum> reasonCodes) {
+        riskFlags.add(OcRiskFlagEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
+        reasonCodes.add(OcPlanReasonCodeEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
     }
 
     /**
