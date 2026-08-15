@@ -5,7 +5,6 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcReplanWindow;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -58,23 +57,14 @@ public class OcReplanWindowCalculator {
     /**
      * 构造随机结果已变化时的立即重评估窗口。
      *
+     * <p>随机结果已发生或指挥官刚执行刷新时旧建议立即失效，
+     * 下次和最晚重评估时间均为快照时间。</p>
+     *
      * @param snapshotTime 快照时间
      * @return 下次和最晚重评估时间均为快照时间的窗口
      */
     public OcReplanWindow immediateReplan(LocalDateTime snapshotTime) {
         return new OcReplanWindow(snapshotTime, snapshotTime,
                 Set.of(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED));
-    }
-
-    /**
-     * 收集窗口候选边界中的非空时间。
-     *
-     * @param candidates 候选时间集合，可含null
-     * @return 非空时间列表
-     */
-    public List<LocalDateTime> nonNull(List<LocalDateTime> candidates) {
-        List<LocalDateTime> result = new ArrayList<>();
-        candidates.stream().filter(java.util.Objects::nonNull).forEach(result::add);
-        return result;
     }
 }

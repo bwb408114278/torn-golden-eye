@@ -19,10 +19,11 @@ import java.util.List;
 public class OcPausePolicyEvaluator {
 
     /**
-     * 判断一组停转评估是否符合指定模式的停转政策。
+     * 判断一组停转评估是否符合指定模式的停转政策。供时间线事件推进器在产生
+     * 候选状态时逐分支消费：不符合政策的候选状态直接淘汰。
      *
      * <p>保守模式不允许任何主动新增停转；均衡单次不超过6小时；收益单次不超过12小时。
-     * 已发生停转的恢复不计为新增。</p>
+     * 已发生停转不计为新增。</p>
      *
      * @param pauses 候选时间线的停转评估列表
      * @param mode   规划模式
@@ -33,16 +34,6 @@ public class OcPausePolicyEvaluator {
         return pauses.stream()
                 .filter(pause -> !pause.preExistingPause())
                 .allMatch(pause -> pause.newPauseDuration().compareTo(maxAllowed) <= 0);
-    }
-
-    /**
-     * 判断停转评估集合中是否存在可恢复停转。
-     *
-     * @param pauses 停转评估列表
-     * @return 任一停转存在确定恢复时间时返回true
-     */
-    public boolean hasRecoverablePause(List<OcPauseAssessment> pauses) {
-        return pauses.stream().anyMatch(pause -> pause.recoverAt() != null);
     }
 
     /**

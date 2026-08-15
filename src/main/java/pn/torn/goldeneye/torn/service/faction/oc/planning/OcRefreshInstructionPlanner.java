@@ -40,6 +40,22 @@ public class OcRefreshInstructionPlanner {
      * @return 不包含成员分配的刷新操作指令
      */
     public OcRefreshInstructionPlan plan(OcPlanningSnapshot snapshot, OcPlanMode mode) {
+        return plan(snapshot, mode, false);
+    }
+
+    /**
+     * 生成指定模式的刷新指令，并可标记本次规划紧随Torn随机结果刷新之后。
+     *
+     * <p>随机结果已发生或指挥官刚执行刷新时旧建议立即失效，
+     * 重评估窗口收敛为立即重评估并输出随机结果变化原因码。</p>
+     *
+     * @param snapshot               同一规划周期内的不可变快照
+     * @param mode                   刷新策略模式
+     * @param randomOutcomeRefreshed 本次规划前是否刚从Torn刷新随机结果
+     * @return 不包含成员分配的刷新操作指令
+     */
+    public OcRefreshInstructionPlan plan(OcPlanningSnapshot snapshot, OcPlanMode mode,
+                                         boolean randomOutcomeRefreshed) {
         OcRefreshPlanningContext context = requestFactory.create(snapshot);
         boolean configurationValid = context.configurationStatus() == OcConfigurationStatusEnum.VALID;
         Map<String, OcValueEvidence> evidence = requestFactory.buildEvidenceByTemplate(context,
@@ -53,7 +69,8 @@ public class OcRefreshInstructionPlanner {
         OcRefreshVector vector = selected.map(SafeCandidate::vector)
                 .orElse(new OcRefreshVector(0, 0));
         OcCurrentOccupancySummary occupancySummary = occupancyCalculator.calculate(snapshot);
-        return buildPlan(snapshot, mode, context, safety, selected, vector, occupancySummary);
+        return buildPlan(snapshot, mode, context, safety, selected, vector, occupancySummary,
+                randomOutcomeRefreshed);
     }
 
     /**
@@ -72,13 +89,14 @@ public class OcRefreshInstructionPlanner {
     /**
      * 组装最终匿名刷新指令。
      *
-     * @param snapshot         规划快照
-     * @param mode             刷新策略模式
-     * @param context          刷新规划上下文
-     * @param safety           时间线求解结果
-     * @param selected         已选安全候选
-     * @param vector           已选刷新向量
-     * @param occupancySummary 当前现实占用摘要
+     * @param snapshot               规划快照
+     * @param mode                   刷新策略模式
+     * @param context                刷新规划上下文
+     * @param safety                 时间线求解结果
+     * @param selected               已选安全候选
+     * @param vector                 已选刷新向量
+     * @param occupancySummary       当前现实占用摘要
+     * @param randomOutcomeRefreshed 本次规划前是否刚从Torn刷新随机结果
      * @return 匿名刷新指令
      */
     private OcRefreshInstructionPlan buildPlan(OcPlanningSnapshot snapshot, OcPlanMode mode,
@@ -86,11 +104,16 @@ public class OcRefreshInstructionPlanner {
                                                OcRefreshSafetyResult safety,
                                                Optional<SafeCandidate> selected,
                                                OcRefreshVector vector,
-                                               OcCurrentOccupancySummary occupancySummary) {
+                                               OcCurrentOccupancySummary occupancySummary,
+                                               boolean randomOutcomeRefreshed) {
         OcTimelineSafetyAssessment assessment = safety.assessment();
         Set<OcRiskFlagEnum> riskFlags = new LinkedHashSet<>(assessment.riskFlags());
         Set<OcPlanReasonCodeEnum> reasonCodes = new LinkedHashSet<>(assessment.reasonCodes());
         OcReplanWindow replanWindow = replanWindow(snapshot, context, assessment);
+        if (randomOutcomeRefreshed) {
+            reasonCodes.add(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED);
+            replanWindow = replanWindowCalculator.immediateReplan(snapshot.snapshotTime());
+        }
         LocalDateTime nextCriticalReleaseAt = liquidityPathVerifier
                 .nextCriticalReleaseAt(assessment.anchors());
         boolean pauseAllowed = OcTimelinePolicy.allowsNewPause(mode);

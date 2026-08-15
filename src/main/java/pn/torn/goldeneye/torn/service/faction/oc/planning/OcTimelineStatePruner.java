@@ -7,11 +7,12 @@ import java.util.List;
 import java.util.function.ToLongFunction;
 
 /**
- * 时间线搜索状态裁剪器。按已排程数量、价值、成员可用性、停转和锚点做支配剪枝，
- * 并限制同时展开的状态数，防止单节点排列的阶乘搜索。
+ * 时间线搜索状态裁剪器，是时间线事件推进器多状态搜索的实际引擎组件。
+ * 按已排程数量、锚点、停转和成员可用性做支配剪枝，并限制同时展开的状态数，
+ * 防止单节点排列的阶乘搜索。
  *
- * <p>预算截断由调用方记录为{@code UNPROVEN_SEARCH_BUDGET}，
- * 剪枝本身不改变已证明安全向量的语义。</p>
+ * <p>状态上限截断必须由调用方准确记录为{@code UNPROVEN_SEARCH_BUDGET}，
+ * 不得据此返回已证明不可行或卡死；剪枝本身不改变已证明安全向量的语义。</p>
  *
  * @author Bai
  * @version 1.3.0
@@ -22,15 +23,30 @@ public class OcTimelineStatePruner {
     private static final int MAX_ACTIVE_STATES = 16;
 
     /**
+     * 裁剪结果。
+     *
+     * @param kept      保留的非支配状态，保持稳定顺序
+     * @param truncated 是否因状态上限截断了候选状态
+     * @param <T>       状态类型
+     */
+    public record PruneResult<T>(List<T> kept, boolean truncated) {
+    }
+
+    /**
      * 保留非支配状态并限制状态数量。当且仅当某状态在全部维度不差且至少一维更优时支配另一状态。
      *
-     * @param states 当前候选状态列表，按探索顺序排列
-     * @return 裁剪后的状态列表，保持稳定顺序
+     * @param states           当前候选状态列表，按探索顺序排列
+     * @param scheduledCount   已排程数量维度
+     * @param anchorCount      锚点数量维度
+     * @param pauseNanos       停转时长维度
+     * @param availabilitySum  成员可用性维度
+     * @param <T>              状态类型
+     * @return 裁剪结果
      */
-    public <T> List<T> prune(List<T> states, ToLongFunction<T> scheduledCount,
-                             ToLongFunction<T> anchorCount,
-                             ToLongFunction<T> pauseNanos,
-                             ToLongFunction<T> availabilitySum) {
+    public <T> PruneResult prune(List<T> states, ToLongFunction<T> scheduledCount,
+                                 ToLongFunction<T> anchorCount,
+                                 ToLongFunction<T> pauseNanos,
+                                 ToLongFunction<T> availabilitySum) {
         List<T> kept = new ArrayList<>();
         boolean truncated = false;
         for (T state : states) {
@@ -41,10 +57,7 @@ public class OcTimelineStatePruner {
             appendIfNotDominated(kept, state, scheduledCount, anchorCount, pauseNanos,
                     availabilitySum);
         }
-        if (truncated) {
-            kept.add(states.getLast());
-        }
-        return kept;
+        return new PruneResult(kept, truncated);
     }
 
     /**
@@ -56,6 +69,7 @@ public class OcTimelineStatePruner {
      * @param anchorCount     锚点数量维度
      * @param pauseNanos      停转时长维度
      * @param availabilitySum 成员可用性维度
+     * @param <T>             状态类型
      */
     private <T> void appendIfNotDominated(List<T> kept, T state,
                                           ToLongFunction<T> scheduledCount,
@@ -81,6 +95,7 @@ public class OcTimelineStatePruner {
      * @param anchorCount     锚点数量维度
      * @param pauseNanos      停转时长维度
      * @param availabilitySum 成员可用性维度
+     * @param <T>             状态类型
      * @return dominant支配other时返回true
      */
     private <T> boolean dominates(T dominant, T other, ToLongFunction<T> scheduledCount,

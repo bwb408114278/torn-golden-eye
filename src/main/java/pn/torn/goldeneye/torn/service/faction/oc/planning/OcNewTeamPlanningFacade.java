@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * OC刷新指令门面，保证每次命令只加载一个不可变快照。
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.3.0
  * @since 2026.07.17
  */
 @Service
@@ -31,12 +31,25 @@ public class OcNewTeamPlanningFacade {
      * 加载同一时间点的快照并生成刷新操作指令。
      *
      * @param factionId 帮派ID
-     * @param mode 刷新策略模式
+     * @param mode      刷新策略模式
      * @return 不包含成员分配的刷新操作指令
      */
     public OcRefreshInstructionPlan plan(long factionId, OcPlanMode mode) {
+        return plan(factionId, mode, false);
+    }
+
+    /**
+     * 加载同一时间点的快照并生成刷新操作指令，并可标记本次规划紧随Torn随机结果刷新之后。
+     *
+     * @param factionId              帮派ID
+     * @param mode                   刷新策略模式
+     * @param randomOutcomeRefreshed 本次规划前是否刚从Torn刷新随机结果
+     * @return 不包含成员分配的刷新操作指令
+     */
+    public OcRefreshInstructionPlan plan(long factionId, OcPlanMode mode,
+                                         boolean randomOutcomeRefreshed) {
         LocalDateTime snapshotTime = LocalDateTime.now(clock);
         OcPlanningSnapshot snapshot = snapshotLoader.load(factionId, snapshotTime);
-        return planner.plan(snapshot, mode);
+        return planner.plan(snapshot, mode, randomOutcomeRefreshed);
     }
 }

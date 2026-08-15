@@ -134,6 +134,75 @@ class OcExistingTimelineReconstructorTest {
         assertTrue(result.reasonCodes().contains(OcPlanReasonCodeEnum.CHAIN_MAPPING_AMBIGUOUS));
     }
 
+    @Test
+    @DisplayName("仅存在已有人根实例时也应挂接全部剩余后继模板")
+    void shouldReconstructCommittedChainFromRootOnlyInstance() {
+        TornFactionOcDO root = oc(1L, "Root", NOW.plusHours(8), null);
+        root.setPreviousOcId(null);
+        OcPlanningSnapshot snapshot = snapshot(List.of(root), Map.of(
+                1L, List.of(slot(1L, "Worker#1", 10L))));
+        OcChainTemplateResult chain = new OcChainTemplateResult(
+                List.of(List.of(template("Root", 8), template("Child", 9),
+                        template("GrandChild", 9))), List.of());
+
+        ReconstructionResult result = reconstructor.reconstruct(snapshot, chain);
+
+        assertEquals(1, result.committedChains().size());
+        assertEquals(1L, result.committedChains().getFirst().rootOcId());
+        assertEquals(1, result.committedChains().getFirst().currentNodeSequence());
+        assertEquals(NOW.plusHours(8), result.committedChains().getFirst().nextNodeStartAt());
+        assertEquals(List.of("Child", "GrandChild"), result.committedChains().getFirst()
+                .remainingNodes().stream().map(OcTeamDemand::ocName).toList());
+        assertEquals(List.of("Child", "GrandChild"), result.chainSuccessorsByKey()
+                .get("oc:1").stream().map(OcTeamDemand::ocName).toList());
+        assertFalse(result.chainBlocked());
+    }
+
+    @Test
+    @DisplayName("同一父OC存在多个活动子实例时应判定映射歧义并硬阻断")
+    void shouldBlockWhenChainHasForkedActiveChildren() {
+        TornFactionOcDO root = oc(1L, "Root", NOW.plusHours(8), null);
+        TornFactionOcDO firstChild = oc(2L, "Child", null, NOW.minusDays(1));
+        firstChild.setPreviousOcId(1L);
+        TornFactionOcDO secondChild = oc(3L, "Child", null, NOW.minusDays(1));
+        secondChild.setPreviousOcId(1L);
+        OcPlanningSnapshot snapshot = snapshot(List.of(root, firstChild, secondChild), Map.of(
+                1L, List.of(slot(1L, "Worker#1", 10L))));
+        OcChainTemplateResult chain = new OcChainTemplateResult(
+                List.of(List.of(template("Root", 8), template("Child", 9),
+                        template("GrandChild", 9))), List.of());
+
+        ReconstructionResult result = reconstructor.reconstruct(snapshot, chain);
+
+        assertTrue(result.chainBlocked());
+        assertTrue(result.reasonCodes().contains(OcPlanReasonCodeEnum.CHAIN_MAPPING_AMBIGUOUS));
+        assertTrue(result.riskFlags().contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK));
+        assertTrue(result.chainSuccessorsByKey().isEmpty());
+        assertTrue(result.committedChains().isEmpty());
+    }
+
+    @Test
+    @DisplayName("同模板两个真实根实例应各自产生独立链义务和后继键")
+    void shouldReconstructEachRealRootInstanceIndependently() {
+        TornFactionOcDO firstRoot = oc(1L, "Root", NOW.plusHours(8), null);
+        TornFactionOcDO secondRoot = oc(2L, "Root", NOW.plusHours(9), null);
+        OcPlanningSnapshot snapshot = snapshot(List.of(firstRoot, secondRoot), Map.of(
+                1L, List.of(slot(1L, "Worker#1", 10L)),
+                2L, List.of(slot(2L, "Worker#1", 11L))));
+        OcChainTemplateResult chain = new OcChainTemplateResult(
+                List.of(List.of(template("Root", 8), template("Child", 9))), List.of());
+
+        ReconstructionResult result = reconstructor.reconstruct(snapshot, chain);
+
+        assertEquals(2, result.committedChains().size());
+        assertEquals(Set.of(1L, 2L), result.committedChains().stream()
+                .map(OcCommittedChainObligation::rootOcId).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(List.of("Child"), result.chainSuccessorsByKey().get("oc:1")
+                .stream().map(OcTeamDemand::ocName).toList());
+        assertEquals(List.of("Child"), result.chainSuccessorsByKey().get("oc:2")
+                .stream().map(OcTeamDemand::ocName).toList());
+    }
+
     private OcTeamDemand template(String name, int rank) {
         return new OcTeamDemand(0L, name, rank, null, null, true,
                 List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),

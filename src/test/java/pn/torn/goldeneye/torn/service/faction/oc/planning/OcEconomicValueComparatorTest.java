@@ -2,13 +2,12 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 候选时间线经济价值比较器测试。
@@ -55,12 +54,5 @@ class OcEconomicValueComparatorTest {
         int result = comparator.compare(null, 10, NOW, BigDecimal.valueOf(300), 10, NOW);
 
         assertEquals(0, result);
-        assertTrue(comparator.economicallyIndistinguishable(List.of(
-                new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY, null, 10, NOW, true),
-                new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY, null, 15, NOW, true))));
-        assertFalse(comparator.economicallyIndistinguishable(List.of(
-                new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
-                        BigDecimal.valueOf(100), 10, NOW, true),
-                new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY, null, 15, NOW, true))));
     }
 }

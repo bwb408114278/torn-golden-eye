@@ -120,6 +120,103 @@ class OcTimelinePlanningEngineTest {
         assertEquals(NOW.plusDays(3).minusMinutes(30), result.assessment().proofWindowEnd());
     }
 
+    @Test
+    @DisplayName("已启动根的链后继成员不可被期限重叠的普通刷新抢占")
+    void shouldReserveStartedRootSuccessorMemberAgainstOverlappingNormalRefresh() {
+        OcMemberCandidate member = new OcMemberCandidate(1L, "user1", NOW, false,
+                Map.of(OcMemberCandidate.capabilityKey(8, "Normal", "Worker"), 90,
+                        OcMemberCandidate.capabilityKey(9, "Child", "Worker"), 90), Map.of());
+        OcTimelineObligation startedRoot = startedRootObligation(1L, NOW.plusHours(8));
+        OcTeamDemand childNode = new OcTeamDemand(0L, "Child", 9, null, null, true,
+                List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)), Set.of(), Set.of());
+        List<OcTeamDemand> successors = java.util.stream.IntStream.rangeClosed(1, 8)
+                .mapToObj(ignored -> childNode).toList();
+        OcTeamDemand normal = new OcTeamDemand(0L, "Normal", 8, null, NOW.plusDays(7),
+                false, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
+                Set.of(), Set.of());
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(List.of(member), Set.of(),
+                List.of(startedRoot), Map.of("oc:1", successors),
+                List.of(normal), List.of(), NOW);
+
+        OcRefreshSafetyResult result = engine().solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertTrue(result.candidates().stream().anyMatch(item ->
+                item.vector().equals(new OcRefreshVector(0, 0))), result.toString());
+        assertFalse(result.candidates().stream().anyMatch(item ->
+                        item.vector().equals(new OcRefreshVector(1, 0))),
+                "重叠普通刷新不得抢占已启动链后继的成员");
+        assertEquals(OcProofStatusEnum.PROVEN_SAFE, result.assessment().proofStatus());
+        assertFalse(result.assessment().riskFlags()
+                .contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK));
+    }
+
+    @Test
+    @DisplayName("跨事件稀缺岗位应通过多状态搜索选择不破坏后续义务的匹配")
+    void shouldChooseNonConflictingMatchAcrossEventsForScarceSlot() {
+        OcMemberCandidate scarceCapable = dualCapabilityMember(1L);
+        OcMemberCandidate laterAlternative = new OcMemberCandidate(2L, "user2",
+                NOW.plusHours(2), false,
+                Map.of(OcMemberCandidate.capabilityKey(8, "Alpha", "Worker"), 90), Map.of());
+        OcTimelineObligation alpha = plannedEmptyNamed(20L, "Alpha", NOW.plusHours(10));
+        OcTimelineObligation beta = plannedEmptyNamed(21L, "Beta", NOW.plusHours(12));
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(scarceCapable, laterAlternative), Set.of(),
+                List.of(alpha, beta), Map.of(), List.of(), List.of(), NOW);
+
+        OcRefreshSafetyResult result = engine().solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertFalse(result.assessment().riskFlags()
+                        .contains(OcRiskFlagEnum.EMPTY_OC_EXPIRY_PRESSURE),
+                "早义务应让出仅剩的稀缺成员给期限更紧的后续义务: " + result);
+    }
+
+    @Test
+    @DisplayName("人为缩小状态预算时必须输出未证明搜索预算而不是不可行或卡死")
+    void shouldReportUnprovenSearchBudgetWhenStateBudgetShrunk() {
+        OcMemberCandidate member = member(1L, NOW);
+        OcTimelineObligation first = plannedEmptyObligation(20L, NOW.plusDays(3));
+        OcTimelineObligation second = plannedEmptyObligation(21L, NOW.plusDays(3));
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(member), Set.of(), List.of(first, second), Map.of(),
+                List.of(), List.of(), NOW);
+        OcTimelinePlanningEngine budgetEngine = new OcTimelinePlanningEngine(
+                Duration.ofSeconds(5), 6, new OcTimelineEventScheduler(1));
+
+        OcRefreshSafetyResult result = budgetEngine.solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertEquals(OcProofStatusEnum.UNPROVEN_SEARCH_BUDGET,
+                result.assessment().proofStatus(), result.toString());
+        assertTrue(result.lowerBound());
+        assertFalse(result.assessment().riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK));
+    }
+
+    private OcMemberCandidate dualCapabilityMember(long id) {
+        return new OcMemberCandidate(id, "user" + id, NOW, false,
+                Map.of(OcMemberCandidate.capabilityKey(8, "Alpha", "Worker"), 90,
+                        OcMemberCandidate.capabilityKey(8, "Beta", "Worker"), 90), Map.of());
+    }
+
+    private OcTimelineObligation plannedEmptyNamed(long ocId, String name,
+                                                   LocalDateTime firstJoinDeadline) {
+        OcTeamDemand demand = new OcTeamDemand(ocId, name, 8, null, firstJoinDeadline,
+                false, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
+                Set.of(), Set.of());
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.PLANNED_EMPTY, demand,
+                firstJoinDeadline, null);
+    }
+
+    private OcTimelineObligation startedRootObligation(long ocId, LocalDateTime readyAt) {
+        OcTeamDemand demand = new OcTeamDemand(ocId, "Root", 8, readyAt, null, true,
+                List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
+                Set.of("Worker#1"), Set.of(ocId * 100));
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
+    }
+
     private OcTimelinePlanningEngine engine() {
         return new OcTimelinePlanningEngine(Duration.ofSeconds(5), 6);
     }

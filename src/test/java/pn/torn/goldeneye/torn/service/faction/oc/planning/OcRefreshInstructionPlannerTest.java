@@ -2,29 +2,19 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcConfigurationStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcEvaluationMode;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcFactionPlanningPolicy;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberCandidate;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanMode;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanSlot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanningSnapshot;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcProofStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * OC刷新指令规划器测试。
@@ -109,6 +99,17 @@ class OcRefreshInstructionPlannerTest {
                 warning -> warning.contains("容量比例")));
     }
 
+    @Test
+    @DisplayName("刚刷新随机结果后规划应收敛为立即重评估并输出随机结果变化原因码")
+    void shouldCollapseReplanWindowWhenRandomOutcomeRefreshed() {
+        OcRefreshInstructionPlan plan = planner().plan(snapshot(), OcPlanMode.BALANCED, true);
+
+        assertTrue(plan.reasonCodes().stream().anyMatch(code ->
+                code == pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED));
+        assertEquals(NOW, plan.replanWindow().nextReplanAt());
+        assertEquals(NOW, plan.replanWindow().latestReplanAt());
+    }
+
     private TornSettingOcPlanProfileDO profile(String name, int rank, String pool) {
         TornSettingOcPlanProfileDO profile = new TornSettingOcPlanProfileDO();
         profile.setOcName(name);
@@ -147,11 +148,14 @@ class OcRefreshInstructionPlannerTest {
                         Map.of(OcMemberCandidate.capabilityKey(
                                 8, "Normal", "Worker"), 90), Map.of()))
                 .toList();
+        Map<String, OcPlanningRewardStatsDO> rewardStats = Map.of(key,
+                new OcPlanningRewardStatsDO(8, "Normal", 10, 10, 10, 100_000L,
+                        BigDecimal.valueOf(10_000L), 9_000L));
         return new OcPlanningSnapshot(1L, NOW, policy, List.of(), Map.of(),
                 members, Map.of(key, profile), List.of(),
                 Map.of(key, java.util.stream.IntStream.rangeClosed(1, 6)
                         .mapToObj(index -> new OcPlanSlot("Worker#" + index,
                                 "Worker", 60, index, null)).toList()),
-                Set.of(), Map.of(), List.of());
+                Set.of(), rewardStats, List.of());
     }
 }

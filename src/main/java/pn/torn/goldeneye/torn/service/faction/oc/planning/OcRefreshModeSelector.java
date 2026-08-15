@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -64,7 +65,10 @@ public class OcRefreshModeSelector {
     }
 
     /**
-     * 判断候选停转层级是否满足指定模式政策。
+     * 判断候选是否满足指定模式的选择前提。
+     *
+     * <p>保守和均衡按停转层级放宽；收益模式的正向量必须具备可用的完整价值证据，
+     * 金额证据不足的候选仅用于匿名说明，不得提高刷新建议。</p>
      *
      * @param candidate 安全候选
      * @param mode      刷新策略模式
@@ -74,9 +78,21 @@ public class OcRefreshModeSelector {
         return switch (mode) {
             case CONSERVATIVE -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE;
             case BALANCED -> candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT;
-            case PROFIT -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE
-                    || candidate.windowValue() != null;
+            case PROFIT -> candidate.vector().totalCount() == 0
+                    || candidate.usableForAdviceIncrease()
+                    && candidate.windowValue() != null
+                    && hasUsableEvidenceLevel(candidate);
         };
+    }
+
+    /**
+     * 判断候选的证据层级是否满足收益模式提高建议的冻结可用等级。
+     *
+     * @param candidate 安全候选
+     * @return 层级不低于收益下界证据时返回true
+     */
+    private boolean hasUsableEvidenceLevel(SafeCandidate candidate) {
+        return OcValueEvidence.Level.REWARD_FLOOR.compareTo(candidate.valueEvidenceLevel()) >= 0;
     }
 
     /**
@@ -181,8 +197,7 @@ public class OcRefreshModeSelector {
      * @param right 右候选释放时间
      * @return 左候选更早时返回正数；任一缺失时返回0
      */
-    private int compareEarlierBetter(java.time.LocalDateTime left,
-                                     java.time.LocalDateTime right) {
+    private int compareEarlierBetter(LocalDateTime left, LocalDateTime right) {
         if (left == null || right == null) {
             return 0;
         }

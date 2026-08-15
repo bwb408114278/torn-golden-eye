@@ -3,6 +3,8 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcLiquidityAnchor;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberInterval;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcMemberInterval.IntervalSource;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -41,22 +43,66 @@ class OcLiquidityPathVerifierTest {
     }
 
     @Test
-    @DisplayName("无锚点时不允许声称流动性或替换路径")
+    @DisplayName("无锚点时不得声称流动性")
     void shouldRejectEmptyAnchorChain() {
         assertFalse(verifier.hasContinuousAnchor(List.of()));
         assertFalse(verifier.hasContinuousAnchor(null));
-        assertFalse(verifier.hasReplacementPath(List.of()));
         assertNull(verifier.nextCriticalReleaseAt(List.of()));
     }
 
     @Test
-    @DisplayName("锚点替换后仍应存在替换路径")
-    void shouldAllowAnchorReplacement() {
+    @DisplayName("前一锚点释放成员再次投入并完整释放时替换成立")
+    void shouldMarkReplacementWhenReleasedMemberReinvested() {
         List<OcLiquidityAnchor> anchors = List.of(
-                new OcLiquidityAnchor("oc:1", NOW.plusHours(8), 3, false),
-                new OcLiquidityAnchor("oc:2", NOW.plusHours(32), 3, true));
+                new OcLiquidityAnchor("oc:1", NOW.plusHours(8), 1, false),
+                new OcLiquidityAnchor("oc:2", NOW.plusHours(32), 1, false));
+        List<OcMemberInterval> intervals = List.of(
+                interval(1L, NOW, NOW.plusHours(8), IntervalSource.EXISTING_OC),
+                interval(1L, NOW.plusHours(8), NOW.plusHours(32),
+                        IntervalSource.PLANNED_EMPTY));
 
-        assertTrue(verifier.hasReplacementPath(anchors));
-        assertEquals(NOW.plusHours(8), verifier.nextCriticalReleaseAt(anchors));
+        List<OcLiquidityAnchor> verified = verifier.verifyReplacementAnchors(anchors,
+                intervals);
+
+        assertFalse(verified.get(0).replacesPrevious());
+        assertTrue(verified.get(1).replacesPrevious());
+    }
+
+    @Test
+    @DisplayName("释放成员未被再次投入时替换不成立")
+    void shouldNotMarkReplacementWithoutReinvestment() {
+        List<OcLiquidityAnchor> anchors = List.of(
+                new OcLiquidityAnchor("oc:1", NOW.plusHours(8), 1, false),
+                new OcLiquidityAnchor("oc:2", NOW.plusHours(32), 1, false));
+        List<OcMemberInterval> intervals = List.of(
+                interval(1L, NOW, NOW.plusHours(8), IntervalSource.EXISTING_OC),
+                interval(2L, NOW, NOW.plusHours(32), IntervalSource.PLANNED_EMPTY));
+
+        List<OcLiquidityAnchor> verified = verifier.verifyReplacementAnchors(anchors,
+                intervals);
+
+        assertFalse(verified.get(1).replacesPrevious());
+    }
+
+    @Test
+    @DisplayName("再投入在当前锚点释放之后完成时替换不成立")
+    void shouldNotMarkReplacementWhenReinvestmentCompletesLater() {
+        List<OcLiquidityAnchor> anchors = List.of(
+                new OcLiquidityAnchor("oc:1", NOW.plusHours(8), 1, false),
+                new OcLiquidityAnchor("oc:2", NOW.plusHours(32), 1, false));
+        List<OcMemberInterval> intervals = List.of(
+                interval(1L, NOW, NOW.plusHours(8), IntervalSource.EXISTING_OC),
+                interval(1L, NOW.plusHours(8), NOW.plusHours(56),
+                        IntervalSource.RANDOM_CANDIDATE));
+
+        List<OcLiquidityAnchor> verified = verifier.verifyReplacementAnchors(anchors,
+                intervals);
+
+        assertFalse(verified.get(1).replacesPrevious());
+    }
+
+    private OcMemberInterval interval(long userId, LocalDateTime from, LocalDateTime until,
+                                      IntervalSource source) {
+        return new OcMemberInterval(userId, from, until, source);
     }
 }

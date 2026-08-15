@@ -114,11 +114,14 @@ public class OcRewardEvidenceCalculator {
                     expectedReleaseAt, true);
         }
         return new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY, null,
-                incrementalMemberDays, expectedReleaseAt, true);
+                incrementalMemberDays, expectedReleaseAt, false);
     }
 
     /**
      * 聚合完整链的价值证据：按最弱节点层级降级，链价值为节点价值合计。
+     *
+     * <p>任一节点金额证据不足时聚合链即金额证据不足，不得用于提高刷新建议；
+     * 层级取最弱节点而非最强节点，避免强节点掩盖弱节点的降级事实。</p>
      *
      * @param nodeEvidences 链内全部节点（含根）的价值证据
      * @return 完整链聚合证据
@@ -130,7 +133,7 @@ public class OcRewardEvidenceCalculator {
         }
         OcValueEvidence.Level level = nodeEvidences.stream()
                 .map(OcValueEvidence::level)
-                .min(Enum::compareTo)
+                .max(Enum::compareTo)
                 .orElse(OcValueEvidence.Level.INSUFFICIENT);
         BigDecimal totalValue = null;
         boolean allValued = nodeEvidences.stream()
@@ -147,7 +150,8 @@ public class OcRewardEvidenceCalculator {
                 .map(OcValueEvidence::expectedReleaseAt)
                 .filter(java.util.Objects::nonNull)
                 .max(java.time.LocalDateTime::compareTo).orElse(null);
-        boolean usable = level != OcValueEvidence.Level.INSUFFICIENT && totalValue != null;
+        boolean usable = totalValue != null
+                && OcValueEvidence.Level.REWARD_FLOOR.compareTo(level) >= 0;
         return new OcValueEvidence(level, totalValue, memberDays, earliestRelease, usable);
     }
 

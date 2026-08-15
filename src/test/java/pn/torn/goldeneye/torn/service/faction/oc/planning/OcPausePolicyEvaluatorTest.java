@@ -28,7 +28,7 @@ class OcPausePolicyEvaluatorTest {
     @DisplayName("保守模式不允许任何主动新增停转")
     void conservativeShouldRejectAnyNewPause() {
         List<OcPauseAssessment> pauses = List.of(
-                new OcPauseAssessment("oc:1", Duration.ofMinutes(30), NOW, false, true));
+                new OcPauseAssessment("oc:1", Duration.ofMinutes(30), NOW, false));
 
         assertFalse(evaluator.withinPolicy(pauses, OcPlanMode.CONSERVATIVE));
         assertTrue(evaluator.withinPolicy(pauses, OcPlanMode.BALANCED));
@@ -39,10 +39,10 @@ class OcPausePolicyEvaluatorTest {
     @DisplayName("均衡模式单次新增停转不超过6小时")
     void balancedShouldAllowPauseWithinSixHours() {
         List<OcPauseAssessment> within = List.of(
-                new OcPauseAssessment("oc:1", Duration.ofHours(6), NOW, false, true));
+                new OcPauseAssessment("oc:1", Duration.ofHours(6), NOW, false));
         List<OcPauseAssessment> beyond = List.of(
                 new OcPauseAssessment("oc:1", Duration.ofHours(6).plusMinutes(1),
-                        NOW, false, true));
+                        NOW, false));
 
         assertTrue(evaluator.withinPolicy(within, OcPlanMode.BALANCED));
         assertFalse(evaluator.withinPolicy(beyond, OcPlanMode.BALANCED));
@@ -53,7 +53,7 @@ class OcPausePolicyEvaluatorTest {
     @DisplayName("收益模式单次新增停转不超过12小时")
     void profitShouldAllowPauseWithinTwelveHours() {
         List<OcPauseAssessment> beyond = List.of(
-                new OcPauseAssessment("oc:1", Duration.ofHours(13), NOW, false, true));
+                new OcPauseAssessment("oc:1", Duration.ofHours(13), NOW, false));
 
         assertFalse(evaluator.withinPolicy(beyond, OcPlanMode.PROFIT));
     }
@@ -62,10 +62,9 @@ class OcPausePolicyEvaluatorTest {
     @DisplayName("已发生停转的恢复不计为新增")
     void preExistingPauseRecoveryShouldNotCountAsNew() {
         List<OcPauseAssessment> pauses = List.of(
-                new OcPauseAssessment("oc:1", Duration.ofHours(30), NOW, true, true));
+                new OcPauseAssessment("oc:1", Duration.ofHours(30), NOW, true));
 
         assertTrue(evaluator.withinPolicy(pauses, OcPlanMode.CONSERVATIVE));
-        assertTrue(evaluator.hasRecoverablePause(pauses));
     }
 
     @Test

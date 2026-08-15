@@ -1,10 +1,8 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning;
 
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 /**
  * 候选时间线经济价值比较器。只能在硬安全与完整时间线可行之后使用，固定比较顺序：
@@ -88,20 +86,5 @@ public class OcEconomicValueComparator {
             return 0;
         }
         return leftReleaseAt.compareTo(rightReleaseAt);
-    }
-
-    /**
-     * 判断两个候选在金额与人天维度是否仍不可稳定区分。
-     *
-     * @param evidences 参与比较的价值证据集合
-     * @return 全部证据均无法区分时返回true
-     */
-    public boolean economicallyIndistinguishable(List<OcValueEvidence> evidences) {
-        return evidences == null || evidences.isEmpty()
-                || evidences.stream().allMatch(evidence ->
-                evidence.totalValue() == null && evidence.level()
-                        == OcValueEvidence.Level.PRIOR_ONLY)
-                || evidences.stream().allMatch(evidence ->
-                evidence.level() == OcValueEvidence.Level.INSUFFICIENT);
     }
 }

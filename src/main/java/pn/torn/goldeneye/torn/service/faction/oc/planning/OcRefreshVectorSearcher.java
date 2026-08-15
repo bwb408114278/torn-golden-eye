@@ -127,6 +127,9 @@ class OcRefreshVectorSearcher {
             return StepStatus.STOP_TIMEOUT;
         }
         if (evaluation.status() == VectorEvaluation.Status.BUDGET_EXHAUSTED) {
+            if (evaluation.candidate() != null) {
+                safe.add(evaluation.candidate());
+            }
             return StepStatus.STOP_BUDGET;
         }
         if (evaluation.status() == VectorEvaluation.Status.FAILED) {

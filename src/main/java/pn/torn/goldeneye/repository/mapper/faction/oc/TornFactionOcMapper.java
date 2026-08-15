@@ -3,6 +3,7 @@ package pn.torn.goldeneye.repository.mapper.faction.oc;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import pn.torn.goldeneye.repository.model.faction.oc.OcRankNameKey;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
 import java.util.Collection;
@@ -25,10 +26,10 @@ public interface TornFactionOcMapper extends BaseMapper<TornFactionOcDO> {
     void deleteByIdList(@Param("list") List<Long> idList);
 
     /**
-     * 按OC键批量查询已完成状态的历史OC奖励原始记录
+     * 按OC等级和名称成对条件批量查询已完成状态的历史OC奖励原始记录
      *
-     * @param keys OC规划键集合，格式为等级:名称
+     * @param keys OC等级与名称参数对集合
      * @return 已完成状态的历史OC记录
      */
-    List<TornFactionOcDO> selectCompletedByOcKeys(@Param("keys") Collection<String> keys);
+    List<TornFactionOcDO> selectCompletedByOcKeys(@Param("keys") Collection<OcRankNameKey> keys);
 }

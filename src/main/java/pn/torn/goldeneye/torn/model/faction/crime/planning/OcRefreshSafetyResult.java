@@ -30,13 +30,14 @@ public record OcRefreshSafetyResult(
     /**
      * 一个已证明安全的刷新向量及其模式无关的时间线评分。
      *
-     * @param vector                刷新向量
-     * @param pauseTier             证明该向量安全所需的最小停转层级
-     * @param windowValue           规划窗口全局总价值；证据不足时为null
-     * @param incrementalMemberDays 增量剩余成员人天
-     * @param earliestCompletionAt  最早完整释放时间
-     * @param anchorCount           已证明流动性锚点数量
-     * @param valueEvidenceLevel    价值证据层级
+     * @param vector                  刷新向量
+     * @param pauseTier               证明该向量安全所需的最小停转层级
+     * @param windowValue             规划窗口全局总价值；证据不足时为null
+     * @param incrementalMemberDays   增量剩余成员人天
+     * @param earliestCompletionAt    最早完整释放时间
+     * @param anchorCount             已证明流动性锚点数量
+     * @param valueEvidenceLevel      价值证据层级
+     * @param usableForAdviceIncrease 全部组合证据是否可用于提高刷新建议
      */
     public record SafeCandidate(
             OcRefreshVector vector,
@@ -45,7 +46,8 @@ public record OcRefreshSafetyResult(
             int incrementalMemberDays,
             LocalDateTime earliestCompletionAt,
             int anchorCount,
-            OcValueEvidence.Level valueEvidenceLevel) {
+            OcValueEvidence.Level valueEvidenceLevel,
+            boolean usableForAdviceIncrease) {
 
         /**
          * 候选证明安全所需的最小停转容忍层级。

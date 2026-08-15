@@ -203,6 +203,10 @@ public class OcExistingTimelineReconstructor {
     /**
      * 重建真实链实例：按previousOcId识别运行中的根和后继，每个真实根仅一条剩余链义务。
      *
+     * <p>规划范围内所有属于完整配置链的根实例均进入重建，无论Torn是否已创建后继实例：
+     * 仅根实例存在时从根的真实完成时间挂接全部剩余后继模板；
+     * 已有根→子→孙实例时从最深现实节点挂接尚未创建的剩余模板。</p>
+     *
      * @param snapshot       规划快照
      * @param chainByRootKey 按根键索引的链模板
      * @param accumulator    重建累积状态
@@ -216,8 +220,9 @@ public class OcExistingTimelineReconstructor {
         Map<String, String> chainCodeByRootKey = chainCodeByRoot(snapshot);
         Set<Long> processedRoots = new HashSet<>();
         List<TornFactionOcDO> roots = snapshot.activeOcs().stream()
-                .filter(root -> root.getPreviousOcId() == null
-                        && childrenByParent.containsKey(root.getId()))
+                .filter(root -> root.getPreviousOcId() == null)
+                .filter(root -> isInScope(snapshot, rootKey(root)))
+                .filter(root -> chainByRootKey.containsKey(rootKey(root)))
                 .toList();
         for (TornFactionOcDO root : roots) {
             appendChainInstance(snapshot, root, chainByRootKey, chainCodeByRootKey,
@@ -242,12 +247,18 @@ public class OcExistingTimelineReconstructor {
                                      Map<Long, List<TornFactionOcDO>> childrenByParent,
                                      Set<Long> processedRoots,
                                      TimelineAccumulator accumulator) {
-        String rootKey = OcPlanningSnapshot.ocKey(root.getRank(), root.getName());
+        String rootKey = rootKey(root);
         List<OcTeamDemand> chain = chainByRootKey.get(rootKey);
         if (chain == null || !processedRoots.add(root.getId())) {
             return;
         }
         List<TornFactionOcDO> instances = chainInstances(root, childrenByParent);
+        if (instances == null) {
+            accumulator.reasonCodes.add(OcPlanReasonCodeEnum.CHAIN_MAPPING_AMBIGUOUS);
+            accumulator.riskFlags.add(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK);
+            accumulator.chainBlocked = true;
+            return;
+        }
         int matchedDepth = matchChainInstances(instances, chain);
         if (matchedDepth < 0) {
             accumulator.reasonCodes.add(OcPlanReasonCodeEnum.CHAIN_MAPPING_AMBIGUOUS);
@@ -271,9 +282,13 @@ public class OcExistingTimelineReconstructor {
     /**
      * 沿previousOcId收集一条真实链的全部实例，从根开始按序排列。
      *
+     * <p>仅根实例存在时返回只含根的序列：根完成后Torn才会创建后继，
+     * 此时链义务从根的真实完成时间挂接。同一父OC存在多个活动子实例属于
+     * 现实链实例分叉，无法与配置唯一映射，返回null由调用方硬阻断。</p>
+     *
      * @param root             链根实例
      * @param childrenByParent 按父实例ID索引的后继实例
-     * @return 从根开始的实例序列；出现分叉时只保留第一条稳定路径
+     * @return 从根开始的实例序列；出现分叉时返回null
      */
     private List<TornFactionOcDO> chainInstances(TornFactionOcDO root,
                                                  Map<Long, List<TornFactionOcDO>> childrenByParent) {
@@ -286,7 +301,9 @@ public class OcExistingTimelineReconstructor {
             if (children.isEmpty()) {
                 break;
             }
-            children.sort(java.util.Comparator.comparing(TornFactionOcDO::getId));
+            if (children.size() > 1) {
+                return List.of();
+            }
             current = children.getFirst();
             instances.add(current);
         }
@@ -435,6 +452,16 @@ public class OcExistingTimelineReconstructor {
             }
         });
         return result;
+    }
+
+    /**
+     * 构造现实OC的规划键。
+     *
+     * @param oc 现实OC
+     * @return OC规划键
+     */
+    private String rootKey(TornFactionOcDO oc) {
+        return OcPlanningSnapshot.ocKey(oc.getRank(), oc.getName());
     }
 
     /**

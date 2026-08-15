@@ -8,6 +8,7 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
+import pn.torn.goldeneye.repository.model.faction.oc.OcRankNameKey;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
@@ -113,13 +114,14 @@ public class OcPlanningSnapshotLoader {
      */
     private Map<String, OcPlanningRewardStatsDO> loadRewardStats(
             OcFactionPlanningPolicy policy, Map<String, TornSettingOcPlanProfileDO> profiles) {
-        Set<String> targetKeys = new HashSet<>();
+        Map<String, OcRankNameKey> targetKeys = new LinkedHashMap<>();
         profiles.forEach((key, profile) -> {
             if (policy.enabledOcKeys().contains(key) && READY.equals(profile.getPlanStatus())) {
-                targetKeys.add(key);
+                targetKeys.putIfAbsent(key, new OcRankNameKey(profile.getRank(),
+                        profile.getOcName()));
             }
         });
-        List<TornFactionOcDO> completedOcs = ocDao.queryCompletedByOcKeys(targetKeys);
+        List<TornFactionOcDO> completedOcs = ocDao.queryCompletedByOcKeys(targetKeys.values());
         return rewardEvidenceCalculator.aggregate(completedOcs);
     }
 

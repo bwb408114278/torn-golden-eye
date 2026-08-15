@@ -69,6 +69,21 @@ class OcRefreshModeSelectorTest {
     }
 
     @Test
+    @DisplayName("已启动链义务风险时应硬阻断全部模式")
+    void shouldBlockAllModesWhenHardObligationAtRisk() {
+        OcRefreshSafetyResult safety = result(
+                List.of(candidate(new OcRefreshVector(1, 0), SafeCandidate.PauseTier.ZERO_PAUSE)),
+                OcProofStatusEnum.PROVEN_INFEASIBLE, Set.of(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK));
+
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(safety, OcPlanMode.CONSERVATIVE));
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(safety, OcPlanMode.BALANCED));
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(safety, OcPlanMode.PROFIT));
+    }
+
+    @Test
     @DisplayName("收益模式在金额证据缺失时不得选择需要停转的候选")
     void shouldNotSelectPauseCandidateWithoutValueEvidenceInProfitMode() {
         OcRefreshSafetyResult safety = result(List.of(
@@ -120,6 +135,40 @@ class OcRefreshModeSelectorTest {
                 selector.select(safety, OcPlanMode.CONSERVATIVE));
     }
 
+    @Test
+    @DisplayName("收益模式在零停转但金额证据不足的正向量上不得提高建议")
+    void shouldNotSelectZeroPausePositiveVectorWithoutUsableValueEvidenceInProfitMode() {
+        OcRefreshSafetyResult safety = result(List.of(
+                        candidate(new OcRefreshVector(2, 0), SafeCandidate.PauseTier.ZERO_PAUSE,
+                                null, OcValueEvidence.Level.PRIOR_ONLY, false)),
+                OcProofStatusEnum.PROVEN_SAFE, Set.of());
+
+        assertEquals(new OcRefreshVector(0, 0), selector.select(safety, OcPlanMode.PROFIT));
+        assertEquals(new OcRefreshVector(2, 0), selector.select(safety, OcPlanMode.BALANCED));
+    }
+
+    @Test
+    @DisplayName("收益模式可按冻结规则选择收益下界证据的正向量")
+    void shouldSelectRewardFloorEvidenceVectorInProfitMode() {
+        OcRefreshSafetyResult safety = result(List.of(
+                        candidate(new OcRefreshVector(1, 0), SafeCandidate.PauseTier.ZERO_PAUSE,
+                                BigDecimal.valueOf(80), OcValueEvidence.Level.REWARD_FLOOR, true)),
+                OcProofStatusEnum.PROVEN_SAFE, Set.of());
+
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("链内任一节点证据不可用时聚合候选不得提高收益建议")
+    void shouldNotSelectAggregatedChainCandidateWithoutUsableEvidenceInProfitMode() {
+        OcRefreshSafetyResult safety = result(List.of(
+                        candidate(new OcRefreshVector(0, 1), SafeCandidate.PauseTier.ZERO_PAUSE,
+                                null, OcValueEvidence.Level.PRIOR_ONLY, false)),
+                OcProofStatusEnum.PROVEN_SAFE, Set.of());
+
+        assertEquals(new OcRefreshVector(0, 0), selector.select(safety, OcPlanMode.PROFIT));
+    }
+
     private OcRefreshSafetyResult result(List<SafeCandidate> candidates,
                                          OcProofStatusEnum proofStatus,
                                          Set<OcRiskFlagEnum> riskFlags) {
@@ -136,7 +185,12 @@ class OcRefreshModeSelectorTest {
 
     private SafeCandidate candidate(OcRefreshVector vector,
                                     SafeCandidate.PauseTier tier, BigDecimal value) {
-        return new SafeCandidate(vector, tier, value, 10, null, 1,
-                OcValueEvidence.Level.OBSERVED_REWARD);
+        return candidate(vector, tier, value, OcValueEvidence.Level.OBSERVED_REWARD, true);
+    }
+
+    private SafeCandidate candidate(OcRefreshVector vector,
+                                    SafeCandidate.PauseTier tier, BigDecimal value,
+                                    OcValueEvidence.Level level, boolean usable) {
+        return new SafeCandidate(vector, tier, value, 10, null, 1, level, usable);
     }
 }

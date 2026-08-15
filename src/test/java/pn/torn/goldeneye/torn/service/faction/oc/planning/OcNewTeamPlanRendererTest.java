@@ -94,6 +94,29 @@ class OcNewTeamPlanRendererTest {
         assertFalse(text.contains("→"));
     }
 
+    @Test
+    @DisplayName("收益证据不足时不得输出收益最优的肯定语")
+    void shouldNotClaimProfitOptimalWhenEconomicEvidenceInsufficient() {
+        OcRefreshInstructionPlan plan = new OcRefreshInstructionPlan(20465L,
+                LocalDateTime.of(2026, 7, 16, 15, 4), OcPlanMode.PROFIT,
+                Map.of(), 0, 0, false, "已证明可承接",
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE,
+                Set.of(OcRiskFlagEnum.ECONOMIC_EVIDENCE_INSUFFICIENT),
+                Set.of(OcPlanReasonCodeEnum.ECONOMIC_EVIDENCE_INSUFFICIENT),
+                null, true, false, null,
+                new OcReplanWindow(LocalDateTime.of(2026, 7, 16, 16, 0),
+                        LocalDateTime.of(2026, 7, 16, 17, 30), Set.of()),
+                OcValueEvidence.Level.PRIOR_ONLY,
+                new OcCurrentOccupancySummary(3, 2, 1, 8, 12, 7, 5), List.of());
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("收益证据不足，未据此提高刷新或停转建议"));
+        assertFalse(text.contains("收益建议"));
+        assertFalse(text.contains("收益更优"));
+        assertFalse(text.contains("收益最优"));
+    }
+
     private OcRefreshInstructionPlan plan(OcPlanMode mode, int normal, int high, Set<OcRiskFlagEnum> riskFlags) {
         return new OcRefreshInstructionPlan(20465L,
                 LocalDateTime.of(2026, 7, 16, 15, 4), mode,

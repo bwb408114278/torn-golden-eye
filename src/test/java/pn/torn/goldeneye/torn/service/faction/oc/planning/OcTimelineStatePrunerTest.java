@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 时间线搜索状态裁剪器测试。
@@ -31,11 +30,13 @@ class OcTimelineStatePrunerTest {
         State dominated = new State(2, 1, 100, 50);
         State dominant = new State(3, 2, 100, 50);
 
-        List<State> result = pruner.prune(List.of(dominated, dominant),
+        OcTimelineStatePruner.PruneResult<State> result = pruner.prune(
+                List.of(dominated, dominant),
                 State::scheduled, State::anchors, State::pauseNanos,
                 State::availabilitySum);
 
-        assertEquals(List.of(dominant), result);
+        assertEquals(List.of(dominant), result.kept());
+        assertFalse(result.truncated());
     }
 
     @Test
@@ -44,24 +45,27 @@ class OcTimelineStatePrunerTest {
         State moreScheduled = new State(3, 1, 100, 80);
         State earlierRelease = new State(2, 1, 100, 50);
 
-        List<State> result = pruner.prune(List.of(moreScheduled, earlierRelease),
+        OcTimelineStatePruner.PruneResult<State> result = pruner.prune(
+                List.of(moreScheduled, earlierRelease),
                 State::scheduled, State::anchors, State::pauseNanos,
                 State::availabilitySum);
 
-        assertEquals(2, result.size());
+        assertEquals(2, result.kept().size());
+        assertFalse(result.truncated());
     }
 
     @Test
-    @DisplayName("状态数量超过上限时应截断并保留最新状态")
-    void shouldTruncateWhenStatesExceedLimit() {
+    @DisplayName("状态数量超过上限时应截断并暴露截断标记")
+    void shouldTruncateAndExposeTruncationWhenStatesExceedLimit() {
         List<State> states = java.util.stream.IntStream.rangeClosed(1, pruner.maxActiveStates() + 10)
                 .mapToObj(index -> new State(index, index, index, index))
                 .toList();
 
-        List<State> result = pruner.prune(states, State::scheduled, State::anchors,
+        OcTimelineStatePruner.PruneResult<State> result = pruner.prune(states,
+                State::scheduled, State::anchors,
                 State::pauseNanos, State::availabilitySum);
 
-        assertTrue(result.size() <= pruner.maxActiveStates() + 1);
-        assertEquals(states.getLast(), result.getLast());
+        assertTrue(result.kept().size() <= pruner.maxActiveStates());
+        assertTrue(result.truncated());
     }
 }

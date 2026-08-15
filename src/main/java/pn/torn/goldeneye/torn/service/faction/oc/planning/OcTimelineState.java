@@ -43,6 +43,20 @@ final class OcTimelineState {
     }
 
     /**
+     * 复制另一个状态的全部占用、锚点、停转和事件，用于多状态搜索分支展开。
+     *
+     * @param source 被复制的状态
+     */
+    OcTimelineState(OcTimelineState source) {
+        this.snapshotTime = source.snapshotTime;
+        this.availableAt.putAll(source.availableAt);
+        this.intervals.addAll(source.intervals);
+        this.anchors.addAll(source.anchors);
+        this.pauses.addAll(source.pauses);
+        this.events.addAll(source.events);
+    }
+
+    /**
      * 查询成员下一空闲时间。
      *
      * @param userId 成员用户ID
@@ -117,6 +131,15 @@ final class OcTimelineState {
                 .sorted(Comparator.comparing(OcLiquidityAnchor::releaseAt)
                         .thenComparing(OcLiquidityAnchor::anchorKey))
                 .toList();
+    }
+
+    /**
+     * 获取全部成员占用区间，用于锚点替换路径的成员级验证。
+     *
+     * @return 占用区间列表
+     */
+    List<OcMemberInterval> intervals() {
+        return List.copyOf(intervals);
     }
 
     /**

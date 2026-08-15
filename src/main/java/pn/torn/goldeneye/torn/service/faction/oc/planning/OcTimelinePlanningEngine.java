@@ -19,7 +19,7 @@ import java.util.*;
  */
 public class OcTimelinePlanningEngine {
     private final Duration timeout;
-    private final OcTimelineEventScheduler scheduler = new OcTimelineEventScheduler();
+    private final OcTimelineEventScheduler scheduler;
     private final OcLiquidityPathVerifier liquidityVerifier = new OcLiquidityPathVerifier();
     private final OcRefreshVectorSearcher searcher;
 
@@ -30,7 +30,20 @@ public class OcTimelinePlanningEngine {
      * @param maxSearch 单个池的最大搜索次数
      */
     public OcTimelinePlanningEngine(Duration timeout, int maxSearch) {
+        this(timeout, maxSearch, new OcTimelineEventScheduler());
+    }
+
+    /**
+     * 创建指定事件推进器的时间线规划引擎，仅供需要人为缩小搜索预算的测试使用。
+     *
+     * @param timeout   单次求解时间预算
+     * @param maxSearch 单个池的最大搜索次数
+     * @param scheduler 时间线事件推进器
+     */
+    OcTimelinePlanningEngine(Duration timeout, int maxSearch,
+                             OcTimelineEventScheduler scheduler) {
         this.timeout = timeout;
+        this.scheduler = scheduler;
         this.searcher = new OcRefreshVectorSearcher(maxSearch,
                 new OcRefreshVectorEvaluator(scheduler, new OcPausePolicyEvaluator()));
     }
@@ -60,12 +73,14 @@ public class OcTimelinePlanningEngine {
 
         SearchOutcome outcome = searcher.search(request, evidenceByTemplate, deadline);
         boolean timedOut = outcome.timedOut();
-        boolean budgetExhausted = outcome.budgetExhausted();
+        boolean budgetExhausted = outcome.budgetExhausted()
+                || baseline.searchBudgetExhausted();
         boolean touchesLimit = searcher.touchesSearchLimit(outcome.candidates());
         boolean lowerBound = timedOut || budgetExhausted || touchesLimit;
         recordLowerBoundReason(timedOut, budgetExhausted, touchesLimit, inputs);
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
-                configurationStatus, proofStatus(outcome), inputs.riskFlags(), lowerBound,
+                configurationStatus, proofStatus(outcome, budgetExhausted),
+                inputs.riskFlags(), lowerBound,
                 inputs.reasonCodes(), anchors, nextCriticalReleaseAt,
                 latestReplanAt(request));
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
@@ -103,7 +118,7 @@ public class OcTimelinePlanningEngine {
             inputs.warnings().add("时间线求解达到时间预算，仅返回已证明安全下界");
             inputs.reasonCodes().add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
         } else if (budgetExhausted) {
-            inputs.warnings().add("时间线求解达到组合评估预算，仅返回已证明安全下界");
+            inputs.warnings().add("时间线求解达到组合或状态搜索预算，仅返回已证明安全下界");
             inputs.reasonCodes().add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
         } else if (touchesLimit) {
             inputs.warnings().add("时间线求解达到搜索上限，仅返回已证明安全下界");
@@ -122,26 +137,44 @@ public class OcTimelinePlanningEngine {
     private OcRefreshSafetyResult infeasibleBaselineResult(SimulationResult baseline,
                                                            AssessmentInputs inputs,
                                                            LocalDateTime nextCriticalReleaseAt) {
-        if (baseline.deterministicFailure()) {
+        if (baseline.searchBudgetExhausted()) {
+            inputs.warnings().add("基线时间线搜索达到状态或展开预算，仅返回未证明结果");
+            inputs.reasonCodes().add(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY);
+        } else if (baseline.deterministicFailure()) {
             collectDeterministicFailureReasons(baseline, inputs);
         } else {
             inputs.reasonCodes().add(OcPlanReasonCodeEnum.NO_QUALIFIED_MEMBER_BEFORE_DEADLINE);
             inputs.warnings().add("当前预算内未证明存在可行时间线，建议已保守降为0");
         }
-        if (baseline.hardObligationFailed()) {
+        if (baseline.hardObligationFailed() && !baseline.searchBudgetExhausted()) {
             inputs.riskFlags().add(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK);
             inputs.reasonCodes().add(OcPlanReasonCodeEnum.COMMITTED_CHAIN_BLOCKED);
         }
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
                 inputs.configurationStatus(),
-                baseline.deterministicFailure()
-                        ? OcProofStatusEnum.PROVEN_INFEASIBLE
-                        : OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS,
-                inputs.riskFlags(), false, inputs.reasonCodes(), baseline.anchors(),
+                baselineProofStatus(baseline),
+                inputs.riskFlags(), baseline.searchBudgetExhausted(), inputs.reasonCodes(),
+                baseline.anchors(),
                 nextCriticalReleaseAt, latestReplanAt(inputs.request()));
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - inputs.startedAt()).toMillis();
-        return new OcRefreshSafetyResult(assessment, List.of(), false, elapsedMillis,
+        return new OcRefreshSafetyResult(assessment, List.of(),
+                baseline.searchBudgetExhausted(), elapsedMillis,
                 inputs.warnings());
+    }
+
+    /**
+     * 判定基线不可行时的证明状态：搜索预算截断只能未证明，不得误写为不可行。
+     *
+     * @param baseline 基线模拟结果
+     * @return 证明状态
+     */
+    private OcProofStatusEnum baselineProofStatus(SimulationResult baseline) {
+        if (baseline.searchBudgetExhausted()) {
+            return OcProofStatusEnum.UNPROVEN_SEARCH_BUDGET;
+        }
+        return baseline.deterministicFailure()
+                ? OcProofStatusEnum.PROVEN_INFEASIBLE
+                : OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS;
     }
 
     /**
@@ -160,16 +193,18 @@ public class OcTimelinePlanningEngine {
     }
 
     /**
-     * 根据搜索结果判定证明状态。
+     * 根据搜索结果判定证明状态。多状态搜索预算截断时即使存在安全候选，
+     * 也不得声称已证明安全，只能作为已证明下界返回。
      *
-     * @param outcome 向量搜索结果
+     * @param outcome         向量搜索结果
+     * @param budgetExhausted 搜索或基线是否达到状态预算
      * @return 证明状态
      */
-    private OcProofStatusEnum proofStatus(SearchOutcome outcome) {
+    private OcProofStatusEnum proofStatus(SearchOutcome outcome, boolean budgetExhausted) {
         if (outcome.timedOut()) {
             return OcProofStatusEnum.UNPROVEN_TIMEOUT;
         }
-        if (outcome.budgetExhausted()) {
+        if (budgetExhausted) {
             return OcProofStatusEnum.UNPROVEN_SEARCH_BUDGET;
         }
         if (!outcome.candidates().isEmpty()) {

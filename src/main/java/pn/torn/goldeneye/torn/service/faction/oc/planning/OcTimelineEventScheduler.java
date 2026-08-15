@@ -4,6 +4,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 /**
@@ -11,8 +12,14 @@ import java.util.*;
  *
  * <p>处理顺序：先确保已投入OC和已启动链义务，再处理计划内无人OC，最后处理本轮随机结果；
  * 链节点完成后按真实完成时间生成首人期限为完成时间后7天的后继义务；
- * 推进过程记录完成释放、停转、恢复和链后继生成事件。纯内存对象，
- * 不访问数据库、HTTP或Redis。</p>
+ * 推进过程记录完成释放、停转、恢复和链后继生成事件。</p>
+ *
+ * <p>跨事件匹配采用有界多状态搜索：对每个关键事件以不同成员—岗位匹配展开有限的
+ * 候选状态，用{@link OcTimelineStatePruner}做支配剪枝和状态上限控制，
+ * 每个候选分支的产生均消费{@link OcPausePolicyEvaluator}的停转政策；
+ * 状态上限或展开预算耗尽时结果标记搜索预算截断，由上层映射为
+ * {@code UNPROVEN_SEARCH_BUDGET}，不得误写为已证明不可行或卡死。
+ * 纯内存对象，不访问数据库、HTTP或Redis。</p>
  *
  * @author Bai
  * @version 1.3.0
@@ -23,20 +30,49 @@ final class OcTimelineEventScheduler {
      * 已有人OC属于既成事实，其被迫停转不受模式停转上限约束。
      */
     private static final Duration FACT_MAX_PAUSE = Duration.ofDays(3650);
+    /**
+     * 单次模拟允许的义务展开总次数上限，超出即视为搜索预算截断。
+     */
+    private static final int MAX_TASK_EXPANSIONS = 256;
+    /**
+     * 每个义务在基础匹配之外保留的替代匹配方案上限。
+     */
+    private static final int MAX_MATCH_ALTERNATIVES = 4;
 
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
+    private final OcTimelineStatePruner statePruner = new OcTimelineStatePruner();
+    private final OcPausePolicyEvaluator pauseEvaluator = new OcPausePolicyEvaluator();
+    private final OcLiquidityPathVerifier liquidityVerifier = new OcLiquidityPathVerifier();
+    private final int maxTaskExpansions;
+
+    /**
+     * 创建使用默认搜索预算的时间线事件推进器。
+     */
+    OcTimelineEventScheduler() {
+        this(MAX_TASK_EXPANSIONS);
+    }
+
+    /**
+     * 创建指定义务展开预算的时间线事件推进器，仅供需要人为缩小搜索预算的测试使用。
+     *
+     * @param maxTaskExpansions 单次模拟允许的义务展开总次数上限
+     */
+    OcTimelineEventScheduler(int maxTaskExpansions) {
+        this.maxTaskExpansions = maxTaskExpansions;
+    }
 
     /**
      * 单个随机组合的完整时间线模拟结果。
      *
-     * @param feasible             全部必须承接的义务是否均可完整排程
-     * @param deterministicFailure 失败是否由岗位能力或人数的确定性矛盾引起
-     * @param hardObligationFailed 是否存在已投入义务无法履约
-     * @param plannedEmptyExpired  是否存在无法在期限前启动的计划内无人OC
-     * @param anchors              已证明完成—释放锚点链
-     * @param pauses               停转评估列表
-     * @param events               已发生的时间线事件
-     * @param maxNewPause          全部义务中的最大单次主动新增停转时长
+     * @param feasible              全部必须承接的义务是否均可完整排程
+     * @param deterministicFailure  失败是否由岗位能力或人数的确定性矛盾引起
+     * @param hardObligationFailed  是否存在已投入义务无法履约
+     * @param plannedEmptyExpired   是否存在无法在期限前启动的计划内无人OC
+     * @param anchors               已证明完成—释放锚点链，替换标记经成员级验证
+     * @param pauses                停转评估列表
+     * @param events                已发生的时间线事件
+     * @param maxNewPause           全部义务中的最大单次主动新增停转时长
+     * @param searchBudgetExhausted 多状态搜索是否因状态上限或展开预算截断
      */
     record SimulationResult(
             boolean feasible,
@@ -46,20 +82,53 @@ final class OcTimelineEventScheduler {
             List<OcLiquidityAnchor> anchors,
             List<OcPauseAssessment> pauses,
             List<OcTimelineEvent> events,
-            Duration maxNewPause) {
+            Duration maxNewPause,
+            boolean searchBudgetExhausted) {
     }
 
     /**
-     * 单个义务的排程结果。
+     * 义务的完整阶段时间线。
      *
-     * @param scheduled            是否成功完整排程
-     * @param deterministicFailure 失败是否为确定性矛盾
-     * @param completionAt         完成时间；失败时为null
+     * @param assignments  按加入顺序排列的岗位安排
+     * @param joinTimes    与安排对应的实际加入时间
+     * @param completionAt 最终完成时间
      */
-    private record ObligationOutcome(
-            boolean scheduled,
-            boolean deterministicFailure,
+    private record StageSchedule(
+            List<OcPlannedAssignment> assignments,
+            List<LocalDateTime> joinTimes,
             LocalDateTime completionAt) {
+    }
+
+    /**
+     * 多状态搜索中的一个分支：一份时间线状态及其剩余任务。
+     *
+     * @param state              分支时间线状态
+     * @param remaining          按处理顺序排列的剩余任务
+     * @param completedCount     已完整排程的义务数量，用于支配剪枝
+     * @param plannedEmptyExpired 分支内是否出现过被跳过的计划内无人OC
+     */
+    private record SearchBranch(
+            OcTimelineState state,
+            List<Task> remaining,
+            int completedCount,
+            boolean plannedEmptyExpired) {
+    }
+
+    /**
+     * 一次模拟的搜索进度与失败语义累积状态。
+     */
+    private static final class SearchProgress {
+        private final OcRefreshSafetyRequest request;
+        private int expansions;
+        private boolean deterministicFailure;
+        private boolean hardObligationFailed;
+        private boolean plannedEmptyExpired;
+        private OcTimelineState representativeState;
+
+        private SearchProgress(OcRefreshSafetyRequest request) {
+            this.request = request;
+            this.representativeState = new OcTimelineState(request);
+        }
     }
 
     /**
@@ -75,70 +144,447 @@ final class OcTimelineEventScheduler {
                               List<CandidateRoot> candidates,
                               Duration allowedPause,
                               boolean requirePlannedEmpty) {
-        OcTimelineState state = new OcTimelineState(request);
-        PriorityQueue<Task> queue = new PriorityQueue<>(taskComparator());
-        request.obligations().forEach(obligation -> queue.add(new Task(obligation,
+        List<Task> initial = new ArrayList<>();
+        request.obligations().forEach(obligation -> initial.add(new Task(obligation,
                 request.chainSuccessorsByKey().getOrDefault(obligation.key(), List.of()))));
-        candidates.forEach(candidate -> queue.add(new Task(candidate.obligation(),
+        candidates.forEach(candidate -> initial.add(new Task(candidate.obligation(),
                 candidate.successors())));
-        boolean deterministicFailure = false;
-        boolean plannedEmptyExpired = false;
-        while (!queue.isEmpty()) {
-            Task task = queue.poll();
-            ObligationOutcome outcome = scheduleObligation(state, task, allowedPause, request);
-            if (outcome.scheduled()) {
-                spawnSuccessors(state, queue, task, outcome.completionAt());
+        initial.sort(taskComparator());
+        List<SearchBranch> branches = new ArrayList<>();
+        branches.add(new SearchBranch(new OcTimelineState(request), initial, 0, false));
+        SearchProgress progress = new SearchProgress(request);
+        while (true) {
+            SearchBranch complete = pollCompleteBranch(branches);
+            if (complete != null) {
+                return assembleResult(complete, progress, false);
+            }
+            if (branches.isEmpty()) {
+                return assembleResult(null, progress, false);
+            }
+            List<SearchBranch> expanded = new ArrayList<>();
+            for (SearchBranch branch : branches) {
+                if (progress.expansions >= maxTaskExpansions) {
+                    return assembleResult(pollCompleteBranch(expanded), progress, true);
+                }
+                expanded.addAll(expandBranch(branch, allowedPause, requirePlannedEmpty,
+                        progress));
+            }
+            OcTimelineStatePruner.PruneResult<SearchBranch> pruned = pruneBranches(expanded,
+                    request);
+            branches = pruned.kept();
+            if (pruned.truncated()) {
+                return assembleResult(pollCompleteBranch(branches), progress, true);
+            }
+        }
+    }
+
+    /**
+     * 移除并返回首个无重叠且任务全部完成的分支；存在重叠的完成分支按一致性失败消亡。
+     *
+     * <p>优先返回无计划内无人OC过期压力的完成分支：只要存在避开过期压力的
+     * 匹配选择，就不把过期压力当作不可避免事实输出。</p>
+     *
+     * @param branches 当前分支集合，会被就地移除无效完成分支
+     * @return 首个有效完成分支；无时为null
+     */
+    private SearchBranch pollCompleteBranch(List<SearchBranch> branches) {
+        branches.removeIf(branch -> branch.remaining().isEmpty()
+                && !branch.state().hasNoOverlappingIntervals());
+        return branches.stream()
+                .filter(branch -> branch.remaining().isEmpty()
+                        && !branch.plannedEmptyExpired())
+                .findFirst().orElse(firstComplete(branches));
+    }
+
+    /**
+     * 获取首个任务全部完成的分支。
+     *
+     * @param branches 分支集合
+     * @return 首个完成分支；无时为null
+     */
+    private SearchBranch firstComplete(List<SearchBranch> branches) {
+        return branches.stream().filter(branch -> branch.remaining().isEmpty())
+                .findFirst().orElse(null);
+    }
+
+    /**
+     * 装配一次模拟的最终结果：可行分支经锚点替换验证，不可行时输出累积失败语义。
+     *
+     * @param complete    可行完成分支；不可行时为null
+     * @param progress    搜索进度与失败标记
+     * @param budgetExhausted 搜索是否因预算截断
+     * @return 时间线模拟结果
+     */
+    private SimulationResult assembleResult(SearchBranch complete, SearchProgress progress,
+                                            boolean budgetExhausted) {
+        if (complete == null) {
+            OcTimelineState state = progress.representativeState;
+            return new SimulationResult(false, progress.deterministicFailure,
+                    progress.hardObligationFailed, progress.plannedEmptyExpired,
+                    state.anchors(), state.pauses(), state.events(), maxNewPause(state),
+                    budgetExhausted);
+        }
+        OcTimelineState state = complete.state();
+        List<OcLiquidityAnchor> verified = liquidityVerifier.verifyReplacementAnchors(
+                state.anchors(), state.intervals());
+        return new SimulationResult(true, false, false, complete.plannedEmptyExpired(),
+                verified, state.pauses(), state.events(), maxNewPause(state),
+                budgetExhausted);
+    }
+
+    /**
+     * 用支配剪枝和状态上限裁剪分支集合。
+     *
+     * @param branches 待裁剪分支集合
+     * @param request  求解请求，用于成员可用性维度
+     * @return 裁剪结果
+     */
+    private OcTimelineStatePruner.PruneResult<SearchBranch> pruneBranches(
+            List<SearchBranch> branches, OcRefreshSafetyRequest request) {
+        return statePruner.prune(branches,
+                branch -> branch.completedCount(),
+                branch -> branch.state().anchors().size(),
+                branch -> pauseNanos(branch.state()),
+                branch -> availabilitySum(branch.state(), request));
+    }
+
+    /**
+     * 计算状态中全部主动新增停转的纳秒合计。
+     *
+     * @param state 时间线状态
+     * @return 新增停转纳秒合计
+     */
+    private long pauseNanos(OcTimelineState state) {
+        return state.pauses().stream()
+                .filter(pause -> !pause.preExistingPause())
+                .mapToLong(pause -> pause.newPauseDuration().toNanos())
+                .sum();
+    }
+
+    /**
+     * 计算全部成员可用时间的纪元秒合计，越早可用越优。
+     *
+     * @param state   时间线状态
+     * @param request 求解请求
+     * @return 可用时间纪元秒合计
+     */
+    private long availabilitySum(OcTimelineState state, OcRefreshSafetyRequest request) {
+        long sum = 0;
+        for (OcMemberCandidate member : request.members()) {
+            sum += state.availableAt(member.userId()).toEpochSecond(ZoneOffset.UTC);
+        }
+        return sum;
+    }
+
+    /**
+     * 展开单个分支的当前任务：按候选匹配方案分裂为后继分支或让分支消亡。
+     *
+     * @param branch              待展开分支
+     * @param allowedPause        单次主动新增停转上限
+     * @param requirePlannedEmpty 计划内无人OC无法启动时是否判定整体不可行
+     * @param progress            搜索进度与失败标记
+     * @return 展开后的后继分支集合
+     */
+    private List<SearchBranch> expandBranch(SearchBranch branch, Duration allowedPause,
+                                            boolean requirePlannedEmpty,
+                                            SearchProgress progress) {
+        Task task = branch.remaining().getFirst();
+        List<Task> rest = branch.remaining().subList(1, branch.remaining().size());
+        OcTimelineObligation obligation = task.obligation();
+        progress.expansions++;
+        progress.representativeState = branch.state();
+        if (obligation.demand().getVacantSlots().isEmpty()) {
+            return expandFullObligation(branch, task, rest);
+        }
+        List<StageSchedule> schedules = candidateSchedules(branch.state(), obligation,
+                allowedPause, progress.request);
+        if (schedules.isEmpty()) {
+            return onObligationUnschedulable(branch, obligation, requirePlannedEmpty,
+                    progress, rest);
+        }
+        List<SearchBranch> result = new ArrayList<>();
+        for (StageSchedule schedule : schedules) {
+            OcTimelineState state = new OcTimelineState(branch.state());
+            applySchedule(state, obligation, schedule);
+            if (!pauseEvaluator.withinPolicy(state.pauses(), modeForPause(allowedPause))) {
                 continue;
             }
-            deterministicFailure |= outcome.deterministicFailure();
-            if (task.obligation().isHardObligation()) {
-                return failedResult(state, deterministicFailure, plannedEmptyExpired, true);
-            }
-            if (task.obligation().kind() != OcTimelineObligation.ObligationKind.PLANNED_EMPTY
-                    || requirePlannedEmpty) {
-                return failedResult(state, deterministicFailure, plannedEmptyExpired, false);
-            }
-            plannedEmptyExpired = true;
+            result.add(new SearchBranch(state, withSpawnedSuccessors(task, rest, state,
+                    schedule.completionAt()), branch.completedCount() + 1,
+                    branch.plannedEmptyExpired()));
         }
-        if (!state.hasNoOverlappingIntervals()) {
-            return new SimulationResult(false, deterministicFailure, false,
-                    plannedEmptyExpired, state.anchors(), state.pauses(), state.events(),
-                    maxNewPause(state));
-        }
-        return new SimulationResult(true, deterministicFailure, false,
-                plannedEmptyExpired, state.anchors(), state.pauses(), state.events(),
-                maxNewPause(state));
+        return result;
     }
 
     /**
-     * 构造单个义务排程失败时的整体模拟结果。
+     * 展开已满员义务：按readyTime生成确定完成—释放事件并生成链后继。
      *
-     * @param state                当前时间线状态
-     * @param deterministicFailure 是否已出现确定性矛盾
-     * @param plannedEmptyExpired  是否已出现计划内无人OC过期压力
-     * @param hardObligationFailed 失败义务是否为已投入硬义务
-     * @return 不可行的时间线模拟结果
+     * @param branch 待展开分支
+     * @param task   当前任务
+     * @param rest   其余任务
+     * @return 展开后的后继分支集合
      */
-    private SimulationResult failedResult(OcTimelineState state, boolean deterministicFailure,
-                                          boolean plannedEmptyExpired,
-                                          boolean hardObligationFailed) {
-        return new SimulationResult(false, deterministicFailure, hardObligationFailed,
-                plannedEmptyExpired, state.anchors(), state.pauses(), state.events(),
-                maxNewPause(state));
+    private List<SearchBranch> expandFullObligation(SearchBranch branch, Task task,
+                                                    List<Task> rest) {
+        OcTimelineObligation obligation = task.obligation();
+        LocalDateTime readyAt = obligation.demand().readyAt();
+        if (readyAt == null) {
+            return List.of();
+        }
+        OcTimelineState state = new OcTimelineState(branch.state());
+        LocalDateTime completionAt = readyAt.isBefore(state.snapshotTime())
+                ? state.snapshotTime() : readyAt;
+        applyCompletion(state, obligation, completionAt, List.of());
+        return List.of(new SearchBranch(state,
+                withSpawnedSuccessors(task, rest, state, completionAt),
+                branch.completedCount() + 1, branch.plannedEmptyExpired()));
     }
 
     /**
-     * 当前义务完成后按真实完成时间生成链后继义务。
+     * 处理义务无法排程的分支：记录失败语义，或按计划内无人OC容错跳过。
+     *
+     * @param branch              待展开分支
+     * @param obligation          无法排程的义务
+     * @param requirePlannedEmpty 计划内无人OC无法启动时是否判定整体不可行
+     * @param progress            搜索进度与失败标记
+     * @param rest                其余任务
+     * @return 展开后的后继分支集合；分支消亡时为空
+     */
+    private List<SearchBranch> onObligationUnschedulable(SearchBranch branch,
+                                                         OcTimelineObligation obligation,
+                                                         boolean requirePlannedEmpty,
+                                                         SearchProgress progress,
+                                                         List<Task> rest) {
+        if (isDeterministicShortage(obligation, progress.request)) {
+            progress.deterministicFailure = true;
+        }
+        if (obligation.isHardObligation()) {
+            progress.hardObligationFailed = true;
+        }
+        if (!obligation.isHardObligation()
+                && obligation.kind() == OcTimelineObligation.ObligationKind.PLANNED_EMPTY
+                && !requirePlannedEmpty) {
+            progress.plannedEmptyExpired = true;
+            return List.of(new SearchBranch(new OcTimelineState(branch.state()), rest,
+                    branch.completedCount(), true));
+        }
+        return List.of();
+    }
+
+    /**
+     * 生成当前义务的候选完整方案：基础匹配的两种加入排序加有界的替代成员—岗位匹配。
      *
      * @param state        当前时间线状态
-     * @param queue        待处理任务队列
-     * @param task         已完成的当前任务
-     * @param completionAt 当前节点完成时间
+     * @param obligation   待排程义务
+     * @param allowedPause 单次主动新增停转上限
+     * @param request      求解请求
+     * @return 去重后的候选方案；全部不可行时为空
      */
-    private void spawnSuccessors(OcTimelineState state, PriorityQueue<Task> queue, Task task,
-                                 LocalDateTime completionAt) {
-        if (task.successors().isEmpty()) {
+    private List<StageSchedule> candidateSchedules(OcTimelineState state,
+                                                   OcTimelineObligation obligation,
+                                                   Duration allowedPause,
+                                                   OcRefreshSafetyRequest request) {
+        List<OcMemberCandidate> stateMembers = stateCandidates(state, request);
+        Duration effectivePause = switch (obligation.kind()) {
+            case EXISTING_JOINED -> FACT_MAX_PAUSE;
+            case COMMITTED_CHAIN_SUCCESSOR -> Duration.ZERO;
+            case PLANNED_EMPTY, CONDITIONAL_RANDOM -> allowedPause;
+        };
+        Map<String, StageSchedule> unique = new LinkedHashMap<>();
+        for (boolean earliestFirst : List.of(false, true)) {
+            addSchedule(unique, state, obligation, stateMembers, effectivePause,
+                    earliestFirst);
+        }
+        if (unique.isEmpty()) {
+            return List.of();
+        }
+        appendAlternativeMatches(unique, state, obligation, stateMembers, effectivePause);
+        return List.copyOf(unique.values());
+    }
+
+    /**
+     * 追加有界的替代成员—岗位匹配：在基础完整匹配上把某个岗位的成员换成
+     * 其他未被占用的合格成员，覆盖跨事件稀缺岗位需要不同局部选择的情形。
+     *
+     * <p>交换后的安排仍是完整且互不重复的匹配：被换入成员具备该岗位资格，
+     * 且不在基础匹配已被占用的成员之中。</p>
+     *
+     * @param unique         去重方案累积集合
+     * @param state          当前时间线状态
+     * @param obligation     待排程义务
+     * @param stateMembers   当前可用候选成员
+     * @param effectivePause 该义务的停转上限
+     */
+    private void appendAlternativeMatches(Map<String, StageSchedule> unique,
+                                          OcTimelineState state,
+                                          OcTimelineObligation obligation,
+                                          List<OcMemberCandidate> stateMembers,
+                                          Duration effectivePause) {
+        OcTeamDemand demand = obligation.demand();
+        OcRosterMatchResult base = rosterMatcher.matchDeterministic(demand, stateMembers,
+                state.snapshotTime());
+        if (!base.complete()) {
             return;
+        }
+        Set<Long> assignedIds = new HashSet<>();
+        base.assignments().forEach(assignment -> assignedIds.add(assignment.userId()));
+        for (OcPlannedAssignment assigned : base.assignments()) {
+            OcPlanSlot slot = slotOf(demand, assigned.slotCode());
+            if (slot == null) {
+                continue;
+            }
+            for (OcMemberCandidate alternative : eligibleAlternatives(demand, slot,
+                    stateMembers, assigned.userId())) {
+                if (assignedIds.contains(alternative.userId())) {
+                    continue;
+                }
+                OcPlannedAssignment forced = forcedAssignment(state, demand, slot,
+                        alternative);
+                List<OcPlannedAssignment> swapped = swapAssignment(base.assignments(),
+                        assigned, forced);
+                for (boolean earliestFirst : List.of(false, true)) {
+                    StageSchedule schedule = buildStageSchedule(state, obligation, swapped,
+                            stateMembers, effectivePause, earliestFirst);
+                    if (schedule != null) {
+                        unique.putIfAbsent(scheduleSignature(schedule), schedule);
+                    }
+                }
+                if (unique.size() > MAX_MATCH_ALTERNATIVES) {
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * 获取指定编码的空缺岗位需求。
+     *
+     * @param demand   队伍需求
+     * @param slotCode 岗位编码
+     * @return 岗位需求；不存在时为null
+     */
+    private OcPlanSlot slotOf(OcTeamDemand demand, String slotCode) {
+        return demand.getVacantSlots().stream()
+                .filter(slot -> slot.code().equals(slotCode)).findFirst().orElse(null);
+    }
+
+    /**
+     * 用替代安排替换基础匹配中的一个岗位安排。
+     *
+     * @param assignments 基础匹配安排
+     * @param assigned    被替换的安排
+     * @param forced      替代安排
+     * @return 替换后的安排列表
+     */
+    private List<OcPlannedAssignment> swapAssignment(List<OcPlannedAssignment> assignments,
+                                                     OcPlannedAssignment assigned,
+                                                     OcPlannedAssignment forced) {
+        List<OcPlannedAssignment> result = new ArrayList<>(assignments.size());
+        assignments.forEach(item -> result.add(item == assigned ? forced : item));
+        return result;
+    }
+
+    /**
+     * 构造岗位的替代合格成员列表，按成员ID稳定排序。
+     *
+     * @param demand       队伍需求
+     * @param slot         空缺岗位
+     * @param stateMembers 当前可用候选成员
+     * @param assigned     基础匹配中该岗位的成员ID；无时为-1
+     * @return 替代成员列表
+     */
+    private List<OcMemberCandidate> eligibleAlternatives(OcTeamDemand demand, OcPlanSlot slot,
+                                                         List<OcMemberCandidate> stateMembers,
+                                                         long assigned) {
+        return stateMembers.stream()
+                .filter(member -> member.userId() != assigned)
+                .filter(member -> !member.fixed())
+                .filter(member -> !demand.fixedMemberIds().contains(member.userId()))
+                .filter(member -> member.getPassRate(demand.rank(), demand.ocName(),
+                        slot.position()) >= slot.requiredPassRate())
+                .sorted(Comparator.comparingLong(OcMemberCandidate::userId))
+                .toList();
+    }
+
+    /**
+     * 构造强制岗位安排：替代成员固定占用指定岗位。
+     *
+     * @param state       当前时间线状态
+     * @param demand      队伍需求
+     * @param slot        被强制的岗位
+     * @param alternative 替代成员
+     * @return 强制岗位安排
+     */
+    private OcPlannedAssignment forcedAssignment(OcTimelineState state, OcTeamDemand demand,
+                                                 OcPlanSlot slot,
+                                                 OcMemberCandidate alternative) {
+        LocalDateTime availableAt = state.availableAt(alternative.userId());
+        LocalDateTime joinAt = availableAt.isBefore(state.snapshotTime())
+                ? state.snapshotTime() : availableAt;
+        return new OcPlannedAssignment(alternative.userId(), alternative.nickname(),
+                slot.code(), alternative.getPassRate(demand.rank(), demand.ocName(),
+                slot.position()), slot.requiredPassRate(), joinAt, null,
+                alternative.getCoefficient(demand.rank(), demand.ocName(), slot.code()));
+    }
+
+    /**
+     * 计算基础完整匹配在指定加入顺序策略下的候选方案。
+     *
+     * @param unique         去重方案累积集合
+     * @param state          当前时间线状态
+     * @param obligation     待排程义务
+     * @param stateMembers   当前可用候选成员
+     * @param effectivePause 该义务的停转上限
+     * @param earliestFirst  成员加入顺序回退策略
+     */
+    private void addSchedule(Map<String, StageSchedule> unique, OcTimelineState state,
+                             OcTimelineObligation obligation,
+                             List<OcMemberCandidate> stateMembers, Duration effectivePause,
+                             boolean earliestFirst) {
+        OcTeamDemand demand = obligation.demand();
+        OcRosterMatchResult match = rosterMatcher.matchDeterministic(demand, stateMembers,
+                state.snapshotTime());
+        if (!match.complete()) {
+            return;
+        }
+        StageSchedule schedule = buildStageSchedule(state, obligation, match.assignments(),
+                stateMembers, effectivePause, earliestFirst);
+        if (schedule != null) {
+            unique.putIfAbsent(scheduleSignature(schedule), schedule);
+        }
+    }
+
+    /**
+     * 构造候选方案的稳定签名：按加入顺序的成员与岗位序列。
+     *
+     * @param schedule 候选方案
+     * @return 签名
+     */
+    private String scheduleSignature(StageSchedule schedule) {
+        StringJoiner joiner = new StringJoiner("|");
+        for (OcPlannedAssignment assignment : schedule.assignments()) {
+            joiner.add(assignment.userId() + "@" + assignment.slotCode());
+        }
+        return joiner.toString();
+    }
+
+    /**
+     * 当前义务完成后按真实完成时间生成链后继任务并记录生成事件。
+     *
+     * <p>后继键继承根实例键并附加链节点标识，保证同模板多次刷新的
+     * 全部事件、停转、锚点和后继义务互不冲突。</p>
+     *
+     * @param task         已完成的当前任务
+     * @param rest         其余任务
+     * @param state        已写入完成事件的分支状态
+     * @param completionAt 当前节点完成时间
+     * @return 追加链后继后的剩余任务列表，保持处理顺序
+     */
+    private List<Task> withSpawnedSuccessors(Task task, List<Task> rest,
+                                             OcTimelineState state,
+                                             LocalDateTime completionAt) {
+        if (task.successors().isEmpty()) {
+            return rest;
         }
         OcTeamDemand template = task.successors().getFirst();
         OcTeamDemand successorDemand = new OcTeamDemand(0L, template.ocName(),
@@ -146,68 +592,17 @@ final class OcTimelineEventScheduler {
                 completionAt.plusDays(OcTimelinePolicy.FIRST_JOIN_EXPIRE_DAYS), true,
                 template.slots(), Set.of(), Set.of());
         String successorKey = task.obligation().key() + "->"
-                + template.rank() + ":" + template.ocName();
+                + task.successors().size() + ":" + template.rank() + ":" + template.ocName();
         OcTimelineObligation successor = new OcTimelineObligation(successorKey,
                 OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR,
                 successorDemand, successorDemand.expiresAt(), completionAt);
-        queue.add(new Task(successor, task.successors().subList(1, task.successors().size())));
         state.addEvent(new OcTimelineEvent(completionAt,
                 OcTimelineEvent.EventType.CHAIN_SUCCESSOR_GENERATED, successorKey));
-    }
-
-    /**
-     * 将单个义务排入当前时间线状态。
-     *
-     * @param state        当前时间线状态
-     * @param task         待排程任务
-     * @param allowedPause 单次主动新增停转上限
-     * @param request      求解请求
-     * @return 排程结果
-     */
-    private ObligationOutcome scheduleObligation(OcTimelineState state, Task task,
-                                                 Duration allowedPause,
-                                                 OcRefreshSafetyRequest request) {
-        OcTimelineObligation obligation = task.obligation();
-        OcTeamDemand demand = obligation.demand();
-        if (demand.getVacantSlots().isEmpty()) {
-            return scheduleFullObligation(state, obligation);
-        }
-        Duration effectivePause = switch (obligation.kind()) {
-            case EXISTING_JOINED -> FACT_MAX_PAUSE;
-            case COMMITTED_CHAIN_SUCCESSOR -> Duration.ZERO;
-            case PLANNED_EMPTY, CONDITIONAL_RANDOM -> allowedPause;
-        };
-        List<OcMemberCandidate> stateMembers = stateCandidates(state, request);
-        StageSchedule schedule = buildStageSchedule(state, obligation, stateMembers,
-                effectivePause, false);
-        if (schedule == null) {
-            schedule = buildStageSchedule(state, obligation, stateMembers, effectivePause, true);
-        }
-        if (schedule == null) {
-            return new ObligationOutcome(false,
-                    isDeterministicShortage(obligation, request), null);
-        }
-        applySchedule(state, obligation, schedule);
-        return new ObligationOutcome(true, false, schedule.completionAt());
-    }
-
-    /**
-     * 排程已满员义务：按readyTime生成确定完成—释放事件。
-     *
-     * @param state      当前时间线状态
-     * @param obligation 已满员义务
-     * @return 排程结果；readyTime缺失时按不可证明失败处理
-     */
-    private ObligationOutcome scheduleFullObligation(OcTimelineState state,
-                                                     OcTimelineObligation obligation) {
-        LocalDateTime readyAt = obligation.demand().readyAt();
-        if (readyAt == null) {
-            return new ObligationOutcome(false, false, null);
-        }
-        LocalDateTime completionAt = readyAt.isBefore(state.snapshotTime())
-                ? state.snapshotTime() : readyAt;
-        applyCompletion(state, obligation, completionAt, List.of());
-        return new ObligationOutcome(true, false, completionAt);
+        List<Task> updated = new ArrayList<>(rest);
+        updated.add(new Task(successor, task.successors().subList(1,
+                task.successors().size())));
+        updated.sort(taskComparator());
+        return updated;
     }
 
     /**
@@ -232,38 +627,35 @@ final class OcTimelineEventScheduler {
     /**
      * 按逐阶段递推构建义务的完整加入时间线并执行停转政策与期限校验。
      *
-     * @param state         当前时间线状态
-     * @param obligation    待排程义务
-     * @param candidates    当前可用候选成员
-     * @param allowedPause  单次主动新增停转上限
-     * @param earliestFirst 成员加入顺序回退策略：true时最早可用优先
+     * @param state          当前时间线状态
+     * @param obligation     待排程义务
+     * @param assignments    已确定的岗位安排
+     * @param candidates     当前可用候选成员，用于岗位稀缺性统计
+     * @param effectivePause 该义务的停转上限
+     * @param earliestFirst  成员加入顺序回退策略：true时最早可用优先
      * @return 阶段时间线；无法满足岗位、期限或停转政策时返回null
      */
     private StageSchedule buildStageSchedule(OcTimelineState state,
                                              OcTimelineObligation obligation,
+                                             List<OcPlannedAssignment> assignments,
                                              List<OcMemberCandidate> candidates,
-                                             Duration allowedPause,
+                                             Duration effectivePause,
                                              boolean earliestFirst) {
         OcTeamDemand demand = obligation.demand();
-        OcRosterMatchResult match = rosterMatcher.matchDeterministic(
-                demand, candidates, state.snapshotTime());
-        if (!match.complete() || match.completionAt() == null) {
-            return null;
-        }
-        List<OcPlannedAssignment> assignments = orderAssignments(
-                match.assignments(), demand, candidates, earliestFirst);
+        List<OcPlannedAssignment> ordered = orderAssignments(assignments, demand, candidates,
+                earliestFirst);
         LocalDateTime stageBoundary = demand.readyAt();
         List<LocalDateTime> joinTimes = new ArrayList<>();
-        for (OcPlannedAssignment assignment : assignments) {
+        for (OcPlannedAssignment assignment : ordered) {
             LocalDateTime joinAt = effectiveJoinAt(state, assignment);
             if (!joinAllowed(state, joinAt, stageBoundary, obligation.firstJoinDeadline(),
-                    allowedPause)) {
+                    effectivePause)) {
                 return null;
             }
             joinTimes.add(joinAt);
             stageBoundary = OcPreparationTimeCalculator.nextReadyTime(stageBoundary, joinAt);
         }
-        return joinTimes.isEmpty() ? null : new StageSchedule(assignments, joinTimes,
+        return joinTimes.isEmpty() ? null : new StageSchedule(ordered, joinTimes,
                 stageBoundary);
     }
 
@@ -286,12 +678,12 @@ final class OcTimelineEventScheduler {
      * @param joinAt            实际加入时间
      * @param stageBoundary     当前阶段边界；尚无成员时为null
      * @param firstJoinDeadline 首人最晚加入期限
-     * @param allowedPause      单次主动新增停转上限
+     * @param effectivePause    该义务的单次新增停转上限
      * @return 允许加入时返回true
      */
     private boolean joinAllowed(OcTimelineState state, LocalDateTime joinAt,
                                 LocalDateTime stageBoundary, LocalDateTime firstJoinDeadline,
-                                Duration allowedPause) {
+                                Duration effectivePause) {
         if (stageBoundary == null) {
             return firstJoinDeadline == null || !joinAt.isAfter(firstJoinDeadline);
         }
@@ -300,7 +692,7 @@ final class OcTimelineEventScheduler {
         }
         Duration pause = Duration.between(stageBoundary, joinAt);
         return !stageBoundary.isAfter(state.snapshotTime())
-                || pause.compareTo(allowedPause) <= 0;
+                || pause.compareTo(effectivePause) <= 0;
     }
 
     /**
@@ -376,7 +768,7 @@ final class OcTimelineEventScheduler {
                         || !stageBoundary.isAfter(state.snapshotTime());
                 state.addPause(new OcPauseAssessment(obligation.key(),
                         Duration.between(stageBoundary, joinAt), joinAt,
-                        preExisting, true));
+                        preExisting));
                 state.addEvent(new OcTimelineEvent(stageBoundary,
                         OcTimelineEvent.EventType.PAUSE_STARTED, obligation.key()));
                 state.addEvent(new OcTimelineEvent(joinAt,
@@ -389,6 +781,9 @@ final class OcTimelineEventScheduler {
 
     /**
      * 写入义务完成事件：释放固定与新增成员，记录占用区间、锚点和完成释放事件。
+     *
+     * <p>锚点替换标记不再按锚点存在性直接填充，最终由
+     * {@link OcLiquidityPathVerifier#verifyReplacementAnchors}以成员级占用区间回填。</p>
      *
      * @param state        当前时间线状态
      * @param obligation   已完成义务
@@ -409,7 +804,7 @@ final class OcTimelineEventScheduler {
             released++;
         }
         state.addAnchor(new OcLiquidityAnchor(obligation.key(), completionAt, released,
-                !state.anchors().isEmpty()));
+                false));
         state.addEvent(new OcTimelineEvent(completionAt,
                 OcTimelineEvent.EventType.COMPLETION_RELEASE, obligation.key()));
     }
@@ -442,6 +837,22 @@ final class OcTimelineEventScheduler {
                 .map(OcPauseAssessment::newPauseDuration)
                 .max(Duration::compareTo)
                 .orElse(Duration.ZERO);
+    }
+
+    /**
+     * 由本次模拟的停转上限反推模式停转政策。
+     *
+     * @param allowedPause 单次主动新增停转上限
+     * @return 对应的规划模式
+     */
+    private OcPlanMode modeForPause(Duration allowedPause) {
+        if (Duration.ZERO.equals(allowedPause)) {
+            return OcPlanMode.CONSERVATIVE;
+        }
+        if (OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE.equals(allowedPause)) {
+            return OcPlanMode.BALANCED;
+        }
+        return OcPlanMode.PROFIT;
     }
 
     /**
@@ -493,18 +904,5 @@ final class OcTimelineEventScheduler {
     record CandidateRoot(
             OcTimelineObligation obligation,
             List<OcTeamDemand> successors) {
-    }
-
-    /**
-     * 义务的完整阶段时间线。
-     *
-     * @param assignments  按加入顺序排列的岗位安排
-     * @param joinTimes    与安排对应的实际加入时间
-     * @param completionAt 最终完成时间
-     */
-    private record StageSchedule(
-            List<OcPlannedAssignment> assignments,
-            List<LocalDateTime> joinTimes,
-            LocalDateTime completionAt) {
     }
 }

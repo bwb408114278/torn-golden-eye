@@ -98,11 +98,32 @@ class OcRefreshVectorEvaluator {
         List<CandidateRoot> roots = candidateRoots(request, normalCombination,
                 highCombination);
         SimulationResult result = simulateTiered(request, roots);
-        if (result == null) {
+        if (result.searchBudgetExhausted()) {
+            if (result.feasible()) {
+                mergeWorstCase(worst, result, roots, evidenceByTemplate);
+                return new VectorEvaluation(VectorEvaluation.Status.BUDGET_EXHAUSTED,
+                        worst.toEvaluation(vectorOf(normalCombination, highCombination))
+                                .candidate());
+            }
+            return VectorEvaluation.budgetExhausted();
+        }
+        if (!result.feasible()) {
             return VectorEvaluation.failed();
         }
         mergeWorstCase(worst, result, roots, evidenceByTemplate);
         return null;
+    }
+
+    /**
+     * 由普通池与高阶池组合还原刷新向量。
+     *
+     * @param normalCombination 普通池各模板出现次数
+     * @param highCombination   各高阶链出现次数
+     * @return 刷新向量
+     */
+    private OcRefreshVector vectorOf(int[] normalCombination, int[] highCombination) {
+        return new OcRefreshVector(java.util.Arrays.stream(normalCombination).sum(),
+                java.util.Arrays.stream(highCombination).sum());
     }
 
     /**
@@ -120,6 +141,7 @@ class OcRefreshVectorEvaluator {
         worst.worstValue = minEvidence(worst.worstValue,
                 combinationValue(roots, evidenceByTemplate));
         worst.anyValued &= combinationValued(roots, evidenceByTemplate);
+        worst.anyUsableForAdvice &= combinationUsableForAdvice(roots, evidenceByTemplate);
         worst.worstMemberDays = Math.max(worst.worstMemberDays,
                 combinationMemberDays(roots, evidenceByTemplate));
         LocalDateTime completion = earliestCompletion(result.events());
@@ -128,7 +150,7 @@ class OcRefreshVectorEvaluator {
             worst.earliestCompletion = completion;
         }
         worst.minAnchorCount = Math.min(worst.minAnchorCount, result.anchors().size());
-        worst.level = minLevel(worst.level, evidenceLevel(roots, evidenceByTemplate));
+        worst.level = weakerLevel(worst.level, evidenceLevel(roots, evidenceByTemplate));
     }
 
     /**
@@ -148,28 +170,31 @@ class OcRefreshVectorEvaluator {
     /**
      * 按停转层级从零到收益上限逐级尝试模拟组合。
      *
+     * <p>任一层级达到搜索预算截断即立即返回该结果，由上层映射为
+     * {@code UNPROVEN_SEARCH_BUDGET}；全部层级不可行且未截断时返回null。</p>
+     *
      * @param request 求解请求
      * @param roots   随机结果候选根义务
-     * @return 第一个可行层级的模拟结果；全部层级不可行时返回null
+     * @return 第一个可行层级或预算截断的模拟结果；全部层级不可行时返回null
      */
     private SimulationResult simulateTiered(OcRefreshSafetyRequest request,
                                             List<CandidateRoot> roots) {
         SimulationResult result = scheduler.simulate(request, roots, Duration.ZERO, true);
-        if (result.feasible()) {
+        if (result.feasible() || result.searchBudgetExhausted()) {
             return result;
         }
         result = scheduler.simulate(request, roots,
                 OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE, true);
-        if (result.feasible()) {
+        if (result.feasible() || result.searchBudgetExhausted()) {
             return result;
         }
-        result = scheduler.simulate(request, roots,
+        return scheduler.simulate(request, roots,
                 OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, true);
-        return result.feasible() ? result : null;
     }
 
     /**
-     * 构造一组随机结果组合对应的候选根义务集合。
+     * 构造一组随机结果组合对应的候选根义务集合。同模板多次刷新按出现序号
+     * 生成独立义务键，保证事件、停转、锚点和后继义务互不冲突。
      *
      * @param request           求解请求
      * @param normalCombination 普通池各模板出现次数
@@ -184,14 +209,14 @@ class OcRefreshVectorEvaluator {
             OcTeamDemand template = request.normalTemplates().get(index);
             for (int count = 0; count < normalCombination[index]; count++) {
                 roots.add(new CandidateRoot(freshObligation(template,
-                        request.planningTime(), "tpl"), List.of()));
+                        request.planningTime(), "tpl", count), List.of()));
             }
         }
         for (int chainIndex = 0; chainIndex < highCombination.length; chainIndex++) {
             List<OcTeamDemand> chain = request.highChains().get(chainIndex);
             for (int count = 0; count < highCombination[chainIndex]; count++) {
                 OcTimelineObligation root = freshObligation(chain.getFirst(),
-                        request.planningTime(), "chain");
+                        request.planningTime(), "chain", count);
                 roots.add(new CandidateRoot(root,
                         chain.subList(1, chain.size())));
             }
@@ -202,18 +227,21 @@ class OcRefreshVectorEvaluator {
     /**
      * 根据随机结果模板创建新的无人OC义务。
      *
-     * @param template  随机结果模板
-     * @param createdAt 创建时间
-     * @param keyPrefix 义务键前缀
+     * @param template   随机结果模板
+     * @param createdAt  创建时间
+     * @param keyPrefix  义务键前缀
+     * @param occurrence 同模板在当前组合内的出现序号，从0开始
      * @return 带首人期限的条件性随机结果义务
      */
     private OcTimelineObligation freshObligation(OcTeamDemand template,
-                                                 LocalDateTime createdAt, String keyPrefix) {
+                                                 LocalDateTime createdAt, String keyPrefix,
+                                                 int occurrence) {
         LocalDateTime deadline = createdAt.plusDays(OcTimelinePolicy.FIRST_JOIN_EXPIRE_DAYS);
         OcTeamDemand demand = new OcTeamDemand(0L, template.ocName(), template.rank(), null,
                 deadline, template.chain(), template.slots(), Set.of(), Set.of());
         return new OcTimelineObligation(keyPrefix + ":" + template.rank() + ":"
-                + template.ocName(), OcTimelineObligation.ObligationKind.CONDITIONAL_RANDOM,
+                + template.ocName() + ":" + occurrence,
+                OcTimelineObligation.ObligationKind.CONDITIONAL_RANDOM,
                 demand, deadline, null);
     }
 
@@ -281,10 +309,28 @@ class OcRefreshVectorEvaluator {
         for (CandidateRoot root : roots) {
             OcValueEvidence evidence = evidence(evidenceByTemplate, root);
             if (evidence != null) {
-                level = minLevel(level, evidence.level());
+                level = weakerLevel(level, evidence.level());
             }
         }
         return level;
+    }
+
+    /**
+     * 判断组合内全部候选的证据是否均可用于提高刷新建议。
+     *
+     * @param roots              候选根义务
+     * @param evidenceByTemplate 按模板键索引的价值证据
+     * @return 全部候选证据可用时返回true
+     */
+    private boolean combinationUsableForAdvice(List<CandidateRoot> roots,
+                                               Map<String, OcValueEvidence> evidenceByTemplate) {
+        for (CandidateRoot root : roots) {
+            OcValueEvidence evidence = evidence(evidenceByTemplate, root);
+            if (evidence == null || !evidence.usableForAdviceIncrease()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -310,22 +356,25 @@ class OcRefreshVectorEvaluator {
      * @param right 层级二
      * @return 较弱层级
      */
-    private OcValueEvidence.Level minLevel(OcValueEvidence.Level left, OcValueEvidence.Level right) {
-        return left.compareTo(right) <= 0 ? left : right;
+    private OcValueEvidence.Level weakerLevel(OcValueEvidence.Level left,
+                                              OcValueEvidence.Level right) {
+        return left.compareTo(right) >= 0 ? left : right;
     }
 
     /**
      * 取两个非空金额中较小的一个作为最坏组合价值。
      *
-     * @param current   当前最坏价值
+     * <p>首个组合的金额直接作为初始最坏值；任一组合金额证据不足时整体为null。</p>
+     *
+     * @param current   当前最坏价值；尚未累积时为null
      * @param candidate 新组合价值
-     * @return 较小价值；任一为null时返回null
+     * @return 较小价值；新组合证据不足时为null
      */
     private BigDecimal minEvidence(BigDecimal current, BigDecimal candidate) {
-        if (current == null || candidate == null) {
+        if (candidate == null) {
             return null;
         }
-        return current.min(candidate);
+        return current == null ? candidate : current.min(candidate);
     }
 
     /**
@@ -445,6 +494,7 @@ class OcRefreshVectorEvaluator {
                 OcRefreshSafetyResult.SafeCandidate.PauseTier.ZERO_PAUSE;
         private BigDecimal worstValue = null;
         private boolean anyValued = true;
+        private boolean anyUsableForAdvice = true;
         private int worstMemberDays = 0;
         private LocalDateTime earliestCompletion = null;
         private int minAnchorCount = Integer.MAX_VALUE;
@@ -455,7 +505,7 @@ class OcRefreshVectorEvaluator {
             return new VectorEvaluation(VectorEvaluation.Status.SAFE,
                     new OcRefreshSafetyResult.SafeCandidate(vector, tier,
                             anyValued ? worstValue : null, worstMemberDays,
-                            earliestCompletion, anchorCount, level));
+                            earliestCompletion, anchorCount, level, anyUsableForAdvice));
         }
     }
 }

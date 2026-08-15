@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
+import pn.torn.goldeneye.repository.model.faction.oc.OcRankNameKey;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
 import java.util.ArrayList;
@@ -57,7 +58,7 @@ class OcPlanningRewardStatsMapperTest {
         insertOc(TornOcStatusEnum.FAILURE, COMPLETE_OC, 900L, "100");
 
         Map<String, OcPlanningRewardStatsDO> stats = calculator.aggregate(
-                ocDao.queryCompletedByOcKeys(List.of(ocKey(COMPLETE_OC))));
+                ocDao.queryCompletedByOcKeys(List.of(rankName(COMPLETE_OC))));
 
         OcPlanningRewardStatsDO complete = stats.get(ocKey(COMPLETE_OC));
         assertEquals(5, complete.attemptCount());
@@ -75,7 +76,7 @@ class OcPlanningRewardStatsMapperTest {
         insertOc(TornOcStatusEnum.RECRUITING, COMPLETE_OC, 100L, "50");
 
         List<TornFactionOcDO> rows = ocDao.queryCompletedByOcKeys(
-                List.of(ocKey(COMPLETE_OC)));
+                List.of(rankName(COMPLETE_OC)));
 
         assertEquals(1, rows.size());
         assertEquals(COMPLETE_OC, rows.getFirst().getName());
@@ -104,7 +105,7 @@ class OcPlanningRewardStatsMapperTest {
         insertOc(TornOcStatusEnum.SUCCESSFUL, PARTIAL_OC, 200L, "50");
 
         List<TornFactionOcDO> rows = ocDao.queryCompletedByOcKeys(
-                List.of(ocKey(COMPLETE_OC), ocKey(PARTIAL_OC)));
+                List.of(rankName(COMPLETE_OC), rankName(PARTIAL_OC)));
 
         assertEquals(2, rows.size());
         assertTrue(rows.stream().anyMatch(oc -> COMPLETE_OC.equals(oc.getName())));
@@ -131,7 +132,27 @@ class OcPlanningRewardStatsMapperTest {
         return oc;
     }
 
+    @Test
+    @DisplayName("等级名称成对条件应精确匹配且不受同名不同等级记录干扰")
+    void shouldMatchExactRankNamePairWithoutSameNameCrossRankNoise() {
+        insertOc(TornOcStatusEnum.SUCCESSFUL, COMPLETE_OC, 100L, "50");
+        TornFactionOcDO otherRank = row(TornOcStatusEnum.SUCCESSFUL, COMPLETE_OC, 900L, "50");
+        otherRank.setRank(TEST_RANK + 1);
+        ocDao.save(otherRank);
+        insertedIds.add(otherRank.getId());
+
+        List<TornFactionOcDO> rows = ocDao.queryCompletedByOcKeys(
+                List.of(rankName(COMPLETE_OC)));
+
+        assertEquals(1, rows.size());
+        assertEquals(TEST_RANK, rows.getFirst().getRank());
+    }
+
     private String ocKey(String name) {
         return TEST_RANK + ":" + name;
+    }
+
+    private OcRankNameKey rankName(String name) {
+        return new OcRankNameKey(TEST_RANK, name);
     }
 }
