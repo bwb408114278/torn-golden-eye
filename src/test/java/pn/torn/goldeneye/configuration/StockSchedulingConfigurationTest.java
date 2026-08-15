@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -13,7 +15,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * 股票调度资源配置单元测试 - 验证实时/VIP/回填执行资源隔离配置。
  * <p>
  * 验证 {@link StockSchedulingConfiguration} 定义的实时采集与 VIP 轮次调度器为不同对象、
- * 线程名前缀与容量符合设计;回填执行器受限并发且拒绝策略不得使用
+ * 线程名前缀与容量符合设计;回填执行器受限并发、饱和时抛出 {@link RejectedExecutionException}
+ * 供调用方感知投递失败,且拒绝策略不得使用
  * {@link ThreadPoolExecutor.CallerRunsPolicy}（避免回填回退占用调度线程）。
  *
  * @author Bai
@@ -54,5 +57,31 @@ class StockSchedulingConfigurationTest {
         assertFalse(backfill.getThreadPoolExecutor().getRejectedExecutionHandler()
                         instanceof ThreadPoolExecutor.CallerRunsPolicy,
                 "回填执行器拒绝策略禁止CallerRuns,避免回填占用调度线程");
+    }
+
+    @Test
+    @DisplayName("回填执行器_饱和时拒绝提交必须抛RejectedExecutionException供调用方感知")
+    void backfillExecutor_saturated_rejectionThrowsException() {
+        ThreadPoolTaskExecutor backfill = configuration.stockBackfillExecutor();
+        backfill.initialize();
+        CountDownLatch release = new CountDownLatch(1);
+        Runnable blockingTask = () -> {
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        try {
+            // 单线程 + 队列1: 前两个任务占满, 第三个提交必须以异常形式被拒绝
+            backfill.execute(blockingTask);
+            backfill.execute(blockingTask);
+
+            assertThrows(RejectedExecutionException.class, () -> backfill.execute(() -> {
+            }), "执行器饱和时必须抛出RejectedExecutionException, 不得静默拒绝使processing永久占用");
+        } finally {
+            release.countDown();
+            backfill.shutdown();
+        }
     }
 }

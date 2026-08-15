@@ -189,4 +189,19 @@
         FROM torn_stocks_history
         WHERE deleted = 0
     </select>
+
+    <!-- 一条聚合SQL统计每支股票在窗口内的有效自然分钟数(每日连续性巡检,不区分data_source,不按来源分组) -->
+    <select id="selectMinuteCountsByStocksAndRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.StockHistoryMinuteCount">
+        SELECT stocks_id                                   AS stocksId,
+               COUNT(DISTINCT date_trunc('minute', reg_date_time)) AS minuteCount
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND stocks_id IN
+          <foreach collection="stocksIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+          AND reg_date_time >= #{start}
+          AND reg_date_time &lt; #{end}
+        GROUP BY stocks_id
+    </select>
 </mapper>

@@ -1,4 +1,4 @@
-# Tornsy 股票历史缺口补正与 13 个月实验实施方案
+# Tornsy 股票历史缺口补正实施方案（超管范围指令 + 每日连续性巡检）
 
 > **文档类型：** 开发实施方案（技术基线）  
 > **适用项目：** Golden-Eye 1.2.14+  
@@ -31,9 +31,9 @@ torn_stocks_history 缺分钟
 3. `market_cap`、`investors` 改为允许 `NULL`；未知值**绝不能写 `0`**。
 4. 每个 `(stocks_id, 自然分钟)` 仅允许一条有效事实。用户先处理现存自然分钟重复数据，再由 Liquibase 创建自然分钟部分唯一索引。
 5. 本期只消费 Tornsy `m1` 数据。`m5/m15/h1/...` OHLC 不写入分钟表，不参与 bar/feature/策略。
-6. 自动补正只修复最近短缺口；一次性实验固定为**执行时刻向前 13 个月**，分片运行、可中断重试。
+6. 回填入口只有两个：**超管机器人指令**人工指定任意历史范围 `[start,end)` 执行一次补数；**每日巡检**（08:45，Asia/Shanghai）检查昨天自然日的分钟连续性，发现缺口才自动补数。不使用 `sys_setting` 开关、启动自动恢复、每小时 AUTO 或 13 个月 EXPERIMENT 环境变量。
 7. 实际插入后，定向重建受影响的 15 分钟 bar/feature；不直接操作买卖、资金、Shadow、消息或月度状态。
-8. 本期不建自动归档、历史删除、表分区。13 个月实验后根据实际容量和性能另行专题设计。
+8. 本期不建自动归档、历史删除、表分区。全量历史补数由超管按小范围 → 较大范围逐步扩大人工执行；容量与性能另行专题设计。
 9. 本期不新增真实 PostgreSQL 集成测试代码，也不要求开发人员给出生产全量补数报告。部署/生产后数据验收由 AI 技术负责人使用 MCP 只读查询完成。
 
 ---
@@ -168,13 +168,16 @@ Tornsy epochSecond
 [startInclusive, endExclusive)
 ```
 
-稳定截止时间：
+稳定截止时间（人工历史补数）：
 
 ```text
-stableEndExclusive = floorToMinute(now(Asia/Shanghai) - 5分钟)
+manualStableEndExclusive = floorToMinute(now(Asia/Shanghai) - 30分钟)
+人工提交的 endExclusive 必须早于该截止（end >= 截止视为 TOO_RECENT 拒绝）
 ```
 
-最近 5 分钟不从 Tornsy 补，避免与实时 Torn 采集/第三方可见延迟发生竞争。
+人工历史补数必须保留最近 **30 分钟** 的稳定缓冲；它是人工操作，30 分钟比每日"昨日完整窗口"更适合规避实时采集延迟和当前分钟竞争。判定必须通过 `StockMarketClock.now()` 计算，禁止 `LocalDateTime.now()`。
+
+每日巡检窗口固定为昨天完整自然日 `[昨天00:00, 今天00:00)`，理论分钟数 24 × 60 = 1440，不做"当前 - N 分钟"滚动计算。
 
 ---
 
@@ -292,7 +295,8 @@ src/main/java/pn/torn/goldeneye/torn/service/stocks/backfill/
 | `TornsyMinuteQuoteParser.java` | JSON 数组解析和行级校验 | 非法行拒绝，不补值 |
 | `TornsyStockHistoryClient.java` | Tornsy HTTP 请求、有限重试和分页 | 复用 `RestClient`，不使用 Torn API Key |
 | `TornsyStockHistoryBackfillService.java` | 拉取、映射、批量存在性过滤、冲突安全写入、定向重建 | 不调用 `TornStocksManager` |
-| `TornsyStockHistoryBackfillScheduler.java` | 启动短窗口恢复、每小时缺口补正、13个月一次性实验入口 | JVM `AtomicBoolean` 防重入 |
+| `TornsyStockHistoryBackfillScheduler.java` | 超管人工范围回填调度入口 + 每日昨天连续性巡检入口 | JVM `AtomicBoolean` 防重入（人工与每日共用） |
+| `TornsyStockHistoryBackfillStrategyImpl.java` | 超管 Bot 指令入口：参数解析与用户反馈，收敛到 Scheduler | 不直接注入回填 Service/Client/DAO/执行器 |
 
 ### 5.2 修改持久层
 
@@ -403,7 +407,7 @@ acronym 在当前 torn_stocks 中唯一映射
       Tornsy 与本地实时分钟的时间对齐和价格差异
 ```
 
-探针不通过：补数开关保持关闭；停止实验补数。
+探针不通过：停止发送人工范围指令；每日巡检发现缺口时回填失败仅记 ERROR，不产生其他副作用。
 
 ---
 
@@ -453,7 +457,7 @@ investors = 0
 
 ```text
 JVM AtomicBoolean 防本实例重入
-+ 最近5分钟不补
++ 人工结束时间 30 分钟稳定截止 / 每日巡检固定昨天完整窗口
 + 批量存在性查询
 + 自然分钟部分唯一索引
 + INSERT ... ON CONFLICT DO NOTHING
@@ -464,48 +468,38 @@ JVM AtomicBoolean 防本实例重入
 
 ---
 
-## 8. 自动补正、13个月实验与派生数据补齐
+## 8. 超管范围指令、每日连续性巡检与派生数据补齐
 
-### 8.1 自动短缺口补正
-
-`TornsyStockHistoryBackfillScheduler` 与 VIP 轮次事务隔离：
-
-| 入口 | 频率 | 范围 | 上限 |
-|---|---|---|---|
-| 启动异步恢复 | 一次 | `now-24h` 至稳定截止 | 最多 24 小时缺口 |
-| 周期性补正 | 每小时低峰 | `now-7d` 至稳定截止 | 单次最多 24 小时缺口 |
-
-超过自动范围的缺口记录 WARN，等待一次性实验入口处理；不自动请求数月历史。
-
-### 8.2 13个月实验
+### 8.1 超管人工范围指令
 
 ```text
-experimentStart = floorToMinute(executionTime - 13个月)
-experimentEnd   = floorToMinute(executionTime - 5分钟)
-范围            = [experimentStart, experimentEnd)
+同步Tornsy股票数据#2026-07-01 00:00:00#2026-07-02 00:00:00
 ```
 
-配置：
+- 超管指令（`isNeedSa=true`），消息正文 `start#end`，时区 `Asia/Shanghai`，格式 `yyyy-MM-dd HH:mm:ss`；
+- 范围语义 `[startInclusive, endExclusive)`；`end` 必须早于 30 分钟稳定截止，否则回复未受理（TOO_RECENT）；
+- 提交结果为 `BackfillSubmission`：`ACCEPTED / NOT_PROD / INVALID_RANGE / TOO_RECENT / ALREADY_PROCESSING / EXECUTOR_REJECTED`；
+- `ACCEPTED` 仅表示已投递专用执行器，Bot 立即回复"已受理"，不在消息线程同步执行长范围 HTTP、分钟入库或 feature 重算；
+- 不依赖任何 `sys_setting` 开关，不需要重启或"刷新缓存"；
+- 小范围验证 → 较大范围验证 → 全量历史补数均通过本入口人工执行。
 
-| Key | 默认值 | 用途 |
-|---|---:|---|
-| `STOCK_HISTORY_BACKFILL_AUTO_ENABLED` | `false` | 自动短窗口补正开关 |
-| `STOCK_HISTORY_BACKFILL_EXPERIMENT_ENABLED` | `false` | 一次性实验开关 |
-| `STOCK_HISTORY_BACKFILL_EXPERIMENT_START` | 空 | 固定开始时间 |
-| `STOCK_HISTORY_BACKFILL_EXPERIMENT_END` | 空 | 固定结束时间，必须早于稳定截止 |
-| `STOCK_HISTORY_BACKFILL_PAGE_LIMIT` | 探针确认值 | Tornsy 分页大小 |
+### 8.2 每日昨天连续性巡检
 
-执行：
+每天 **08:45（Asia/Shanghai）** 执行一次（`cron = 0 45 8 * * ?`）：
 
 ```text
-填写固定 start/end
-→ 显式开启实验开关
-→ 按 股票 × 最多1天 时间片请求、校验、短事务插入
-→ 按实际插入点重建派生数据
-→ 全部范围处理完成后关闭实验开关
+巡检窗口 = [昨天 00:00:00, 今天 00:00:00)，理论分钟数 1440
+→ 读取全部有效股票清单（TornStocksDAO.list()）
+→ 一条聚合 SQL 统计每支股票在窗口内的 distinct 自然分钟数
+  （COUNT(DISTINCT date_trunc('minute', reg_date_time))，不区分 data_source）
+→ 任意有效股票 count < 1440 判定缺口（缺失 SQL 行解释为 0）
+→ 仅此时投递 stockBackfillExecutor 回填整个昨天窗口
+→ 无缺口：直接结束，不请求 Tornsy、不写表、不重建 bar/feature
 ```
 
-中断时保持固定窗口；后续重试重新扫描同一窗口，已插入分钟通过唯一约束跳过。不得用新“当前时刻 - 13个月”重置边界。
+选择 08:45：昨天窗口已稳定结束、避开 08:30 的 ELO 预拉取与股票日报、不与实时采集的每分钟第 5 秒竞争。巡检失败（failedSlices、HTTP 失败、重建异常）只记录 ERROR，不永久关闭；下一日仍会再次巡检。每日巡检只兜底近期缺口，不替代人工范围指令，也不自动回填数月/数年历史。
+
+聚合查询为 `TornStocksHistoryMapper.selectMinuteCountsByStocksAndRange`（单条 SQL、无 N+1），配置属性 `StockHistoryBackfillProperty` 仅保留 `pageLimit` 技术参数。
 
 ### 8.3 15m bar 如何补齐
 
@@ -577,14 +571,16 @@ src/test/java/pn/torn/goldeneye/torn/service/stocks/backfill/
 | parser | m1 3/4 元数组、可选市值、非法数组、非数值、非整分钟、非正价格/总股数 |
 | client | URI 参数、HTTP 非2xx、空 body、解析失败、有限重试 |
 | backfill service | 已有分钟跳过；缺失分钟插入；`investors=null`；市值未知为 `null`；来源为 `TORNSY_BACKFILL`；不调用消息/旧特征入口 |
-| scheduler | 防重入、最近5分钟排除、24小时自动上限、实验窗口重试不漂移、成功后关实验开关 |
+| scheduler | 每日巡检非生产跳过/全连续不请求 Tornsy/缺口投递专用执行器；人工 30 分钟稳定截止与提交结果；人工与每日共用防重入；failedSlices/异常/拒绝后释放 |
+| 策略入口 | 指令声明、合法范围提交与已受理反馈、参数错误走既有格式错误、拒绝原因可区分、依赖收敛 |
+| 分钟计数聚合 Mapper | 真实 PostgreSQL：1440 distinct 计数、重复原始行不虚增、缺失分钟 <1440、`[start,end)` 边界、逻辑删除不计入 |
 | 定向重建编排 | 插入分钟映射到正确15分钟桶；只调用受影响区间；不创建交易/通知/月度状态 |
 
 不新增真实 PostgreSQL 集成测试代码，不为 Liquibase 失败或生产数据补数写模拟测试代码。
 
 ### 9.2 部署后 MCP 数据验收（AI 执行）
 
-不要求开发人员提供全量补数生产报告；生产部署/实验执行后，由 AI 技术负责人使用 MCP 或等效只读数据库查询核验：
+不要求开发人员提供全量补数生产报告；生产部署/人工范围补数或每日巡检回填执行后，由 AI 技术负责人使用 MCP 或等效只读数据库查询核验：
 
 1. 用户清理后，有效 `(stocks_id, naturalMinute)` 重复组为 0；
 2. `market_cap`、`investors` 可空，`data_source` 非空且默认 `TORN_API`；
@@ -605,8 +601,9 @@ Liquibase 在目标环境执行失败时，开发人员立刻通知用户；由�
 ### 9.4 开发验证命令
 
 ```bash
-JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd compile -q -DskipTests
-JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd test -Dtest="TornsyMinuteQuoteParserTest,TornsyStockHistoryBackfillServiceTest,TornsyStockHistoryBackfillSchedulerTest"
+JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd compile -q -DskipTests -Dmaven.compiler.showDeprecation=true
+JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd test -Dtest="TornsyMinuteQuoteParserTest,TornsyStockHistoryBackfillStrategyImplTest,TornsyStockHistoryBackfillSchedulerTest,TornsyStockHistoryBackfillServiceTest,TornStocksHistoryMapperTest,StockHistoryRebuildServiceTest,Stock15mFeatureBuildServiceTest,VipStockAlertSchedulerTest,TornStockMarketRoundMapperTest,StockSchedulingConfigurationTest"
+JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd test -q
 git diff --check
 ```
 
@@ -616,7 +613,7 @@ git diff --check
 
 ### 10.1 运行日志（不生成补数报告文件）
 
-一次性 13 个月补数在生产运行，开发人员无法也不应预先给出生产执行报告。因此本期：
+回填为人工指令/每日巡检异步执行，开发人员无法也不应预先给出生产执行报告。因此本期：
 
 - 不新增报告表；
 - 不生成 `.hermes/output`、JSON、CSV 或其他补数报告文件；
@@ -626,10 +623,12 @@ git diff --check
 生产仅输出必要的结构化日志：
 
 ```text
-mode / requestedStart / requestedEnd
+trigger = MANUAL / DAILY_INSPECTION
+requestedStart / requestedEnd
+missingStockCount / minimumMinuteCount（巡检发现缺口时）
 stocksShortname / timeSlice
-sourceRows / validRows / existedSkippedRows / insertedRows / rejectedRows
-affectedBucketCount / rebuildResult
+sourceRows / validRows / existedSkippedRows / insertedRows / rejectedRows / failedSlices
+affectedBucketCount / rebuiltBucketCount
 failureReason（失败时）
 ```
 
@@ -640,11 +639,11 @@ failureReason（失败时）
 ```text
 1. 用户处理自然分钟重复数据
 2. 开发部署前执行重复预检，确认0行
-3. 部署 Schema / 代码，补数开关均为 false
+3. 部署 Schema / 代码（部署或重启后不因环境变量自动请求 Tornsy）
 4. 执行 Tornsy 小窗口探针（不写库）
-5. 审核探针结果，开启 AUTO_ENABLED，观察短缺口补数
-6. 填入固定13个月实验窗口，显式开启 EXPERIMENT_ENABLED
-7. 生产执行后由 AI 通过 MCP 核验来源、NULL值、唯一性和15m派生数据
+5. 次日 08:45 观察每日巡检日志：昨天全连续时不请求 Tornsy
+6. 用户明确决定后，超管发送最小范围人工指令演练，AI 通过 MCP 核验
+7. failedSlices=0 才可逐步扩大人工历史范围
 8. 后续月度重算与回放另行授权
 ```
 
@@ -652,9 +651,9 @@ failureReason（失败时）
 
 | 情况 | 操作 |
 |---|---|
-| Tornsy 协议/质量异常 | 关闭两个补数开关；实时 Torn 采集继续 |
-| 自动补数资源压力 | 关闭 `AUTO_ENABLED` |
-| 实验中断 | 保持固定窗口，后续按缺口安全续跑 |
+| Tornsy 协议/质量异常 | 停止发送人工指令；实时 Torn 采集继续；每日巡检缺口回填失败只记 ERROR，下一日仍巡检 |
+| 人工/每日回填资源压力 | 依赖 JVM 防重入与专用执行器隔离；必要时重启进程清空队列（不占用实时/VIP 线程） |
+| 回填中断 | 人工按原窗口重新提交；已插入分钟通过唯一约束跳过 |
 | 补数数据经人工确认错误 | 单独提交按 `data_source=TORNSY_BACKFILL` + 精确股票/时间范围的清理方案；未经授权不得 DELETE |
 | Liquibase 失败 | 立即通知用户，由用户手工回滚/处理后重跑 |
 
@@ -666,10 +665,11 @@ failureReason（失败时）
 
 ```text
 缺口查询：全股票批量，禁止 N+1
-HTTP 并发：默认2，硬上限4
+分钟连续性巡检：单条聚合 SQL 统计全部股票 distinct 自然分钟
+HTTP 并发：回填仅运行于 stockBackfillExecutor（单并发 + 队列1）
 写入：股票×时间片短事务
-自动补数：最近7天扫描、单次最多24小时缺口
-实验补数：股票×最多1天分片
+每日巡检补数：仅昨天完整自然日窗口
+人工补数：任意历史范围，结束时间受 30 分钟稳定截止保护
 重建：仅实际插入分钟影响桶，单次最多1天桶
 ```
 
@@ -677,7 +677,7 @@ HTTP 并发：默认2，硬上限4
 
 ### 11.2 生命周期后续专题
 
-13 个月实验会显著增加 `torn_stocks_history` 数据量，但归档/分区需要基于真实容量、索引大小、补数耗时和回放性能设计。本期只观测：
+全量历史补数会显著增加 `torn_stocks_history` 数据量，但归档/分区需要基于真实容量、索引大小、补数耗时和回放性能设计。本期只观测：
 
 ```text
 表与索引大小
@@ -715,7 +715,7 @@ HTTP 并发：默认2，硬上限4
 8. 生产执行后通过第 9.2 节 MCP 数据验收；
 9. 无本轮 P0/P1。
 
-开发人员提交 diff、编译/单元测试结果和实验前检查清单；AI 技术负责人 Review 后，用户再决定是否开启实验补数。开发人员不得自行执行 13 个月写库任务。
+开发人员提交 diff、编译/单元测试结果和演练前检查清单；AI 技术负责人 Review 后，用户再决定是否执行首次生产人工范围演练。开发人员不得自行执行生产历史补数。
 
 ---
 

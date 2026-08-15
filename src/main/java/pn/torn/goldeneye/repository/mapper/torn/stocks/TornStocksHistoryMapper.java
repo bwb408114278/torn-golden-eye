@@ -93,4 +93,19 @@ public interface TornStocksHistoryMapper extends BaseMapper<TornStocksHistoryDO>
      * @return 最新记录时间，表为空时返回 null
      */
     LocalDateTime selectLatestHistoryTime();
+
+    /**
+     * 一条聚合 SQL 统计指定股票集合在时间窗口 [start, end) 内每支股票的有效自然分钟数
+     * <p>
+     * 供每日连续性巡检使用：按 {@code COUNT(DISTINCT date_trunc('minute', ...))} 统计，
+     * 不区分 {@code data_source}，不按来源分组；缺失 SQL 行由调用方解释为 {@code minuteCount=0}。
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 每支有数据股票的自然分钟计数列表（无数据的股票不返回行）
+     */
+    List<StockHistoryMinuteCount> selectMinuteCountsByStocksAndRange(@Param("stocksIds") List<Integer> stocksIds,
+                                                                     @Param("start") LocalDateTime start,
+                                                                     @Param("end") LocalDateTime end);
 }

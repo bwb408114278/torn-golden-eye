@@ -6,14 +6,16 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
+import java.util.concurrent.RejectedExecutionException;
+
 /**
  * 股票调度资源配置 - 为实时采集、VIP 15m 轮次与 Tornsy 回填分配隔离的执行资源
  * <p>
  * 实时分钟采集(最高优先级)与 VIP 轮次各使用独立单线程 {@link ThreadPoolTaskScheduler}，
  * 通过 {@code @Scheduled(scheduler = "...")} 按调度器 Bean 名绑定，避免重型 15m
- * bar/feature 重建占用默认调度线程导致实时采集延后。Tornsy 自动补正与实验回填使用
- * 受限并发 {@link ThreadPoolTaskExecutor}（单并发 + 队列1），拒绝策略只记录日志，
- * 不得 {@code CallerRuns} 回退到调度线程。
+ * bar/feature 重建占用默认调度线程导致实时采集延后。Tornsy 人工回填与每日巡检回填使用
+ * 受限并发 {@link ThreadPoolTaskExecutor}（单并发 + 队列1），拒绝时记录 WARN 并抛出
+ * {@link RejectedExecutionException} 使调用方可感知，不得 {@code CallerRuns} 回退到调度线程。
  * <p>
  * 默认 {@code taskScheduler} 保持 Spring Boot 默认单线程语义，继续服务未显式指定
  * 调度器的其余 {@code @Scheduled} 任务（非实时、非 VIP、非回填入口）。
@@ -74,7 +76,8 @@ public class StockSchedulingConfiguration {
      * Tornsy 历史回填专用执行器（单并发 + 队列容量1）。
      * <p>
      * 回填的 HTTP 拉取、分钟事实插入与派生数据重建在本执行器内串行执行，与实时采集
-     * 和 VIP 轮次完全隔离。执行器已满时记录 WARN 并拒绝新的回填触发，禁止
+     * 和 VIP 轮次完全隔离。执行器已满时记录 WARN 并抛出 {@link RejectedExecutionException}，
+     * 使提交方（人工指令/每日巡检）能感知投递失败并释放防重入标记；禁止
      * {@code CallerRuns} 让回填占用调度线程。
      *
      * @return 回填执行器 Bean
@@ -86,8 +89,10 @@ public class StockSchedulingConfiguration {
         executor.setMaxPoolSize(1);
         executor.setQueueCapacity(1);
         executor.setThreadNamePrefix("stock-backfill-");
-        executor.setRejectedExecutionHandler((task, executorRef) ->
-                log.warn("股票回填执行器已满, 拒绝新的回填触发, task={}", task));
+        executor.setRejectedExecutionHandler((task, executorRef) -> {
+            log.warn("股票回填执行器已满, 拒绝新的回填触发, task={}", task);
+            throw new RejectedExecutionException("股票回填执行器已满: " + task);
+        });
         return executor;
     }
 }

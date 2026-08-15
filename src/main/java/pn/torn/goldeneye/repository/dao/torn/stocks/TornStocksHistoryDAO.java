@@ -112,4 +112,20 @@ public class TornStocksHistoryDAO extends ServiceImpl<TornStocksHistoryMapper, T
     public LocalDateTime selectLatestHistoryTime() {
         return baseMapper.selectLatestHistoryTime();
     }
+
+    /**
+     * 一条聚合 SQL 统计指定股票集合在时间窗口 [start, end) 内每支股票的有效自然分钟数
+     * <p>
+     * 供每日连续性巡检判断分钟缺口使用；不区分 {@code data_source}。
+     * 缺失 SQL 行必须由调用方解释为 {@code minuteCount=0}。
+     *
+     * @param stocksIds 股票ID列表
+     * @param start     起始时间（含）
+     * @param end       结束时间（不含）
+     * @return 每支有数据股票的自然分钟计数列表（无数据的股票不返回行）
+     */
+    public List<StockHistoryMinuteCount> selectMinuteCountsByStocksAndRange(List<Integer> stocksIds,
+                                                                            LocalDateTime start, LocalDateTime end) {
+        return baseMapper.selectMinuteCountsByStocksAndRange(stocksIds, start, end);
+    }
 }
