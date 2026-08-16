@@ -220,6 +220,41 @@ class OcTimelinePlanningEngineTest {
                 .contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK));
     }
 
+    @Test
+    @DisplayName("窗口内释放成员投入新队但完整释放在证明窗口后不得输出已证明安全候选")
+    void shouldNotProveSafeWhenReinvestedMemberCompletesAfterProofWindow() {
+        OcMemberCandidate member = member(1L, NOW);
+        OcTimelineObligation completedInWindow = fullJoinedObligationWithFixedMember(
+                10L, NOW.minusHours(2), 1L);
+        OcTimelineObligation completesAfterWindow = plannedEmptyNamed(
+                20L, "Normal", NOW.plusHours(8));
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(member), Set.of(), List.of(completedInWindow, completesAfterWindow),
+                Map.of(), List.of(), List.of(), NOW);
+
+        OcRefreshSafetyResult result = engine().solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertTrue(result.candidates().isEmpty(),
+                "窗口后释放不能证明窗口内连续流动性，不得输出安全候选: " + result);
+        assertNotEquals(OcProofStatusEnum.PROVEN_SAFE,
+                result.assessment().proofStatus(), result.toString());
+        assertEquals(OcProofStatusEnum.PROVEN_INFEASIBLE,
+                result.assessment().proofStatus(), result.toString());
+        assertTrue(result.assessment().riskFlags()
+                .contains(OcRiskFlagEnum.DEADLOCK_RISK), result.toString());
+    }
+
+    private OcTimelineObligation fullJoinedObligationWithFixedMember(long ocId,
+                                                                     LocalDateTime readyAt,
+                                                                     long fixedMemberId) {
+        OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, readyAt, null, false,
+                List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),
+                Set.of("Worker#1"), Set.of(fixedMemberId));
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
+    }
+
     private OcTimelineObligation fullJoinedObligation(long ocId, LocalDateTime readyAt) {
         OcTeamDemand demand = new OcTeamDemand(ocId, "Normal", 8, readyAt, null, false,
                 List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),

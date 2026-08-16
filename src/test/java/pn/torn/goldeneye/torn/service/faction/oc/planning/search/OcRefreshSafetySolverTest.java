@@ -124,7 +124,10 @@ class OcRefreshSafetySolverTest {
                         OcMemberCandidate.capabilityKey(9, "Child", "Worker"), 90),
                 Map.of());
         List<OcTeamDemand> chain = List.of(template("Root", 1), childTemplate("Child", 1));
-        OcRefreshSafetyRequest request = request(List.of(member), List.of(),
+        // 用不占用候选成员的既成义务延后证明窗口，使根节点释放与链后继接续释放
+        // 均落在有限证明窗口内，继续验证“根成员释放后可加入后继”的合法复用。
+        OcTimelineObligation proofBoundary = fullObligation(30L, NOW.plusDays(3));
+        OcRefreshSafetyRequest request = request(List.of(member), List.of(proofBoundary),
                 List.of(), List.of(chain));
 
         OcRefreshSafetyResult result = solver().solve(request, Map.of());

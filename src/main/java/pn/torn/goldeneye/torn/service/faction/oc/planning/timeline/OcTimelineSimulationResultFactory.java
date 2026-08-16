@@ -21,12 +21,15 @@ import java.util.List;
  */
 @Slf4j
 final class OcTimelineSimulationResultFactory {
-    private final OcLiquidityPathVerifier liquidityVerifier = new OcLiquidityPathVerifier();
+    private final OcLiquidityPathVerifier liquidityVerifier;
 
     /**
      * 创建时间线模拟结果装配器。
+     *
+     * @param liquidityVerifier 流动性路径验证器
      */
-    OcTimelineSimulationResultFactory() {
+    OcTimelineSimulationResultFactory(OcLiquidityPathVerifier liquidityVerifier) {
+        this.liquidityVerifier = liquidityVerifier;
     }
 
     /**

@@ -22,20 +22,23 @@ import java.util.Set;
 final class OcTimelineBranchExpander {
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
     private final OcPausePolicyEvaluator pauseEvaluator = new OcPausePolicyEvaluator();
-    private final OcLiquidityPathVerifier liquidityVerifier = new OcLiquidityPathVerifier();
+    private final OcLiquidityPathVerifier liquidityVerifier;
     private final OcTimelineScheduleCandidateFactory candidateFactory;
     private final OcTimelineTaskOrder taskOrder;
 
     /**
      * 创建时间线分支推进器。
      *
-     * @param candidateFactory 候选方案工厂
-     * @param taskOrder        任务排序器
+     * @param candidateFactory  候选方案工厂
+     * @param taskOrder         任务排序器
+     * @param liquidityVerifier 流动性路径验证器
      */
     OcTimelineBranchExpander(OcTimelineScheduleCandidateFactory candidateFactory,
-                             OcTimelineTaskOrder taskOrder) {
+                             OcTimelineTaskOrder taskOrder,
+                             OcLiquidityPathVerifier liquidityVerifier) {
         this.candidateFactory = candidateFactory;
         this.taskOrder = taskOrder;
+        this.liquidityVerifier = liquidityVerifier;
     }
 
     /**
@@ -285,19 +288,21 @@ final class OcTimelineBranchExpander {
 
     /**
      * 移除并返回首个无重叠且任务全部完成的分支；存在重叠的完成分支按一致性失败消亡，
-     * 未通过流动性连续性验证的完成分支按确定性失败消亡。
+     * 未通过有限证明窗口内流动性连续性验证的完成分支按确定性失败消亡。
      *
      * <p>优先返回无计划内无人OC过期压力的完成分支：只要存在避开过期压力的
      * 匹配选择，就不把过期压力当作不可避免事实输出。</p>
      *
-     * @param branches 当前分支集合，会被就地移除无效完成分支
-     * @param progress 搜索进度与失败标记
+     * @param branches       当前分支集合，会被就地移除无效完成分支
+     * @param progress       搜索进度与失败标记
+     * @param proofWindowEnd 本次模拟的有限证明窗口结束时间
      * @return 首个有效完成分支；无时为null
      */
     SearchBranch pollCompleteBranch(List<SearchBranch> branches,
-                                    OcTimelineSimulationResultFactory.SearchProgress progress) {
+                                    OcTimelineSimulationResultFactory.SearchProgress progress,
+                                    LocalDateTime proofWindowEnd) {
         branches.removeIf(branch -> branch.remaining().isEmpty()
-                && !completeBranchValid(branch, progress));
+                && !completeBranchValid(branch, progress, proofWindowEnd));
         return branches.stream()
                 .filter(branch -> branch.remaining().isEmpty()
                         && !branch.plannedEmptyExpired())
@@ -305,24 +310,26 @@ final class OcTimelineBranchExpander {
     }
 
     /**
-     * 校验完成分支的有效性：占用区间互不重叠，且锚点链拥有成员级证明的
-     * 连续完成—释放路径。连续性验证失败的确定性结果记入搜索进度。
+     * 校验完成分支的有效性：占用区间互不重叠，且锚点链在本次模拟的有限证明窗口内
+     * 拥有成员级证明的连续完成—释放路径。连续性验证失败的确定性结果记入搜索进度。
      *
-     * <p>完成分支的判定不施加证明窗口约束：分支内全部义务均已完整排程，
-     * 每次资源消耗的接续释放由成员级占用区间结构性证明；
-     * 窗口约束用于不可行结果的卡死信号。</p>
+     * <p>完成分支与不可行结果使用同一个证明窗口：窗口内被消耗的锚点资源，
+     * 其接续完整释放必须不晚于证明窗口结束时间；窗口外释放只能作为下一次
+     * 人工重评估的新快照事实，不能反向证明当前窗口内的连续流动性。</p>
      *
-     * @param branch   完成分支
-     * @param progress 搜索进度与失败标记
+     * @param branch         完成分支
+     * @param progress       搜索进度与失败标记
+     * @param proofWindowEnd 本次模拟的有限证明窗口结束时间
      * @return 分支有效时返回true
      */
     private boolean completeBranchValid(SearchBranch branch,
-                                        OcTimelineSimulationResultFactory.SearchProgress progress) {
+                                        OcTimelineSimulationResultFactory.SearchProgress progress,
+                                        LocalDateTime proofWindowEnd) {
         if (!branch.state().hasNoOverlappingIntervals()) {
             return false;
         }
         if (liquidityVerifier.hasContinuousCompletionPath(branch.state().anchors(),
-                branch.state().intervals(), null)) {
+                branch.state().intervals(), proofWindowEnd)) {
             return true;
         }
         progress.deterministicFailure = true;

@@ -34,9 +34,10 @@ import java.util.StringJoiner;
  */
 public final class OcTimelineEventScheduler {
     private final OcTimelineStatePruner statePruner = new OcTimelineStatePruner();
+    private final OcLiquidityPathVerifier liquidityVerifier = new OcLiquidityPathVerifier();
     private final OcTimelineBranchExpander branchExpander;
     private final OcTimelineSimulationResultFactory resultFactory =
-            new OcTimelineSimulationResultFactory();
+            new OcTimelineSimulationResultFactory(liquidityVerifier);
     private final OcTimelineTaskOrder taskOrder = new OcTimelineTaskOrder();
     private final int maxTaskExpansions;
 
@@ -55,7 +56,7 @@ public final class OcTimelineEventScheduler {
     public OcTimelineEventScheduler(int maxTaskExpansions) {
         this.maxTaskExpansions = maxTaskExpansions;
         this.branchExpander = new OcTimelineBranchExpander(
-                new OcTimelineScheduleCandidateFactory(), taskOrder);
+                new OcTimelineScheduleCandidateFactory(), taskOrder, liquidityVerifier);
     }
 
     /**
@@ -134,7 +135,7 @@ public final class OcTimelineEventScheduler {
         branches.add(new SearchBranch(new OcTimelineState(request), initial, 0, false));
         SearchProgress progress = resultFactory.newProgress(request);
         while (true) {
-            SearchBranch complete = branchExpander.pollCompleteBranch(branches, progress);
+            SearchBranch complete = branchExpander.pollCompleteBranch(branches, progress, proofWindowEnd);
             if (complete != null) {
                 return resultFactory.assembleResult(complete, progress, false,
                         proofWindowEnd);
@@ -146,7 +147,7 @@ public final class OcTimelineEventScheduler {
             for (SearchBranch branch : branches) {
                 if (progress.expansions >= maxTaskExpansions) {
                     return resultFactory.assembleResult(
-                            branchExpander.pollCompleteBranch(expanded, progress),
+                            branchExpander.pollCompleteBranch(expanded, progress, proofWindowEnd),
                             progress, true, proofWindowEnd);
                 }
                 expanded.addAll(branchExpander.expandBranch(branch, allowedPause,
@@ -158,7 +159,7 @@ public final class OcTimelineEventScheduler {
             if (pruned.truncated()) {
                 progress.stateCapTruncated = true;
                 return resultFactory.assembleResult(
-                        branchExpander.pollCompleteBranch(branches, progress),
+                        branchExpander.pollCompleteBranch(branches, progress, proofWindowEnd),
                         progress, true, proofWindowEnd);
             }
         }

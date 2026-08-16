@@ -5,17 +5,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshSafetySolver;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcCurrentOccupancyCalculator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcRefreshSafetyRequestFactory;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcReplanWindowCalculator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelinePolicy;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcCurrentOccupancyCalculator;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcLiquidityPathVerifier;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcRefreshSafetyRequestFactory;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshSafetySolver;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcReplanWindowCalculator;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelinePolicy;
 
 /**
  * 基于不可变快照生成匿名刷新指令的纯规划器。
@@ -37,7 +36,6 @@ public class OcRefreshInstructionPlanner {
     private final OcRefreshModeSelector modeSelector;
     private final OcCurrentOccupancyCalculator occupancyCalculator;
     private final OcReplanWindowCalculator replanWindowCalculator;
-    private final OcLiquidityPathVerifier liquidityPathVerifier = new OcLiquidityPathVerifier();
 
     /**
      * 生成指定模式的刷新指令。
@@ -121,8 +119,7 @@ public class OcRefreshInstructionPlanner {
             reasonCodes.add(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED);
             replanWindow = replanWindowCalculator.immediateReplan(snapshot.snapshotTime());
         }
-        LocalDateTime nextCriticalReleaseAt = liquidityPathVerifier
-                .nextCriticalReleaseAt(assessment.anchors());
+        LocalDateTime nextCriticalReleaseAt = assessment.nextCriticalReleaseAt();
         boolean pauseAllowed = OcTimelinePolicy.allowsNewPause(mode);
         boolean pauseSelected = selected.map(candidate ->
                 candidate.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE).orElse(false);
