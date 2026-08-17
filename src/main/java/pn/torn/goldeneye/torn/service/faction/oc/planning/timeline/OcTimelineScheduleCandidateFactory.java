@@ -19,11 +19,6 @@ import java.util.*;
  * @since 2026.08.15
  */
 final class OcTimelineScheduleCandidateFactory {
-    /**
-     * 已有人OC属于既成事实，其被迫停转不受模式停转上限约束。
-     */
-    private static final Duration FACT_MAX_PAUSE = Duration.ofDays(3650);
-
     private final OcRosterMatcher rosterMatcher = new OcRosterMatcher();
 
     /**
@@ -65,9 +60,8 @@ final class OcTimelineScheduleCandidateFactory {
                                            OcTimelineSimulationResultFactory.SearchProgress progress) {
         List<OcMemberCandidate> stateMembers = stateCandidates(state, request);
         Duration effectivePause = switch (obligation.kind()) {
-            case EXISTING_JOINED -> FACT_MAX_PAUSE;
             case COMMITTED_CHAIN_SUCCESSOR -> Duration.ZERO;
-            case PLANNED_EMPTY, CONDITIONAL_RANDOM -> allowedPause;
+            case EXISTING_JOINED, PLANNED_EMPTY, CONDITIONAL_RANDOM -> allowedPause;
         };
         OcRosterMatchResult baseMatch = rosterMatcher.matchDeterministic(
                 obligation.demand(), stateMembers, state.snapshotTime());

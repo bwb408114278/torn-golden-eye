@@ -1,7 +1,5 @@
 package pn.torn.goldeneye.torn.model.faction.crime.planning;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -30,24 +28,63 @@ public record OcRefreshSafetyResult(
     /**
      * 一个已证明安全的刷新向量及其模式无关的时间线评分。
      *
-     * @param vector                  刷新向量
-     * @param pauseTier               证明该向量安全所需的最小停转层级
-     * @param windowValue             规划窗口全局总价值；证据不足时为null
-     * @param incrementalMemberDays   增量剩余成员人天
-     * @param earliestCompletionAt    最早完整释放时间
-     * @param anchorCount             已证明流动性锚点数量
-     * @param valueEvidenceLevel      价值证据层级
-     * @param usableForAdviceIncrease 全部组合证据是否可用于提高刷新建议
+     * @param vector                               刷新向量
+     * @param pauseTier                            全部随机组合所需的最严格停转层级
+     * @param timelineValue                        全部随机组合聚合后的真实时间线价值摘要
+     * @param anchorCount                          已证明流动性锚点数量
+     * @param valueEvidenceLevel                   最弱组合的价值证据层级
+     * @param zeroPauseBaselineComparable          全部相关组合是否均存在可比较的零新增停转基准
+     * @param pauseCandidateStrictlyBetterThanBaseline 含主动新增停转的收益候选是否严格优于零停转基准
      */
     public record SafeCandidate(
             OcRefreshVector vector,
             PauseTier pauseTier,
-            BigDecimal windowValue,
-            int incrementalMemberDays,
-            LocalDateTime earliestCompletionAt,
+            OcTimelineValueSummary timelineValue,
             int anchorCount,
             OcValueEvidence.Level valueEvidenceLevel,
-            boolean usableForAdviceIncrease) {
+            boolean zeroPauseBaselineComparable,
+            boolean pauseCandidateStrictlyBetterThanBaseline) {
+
+        /**
+         * 兼容旧测试/旧构造路径：使用旧的最早完成时间语义构造候选。
+         * 新生产构造路径必须使用{@link OcTimelineValueSummary}。
+         *
+         * @param vector                  刷新向量
+         * @param pauseTier               停转层级
+         * @param windowValue             规划窗口全局总价值
+         * @param incrementalMemberDays   增量剩余成员人天
+         * @param earliestCompletionAt    最早完整释放时间（旧语义）
+         * @param anchorCount             锚点数量
+         * @param valueEvidenceLevel      价值证据层级
+         * @param usableForAdviceIncrease 旧证据可用布尔
+         */
+        public SafeCandidate(OcRefreshVector vector, PauseTier pauseTier,
+                             java.math.BigDecimal windowValue, int incrementalMemberDays,
+                             java.time.LocalDateTime earliestCompletionAt, int anchorCount,
+                             OcValueEvidence.Level valueEvidenceLevel,
+                             boolean usableForAdviceIncrease) {
+            this(vector, pauseTier,
+                    new OcTimelineValueSummary(windowValue, incrementalMemberDays,
+                            java.time.Duration.ZERO, java.time.Duration.ZERO, true,
+                            earliestCompletionAt, 0, incrementalMemberDays, 1,
+                            valueEvidenceLevel == null
+                                    ? OcValueEvidence.Level.INSUFFICIENT
+                                    : valueEvidenceLevel),
+                    anchorCount,
+                    valueEvidenceLevel == null
+                            ? OcValueEvidence.Level.INSUFFICIENT
+                            : valueEvidenceLevel,
+                    true, true);
+        }
+
+        /**
+         * 获取聚合后的保证最早释放时间：全部随机组合最早完整释放中的最晚值。
+         *
+         * @return 保证释放时间；任一组合无释放事件时为null
+         */
+        public java.time.LocalDateTime guaranteedEarliestReleaseAt() {
+            return timelineValue == null ? null : timelineValue.guaranteedReleaseAt();
+        }
 
         /**
          * 候选证明安全所需的最小停转容忍层级。

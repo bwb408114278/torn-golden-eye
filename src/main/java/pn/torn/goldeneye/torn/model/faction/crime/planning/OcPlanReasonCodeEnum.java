@@ -46,7 +46,19 @@ public enum OcPlanReasonCodeEnum {
     /**
      * 经济证据不足，不能据此提高刷新或停转建议。
      */
-    ECONOMIC_EVIDENCE_INSUFFICIENT("收益证据不足，未据此提高刷新或停转建议");
+    ECONOMIC_EVIDENCE_INSUFFICIENT("收益证据不足，未据此提高刷新或停转建议"),
+    /**
+     * 操作提前区间已进入：原始最晚重评估时间早于当前快照。
+     */
+    REPLAN_LEAD_TIME_ALREADY_ENTERED("已进入操作提前区间，暂不新增刷新"),
+    /**
+     * 新增刷新证明窗口已失效，只保留现实风险评估。
+     */
+    PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH("新增刷新证明窗口已失效"),
+    /**
+     * 零新增停转基准不可比较，不能据此提高收益停转建议。
+     */
+    ZERO_PAUSE_BASELINE_NOT_COMPARABLE("零停转基准不可比较，未据此提高停转建议");
 
     /**
      * 获取原因码对应的匿名中文说明。

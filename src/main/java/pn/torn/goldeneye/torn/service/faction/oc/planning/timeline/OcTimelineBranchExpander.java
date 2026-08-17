@@ -220,14 +220,11 @@ final class OcTimelineBranchExpander {
     private void applySchedule(OcTimelineState state, OcTimelineObligation obligation,
                                OcTimelineScheduleCandidateFactory.StageSchedule schedule) {
         LocalDateTime stageBoundary = obligation.demand().readyAt();
-        boolean plannerCreated = obligation.kind()
-                != OcTimelineObligation.ObligationKind.EXISTING_JOINED;
         for (int index = 0; index < schedule.assignments().size(); index++) {
             LocalDateTime joinAt = schedule.joinTimes().get(index);
             if (stageBoundary != null && joinAt.isAfter(stageBoundary)) {
-                boolean preExisting = !plannerCreated
-                        || !stageBoundary.isAfter(state.snapshotTime());
-                state.addPause(new OcPauseAssessment(obligation.key(),
+                boolean preExisting = !stageBoundary.isAfter(state.snapshotTime());
+                state.addPause(new OcPauseAssessment(obligation.key(), stageBoundary,
                         Duration.between(stageBoundary, joinAt), joinAt,
                         preExisting));
                 state.addEvent(new OcTimelineEvent(stageBoundary,

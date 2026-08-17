@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning.api;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.faction.oc.OcPlanningRewardStatsDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
@@ -115,6 +116,64 @@ class OcRefreshInstructionPlannerTest {
                 code == pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED));
         assertEquals(NOW, plan.replanWindow().nextReplanAt());
         assertEquals(NOW, plan.replanWindow().latestReplanAt());
+    }
+
+    @Test
+    @DisplayName("链实例分叉的硬义务风险应贯穿最终计划和匿名Shadow")
+    void shouldPropagateForkedChainRiskToFinalPlan() {
+        TornFactionOcDO root = new TornFactionOcDO();
+        root.setId(1L);
+        root.setName("Root");
+        root.setRank(8);
+        root.setStatus("Recruiting");
+        root.setReadyTime(NOW.plusHours(8));
+        root.setCreateTime(NOW);
+        TornFactionOcDO firstChild = new TornFactionOcDO();
+        firstChild.setId(2L);
+        firstChild.setName("Child");
+        firstChild.setRank(9);
+        firstChild.setStatus("Recruiting");
+        firstChild.setReadyTime(NOW.plusHours(24));
+        firstChild.setCreateTime(NOW);
+        firstChild.setPreviousOcId(1L);
+        TornFactionOcDO secondChild = new TornFactionOcDO();
+        secondChild.setId(3L);
+        secondChild.setName("Child");
+        secondChild.setRank(9);
+        secondChild.setStatus("Recruiting");
+        secondChild.setReadyTime(NOW.plusHours(24));
+        secondChild.setCreateTime(NOW);
+        secondChild.setPreviousOcId(1L);
+        String rootKey = OcPlanningSnapshot.ocKey(8, "Root");
+        String childKey = OcPlanningSnapshot.ocKey(9, "Child");
+        Map<String, TornSettingOcPlanProfileDO> profiles = new HashMap<>();
+        profiles.put(rootKey, profile("Root", 8, "NORMAL_7_8"));
+        profiles.put(childKey, profile("Child", 9, "CHAIN_ONLY"));
+        Map<String, List<OcPlanSlot>> slots = new HashMap<>();
+        slots.put(rootKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+        slots.put(childKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+        TornSettingOcChainDO edge = new TornSettingOcChainDO();
+        edge.setChainCode("A");
+        edge.setParentOcName("Root");
+        edge.setParentRank(8);
+        edge.setChildOcName("Child");
+        edge.setChildRank(9);
+        edge.setSequenceNo(1);
+        OcFactionPlanningPolicy policy = new OcFactionPlanningPolicy(1L,
+                OcEvaluationMode.POSITION_WEIGHT, Set.of(rootKey, childKey), List.of());
+        OcPlanningSnapshot snapshot = new OcPlanningSnapshot(1L, NOW, policy,
+                List.of(root, firstChild, secondChild), Map.of(), List.of(),
+                profiles, List.of(edge), slots, Set.of(), Map.of(), List.of());
+
+        OcRefreshInstructionPlan plan = planner().plan(snapshot, OcPlanMode.PROFIT);
+
+        assertTrue(plan.riskFlags().contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK),
+                plan.riskFlags().toString());
+        assertTrue(plan.reasonCodes().contains(OcPlanReasonCodeEnum.CHAIN_MAPPING_AMBIGUOUS),
+                plan.reasonCodes().toString());
+        assertEquals(0, plan.normalRefreshCount());
+        assertEquals(0, plan.highRefreshCount());
+        assertEquals(OcConfigurationStatusEnum.INVALID, plan.configurationStatus());
     }
 
     private TornSettingOcPlanProfileDO profile(String name, int rank, String pool) {

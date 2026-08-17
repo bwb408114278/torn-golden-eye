@@ -50,10 +50,30 @@ public class OcTimelinePlanningEngine {
     public OcRefreshSafetyResult solve(OcRefreshSafetyRequest request,
                                        Map<String, OcValueEvidence> evidenceByTemplate,
                                        OcConfigurationStatusEnum configurationStatus) {
+        return solve(request, evidenceByTemplate, configurationStatus, Set.of(), Set.of());
+    }
+
+    /**
+     * 求解普通池与高阶池的联合安全候选集合，并合并重建得到的风险事实。
+     *
+     * @param request             求解请求
+     * @param evidenceByTemplate  按模板键索引的价值证据；高阶链使用chain前缀键
+     * @param configurationStatus 配置状态
+     * @param initialRiskFlags    重建得到的业务风险标记集合
+     * @param initialReasonCodes  重建得到的匿名原因码集合
+     * @return 含安全评估与已评分候选向量的求解结果
+     */
+    public OcRefreshSafetyResult solve(OcRefreshSafetyRequest request,
+                                       Map<String, OcValueEvidence> evidenceByTemplate,
+                                       OcConfigurationStatusEnum configurationStatus,
+                                       Set<OcRiskFlagEnum> initialRiskFlags,
+                                       Set<OcPlanReasonCodeEnum> initialReasonCodes) {
         long startedAt = System.nanoTime();
         long deadline = startedAt + timeout.toNanos();
-        AssessmentInputs inputs = new AssessmentInputs(request, configurationStatus, startedAt);
-        LocalDateTime proofWindowEnd = OcTimelinePolicy.proofWindowEnd(request);
+        AssessmentInputs inputs = new AssessmentInputs(request, configurationStatus, startedAt,
+                initialRiskFlags, initialReasonCodes);
+        OcProofWindow proofWindow = OcTimelinePolicy.proofWindow(request);
+        LocalDateTime proofWindowEnd = proofWindow.proofWindowEnd();
         SimulationResult baseline = scheduler.simulate(request, List.of(),
                 OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, false, proofWindowEnd);
         List<OcLiquidityAnchor> anchors = baseline.liquidityProof().anchors();
@@ -63,8 +83,13 @@ public class OcTimelinePlanningEngine {
             return infeasibleBaselineResult(baseline, inputs, nextCriticalReleaseAt,
                     proofWindowEnd);
         }
+        if (proofWindow.newRefreshBlocked()) {
+            return blockedWindowResult(baseline, inputs, anchors, nextCriticalReleaseAt,
+                    proofWindow);
+        }
 
-        OcVectorSearchOutcome outcome = vectorSearch.search(request, evidenceByTemplate, deadline);
+        OcVectorSearchOutcome outcome = vectorSearch.search(request, evidenceByTemplate,
+                deadline, proofWindow);
         boolean timedOut = outcome.timedOut();
         boolean budgetExhausted = outcome.budgetExhausted()
                 || baseline.searchBudgetExhausted();
@@ -79,6 +104,36 @@ public class OcTimelinePlanningEngine {
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         return new OcRefreshSafetyResult(assessment, outcome.candidates(), lowerBound,
                 elapsedMillis, inputs.warnings());
+    }
+
+    /**
+     * 构造证明窗口已进入操作提前区间时的结果：只评估现实硬义务与风险，
+     * 阻断新增刷新向量，不设置已证明安全下界。
+     *
+     * @param baseline              基线模拟结果
+     * @param inputs                评估输入
+     * @param anchors               基线流动性锚点
+     * @param nextCriticalReleaseAt 下一关键释放时间
+     * @param proofWindow           失效证明窗口
+     * @return 只含现状评估的求解结果
+     */
+    private OcRefreshSafetyResult blockedWindowResult(SimulationResult baseline,
+                                                      AssessmentInputs inputs,
+                                                      List<OcLiquidityAnchor> anchors,
+                                                      LocalDateTime nextCriticalReleaseAt,
+                                                      OcProofWindow proofWindow) {
+        inputs.reasonCodes().addAll(proofWindow.reasonCodes());
+        inputs.warnings().add("已进入操作提前区间，暂不新增刷新；等待或确认边界事实后重新运行");
+        OcProofStatusEnum proofStatus = baseline.feasible()
+                ? OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS
+                : baselineProofStatus(baseline);
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                inputs.configurationStatus(), proofStatus, inputs.riskFlags(), false,
+                inputs.reasonCodes(), anchors, nextCriticalReleaseAt,
+                proofWindow.proofWindowEnd());
+        long elapsedMillis = Duration.ofNanos(System.nanoTime() - inputs.startedAt()).toMillis();
+        return new OcRefreshSafetyResult(assessment, List.of(), false, elapsedMillis,
+                inputs.warnings());
     }
 
     /**
@@ -229,9 +284,13 @@ public class OcTimelinePlanningEngine {
             List<String> warnings) {
         private AssessmentInputs(OcRefreshSafetyRequest request,
                                  OcConfigurationStatusEnum configurationStatus,
-                                 long startedAt) {
-            this(request, configurationStatus, startedAt, new LinkedHashSet<>(),
-                    new LinkedHashSet<>(), new ArrayList<>());
+                                 long startedAt,
+                                 Set<OcRiskFlagEnum> initialRiskFlags,
+                                 Set<OcPlanReasonCodeEnum> initialReasonCodes) {
+            this(request, configurationStatus, startedAt,
+                    new LinkedHashSet<>(initialRiskFlags == null ? Set.of() : initialRiskFlags),
+                    new LinkedHashSet<>(initialReasonCodes == null ? Set.of() : initialReasonCodes),
+                    new ArrayList<>());
         }
     }
 }

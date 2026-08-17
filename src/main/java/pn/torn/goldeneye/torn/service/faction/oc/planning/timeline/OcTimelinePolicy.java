@@ -68,9 +68,20 @@ public final class OcTimelinePolicy {
      * 无任何边界时回退为快照时间后1天。
      *
      * @param request 求解请求
-     * @return 证明窗口结束时间
+     * @return 证明窗口结束时间；不早于快照时间
      */
     public static LocalDateTime proofWindowEnd(OcRefreshSafetyRequest request) {
+        return proofWindow(request).proofWindowEnd();
+    }
+
+    /**
+     * 计算有限证明窗口。若原始最晚重评估时间早于快照时间，窗口收敛为
+     * [snapshotTime, snapshotTime]并阻断新增刷新；内部证明窗口不得早于快照。
+     *
+     * @param request 求解请求
+     * @return 有限证明窗口状态
+     */
+    public static OcProofWindow proofWindow(OcRefreshSafetyRequest request) {
         List<LocalDateTime> boundaries = new ArrayList<>();
         request.obligations().forEach(obligation -> {
             if (obligation.firstJoinDeadline() != null) {
@@ -81,8 +92,14 @@ public final class OcTimelinePolicy {
                 boundaries.add(readyAt);
             }
         });
-        return boundaries.stream().min(LocalDateTime::compareTo)
+        LocalDateTime snapshotTime = request.planningTime();
+        LocalDateTime fallback = snapshotTime.plusDays(1);
+        LocalDateTime rawEnd = boundaries.stream().min(LocalDateTime::compareTo)
                 .map(boundary -> boundary.minus(REPLAN_LEAD))
-                .orElse(request.planningTime().plusDays(1));
+                .orElse(fallback);
+        if (rawEnd.isBefore(snapshotTime)) {
+            return OcProofWindow.expired(snapshotTime);
+        }
+        return OcProofWindow.valid(rawEnd);
     }
 }

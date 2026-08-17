@@ -81,7 +81,8 @@ public final class OcTimelineEventScheduler {
             List<OcPauseAssessment> pauses,
             List<OcTimelineEvent> events,
             Duration maxNewPause,
-            boolean searchBudgetExhausted) {
+            boolean searchBudgetExhausted,
+            OcTimelineValueSummary timelineValue) {
     }
 
     /**

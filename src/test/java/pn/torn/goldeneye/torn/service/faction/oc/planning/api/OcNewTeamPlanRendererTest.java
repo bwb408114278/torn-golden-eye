@@ -62,7 +62,7 @@ class OcNewTeamPlanRendererTest {
         assertTrue(text.contains("【时间线评估】"));
         assertTrue(text.contains("配置状态: 有效"));
         assertTrue(text.contains("证明状态: 已证明安全"));
-        assertTrue(text.contains("当前不存在被迫拆队风险"));
+        assertTrue(text.contains("本次规划窗口内已证明所选向量不存在被迫拆队风险"));
         assertTrue(text.contains("下一批关键成员预计 07-16 16:00 释放"));
         assertTrue(text.contains("不超过12小时的可恢复停转"));
         assertTrue(text.contains("本次选择按当前业务价值顺序使用了可恢复停转"));
@@ -115,6 +115,50 @@ class OcNewTeamPlanRendererTest {
         assertFalse(text.contains("收益建议"));
         assertFalse(text.contains("收益更优"));
         assertFalse(text.contains("收益最优"));
+    }
+
+    @Test
+    @DisplayName("未证明状态不得渲染为无风险，只能输出未证明三态说明")
+    void shouldNotRenderUnprovenAsNoRisk() {
+        OcRefreshInstructionPlan plan = new OcRefreshInstructionPlan(20465L,
+                LocalDateTime.of(2026, 7, 16, 15, 4), OcPlanMode.BALANCED,
+                Map.of(), 0, 0, false, "当前预算内未证明可安全承接",
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.UNPROVEN_TIMEOUT,
+                Set.of(), Set.of(OcPlanReasonCodeEnum.SAFE_LOWER_BOUND_ONLY),
+                null, true, false, null,
+                new OcReplanWindow(LocalDateTime.of(2026, 7, 16, 15, 4),
+                        LocalDateTime.of(2026, 7, 16, 15, 4), Set.of()),
+                OcValueEvidence.Level.INSUFFICIENT,
+                new OcCurrentOccupancySummary(3, 2, 1, 8, 12, 7, 5), List.of());
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("未证明存在风险，也未证明风险不存在"));
+        assertFalse(text.contains("当前不存在被迫拆队风险"));
+        assertFalse(text.contains("已证明所选向量不存在被迫拆队风险"));
+    }
+
+    @Test
+    @DisplayName("证明窗口失效时应渲染暂不新增刷新且不输出正窗口")
+    void shouldRenderExpiredProofWindowAsNoNewRefresh() {
+        OcRefreshInstructionPlan plan = new OcRefreshInstructionPlan(20465L,
+                LocalDateTime.of(2026, 7, 16, 17, 20), OcPlanMode.BALANCED,
+                Map.of(), 0, 0, false, "已进入操作提前区间，暂不新增刷新",
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS,
+                Set.of(), Set.of(OcPlanReasonCodeEnum.PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH),
+                null, true, false, null,
+                new OcReplanWindow(LocalDateTime.of(2026, 7, 16, 17, 20),
+                        LocalDateTime.of(2026, 7, 16, 17, 20), Set.of(
+                        OcPlanReasonCodeEnum.REPLAN_LEAD_TIME_ALREADY_ENTERED)),
+                OcValueEvidence.Level.INSUFFICIENT,
+                new OcCurrentOccupancySummary(3, 2, 1, 8, 12, 7, 5), List.of());
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("已进入操作提前区间，暂不新增刷新"));
+        assertTrue(text.contains("暂不刷新"));
+        assertFalse(text.contains("普通池"));
+        assertFalse(text.contains("高阶池"));
     }
 
     private OcRefreshInstructionPlan plan(OcPlanMode mode, int normal, int high, Set<OcRiskFlagEnum> riskFlags) {

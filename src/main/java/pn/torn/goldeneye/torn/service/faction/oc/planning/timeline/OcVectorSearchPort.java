@@ -23,11 +23,13 @@ public interface OcVectorSearchPort {
      * @param request            求解请求
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @param deadline           求解截止纳秒时间
+     * @param proofWindow        由引擎统一计算的有限证明窗口
      * @return 向量搜索结果
      */
     OcVectorSearchOutcome search(OcRefreshSafetyRequest request,
                                  Map<String, OcValueEvidence> evidenceByTemplate,
-                                 long deadline);
+                                 long deadline,
+                                 OcProofWindow proofWindow);
 
     /**
      * 判断已证明安全的候选是否触及单池搜索上限。

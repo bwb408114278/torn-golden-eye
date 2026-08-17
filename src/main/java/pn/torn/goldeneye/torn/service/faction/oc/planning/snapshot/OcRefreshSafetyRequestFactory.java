@@ -69,7 +69,8 @@ public class OcRefreshSafetyRequestFactory {
         List<String> warnings = new ArrayList<>(chainResult.warnings());
         OcConfigurationStatusEnum configurationStatus = configurationStatus(snapshot, chainResult,
                 reconstruction, warnings);
-        return new OcRefreshPlanningContext(request, emptyCounts, configurationStatus, warnings);
+        return new OcRefreshPlanningContext(request, emptyCounts, configurationStatus, warnings,
+                reconstruction.riskFlags(), reconstruction.reasonCodes());
     }
 
     /**
@@ -211,7 +212,7 @@ public class OcRefreshSafetyRequestFactory {
                 .plusHours(24L * template.slots().size());
         return rewardEvidenceCalculator.buildEvidence(stats,
                 profile == null ? null : profile.getMinSampleSize(),
-                memberDays, expectedReleaseAt);
+                memberDays, expectedReleaseAt, template.rank(), template.slots().size(), 1);
     }
 
     /**

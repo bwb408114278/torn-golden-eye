@@ -104,7 +104,7 @@ class OcTimelineEventSchedulerTest {
                 List.of(), List.of(), NOW);
 
         OcTimelineEventScheduler.SimulationResult result = new OcTimelineEventScheduler()
-                .simulate(request, List.of(), Duration.ZERO, true,
+                .simulate(request, List.of(), Duration.ofHours(6), true,
                         NOW.plusDays(3).minusMinutes(30));
 
         assertTrue(result.feasible(), "已投入义务完整可行时分支必须可行: " + result);

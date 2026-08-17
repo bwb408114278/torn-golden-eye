@@ -22,6 +22,7 @@ import java.util.List;
 @Slf4j
 final class OcTimelineSimulationResultFactory {
     private final OcLiquidityPathVerifier liquidityVerifier;
+    private final OcTimelineValueAccumulator valueAccumulator = new OcTimelineValueAccumulator();
 
     /**
      * 创建时间线模拟结果装配器。
@@ -83,7 +84,8 @@ final class OcTimelineSimulationResultFactory {
                     progress.hardObligationFailed, progress.plannedEmptyExpired,
                     representativeProof(state, progress, proofWindowEnd),
                     state.pauses(), state.events(), maxNewPause(state),
-                    budgetExhausted);
+                    budgetExhausted,
+                    valueAccumulator.accumulate(state, progress.plannedEmptyExpired));
         }
         OcTimelineState state = complete.state();
         List<OcLiquidityAnchor> verified = liquidityVerifier.verifyReplacementAnchors(
@@ -92,7 +94,8 @@ final class OcTimelineSimulationResultFactory {
                 new OcTimelineEventScheduler.LiquidityProof(verified, state.intervals(),
                         true),
                 state.pauses(), state.events(), maxNewPause(state),
-                budgetExhausted);
+                budgetExhausted,
+                valueAccumulator.accumulate(state, complete.plannedEmptyExpired()));
     }
 
     /**

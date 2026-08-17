@@ -101,20 +101,44 @@ public class OcRewardEvidenceCalculator {
     public OcValueEvidence buildEvidence(OcPlanningRewardStatsDO stats, Integer minSampleSize,
                                          int incrementalMemberDays,
                                          java.time.LocalDateTime expectedReleaseAt) {
+        return buildEvidence(stats, minSampleSize, incrementalMemberDays, expectedReleaseAt,
+                0, incrementalMemberDays, 1);
+    }
+
+    /**
+     * 按业务冻结降级顺序构造价值证据，并显式携带第三层业务先验字段。
+     *
+     * @param stats                 该OC的收益统计；无样本时为null
+     * @param minSampleSize         业务最小有效样本数
+     * @param incrementalMemberDays 增量剩余成员人天
+     * @param expectedReleaseAt     预计完整释放时间
+     * @param highestRank           完整候选最高等级
+     * @param totalRequiredMembers  完整候选总需人数
+     * @param chainNodeCount        完整候选链节点数；普通OC为1
+     * @return 价值证据
+     */
+    public OcValueEvidence buildEvidence(OcPlanningRewardStatsDO stats, Integer minSampleSize,
+                                         int incrementalMemberDays,
+                                         java.time.LocalDateTime expectedReleaseAt,
+                                         int highestRank, int totalRequiredMembers,
+                                         int chainNodeCount) {
         int requiredSamples = minSampleSize == null ? 0 : minSampleSize;
         if (stats != null && stats.rewardCompleteCount() >= Math.max(1, requiredSamples)
                 && stats.observedRewardPerAttempt() != null) {
             return new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
                     stats.observedRewardPerAttempt(), incrementalMemberDays,
-                    expectedReleaseAt, true);
+                    expectedReleaseAt, true, highestRank, totalRequiredMembers,
+                    chainNodeCount);
         }
         if (stats != null && stats.rewardFloor() != null && stats.rewardFloor() > 0) {
             return new OcValueEvidence(OcValueEvidence.Level.REWARD_FLOOR,
                     BigDecimal.valueOf(stats.rewardFloor()), incrementalMemberDays,
-                    expectedReleaseAt, true);
+                    expectedReleaseAt, true, highestRank, totalRequiredMembers,
+                    chainNodeCount);
         }
         return new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY, null,
-                incrementalMemberDays, expectedReleaseAt, false);
+                incrementalMemberDays, expectedReleaseAt, true,
+                highestRank, totalRequiredMembers, chainNodeCount);
     }
 
     /**
@@ -129,7 +153,7 @@ public class OcRewardEvidenceCalculator {
     public OcValueEvidence aggregateChainEvidence(List<OcValueEvidence> nodeEvidences) {
         if (nodeEvidences == null || nodeEvidences.isEmpty()) {
             return new OcValueEvidence(OcValueEvidence.Level.INSUFFICIENT, null,
-                    0, null, false);
+                    0, null, false, 0, 0, 0);
         }
         OcValueEvidence.Level level = nodeEvidences.stream()
                 .map(OcValueEvidence::level)
@@ -146,13 +170,19 @@ public class OcRewardEvidenceCalculator {
         }
         int memberDays = nodeEvidences.stream()
                 .mapToInt(OcValueEvidence::incrementalMemberDays).sum();
+        int highestRank = nodeEvidences.stream()
+                .mapToInt(OcValueEvidence::highestRank).max().orElse(0);
+        int totalMembers = nodeEvidences.stream()
+                .mapToInt(OcValueEvidence::totalRequiredMembers).sum();
+        int chainNodeCount = nodeEvidences.stream()
+                .mapToInt(OcValueEvidence::chainNodeCount).sum();
         java.time.LocalDateTime earliestRelease = nodeEvidences.stream()
                 .map(OcValueEvidence::expectedReleaseAt)
                 .filter(java.util.Objects::nonNull)
                 .max(java.time.LocalDateTime::compareTo).orElse(null);
-        boolean usable = totalValue != null
-                && OcValueEvidence.Level.REWARD_FLOOR.compareTo(level) >= 0;
-        return new OcValueEvidence(level, totalValue, memberDays, earliestRelease, usable);
+        boolean usable = level != OcValueEvidence.Level.INSUFFICIENT;
+        return new OcValueEvidence(level, totalValue, memberDays, earliestRelease, usable,
+                highestRank, totalMembers, chainNodeCount);
     }
 
     /**

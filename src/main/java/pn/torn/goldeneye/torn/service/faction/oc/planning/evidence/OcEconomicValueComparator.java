@@ -1,12 +1,15 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.evidence;
 
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineValueSummary;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 候选时间线经济价值比较器。只能在硬安全与完整时间线可行之后使用，固定比较顺序：
- * 禁止被迫拆队 → 已启动链和已投入义务 → 完整时间线可行性 → 规划窗口全局总价值
- * → 增量单位成员人天 → 更早释放稀缺岗位 → 稳定tie-break。
+ * 金额可用的全局值（或第三层业务先验）→ 可避免过期 → 已有人/链延迟 →
+ * 实际增量人天 → 保证释放 → 稳定tie-break。
  *
  * @author Bai
  * @version 1.3.0
@@ -15,14 +18,45 @@ import java.math.BigDecimal;
 public class OcEconomicValueComparator {
 
     /**
-     * 比较两个已证明安全候选的价值顺序，返回-1表示left更优。
+     * 比较两个已证明安全候选的时间线价值顺序，返回负数表示left更优。
      *
-     * @param leftValue       左候选窗口总价值；证据不足时为null
-     * @param leftMemberDays  左候选增量剩余成员人天
-     * @param leftReleaseAt   左候选最早完整释放时间；无时为null
-     * @param rightValue      右候选窗口总价值；证据不足时为null
-     * @param rightMemberDays 右候选增量剩余成员人天
-     * @param rightReleaseAt  右候选最早完整释放时间；无时为null
+     * @param left  左候选时间线价值摘要
+     * @param right 右候选时间线价值摘要
+     * @return 左候选更优时返回负数；完全不可区分时返回0
+     */
+    public int compareTimelineValue(OcTimelineValueSummary left,
+                                    OcTimelineValueSummary right) {
+        int valueResult = compareMonetaryOrPrior(left, right);
+        if (valueResult != 0) {
+            return valueResult;
+        }
+        int expiryResult = Boolean.compare(right.avoidableExpiryPressure(),
+                left.avoidableExpiryPressure());
+        if (expiryResult != 0) {
+            return expiryResult;
+        }
+        int delayResult = left.existingObligationDelay().compareTo(
+                right.existingObligationDelay());
+        if (delayResult != 0) {
+            return delayResult;
+        }
+        int memberDayResult = Integer.compare(left.actualIncrementalMemberDays(),
+                right.actualIncrementalMemberDays());
+        if (memberDayResult != 0) {
+            return memberDayResult;
+        }
+        return compareRelease(left.guaranteedReleaseAt(), right.guaranteedReleaseAt());
+    }
+
+    /**
+     * 兼容旧测试/旧比较路径：按金额、单位人天和释放时间比较。
+     *
+     * @param leftValue       左候选窗口总价值
+     * @param leftMemberDays  左候选增量人天
+     * @param leftReleaseAt   左候选最早释放时间
+     * @param rightValue      右候选窗口总价值
+     * @param rightMemberDays 右候选增量人天
+     * @param rightReleaseAt  右候选最早释放时间
      * @return 左候选更优时返回负数
      */
     public int compare(BigDecimal leftValue, int leftMemberDays,
@@ -33,20 +67,26 @@ public class OcEconomicValueComparator {
         if (valueResult != 0) {
             return valueResult;
         }
-        int perDayResult = comparePerMemberDay(leftValue, leftMemberDays,
-                rightValue, rightMemberDays);
-        if (perDayResult != 0) {
-            return perDayResult;
+        if (leftValue != null && rightValue != null
+                && leftMemberDays > 0 && rightMemberDays > 0) {
+            BigDecimal leftPerDay = leftValue.divide(BigDecimal.valueOf(leftMemberDays),
+                    java.math.MathContext.DECIMAL64);
+            BigDecimal rightPerDay = rightValue.divide(BigDecimal.valueOf(rightMemberDays),
+                    java.math.MathContext.DECIMAL64);
+            int perDayResult = rightPerDay.compareTo(leftPerDay);
+            if (perDayResult != 0) {
+                return perDayResult;
+            }
         }
         return compareRelease(leftReleaseAt, rightReleaseAt);
     }
 
     /**
-     * 比较窗口总价值。金额证据不足时标记为不可区分，由调用方降级处理。
+     * 比较两个金额的全局价值。
      *
      * @param leftValue  左候选价值
      * @param rightValue 右候选价值
-     * @return 价值更高一侧为优；任一侧证据不足时返回0
+     * @return 左候选更优时返回负数；任一金额缺失时返回0
      */
     public int compareValues(BigDecimal leftValue, BigDecimal rightValue) {
         if (leftValue == null || rightValue == null) {
@@ -56,30 +96,101 @@ public class OcEconomicValueComparator {
     }
 
     /**
-     * 比较增量单位成员人天收益。
+     * 判断收益级停转候选是否严格优于同组合零新增停转基准。
+     * 任一摘要金额或先验不可比较时返回false，不得据此提高收益停转建议。
      *
-     * @return 单位人天收益更高一侧为优；任一侧证据不足或人天为零时返回0
+     * @param candidate 收益级停转候选摘要
+     * @param baseline  同组合零新增停转基准摘要
+     * @return 严格更优时返回true
      */
-    public int comparePerMemberDay(BigDecimal leftValue, int leftMemberDays,
-                                   BigDecimal rightValue, int rightMemberDays) {
-        if (leftValue == null || rightValue == null
-                || leftMemberDays <= 0 || rightMemberDays <= 0) {
-            return 0;
+    public boolean isStrictlyBetterThanZeroPauseBaseline(OcTimelineValueSummary candidate,
+                                                         OcTimelineValueSummary baseline) {
+        if (candidate == null || baseline == null
+                || candidate.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT
+                || baseline.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT) {
+            return false;
         }
-        BigDecimal leftPerDay = leftValue.divide(BigDecimal.valueOf(leftMemberDays),
-                java.math.MathContext.DECIMAL64);
-        BigDecimal rightPerDay = rightValue.divide(BigDecimal.valueOf(rightMemberDays),
-                java.math.MathContext.DECIMAL64);
-        return rightPerDay.compareTo(leftPerDay);
+        if ((candidate.monetaryValue() == null || baseline.monetaryValue() == null)
+                && !priorComparable(candidate, baseline)) {
+            return false;
+        }
+
+        return compareTimelineValue(candidate, baseline) < 0;
     }
 
     /**
-     * 比更早完整释放时间：更早释放稀缺岗位成员的方案优先。
+     * 比较金额价值或第三层业务先验。金额均可用时比较金额；金额缺失时切换到
+     * 等级、完整链总需人数、链节点数先验元组，金额为null不得直接降为不可比较。
      *
-     * @return 更早一侧为优；任一侧缺失时返回0
+     * @param left  左候选摘要
+     * @param right 右候选摘要
+     * @return 左侧更优时返回负数；金额或先验仍不可区分时返回0
      */
-    public int compareRelease(java.time.LocalDateTime leftReleaseAt,
-                              java.time.LocalDateTime rightReleaseAt) {
+    private int compareMonetaryOrPrior(OcTimelineValueSummary left,
+                                       OcTimelineValueSummary right) {
+        if (left.monetaryValue() != null && right.monetaryValue() != null) {
+            return right.monetaryValue().compareTo(left.monetaryValue());
+        }
+        if (left.monetaryValue() == null && right.monetaryValue() == null) {
+            return comparePrior(left, right);
+        }
+        return 0;
+    }
+
+    /**
+     * 比较第三层业务先验元组：最高等级（高优）、完整链总需人数（高优）、
+     * 链节点数（高优）、实际增量人天（低优）、保证释放时间（早优）。
+     *
+     * @param left  左候选摘要
+     * @param right 右候选摘要
+     * @return 左侧更优时返回负数；仍不可区分时返回0
+     */
+    private int comparePrior(OcTimelineValueSummary left,
+                             OcTimelineValueSummary right) {
+        int rank = Integer.compare(right.highestRank(), left.highestRank());
+        if (rank != 0) {
+            return rank;
+        }
+        int members = Integer.compare(right.totalRequiredMembers(),
+                left.totalRequiredMembers());
+        if (members != 0) {
+            return members;
+        }
+        int nodes = Integer.compare(right.chainNodeCount(), left.chainNodeCount());
+        if (nodes != 0) {
+            return nodes;
+        }
+        int days = Integer.compare(left.actualIncrementalMemberDays(),
+                right.actualIncrementalMemberDays());
+        if (days != 0) {
+            return days;
+        }
+        return compareRelease(left.guaranteedReleaseAt(), right.guaranteedReleaseAt());
+    }
+
+    /**
+     * 判断两个金额缺失摘要的第三层先验是否可比较。
+     *
+     * @param left  左候选摘要
+     * @param right 右候选摘要
+     * @return 任一关键先验字段缺失时返回false
+     */
+    private boolean priorComparable(OcTimelineValueSummary left,
+                                    OcTimelineValueSummary right) {
+        return left.highestRank() > 0 && right.highestRank() > 0
+                && left.totalRequiredMembers() > 0 && right.totalRequiredMembers() > 0
+                && left.chainNodeCount() > 0 && right.chainNodeCount() > 0;
+    }
+
+    /**
+     * 比较两个保证释放时间，更早者更优。
+     *
+     * @param leftReleaseAt  左候选保证释放时间
+     * @param rightReleaseAt 右候选保证释放时间
+     * @return 左侧更早时返回负数；任一缺失时返回0
+     */
+    public int compareRelease(LocalDateTime leftReleaseAt,
+                              LocalDateTime rightReleaseAt) {
         if (leftReleaseAt == null || rightReleaseAt == null) {
             return 0;
         }

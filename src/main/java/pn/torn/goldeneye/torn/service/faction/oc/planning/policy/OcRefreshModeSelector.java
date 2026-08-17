@@ -3,12 +3,12 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning.policy;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 
 /**
  * 从同一批已证明安全且已评分的候选向量中按模式选择刷新指令。
@@ -79,21 +79,59 @@ public class OcRefreshModeSelector {
         return switch (mode) {
             case CONSERVATIVE -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE;
             case BALANCED -> candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT;
-            case PROFIT -> candidate.vector().totalCount() == 0
-                    || candidate.usableForAdviceIncrease()
-                    && candidate.windowValue() != null
-                    && hasUsableEvidenceLevel(candidate);
+            case PROFIT -> withinProfitPolicy(candidate);
+        };
+    }
+
+    /**
+     * 判断候选是否满足收益模式选点前提。
+     *
+     * <p>零向量不受价值证据限制；正向量要求证据层级可用。收益级停转还必须
+     * 满足全部相关组合严格优于同组合零停转基准；零停转或均衡级停转候选在
+     * PRIOR_ONLY先验可区分时也允许参与收益模式选点。</p>
+     *
+     * @param candidate 安全候选
+     * @return 满足收益模式前提时返回true
+     */
+    private boolean withinProfitPolicy(SafeCandidate candidate) {
+        if (candidate.vector().totalCount() == 0) {
+            return true;
+        }
+        if (!hasUsableEvidenceLevel(candidate) || candidate.timelineValue() == null) {
+            return false;
+        }
+        if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_PROFIT) {
+            return candidate.pauseCandidateStrictlyBetterThanBaseline();
+        }
+        return hasComparableEvidence(candidate);
+    }
+
+    /**
+     * 判断正候选证据是否可比较：金额层级必须携带金额；PRIOR_ONLY必须携带
+     * 可区分业务先验；INSUFFICIENT不得用于提高建议。
+     *
+     * @param candidate 安全候选
+     * @return 证据可比较时返回true
+     */
+    private boolean hasComparableEvidence(SafeCandidate candidate) {
+        return switch (candidate.valueEvidenceLevel()) {
+            case OBSERVED_REWARD, REWARD_FLOOR -> candidate.timelineValue().monetaryValue() != null;
+            case PRIOR_ONLY -> candidate.timelineValue().highestRank() > 0
+                    && candidate.timelineValue().totalRequiredMembers() > 0
+                    && candidate.timelineValue().chainNodeCount() > 0;
+            case INSUFFICIENT -> false;
         };
     }
 
     /**
      * 判断候选的证据层级是否满足收益模式提高建议的冻结可用等级。
+     * PRIOR_ONLY可稳定区分时允许参与收益模式选点。
      *
      * @param candidate 安全候选
-     * @return 层级不低于收益下界证据时返回true
+     * @return 层级不为INSUFFICIENT时返回true
      */
     private boolean hasUsableEvidenceLevel(SafeCandidate candidate) {
-        return OcValueEvidence.Level.REWARD_FLOOR.compareTo(candidate.valueEvidenceLevel()) >= 0;
+        return candidate.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT;
     }
 
     /**
@@ -145,8 +183,8 @@ public class OcRefreshModeSelector {
             if (total != 0) {
                 return total;
             }
-            int release = compareEarlierBetter(left.earliestCompletionAt(),
-                    right.earliestCompletionAt());
+            int release = compareEarlierBetter(left.guaranteedEarliestReleaseAt(),
+                    right.guaranteedEarliestReleaseAt());
             if (release != 0) {
                 return release;
             }
@@ -174,10 +212,8 @@ public class OcRefreshModeSelector {
      */
     private Comparator<SafeCandidate> profitComparator() {
         return (left, right) -> {
-            int valueResult = -valueComparator.compare(left.windowValue(),
-                    left.incrementalMemberDays(), left.earliestCompletionAt(),
-                    right.windowValue(), right.incrementalMemberDays(),
-                    right.earliestCompletionAt());
+            int valueResult = -valueComparator.compareTimelineValue(
+                    left.timelineValue(), right.timelineValue());
             if (valueResult != 0) {
                 return valueResult;
             }

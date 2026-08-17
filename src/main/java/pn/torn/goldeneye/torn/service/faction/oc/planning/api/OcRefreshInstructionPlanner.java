@@ -29,7 +29,7 @@ import java.util.*;
 @Component
 @RequiredArgsConstructor
 public class OcRefreshInstructionPlanner {
-    private static final Duration SEARCH_TIMEOUT = Duration.ofMillis(5_000);
+    private static final Duration SEARCH_TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_REFRESH_SEARCH_COUNT = 20;
 
     private final OcRefreshSafetyRequestFactory requestFactory;
@@ -69,7 +69,7 @@ public class OcRefreshInstructionPlanner {
                 snapshot);
         OcRefreshSafetyResult safety = configurationValid
                 ? new OcRefreshSafetySolver(SEARCH_TIMEOUT, MAX_REFRESH_SEARCH_COUNT)
-                .solve(context.request(), evidence)
+                .solve(context.request(), evidence, context.riskFlags(), context.reasonCodes())
                 : notEvaluatedResult(context);
         Optional<SafeCandidate> selected = configurationValid
                 ? modeSelector.selectCandidate(safety, mode) : Optional.empty();
@@ -86,9 +86,10 @@ public class OcRefreshInstructionPlanner {
      */
     private OcRefreshSafetyResult notEvaluatedResult(OcRefreshPlanningContext context) {
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
-                context.configurationStatus(), OcProofStatusEnum.NOT_EVALUATED, Set.of(), false,
-                Set.of(), List.of(), null, context.request().planningTime());
-        return new OcRefreshSafetyResult(assessment, List.of(), false, 0, List.of());
+                context.configurationStatus(), OcProofStatusEnum.NOT_EVALUATED,
+                context.riskFlags(), false, context.reasonCodes(), List.of(), null,
+                context.request().planningTime());
+        return new OcRefreshSafetyResult(assessment, List.of(), false, 0, context.warnings());
     }
 
     /**
@@ -128,18 +129,20 @@ public class OcRefreshInstructionPlanner {
         }
         OcValueEvidence.Level evidenceLevel = selected.map(SafeCandidate::valueEvidenceLevel)
                 .orElse(OcValueEvidence.Level.INSUFFICIENT);
-        selected.filter(candidate -> Objects.requireNonNull(candidate.vector()).totalCount() > 0
-                        && candidate.windowValue() == null)
+        selected.filter(candidate -> candidate.vector().totalCount() > 0
+                        && candidate.valueEvidenceLevel() == OcValueEvidence.Level.INSUFFICIENT)
                 .ifPresent(ignored -> markEconomicEvidenceInsufficient(riskFlags,
                         reasonCodes));
         List<String> warnings = collectWarnings(snapshot, context, safety);
+        Duration selectedPauseDuration = selected.map(candidate ->
+                candidate.timelineValue() == null ? Duration.ZERO
+                        : candidate.timelineValue().actualNewPause()).orElse(null);
         OcRefreshInstructionPlan plan = new OcRefreshInstructionPlan(snapshot.factionId(),
                 snapshot.snapshotTime(), mode, context.plannedEmptyOcCounts(),
                 vector.normalCount(), vector.highCount(), safety.lowerBound(),
                 reason(vector, context, assessment), context.configurationStatus(),
                 assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
-                pauseAllowed, pauseSelected, selected.isPresent()
-                ? pauseDuration(mode) : null,
+                pauseAllowed, pauseSelected, pauseSelected ? selectedPauseDuration : null,
                 replanWindow, evidenceLevel, occupancySummary, warnings);
         logShadow(plan);
         return plan;
@@ -190,16 +193,6 @@ public class OcRefreshInstructionPlanner {
     }
 
     /**
-     * 获取模式允许的匿名停转时长说明。
-     *
-     * @param mode 刷新策略模式
-     * @return 模式停转上限
-     */
-    private Duration pauseDuration(OcPlanMode mode) {
-        return OcTimelinePolicy.maxNewPause(mode);
-    }
-
-    /**
      * 合并快照、策略、上下文和求解警告。
      *
      * @param snapshot 规划快照
@@ -229,6 +222,10 @@ public class OcRefreshInstructionPlanner {
                           OcTimelineSafetyAssessment assessment) {
         if (context.configurationStatus() != OcConfigurationStatusEnum.VALID) {
             return "规划配置存在错误，已停止自动刷新建议";
+        }
+        if (assessment.reasonCodes().contains(
+                OcPlanReasonCodeEnum.PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH)) {
+            return "已进入操作提前区间，暂不新增刷新；等待或确认边界事实后重新运行";
         }
         if (assessment.riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK)) {
             return "当前存在全帮卡死或被迫拆队风险，两个刷新池建议均为0";

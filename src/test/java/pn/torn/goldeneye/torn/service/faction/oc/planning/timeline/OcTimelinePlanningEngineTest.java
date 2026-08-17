@@ -26,8 +26,8 @@ class OcTimelinePlanningEngineTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 1, 8, 0);
 
     @Test
-    @DisplayName("已有人OC被迫等待16:00释放属可恢复停转且不计为主动新增")
-    void shouldTreatForcedFactPauseAsRecoverableButNotPlannerCreated() {
+    @DisplayName("已有人OC在快照后的未来停转按统一政策计为均衡级")
+    void shouldTreatFuturePauseOfExistingOcAsPlannerCreated() {
         OcMemberCandidate releasedAtSixteen = member(1L, NOW.plusHours(8));
         OcTimelineObligation teamC = joinedObligation(1L, NOW.plusHours(6));
         OcRefreshSafetyRequest request = request(List.of(releasedAtSixteen),
@@ -37,7 +37,7 @@ class OcTimelinePlanningEngineTest {
                 OcConfigurationStatusEnum.VALID);
 
         SafeCandidate zeroVector = candidate(result, 0, 0);
-        assertEquals(SafeCandidate.PauseTier.ZERO_PAUSE, zeroVector.pauseTier());
+        assertEquals(SafeCandidate.PauseTier.WITHIN_BALANCED, zeroVector.pauseTier());
         assertTrue(result.assessment().riskFlags()
                 .contains(OcRiskFlagEnum.RECOVERABLE_PAUSE_PRESENT));
     }
@@ -243,6 +243,73 @@ class OcTimelinePlanningEngineTest {
                 result.assessment().proofStatus(), result.toString());
         assertTrue(result.assessment().riskFlags()
                 .contains(OcRiskFlagEnum.DEADLOCK_RISK), result.toString());
+    }
+
+    @Test
+    @DisplayName("已有人OC未来停转14到21仅收益级容忍，超过12小时三模式拒绝")
+    void shouldTierExistingOcPauseByUnifiedPolicy() {
+        OcRefreshSafetyResult balanced = engine().solve(request(
+                        List.of(member(1L, NOW.plusHours(13))), Set.of(),
+                        List.of(joinedObligation(1L, NOW.plusHours(6)))), Map.of(),
+                OcConfigurationStatusEnum.VALID);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT,
+                candidate(balanced, 0, 0).pauseTier());
+
+        OcRefreshSafetyResult tooLong = engine().solve(request(
+                        List.of(member(1L, NOW.plusHours(19))), Set.of(),
+                        List.of(joinedObligation(1L, NOW.plusHours(6)))), Map.of(),
+                OcConfigurationStatusEnum.VALID);
+        assertTrue(tooLong.candidates().isEmpty(), tooLong.toString());
+        assertTrue(tooLong.assessment().riskFlags()
+                .contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK), tooLong.toString());
+    }
+
+    @Test
+    @DisplayName("快照后开始时间不晚于快照的停转属于既有暂停")
+    void shouldTreatPauseStartedBeforeSnapshotAsPreExisting() {
+        LocalDateTime snapshotAt = NOW.plusHours(7);
+        OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6));
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(member(1L, NOW.plusHours(8))), Set.of(),
+                List.of(existing), Map.of(), List.of(), List.of(), snapshotAt);
+
+        OcRefreshSafetyResult result = engine().solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertEquals(SafeCandidate.PauseTier.ZERO_PAUSE,
+                candidate(result, 0, 0).pauseTier(), result.toString());
+    }
+
+    @Test
+    @DisplayName("操作提前区间已进入时内部窗口收敛为快照并阻断新增刷新")
+    void shouldBlockNewRefreshWhenProofWindowExpired() {
+        OcTimelineObligation plannedEmpty = plannedEmptyObligation(20L, NOW.plusMinutes(10));
+        OcRefreshSafetyRequest request = request(List.of(member(1L, NOW)),
+                Set.of(), List.of(plannedEmpty));
+
+        OcRefreshSafetyResult result = engine().solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertEquals(0, result.candidates().size(), result.toString());
+        assertEquals(NOW, result.assessment().proofWindowEnd());
+        assertTrue(result.assessment().reasonCodes().contains(
+                OcPlanReasonCodeEnum.PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH), result.toString());
+        assertFalse(result.lowerBound(), "失效窗口不得伪装为已证明安全下界");
+    }
+
+    @Test
+    @DisplayName("有效证明窗口内应正常搜索并输出不早于快照的窗口结束时间")
+    void shouldSearchNormallyWhenProofWindowValid() {
+        OcTimelineObligation plannedEmpty = plannedEmptyObligation(20L, NOW.plusHours(3));
+        OcRefreshSafetyRequest request = request(List.of(member(1L, NOW)),
+                Set.of(), List.of(plannedEmpty));
+
+        OcRefreshSafetyResult result = engine().solve(request, Map.of(),
+                OcConfigurationStatusEnum.VALID);
+
+        assertEquals(NOW.plusHours(3).minusMinutes(30), result.assessment().proofWindowEnd());
+        assertFalse(result.assessment().reasonCodes().contains(
+                OcPlanReasonCodeEnum.PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH));
     }
 
     private OcTimelineObligation fullJoinedObligationWithFixedMember(long ocId,

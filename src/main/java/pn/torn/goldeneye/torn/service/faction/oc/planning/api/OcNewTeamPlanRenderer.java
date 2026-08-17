@@ -1,10 +1,7 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.api;
 
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcCurrentOccupancySummary;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRiskFlagEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelinePolicy;
 
 import java.time.format.DateTimeFormatter;
@@ -99,10 +96,10 @@ public class OcNewTeamPlanRenderer {
         result.append("\n\n【时间线评估】")
                 .append("\n- 配置状态: ").append(configurationText(plan))
                 .append("；证明状态: ").append(proofText(plan));
-        if (plan.riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK)) {
-            result.append("\n- 当前存在全帮卡死或被迫拆队风险（本次规划窗口内）");
+        if (plan.reasonCodes().contains(OcPlanReasonCodeEnum.PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH)) {
+            result.append("\n- 已进入操作提前区间，暂不新增刷新；等待或确认边界事实后重新运行");
         } else {
-            result.append("\n- 当前不存在被迫拆队风险");
+            result.append("\n- ").append(safetyRiskText(plan));
         }
         if (plan.nextCriticalReleaseAt() != null) {
             result.append("\n- 下一批关键成员预计 ")
@@ -121,6 +118,29 @@ public class OcNewTeamPlanRenderer {
             result.append("\n- 原因: ").append(String.join("；", reasonTexts));
         }
         result.append("\n- 若已执行刷新或随机结果发生变化，应立即重新运行指令");
+    }
+
+    /**
+     * 按证明状态和风险组合生成三态安全断言，禁止把未证明渲染成无风险。
+     *
+     * @param plan 刷新操作指令
+     * @return 安全断言文案
+     */
+    private String safetyRiskText(OcRefreshInstructionPlan plan) {
+        if (plan.proofStatus() == OcProofStatusEnum.PROVEN_SAFE
+                && !plan.riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK)) {
+            return "本次规划窗口内已证明所选向量不存在被迫拆队风险";
+        }
+        if (plan.proofStatus() == OcProofStatusEnum.PROVEN_INFEASIBLE
+                && plan.riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK)) {
+            return "本次规划窗口内已证明存在全帮卡死或被迫拆队风险";
+        }
+        if (plan.proofStatus() == OcProofStatusEnum.UNPROVEN_TIMEOUT
+                || plan.proofStatus() == OcProofStatusEnum.UNPROVEN_SEARCH_BUDGET
+                || plan.proofStatus() == OcProofStatusEnum.UNPROVEN_HEURISTIC_MISS) {
+            return "当前预算内未证明存在风险，也未证明风险不存在；仅给出已证明安全下界或暂不刷新，请按窗口复核";
+        }
+        return "当前不做安全正反断言；请按配置或硬义务原因复核";
     }
 
     /**

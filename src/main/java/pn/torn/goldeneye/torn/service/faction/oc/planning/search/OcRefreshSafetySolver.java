@@ -1,14 +1,12 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.search;
 
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcConfigurationStatusEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelinePlanningEngine;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 在时间预算内证明普通池与高阶池联合安全刷新候选的时间线求解门面。
@@ -45,6 +43,23 @@ public class OcRefreshSafetySolver {
      */
     public OcRefreshSafetyResult solve(OcRefreshSafetyRequest request,
                                        Map<String, OcValueEvidence> evidenceByTemplate) {
-        return engine.solve(request, evidenceByTemplate, OcConfigurationStatusEnum.VALID);
+        return solve(request, evidenceByTemplate, Set.of(), Set.of());
+    }
+
+    /**
+     * 求解并合并重建得到的风险事实。
+     *
+     * @param request            当前时间线事实义务和随机池模板
+     * @param evidenceByTemplate 按模板键索引的价值证据；高阶链使用chain前缀键
+     * @param initialRiskFlags   重建得到的业务风险标记集合
+     * @param initialReasonCodes 重建得到的匿名原因码集合
+     * @return 含安全评估与已评分候选向量的求解结果
+     */
+    public OcRefreshSafetyResult solve(OcRefreshSafetyRequest request,
+                                       Map<String, OcValueEvidence> evidenceByTemplate,
+                                       Set<OcRiskFlagEnum> initialRiskFlags,
+                                       Set<OcPlanReasonCodeEnum> initialReasonCodes) {
+        return engine.solve(request, evidenceByTemplate, OcConfigurationStatusEnum.VALID,
+                initialRiskFlags, initialReasonCodes);
     }
 }

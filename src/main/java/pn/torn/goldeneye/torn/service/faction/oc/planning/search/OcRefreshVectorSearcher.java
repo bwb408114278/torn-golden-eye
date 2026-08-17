@@ -6,6 +6,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorEvaluator.VectorEvaluation;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcPausePolicyEvaluator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcProofWindow;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcVectorSearchPort;
 
@@ -26,7 +27,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     /**
      * 组合评估预算：以确定性计数截断搜索，保证同一快照结果确定；时间预算仅作兜底。
      */
-    private static final int MAX_COMBINATION_EVALUATIONS = 200;
+    private static final int MAX_COMBINATION_EVALUATIONS = 60;
 
     private final int maxSearch;
     private final OcRefreshVectorEvaluator evaluator;
@@ -64,14 +65,15 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     @Override
     public OcVectorSearchOutcome search(OcRefreshSafetyRequest request,
                                         Map<String, OcValueEvidence> evidenceByTemplate,
-                                        long deadline) {
+                                        long deadline,
+                                        OcProofWindow proofWindow) {
         List<OcRefreshSafetyResult.SafeCandidate> safe = new ArrayList<>();
         List<OcRefreshVector> failed = new ArrayList<>();
         CombinationBudget budget = new CombinationBudget(MAX_COMBINATION_EVALUATIONS);
         boolean timedOut = false;
         for (int total = 0; total <= maxSearch * 2 && !timedOut; total++) {
             timedOut = searchTotal(request, evidenceByTemplate, total, deadline, budget,
-                    safe, failed);
+                    safe, failed, proofWindow);
         }
         return new OcVectorSearchOutcome(safe, timedOut, budget.exhausted());
     }
@@ -105,11 +107,13 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
                                 Map<String, OcValueEvidence> evidenceByTemplate,
                                 int total, long deadline, CombinationBudget budget,
                                 List<OcRefreshSafetyResult.SafeCandidate> safe,
-                                List<OcRefreshVector> failed) {
+                                List<OcRefreshVector> failed,
+                                OcProofWindow proofWindow) {
         for (int high = Math.max(0, total - maxSearch); high <= Math.min(maxSearch, total);
              high++) {
             StepStatus status = tryVector(request, evidenceByTemplate,
-                    new OcRefreshVector(total - high, high), deadline, budget, safe, failed);
+                    new OcRefreshVector(total - high, high), deadline, budget, safe, failed,
+                    proofWindow);
             if (status != StepStatus.CONTINUE) {
                 return status == StepStatus.STOP_TIMEOUT;
             }
@@ -133,12 +137,13 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
                                  Map<String, OcValueEvidence> evidenceByTemplate,
                                  OcRefreshVector vector, long deadline, CombinationBudget budget,
                                  List<OcRefreshSafetyResult.SafeCandidate> safe,
-                                 List<OcRefreshVector> failed) {
+                                 List<OcRefreshVector> failed,
+                                 OcProofWindow proofWindow) {
         if (hasFailedSubset(vector, failed)) {
             return StepStatus.CONTINUE;
         }
         VectorEvaluation evaluation = evaluator.evaluateVector(request, evidenceByTemplate,
-                vector, deadline, budget);
+                vector, deadline, budget, proofWindow);
         if (evaluation.status() == VectorEvaluation.Status.TIMEOUT) {
             return StepStatus.STOP_TIMEOUT;
         }

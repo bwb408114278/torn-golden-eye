@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.chain.OcChainPlanningService;
@@ -73,6 +74,47 @@ class OcRefreshSafetyRequestFactoryTest {
 
         assertTrue(context.request().unprovableMemberIds().contains(10L));
         assertEquals(0, context.request().obligations().size());
+    }
+
+    @Test
+    @DisplayName("链实例分叉时上下文应保留硬义务风险和映射歧义原因码")
+    void shouldPreserveChainRiskFactsWhenInstancesForked() {
+        TornFactionOcDO root = oc(1L, "Root", NOW.plusHours(8));
+        root.setPreviousOcId(null);
+        TornFactionOcDO firstChild = oc(2L, "Child", NOW.plusHours(24));
+        firstChild.setPreviousOcId(1L);
+        firstChild.setRank(9);
+        TornFactionOcDO secondChild = oc(3L, "Child", NOW.plusHours(24));
+        secondChild.setPreviousOcId(1L);
+        secondChild.setRank(9);
+        String rootKey = OcPlanningSnapshot.ocKey(8, "Root");
+        String childKey = OcPlanningSnapshot.ocKey(9, "Child");
+        Map<String, TornSettingOcPlanProfileDO> profiles = new java.util.HashMap<>();
+        profiles.put(rootKey, profile("Root", "NORMAL_7_8"));
+        profiles.put(childKey, profile("Child", "CHAIN_ONLY"));
+        Map<String, List<OcPlanSlot>> templates = new java.util.HashMap<>();
+        templates.put(rootKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+        templates.put(childKey, List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)));
+        TornSettingOcChainDO edge = new TornSettingOcChainDO();
+        edge.setChainCode("A");
+        edge.setParentOcName("Root");
+        edge.setParentRank(8);
+        edge.setChildOcName("Child");
+        edge.setChildRank(9);
+        edge.setSequenceNo(1);
+        OcFactionPlanningPolicy policy = new OcFactionPlanningPolicy(1L,
+                OcEvaluationMode.POSITION_WEIGHT, Set.of(rootKey, childKey), List.of());
+        OcPlanningSnapshot snapshot = new OcPlanningSnapshot(1L, NOW, policy,
+                List.of(root, firstChild, secondChild), Map.of(), List.of(),
+                profiles, List.of(edge), templates, Set.of(), Map.of(), List.of());
+
+        OcRefreshPlanningContext context = factory.create(snapshot);
+
+        assertTrue(context.riskFlags().contains(OcRiskFlagEnum.HARD_OBLIGATION_AT_RISK),
+                context.riskFlags().toString());
+        assertTrue(context.reasonCodes().contains(OcPlanReasonCodeEnum.CHAIN_MAPPING_AMBIGUOUS),
+                context.reasonCodes().toString());
+        assertEquals(OcConfigurationStatusEnum.INVALID, context.configurationStatus());
     }
 
     @Test

@@ -1,8 +1,11 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.search;
 
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorSearcher.CombinationBudget;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcPausePolicyEvaluator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcProofWindow;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler.CandidateRoot;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler.SimulationResult;
@@ -18,8 +21,8 @@ import java.util.Set;
 
 /**
  * 时间线刷新向量组合评估器。验证单个刷新向量的全部随机结果组合，
- * 确定其最小停转层级并按价值证据评分，取全部组合下的最坏评分。
- * 纯内存对象，不访问数据库、HTTP或Redis。
+ * 按全部组合做顺序无关聚合：停转层级取最严格层级、保证释放取各组合最早
+ * 完整释放中的最晚值、价值取最弱组合证据。纯内存对象，不访问数据库、HTTP或Redis。
  *
  * @author Bai
  * @version 1.3.0
@@ -29,32 +32,20 @@ class OcRefreshVectorEvaluator {
     private final OcTimelineEventScheduler scheduler;
     private final OcPausePolicyEvaluator pauseEvaluator;
 
-    /**
-     * 创建刷新向量组合评估器。
-     *
-     * @param scheduler      时间线事件推进器
-     * @param pauseEvaluator 模式停转政策评估器
-     */
     OcRefreshVectorEvaluator(OcTimelineEventScheduler scheduler,
                              OcPausePolicyEvaluator pauseEvaluator) {
         this.scheduler = scheduler;
         this.pauseEvaluator = pauseEvaluator;
     }
 
-    /**
-     * 验证单个刷新向量的全部随机结果组合，并确定其最小停转层级和评分。
-     *
-     * @param request            求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param vector             待验证刷新向量
-     * @param deadline           求解截止纳秒时间
-     * @param budget             组合评估预算
-     * @return 向量验证结果
-     */
     VectorEvaluation evaluateVector(OcRefreshSafetyRequest request,
                                     Map<String, OcValueEvidence> evidenceByTemplate,
                                     OcRefreshVector vector, long deadline,
-                                    CombinationBudget budget) {
+                                    CombinationBudget budget,
+                                    OcProofWindow proofWindow) {
+        if (proofWindow.newRefreshBlocked()) {
+            return VectorEvaluation.failed();
+        }
         if (hasMissingTemplate(request, vector)) {
             return VectorEvaluation.failed();
         }
@@ -66,7 +57,8 @@ class OcRefreshVectorEvaluator {
         for (int[] normalCombination : normalCombinations) {
             for (int[] highCombination : highCombinations) {
                 VectorEvaluation terminal = evaluateCombination(request, evidenceByTemplate,
-                        normalCombination, highCombination, deadline, budget, worst);
+                        normalCombination, highCombination, deadline, budget, proofWindow,
+                        worst);
                 if (terminal != null) {
                     return terminal;
                 }
@@ -75,22 +67,11 @@ class OcRefreshVectorEvaluator {
         return worst.toEvaluation(vector);
     }
 
-    /**
-     * 评估单个随机结果组合并累积最坏评分。
-     *
-     * @param request            求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param normalCombination  普通池各模板出现次数
-     * @param highCombination    各高阶链出现次数
-     * @param deadline           求解截止纳秒时间
-     * @param budget             组合评估预算
-     * @param worst              最坏评分累积状态
-     * @return 终止性验证结果；组合可继续评估时返回null
-     */
     private VectorEvaluation evaluateCombination(OcRefreshSafetyRequest request,
                                                  Map<String, OcValueEvidence> evidenceByTemplate,
                                                  int[] normalCombination, int[] highCombination,
                                                  long deadline, CombinationBudget budget,
+                                                 OcProofWindow proofWindow,
                                                  WorstCase worst) {
         if (System.nanoTime() >= deadline) {
             return VectorEvaluation.timeout();
@@ -100,69 +81,123 @@ class OcRefreshVectorEvaluator {
         }
         List<CandidateRoot> roots = candidateRoots(request, normalCombination,
                 highCombination);
-        SimulationResult result = simulateTiered(request, roots);
-        if (result.searchBudgetExhausted()) {
-            if (result.feasible()) {
-                mergeWorstCase(worst, result, roots, evidenceByTemplate);
-                return new VectorEvaluation(VectorEvaluation.Status.BUDGET_EXHAUSTED,
-                        worst.toEvaluation(vectorOf(normalCombination, highCombination))
-                                .candidate());
-            }
-            return VectorEvaluation.budgetExhausted();
+        SimulationResult zeroBaseline = simulate(request, roots, Duration.ZERO,
+                proofWindow);
+        if (zeroBaseline.searchBudgetExhausted()) {
+            return budgetExhaustedWithCandidate(zeroBaseline, roots, evidenceByTemplate,
+                    worst, normalCombination, highCombination);
         }
-        if (!result.feasible()) {
-            return VectorEvaluation.failed();
+        if (zeroBaseline.feasible()) {
+            mergeWorstCase(worst, zeroBaseline, zeroBaseline, roots, evidenceByTemplate,
+                    SafeCandidate.PauseTier.ZERO_PAUSE);
+            return null;
         }
-        mergeWorstCase(worst, result, roots, evidenceByTemplate);
-        return null;
+        SimulationResult balanced = simulate(request, roots,
+                OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE, proofWindow);
+        if (balanced.searchBudgetExhausted()) {
+            return budgetExhaustedWithCandidate(balanced, roots, evidenceByTemplate,
+                    worst, normalCombination, highCombination);
+        }
+        if (balanced.feasible()) {
+            mergeWorstCase(worst, balanced, null, roots, evidenceByTemplate,
+                    SafeCandidate.PauseTier.WITHIN_BALANCED);
+            return null;
+        }
+        SimulationResult profit = simulate(request, roots,
+                OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, proofWindow);
+        if (profit.searchBudgetExhausted()) {
+            return budgetExhaustedWithCandidate(profit, roots, evidenceByTemplate,
+                    worst, normalCombination, highCombination);
+        }
+        if (profit.feasible()) {
+            mergeWorstCase(worst, profit, null, roots, evidenceByTemplate,
+                    SafeCandidate.PauseTier.WITHIN_PROFIT);
+            return null;
+        }
+        return VectorEvaluation.failed();
     }
 
-    /**
-     * 由普通池与高阶池组合还原刷新向量。
-     *
-     * @param normalCombination 普通池各模板出现次数
-     * @param highCombination   各高阶链出现次数
-     * @return 刷新向量
-     */
+    private VectorEvaluation budgetExhaustedWithCandidate(
+            SimulationResult result, List<CandidateRoot> roots,
+            Map<String, OcValueEvidence> evidenceByTemplate, WorstCase worst,
+            int[] normalCombination, int[] highCombination) {
+        if (result.feasible()) {
+            mergeWorstCase(worst, result, null, roots, evidenceByTemplate,
+                    tierFor(result));
+            return new VectorEvaluation(VectorEvaluation.Status.BUDGET_EXHAUSTED,
+                    worst.toEvaluation(vectorOf(normalCombination, highCombination))
+                            .candidate());
+        }
+        return VectorEvaluation.budgetExhausted();
+    }
+
+    private SimulationResult simulate(OcRefreshSafetyRequest request,
+                                      List<CandidateRoot> roots, Duration allowedPause,
+                                      OcProofWindow proofWindow) {
+        return scheduler.simulate(request, roots, allowedPause, true,
+                proofWindow.proofWindowEnd());
+    }
+
     private OcRefreshVector vectorOf(int[] normalCombination, int[] highCombination) {
         return new OcRefreshVector(java.util.Arrays.stream(normalCombination).sum(),
                 java.util.Arrays.stream(highCombination).sum());
     }
 
-    /**
-     * 将单个组合的模拟结果合并进最坏评分累积状态。
-     *
-     * @param worst              最坏评分累积状态
-     * @param result             组合模拟结果
-     * @param roots              候选根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     */
     private void mergeWorstCase(WorstCase worst, SimulationResult result,
+                                SimulationResult zeroBaseline,
                                 List<CandidateRoot> roots,
-                                Map<String, OcValueEvidence> evidenceByTemplate) {
-        worst.tier = maxTier(worst.tier, result);
-        worst.worstValue = minEvidence(worst.worstValue,
-                combinationValue(roots, evidenceByTemplate));
-        worst.anyValued &= combinationValued(roots, evidenceByTemplate);
-        worst.anyUsableForAdvice &= combinationUsableForAdvice(roots, evidenceByTemplate);
-        worst.worstMemberDays = Math.max(worst.worstMemberDays,
-                combinationMemberDays(roots, evidenceByTemplate));
+                                Map<String, OcValueEvidence> evidenceByTemplate,
+                                SafeCandidate.PauseTier tier) {
+        worst.tier = maxTier(worst.tier, tier);
+        OcValueEvidence staticEvidence = combinationEvidence(roots, evidenceByTemplate);
+        OcTimelineValueSummary summary = mergeSummary(result.timelineValue(),
+                staticEvidence);
+        worst.mergeValue(summary);
         LocalDateTime completion = earliestCompletion(result.events());
-        if (worst.earliestCompletion == null || completion != null
-                && completion.isBefore(worst.earliestCompletion)) {
-            worst.earliestCompletion = completion;
-        }
+        worst.mergeRelease(completion);
         worst.minAnchorCount = Math.min(worst.minAnchorCount,
                 result.liquidityProof().anchors().size());
-        worst.level = weakerLevel(worst.level, evidenceLevel(roots, evidenceByTemplate));
+        worst.level = weakerLevel(worst.level, staticEvidence.level());
+        if (tier == SafeCandidate.PauseTier.WITHIN_PROFIT) {
+            boolean comparable = zeroBaseline != null
+                    && zeroBaseline.feasible()
+                    && !zeroBaseline.searchBudgetExhausted();
+            worst.zeroPauseBaselineComparable &= comparable;
+            worst.pauseCandidateStrictlyBetter &= comparable
+                    && strictlyBetterThanZeroBaseline(summary, zeroBaseline, evidenceByTemplate,
+                    roots);
+        }
     }
 
-    /**
-     * 从完成释放事件中获取本组合的最早完整释放时间。
-     *
-     * @param events 时间线事件列表
-     * @return 最早完成释放时间；无完成事件时为null
-     */
+    private OcTimelineValueSummary mergeSummary(OcTimelineValueSummary actual,
+                                                OcValueEvidence staticEvidence) {
+        if (actual == null) {
+            actual = OcTimelineValueSummary.empty();
+        }
+        return new OcTimelineValueSummary(
+                staticEvidence.totalValue(),
+                actual.actualIncrementalMemberDays(),
+                actual.actualNewPause(),
+                actual.existingObligationDelay(),
+                actual.avoidableExpiryPressure(),
+                actual.guaranteedReleaseAt(),
+                staticEvidence.highestRank(),
+                staticEvidence.totalRequiredMembers(),
+                staticEvidence.chainNodeCount(),
+                staticEvidence.level());
+    }
+
+    private boolean strictlyBetterThanZeroBaseline(OcTimelineValueSummary candidate,
+                                                   SimulationResult zeroBaseline,
+                                                   Map<String, OcValueEvidence> evidenceByTemplate,
+                                                   List<CandidateRoot> roots) {
+        OcValueEvidence baselineEvidence = combinationEvidence(roots, evidenceByTemplate);
+        OcTimelineValueSummary baseline = mergeSummary(zeroBaseline.timelineValue(),
+                baselineEvidence);
+        return new OcEconomicValueComparator()
+                .isStrictlyBetterThanZeroPauseBaseline(candidate, baseline);
+    }
+
     private LocalDateTime earliestCompletion(List<OcTimelineEvent> events) {
         return events.stream()
                 .filter(event -> event.type() == OcTimelineEvent.EventType.COMPLETION_RELEASE)
@@ -171,42 +206,6 @@ class OcRefreshVectorEvaluator {
                 .orElse(null);
     }
 
-    /**
-     * 按停转层级从零到收益上限逐级尝试模拟组合。
-     *
-     * <p>任一层级达到搜索预算截断即立即返回该结果，由上层映射为
-     * {@code UNPROVEN_SEARCH_BUDGET}；全部层级不可行且未截断时返回null。</p>
-     *
-     * @param request 求解请求
-     * @param roots   随机结果候选根义务
-     * @return 第一个可行层级或预算截断的模拟结果；全部层级不可行时返回null
-     */
-    private SimulationResult simulateTiered(OcRefreshSafetyRequest request,
-                                            List<CandidateRoot> roots) {
-        LocalDateTime proofWindowEnd = OcTimelinePolicy.proofWindowEnd(request);
-        SimulationResult result = scheduler.simulate(request, roots, Duration.ZERO, true,
-                proofWindowEnd);
-        if (result.feasible() || result.searchBudgetExhausted()) {
-            return result;
-        }
-        result = scheduler.simulate(request, roots,
-                OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE, true, proofWindowEnd);
-        if (result.feasible() || result.searchBudgetExhausted()) {
-            return result;
-        }
-        return scheduler.simulate(request, roots,
-                OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, true, proofWindowEnd);
-    }
-
-    /**
-     * 构造一组随机结果组合对应的候选根义务集合。同模板多次刷新按出现序号
-     * 生成独立义务键，保证事件、停转、锚点和后继义务互不冲突。
-     *
-     * @param request           求解请求
-     * @param normalCombination 普通池各模板出现次数
-     * @param highCombination   各高阶链出现次数
-     * @return 候选根义务集合
-     */
     private List<CandidateRoot> candidateRoots(OcRefreshSafetyRequest request,
                                                int[] normalCombination,
                                                int[] highCombination) {
@@ -230,15 +229,6 @@ class OcRefreshVectorEvaluator {
         return roots;
     }
 
-    /**
-     * 根据随机结果模板创建新的无人OC义务。
-     *
-     * @param template   随机结果模板
-     * @param createdAt  创建时间
-     * @param keyPrefix  义务键前缀
-     * @param occurrence 同模板在当前组合内的出现序号，从0开始
-     * @return 带首人期限的条件性随机结果义务
-     */
     private OcTimelineObligation freshObligation(OcTeamDemand template,
                                                  LocalDateTime createdAt, String keyPrefix,
                                                  int occurrence) {
@@ -251,101 +241,41 @@ class OcRefreshVectorEvaluator {
                 demand, deadline, null);
     }
 
-    /**
-     * 计算组合内全部候选的价值合计；任一候选金额证据不足时返回null。
-     *
-     * @param roots              候选根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @return 组合价值合计；证据不足时为null
-     */
-    private BigDecimal combinationValue(List<CandidateRoot> roots,
-                                        Map<String, OcValueEvidence> evidenceByTemplate) {
-        BigDecimal total = BigDecimal.ZERO;
-        for (CandidateRoot root : roots) {
-            OcValueEvidence evidence = evidence(evidenceByTemplate, root);
-            if (evidence == null || evidence.totalValue() == null) {
-                return null;
-            }
-            total = total.add(evidence.totalValue());
-        }
-        return total;
-    }
-
-    /**
-     * 判断组合内全部候选是否均具备金额证据。
-     *
-     * @param roots              候选根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @return 全部候选均有金额证据时返回true
-     */
-    private boolean combinationValued(List<CandidateRoot> roots,
-                                      Map<String, OcValueEvidence> evidenceByTemplate) {
-        return combinationValue(roots, evidenceByTemplate) != null;
-    }
-
-    /**
-     * 计算组合内全部候选的增量成员人天合计。
-     *
-     * @param roots              候选根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @return 增量成员人天合计
-     */
-    private int combinationMemberDays(List<CandidateRoot> roots,
-                                      Map<String, OcValueEvidence> evidenceByTemplate) {
-        int total = 0;
-        for (CandidateRoot root : roots) {
-            OcValueEvidence evidence = evidence(evidenceByTemplate, root);
-            if (evidence != null) {
-                total += evidence.incrementalMemberDays();
-            }
-        }
-        return total;
-    }
-
-    /**
-     * 获取组合内全部候选的最弱价值证据层级。
-     *
-     * @param roots              候选根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @return 最弱证据层级
-     */
-    private OcValueEvidence.Level evidenceLevel(List<CandidateRoot> roots,
+    private OcValueEvidence combinationEvidence(List<CandidateRoot> roots,
                                                 Map<String, OcValueEvidence> evidenceByTemplate) {
+        if (roots.isEmpty()) {
+            return new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD, BigDecimal.ZERO,
+                    0, null, true, 0, 0, 1);
+        }
+        BigDecimal totalValue = BigDecimal.ZERO;
+        int memberDays = 0;
+        int highestRank = 0;
+        int totalMembers = 0;
+        int nodeCount = 0;
         OcValueEvidence.Level level = OcValueEvidence.Level.OBSERVED_REWARD;
+        boolean allValued = true;
         for (CandidateRoot root : roots) {
             OcValueEvidence evidence = evidence(evidenceByTemplate, root);
-            if (evidence != null) {
-                level = weakerLevel(level, evidence.level());
+            if (evidence == null) {
+                evidence = new OcValueEvidence(OcValueEvidence.Level.INSUFFICIENT, null,
+                        0, null, false, 0, 0, 1);
+            }
+            level = weakerLevel(level, evidence.level());
+            highestRank = Math.max(highestRank, evidence.highestRank());
+            totalMembers += evidence.totalRequiredMembers();
+            nodeCount += evidence.chainNodeCount();
+            memberDays += evidence.incrementalMemberDays();
+            if (evidence.totalValue() == null) {
+                allValued = false;
+            } else {
+                totalValue = totalValue.add(evidence.totalValue());
             }
         }
-        return level;
+        return new OcValueEvidence(level, allValued ? totalValue : null, memberDays, null,
+                !roots.isEmpty() && level != OcValueEvidence.Level.INSUFFICIENT,
+                highestRank, totalMembers, nodeCount);
     }
 
-    /**
-     * 判断组合内全部候选的证据是否均可用于提高刷新建议。
-     *
-     * @param roots              候选根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @return 全部候选证据可用时返回true
-     */
-    private boolean combinationUsableForAdvice(List<CandidateRoot> roots,
-                                               Map<String, OcValueEvidence> evidenceByTemplate) {
-        for (CandidateRoot root : roots) {
-            OcValueEvidence evidence = evidence(evidenceByTemplate, root);
-            if (evidence == null || !evidence.usableForAdviceIncrease()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * 查询候选根义务对应的价值证据；链候选使用chain前缀键。
-     *
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param root               候选根义务
-     * @return 价值证据；缺失时为null
-     */
     private OcValueEvidence evidence(Map<String, OcValueEvidence> evidenceByTemplate,
                                      CandidateRoot root) {
         String ocKey = root.obligation().demand().rank() + ":"
@@ -355,84 +285,36 @@ class OcRefreshVectorEvaluator {
                 : evidenceByTemplate.get("chain:" + ocKey);
     }
 
-    /**
-     * 取两个证据层级中较弱的一个。
-     *
-     * @param left  层级一
-     * @param right 层级二
-     * @return 较弱层级
-     */
     private OcValueEvidence.Level weakerLevel(OcValueEvidence.Level left,
                                               OcValueEvidence.Level right) {
         return left.compareTo(right) >= 0 ? left : right;
     }
 
-    /**
-     * 取两个非空金额中较小的一个作为最坏组合价值。
-     *
-     * <p>首个组合的金额直接作为初始最坏值；任一组合金额证据不足时整体为null。</p>
-     *
-     * @param current   当前最坏价值；尚未累积时为null
-     * @param candidate 新组合价值
-     * @return 较小价值；新组合证据不足时为null
-     */
-    private BigDecimal minEvidence(BigDecimal current, BigDecimal candidate) {
-        if (candidate == null) {
-            return null;
-        }
-        return current == null ? candidate : current.min(candidate);
+    private SafeCandidate.PauseTier maxTier(SafeCandidate.PauseTier current,
+                                            SafeCandidate.PauseTier tier) {
+        return tier.compareTo(current) > 0 ? tier : current;
     }
 
-    /**
-     * 合并向量在全部组合下的最小停转层级。
-     *
-     * @param current 当前层级
-     * @param result  组合模拟结果
-     * @return 更宽的层级
-     */
-    private OcRefreshSafetyResult.SafeCandidate.PauseTier maxTier(
-            OcRefreshSafetyResult.SafeCandidate.PauseTier current, SimulationResult result) {
+    private SafeCandidate.PauseTier tierFor(SimulationResult result) {
         if (pauseEvaluator.requiresProfitTier(result.maxNewPause())) {
-            return OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_PROFIT;
+            return SafeCandidate.PauseTier.WITHIN_PROFIT;
         }
-        if (pauseEvaluator.requiresBalancedTier(result.maxNewPause())
-                || current == OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_PROFIT) {
-            return OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_BALANCED;
+        if (pauseEvaluator.requiresBalancedTier(result.maxNewPause())) {
+            return SafeCandidate.PauseTier.WITHIN_BALANCED;
         }
-        return current;
+        return SafeCandidate.PauseTier.ZERO_PAUSE;
     }
 
-    /**
-     * 判断待刷新池是否缺少计划模板。
-     *
-     * @param request 求解请求
-     * @param vector  待验证刷新向量
-     * @return 任一正次数刷新池缺少模板时返回true
-     */
     private boolean hasMissingTemplate(OcRefreshSafetyRequest request, OcRefreshVector vector) {
         return vector.normalCount() > 0 && request.normalTemplates().isEmpty()
                 || vector.highCount() > 0 && request.highChains().isEmpty();
     }
 
-    /**
-     * 计算组合列表，并为零类型零次数场景补充空组合。
-     *
-     * @param typeCount 随机结果类型数
-     * @param total     刷新总次数
-     * @return 组合列表
-     */
     private List<int[]> nonEmptyCombinations(int typeCount, int total) {
         List<int[]> result = combinations(typeCount, total);
         return result.isEmpty() ? List.of(new int[0]) : result;
     }
 
-    /**
-     * 枚举指定次数在随机结果类型之间的全部非负整数分配。
-     *
-     * @param typeCount 随机结果类型数
-     * @param total     刷新总次数
-     * @return 计数组合列表
-     */
     private List<int[]> combinations(int typeCount, int total) {
         List<int[]> result = new ArrayList<>();
         if (typeCount == 0) {
@@ -445,14 +327,6 @@ class OcRefreshVectorEvaluator {
         return result;
     }
 
-    /**
-     * 递归构造随机结果计数组合。
-     *
-     * @param result    组合结果集合
-     * @param current   当前组合缓冲区
-     * @param index     当前类型索引
-     * @param remaining 尚未分配的次数
-     */
     private void buildCombinations(List<int[]> result, int[] current,
                                    int index, int remaining) {
         if (index == current.length - 1) {
@@ -466,15 +340,9 @@ class OcRefreshVectorEvaluator {
         }
     }
 
-    /**
-     * 单个刷新向量的验证结果。
-     *
-     * @param status    验证状态
-     * @param candidate 已证明安全的候选；仅SAFE状态非空
-     */
     record VectorEvaluation(
             Status status,
-            OcRefreshSafetyResult.SafeCandidate candidate) {
+            SafeCandidate candidate) {
         enum Status {
             SAFE, FAILED, TIMEOUT, BUDGET_EXHAUSTED
         }
@@ -492,26 +360,67 @@ class OcRefreshVectorEvaluator {
         }
     }
 
-    /**
-     * 向量在全部随机组合下的最坏评分累积状态。
-     */
     private static final class WorstCase {
-        private OcRefreshSafetyResult.SafeCandidate.PauseTier tier =
-                OcRefreshSafetyResult.SafeCandidate.PauseTier.ZERO_PAUSE;
+        private SafeCandidate.PauseTier tier = SafeCandidate.PauseTier.ZERO_PAUSE;
         private BigDecimal worstValue = null;
-        private boolean anyValued = true;
-        private boolean anyUsableForAdvice = true;
         private int worstMemberDays = 0;
-        private LocalDateTime earliestCompletion = null;
+        private Duration worstActualNewPause = Duration.ZERO;
+        private Duration worstExistingDelay = Duration.ZERO;
+        private boolean anyAvoidableExpiry = true;
+        private LocalDateTime latestEarliestRelease = null;
+        private boolean anyReleaseMissing = false;
         private int minAnchorCount = Integer.MAX_VALUE;
         private OcValueEvidence.Level level = OcValueEvidence.Level.OBSERVED_REWARD;
+        private int highestRank = 0;
+        private int totalMembers = 0;
+        private int nodeCount = 0;
+        private boolean zeroPauseBaselineComparable = true;
+        private boolean pauseCandidateStrictlyBetter = true;
+
+        private void mergeValue(OcTimelineValueSummary summary) {
+            BigDecimal value = summary.monetaryValue();
+            if (value == null) {
+                worstValue = null;
+            } else if (worstValue == null) {
+                worstValue = value;
+            } else {
+                worstValue = worstValue.min(value);
+            }
+            worstMemberDays = Math.max(worstMemberDays,
+                    summary.actualIncrementalMemberDays());
+            if (summary.actualNewPause().compareTo(worstActualNewPause) > 0) {
+                worstActualNewPause = summary.actualNewPause();
+            }
+            if (summary.existingObligationDelay().compareTo(worstExistingDelay) > 0) {
+                worstExistingDelay = summary.existingObligationDelay();
+            }
+            anyAvoidableExpiry &= summary.avoidableExpiryPressure();
+            highestRank = Math.max(highestRank, summary.highestRank());
+            totalMembers = Math.max(totalMembers, summary.totalRequiredMembers());
+            nodeCount = Math.max(nodeCount, summary.chainNodeCount());
+        }
+
+        private void mergeRelease(LocalDateTime completion) {
+            if (completion == null) {
+                anyReleaseMissing = true;
+                return;
+            }
+            latestEarliestRelease = latestEarliestRelease == null
+                    ? completion : (completion.isAfter(latestEarliestRelease)
+                    ? completion : latestEarliestRelease);
+        }
 
         private VectorEvaluation toEvaluation(OcRefreshVector vector) {
             int anchorCount = minAnchorCount == Integer.MAX_VALUE ? 0 : minAnchorCount;
+            LocalDateTime guaranteedRelease = anyReleaseMissing
+                    ? null : latestEarliestRelease;
+            OcTimelineValueSummary summary = new OcTimelineValueSummary(worstValue,
+                    worstMemberDays, worstActualNewPause, worstExistingDelay,
+                    anyAvoidableExpiry, guaranteedRelease, highestRank, totalMembers,
+                    nodeCount, level);
             return new VectorEvaluation(VectorEvaluation.Status.SAFE,
-                    new OcRefreshSafetyResult.SafeCandidate(vector, tier,
-                            anyValued ? worstValue : null, worstMemberDays,
-                            earliestCompletion, anchorCount, level, anyUsableForAdvice));
+                    new SafeCandidate(vector, tier, summary, anchorCount, level,
+                            zeroPauseBaselineComparable, pauseCandidateStrictlyBetter));
         }
     }
 }
