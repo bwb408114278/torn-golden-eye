@@ -203,6 +203,42 @@ class OcExistingTimelineReconstructorTest {
                 .stream().map(OcTeamDemand::ocName).toList());
     }
 
+    @Test
+    @DisplayName("现实空链后继应保留createTime作为前置生成事实")
+    void shouldPreserveCreateTimeAsPredecessorCompletedAtForCommittedChainSuccessor() {
+        LocalDateTime childCreateTime = NOW.minusHours(3);
+        TornFactionOcDO child = oc(1L, "Child", null, childCreateTime);
+        child.setPreviousOcId(100L);
+        OcPlanningSnapshot snapshot = snapshot(List.of(child), Map.of());
+
+        ReconstructionResult result = reconstructor.reconstruct(snapshot,
+                new OcChainTemplateResult(List.of(), List.of()));
+
+        assertEquals(1, result.obligations().size());
+        OcTimelineObligation obligation = result.obligations().getFirst();
+        assertEquals(OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR,
+                obligation.kind());
+        assertEquals(childCreateTime, obligation.predecessorCompletedAt());
+    }
+
+    @Test
+    @DisplayName("现实空链后继缺失createTime时前置生成事实应保持null")
+    void shouldKeepPredecessorCompletedAtNullWhenCreateTimeMissing() {
+        TornFactionOcDO child = oc(1L, "Child", null, null);
+        child.setCreateTime(null);
+        child.setPreviousOcId(100L);
+        OcPlanningSnapshot snapshot = snapshot(List.of(child), Map.of());
+
+        ReconstructionResult result = reconstructor.reconstruct(snapshot,
+                new OcChainTemplateResult(List.of(), List.of()));
+
+        assertEquals(1, result.obligations().size());
+        OcTimelineObligation obligation = result.obligations().getFirst();
+        assertEquals(OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR,
+                obligation.kind());
+        assertNull(obligation.predecessorCompletedAt());
+    }
+
     private OcTeamDemand template(String name, int rank) {
         return new OcTeamDemand(0L, name, rank, null, null, true,
                 List.of(new OcPlanSlot("Worker#1", "Worker", 60, 1, null)),

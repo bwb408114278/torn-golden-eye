@@ -129,11 +129,15 @@ public class OcExistingTimelineReconstructor {
             return;
         }
         LocalDateTime deadline = firstJoinDeadline(snapshot, oc);
-        OcTimelineObligation.ObligationKind kind = oc.getPreviousOcId() != null
+        boolean committedChainSuccessor = oc.getPreviousOcId() != null;
+        OcTimelineObligation.ObligationKind kind = committedChainSuccessor
                 ? OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR
                 : OcTimelineObligation.ObligationKind.PLANNED_EMPTY;
+        LocalDateTime predecessorCompletedAt = committedChainSuccessor
+                ? oc.getCreateTime() : null;
         accumulator.obligations.add(new OcTimelineObligation(ocKey(oc), kind,
-                demand(snapshot, oc, null, deadline, Set.of(), Set.of()), deadline, null));
+                demand(snapshot, oc, null, deadline, Set.of(), Set.of()), deadline,
+                predecessorCompletedAt));
     }
 
     /**
