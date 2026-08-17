@@ -118,6 +118,10 @@ public class OcExistingTimelineReconstructor {
     /**
      * 重建计划内无人OC的待启动义务。
      *
+     * <p>现实空链后继的前置事实只取Torn权威创建时间tornCreatedAt；
+     * 外部事实缺失时保持null，由下游UNPROVEN哨兵和收益模式fail-closed兜底，
+     * 禁止用本地审计createTime、快照时间或零时长代替。</p>
+     *
      * @param snapshot    规划快照
      * @param oc          现实OC
      * @param inScope     是否属于当前自动规划范围
@@ -134,7 +138,7 @@ public class OcExistingTimelineReconstructor {
                 ? OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR
                 : OcTimelineObligation.ObligationKind.PLANNED_EMPTY;
         LocalDateTime predecessorCompletedAt = committedChainSuccessor
-                ? oc.getCreateTime() : null;
+                ? oc.getTornCreatedAt() : null;
         accumulator.obligations.add(new OcTimelineObligation(ocKey(oc), kind,
                 demand(snapshot, oc, null, deadline, Set.of(), Set.of()), deadline,
                 predecessorCompletedAt));

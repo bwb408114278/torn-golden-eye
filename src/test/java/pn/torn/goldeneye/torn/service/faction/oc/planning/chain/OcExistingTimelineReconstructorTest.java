@@ -204,10 +204,12 @@ class OcExistingTimelineReconstructorTest {
     }
 
     @Test
-    @DisplayName("现实空链后继应保留createTime作为前置生成事实")
-    void shouldPreserveCreateTimeAsPredecessorCompletedAtForCommittedChainSuccessor() {
-        LocalDateTime childCreateTime = NOW.minusHours(3);
-        TornFactionOcDO child = oc(1L, "Child", null, childCreateTime);
+    @DisplayName("现实空链后继应保留Torn权威创建时间作为前置生成事实且不受本地审计时间影响")
+    void shouldPreserveTornCreatedAtAsPredecessorCompletedAtForCommittedChainSuccessor() {
+        LocalDateTime tornCreatedAt = NOW.minusHours(3);
+        TornFactionOcDO child = oc(1L, "Child", null, null);
+        child.setTornCreatedAt(tornCreatedAt);
+        child.setCreateTime(NOW);
         child.setPreviousOcId(100L);
         OcPlanningSnapshot snapshot = snapshot(List.of(child), Map.of());
 
@@ -218,14 +220,14 @@ class OcExistingTimelineReconstructorTest {
         OcTimelineObligation obligation = result.obligations().getFirst();
         assertEquals(OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR,
                 obligation.kind());
-        assertEquals(childCreateTime, obligation.predecessorCompletedAt());
+        assertEquals(tornCreatedAt, obligation.predecessorCompletedAt(),
+                "前置事实必须取Torn权威创建时间而非本地审计createTime");
     }
 
     @Test
-    @DisplayName("现实空链后继缺失createTime时前置生成事实应保持null")
-    void shouldKeepPredecessorCompletedAtNullWhenCreateTimeMissing() {
+    @DisplayName("现实空链后继缺失Torn权威创建时间时前置生成事实应保持null")
+    void shouldKeepPredecessorCompletedAtNullWhenTornCreatedAtMissing() {
         TornFactionOcDO child = oc(1L, "Child", null, null);
-        child.setCreateTime(null);
         child.setPreviousOcId(100L);
         OcPlanningSnapshot snapshot = snapshot(List.of(child), Map.of());
 

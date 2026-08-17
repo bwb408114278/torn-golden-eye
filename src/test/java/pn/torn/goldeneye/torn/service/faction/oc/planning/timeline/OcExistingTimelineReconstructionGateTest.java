@@ -1,18 +1,24 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.timeline;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
+import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.chain.OcExistingTimelineReconstructor;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.matching.OcPreparationTimeCalculator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorSearcher;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,16 +26,17 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * OC新队第二批第五轮真实重建到收益门禁的最小链夹具测试。
+ * OC新队第二批第六轮Torn权威创建时间到收益门禁的最小链夹具测试。
  *
- * <p>不使用 Mockito，以真实 {@link OcExistingTimelineReconstructor} 重建现实空链后继，
- * 构造匿名求解请求后经真实时间线搜索/累积器/选点器验证 P1-7 的现实后继前置事实透传。</p>
+ * <p>不使用 Mockito，从API JSON反序列化 {@code create_at} 开始，经真实DTO转DO、
+ * {@link OcExistingTimelineReconstructor} 重建、匿名求解请求、真实时间线搜索/累积器/选点器，
+ * 验证现实空链后继的外部创建时间事实链；本地审计 createTime 与外部事实不同不得影响规划基准。</p>
  *
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.17
  */
-@DisplayName("OC现实空链后继收益门禁链夹具")
+@DisplayName("OC现实空链后继外部创建时间收益门禁链夹具")
 class OcExistingTimelineReconstructionGateTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 1, 8, 0);
     private static final BigDecimal ALPHA_VALUE = BigDecimal.valueOf(1000);
@@ -42,9 +49,12 @@ class OcExistingTimelineReconstructionGateTest {
     private final OcTimelineValueAccumulator accumulator = new OcTimelineValueAccumulator();
 
     @Test
-    @DisplayName("现实后继createTime传入请求时按理想时间完成可比较为零延迟且收益候选可选")
-    void shouldAcceptProfitVectorWhenReconstructedSuccessorHasProvenZeroDelay() {
+    @DisplayName("外部创建时间透传为前置事实时按理想时间完成可比较为零延迟且收益候选可选")
+    void shouldAcceptProfitVectorWhenSuccessorHasTornCreatedAtFact() {
         OcRefreshSafetyRequest request = requestWithSuccessor(NOW, memberSetForZeroDelay());
+        OcTimelineObligation successor = committedSuccessor(request);
+        assertEquals(NOW, successor.predecessorCompletedAt(),
+                "重建义务必须透传Torn权威创建时间，而非本地审计createTime");
 
         OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(request);
 
@@ -52,16 +62,18 @@ class OcExistingTimelineReconstructionGateTest {
         assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, profit.pauseTier());
         assertEquals(Duration.ZERO, profit.timelineValue().existingObligationDelay());
         assertTrue(profit.pauseCandidateStrictlyBetterThanBaseline(),
-                "现实后继零延迟且价值更优时收益级候选必须严格优于零停转基准");
+                "外部创建时间为基准的零延迟且价值更优时收益级候选必须严格优于零停转基准");
 
         OcRefreshSafetyResult safety = safety(outcome);
         assertEquals(new OcRefreshVector(3, 0), selector.select(safety, OcPlanMode.PROFIT));
     }
 
     @Test
-    @DisplayName("现实后继缺失createTime时收益级候选必须fail-closed")
-    void shouldFailClosedWhenReconstructedSuccessorHasNoCreateTime() {
+    @DisplayName("API响应缺失create_at时前置事实为null且收益级候选必须fail-closed")
+    void shouldFailClosedWhenApiOmitsCreateAt() {
         OcRefreshSafetyRequest request = requestWithSuccessor(null, memberSetForZeroDelay());
+        assertNull(committedSuccessor(request).predecessorCompletedAt(),
+                "外部创建时间缺失时前置事实必须保持null，不得回退本地审计时间");
 
         OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(request);
 
@@ -69,26 +81,25 @@ class OcExistingTimelineReconstructionGateTest {
         assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, profit.pauseTier());
         assertTrue(profit.timelineValue().hasUnprovableExistingObligationDelay());
         assertFalse(profit.pauseCandidateStrictlyBetterThanBaseline(),
-                "现实后继缺少createTime时收益级候选不得标记为严格更优");
+                "外部创建时间缺失时收益级候选不得标记为严格更优");
 
         OcRefreshSafetyResult safety = safety(outcome);
         assertNotEquals(new OcRefreshVector(3, 0),
                 selector.select(safety, OcPlanMode.PROFIT),
-                "现实后继缺少createTime时收益级停转候选不得被选中");
+                "外部创建时间缺失时收益级停转候选不得被选中");
     }
 
     @Test
     @DisplayName("现实后继实际晚10小时完成时收益级主动停转必须被拒绝")
     void shouldRejectProfitVectorWhenReconstructedSuccessorCompletesTenHoursLate() {
         OcRefreshSafetyRequest request = requestWithSuccessor(NOW, memberSetForZeroDelay());
-        OcTimelineObligation successor = request.obligations().stream()
-                .filter(obligation -> obligation.kind()
-                        == OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR)
-                .findFirst().orElseThrow();
+        OcTimelineObligation successor = committedSuccessor(request);
+        LocalDateTime ideal = OcPreparationTimeCalculator.idealCompletionTime(
+                successor.predecessorCompletedAt(), successor.slots().size(),
+                successor.fixedMemberIds().size());
+        LocalDateTime actual = ideal.plus(Duration.ofHours(10));
 
         OcTimelineState state = new OcTimelineState(request);
-        LocalDateTime ideal = NOW.plusHours(24);
-        LocalDateTime actual = ideal.plus(Duration.ofHours(10));
         state.addAnchor(new OcLiquidityAnchor(successor.key(), actual, 1, false));
         state.addEvent(new OcTimelineEvent(actual,
                 OcTimelineEvent.EventType.COMPLETION_RELEASE, successor.key()));
@@ -107,16 +118,16 @@ class OcExistingTimelineReconstructionGateTest {
                 "现实后继晚10小时完成时收益级主动停转候选必须被拒绝");
     }
 
-    private OcRefreshSafetyRequest requestWithSuccessor(LocalDateTime createTime,
+    /**
+     * 构造携带单个现实空链后继的匿名求解请求。
+     *
+     * @param tornCreatedAt Torn权威创建时间；null表示API响应缺失create_at
+     * @param members       候选成员
+     * @return 匿名求解请求
+     */
+    private OcRefreshSafetyRequest requestWithSuccessor(LocalDateTime tornCreatedAt,
                                                         List<OcMemberCandidate> members) {
-        TornFactionOcDO child = new TornFactionOcDO();
-        child.setId(1L);
-        child.setName("Child");
-        child.setRank(9);
-        child.setStatus("Recruiting");
-        child.setReadyTime(null);
-        child.setCreateTime(createTime);
-        child.setPreviousOcId(100L);
+        TornFactionOcDO child = childOcFromApiJson(tornCreatedAt);
         TornSettingOcPlanProfileDO childProfile = profile("Child", 9, "CHAIN_ONLY");
         TornSettingOcPlanProfileDO alphaProfile = profile("Alpha", 8, "NORMAL_7_8");
         Map<String, TornSettingOcPlanProfileDO> profiles = Map.of(
@@ -137,6 +148,47 @@ class OcExistingTimelineReconstructionGateTest {
         return new OcRefreshSafetyRequest(members, reconstruction.unprovableMemberIds(),
                 reconstruction.obligations(), reconstruction.chainSuccessorsByKey(),
                 List.of(alphaTemplate), List.of(), NOW);
+    }
+
+    /**
+     * 按Torn API响应JSON反序列化并转换出现实空链后继DO。
+     *
+     * <p>JSON按Swagger原始字段名携带create_at（Unix秒）；转换后另行写入与外部事实
+     * 不同的本地审计createTime，证明审计时间不进入规划基准。</p>
+     *
+     * @param tornCreatedAt 期望得到的Torn权威创建时间；null时省略create_at字段
+     * @return 现实空链后继DO
+     */
+    private TornFactionOcDO childOcFromApiJson(LocalDateTime tornCreatedAt) {
+        String json = tornCreatedAt == null
+                ? "{\"id\":1,\"name\":\"Child\",\"difficulty\":9,\"status\":\"Recruiting\","
+                + "\"previous_crime_id\":100}"
+                : "{\"id\":1,\"name\":\"Child\",\"difficulty\":9,\"status\":\"Recruiting\","
+                + "\"previous_crime_id\":100,\"create_at\":"
+                + tornCreatedAt.minusHours(8).toEpochSecond(ZoneOffset.UTC) + "}";
+        TornFactionCrimeVO vo = readJson(json);
+        TornFactionOcDO child = vo.convert2DO(1L, Map.of());
+        assertEquals(tornCreatedAt, child.getTornCreatedAt(),
+                "DTO必须按create_at映射外部事实字段");
+        child.setCreateTime(NOW);
+        return child;
+    }
+
+    private TornFactionCrimeVO readJson(String json) {
+        try {
+            return JsonMapper.builder()
+                    .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .build().readValue(json, TornFactionCrimeVO.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("非法的测试JSON", e);
+        }
+    }
+
+    private OcTimelineObligation committedSuccessor(OcRefreshSafetyRequest request) {
+        return request.obligations().stream()
+                .filter(obligation -> obligation.kind()
+                        == OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR)
+                .findFirst().orElseThrow();
     }
 
     private List<OcMemberCandidate> memberSetForZeroDelay() {
