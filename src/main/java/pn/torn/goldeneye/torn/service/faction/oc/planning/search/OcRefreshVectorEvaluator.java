@@ -57,8 +57,8 @@ class OcRefreshVectorEvaluator {
         for (int[] normalCombination : normalCombinations) {
             for (int[] highCombination : highCombinations) {
                 VectorEvaluation terminal = evaluateCombination(request, evidenceByTemplate,
-                        normalCombination, highCombination, deadline, budget, proofWindow,
-                        worst);
+                        new Combination(normalCombination, highCombination), deadline, budget,
+                        proofWindow, worst);
                 if (terminal != null) {
                     return terminal;
                 }
@@ -69,7 +69,7 @@ class OcRefreshVectorEvaluator {
 
     private VectorEvaluation evaluateCombination(OcRefreshSafetyRequest request,
                                                  Map<String, OcValueEvidence> evidenceByTemplate,
-                                                 int[] normalCombination, int[] highCombination,
+                                                 Combination combination,
                                                  long deadline, CombinationBudget budget,
                                                  OcProofWindow proofWindow,
                                                  WorstCase worst) {
@@ -79,13 +79,13 @@ class OcRefreshVectorEvaluator {
         if (!budget.tryConsume()) {
             return VectorEvaluation.budgetExhausted();
         }
-        List<CandidateRoot> roots = candidateRoots(request, normalCombination,
-                highCombination);
+        List<CandidateRoot> roots = candidateRoots(request, combination.normalCombination(),
+                combination.highCombination());
         SimulationResult zeroBaseline = simulate(request, roots, Duration.ZERO,
                 proofWindow);
         if (zeroBaseline.searchBudgetExhausted()) {
             return budgetExhaustedWithCandidate(zeroBaseline, roots, evidenceByTemplate,
-                    worst, normalCombination, highCombination);
+                    worst, combination);
         }
         if (zeroBaseline.feasible()) {
             mergeWorstCase(worst, zeroBaseline, zeroBaseline, roots, evidenceByTemplate,
@@ -96,7 +96,7 @@ class OcRefreshVectorEvaluator {
                 OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE, proofWindow);
         if (balanced.searchBudgetExhausted()) {
             return budgetExhaustedWithCandidate(balanced, roots, evidenceByTemplate,
-                    worst, normalCombination, highCombination);
+                    worst, combination);
         }
         if (balanced.feasible()) {
             mergeWorstCase(worst, balanced, null, roots, evidenceByTemplate,
@@ -107,7 +107,7 @@ class OcRefreshVectorEvaluator {
                 OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, proofWindow);
         if (profit.searchBudgetExhausted()) {
             return budgetExhaustedWithCandidate(profit, roots, evidenceByTemplate,
-                    worst, normalCombination, highCombination);
+                    worst, combination);
         }
         if (profit.feasible()) {
             mergeWorstCase(worst, profit, null, roots, evidenceByTemplate,
@@ -120,13 +120,12 @@ class OcRefreshVectorEvaluator {
     private VectorEvaluation budgetExhaustedWithCandidate(
             SimulationResult result, List<CandidateRoot> roots,
             Map<String, OcValueEvidence> evidenceByTemplate, WorstCase worst,
-            int[] normalCombination, int[] highCombination) {
+            Combination combination) {
         if (result.feasible()) {
             mergeWorstCase(worst, result, null, roots, evidenceByTemplate,
                     tierFor(result));
             return new VectorEvaluation(VectorEvaluation.Status.BUDGET_EXHAUSTED,
-                    worst.toEvaluation(vectorOf(normalCombination, highCombination))
-                            .candidate());
+                    worst.toEvaluation(combination.vector()).candidate());
         }
         return VectorEvaluation.budgetExhausted();
     }
@@ -136,11 +135,6 @@ class OcRefreshVectorEvaluator {
                                       OcProofWindow proofWindow) {
         return scheduler.simulate(request, roots, allowedPause, true,
                 proofWindow.proofWindowEnd());
-    }
-
-    private OcRefreshVector vectorOf(int[] normalCombination, int[] highCombination) {
-        return new OcRefreshVector(java.util.Arrays.stream(normalCombination).sum(),
-                java.util.Arrays.stream(highCombination).sum());
     }
 
     private void mergeWorstCase(WorstCase worst, SimulationResult result,
@@ -340,6 +334,13 @@ class OcRefreshVectorEvaluator {
         }
     }
 
+    private record Combination(int[] normalCombination, int[] highCombination) {
+        private OcRefreshVector vector() {
+            return new OcRefreshVector(java.util.Arrays.stream(normalCombination).sum(),
+                    java.util.Arrays.stream(highCombination).sum());
+        }
+    }
+
     record VectorEvaluation(
             Status status,
             SafeCandidate candidate) {
@@ -405,9 +406,9 @@ class OcRefreshVectorEvaluator {
                 anyReleaseMissing = true;
                 return;
             }
-            latestEarliestRelease = latestEarliestRelease == null
-                    ? completion : (completion.isAfter(latestEarliestRelease)
-                    ? completion : latestEarliestRelease);
+            if (latestEarliestRelease == null || completion.isAfter(latestEarliestRelease)) {
+                latestEarliestRelease = completion;
+            }
         }
 
         private VectorEvaluation toEvaluation(OcRefreshVector vector) {

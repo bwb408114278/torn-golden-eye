@@ -90,22 +90,6 @@ public class OcRewardEvidenceCalculator {
     }
 
     /**
-     * 按业务冻结降级顺序构造价值证据。
-     *
-     * @param stats                 该OC的收益统计；无样本时为null
-     * @param minSampleSize         业务最小有效样本数
-     * @param incrementalMemberDays 增量剩余成员人天
-     * @param expectedReleaseAt     预计完整释放时间
-     * @return 价值证据
-     */
-    public OcValueEvidence buildEvidence(OcPlanningRewardStatsDO stats, Integer minSampleSize,
-                                         int incrementalMemberDays,
-                                         java.time.LocalDateTime expectedReleaseAt) {
-        return buildEvidence(stats, minSampleSize, incrementalMemberDays, expectedReleaseAt,
-                0, incrementalMemberDays, 1);
-    }
-
-    /**
      * 按业务冻结降级顺序构造价值证据，并显式携带第三层业务先验字段。
      *
      * @param stats                 该OC的收益统计；无样本时为null

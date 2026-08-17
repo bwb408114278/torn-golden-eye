@@ -26,12 +26,11 @@ public class OcTimelinePlanningEngine {
     /**
      * 创建自带事件推进器和向量搜索的时间线规划引擎。
      *
-     * @param timeout   单次求解时间预算
-     * @param maxSearch 单个池的最大搜索次数
-     * @param scheduler 时间线事件推进器
+     * @param timeout      单次求解时间预算
+     * @param scheduler    时间线事件推进器
      * @param vectorSearch 刷新向量搜索端口实现
      */
-    public OcTimelinePlanningEngine(Duration timeout, int maxSearch,
+    public OcTimelinePlanningEngine(Duration timeout,
                                     OcTimelineEventScheduler scheduler,
                                     OcVectorSearchPort vectorSearch) {
         this.timeout = timeout;

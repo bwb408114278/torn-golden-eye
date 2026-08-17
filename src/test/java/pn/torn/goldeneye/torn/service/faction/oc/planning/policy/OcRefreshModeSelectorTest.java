@@ -140,7 +140,7 @@ class OcRefreshModeSelectorTest {
     void shouldNotSelectZeroPausePositiveVectorWithoutUsableValueEvidenceInProfitMode() {
         OcRefreshSafetyResult safety = result(List.of(
                         candidate(new OcRefreshVector(2, 0), SafeCandidate.PauseTier.ZERO_PAUSE,
-                                null, OcValueEvidence.Level.PRIOR_ONLY, false)),
+                                null, OcValueEvidence.Level.PRIOR_ONLY)),
                 OcProofStatusEnum.PROVEN_SAFE, Set.of());
 
         assertEquals(new OcRefreshVector(0, 0), selector.select(safety, OcPlanMode.PROFIT));
@@ -152,7 +152,7 @@ class OcRefreshModeSelectorTest {
     void shouldSelectRewardFloorEvidenceVectorInProfitMode() {
         OcRefreshSafetyResult safety = result(List.of(
                         candidate(new OcRefreshVector(1, 0), SafeCandidate.PauseTier.ZERO_PAUSE,
-                                BigDecimal.valueOf(80), OcValueEvidence.Level.REWARD_FLOOR, true)),
+                                BigDecimal.valueOf(80), OcValueEvidence.Level.REWARD_FLOOR)),
                 OcProofStatusEnum.PROVEN_SAFE, Set.of());
 
         assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT));
@@ -163,7 +163,7 @@ class OcRefreshModeSelectorTest {
     void shouldNotSelectAggregatedChainCandidateWithoutUsableEvidenceInProfitMode() {
         OcRefreshSafetyResult safety = result(List.of(
                         candidate(new OcRefreshVector(0, 1), SafeCandidate.PauseTier.ZERO_PAUSE,
-                                null, OcValueEvidence.Level.PRIOR_ONLY, false)),
+                                null, OcValueEvidence.Level.PRIOR_ONLY)),
                 OcProofStatusEnum.PROVEN_SAFE, Set.of());
 
         assertEquals(new OcRefreshVector(0, 0), selector.select(safety, OcPlanMode.PROFIT));
@@ -185,12 +185,12 @@ class OcRefreshModeSelectorTest {
 
     private SafeCandidate candidate(OcRefreshVector vector,
                                     SafeCandidate.PauseTier tier, BigDecimal value) {
-        return candidate(vector, tier, value, OcValueEvidence.Level.OBSERVED_REWARD, true);
+        return candidate(vector, tier, value, OcValueEvidence.Level.OBSERVED_REWARD);
     }
 
     private SafeCandidate candidate(OcRefreshVector vector,
                                     SafeCandidate.PauseTier tier, BigDecimal value,
-                                    OcValueEvidence.Level level, boolean usable) {
-        return new SafeCandidate(vector, tier, value, 10, null, 1, level, usable);
+                                    OcValueEvidence.Level level) {
+        return new SafeCandidate(vector, tier, value, 10, null, 1, level);
     }
 }

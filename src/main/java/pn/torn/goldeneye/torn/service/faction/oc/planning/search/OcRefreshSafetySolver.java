@@ -30,7 +30,7 @@ public class OcRefreshSafetySolver {
      */
     public OcRefreshSafetySolver(Duration timeout, int maxSearch) {
         OcTimelineEventScheduler scheduler = new OcTimelineEventScheduler();
-        this.engine = new OcTimelinePlanningEngine(timeout, maxSearch, scheduler,
+        this.engine = new OcTimelinePlanningEngine(timeout, scheduler,
                 new OcRefreshVectorSearcher(maxSearch, scheduler));
     }
 

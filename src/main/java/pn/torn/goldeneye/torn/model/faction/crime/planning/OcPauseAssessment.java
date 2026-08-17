@@ -30,24 +30,4 @@ public record OcPauseAssessment(
                              LocalDateTime recoverAt, boolean preExistingPause) {
         this(obligationKey, null, newPauseDuration, recoverAt, preExistingPause);
     }
-
-    /**
-     * 判断当前评估是否属于快照前已发生的停转事实。
-     *
-     * @param snapshotTime 快照时间
-     * @return 停转开始时间不晚于快照时间时返回true
-     */
-    public boolean isPreExisting(LocalDateTime snapshotTime) {
-        return pauseStartedAt != null && !pauseStartedAt.isAfter(snapshotTime);
-    }
-
-    /**
-     * 构造一个未产生新增停转的评估。
-     *
-     * @param obligationKey 匿名义务键
-     * @return 新增停转为零的评估
-     */
-    public static OcPauseAssessment none(String obligationKey) {
-        return new OcPauseAssessment(obligationKey, null, Duration.ZERO, null, true);
-    }
 }

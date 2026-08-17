@@ -184,7 +184,7 @@ class OcTimelinePlanningEngineTest {
                 List.of(), List.of(), NOW);
         OcTimelineEventScheduler budgetScheduler = new OcTimelineEventScheduler(1);
         OcTimelinePlanningEngine budgetEngine = new OcTimelinePlanningEngine(
-                Duration.ofSeconds(5), 6, budgetScheduler,
+                Duration.ofSeconds(5), budgetScheduler,
                 new OcRefreshVectorSearcher(6, budgetScheduler));
 
         OcRefreshSafetyResult result = budgetEngine.solve(request, Map.of(),
@@ -356,7 +356,7 @@ class OcTimelinePlanningEngineTest {
 
     private OcTimelinePlanningEngine engine() {
         OcTimelineEventScheduler scheduler = new OcTimelineEventScheduler();
-        return new OcTimelinePlanningEngine(Duration.ofSeconds(5), 6, scheduler,
+        return new OcTimelinePlanningEngine(Duration.ofSeconds(5), scheduler,
                 new OcRefreshVectorSearcher(6, scheduler));
     }
 

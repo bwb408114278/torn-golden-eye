@@ -60,6 +60,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      * @param request            求解请求
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @param deadline           求解截止纳秒时间
+     * @param proofWindow        由引擎统一计算的有限证明窗口
      * @return 向量搜索结果
      */
     @Override
@@ -69,13 +70,14 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
                                         OcProofWindow proofWindow) {
         List<OcRefreshSafetyResult.SafeCandidate> safe = new ArrayList<>();
         List<OcRefreshVector> failed = new ArrayList<>();
+        SearchOutput output = new SearchOutput(safe, failed);
         CombinationBudget budget = new CombinationBudget(MAX_COMBINATION_EVALUATIONS);
         boolean timedOut = false;
         for (int total = 0; total <= maxSearch * 2 && !timedOut; total++) {
             timedOut = searchTotal(request, evidenceByTemplate, total, deadline, budget,
-                    safe, failed, proofWindow);
+                    output, proofWindow);
         }
-        return new OcVectorSearchOutcome(safe, timedOut, budget.exhausted());
+        return new OcVectorSearchOutcome(output.safe(), timedOut, budget.exhausted());
     }
 
     /**
@@ -99,20 +101,19 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      * @param total              当前总刷新次数
      * @param deadline           求解截止纳秒时间
      * @param budget             组合评估预算
-     * @param safe               已证明安全候选输出集合
-     * @param failed             已失败向量输出集合
+     * @param output             搜索结果输出集合
+     * @param proofWindow        由引擎统一计算的有限证明窗口
      * @return 是否因时间预算终止
      */
     private boolean searchTotal(OcRefreshSafetyRequest request,
                                 Map<String, OcValueEvidence> evidenceByTemplate,
                                 int total, long deadline, CombinationBudget budget,
-                                List<OcRefreshSafetyResult.SafeCandidate> safe,
-                                List<OcRefreshVector> failed,
+                                SearchOutput output,
                                 OcProofWindow proofWindow) {
         for (int high = Math.max(0, total - maxSearch); high <= Math.min(maxSearch, total);
              high++) {
             StepStatus status = tryVector(request, evidenceByTemplate,
-                    new OcRefreshVector(total - high, high), deadline, budget, safe, failed,
+                    new OcRefreshVector(total - high, high), deadline, budget, output,
                     proofWindow);
             if (status != StepStatus.CONTINUE) {
                 return status == StepStatus.STOP_TIMEOUT;
@@ -129,17 +130,16 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      * @param vector             待评估刷新向量
      * @param deadline           求解截止纳秒时间
      * @param budget             组合评估预算
-     * @param safe               已证明安全候选输出集合
-     * @param failed             已失败向量输出集合
+     * @param output             搜索结果输出集合
+     * @param proofWindow        由引擎统一计算的有限证明窗口
      * @return 向量处理结果
      */
     private StepStatus tryVector(OcRefreshSafetyRequest request,
                                  Map<String, OcValueEvidence> evidenceByTemplate,
                                  OcRefreshVector vector, long deadline, CombinationBudget budget,
-                                 List<OcRefreshSafetyResult.SafeCandidate> safe,
-                                 List<OcRefreshVector> failed,
+                                 SearchOutput output,
                                  OcProofWindow proofWindow) {
-        if (hasFailedSubset(vector, failed)) {
+        if (hasFailedSubset(vector, output.failed())) {
             return StepStatus.CONTINUE;
         }
         VectorEvaluation evaluation = evaluator.evaluateVector(request, evidenceByTemplate,
@@ -149,14 +149,14 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         }
         if (evaluation.status() == VectorEvaluation.Status.BUDGET_EXHAUSTED) {
             if (evaluation.candidate() != null) {
-                safe.add(evaluation.candidate());
+                output.safe().add(evaluation.candidate());
             }
             return StepStatus.STOP_BUDGET;
         }
         if (evaluation.status() == VectorEvaluation.Status.FAILED) {
-            failed.add(vector);
+            output.failed().add(vector);
         } else {
-            safe.add(evaluation.candidate());
+            output.safe().add(evaluation.candidate());
         }
         return StepStatus.CONTINUE;
     }
@@ -171,6 +171,16 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     private boolean hasFailedSubset(OcRefreshVector vector, List<OcRefreshVector> failed) {
         return failed.stream().anyMatch(item -> item.normalCount() <= vector.normalCount()
                 && item.highCount() <= vector.highCount());
+    }
+
+    /**
+     * 向量搜索的可变结果集合：已证明安全候选与已失败向量。
+     *
+     * @param safe   已证明安全候选输出集合
+     * @param failed 已失败向量输出集合
+     */
+    private record SearchOutput(List<OcRefreshSafetyResult.SafeCandidate> safe,
+                                List<OcRefreshVector> failed) {
     }
 
     /**
