@@ -164,8 +164,8 @@ class OcRefreshVectorEvaluator {
     /**
      * 按指定允许停转时长模拟组合根义务，并记录匿名搜索遥测。
      *
-     * @param run         本次评估的共享上下文
-     * @param roots       组合根义务
+     * @param run          本次评估的共享上下文
+     * @param roots        组合根义务
      * @param allowedPause 允许的最大新增停转
      * @return 模拟结果
      */
@@ -173,7 +173,7 @@ class OcRefreshVectorEvaluator {
                                       Duration allowedPause) {
         SimulationResult result = scheduler.simulate(run.request(), roots, allowedPause,
                 true, run.proofWindow().proofWindowEnd());
-        run.metrics().record(result);
+        run.metrics().accumulate(result);
         return result;
     }
 
@@ -514,11 +514,11 @@ class OcRefreshVectorEvaluator {
         private int alternativesCapHits;
 
         /**
-         * 录入一次模拟结果中的预算命中事实。
+         * 累计一次模拟结果中的预算命中事实。
          *
          * @param result 单次模拟结果
          */
-        void record(SimulationResult result) {
+        void accumulate(SimulationResult result) {
             if (result.searchBudgetExhausted()) {
                 budgetTruncations++;
             }
