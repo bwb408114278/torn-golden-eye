@@ -99,7 +99,9 @@ public class OcEconomicValueComparator {
 
     /**
      * 判断收益级停转候选是否严格优于同组合零新增停转基准。
-     * 任一摘要金额或先验不可比较时返回false，不得据此提高收益停转建议。
+     * 任一摘要金额、先验或既有义务完成延迟不可比较时返回false，
+     * 不得据此提高收益停转建议。既有义务完成延迟是完整净价值的负向事实，
+     * 即使名义奖励更高，也不能让延迟更长的收益级停转候选通过严格比较。
      *
      * @param candidate 收益级停转候选摘要
      * @param baseline  同组合零新增停转基准摘要
@@ -109,11 +111,17 @@ public class OcEconomicValueComparator {
                                                          OcTimelineValueSummary baseline) {
         if (candidate == null || baseline == null
                 || candidate.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT
-                || baseline.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT) {
+                || baseline.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT
+                || candidate.hasUnprovableExistingObligationDelay()
+                || baseline.hasUnprovableExistingObligationDelay()) {
             return false;
         }
         if ((candidate.monetaryValue() == null || baseline.monetaryValue() == null)
                 && !priorComparable(candidate, baseline)) {
+            return false;
+        }
+        if (candidate.existingObligationDelay().compareTo(
+                baseline.existingObligationDelay()) > 0) {
             return false;
         }
 

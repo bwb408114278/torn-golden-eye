@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.PropertySource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -33,11 +32,6 @@ import javax.sql.DataSource;
  * MyBatis基础设施、OC规划DAO/Manager/纯引擎组件，不启动GoldenEyeApplication，
  * 不扫描NapCat、Torn API、Lark、Redis或任务调度器。
  *
- * <p>数据库连接只允许显式外部配置：环境变量{@code OC_REPLAY_DB_URL}、
- * {@code OC_REPLAY_DB_USERNAME}、{@code OC_REPLAY_DB_PASSWORD}，或本地未跟踪的
- * {@code src/test/resources/replay-local.properties}同名属性；三者缺一即在建连前
- * fail-closed，不回退任何默认账号、主机或口令。</p>
- *
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
@@ -45,48 +39,28 @@ import javax.sql.DataSource;
 @TestConfiguration
 @MapperScan("pn.torn.goldeneye.repository.mapper")
 @ImportAutoConfiguration(MybatisPlusAutoConfiguration.class)
-@PropertySource(value = "classpath:replay-local.properties",
-        ignoreResourceNotFound = true)
 public class OcPlannerReplayTestConfiguration {
 
     /**
-     * 构造回放专用DataSource。连接参数只来自显式外部配置，缺失时在建连前
-     * 以非敏感提示失败。
+     * 构造回放专用DataSource。
      *
-     * @param url      回放数据库连接URL；来自OC_REPLAY_DB_URL显式配置
-     * @param username 回放数据库用户名；来自OC_REPLAY_DB_USERNAME显式配置
-     * @param password 回放数据库密码；来自OC_REPLAY_DB_PASSWORD显式配置
+     * @param url      数据库连接URL
+     * @param username 数据库用户名
+     * @param password 数据库密码
      * @return DataSource
-     * @throws IllegalStateException 任一显式回放配置缺失时抛出，消息不含敏感值
      */
     @Bean
     DataSource dataSource(
-            @Value("${OC_REPLAY_DB_URL:}") String url,
-            @Value("${OC_REPLAY_DB_USERNAME:}") String username,
-            @Value("${OC_REPLAY_DB_PASSWORD:}") String password) {
-        requireReplayDbConfig("OC_REPLAY_DB_URL", url);
-        requireReplayDbConfig("OC_REPLAY_DB_USERNAME", username);
-        requireReplayDbConfig("OC_REPLAY_DB_PASSWORD", password);
+            @Value("${spring.datasource.url:jdbc:postgresql://localhost:14321/golden-eye}")
+            String url,
+            @Value("${spring.datasource.username:postgres}") String username,
+            @Value("${spring.datasource.password:1qazXSW@}") String password) {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.postgresql.Driver");
         dataSource.setUrl(url);
         dataSource.setUsername(username);
         dataSource.setPassword(password);
         return dataSource;
-    }
-
-    /**
-     * 校验回放数据库显式配置项已提供，缺失时fail-closed。
-     *
-     * @param name  配置项名称，用于非敏感提示
-     * @param value 配置值
-     */
-    private void requireReplayDbConfig(String name, String value) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException("隔离回放缺少显式数据库配置 " + name
-                    + "；请通过环境变量或本地未跟踪的replay-local.properties提供"
-                    + "只读回放数据源");
-        }
     }
 
     /**

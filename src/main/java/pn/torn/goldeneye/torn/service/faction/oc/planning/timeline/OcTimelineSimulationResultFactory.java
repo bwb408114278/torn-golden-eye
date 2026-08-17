@@ -85,7 +85,8 @@ final class OcTimelineSimulationResultFactory {
                     representativeProof(state, progress, proofWindowEnd),
                     state.pauses(), state.events(), maxNewPause(state),
                     budgetExhausted, progress.matchAlternativesCapped,
-                    valueAccumulator.accumulate(state, progress.plannedEmptyExpired));
+                    valueAccumulator.accumulate(state, progress.plannedEmptyExpired,
+                            progress.request));
         }
         OcTimelineState state = complete.state();
         List<OcLiquidityAnchor> verified = liquidityVerifier.verifyReplacementAnchors(
@@ -95,7 +96,8 @@ final class OcTimelineSimulationResultFactory {
                         true),
                 state.pauses(), state.events(), maxNewPause(state),
                 budgetExhausted, progress.matchAlternativesCapped,
-                valueAccumulator.accumulate(state, complete.plannedEmptyExpired()));
+                valueAccumulator.accumulate(state, complete.plannedEmptyExpired(),
+                        progress.request));
     }
 
     /**

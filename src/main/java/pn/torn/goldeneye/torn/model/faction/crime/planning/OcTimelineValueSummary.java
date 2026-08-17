@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * @param monetaryValue               完整窗口内金额价值；金额层级不足时为null
  * @param actualIncrementalMemberDays 实际增量剩余成员人天
  * @param actualNewPause              实际单次最大主动新增停转时长
- * @param existingObligationDelay     既有队或已启动链相对零停转基准的完成延迟；无可比延迟时为零
+ * @param existingObligationDelay     既有队或已启动链相对无主动停转进度的完成延迟；无延迟时为零，基准不可证明时为{@link #UNPROVEN_OBLIGATION_DELAY}
  * @param avoidableExpiryPressure     计划内无人OC是否可避免过期压力
  * @param guaranteedReleaseAt         本组合最早完整释放时间；无释放事件时为null
  * @param highestRank                 完整候选（含高阶链全部后继）的最高等级
@@ -33,12 +33,28 @@ public record OcTimelineValueSummary(
         int chainNodeCount,
         OcValueEvidence.Level evidenceLevel) {
 
+    /**
+     * 既有义务完成延迟基准不可证明时的不可比较哨兵。
+     * 收益级停转候选遇此值必须fail-closed，不得视为零延迟。
+     */
+    public static final Duration UNPROVEN_OBLIGATION_DELAY =
+            Duration.ofSeconds(Long.MAX_VALUE);
+
     public OcTimelineValueSummary {
         actualNewPause = actualNewPause == null ? Duration.ZERO : actualNewPause;
         existingObligationDelay = existingObligationDelay == null
                 ? Duration.ZERO : existingObligationDelay;
         evidenceLevel = evidenceLevel == null ? OcValueEvidence.Level.INSUFFICIENT
                 : evidenceLevel;
+    }
+
+    /**
+     * 判断既有义务完成延迟是否因基准不可证明而不可比较。
+     *
+     * @return 基准不可证明时返回true
+     */
+    public boolean hasUnprovableExistingObligationDelay() {
+        return UNPROVEN_OBLIGATION_DELAY.equals(existingObligationDelay);
     }
 
     /**
