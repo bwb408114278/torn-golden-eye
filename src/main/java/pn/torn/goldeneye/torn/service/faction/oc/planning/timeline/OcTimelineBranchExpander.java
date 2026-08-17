@@ -183,6 +183,7 @@ final class OcTimelineBranchExpander {
         OcTimelineObligation successor = new OcTimelineObligation(successorKey,
                 OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR,
                 successorDemand, successorDemand.expiresAt(), completionAt);
+        state.addChainSuccessorDemand(successorKey, successorDemand);
         state.addEvent(new OcTimelineEvent(completionAt,
                 OcTimelineEvent.EventType.CHAIN_SUCCESSOR_GENERATED, successorKey));
         List<OcTimelineTaskOrder.Task> updated = new ArrayList<>(rest);

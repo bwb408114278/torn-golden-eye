@@ -133,6 +133,166 @@ class OcTimelineValueAccumulatorTest {
                 "基准完成时间不可证明时收益级停转候选不得提高建议");
     }
 
+    @Test
+    @DisplayName("前置根晚完成10小时时动态链后继也晚完成10小时必须计入最大延迟并拒绝收益候选")
+    void shouldAccumulateDynamicChainSuccessorDelayFromDelayedRoot() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        LocalDateTime rootBaseline = NOW.plusHours(30);
+        LocalDateTime rootActual = rootBaseline.plus(TEN_HOURS);
+        String childKey = "oc:1->1:9:Child";
+        OcTeamDemand childDemand = chainSuccessorDemand(2, 0);
+        LocalDateTime childActual = rootActual.plusHours(48).plus(TEN_HOURS);
+        OcTimelineValueSummary summary = accumulateDynamicChain(root, rootActual,
+                childKey, childDemand, childActual, true, true);
+
+        assertEquals(TEN_HOURS, summary.existingObligationDelay());
+
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(zeroDelaySummary(), BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(summary, BigDecimal.valueOf(1000)),
+                                true)));
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
+                "根与动态链后继均延迟10小时时收益级停转候选必须被拒绝");
+    }
+
+    @Test
+    @DisplayName("请求中已有链后继使用predecessorCompletedAt且不晚于理想完成时输出零")
+    void shouldUsePredecessorCompletedAtForRequestedChainSuccessor() {
+        OcTimelineObligation successor = chainSuccessorObligation("oc:2", NOW, 2, 1);
+        OcTimelineValueSummary summary = accumulate(successor, NOW.plusHours(24));
+
+        assertEquals(Duration.ZERO, summary.existingObligationDelay());
+    }
+
+    @Test
+    @DisplayName("链后继缺少生成事件/前置时间/完成锚点时必须不可证明且收益模式不提高")
+    void shouldFailClosedWhenChainSuccessorBaselineCannotBeProved() {
+        assertUnprovableChain(missingGeneratedEventSummary());
+        assertUnprovableChain(missingPredecessorSummary());
+        assertUnprovableChain(missingCompletionAnchorSummary());
+    }
+
+    @Test
+    @DisplayName("根无延迟但链后继晚完成10小时仍必须被拒绝")
+    void shouldRejectWhenOnlyChainSuccessorDelayed() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        LocalDateTime rootActual = NOW.plusHours(30);
+        String childKey = "oc:1->1:9:Child";
+        OcTeamDemand childDemand = chainSuccessorDemand(2, 0);
+        LocalDateTime childActual = rootActual.plusHours(48).plus(TEN_HOURS);
+        OcTimelineValueSummary summary = accumulateDynamicChain(root, rootActual,
+                childKey, childDemand, childActual, true, true);
+
+        assertEquals(TEN_HOURS, summary.existingObligationDelay());
+        assertFalse(summary.hasUnprovableExistingObligationDelay());
+
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(zeroDelaySummary(), BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(summary, BigDecimal.valueOf(1000)),
+                                true)));
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
+                "根无延迟但链后继延迟时仍不得选择收益级停转候选");
+    }
+
+    private OcTimelineValueSummary accumulateDynamicChain(OcTimelineObligation root,
+                                                          LocalDateTime rootActual,
+                                                          String childKey,
+                                                          OcTeamDemand childDemand,
+                                                          LocalDateTime childActual,
+                                                          boolean withGeneratedEvent,
+                                                          boolean withChildAnchor) {
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(List.of(), Set.of(),
+                List.of(root), Map.of(), List.of(), List.of(), NOW);
+        OcTimelineState state = new OcTimelineState(request);
+        state.addAnchor(new OcLiquidityAnchor(root.key(), rootActual, 2, false));
+        state.addEvent(new OcTimelineEvent(rootActual,
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, root.key()));
+        state.addChainSuccessorDemand(childKey, childDemand);
+        if (withGeneratedEvent) {
+            state.addEvent(new OcTimelineEvent(rootActual,
+                    OcTimelineEvent.EventType.CHAIN_SUCCESSOR_GENERATED, childKey));
+        }
+        if (withChildAnchor) {
+            state.addAnchor(new OcLiquidityAnchor(childKey, childActual, 2, false));
+            state.addEvent(new OcTimelineEvent(childActual,
+                    OcTimelineEvent.EventType.COMPLETION_RELEASE, childKey));
+        }
+        return accumulator.accumulate(state, false, request);
+    }
+
+    private OcTimelineValueSummary missingGeneratedEventSummary() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        String childKey = "oc:1->1:9:Child";
+        return accumulateDynamicChain(root, NOW.plusHours(30), childKey,
+                chainSuccessorDemand(2, 0), NOW.plusHours(78), false, true);
+    }
+
+    private OcTimelineValueSummary missingPredecessorSummary() {
+        OcTimelineObligation successor = chainSuccessorObligation("oc:2", null, 2, 0);
+        return accumulate(successor, NOW.plusHours(48));
+    }
+
+    private OcTimelineValueSummary missingCompletionAnchorSummary() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        String childKey = "oc:1->1:9:Child";
+        return accumulateDynamicChain(root, NOW.plusHours(30), childKey,
+                chainSuccessorDemand(2, 0), NOW.plusHours(78), true, false);
+    }
+
+    private void assertUnprovableChain(OcTimelineValueSummary summary) {
+        assertTrue(summary.hasUnprovableExistingObligationDelay());
+        assertEquals(OcTimelineValueSummary.UNPROVEN_OBLIGATION_DELAY,
+                summary.existingObligationDelay());
+
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(zeroDelaySummary(), BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(summary, BigDecimal.valueOf(1000)),
+                                true)));
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
+                "链后继基准不可证明时收益级停转候选不得提高建议");
+    }
+
+    private OcTimelineObligation chainSuccessorObligation(String key,
+                                                          LocalDateTime predecessorCompletedAt,
+                                                          int totalSlots,
+                                                          int joinedCount) {
+        List<OcPlanSlot> slots = IntStream.range(0, totalSlots)
+                .mapToObj(index -> new OcPlanSlot("Worker#" + index, "Worker", 60, 1, null))
+                .toList();
+        Set<String> fixedSlotCodes = IntStream.range(0, joinedCount)
+                .mapToObj(index -> "Worker#" + index)
+                .collect(Collectors.toSet());
+        Set<Long> fixedMemberIds = LongStream.range(1, joinedCount + 1)
+                .boxed().collect(Collectors.toSet());
+        OcTeamDemand demand = new OcTeamDemand(0L, "Child", 9, null, NOW.plusDays(7),
+                true, slots, fixedSlotCodes, fixedMemberIds);
+        return new OcTimelineObligation(key,
+                OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR, demand,
+                demand.expiresAt(), predecessorCompletedAt);
+    }
+
+    private OcTeamDemand chainSuccessorDemand(int totalSlots, int joinedCount) {
+        return chainSuccessorObligation("dummy", NOW, totalSlots, joinedCount).demand();
+    }
+
     private OcTimelineValueSummary accumulate(OcTimelineObligation obligation,
                                               LocalDateTime actualCompletion) {
         OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(List.of(), Set.of(),

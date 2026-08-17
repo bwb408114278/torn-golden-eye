@@ -28,6 +28,7 @@ final class OcTimelineState {
     private final List<OcLiquidityAnchor> anchors = new ArrayList<>();
     private final List<OcPauseAssessment> pauses = new ArrayList<>();
     private final List<OcTimelineEvent> events = new ArrayList<>();
+    private final Map<String, OcTeamDemand> chainSuccessorDemands = new HashMap<>();
 
     /**
      * 从求解请求构造初始状态。
@@ -54,6 +55,7 @@ final class OcTimelineState {
         this.anchors.addAll(source.anchors);
         this.pauses.addAll(source.pauses);
         this.events.addAll(source.events);
+        this.chainSuccessorDemands.putAll(source.chainSuccessorDemands);
     }
 
     /**
@@ -119,6 +121,35 @@ final class OcTimelineState {
      */
     void addEvent(OcTimelineEvent event) {
         events.add(event);
+    }
+
+    /**
+     * 记录动态生成的链后继岗位需求，用于后续计算该后继的无主动停转完成基准。
+     *
+     * @param key    链后继义务键
+     * @param demand 链后继完整岗位需求
+     */
+    void addChainSuccessorDemand(String key, OcTeamDemand demand) {
+        chainSuccessorDemands.put(key, demand);
+    }
+
+    /**
+     * 获取动态生成的链后继岗位需求。
+     *
+     * @param key 链后继义务键
+     * @return 链后继岗位需求；不存在时返回null
+     */
+    OcTeamDemand chainSuccessorDemand(String key) {
+        return chainSuccessorDemands.get(key);
+    }
+
+    /**
+     * 获取全部动态生成的链后继义务键。
+     *
+     * @return 链后继义务键集合
+     */
+    Set<String> chainSuccessorDemandKeys() {
+        return Set.copyOf(chainSuccessorDemands.keySet());
     }
 
     /**
