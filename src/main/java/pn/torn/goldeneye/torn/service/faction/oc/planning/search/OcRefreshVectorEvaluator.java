@@ -24,6 +24,11 @@ import java.util.Set;
  * 按全部组合做顺序无关聚合：停转层级取最严格层级、保证释放取各组合最早
  * 完整释放中的最晚值、价值取最弱组合证据。纯内存对象，不访问数据库、HTTP或Redis。
  *
+ * <p>收益级停转候选的零新增停转基准是一条<b>真实替代时间线</b>：同一快照、
+ * 硬义务、岗位能力、链义务与随机结果边界下，由向量搜索先证明可行的最优
+ * 零新增停转候选（含零向量），而不是同一随机组合用零暂停重跑的成败结果。
+ * 基准不存在或不可比较时fail-closed，不提高收益级停转建议。</p>
+ *
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
@@ -31,6 +36,7 @@ import java.util.Set;
 class OcRefreshVectorEvaluator {
     private final OcTimelineEventScheduler scheduler;
     private final OcPausePolicyEvaluator pauseEvaluator;
+    private final OcEconomicValueComparator valueComparator = new OcEconomicValueComparator();
 
     /**
      * 创建组合评估器。
@@ -47,35 +53,26 @@ class OcRefreshVectorEvaluator {
     /**
      * 评估单个刷新向量的全部普通池/高阶池组合，并返回最弱组合聚合结果。
      *
-     * @param request            求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param vector             待评估刷新向量
-     * @param deadline           求解截止纳秒时间
-     * @param budget             组合评估预算
-     * @param proofWindow        有限证明窗口
+     * @param run    本次评估的共享上下文，含零停转基准替代时间线与搜索遥测
+     * @param vector 待评估刷新向量
      * @return 向量评估结果；任一组合提前终止时直接返回终止状态
      */
-    VectorEvaluation evaluateVector(OcRefreshSafetyRequest request,
-                                    Map<String, OcValueEvidence> evidenceByTemplate,
-                                    OcRefreshVector vector, long deadline,
-                                    CombinationBudget budget,
-                                    OcProofWindow proofWindow) {
-        if (proofWindow.newRefreshBlocked()) {
+    VectorEvaluation evaluateVector(EvaluationRun run, OcRefreshVector vector) {
+        if (run.proofWindow().newRefreshBlocked()) {
             return VectorEvaluation.failed();
         }
-        if (hasMissingTemplate(request, vector)) {
+        if (hasMissingTemplate(run.request(), vector)) {
             return VectorEvaluation.failed();
         }
         List<int[]> normalCombinations = nonEmptyCombinations(
-                request.normalTemplates().size(), vector.normalCount());
+                run.request().normalTemplates().size(), vector.normalCount());
         List<int[]> highCombinations = nonEmptyCombinations(
-                request.highChains().size(), vector.highCount());
+                run.request().highChains().size(), vector.highCount());
         WorstCase worst = new WorstCase();
         for (int[] normalCombination : normalCombinations) {
             for (int[] highCombination : highCombinations) {
-                VectorEvaluation terminal = evaluateCombination(request, evidenceByTemplate,
-                        new Combination(normalCombination, highCombination), deadline, budget,
-                        proofWindow, worst);
+                VectorEvaluation terminal = evaluateCombination(run,
+                        new Combination(normalCombination, highCombination), worst);
                 if (terminal != null) {
                     return terminal;
                 }
@@ -88,60 +85,52 @@ class OcRefreshVectorEvaluator {
      * 评估一个普通池/高阶池组合：依次尝试零停转、均衡停转和收益停转，
      * 并将可行结果归并进最坏聚合。
      *
-     * @param request            求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param combination        当前普通池/高阶池组合
-     * @param deadline           求解截止纳秒时间
-     * @param budget             组合评估预算
-     * @param proofWindow        有限证明窗口
-     * @param worst              最坏聚合累加器
+     * <p>收益级停转可行时，与{@link EvaluationRun#zeroPauseBaseline()}代表的
+     * 零新增停转替代时间线按冻结经济层级比较；只有严格更优才置位
+     * {@code pauseCandidateStrictlyBetterThanBaseline}。</p>
+     *
+     * @param run         本次评估的共享上下文
+     * @param combination 当前普通池/高阶池组合
+     * @param worst       最坏聚合累加器
      * @return 终止结果；组合已正常归并时返回null
      */
-    private VectorEvaluation evaluateCombination(OcRefreshSafetyRequest request,
-                                                 Map<String, OcValueEvidence> evidenceByTemplate,
-                                                 Combination combination,
-                                                 long deadline, CombinationBudget budget,
-                                                 OcProofWindow proofWindow,
+    private VectorEvaluation evaluateCombination(EvaluationRun run, Combination combination,
                                                  WorstCase worst) {
-        if (System.nanoTime() >= deadline) {
+        if (System.nanoTime() >= run.deadline()) {
             return VectorEvaluation.timeout();
         }
-        if (!budget.tryConsume()) {
+        if (!run.budget().tryConsume()) {
             return VectorEvaluation.budgetExhausted();
         }
-        List<CandidateRoot> roots = candidateRoots(request, combination.normalCombination(),
+        List<CandidateRoot> roots = candidateRoots(run.request(), combination.normalCombination(),
                 combination.highCombination());
-        SimulationResult zeroBaseline = simulate(request, roots, Duration.ZERO,
-                proofWindow);
+        SimulationResult zeroBaseline = simulate(run, roots, Duration.ZERO);
         if (zeroBaseline.searchBudgetExhausted()) {
-            return budgetExhaustedWithCandidate(zeroBaseline, roots, evidenceByTemplate,
-                    worst, combination);
+            return budgetExhaustedWithCandidate(run, zeroBaseline, roots, worst, combination);
         }
         if (zeroBaseline.feasible()) {
-            mergeWorstCase(worst, zeroBaseline, zeroBaseline, roots, evidenceByTemplate,
-                    SafeCandidate.PauseTier.ZERO_PAUSE);
+            mergeWorstCase(worst, zeroBaseline, null, roots,
+                    run.evidenceByTemplate(), SafeCandidate.PauseTier.ZERO_PAUSE);
             return null;
         }
-        SimulationResult balanced = simulate(request, roots,
-                OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE, proofWindow);
+        SimulationResult balanced = simulate(run, roots,
+                OcTimelinePolicy.BALANCED_MAX_NEW_PAUSE);
         if (balanced.searchBudgetExhausted()) {
-            return budgetExhaustedWithCandidate(balanced, roots, evidenceByTemplate,
-                    worst, combination);
+            return budgetExhaustedWithCandidate(run, balanced, roots, worst, combination);
         }
         if (balanced.feasible()) {
-            mergeWorstCase(worst, balanced, null, roots, evidenceByTemplate,
-                    SafeCandidate.PauseTier.WITHIN_BALANCED);
+            mergeWorstCase(worst, balanced, null, roots,
+                    run.evidenceByTemplate(), SafeCandidate.PauseTier.WITHIN_BALANCED);
             return null;
         }
-        SimulationResult profit = simulate(request, roots,
-                OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE, proofWindow);
+        SimulationResult profit = simulate(run, roots,
+                OcTimelinePolicy.PROFIT_MAX_NEW_PAUSE);
         if (profit.searchBudgetExhausted()) {
-            return budgetExhaustedWithCandidate(profit, roots, evidenceByTemplate,
-                    worst, combination);
+            return budgetExhaustedWithCandidate(run, profit, roots, worst, combination);
         }
         if (profit.feasible()) {
-            mergeWorstCase(worst, profit, null, roots, evidenceByTemplate,
-                    SafeCandidate.PauseTier.WITHIN_PROFIT);
+            mergeWorstCase(worst, profit, run.zeroPauseBaseline(), roots,
+                    run.evidenceByTemplate(), SafeCandidate.PauseTier.WITHIN_PROFIT);
             return null;
         }
         return VectorEvaluation.failed();
@@ -151,20 +140,21 @@ class OcRefreshVectorEvaluator {
      * 组合级预算耗尽但当前模拟结果可行时，先把可行候选归并进最坏聚合，
      * 再返回带候选的预算耗尽结果；结果不可行时直接返回无候选的预算耗尽。
      *
-     * @param result             当前模拟结果
-     * @param roots              组合根义务
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param worst              最坏聚合累加器
-     * @param combination        当前普通池/高阶池组合
+     * @param run         本次评估的共享上下文
+     * @param result      当前模拟结果
+     * @param roots       组合根义务
+     * @param worst       最坏聚合累加器
+     * @param combination 当前普通池/高阶池组合
      * @return 预算耗尽评估结果
      */
-    private VectorEvaluation budgetExhaustedWithCandidate(
-            SimulationResult result, List<CandidateRoot> roots,
-            Map<String, OcValueEvidence> evidenceByTemplate, WorstCase worst,
-            Combination combination) {
+    private VectorEvaluation budgetExhaustedWithCandidate(EvaluationRun run,
+                                                          SimulationResult result,
+                                                          List<CandidateRoot> roots,
+                                                          WorstCase worst,
+                                                          Combination combination) {
         if (result.feasible()) {
-            mergeWorstCase(worst, result, null, roots, evidenceByTemplate,
-                    tierFor(result));
+            mergeWorstCase(worst, result, run.zeroPauseBaseline(), roots,
+                    run.evidenceByTemplate(), tierFor(result));
             return new VectorEvaluation(VectorEvaluation.Status.BUDGET_EXHAUSTED,
                     worst.toEvaluation(combination.vector()).candidate());
         }
@@ -172,33 +162,39 @@ class OcRefreshVectorEvaluator {
     }
 
     /**
-     * 按指定允许停转时长模拟组合根义务。
+     * 按指定允许停转时长模拟组合根义务，并记录匿名搜索遥测。
      *
-     * @param request      求解请求
-     * @param roots        组合根义务
+     * @param run         本次评估的共享上下文
+     * @param roots       组合根义务
      * @param allowedPause 允许的最大新增停转
-     * @param proofWindow  有限证明窗口
      * @return 模拟结果
      */
-    private SimulationResult simulate(OcRefreshSafetyRequest request,
-                                      List<CandidateRoot> roots, Duration allowedPause,
-                                      OcProofWindow proofWindow) {
-        return scheduler.simulate(request, roots, allowedPause, true,
-                proofWindow.proofWindowEnd());
+    private SimulationResult simulate(EvaluationRun run, List<CandidateRoot> roots,
+                                      Duration allowedPause) {
+        SimulationResult result = scheduler.simulate(run.request(), roots, allowedPause,
+                true, run.proofWindow().proofWindowEnd());
+        run.metrics().record(result);
+        return result;
     }
 
     /**
-     * 把单个组合的模拟结果归并进最坏聚合；收益级停转还须与零停转基准比较。
+     * 把单个组合的模拟结果归并进最坏聚合；收益级停转还须与零新增停转
+     * 替代时间线基准比较。
+     *
+     * <p>基准不是当前组合的零暂停重跑结果：当组合在零停转下本就可行时
+     * 层级为零停转，无需比较；只有需要收益级停转时，才与本次搜索先证明的
+     * 最优零新增停转替代时间线比较。基准为null表示不存在可行的零停转
+     * 替代时间线，fail-closed不提高建议。</p>
      *
      * @param worst              最坏聚合累加器
      * @param result             当前组合模拟结果
-     * @param zeroBaseline       同组合零新增停转基准；非收益级时为null
+     * @param zeroPauseBaseline  零新增停转替代时间线摘要；非收益级或比较不可用时为null
      * @param roots              组合根义务
      * @param evidenceByTemplate 按模板键索引的价值证据
      * @param tier               当前组合所需的停转层级
      */
     private void mergeWorstCase(WorstCase worst, SimulationResult result,
-                                SimulationResult zeroBaseline,
+                                OcTimelineValueSummary zeroPauseBaseline,
                                 List<CandidateRoot> roots,
                                 Map<String, OcValueEvidence> evidenceByTemplate,
                                 SafeCandidate.PauseTier tier) {
@@ -213,13 +209,11 @@ class OcRefreshVectorEvaluator {
                 result.liquidityProof().anchors().size());
         worst.level = weakerLevel(worst.level, staticEvidence.level());
         if (tier == SafeCandidate.PauseTier.WITHIN_PROFIT) {
-            boolean comparable = zeroBaseline != null
-                    && zeroBaseline.feasible()
-                    && !zeroBaseline.searchBudgetExhausted();
+            boolean comparable = zeroPauseBaseline != null;
             worst.zeroPauseBaselineComparable &= comparable;
             worst.pauseCandidateStrictlyBetter &= comparable
-                    && strictlyBetterThanZeroBaseline(summary, zeroBaseline, evidenceByTemplate,
-                    roots);
+                    && valueComparator.isStrictlyBetterThanZeroPauseBaseline(summary,
+                    zeroPauseBaseline);
         }
     }
 
@@ -247,26 +241,6 @@ class OcRefreshVectorEvaluator {
                 staticEvidence.totalRequiredMembers(),
                 staticEvidence.chainNodeCount(),
                 staticEvidence.level());
-    }
-
-    /**
-     * 判断收益候选是否严格优于同组合零新增停转基准。
-     *
-     * @param candidate          收益候选价值摘要
-     * @param zeroBaseline       零新增停转模拟结果
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param roots              组合根义务
-     * @return 严格优于时返回true
-     */
-    private boolean strictlyBetterThanZeroBaseline(OcTimelineValueSummary candidate,
-                                                   SimulationResult zeroBaseline,
-                                                   Map<String, OcValueEvidence> evidenceByTemplate,
-                                                   List<CandidateRoot> roots) {
-        OcValueEvidence baselineEvidence = combinationEvidence(roots, evidenceByTemplate);
-        OcTimelineValueSummary baseline = mergeSummary(zeroBaseline.timelineValue(),
-                baselineEvidence);
-        return new OcEconomicValueComparator()
-                .isStrictlyBetterThanZeroPauseBaseline(candidate, baseline);
     }
 
     /**
@@ -495,6 +469,70 @@ class OcRefreshVectorEvaluator {
         for (int value = 0; value <= remaining; value++) {
             current[index] = value;
             buildCombinations(result, current, index + 1, remaining - value);
+        }
+    }
+
+    /**
+     * 单次向量评估的共享上下文：求解输入、组合预算、零停转基准替代时间线
+     * 与匿名搜索遥测。基准由搜索器在评估当前向量前从已证明候选中选出。
+     *
+     * @param request            求解请求
+     * @param evidenceByTemplate 按模板键索引的价值证据
+     * @param deadline           求解截止纳秒时间
+     * @param budget             组合评估预算
+     * @param proofWindow        有限证明窗口
+     * @param zeroPauseBaseline  当前搜索已证明的最优零新增停转替代时间线摘要；不存在时为null
+     * @param metrics            匿名搜索遥测累加器
+     */
+    record EvaluationRun(
+            OcRefreshSafetyRequest request,
+            Map<String, OcValueEvidence> evidenceByTemplate,
+            long deadline,
+            CombinationBudget budget,
+            OcProofWindow proofWindow,
+            OcTimelineValueSummary zeroPauseBaseline,
+            SearchMetrics metrics) {
+
+        /**
+         * 用最新零停转基准替换当前上下文中的基准，其余共享状态不变。
+         *
+         * @param baseline 最新已证明的最优零新增停转替代时间线摘要；不存在时为null
+         * @return 替换基准后的评估上下文
+         */
+        EvaluationRun withZeroPauseBaseline(OcTimelineValueSummary baseline) {
+            return new EvaluationRun(request, evidenceByTemplate, deadline, budget,
+                    proofWindow, baseline, metrics);
+        }
+    }
+
+    /**
+     * 单次向量搜索的匿名遥测累加器。逐模拟累计预算截断与替代上限命中次数，
+     * 只计数不记录明细。
+     */
+    static final class SearchMetrics {
+        private int budgetTruncations;
+        private int alternativesCapHits;
+
+        /**
+         * 录入一次模拟结果中的预算命中事实。
+         *
+         * @param result 单次模拟结果
+         */
+        void record(SimulationResult result) {
+            if (result.searchBudgetExhausted()) {
+                budgetTruncations++;
+            }
+            if (result.matchAlternativesCapped()) {
+                alternativesCapHits++;
+            }
+        }
+
+        int budgetTruncations() {
+            return budgetTruncations;
+        }
+
+        int alternativesCapHits() {
+            return alternativesCapHits;
         }
     }
 

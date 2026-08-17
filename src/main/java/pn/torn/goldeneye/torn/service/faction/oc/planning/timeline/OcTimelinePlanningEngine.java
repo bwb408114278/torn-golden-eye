@@ -101,8 +101,12 @@ public class OcTimelinePlanningEngine {
                 inputs.reasonCodes(), anchors, nextCriticalReleaseAt,
                 proofWindowEnd);
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+        OcSearchTelemetry telemetry = new OcSearchTelemetry(
+                outcome.combinationEvaluations(),
+                outcome.budgetTruncations() + (baseline.searchBudgetExhausted() ? 1 : 0),
+                outcome.alternativesCapHits());
         return new OcRefreshSafetyResult(assessment, outcome.candidates(), lowerBound,
-                elapsedMillis, inputs.warnings());
+                elapsedMillis, telemetry, inputs.warnings());
     }
 
     /**
@@ -132,7 +136,7 @@ public class OcTimelinePlanningEngine {
                 proofWindow.proofWindowEnd());
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - inputs.startedAt()).toMillis();
         return new OcRefreshSafetyResult(assessment, List.of(), false, elapsedMillis,
-                inputs.warnings());
+                OcSearchTelemetry.empty(), inputs.warnings());
     }
 
     /**
@@ -207,7 +211,7 @@ public class OcTimelinePlanningEngine {
                 nextCriticalReleaseAt, proofWindowEnd);
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - inputs.startedAt()).toMillis();
         return new OcRefreshSafetyResult(assessment, List.of(),
-                baseline.searchBudgetExhausted(), elapsedMillis,
+                baseline.searchBudgetExhausted(), elapsedMillis, OcSearchTelemetry.empty(),
                 inputs.warnings());
     }
 

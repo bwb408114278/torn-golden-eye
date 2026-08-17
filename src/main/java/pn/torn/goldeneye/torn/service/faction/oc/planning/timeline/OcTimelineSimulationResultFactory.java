@@ -84,7 +84,7 @@ final class OcTimelineSimulationResultFactory {
                     progress.hardObligationFailed, progress.plannedEmptyExpired,
                     representativeProof(state, progress, proofWindowEnd),
                     state.pauses(), state.events(), maxNewPause(state),
-                    budgetExhausted,
+                    budgetExhausted, progress.matchAlternativesCapped,
                     valueAccumulator.accumulate(state, progress.plannedEmptyExpired));
         }
         OcTimelineState state = complete.state();
@@ -94,13 +94,14 @@ final class OcTimelineSimulationResultFactory {
                 new OcTimelineEventScheduler.LiquidityProof(verified, state.intervals(),
                         true),
                 state.pauses(), state.events(), maxNewPause(state),
-                budgetExhausted,
+                budgetExhausted, progress.matchAlternativesCapped,
                 valueAccumulator.accumulate(state, complete.plannedEmptyExpired()));
     }
 
     /**
-     * 输出匿名技术预算Shadow日志，记录本次模拟是否命中搜索预算上限。
-     * 不记录成员、岗位、内部排程或奖励明细。
+     * 输出匿名技术预算Shadow调试日志，记录本次模拟是否命中搜索预算上限。
+     * 不记录成员、岗位、内部排程或奖励明细；逐模拟高频信息只进DEBUG，
+     * 汇总计数由顶层规划Shadow按一次求解输出。
      *
      * @param progress        搜索进度与预算命中标记
      * @param budgetExhausted 搜索是否因义务展开预算截断
@@ -108,7 +109,7 @@ final class OcTimelineSimulationResultFactory {
     private void logBudgetShadow(SearchProgress progress, boolean budgetExhausted) {
         if (budgetExhausted || progress.matchAlternativesCapped
                 || progress.stateCapTruncated) {
-            log.info("OC新队Shadow: searchBudget taskExpansionBudgetExhausted={}, "
+            log.debug("OC新队Shadow: searchBudget taskExpansionBudgetExhausted={}, "
                             + "stateCapTruncated={}, matchAlternativesCapped={}",
                     budgetExhausted, progress.stateCapTruncated,
                     progress.matchAlternativesCapped);

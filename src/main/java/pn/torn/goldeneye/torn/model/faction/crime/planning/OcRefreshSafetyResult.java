@@ -3,13 +3,15 @@ package pn.torn.goldeneye.torn.model.faction.crime.planning;
 import java.util.List;
 
 /**
- * 有限事件时间线求解结果。持有整体安全评估、模式无关的已证明安全候选向量与求解耗时。
+ * 有限事件时间线求解结果。持有整体安全评估、模式无关的已证明安全候选向量、
+ * 求解耗时与匿名搜索遥测。
  *
- * @param assessment    时间线安全评估
- * @param candidates    已证明安全且已评分的候选向量，模式无关
- * @param lowerBound    建议是否仅为已证明刷新向量下界
- * @param elapsedMillis 求解耗时毫秒数
- * @param warnings      求解警告
+ * @param assessment      时间线安全评估
+ * @param candidates      已证明安全且已评分的候选向量，模式无关
+ * @param lowerBound      建议是否仅为已证明刷新向量下界
+ * @param elapsedMillis   求解耗时毫秒数
+ * @param searchTelemetry 匿名搜索遥测，只含规模与预算命中计数
+ * @param warnings        求解警告
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
@@ -19,9 +21,12 @@ public record OcRefreshSafetyResult(
         List<SafeCandidate> candidates,
         boolean lowerBound,
         long elapsedMillis,
+        OcSearchTelemetry searchTelemetry,
         List<String> warnings) {
     public OcRefreshSafetyResult {
         candidates = candidates == null ? List.of() : List.copyOf(candidates);
+        searchTelemetry = searchTelemetry == null
+                ? OcSearchTelemetry.empty() : searchTelemetry;
         warnings = warnings == null ? List.of() : List.copyOf(warnings);
     }
 
@@ -44,36 +49,6 @@ public record OcRefreshSafetyResult(
             OcValueEvidence.Level valueEvidenceLevel,
             boolean zeroPauseBaselineComparable,
             boolean pauseCandidateStrictlyBetterThanBaseline) {
-
-        /**
-         * 兼容旧测试/旧构造路径：使用旧的最早完成时间语义构造候选。
-         * 新生产构造路径必须使用{@link OcTimelineValueSummary}。
-         *
-         * @param vector                刷新向量
-         * @param pauseTier             停转层级
-         * @param windowValue           规划窗口全局总价值
-         * @param incrementalMemberDays 增量剩余成员人天
-         * @param earliestCompletionAt  最早完整释放时间（旧语义）
-         * @param anchorCount           锚点数量
-         * @param valueEvidenceLevel    价值证据层级
-         */
-        public SafeCandidate(OcRefreshVector vector, PauseTier pauseTier,
-                             java.math.BigDecimal windowValue, int incrementalMemberDays,
-                             java.time.LocalDateTime earliestCompletionAt, int anchorCount,
-                             OcValueEvidence.Level valueEvidenceLevel) {
-            this(vector, pauseTier,
-                    new OcTimelineValueSummary(windowValue, incrementalMemberDays,
-                            java.time.Duration.ZERO, java.time.Duration.ZERO, true,
-                            earliestCompletionAt, 0, incrementalMemberDays, 1,
-                            valueEvidenceLevel == null
-                                    ? OcValueEvidence.Level.INSUFFICIENT
-                                    : valueEvidenceLevel),
-                    anchorCount,
-                    valueEvidenceLevel == null
-                            ? OcValueEvidence.Level.INSUFFICIENT
-                            : valueEvidenceLevel,
-                    true, true);
-        }
 
         /**
          * 获取聚合后的保证最早释放时间：全部随机组合最早完整释放中的最晚值。

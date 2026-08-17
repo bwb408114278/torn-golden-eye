@@ -62,15 +62,17 @@ public final class OcTimelineEventScheduler {
     /**
      * 单个随机组合的完整时间线模拟结果。
      *
-     * @param feasible              全部必须承接的义务是否均可完整排程
-     * @param deterministicFailure  失败是否由岗位能力、人数的确定性矛盾或流动性连续性证明失败引起
-     * @param hardObligationFailed  是否存在已投入义务无法履约
-     * @param plannedEmptyExpired   是否存在无法在期限前启动的计划内无人OC
-     * @param liquidityProof        匿名流动性证明状态：锚点链、成员占用区间和连续路径判定
-     * @param pauses                停转评估列表
-     * @param events                已发生的时间线事件
-     * @param maxNewPause           全部义务中的最大单次主动新增停转时长
-     * @param searchBudgetExhausted 多状态搜索是否因状态上限或展开预算截断
+     * @param feasible                全部必须承接的义务是否均可完整排程
+     * @param deterministicFailure    失败是否由岗位能力、人数的确定性矛盾或流动性连续性证明失败引起
+     * @param hardObligationFailed    是否存在已投入义务无法履约
+     * @param plannedEmptyExpired     是否存在无法在期限前启动的计划内无人OC
+     * @param liquidityProof          匿名流动性证明状态：锚点链、成员占用区间和连续路径判定
+     * @param pauses                  停转评估列表
+     * @param events                  已发生的时间线事件
+     * @param maxNewPause             全部义务中的最大单次主动新增停转时长
+     * @param searchBudgetExhausted   多状态搜索是否因状态上限或展开预算截断
+     * @param matchAlternativesCapped 本次模拟的替代成员—岗位候选是否达到技术预算上限
+     * @param timelineValue           本次模拟的真实时间线价值摘要
      */
     public record SimulationResult(
             boolean feasible,
@@ -82,6 +84,7 @@ public final class OcTimelineEventScheduler {
             List<OcTimelineEvent> events,
             Duration maxNewPause,
             boolean searchBudgetExhausted,
+            boolean matchAlternativesCapped,
             OcTimelineValueSummary timelineValue) {
     }
 

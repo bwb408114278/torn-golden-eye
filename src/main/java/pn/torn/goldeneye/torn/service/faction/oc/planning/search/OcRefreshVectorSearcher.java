@@ -4,6 +4,9 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyReques
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorEvaluator.EvaluationRun;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorEvaluator.SearchMetrics;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorEvaluator.VectorEvaluation;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcPausePolicyEvaluator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcProofWindow;
@@ -19,6 +22,9 @@ import java.util.Map;
  * 委托组合评估器验证每个向量，并用确定性组合评估预算截断搜索，
  * 保证同一快照的搜索结果确定。纯内存对象，不访问数据库、HTTP或Redis。
  *
+ * <p>评估每个向量前，从已证明候选中选出当前最优零新增停转替代时间线，
+ * 作为收益级停转候选严格优于基准比较中的真实基准传入组合评估器。</p>
+ *
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
@@ -28,6 +34,9 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      * 组合评估预算：以确定性计数截断搜索，保证同一快照结果确定；时间预算仅作兜底。
      */
     private static final int MAX_COMBINATION_EVALUATIONS = 60;
+
+    private static final OcEconomicValueComparator VALUE_COMPARATOR =
+            new OcEconomicValueComparator();
 
     private final int maxSearch;
     private final OcRefreshVectorEvaluator evaluator;
@@ -72,12 +81,15 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         List<OcRefreshVector> failed = new ArrayList<>();
         SearchOutput output = new SearchOutput(safe, failed);
         CombinationBudget budget = new CombinationBudget(MAX_COMBINATION_EVALUATIONS);
+        SearchMetrics metrics = new SearchMetrics();
+        EvaluationRun run = new EvaluationRun(request, evidenceByTemplate, deadline,
+                budget, proofWindow, null, metrics);
         boolean timedOut = false;
         for (int total = 0; total <= maxSearch * 2 && !timedOut; total++) {
-            timedOut = searchTotal(request, evidenceByTemplate, total, deadline, budget,
-                    output, proofWindow);
+            timedOut = searchTotal(run, total, output);
         }
-        return new OcVectorSearchOutcome(output.safe(), timedOut, budget.exhausted());
+        return new OcVectorSearchOutcome(output.safe(), timedOut, budget.exhausted(),
+                budget.consumed(), metrics.budgetTruncations(), metrics.alternativesCapHits());
     }
 
     /**
@@ -96,25 +108,16 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     /**
      * 搜索指定总刷新次数下的全部普通/高阶次数分配。
      *
-     * @param request            求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param total              当前总刷新次数
-     * @param deadline           求解截止纳秒时间
-     * @param budget             组合评估预算
-     * @param output             搜索结果输出集合
-     * @param proofWindow        由引擎统一计算的有限证明窗口
+     * @param run    本次搜索的共享评估上下文
+     * @param total  当前总刷新次数
+     * @param output 搜索结果输出集合
      * @return 是否因时间预算终止
      */
-    private boolean searchTotal(OcRefreshSafetyRequest request,
-                                Map<String, OcValueEvidence> evidenceByTemplate,
-                                int total, long deadline, CombinationBudget budget,
-                                SearchOutput output,
-                                OcProofWindow proofWindow) {
+    private boolean searchTotal(EvaluationRun run, int total, SearchOutput output) {
         for (int high = Math.max(0, total - maxSearch); high <= Math.min(maxSearch, total);
              high++) {
-            StepStatus status = tryVector(request, evidenceByTemplate,
-                    new OcRefreshVector(total - high, high), deadline, budget, output,
-                    proofWindow);
+            StepStatus status = tryVector(run,
+                    new OcRefreshVector(total - high, high), output);
             if (status != StepStatus.CONTINUE) {
                 return status == StepStatus.STOP_TIMEOUT;
             }
@@ -123,27 +126,22 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     }
 
     /**
-     * 评估单个刷新向量并归类结果。
+     * 评估单个刷新向量并归类结果。评估前从已证明候选中刷新零停转基准，
+     * 保证收益级停转组合始终与当前最优零新增停转替代时间线比较。
      *
-     * @param request            求解请求
-     * @param evidenceByTemplate 按模板键索引的价值证据
-     * @param vector             待评估刷新向量
-     * @param deadline           求解截止纳秒时间
-     * @param budget             组合评估预算
-     * @param output             搜索结果输出集合
-     * @param proofWindow        由引擎统一计算的有限证明窗口
+     * @param run    本次搜索的共享评估上下文
+     * @param vector 待评估刷新向量
+     * @param output 搜索结果输出集合
      * @return 向量处理结果
      */
-    private StepStatus tryVector(OcRefreshSafetyRequest request,
-                                 Map<String, OcValueEvidence> evidenceByTemplate,
-                                 OcRefreshVector vector, long deadline, CombinationBudget budget,
-                                 SearchOutput output,
-                                 OcProofWindow proofWindow) {
+    private StepStatus tryVector(EvaluationRun run, OcRefreshVector vector,
+                                 SearchOutput output) {
         if (hasFailedSubset(vector, output.failed())) {
             return StepStatus.CONTINUE;
         }
-        VectorEvaluation evaluation = evaluator.evaluateVector(request, evidenceByTemplate,
-                vector, deadline, budget, proofWindow);
+        EvaluationRun current = run.withZeroPauseBaseline(
+                VALUE_COMPARATOR.bestZeroPauseBaseline(output.safe()));
+        VectorEvaluation evaluation = evaluator.evaluateVector(current, vector);
         if (evaluation.status() == VectorEvaluation.Status.TIMEOUT) {
             return StepStatus.STOP_TIMEOUT;
         }
@@ -206,6 +204,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      */
     static final class CombinationBudget {
         private int remaining;
+        private int consumed;
 
         private CombinationBudget(int maxEvaluations) {
             this.remaining = maxEvaluations;
@@ -216,11 +215,16 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
                 return false;
             }
             remaining--;
+            consumed++;
             return true;
         }
 
         boolean exhausted() {
             return remaining <= 0;
+        }
+
+        int consumed() {
+            return consumed;
         }
     }
 }

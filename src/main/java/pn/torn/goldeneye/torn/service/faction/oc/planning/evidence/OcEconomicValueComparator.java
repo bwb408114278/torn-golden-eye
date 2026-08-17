@@ -1,10 +1,12 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.evidence;
 
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineValueSummary;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 候选时间线经济价值比较器。只能在硬安全与完整时间线可行之后使用，固定比较顺序：
@@ -116,6 +118,28 @@ public class OcEconomicValueComparator {
         }
 
         return compareTimelineValue(candidate, baseline) < 0;
+    }
+
+    /**
+     * 在候选集合中选择当前最优的零新增停转替代时间线摘要。
+     * 作为收益级停转候选严格优于基准比较中的真实基准：无零停转候选时返回null，
+     * 调用方必须fail-closed。同等价值时保持集合内的首个，保证结果确定。
+     *
+     * @param candidates 已证明安全的候选集合
+     * @return 最优零停转候选的时间线价值摘要；不存在时为null
+     */
+    public OcTimelineValueSummary bestZeroPauseBaseline(List<SafeCandidate> candidates) {
+        OcTimelineValueSummary best = null;
+        for (SafeCandidate candidate : candidates) {
+            if (candidate.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE
+                    || candidate.timelineValue() == null) {
+                continue;
+            }
+            if (best == null || compareTimelineValue(candidate.timelineValue(), best) < 0) {
+                best = candidate.timelineValue();
+            }
+        }
+        return best;
     }
 
     /**

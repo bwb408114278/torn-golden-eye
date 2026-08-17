@@ -14,7 +14,9 @@ import java.util.Optional;
  * 从同一批已证明安全且已评分的候选向量中按模式选择刷新指令。
  *
  * <p>不再使用25/50/100容量比例缩放；模式差异来自停转容忍、流动性余量和价值目标。
- * 已证明至少存在一个安全刷新向量时，不会因旧百分比取整返回0。</p>
+ * 已证明至少存在一个安全刷新向量时，不会因旧百分比取整返回0。
+ * 收益模式的资格判定需要完整候选集合：收益级停转须严格优于集合内的
+ * 零新增停转替代时间线，PRIOR_ONLY先验须相对替代候选可稳定区分。</p>
  *
  * @author Bai
  * @version 1.3.0
@@ -48,8 +50,12 @@ public class OcRefreshModeSelector {
         if (isHardBlocked(safety)) {
             return Optional.empty();
         }
-        List<SafeCandidate> eligible = safety.candidates().stream()
-                .filter(candidate -> withinPausePolicy(candidate, mode)).toList();
+        List<SafeCandidate> candidates = safety.candidates();
+        OcTimelineValueSummary zeroPauseBaseline = valueComparator
+                .bestZeroPauseBaseline(candidates);
+        List<SafeCandidate> eligible = candidates.stream()
+                .filter(candidate -> withinPausePolicy(candidate, mode, candidates,
+                        zeroPauseBaseline)).toList();
         return eligible.stream().max(comparator(mode));
     }
 
@@ -71,29 +77,38 @@ public class OcRefreshModeSelector {
      * <p>保守和均衡按停转层级放宽；收益模式的正向量必须具备可用的完整价值证据，
      * 金额证据不足的候选仅用于匿名说明，不得提高刷新建议。</p>
      *
-     * @param candidate 安全候选
-     * @param mode      刷新策略模式
+     * @param candidate         安全候选
+     * @param mode              刷新策略模式
+     * @param candidates        本次求解的完整安全候选集合
+     * @param zeroPauseBaseline 候选集合中的最优零新增停转替代时间线摘要；不存在时为null
      * @return 满足政策时返回true
      */
-    private boolean withinPausePolicy(SafeCandidate candidate, OcPlanMode mode) {
+    private boolean withinPausePolicy(SafeCandidate candidate, OcPlanMode mode,
+                                      List<SafeCandidate> candidates,
+                                      OcTimelineValueSummary zeroPauseBaseline) {
         return switch (mode) {
             case CONSERVATIVE -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE;
             case BALANCED -> candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT;
-            case PROFIT -> withinProfitPolicy(candidate);
+            case PROFIT -> withinProfitPolicy(candidate, candidates, zeroPauseBaseline);
         };
     }
 
     /**
      * 判断候选是否满足收益模式选点前提。
      *
-     * <p>零向量不受价值证据限制；正向量要求证据层级可用。收益级停转还必须
-     * 满足全部相关组合严格优于同组合零停转基准；零停转或均衡级停转候选在
-     * PRIOR_ONLY先验可区分时也允许参与收益模式选点。</p>
+     * <p>零向量不受价值证据限制；正向量要求证据层级可用。收益级停转必须在
+     * 组合评估中证明严格优于零停转基准，且在最终候选集合中仍严格优于当前
+     * 最优零新增停转替代时间线，防止搜索顺序缺口放宽门禁；基准不存在或
+     * 不可比较时fail-closed。零停转或均衡级停转候选在PRIOR_ONLY先验
+     * 可区分时也允许参与收益模式选点。</p>
      *
-     * @param candidate 安全候选
+     * @param candidate         安全候选
+     * @param candidates        本次求解的完整安全候选集合
+     * @param zeroPauseBaseline 候选集合中的最优零新增停转替代时间线摘要；不存在时为null
      * @return 满足收益模式前提时返回true
      */
-    private boolean withinProfitPolicy(SafeCandidate candidate) {
+    private boolean withinProfitPolicy(SafeCandidate candidate, List<SafeCandidate> candidates,
+                                       OcTimelineValueSummary zeroPauseBaseline) {
         if (candidate.vector().totalCount() == 0) {
             return true;
         }
@@ -101,26 +116,45 @@ public class OcRefreshModeSelector {
             return false;
         }
         if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_PROFIT) {
-            return candidate.pauseCandidateStrictlyBetterThanBaseline();
+            return candidate.pauseCandidateStrictlyBetterThanBaseline()
+                    && valueComparator.isStrictlyBetterThanZeroPauseBaseline(
+                    candidate.timelineValue(), zeroPauseBaseline);
         }
-        return hasComparableEvidence(candidate);
+        return hasComparableEvidence(candidate, candidates);
     }
 
     /**
-     * 判断正候选证据是否可比较：金额层级必须携带金额；PRIOR_ONLY必须携带
-     * 可区分业务先验；INSUFFICIENT不得用于提高建议。
+     * 判断正候选证据是否可比较：金额层级必须携带金额；PRIOR_ONLY必须在候选集合
+     * 中可稳定区分，即严格优于至少一个其他正向量；INSUFFICIENT不得用于提高建议。
      *
-     * @param candidate 安全候选
+     * @param candidate  安全候选
+     * @param candidates 本次求解的完整安全候选集合
      * @return 证据可比较时返回true
      */
-    private boolean hasComparableEvidence(SafeCandidate candidate) {
+    private boolean hasComparableEvidence(SafeCandidate candidate,
+                                          List<SafeCandidate> candidates) {
         return switch (candidate.valueEvidenceLevel()) {
             case OBSERVED_REWARD, REWARD_FLOOR -> candidate.timelineValue().monetaryValue() != null;
-            case PRIOR_ONLY -> candidate.timelineValue().highestRank() > 0
-                    && candidate.timelineValue().totalRequiredMembers() > 0
-                    && candidate.timelineValue().chainNodeCount() > 0;
+            case PRIOR_ONLY -> distinguishableAgainstAlternative(candidate, candidates);
             case INSUFFICIENT -> false;
         };
+    }
+
+    /**
+     * 判断PRIOR_ONLY候选的先验元组是否在候选集合层面可稳定区分：
+     * 至少严格优于一个其他正向量。完全相同或无替代比较对象时不可区分，
+     * 不得据此提高收益建议。
+     *
+     * @param candidate  安全候选
+     * @param candidates 本次求解的完整安全候选集合
+     * @return 存在被候选严格超越的替代正向量时返回true
+     */
+    private boolean distinguishableAgainstAlternative(SafeCandidate candidate,
+                                                      List<SafeCandidate> candidates) {
+        return candidates.stream()
+                .filter(other -> other != candidate && other.vector().totalCount() > 0)
+                .anyMatch(other -> valueComparator.compareTimelineValue(
+                        candidate.timelineValue(), other.timelineValue()) < 0);
     }
 
     /**
@@ -132,6 +166,47 @@ public class OcRefreshModeSelector {
      */
     private boolean hasUsableEvidenceLevel(SafeCandidate candidate) {
         return candidate.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT;
+    }
+
+    /**
+     * 判断收益选点是否存在经济证据不足事实：选中正向量证据层级不可用或PRIOR_ONLY
+     * 先验关键字段缺失；或因PRIOR_ONLY不可区分回落零向量。该判定只输出匿名事实，
+     * 供最终计划提示经济证据不足，不改变选择结果本身。
+     *
+     * @param candidates 本次求解的完整安全候选集合
+     * @param selected   已选安全候选；未选中时为null
+     * @return 存在经济证据不足事实时返回true
+     */
+    public boolean economicEvidenceInsufficient(List<SafeCandidate> candidates,
+                                                SafeCandidate selected) {
+        List<SafeCandidate> positive = candidates.stream()
+                .filter(candidate -> candidate.vector().totalCount() > 0).toList();
+        if (positive.isEmpty()) {
+            return false;
+        }
+        if (selected != null && selected.vector().totalCount() > 0) {
+            return insufficientForSelected(selected);
+        }
+        return positive.stream().allMatch(candidate ->
+                candidate.timelineValue() == null
+                        || candidate.timelineValue().monetaryValue() == null);
+    }
+
+    /**
+     * 判断已选中正向量的证据是否可用：层级不可用或PRIOR_ONLY先验关键字段缺失。
+     *
+     * @param selected 已选安全候选
+     * @return 证据不足时返回true
+     */
+    private boolean insufficientForSelected(SafeCandidate selected) {
+        if (selected.valueEvidenceLevel() == OcValueEvidence.Level.INSUFFICIENT
+                || selected.timelineValue() == null) {
+            return true;
+        }
+        return selected.valueEvidenceLevel() == OcValueEvidence.Level.PRIOR_ONLY
+                && (selected.timelineValue().highestRank() <= 0
+                || selected.timelineValue().totalRequiredMembers() <= 0
+                || selected.timelineValue().chainNodeCount() <= 0);
     }
 
     /**

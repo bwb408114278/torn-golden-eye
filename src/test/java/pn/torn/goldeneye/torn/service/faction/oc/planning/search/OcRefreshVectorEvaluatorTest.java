@@ -7,6 +7,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcProofWindow;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler.CandidateRoot;
@@ -17,6 +18,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -25,7 +27,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * 刷新向量组合评估器测试。通过搜索器间接验证联合随机组合的顺序无关聚合、
- * 保证释放最坏值和收益级停转的零停转基准比较状态。
+ * 保证释放最坏值和收益级停转相对零新增停转替代时间线基准的严格比较。
  *
  * @author Bai
  * @version 1.3.0
@@ -42,35 +44,137 @@ class OcRefreshVectorEvaluatorTest {
     @Test
     @DisplayName("停转层级应按全部组合严格单调max且不受后续零停转组合降低")
     void shouldKeepStrictMaxPauseTierAcrossCombinations() {
-        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
-                .thenAnswer(invocation -> {
-                    List<CandidateRoot> roots = invocation.getArgument(1);
-                    Duration allowedPause = invocation.getArgument(2);
-                    if (twoBeta(roots) && allowedPause.isZero()) {
-                        return infeasibleResult();
-                    }
-                    if (twoBeta(roots) && allowedPause.equals(Duration.ofHours(6))) {
-                        return infeasibleResult();
-                    }
-                    if (twoBeta(roots) && allowedPause.equals(Duration.ofHours(12))) {
-                        return feasibleResult(NOW.plusHours(20));
-                    }
-                    if (mixed(roots)) {
-                        return feasibleResult(NOW.plusHours(12));
-                    }
-                    if (twoAlpha(roots)) {
-                        return feasibleResult(NOW.plusHours(8));
-                    }
-                    return feasibleResult(NOW.plusHours(1));
-                });
+        stubTwoBetaProfitOnly();
 
         OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search();
 
         SafeCandidate vectorTwoZero = candidate(outcome, 2, 0);
         assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, vectorTwoZero.pauseTier(),
                 "后续零停转组合不得降低已看到的收益级层级");
-        assertFalse(vectorTwoZero.zeroPauseBaselineComparable());
-        assertFalse(vectorTwoZero.pauseCandidateStrictlyBetterThanBaseline());
+        assertTrue(vectorTwoZero.zeroPauseBaselineComparable(),
+                "已证明零停转正向量(1,0)必须构成可比较基准");
+        OcRefreshModeSelector selector = new OcRefreshModeSelector();
+        assertEquals(new OcRefreshVector(2, 0),
+                selector.select(selectorResult(outcome), OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("存在可行零停转替代时间线基准且价值严格更优时收益级正向量可达")
+    void shouldPromoteProfitVectorOnlyWhenStrictlyBetterThanProvenZeroPauseBaseline() {
+        stubTwoBetaProfitOnly();
+
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search();
+
+        SafeCandidate vectorTwoZero = candidate(outcome, 2, 0);
+        assertTrue(vectorTwoZero.zeroPauseBaselineComparable(),
+                "评估(2,0)时(1,0)零停转正向量基准必须参与比较");
+        assertTrue(vectorTwoZero.pauseCandidateStrictlyBetterThanBaseline(),
+                "收益级组合价值400严格优于基准100时必须置位严格更优");
+        OcRefreshModeSelector selector = new OcRefreshModeSelector();
+        assertEquals(new OcRefreshVector(2, 0),
+                selector.select(selectorResult(outcome), OcPlanMode.PROFIT),
+                "通过基准比较的WITHIN_PROFIT正向量必须可被收益模式实际选中");
+    }
+
+    @Test
+    @DisplayName("候选令既有义务延后10小时而零停转基准不延后时应被拒绝")
+    void shouldRejectProfitCandidateThatDelaysExistingObligations() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    Duration allowedPause = invocation.getArgument(2);
+                    if (roots.size() >= 3) {
+                        return infeasibleResult();
+                    }
+                    if (roots.isEmpty()) {
+                        return feasibleResult(NOW.plusHours(2));
+                    }
+                    if (allowedPause.isZero()
+                            || allowedPause.equals(Duration.ofHours(6))) {
+                        return infeasibleResult();
+                    }
+                    return profitResult(Duration.ofHours(10), 3, NOW.plusHours(4));
+                });
+
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(
+                request("Alpha"), evidence("Alpha", BigDecimal.ZERO,
+                        OcValueEvidence.Level.OBSERVED_REWARD));
+
+        SafeCandidate vectorOneZero = candidate(outcome, 1, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, vectorOneZero.pauseTier());
+        assertTrue(vectorOneZero.zeroPauseBaselineComparable());
+        assertFalse(vectorOneZero.pauseCandidateStrictlyBetterThanBaseline(),
+                "价值相同但既有义务延迟10小时的候选不得视为严格更优");
+        OcRefreshModeSelector selector = new OcRefreshModeSelector();
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(selectorResult(outcome), OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("零停转基准不延后且候选释放更早时收益级正向量应被接受")
+    void shouldAcceptProfitCandidateWhenStrictlyBetterOnTimelineFacts() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    Duration allowedPause = invocation.getArgument(2);
+                    if (roots.size() >= 3) {
+                        return infeasibleResult();
+                    }
+                    if (roots.isEmpty()) {
+                        return feasibleResult(NOW.plusHours(2));
+                    }
+                    if (allowedPause.isZero()
+                            || allowedPause.equals(Duration.ofHours(6))) {
+                        return infeasibleResult();
+                    }
+                    return profitResult(Duration.ZERO, 0, NOW.plusHours(1));
+                });
+
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(
+                request("Alpha"), evidence("Alpha", BigDecimal.ZERO,
+                        OcValueEvidence.Level.OBSERVED_REWARD));
+
+        SafeCandidate vectorOneZero = candidate(outcome, 1, 0);
+        assertTrue(vectorOneZero.zeroPauseBaselineComparable());
+        assertTrue(vectorOneZero.pauseCandidateStrictlyBetterThanBaseline());
+        OcRefreshModeSelector selector = new OcRefreshModeSelector();
+        assertEquals(new OcRefreshVector(2, 0),
+                selector.select(selectorResult(outcome), OcPlanMode.PROFIT),
+                "金额证据为空时按时间线事实决胜，更大的严格更优正向量胜出");
+    }
+
+    @Test
+    @DisplayName("PRIOR_ONLY收益级候选与零向量金额基准不可稳定比较时应拒绝")
+    void shouldRejectProfitCandidateWhenPriorNotComparableWithBaseline() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    Duration allowedPause = invocation.getArgument(2);
+                    if (roots.size() >= 3) {
+                        return infeasibleResult();
+                    }
+                    if (roots.isEmpty()) {
+                        return feasibleResult(NOW.plusHours(2));
+                    }
+                    if (allowedPause.isZero()
+                            || allowedPause.equals(Duration.ofHours(6))) {
+                        return infeasibleResult();
+                    }
+                    return profitResult(Duration.ZERO, 0, NOW.plusHours(1));
+                });
+
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(
+                request("Beta"), evidence("Beta", null,
+                        OcValueEvidence.Level.PRIOR_ONLY));
+
+        SafeCandidate vectorOneZero = candidate(outcome, 1, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, vectorOneZero.pauseTier());
+        assertTrue(vectorOneZero.zeroPauseBaselineComparable());
+        assertFalse(vectorOneZero.pauseCandidateStrictlyBetterThanBaseline(),
+                "PRIOR_ONLY候选无法与零向量金额基准稳定比较时必须fail-closed");
+        OcRefreshModeSelector selector = new OcRefreshModeSelector();
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(selectorResult(outcome), OcPlanMode.PROFIT));
     }
 
     @Test
@@ -120,9 +224,41 @@ class OcRefreshVectorEvaluatorTest {
                 "任一组合无释放事件时保证释放必须为null");
     }
 
+    private void stubTwoBetaProfitOnly() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    Duration allowedPause = invocation.getArgument(2);
+                    if (roots.size() >= 3) {
+                        return infeasibleResult();
+                    }
+                    if (twoBeta(roots) && allowedPause.isZero()) {
+                        return infeasibleResult();
+                    }
+                    if (twoBeta(roots) && allowedPause.equals(Duration.ofHours(6))) {
+                        return infeasibleResult();
+                    }
+                    if (twoBeta(roots) && allowedPause.equals(Duration.ofHours(12))) {
+                        return feasibleResult(NOW.plusHours(20));
+                    }
+                    if (mixed(roots)) {
+                        return feasibleResult(NOW.plusHours(12));
+                    }
+                    if (twoAlpha(roots)) {
+                        return feasibleResult(NOW.plusHours(8));
+                    }
+                    return feasibleResult(NOW.plusHours(1));
+                });
+    }
+
     private OcRefreshVectorSearcher.OcVectorSearchOutcome search() {
+        return search(request(), evidence());
+    }
+
+    private OcRefreshVectorSearcher.OcVectorSearchOutcome search(
+            OcRefreshSafetyRequest request, Map<String, OcValueEvidence> evidence) {
         OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(3, scheduler);
-        return searcher.search(request(), evidence(),
+        return searcher.search(request, evidence,
                 System.nanoTime() + Duration.ofSeconds(5).toNanos(),
                 OcProofWindow.valid(NOW.plusDays(1)));
     }
@@ -137,21 +273,56 @@ class OcRefreshVectorEvaluatorTest {
                 List.of(alpha, beta), List.of(), NOW);
     }
 
+    /**
+     * 构造单模板请求：仅含一个普通池模板，用于收益级停转场景的基准比较。
+     *
+     * @param templateName 模板名
+     * @return 单模板求解请求
+     */
+    private OcRefreshSafetyRequest request(String templateName) {
+        OcPlanSlot slot = new OcPlanSlot("Worker#1", "Worker", 60, 1, null);
+        OcTeamDemand template = new OcTeamDemand(0L, templateName, 8, null,
+                NOW.plusDays(7), false, List.of(slot), Set.of(), Set.of());
+        return new OcRefreshSafetyRequest(List.of(), Set.of(), List.of(), Map.of(),
+                List.of(template), List.of(), NOW);
+    }
+
     private Map<String, OcValueEvidence> evidence() {
         return Map.of(
                 OcPlanningSnapshot.ocKey(8, "Alpha"),
-                new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
-                        BigDecimal.valueOf(100), 10, NOW.plusHours(8), true, 8, 2, 1),
+                evidenceEntry(BigDecimal.valueOf(100)),
                 OcPlanningSnapshot.ocKey(8, "Beta"),
                 new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
                         BigDecimal.valueOf(200), 10, NOW.plusHours(8), true, 8, 2, 1));
     }
 
+    private OcValueEvidence evidenceEntry(BigDecimal value) {
+        return new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
+                value, 10, NOW.plusHours(8), true, 8, 2, 1);
+    }
+
+    private Map<String, OcValueEvidence> evidence(String templateName, BigDecimal value,
+                                                  OcValueEvidence.Level level) {
+        return Map.of(OcPlanningSnapshot.ocKey(8, templateName),
+                new OcValueEvidence(level, value, 10, NOW.plusHours(8), true, 8, 2, 1));
+    }
+
+    private OcRefreshSafetyResult selectorResult(
+            OcRefreshVectorSearcher.OcVectorSearchOutcome outcome) {
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        return new OcRefreshSafetyResult(assessment, outcome.candidates(), false, 1L,
+                OcSearchTelemetry.empty(), List.of());
+    }
+
     private SafeCandidate candidate(OcRefreshVectorSearcher.OcVectorSearchOutcome outcome,
                                     int normal, int high) {
-        return outcome.candidates().stream()
-                .filter(candidate -> candidate.vector().equals(new OcRefreshVector(normal, high)))
-                .findFirst().orElseThrow(() -> new AssertionError("缺少候选 " + normal + "," + high));
+        Optional<SafeCandidate> found = outcome.candidates().stream()
+                .filter(item -> item.vector().equals(new OcRefreshVector(normal, high)))
+                .findFirst();
+        return found.orElseThrow(() ->
+                new AssertionError("缺少候选 " + normal + "," + high));
     }
 
     private boolean twoBeta(List<CandidateRoot> roots) {
@@ -175,16 +346,28 @@ class OcRefreshVectorEvaluatorTest {
                 OcTimelineEvent.EventType.COMPLETION_RELEASE, "stub"));
         return new SimulationResult(true, false, false, false,
                 new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
-                List.of(), events, Duration.ZERO, false,
+                List.of(), events, Duration.ZERO, false, false,
                 new OcTimelineValueSummary(null, 0, Duration.ZERO, Duration.ZERO,
                         true, completionAt, 8, 2, 1,
+                        OcValueEvidence.Level.OBSERVED_REWARD));
+    }
+
+    private SimulationResult profitResult(Duration existingDelay, int memberDays,
+                                          LocalDateTime completionAt) {
+        List<OcTimelineEvent> events = List.of(new OcTimelineEvent(completionAt,
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, "stub"));
+        return new SimulationResult(true, false, false, false,
+                new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
+                List.of(), events, Duration.ofHours(12), false, false,
+                new OcTimelineValueSummary(null, memberDays, Duration.ofHours(12),
+                        existingDelay, true, completionAt, 8, 2, 1,
                         OcValueEvidence.Level.OBSERVED_REWARD));
     }
 
     private SimulationResult infeasibleResult() {
         return new SimulationResult(false, false, false, false,
                 new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
-                List.of(), List.of(), Duration.ZERO, false,
+                List.of(), List.of(), Duration.ZERO, false, false,
                 new OcTimelineValueSummary(null, 0, Duration.ZERO, Duration.ZERO,
                         false, null, 0, 0, 1, OcValueEvidence.Level.INSUFFICIENT));
     }

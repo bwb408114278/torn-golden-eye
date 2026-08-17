@@ -29,7 +29,11 @@ import java.util.*;
 @Component
 @RequiredArgsConstructor
 public class OcRefreshInstructionPlanner {
-    private static final Duration SEARCH_TIMEOUT = Duration.ofSeconds(15);
+    /**
+     * 搜索墙钟超时。NOV/PN真实只读回放显示单次求解最坏约3.2秒且由确定性组合
+     * 预算先截断；5秒保留必要余量，仅作兜底，不作为常规截断手段。
+     */
+    private static final Duration SEARCH_TIMEOUT = Duration.ofSeconds(5);
     private static final int MAX_REFRESH_SEARCH_COUNT = 20;
 
     private final OcRefreshSafetyRequestFactory requestFactory;
@@ -89,7 +93,8 @@ public class OcRefreshInstructionPlanner {
                 context.configurationStatus(), OcProofStatusEnum.NOT_EVALUATED,
                 context.riskFlags(), false, context.reasonCodes(), List.of(), null,
                 context.request().planningTime());
-        return new OcRefreshSafetyResult(assessment, List.of(), false, 0, context.warnings());
+        return new OcRefreshSafetyResult(assessment, List.of(), false, 0,
+                OcSearchTelemetry.empty(), context.warnings());
     }
 
     /**
@@ -129,10 +134,10 @@ public class OcRefreshInstructionPlanner {
         }
         OcValueEvidence.Level evidenceLevel = selected.map(SafeCandidate::valueEvidenceLevel)
                 .orElse(OcValueEvidence.Level.INSUFFICIENT);
-        selected.filter(candidate -> candidate.vector().totalCount() > 0
-                        && candidate.valueEvidenceLevel() == OcValueEvidence.Level.INSUFFICIENT)
-                .ifPresent(ignored -> markEconomicEvidenceInsufficient(riskFlags,
-                        reasonCodes));
+        if (modeSelector.economicEvidenceInsufficient(safety.candidates(),
+                selected.orElse(null))) {
+            markEconomicEvidenceInsufficient(riskFlags, reasonCodes);
+        }
         List<String> warnings = collectWarnings(snapshot, context, safety);
         Duration selectedPauseDuration = selected.map(candidate ->
                 candidate.timelineValue() == null ? Duration.ZERO
@@ -144,7 +149,7 @@ public class OcRefreshInstructionPlanner {
                 assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
                 pauseAllowed, pauseSelected, pauseSelected ? selectedPauseDuration : null,
                 replanWindow, evidenceLevel, occupancySummary, warnings);
-        logShadow(plan);
+        logShadow(plan, safety);
         return plan;
     }
 
@@ -248,15 +253,20 @@ public class OcRefreshInstructionPlanner {
 
     /**
      * 输出匿名结构化Shadow日志，不记录成员、岗位、内部排程或奖励明细。
+     * 搜索遥测按一次规划汇总，不逐分支输出。
      *
-     * @param plan 已生成的刷新指令
+     * @param plan   已生成的刷新指令
+     * @param safety 时间线求解结果，提供耗时与搜索遥测
      */
-    private void logShadow(OcRefreshInstructionPlan plan) {
+    private void logShadow(OcRefreshInstructionPlan plan, OcRefreshSafetyResult safety) {
+        OcSearchTelemetry telemetry = safety.searchTelemetry();
         log.info("OC新队Shadow: factionId={}, mode={}, snapshotTime={}, configurationStatus={}, "
                         + "proofStatus={}, riskFlags={}, lowerBound={}, selectedVector=({},{}), "
                         + "nextCriticalReleaseAt={}, nextReplanAt={}, latestReplanAt={}, "
                         + "pauseAllowed={}, pauseSelected={}, pendingEmptyCount={}, "
-                        + "reasonCodes={}, warningCount={}",
+                        + "reasonCodes={}, warningCount={}, solveElapsedMillis={}, "
+                        + "combinationEvaluations={}, budgetTruncations={}, "
+                        + "alternativesCapHits={}",
                 plan.factionId(), plan.mode(), plan.snapshotTime(),
                 plan.configurationStatus(), plan.proofStatus(), plan.riskFlags(),
                 plan.lowerBound(), plan.normalRefreshCount(), plan.highRefreshCount(),
@@ -264,6 +274,8 @@ public class OcRefreshInstructionPlanner {
                 plan.replanWindow().latestReplanAt(), plan.pauseAllowed(),
                 plan.pauseSelected(), plan.plannedEmptyOcCounts().values().stream()
                         .mapToInt(Integer::intValue).sum(),
-                plan.reasonCodes(), plan.warnings().size());
+                plan.reasonCodes(), plan.warnings().size(), safety.elapsedMillis(),
+                telemetry.combinationEvaluations(), telemetry.budgetTruncations(),
+                telemetry.alternativesCapHits());
     }
 }

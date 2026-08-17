@@ -42,13 +42,19 @@ public interface OcVectorSearchPort {
     /**
      * 向量搜索的最小不可变结果契约。
      *
-     * @param candidates      已证明安全的候选集合
-     * @param timedOut        是否达到时间预算
-     * @param budgetExhausted 是否达到组合评估预算
+     * @param candidates             已证明安全的候选集合
+     * @param timedOut               是否达到时间预算
+     * @param budgetExhausted        是否达到组合评估预算
+     * @param combinationEvaluations 组合评估尝试次数
+     * @param budgetTruncations      搜索预算截断的模拟次数
+     * @param alternativesCapHits    替代候选上限命中的模拟次数
      */
     record OcVectorSearchOutcome(
             List<SafeCandidate> candidates,
             boolean timedOut,
-            boolean budgetExhausted) {
+            boolean budgetExhausted,
+            int combinationEvaluations,
+            int budgetTruncations,
+            int alternativesCapHits) {
     }
 }
