@@ -535,6 +535,51 @@ proofWindowEnd
 
 `OcFlowRosterMatcher` 中旧的“收益模式仅按差异工时系数降低边成本”不得作为全局收益选择依据；工时系数只可作为相同时间线、相同全局价值的成员—岗位/加入顺序决胜条件。
 
+#### 8.3.1 收益级停转的全局零停转替代基准
+
+收益级主动新增停转不是在向量枚举过程中，以“当前已经发现”的零停转候选即时判定。搜索实现必须拆为两个阶段：
+
+```text
+阶段一：在同一 snapshotTime、proofWindow、现实硬义务、计划内待启动义务和价值证据下，
+        完成搜索范围内的候选安全与时间线价值事实收集；不最终判定收益级资格。
+
+阶段二：先形成全部已证明安全的 ZERO_PAUSE 候选集合，再选择全局基准，
+        并使用同一基准重新判定全部 WITHIN_PROFIT 候选。
+```
+
+全局基准选择顺序固定：
+
+1. 优先取`normalCount + highCount > 0`的`ZERO_PAUSE`正向量中最优时间线价值摘要；
+2. 只有不存在任何已证明安全的零停转正向量时，才允许使用`(0,0)`零刷新向量作为保底；
+3. 零刷新保底不表示正奖励或更多刷新天然胜出，收益候选仍须满足完整价值严格改进门槛；
+4. 最终资格不得依赖向量、普通模板、高阶链或随机组合的枚举顺序。
+
+阶段二仅在零停转候选集合可公平比较时执行。搜索超时、组合预算耗尽、匹配替代上限命中、搜索边界无法证明完整、基准缺失、证据不足、既有义务延迟不可证明或保证释放不可比较时：
+
+```text
+保留已证明安全候选、lowerBound和匿名搜索遥测；
+所有 WITHIN_PROFIT 候选 fail-closed；
+不得因主动新增停转提高刷新建议。
+```
+
+实现边界：`search.OcRefreshVectorSearcher`负责阶段一编排、完整性判断和阶段二候选收敛；`search.OcRefreshVectorEvaluator`只生成向量与随机组合的安全/价值事实或提供最终重判协作；`evidence.OcEconomicValueComparator`继续提供固定价值排序和严格比较。不得为了形成基准重新模拟同一向量，也不得以扩大预算或改变快照规避fail-closed。
+
+#### 8.3.2 实际增量成员人天的成员级区间来源
+
+实际增量成员人天按成员真实占用区间累计，而不是按目标OC是否为既有OC整体排除：
+
+| 区间事实 | 区间来源 | 是否计入增量成员人天 |
+|---|---|---:|
+| 快照前已加入既有OC的固定成员 | `EXISTING_OC` | 否 |
+| 本次规划补入既有OC的成员 | `EXISTING_OC_NEW_ASSIGNMENT` | 是 |
+| 已启动链后继的新占用 | `COMMITTED_CHAIN` | 是 |
+| 计划内无人OC的新占用 | `PLANNED_EMPTY` | 是 |
+| 条件随机结果的新占用 | `RANDOM_CANDIDATE` | 是 |
+
+`timeline.OcTimelineBranchExpander`必须分别写入固定成员与本次新增安排的区间来源：当义务为`EXISTING_JOINED`时，固定成员使用`EXISTING_OC`，新增安排使用`EXISTING_OC_NEW_ASSIGNMENT`。`timeline.OcTimelineValueAccumulator`仅排除`EXISTING_OC`，其余来源均按`occupiedFrom`至`occupiedUntil`的实际分钟累计并按现有24小时向上折算规则计算。
+
+同一成员从快照既有OC释放后补入另一OC时，两个不重叠区间分别按来源处理：旧固定区间不重复计入，新补位区间必须计入。首尾相接不视为区间重叠的既有规则保持不变。
+
 ---
 
 ## 9. 配置校验与数据库变更
@@ -615,6 +660,26 @@ pauseCount/pauseDuration、pendingEmptyCount、reasonCodes、elapsedMillis
 ## 11. 具体文件清单
 
 > **历史清单说明（第二批第一轮修订）：** 本节原始“新增/修改文件”是第一次时间线重构前的实施清单，部分路径已在实际代码中拆分为`api / chain / evidence / matching / policy / search / snapshot / timeline`子包，且本轮新增的保证值、时间线净价值、只读回放组件不在旧清单中。旧清单仅用于追溯首次重构范围，不得作为当前开发任务清单；第二批第一轮的精确包、文件增删改和测试路径以`.ai/knowledge/oc-new-team-second-batch-first-round-remediation.md`第5至7节为准。
+
+### 11.0 第三批业务Review的现行精确改动清单
+
+第三批业务Review的两个未关闭P1，以一次性实施文档
+`.ai/knowledge/oc-new-team-third-batch-technical-remediation.md`为开发步骤、测试场景和验收依据；该文档关闭并删除前，本节是长期方案对其文件范围的持久化索引。除下列文件外，不得借本轮改动扩展到Schema、Mapper、DAO、Controller、Redis、调度、NapCat输出或成员级排程。
+
+| 类型 | 包 | 文件 | 修改职责 |
+|---|---|---|---|
+| 必改生产 | `planning.search` | `OcRefreshVectorSearcher.java` | 阶段一候选事实收集、基准完整性判断、阶段二全局零停转基准及收益候选收敛。 |
+| 必改生产 | `planning.search` | `OcRefreshVectorEvaluator.java` | 保留组合安全/最坏值归并；不再以局部搜索基准固定最终收益资格；支持阶段二统一重判。 |
+| 必改生产 | `planning.evidence` | `OcEconomicValueComparator.java` | 在完整候选集合中选择正向零停转基准、识别零刷新保底并复用严格价值比较。 |
+| 必改生产 | `model.faction.crime.planning` | `OcMemberInterval.java` | 增加`EXISTING_OC_NEW_ASSIGNMENT`，区分快照固定成员与本次既有OC补位成员。 |
+| 必改生产 | `planning.timeline` | `OcTimelineBranchExpander.java` | 为固定成员和新安排分别写入成员级区间来源。 |
+| 必改生产 | `planning.timeline` | `OcTimelineValueAccumulator.java` | 仅排除`EXISTING_OC`；新增补位与其他新增来源按真实区间累计。 |
+| 条件生产 | `model.faction.crime.planning` | `OcRefreshSafetyResult.java` | 只有不能通过阶段二重建既有`SafeCandidate`表达最终资格时才修改，优先保持公开record字段不变。 |
+| 必改测试 | `planning.search` | `OcRefreshVectorEvaluatorTest.java` | 验证完整基准、顺序无关、零刷新保底与截断fail-closed。 |
+| 必改测试 | `planning.timeline` | `OcTimelineValueAccumulatorTest.java` | 验证既有OC新增补位、固定成员排除、跨OC复用和其他来源回归。 |
+| 必要回归测试 | `planning.timeline` | `OcTimelinePlanningEngineTest.java` | 仅在需要从排程入口证明来源写入、`lowerBound`和收益模式不提升时修改。 |
+
+第三批测试必须直接断言真实候选、真实时间线摘要或真实模式选择结果；禁止用源码字符串断言替代业务行为，禁止为本轮引入完整Spring应用、外部组件或新的数据库集成测试。
 
 ### 11.1 新增生产文件
 
