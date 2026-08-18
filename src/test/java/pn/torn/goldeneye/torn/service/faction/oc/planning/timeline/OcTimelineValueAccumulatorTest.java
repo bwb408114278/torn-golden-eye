@@ -39,6 +39,18 @@ class OcTimelineValueAccumulatorTest {
     private final OcRefreshModeSelector selector = new OcRefreshModeSelector();
 
     @Test
+    @DisplayName("计划内无人OC过期事实必须正向写入可避免过期压力")
+    void shouldPreservePlannedEmptyExpiryPressure() {
+        OcTimelineValueSummary expired = accumulator.accumulate(newState(), true,
+                emptyRequest());
+        OcTimelineValueSummary safe = accumulator.accumulate(newState(), false,
+                emptyRequest());
+
+        assertTrue(expired.avoidableExpiryPressure());
+        assertFalse(safe.avoidableExpiryPressure());
+    }
+
+    @Test
     @DisplayName("收益级停转使既有C晚10小时完成时真实累积器必须产出10小时延迟")
     void shouldAccumulateTenHourExistingObligationDelay() {
         OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6), 2, 1);
@@ -84,7 +96,7 @@ class OcTimelineValueAccumulatorTest {
                         candidate(new OcRefreshVector(2, 0),
                                 SafeCandidate.PauseTier.WITHIN_PROFIT,
                                 withValue(profit, BigDecimal.valueOf(1000)),
-                                true)));
+                                false)));
 
         assertEquals(new OcRefreshVector(1, 0),
                 selector.select(safety, OcPlanMode.PROFIT),
@@ -126,7 +138,7 @@ class OcTimelineValueAccumulatorTest {
                         candidate(new OcRefreshVector(2, 0),
                                 SafeCandidate.PauseTier.WITHIN_PROFIT,
                                 withValue(profit, BigDecimal.valueOf(1000)),
-                                true)));
+                                false)));
 
         assertEquals(new OcRefreshVector(1, 0),
                 selector.select(safety, OcPlanMode.PROFIT),
@@ -156,7 +168,7 @@ class OcTimelineValueAccumulatorTest {
                         candidate(new OcRefreshVector(2, 0),
                                 SafeCandidate.PauseTier.WITHIN_PROFIT,
                                 withValue(summary, BigDecimal.valueOf(1000)),
-                                true)));
+                                false)));
         assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
                 "根与动态链后继均延迟10小时时收益级停转候选必须被拒绝");
     }
@@ -201,7 +213,7 @@ class OcTimelineValueAccumulatorTest {
                         candidate(new OcRefreshVector(2, 0),
                                 SafeCandidate.PauseTier.WITHIN_PROFIT,
                                 withValue(summary, BigDecimal.valueOf(1000)),
-                                true)));
+                                false)));
         assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
                 "根无延迟但链后继延迟时仍不得选择收益级停转候选");
     }
@@ -265,7 +277,7 @@ class OcTimelineValueAccumulatorTest {
                         candidate(new OcRefreshVector(2, 0),
                                 SafeCandidate.PauseTier.WITHIN_PROFIT,
                                 withValue(summary, BigDecimal.valueOf(1000)),
-                                true)));
+                                false)));
         assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
                 "链后继基准不可证明时收益级停转候选不得提高建议");
     }
@@ -525,6 +537,8 @@ class OcTimelineValueAccumulatorTest {
     private SimulationResult simulationResult(OcRefreshSafetyRequest request,
                                               LocalDateTime actualCompletion) {
         OcTimelineState state = new OcTimelineState(request);
+        state.occupy(99L, request.planningTime(), request.planningTime().plusHours(12),
+                OcMemberInterval.IntervalSource.RANDOM_CANDIDATE);
         state.addAnchor(new OcLiquidityAnchor("oc:1", actualCompletion, 2, false));
         state.addEvent(new OcTimelineEvent(actualCompletion,
                 OcTimelineEvent.EventType.COMPLETION_RELEASE, "oc:1"));
@@ -532,9 +546,12 @@ class OcTimelineValueAccumulatorTest {
     }
 
     private SimulationResult feasibleResult(OcTimelineValueSummary summary) {
+        List<OcTimelineEvent> events = summary.guaranteedReleaseAt() == null
+                ? List.of() : List.of(new OcTimelineEvent(summary.guaranteedReleaseAt(),
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, "stub"));
         return new SimulationResult(true, false, false, false,
                 new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
-                List.of(), List.of(), Duration.ZERO, false, false, summary);
+                List.of(), events, Duration.ZERO, false, false, summary);
     }
 
     private SimulationResult infeasibleResult() {

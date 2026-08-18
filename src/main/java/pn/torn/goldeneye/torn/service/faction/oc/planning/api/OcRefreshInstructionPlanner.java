@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshSafetySolver;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcCurrentOccupancyCalculator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcRefreshSafetyRequestFactory;
@@ -150,8 +150,31 @@ public class OcRefreshInstructionPlanner {
                 assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
                 pauseAllowed, pauseSelected, pauseSelected ? selectedPauseDuration : null,
                 replanWindow, evidenceLevel, occupancySummary, warnings);
-        logShadow(plan, safety, selected.orElse(null));
+        logShadow(plan, safety, selected.orElse(null), buildShadowFacts(safety));
         return plan;
+    }
+
+    /**
+     * 在主规划流程中一次构造Shadow所需的匿名事实，避免日志层重新执行业务选择规则。
+     *
+     * @param safety 时间线求解结果
+     * @return Shadow匿名事实
+     */
+    private ShadowFacts buildShadowFacts(OcRefreshSafetyResult safety) {
+        SafeCandidate baseline = new OcEconomicValueComparator()
+                .bestZeroPauseBaseline(safety.candidates());
+        int positiveCandidateCount = 0;
+        boolean positiveCandidateProven = false;
+        for (SafeCandidate candidate : safety.candidates()) {
+            if (candidate.vector().totalCount() <= 0) {
+                continue;
+            }
+            positiveCandidateCount++;
+            positiveCandidateProven |= isPositiveCandidateProven(candidate);
+        }
+        return new ShadowFacts(baseline, isComparableBaseline(baseline),
+                positiveCandidateCount, positiveCandidateProven,
+                positiveCandidateCount > 0 && !positiveCandidateProven);
     }
 
     /**
@@ -259,18 +282,12 @@ public class OcRefreshInstructionPlanner {
      * @param plan     已生成的刷新指令
      * @param safety   时间线求解结果，提供耗时与搜索遥测
      * @param selected 已选候选的匿名价值事实
+     * @param facts    主流程预先计算的匿名Shadow事实
      */
     private void logShadow(OcRefreshInstructionPlan plan, OcRefreshSafetyResult safety,
-                           SafeCandidate selected) {
+                           SafeCandidate selected, ShadowFacts facts) {
         OcSearchTelemetry telemetry = safety.searchTelemetry();
-        SafeCandidate baseline = new OcEconomicValueComparator()
-                .bestZeroPauseBaseline(safety.candidates());
-        int positiveCandidateCount = (int) safety.candidates().stream()
-                .filter(candidate -> candidate.vector().totalCount() > 0).count();
-        boolean positiveCandidateProven = safety.candidates().stream()
-                .filter(candidate -> candidate.vector().totalCount() > 0)
-                .anyMatch(this::isPositiveCandidateProven);
-        boolean failClosedOnly = positiveCandidateCount > 0 && !positiveCandidateProven;
+        SafeCandidate baseline = facts.baseline();
         log.info("OC新队Shadow: factionId={}, mode={}, snapshotTime={}, configurationStatus={}, "
                         + "proofStatus={}, riskFlags={}, lowerBound={}, selectedVector=({},{}), "
                         + "nextCriticalReleaseAt={}, nextReplanAt={}, latestReplanAt={}, "
@@ -294,22 +311,23 @@ public class OcRefreshInstructionPlanner {
                 plan.pauseSelected(), plan.plannedEmptyOcCounts().values().stream()
                         .mapToInt(Integer::intValue).sum(),
                 plan.reasonCodes(), plan.warnings().size(), safety.elapsedMillis(),
-                 telemetry.combinationEvaluations(), telemetry.budgetTruncations(),
-                 telemetry.alternativesCapHits(), selectedMemberDays(selected),
-                 selected == null ? null : selected.anchorCount(),
-                 selected == null ? null : selected.valueEvidenceLevel(),
-                 selected == null ? null : selected.guaranteedEarliestReleaseAt(),
-                 selected == null || selected.timelineValue() == null
-                         ? null : selected.timelineValue().avoidableExpiryPressure(),
-                 selected == null ? null : selected.pauseCandidateStrictlyBetterThanBaseline(),
-                 selectedMemberDays(baseline), baseline == null ? null : baseline.anchorCount(),
-                 baseline == null ? null : baseline.valueEvidenceLevel(),
-                 baseline == null ? null : baseline.guaranteedEarliestReleaseAt(),
-                 baseline == null || baseline.timelineValue() == null
-                         ? null : baseline.timelineValue().avoidableExpiryPressure(),
-                 isComparableBaseline(baseline),
-                 baseline == null ? null : baseline.vector().totalCount(), positiveCandidateCount,
-                 positiveCandidateProven, failClosedOnly);
+                telemetry.combinationEvaluations(), telemetry.budgetTruncations(),
+                telemetry.alternativesCapHits(), selectedMemberDays(selected),
+                selected == null ? null : selected.anchorCount(),
+                selected == null ? null : selected.valueEvidenceLevel(),
+                selected == null ? null : selected.guaranteedEarliestReleaseAt(),
+                selected == null || selected.timelineValue() == null
+                        ? null : selected.timelineValue().avoidableExpiryPressure(),
+                selected == null ? null : selected.pauseCandidateStrictlyBetterThanBaseline(),
+                selectedMemberDays(baseline), baseline == null ? null : baseline.anchorCount(),
+                baseline == null ? null : baseline.valueEvidenceLevel(),
+                baseline == null ? null : baseline.guaranteedEarliestReleaseAt(),
+                baseline == null || baseline.timelineValue() == null
+                        ? null : baseline.timelineValue().avoidableExpiryPressure(),
+                facts.baselineComparable(),
+                baseline == null ? null : baseline.vector().totalCount(),
+                facts.positiveCandidateCount(), facts.positiveCandidateProven(),
+                facts.failClosedOnly());
     }
 
     private Integer selectedMemberDays(SafeCandidate candidate) {
@@ -329,5 +347,19 @@ public class OcRefreshInstructionPlanner {
                 && baseline.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
                 && !baseline.timelineValue().hasUnprovableExistingObligationDelay()
                 && baseline.timelineValue().guaranteedReleaseAt() != null;
+    }
+
+    /**
+     * Shadow日志使用的匿名主流程事实，不包含成员或岗位明细。
+     *
+     * @param baseline                已选择的零停转基准
+     * @param baselineComparable      基准是否可比较
+     * @param positiveCandidateCount  正向候选数量
+     * @param positiveCandidateProven 是否证明正向候选
+     * @param failClosedOnly          是否仅证明fail-closed路径
+     */
+    private record ShadowFacts(SafeCandidate baseline, boolean baselineComparable,
+                               int positiveCandidateCount, boolean positiveCandidateProven,
+                               boolean failClosedOnly) {
     }
 }

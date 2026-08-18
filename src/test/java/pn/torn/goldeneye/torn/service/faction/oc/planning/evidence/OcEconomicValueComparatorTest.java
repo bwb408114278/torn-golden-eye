@@ -249,6 +249,62 @@ class OcEconomicValueComparatorTest {
     }
 
     @Test
+    @DisplayName("同价值零停转基准应优先选择锚点更多者且不受输入顺序影响")
+    void shouldPreferMoreAnchorsForEqualValueBaselineRegardlessOfOrder() {
+        SafeCandidate fewerAnchors = candidate(new OcRefreshVector(1, 0),
+                summary(BigDecimal.valueOf(300), 10, false, NOW), 1,
+                SafeCandidate.PauseTier.ZERO_PAUSE);
+        SafeCandidate moreAnchors = candidate(new OcRefreshVector(0, 1),
+                summary(BigDecimal.valueOf(300), 10, false, NOW), 3,
+                SafeCandidate.PauseTier.ZERO_PAUSE);
+
+        assertEquals(moreAnchors,
+                comparator.bestZeroPauseBaseline(List.of(fewerAnchors, moreAnchors)));
+        assertEquals(moreAnchors,
+                comparator.bestZeroPauseBaseline(List.of(moreAnchors, fewerAnchors)));
+    }
+
+    @Test
+    @DisplayName("同价值同锚点基准应按刷新向量稳定决胜")
+    void shouldUseStableVectorTieBreakForEqualValueAndAnchors() {
+        SafeCandidate normalFirst = candidate(new OcRefreshVector(1, 0),
+                summary(BigDecimal.valueOf(300), 10, false, NOW), 2,
+                SafeCandidate.PauseTier.ZERO_PAUSE);
+        SafeCandidate highOnly = candidate(new OcRefreshVector(0, 1),
+                summary(BigDecimal.valueOf(300), 10, false, NOW), 2,
+                SafeCandidate.PauseTier.ZERO_PAUSE);
+
+        assertEquals(normalFirst,
+                comparator.bestZeroPauseBaseline(List.of(highOnly, normalFirst)));
+        assertEquals(normalFirst,
+                comparator.bestZeroPauseBaseline(List.of(normalFirst, highOnly)));
+    }
+
+    @Test
+    @DisplayName("收益候选锚点介于同价值基准时必须按最强基准稳定拒绝")
+    void shouldUseStrongestEqualValueBaselineForAnchorGate() {
+        OcTimelineValueSummary baselineSummary = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        SafeCandidate weakBaseline = candidate(new OcRefreshVector(1, 0), baselineSummary,
+                1, SafeCandidate.PauseTier.ZERO_PAUSE);
+        SafeCandidate strongBaseline = candidate(new OcRefreshVector(0, 1), baselineSummary,
+                3, SafeCandidate.PauseTier.ZERO_PAUSE);
+        SafeCandidate profit = candidate(new OcRefreshVector(2, 0),
+                summary(BigDecimal.valueOf(500), 10, false, NOW), 2,
+                SafeCandidate.PauseTier.WITHIN_PROFIT);
+
+        SafeCandidate firstOrderBaseline = comparator.bestZeroPauseBaseline(
+                List.of(weakBaseline, strongBaseline));
+        SafeCandidate secondOrderBaseline = comparator.bestZeroPauseBaseline(
+                List.of(strongBaseline, weakBaseline));
+
+        assertFalse(comparator.isStrictlyBetterThanZeroPauseBaseline(profit,
+                firstOrderBaseline));
+        assertFalse(comparator.isStrictlyBetterThanZeroPauseBaseline(profit,
+                secondOrderBaseline));
+    }
+
+    @Test
     @DisplayName("无零停转候选时基准应为空")
     void shouldReturnNoBaselineWhenZeroPauseCandidateIsAbsent() {
         SafeCandidate candidate = safeCandidate(summary(BigDecimal.valueOf(200), 10,
@@ -272,7 +328,12 @@ class OcEconomicValueComparatorTest {
 
     private SafeCandidate safeCandidate(OcTimelineValueSummary summary, int anchorCount,
                                         SafeCandidate.PauseTier pauseTier) {
-        return new SafeCandidate(new OcRefreshVector(1, 0), pauseTier, summary, anchorCount,
+        return candidate(new OcRefreshVector(1, 0), summary, anchorCount, pauseTier);
+    }
+
+    private SafeCandidate candidate(OcRefreshVector vector, OcTimelineValueSummary summary,
+                                    int anchorCount, SafeCandidate.PauseTier pauseTier) {
+        return new SafeCandidate(vector, pauseTier, summary, anchorCount,
                 summary.evidenceLevel(), true, true);
     }
 }

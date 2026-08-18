@@ -156,12 +156,35 @@ public class OcEconomicValueComparator {
                     || positiveOnly != (candidate.vector().totalCount() > 0)) {
                 continue;
             }
-            if (best == null || compareTimelineValue(candidate.timelineValue(),
-                    best.timelineValue()) < 0) {
+            if (best == null || compareBaselineCandidate(candidate, best) < 0) {
                 best = candidate;
             }
         }
         return best;
+    }
+
+    /**
+     * 比较零停转基准候选，补充候选级锚点和刷新向量稳定决胜。
+     *
+     * @param left  左候选
+     * @param right 右候选
+     * @return 左候选更优时返回负数
+     */
+    private int compareBaselineCandidate(SafeCandidate left, SafeCandidate right) {
+        int valueResult = compareTimelineValue(left.timelineValue(), right.timelineValue());
+        if (valueResult != 0) {
+            return valueResult;
+        }
+        int anchorResult = Integer.compare(right.anchorCount(), left.anchorCount());
+        if (anchorResult != 0) {
+            return anchorResult;
+        }
+        int normalResult = Integer.compare(right.vector().normalCount(),
+                left.vector().normalCount());
+        if (normalResult != 0) {
+            return normalResult;
+        }
+        return Integer.compare(right.vector().highCount(), left.vector().highCount());
     }
 
     private boolean hasSufficientEvidence(SafeCandidate candidate, SafeCandidate baseline) {

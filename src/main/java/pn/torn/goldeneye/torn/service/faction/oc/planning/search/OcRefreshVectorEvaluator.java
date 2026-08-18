@@ -603,7 +603,7 @@ class OcRefreshVectorEvaluator {
         private int worstMemberDays = 0;
         private Duration worstActualNewPause = Duration.ZERO;
         private Duration worstExistingDelay = Duration.ZERO;
-        private boolean anyAvoidableExpiry = true;
+        private boolean anyAvoidableExpiry;
         private LocalDateTime latestEarliestRelease = null;
         private boolean anyReleaseMissing = false;
         private int minAnchorCount = Integer.MAX_VALUE;
@@ -614,7 +614,7 @@ class OcRefreshVectorEvaluator {
 
         /**
          * 归并单个组合的时间线价值摘要：金额取最小，人天、停转和延迟取最大，
-         * 可避免过期取逻辑与，先验字段取最强边界。
+         * 可避免过期取逻辑或，先验字段取最强边界。
          *
          * @param summary 单个组合的时间线价值摘要
          */
@@ -635,7 +635,7 @@ class OcRefreshVectorEvaluator {
             if (summary.existingObligationDelay().compareTo(worstExistingDelay) > 0) {
                 worstExistingDelay = summary.existingObligationDelay();
             }
-            anyAvoidableExpiry &= summary.avoidableExpiryPressure();
+            anyAvoidableExpiry |= summary.avoidableExpiryPressure();
             highestRank = Math.max(highestRank, summary.highestRank());
             totalMembers = Math.max(totalMembers, summary.totalRequiredMembers());
             nodeCount = Math.max(nodeCount, summary.chainNodeCount());

@@ -37,7 +37,7 @@ public final class OcTimelineValueAccumulator {
                 actualIncrementalMemberDays(state),
                 maxNewPause(state),
                 existingObligationDelay(state, request),
-                !plannedEmptyExpired,
+                plannedEmptyExpired,
                 earliestCompletionRelease(state.events()),
                 0, 0, 1, OcValueEvidence.Level.INSUFFICIENT);
     }

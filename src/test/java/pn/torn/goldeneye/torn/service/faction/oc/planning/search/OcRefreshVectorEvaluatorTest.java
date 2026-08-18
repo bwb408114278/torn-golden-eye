@@ -288,6 +288,23 @@ class OcRefreshVectorEvaluatorTest {
                 "任一组合无释放事件时保证释放必须为null");
     }
 
+    @Test
+    @DisplayName("混合随机组合存在过期压力时聚合结果必须保留该风险")
+    void shouldKeepExpiryPressureWhenAnyCombinationHasIt() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    if (mixed(roots)) {
+                        return feasibleResult(NOW.plusHours(2), true);
+                    }
+                    return feasibleResult(NOW.plusHours(1), false);
+                });
+
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search();
+
+        assertTrue(candidate(outcome, 2, 0).timelineValue().avoidableExpiryPressure());
+    }
+
     private void stubTwoBetaProfitOnly() {
         when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
                 .thenAnswer(invocation -> {
@@ -405,6 +422,11 @@ class OcRefreshVectorEvaluatorTest {
     }
 
     private SimulationResult feasibleResult(LocalDateTime completionAt) {
+        return feasibleResult(completionAt, false);
+    }
+
+    private SimulationResult feasibleResult(LocalDateTime completionAt,
+                                            boolean avoidableExpiryPressure) {
         List<OcTimelineEvent> events = completionAt == null ? List.of()
                 : List.of(new OcTimelineEvent(completionAt,
                 OcTimelineEvent.EventType.COMPLETION_RELEASE, "stub"));
@@ -412,7 +434,7 @@ class OcRefreshVectorEvaluatorTest {
                 new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
                 List.of(), events, Duration.ZERO, false, false,
                 new OcTimelineValueSummary(null, 10, Duration.ZERO, Duration.ZERO,
-                        true, completionAt, 8, 2, 1,
+                        avoidableExpiryPressure, completionAt, 8, 2, 1,
                         OcValueEvidence.Level.OBSERVED_REWARD));
     }
 
