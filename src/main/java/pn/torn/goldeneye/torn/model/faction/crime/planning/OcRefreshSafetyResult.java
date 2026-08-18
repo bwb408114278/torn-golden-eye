@@ -6,12 +6,14 @@ import java.util.List;
  * 有限事件时间线求解结果。持有整体安全评估、模式无关的已证明安全候选向量、
  * 求解耗时与匿名搜索遥测。
  *
- * @param assessment      时间线安全评估
- * @param candidates      已证明安全且已评分的候选向量，模式无关
- * @param lowerBound      建议是否仅为已证明刷新向量下界
- * @param elapsedMillis   求解耗时毫秒数
- * @param searchTelemetry 匿名搜索遥测，只含规模与预算命中计数
- * @param warnings        求解警告
+ * @param assessment         时间线安全评估
+ * @param candidates         已证明安全且已评分的候选向量，模式无关
+ * @param lowerBound         建议是否仅为已证明刷新向量下界
+ * @param elapsedMillis      求解耗时毫秒数
+ * @param searchTelemetry    匿名搜索遥测，只含规模与预算命中计数
+ * @param warnings           求解警告
+ * @param zeroPauseBaseline  阶段二确定的全局零停转基准候选
+ * @param baselineComparable 全局零停转基准是否具备收益比较条件
  * @author Bai
  * @version 1.3.0
  * @since 2026.08.15
@@ -22,7 +24,29 @@ public record OcRefreshSafetyResult(
         boolean lowerBound,
         long elapsedMillis,
         OcSearchTelemetry searchTelemetry,
-        List<String> warnings) {
+        List<String> warnings,
+        SafeCandidate zeroPauseBaseline,
+        boolean baselineComparable) {
+    /**
+     * 兼容不携带基准证据的旧结果构造路径；缺失基准时收益模式必须fail-closed。
+     *
+     * @param assessment      时间线安全评估
+     * @param candidates      已证明安全的候选集合
+     * @param lowerBound      是否仅为已证明刷新向量下界
+     * @param elapsedMillis   求解耗时毫秒数
+     * @param searchTelemetry 匿名搜索遥测
+     * @param warnings        求解警告
+     */
+    public OcRefreshSafetyResult(OcTimelineSafetyAssessment assessment,
+                                 List<SafeCandidate> candidates,
+                                 boolean lowerBound,
+                                 long elapsedMillis,
+                                 OcSearchTelemetry searchTelemetry,
+                                 List<String> warnings) {
+        this(assessment, candidates, lowerBound, elapsedMillis, searchTelemetry, warnings,
+                null, false);
+    }
+
     public OcRefreshSafetyResult {
         candidates = candidates == null ? List.of() : List.copyOf(candidates);
         searchTelemetry = searchTelemetry == null

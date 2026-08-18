@@ -51,11 +51,10 @@ public class OcRefreshModeSelector {
             return Optional.empty();
         }
         List<SafeCandidate> candidates = safety.candidates();
-        SafeCandidate zeroPauseBaseline = valueComparator
-                .bestZeroPauseBaseline(candidates);
+        SafeCandidate zeroPauseBaseline = safety.zeroPauseBaseline();
         List<SafeCandidate> eligible = candidates.stream()
                 .filter(candidate -> withinPausePolicy(candidate, mode, candidates,
-                        zeroPauseBaseline)).toList();
+                        zeroPauseBaseline, safety.baselineComparable())).toList();
         return eligible.stream().max(comparator(mode));
     }
 
@@ -77,19 +76,22 @@ public class OcRefreshModeSelector {
      * <p>保守和均衡按停转层级放宽；收益模式的正向量必须具备可用的完整价值证据，
      * 金额证据不足的候选仅用于匿名说明，不得提高刷新建议。</p>
      *
-     * @param candidate         安全候选
-     * @param mode              刷新策略模式
-     * @param candidates        本次求解的完整安全候选集合
-     * @param zeroPauseBaseline 候选集合中的最优零停转替代候选；不存在时为null
+     * @param candidate          安全候选
+     * @param mode               刷新策略模式
+     * @param candidates         本次求解的完整安全候选集合
+     * @param zeroPauseBaseline  候选集合中的最优零停转替代候选；不存在时为null
+     * @param baselineComparable 全局零停转基准是否具备收益比较条件
      * @return 满足政策时返回true
      */
     private boolean withinPausePolicy(SafeCandidate candidate, OcPlanMode mode,
                                       List<SafeCandidate> candidates,
-                                      SafeCandidate zeroPauseBaseline) {
+                                      SafeCandidate zeroPauseBaseline,
+                                      boolean baselineComparable) {
         return switch (mode) {
             case CONSERVATIVE -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE;
             case BALANCED -> candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT;
-            case PROFIT -> withinProfitPolicy(candidate, candidates, zeroPauseBaseline);
+            case PROFIT -> withinProfitPolicy(candidate, candidates, zeroPauseBaseline,
+                    baselineComparable);
         };
     }
 
@@ -102,21 +104,50 @@ public class OcRefreshModeSelector {
      * 不可比较时fail-closed。零停转或均衡级停转候选在PRIOR_ONLY先验
      * 可区分时也允许参与收益模式选点。</p>
      *
-     * @param candidate         安全候选
-     * @param candidates        本次求解的完整安全候选集合
-     * @param zeroPauseBaseline 候选集合中的最优零停转替代候选；不存在时为null
+     * @param candidate          安全候选
+     * @param candidates         本次求解的完整安全候选集合
+     * @param zeroPauseBaseline  候选集合中的最优零停转替代候选；不存在时为null
+     * @param baselineComparable 全局零停转基准是否具备收益比较条件
      * @return 满足收益模式前提时返回true
      */
     private boolean withinProfitPolicy(SafeCandidate candidate, List<SafeCandidate> candidates,
-                                       SafeCandidate zeroPauseBaseline) {
+                                       SafeCandidate zeroPauseBaseline,
+                                       boolean baselineComparable) {
         if (candidate.vector().totalCount() == 0) {
             return true;
         }
-        if (!hasUsableEvidenceLevel(candidate) || candidate.timelineValue() == null) {
+        if (!hasCompleteValueEvidence(candidate)) {
             return false;
         }
         if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_PROFIT) {
-            return zeroPauseBaseline != null
+            return baselineComparable && zeroPauseBaseline != null
+                    && hasCompleteValueEvidence(zeroPauseBaseline)
+                    && candidate.zeroPauseBaselineComparable()
+                    && candidate.pauseCandidateStrictlyBetterThanBaseline();
+        }
+        return hasComparableEvidence(candidate, candidates);
+    }
+
+    /**
+     * 判断正向候选是否具备收益模式可用的完整证据。
+     *
+     * @param candidate          待判断的正向候选
+     * @param candidates         当前求解结果中的全部候选
+     * @param zeroPauseBaseline  阶段二确定的全局零停转基准
+     * @param baselineComparable 全局零停转基准是否具备收益比较条件
+     * @return 证据完整且满足当前候选停转层级的收益资格时返回true
+     */
+    public boolean isPositiveCandidateProven(SafeCandidate candidate,
+                                             List<SafeCandidate> candidates,
+                                             SafeCandidate zeroPauseBaseline,
+                                             boolean baselineComparable) {
+        if (candidate == null || candidate.vector().totalCount() <= 0
+                || !hasCompleteValueEvidence(candidate)) {
+            return false;
+        }
+        if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_PROFIT) {
+            return baselineComparable && zeroPauseBaseline != null
+                    && hasCompleteValueEvidence(zeroPauseBaseline)
                     && candidate.zeroPauseBaselineComparable()
                     && candidate.pauseCandidateStrictlyBetterThanBaseline();
         }
@@ -166,6 +197,12 @@ public class OcRefreshModeSelector {
      */
     private boolean hasUsableEvidenceLevel(SafeCandidate candidate) {
         return candidate.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT;
+    }
+
+    private boolean hasCompleteValueEvidence(SafeCandidate candidate) {
+        return candidate != null && hasUsableEvidenceLevel(candidate)
+                && candidate.timelineValue() != null
+                && candidate.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT;
     }
 
     /**

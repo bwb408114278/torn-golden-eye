@@ -85,12 +85,15 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         for (int total = 0; total <= maxSearch * 2 && !timedOut; total++) {
             timedOut = searchTotal(run, total, output);
         }
+        OcRefreshSafetyResult.SafeCandidate baseline =
+                VALUE_COMPARATOR.bestZeroPauseBaseline(output.safe());
         boolean comparisonComplete = isProfitComparisonComplete(output.safe(), timedOut,
-                budget.exhausted(), metrics);
+                budget.exhausted(), metrics, baseline);
         List<OcRefreshSafetyResult.SafeCandidate> finalized = finalizeCandidates(output.safe(),
-                comparisonComplete);
+                comparisonComplete, baseline);
         return new OcVectorSearchOutcome(finalized, timedOut, budget.exhausted(),
-                budget.consumed(), metrics.budgetTruncations(), metrics.alternativesCapHits());
+                budget.consumed(), metrics.budgetTruncations(), metrics.alternativesCapHits(),
+                baseline, comparisonComplete);
     }
 
     /**
@@ -171,12 +174,13 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
             List<OcRefreshSafetyResult.SafeCandidate> candidates,
             boolean timedOut,
             boolean budgetExhausted,
-            SearchMetrics metrics) {
+            SearchMetrics metrics,
+            OcRefreshSafetyResult.SafeCandidate baseline) {
         return !timedOut && !budgetExhausted
                 && metrics.budgetTruncations() == 0
                 && metrics.alternativesCapHits() == 0
                 && !touchesSearchLimit(candidates)
-                && isComparableBaseline(VALUE_COMPARATOR.bestZeroPauseBaseline(candidates));
+                && isComparableBaseline(baseline);
     }
 
     private boolean isComparableBaseline(OcRefreshSafetyResult.SafeCandidate baseline) {
@@ -197,9 +201,8 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      */
     private List<OcRefreshSafetyResult.SafeCandidate> finalizeCandidates(
             List<OcRefreshSafetyResult.SafeCandidate> candidates,
-            boolean comparisonComplete) {
-        OcRefreshSafetyResult.SafeCandidate baseline = comparisonComplete
-                ? VALUE_COMPARATOR.bestZeroPauseBaseline(candidates) : null;
+            boolean comparisonComplete,
+            OcRefreshSafetyResult.SafeCandidate baseline) {
         return candidates.stream()
                 .map(candidate -> finalizeCandidate(candidate, baseline, comparisonComplete))
                 .toList();

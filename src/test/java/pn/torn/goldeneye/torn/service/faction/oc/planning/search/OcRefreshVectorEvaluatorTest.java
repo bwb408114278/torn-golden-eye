@@ -49,6 +49,8 @@ class OcRefreshVectorEvaluatorTest {
         OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search();
 
         SafeCandidate vectorTwoZero = candidate(outcome, 2, 0);
+        assertNotNull(outcome.zeroPauseBaseline());
+        assertEquals(new OcRefreshVector(1, 0), outcome.zeroPauseBaseline().vector());
         assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, vectorTwoZero.pauseTier(),
                 "后续零停转组合不得降低已看到的收益级层级");
         assertTrue(vectorTwoZero.zeroPauseBaselineComparable(),
@@ -394,7 +396,8 @@ class OcRefreshVectorEvaluatorTest {
                 OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
                 false, Set.of(), List.of(), null, null);
         return new OcRefreshSafetyResult(assessment, outcome.candidates(), false, 1L,
-                OcSearchTelemetry.empty(), List.of());
+                OcSearchTelemetry.empty(), List.of(), outcome.zeroPauseBaseline(),
+                outcome.baselineComparable());
     }
 
     private SafeCandidate candidate(OcRefreshVectorSearcher.OcVectorSearchOutcome outcome,

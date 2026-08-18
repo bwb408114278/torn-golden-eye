@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorSearcher;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler.CandidateRoot;
@@ -371,8 +372,18 @@ class OcTimelineValueAccumulatorTest {
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
                 OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
                 false, Set.of(), List.of(), null, null);
+        SafeCandidate baseline = new OcEconomicValueComparator().bestZeroPauseBaseline(candidates);
         return new OcRefreshSafetyResult(assessment, candidates, false, 1L,
-                OcSearchTelemetry.empty(), List.of());
+                OcSearchTelemetry.empty(), List.of(), baseline, baseline != null);
+    }
+
+    private OcRefreshSafetyResult safety(OcRefreshVectorSearcher.OcVectorSearchOutcome outcome) {
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        return new OcRefreshSafetyResult(assessment, outcome.candidates(), false, 1L,
+                OcSearchTelemetry.empty(), List.of(), outcome.zeroPauseBaseline(),
+                outcome.baselineComparable());
     }
 
     @Test
@@ -386,7 +397,7 @@ class OcTimelineValueAccumulatorTest {
         assertFalse(profit.pauseCandidateStrictlyBetterThanBaseline(),
                 "真实延迟10小时进入组合评估后不得标记为严格优于零停转基准");
         assertEquals(new OcRefreshVector(0, 0),
-                selector.select(safety(outcome.candidates()), OcPlanMode.PROFIT));
+                selector.select(safety(outcome), OcPlanMode.PROFIT));
     }
 
     @Test
@@ -400,7 +411,7 @@ class OcTimelineValueAccumulatorTest {
         assertTrue(profit.pauseCandidateStrictlyBetterThanBaseline(),
                 "真实零延迟且价值更优时组合评估必须标记严格更优");
         assertEquals(new OcRefreshVector(1, 0),
-                selector.select(safety(outcome.candidates()), OcPlanMode.PROFIT));
+                selector.select(safety(outcome), OcPlanMode.PROFIT));
     }
 
     @Test
@@ -414,7 +425,7 @@ class OcTimelineValueAccumulatorTest {
         assertFalse(profit.pauseCandidateStrictlyBetterThanBaseline(),
                 "基准不可证明时组合评估不得标记严格更优");
         assertEquals(new OcRefreshVector(0, 0),
-                selector.select(safety(outcome.candidates()), OcPlanMode.PROFIT));
+                selector.select(safety(outcome), OcPlanMode.PROFIT));
     }
 
     @Test

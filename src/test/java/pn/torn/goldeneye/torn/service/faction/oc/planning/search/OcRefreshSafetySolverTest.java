@@ -54,6 +54,8 @@ class OcRefreshSafetySolverTest {
 
         assertFalse(result.assessment().riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK));
         assertTrue(isSafe(result, 1, 0), result.toString());
+        assertNotNull(result.zeroPauseBaseline());
+        assertTrue(result.baselineComparable());
     }
 
     @Test

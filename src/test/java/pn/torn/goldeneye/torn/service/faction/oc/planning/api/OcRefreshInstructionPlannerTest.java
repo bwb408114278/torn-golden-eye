@@ -7,6 +7,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcPlanProfileDO;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.chain.OcChainPlanningService;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.chain.OcExistingTimelineReconstructor;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcRewardEvidenceCalculator;
@@ -174,6 +175,29 @@ class OcRefreshInstructionPlannerTest {
         assertEquals(0, plan.normalRefreshCount());
         assertEquals(0, plan.highRefreshCount());
         assertEquals(OcConfigurationStatusEnum.INVALID, plan.configurationStatus());
+    }
+
+    @Test
+    @DisplayName("证据不足的正向候选不得被Shadow标记为已证明")
+    void shouldMarkShadowFailClosedWhenPositiveCandidateEvidenceIsInsufficient() {
+        SafeCandidate candidate = new SafeCandidate(new OcRefreshVector(1, 0),
+                SafeCandidate.PauseTier.ZERO_PAUSE,
+                new OcTimelineValueSummary(null, 10, java.time.Duration.ZERO,
+                        java.time.Duration.ZERO, false, NOW.plusHours(2), 8, 2, 1,
+                        OcValueEvidence.Level.INSUFFICIENT),
+                1, OcValueEvidence.Level.INSUFFICIENT, false, false);
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        OcRefreshSafetyResult safety = new OcRefreshSafetyResult(assessment,
+                List.of(candidate), false, 1L, OcSearchTelemetry.empty(), List.of(),
+                null, false);
+
+        OcRefreshInstructionPlanner.ShadowFacts facts = planner().buildShadowFacts(safety);
+
+        assertEquals(1, facts.positiveCandidateCount());
+        assertFalse(facts.positiveCandidateProven());
+        assertTrue(facts.failClosedOnly());
     }
 
     private TornSettingOcPlanProfileDO profile(String name, int rank, String pool) {

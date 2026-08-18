@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
-import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshSafetySolver;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcCurrentOccupancyCalculator;
@@ -160,9 +159,8 @@ public class OcRefreshInstructionPlanner {
      * @param safety 时间线求解结果
      * @return Shadow匿名事实
      */
-    private ShadowFacts buildShadowFacts(OcRefreshSafetyResult safety) {
-        SafeCandidate baseline = new OcEconomicValueComparator()
-                .bestZeroPauseBaseline(safety.candidates());
+    ShadowFacts buildShadowFacts(OcRefreshSafetyResult safety) {
+        SafeCandidate baseline = safety.zeroPauseBaseline();
         int positiveCandidateCount = 0;
         boolean positiveCandidateProven = false;
         for (SafeCandidate candidate : safety.candidates()) {
@@ -170,9 +168,10 @@ public class OcRefreshInstructionPlanner {
                 continue;
             }
             positiveCandidateCount++;
-            positiveCandidateProven |= isPositiveCandidateProven(candidate);
+            positiveCandidateProven |= modeSelector.isPositiveCandidateProven(candidate,
+                    safety.candidates(), baseline, safety.baselineComparable());
         }
-        return new ShadowFacts(baseline, isComparableBaseline(baseline),
+        return new ShadowFacts(baseline, safety.baselineComparable(),
                 positiveCandidateCount, positiveCandidateProven,
                 positiveCandidateCount > 0 && !positiveCandidateProven);
     }
@@ -335,20 +334,6 @@ public class OcRefreshInstructionPlanner {
                 ? null : candidate.timelineValue().actualIncrementalMemberDays();
     }
 
-    private boolean isPositiveCandidateProven(SafeCandidate candidate) {
-        return candidate.zeroPauseBaselineComparable()
-                && (candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT
-                || candidate.pauseCandidateStrictlyBetterThanBaseline());
-    }
-
-    private boolean isComparableBaseline(SafeCandidate baseline) {
-        return baseline != null && baseline.timelineValue() != null
-                && baseline.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
-                && baseline.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
-                && !baseline.timelineValue().hasUnprovableExistingObligationDelay()
-                && baseline.timelineValue().guaranteedReleaseAt() != null;
-    }
-
     /**
      * Shadow日志使用的匿名主流程事实，不包含成员或岗位明细。
      *
@@ -358,8 +343,11 @@ public class OcRefreshInstructionPlanner {
      * @param positiveCandidateProven 是否证明正向候选
      * @param failClosedOnly          是否仅证明fail-closed路径
      */
-    private record ShadowFacts(SafeCandidate baseline, boolean baselineComparable,
-                               int positiveCandidateCount, boolean positiveCandidateProven,
-                               boolean failClosedOnly) {
+    record ShadowFacts(
+            SafeCandidate baseline,
+            boolean baselineComparable,
+            int positiveCandidateCount,
+            boolean positiveCandidateProven,
+            boolean failClosedOnly) {
     }
 }

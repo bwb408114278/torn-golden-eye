@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -244,8 +245,9 @@ class OcRefreshModeSelectorTest {
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
                 OcConfigurationStatusEnum.VALID, proofStatus, riskFlags, false, Set.of(),
                 List.of(), null, null);
+        SafeCandidate baseline = new OcEconomicValueComparator().bestZeroPauseBaseline(candidates);
         return new OcRefreshSafetyResult(assessment, candidates, false, 1L,
-                OcSearchTelemetry.empty(), List.of());
+                OcSearchTelemetry.empty(), List.of(), baseline, baseline != null);
     }
 
     private SafeCandidate candidate(OcRefreshVector vector,

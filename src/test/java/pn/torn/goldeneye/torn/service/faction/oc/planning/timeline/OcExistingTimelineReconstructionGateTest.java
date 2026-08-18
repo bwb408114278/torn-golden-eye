@@ -237,7 +237,8 @@ class OcExistingTimelineReconstructionGateTest {
                 OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
                 false, Set.of(), List.of(), null, null);
         return new OcRefreshSafetyResult(assessment, outcome.candidates(), false, 1L,
-                OcSearchTelemetry.empty(), List.of());
+                OcSearchTelemetry.empty(), List.of(), outcome.zeroPauseBaseline(),
+                outcome.baselineComparable());
     }
 
     private OcRefreshSafetyResult safetyWith(List<SafeCandidate> candidates) {

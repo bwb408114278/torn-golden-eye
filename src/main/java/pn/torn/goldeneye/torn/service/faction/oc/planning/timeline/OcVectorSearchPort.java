@@ -48,6 +48,8 @@ public interface OcVectorSearchPort {
      * @param combinationEvaluations 组合评估尝试次数
      * @param budgetTruncations      搜索预算截断的模拟次数
      * @param alternativesCapHits    替代候选上限命中的模拟次数
+     * @param zeroPauseBaseline      阶段二确定的全局零停转基准候选
+     * @param baselineComparable     全局零停转基准是否具备收益比较条件
      */
     record OcVectorSearchOutcome(
             List<SafeCandidate> candidates,
@@ -55,6 +57,8 @@ public interface OcVectorSearchPort {
             boolean budgetExhausted,
             int combinationEvaluations,
             int budgetTruncations,
-            int alternativesCapHits) {
+            int alternativesCapHits,
+            SafeCandidate zeroPauseBaseline,
+            boolean baselineComparable) {
     }
 }

@@ -106,7 +106,8 @@ public class OcTimelinePlanningEngine {
                 outcome.budgetTruncations() + (baseline.searchBudgetExhausted() ? 1 : 0),
                 outcome.alternativesCapHits());
         return new OcRefreshSafetyResult(assessment, outcome.candidates(), lowerBound,
-                elapsedMillis, telemetry, inputs.warnings());
+                elapsedMillis, telemetry, inputs.warnings(), outcome.zeroPauseBaseline(),
+                outcome.baselineComparable());
     }
 
     /**
