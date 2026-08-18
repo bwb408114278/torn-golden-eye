@@ -1,9 +1,6 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.search;
 
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyRequest;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorEvaluator.EvaluationRun;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorEvaluator.SearchMetrics;
@@ -22,8 +19,8 @@ import java.util.Map;
  * 委托组合评估器验证每个向量，并用确定性组合评估预算截断搜索，
  * 保证同一快照的搜索结果确定。纯内存对象，不访问数据库、HTTP或Redis。
  *
- * <p>评估每个向量前，从已证明候选中选出当前最优零新增停转替代时间线，
- * 作为收益级停转候选严格优于基准比较中的真实基准传入组合评估器。</p>
+ * <p>搜索阶段只收集候选事实；搜索结束后统一形成全局零新增停转替代基准，
+ * 再重建收益级停转候选的最终资格。</p>
  *
  * @author Bai
  * @version 1.3.0
@@ -83,12 +80,16 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         CombinationBudget budget = new CombinationBudget(MAX_COMBINATION_EVALUATIONS);
         SearchMetrics metrics = new SearchMetrics();
         EvaluationRun run = new EvaluationRun(request, evidenceByTemplate, deadline,
-                budget, proofWindow, null, metrics);
+                budget, proofWindow, metrics);
         boolean timedOut = false;
         for (int total = 0; total <= maxSearch * 2 && !timedOut; total++) {
             timedOut = searchTotal(run, total, output);
         }
-        return new OcVectorSearchOutcome(output.safe(), timedOut, budget.exhausted(),
+        boolean comparisonComplete = isProfitComparisonComplete(output.safe(), timedOut,
+                budget.exhausted(), metrics);
+        List<OcRefreshSafetyResult.SafeCandidate> finalized = finalizeCandidates(output.safe(),
+                comparisonComplete);
+        return new OcVectorSearchOutcome(finalized, timedOut, budget.exhausted(),
                 budget.consumed(), metrics.budgetTruncations(), metrics.alternativesCapHits());
     }
 
@@ -126,8 +127,8 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     }
 
     /**
-     * 评估单个刷新向量并归类结果。评估前从已证明候选中刷新零停转基准，
-     * 保证收益级停转组合始终与当前最优零新增停转替代时间线比较。
+     * 评估单个刷新向量并归类结果。此阶段只收集向量安全和时间线事实，
+     * 收益级停转资格在全部搜索结束后统一判定。
      *
      * @param run    本次搜索的共享评估上下文
      * @param vector 待评估刷新向量
@@ -139,9 +140,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         if (hasFailedSubset(vector, output.failed())) {
             return StepStatus.CONTINUE;
         }
-        EvaluationRun current = run.withZeroPauseBaseline(
-                VALUE_COMPARATOR.bestZeroPauseBaseline(output.safe()));
-        VectorEvaluation evaluation = evaluator.evaluateVector(current, vector);
+        VectorEvaluation evaluation = evaluator.evaluateVector(run, vector);
         if (evaluation.status() == VectorEvaluation.Status.TIMEOUT) {
             return StepStatus.STOP_TIMEOUT;
         }
@@ -157,6 +156,68 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
             output.safe().add(evaluation.candidate());
         }
         return StepStatus.CONTINUE;
+    }
+
+    /**
+     * 判断零停转基准集合是否已完成公平比较。
+     *
+     * @param candidates      阶段一已证明安全候选
+     * @param timedOut        是否超时
+     * @param budgetExhausted 是否耗尽组合预算
+     * @param metrics         搜索遥测
+     * @return 可以进入阶段二统一比较时返回true
+     */
+    private boolean isProfitComparisonComplete(
+            List<OcRefreshSafetyResult.SafeCandidate> candidates,
+            boolean timedOut,
+            boolean budgetExhausted,
+            SearchMetrics metrics) {
+        return !timedOut && !budgetExhausted
+                && metrics.budgetTruncations() == 0
+                && metrics.alternativesCapHits() == 0
+                && !touchesSearchLimit(candidates)
+                && VALUE_COMPARATOR.bestZeroPauseBaseline(candidates) != null;
+    }
+
+    /**
+     * 阶段二重建全部候选的收益级最终资格。
+     *
+     * @param candidates         阶段一候选事实
+     * @param comparisonComplete 零停转基准集合是否完整
+     * @return 阶段二最终候选
+     */
+    private List<OcRefreshSafetyResult.SafeCandidate> finalizeCandidates(
+            List<OcRefreshSafetyResult.SafeCandidate> candidates,
+            boolean comparisonComplete) {
+        OcTimelineValueSummary baseline = comparisonComplete
+                ? VALUE_COMPARATOR.bestZeroPauseBaseline(candidates) : null;
+        return candidates.stream()
+                .map(candidate -> finalizeCandidate(candidate, baseline, comparisonComplete))
+                .toList();
+    }
+
+    /**
+     * 重建单个候选，避免阶段一的收益资格成为最终事实。
+     *
+     * @param candidate          阶段一候选
+     * @param baseline           阶段二全局零停转基准
+     * @param comparisonComplete 零停转基准集合是否完整
+     * @return 阶段二候选
+     */
+    private OcRefreshSafetyResult.SafeCandidate finalizeCandidate(
+            OcRefreshSafetyResult.SafeCandidate candidate,
+            OcTimelineValueSummary baseline,
+            boolean comparisonComplete) {
+        if (candidate.pauseTier() != OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_PROFIT) {
+            return candidate;
+        }
+        boolean comparable = comparisonComplete && baseline != null;
+        boolean strictlyBetter = comparable
+                && VALUE_COMPARATOR.isStrictlyBetterThanZeroPauseBaseline(
+                candidate.timelineValue(), baseline);
+        return new OcRefreshSafetyResult.SafeCandidate(candidate.vector(), candidate.pauseTier(),
+                candidate.timelineValue(), candidate.anchorCount(), candidate.valueEvidenceLevel(),
+                comparable, strictlyBetter);
     }
 
     /**

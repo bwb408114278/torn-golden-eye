@@ -129,18 +129,25 @@ public class OcEconomicValueComparator {
     }
 
     /**
-     * 在候选集合中选择当前最优的零新增停转替代时间线摘要。
-     * 作为收益级停转候选严格优于基准比较中的真实基准：无零停转候选时返回null，
-     * 调用方必须fail-closed。同等价值时保持集合内的首个，保证结果确定。
+     * 在候选集合中选择全局零新增停转替代时间线摘要。
+     * 正向零停转候选优先于零刷新候选；只有不存在正向候选时才使用零刷新保底。
+     * 无零停转候选时返回null，调用方必须fail-closed。
      *
      * @param candidates 已证明安全的候选集合
      * @return 最优零停转候选的时间线价值摘要；不存在时为null
      */
     public OcTimelineValueSummary bestZeroPauseBaseline(List<SafeCandidate> candidates) {
+        OcTimelineValueSummary positive = bestZeroPauseBaseline(candidates, true);
+        return positive != null ? positive : bestZeroPauseBaseline(candidates, false);
+    }
+
+    private OcTimelineValueSummary bestZeroPauseBaseline(List<SafeCandidate> candidates,
+                                                         boolean positiveOnly) {
         OcTimelineValueSummary best = null;
         for (SafeCandidate candidate : candidates) {
             if (candidate.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE
-                    || candidate.timelineValue() == null) {
+                    || candidate.timelineValue() == null
+                    || positiveOnly != (candidate.vector().totalCount() > 0)) {
                 continue;
             }
             if (best == null || compareTimelineValue(candidate.timelineValue(), best) < 0) {

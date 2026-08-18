@@ -252,14 +252,17 @@ final class OcTimelineBranchExpander {
     private void applyCompletion(OcTimelineState state, OcTimelineObligation obligation,
                                  LocalDateTime completionAt,
                                  List<OcPlannedAssignment> assignments) {
-        OcMemberInterval.IntervalSource source = intervalSource(obligation.kind());
+        OcMemberInterval.IntervalSource fixedMemberSource = fixedMemberIntervalSource(
+                obligation.kind());
+        OcMemberInterval.IntervalSource assignmentSource = assignmentIntervalSource(
+                obligation.kind());
         int released = 0;
         for (long userId : obligation.fixedMemberIds()) {
-            state.occupy(userId, state.snapshotTime(), completionAt, source);
+            state.occupy(userId, state.snapshotTime(), completionAt, fixedMemberSource);
             released++;
         }
         for (OcPlannedAssignment assignment : assignments) {
-            state.occupy(assignment.userId(), assignment.joinAt(), completionAt, source);
+            state.occupy(assignment.userId(), assignment.joinAt(), completionAt, assignmentSource);
             released++;
         }
         state.addAnchor(new OcLiquidityAnchor(obligation.key(), completionAt, released,
@@ -274,10 +277,26 @@ final class OcTimelineBranchExpander {
      * @param kind 义务类别
      * @return 占用区间来源
      */
-    private OcMemberInterval.IntervalSource intervalSource(
+    private OcMemberInterval.IntervalSource fixedMemberIntervalSource(
             OcTimelineObligation.ObligationKind kind) {
         return switch (kind) {
             case EXISTING_JOINED -> OcMemberInterval.IntervalSource.EXISTING_OC;
+            case COMMITTED_CHAIN_SUCCESSOR -> OcMemberInterval.IntervalSource.COMMITTED_CHAIN;
+            case PLANNED_EMPTY -> OcMemberInterval.IntervalSource.PLANNED_EMPTY;
+            case CONDITIONAL_RANDOM -> OcMemberInterval.IntervalSource.RANDOM_CANDIDATE;
+        };
+    }
+
+    /**
+     * 获取本次新增安排对应的占用区间来源。
+     *
+     * @param kind 义务类别
+     * @return 新增安排占用区间来源
+     */
+    private OcMemberInterval.IntervalSource assignmentIntervalSource(
+            OcTimelineObligation.ObligationKind kind) {
+        return switch (kind) {
+            case EXISTING_JOINED -> OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT;
             case COMMITTED_CHAIN_SUCCESSOR -> OcMemberInterval.IntervalSource.COMMITTED_CHAIN;
             case PLANNED_EMPTY -> OcMemberInterval.IntervalSource.PLANNED_EMPTY;
             case CONDITIONAL_RANDOM -> OcMemberInterval.IntervalSource.RANDOM_CANDIDATE;

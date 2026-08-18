@@ -221,7 +221,7 @@ class OcExistingTimelineReconstructionGateTest {
     }
 
     private OcRefreshVectorSearcher.OcVectorSearchOutcome search(OcRefreshSafetyRequest request) {
-        OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(3,
+        OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(4,
                 new OcTimelineEventScheduler());
         return searcher.search(request, evidence(), System.nanoTime()
                 + Duration.ofSeconds(5).toNanos(), OcProofWindow.valid(NOW.plusDays(7)));

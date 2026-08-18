@@ -43,8 +43,8 @@ public final class OcTimelineValueAccumulator {
     }
 
     /**
-     * 计算实际增量剩余成员人天：仅统计计划内无人OC、已启动链后继和条件性随机结果
-     * 的成员占用区间，避免把快照既有固定占用重复计入增量。
+     * 计算实际增量剩余成员人天：仅排除快照前既有OC的固定成员区间，
+     * 其余来源均按真实占用区间计入。
      *
      * @param state 时间线状态
      * @return 按24小时折算的实际增量成员人天
@@ -52,13 +52,23 @@ public final class OcTimelineValueAccumulator {
     private int actualIncrementalMemberDays(OcTimelineState state) {
         long totalMinutes = 0;
         for (OcMemberInterval interval : state.intervals()) {
-            if (interval.source() == OcMemberInterval.IntervalSource.EXISTING_OC) {
+            if (!countsAsIncrementalMemberDay(interval)) {
                 continue;
             }
             totalMinutes += Duration.between(interval.occupiedFrom(),
                     interval.occupiedUntil()).toMinutes();
         }
         return (int) ((totalMinutes + 1439) / 1440);
+    }
+
+    /**
+     * 判断成员占用区间是否属于本次规划的新增资源占用。
+     *
+     * @param interval 成员占用区间
+     * @return 应计入增量成员人天时返回true
+     */
+    private boolean countsAsIncrementalMemberDay(OcMemberInterval interval) {
+        return interval.source() != OcMemberInterval.IntervalSource.EXISTING_OC;
     }
 
     /**

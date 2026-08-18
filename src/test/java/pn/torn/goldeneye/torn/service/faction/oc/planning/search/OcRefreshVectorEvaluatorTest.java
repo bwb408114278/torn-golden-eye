@@ -144,6 +144,70 @@ class OcRefreshVectorEvaluatorTest {
     }
 
     @Test
+    @DisplayName("后发现更优零停转正向量时收益级候选必须按最终基准回退")
+    void shouldReevaluateProfitCandidateAgainstLaterBetterZeroPauseBaseline() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    Duration allowedPause = invocation.getArgument(2);
+                    if (roots.isEmpty()) {
+                        return feasibleResult(NOW.plusHours(1));
+                    }
+                    if (roots.size() == 2 && allowedPause.isZero()) {
+                        return feasibleResult(NOW.plusHours(3));
+                    }
+                    if (roots.size() > 1) {
+                        return infeasibleResult();
+                    }
+                    String name = roots.getFirst().obligation().demand().ocName();
+                    if (name.equals("Alpha") && !allowedPause.isZero()
+                            && !allowedPause.equals(Duration.ofHours(6))) {
+                        return feasibleResult(NOW.plusHours(2));
+                    }
+                    if (name.equals("Beta") && allowedPause.isZero()) {
+                        return feasibleResult(NOW.plusHours(3));
+                    }
+                    return infeasibleResult();
+                });
+
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search();
+
+        SafeCandidate profitCandidate = candidate(outcome, 1, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, profitCandidate.pauseTier());
+        assertTrue(outcome.candidates().stream().anyMatch(item ->
+                item.vector().equals(new OcRefreshVector(2, 0))
+                        && item.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE));
+        assertFalse(profitCandidate.pauseCandidateStrictlyBetterThanBaseline(),
+                "最终基准必须使用后发现的更优正向零停转候选");
+    }
+
+    @Test
+    @DisplayName("替代匹配上限命中时收益级候选必须统一fail-closed")
+    void shouldFailClosedProfitCandidateWhenAlternativesAreCapped() {
+        when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
+                .thenAnswer(invocation -> {
+                    List<CandidateRoot> roots = invocation.getArgument(1);
+                    Duration allowedPause = invocation.getArgument(2);
+                    if (roots.isEmpty()) {
+                        return feasibleResult(NOW.plusHours(1));
+                    }
+                    if (allowedPause.isZero()
+                            || allowedPause.equals(Duration.ofHours(6))) {
+                        return infeasibleResult();
+                    }
+                    return feasibleResultWithAlternativesCap(NOW.plusHours(2));
+                });
+
+        SafeCandidate candidate = candidate(search(request("Alpha"),
+                evidence("Alpha", BigDecimal.valueOf(100),
+                        OcValueEvidence.Level.OBSERVED_REWARD)), 1, 0);
+
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, candidate.pauseTier());
+        assertFalse(candidate.zeroPauseBaselineComparable());
+        assertFalse(candidate.pauseCandidateStrictlyBetterThanBaseline());
+    }
+
+    @Test
     @DisplayName("PRIOR_ONLY收益级候选与零向量金额基准不可稳定比较时应拒绝")
     void shouldRejectProfitCandidateWhenPriorNotComparableWithBaseline() {
         when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
@@ -361,6 +425,17 @@ class OcRefreshVectorEvaluatorTest {
                 List.of(), events, Duration.ofHours(12), false, false,
                 new OcTimelineValueSummary(null, memberDays, Duration.ofHours(12),
                         existingDelay, true, completionAt, 8, 2, 1,
+                        OcValueEvidence.Level.OBSERVED_REWARD));
+    }
+
+    private SimulationResult feasibleResultWithAlternativesCap(LocalDateTime completionAt) {
+        List<OcTimelineEvent> events = List.of(new OcTimelineEvent(completionAt,
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, "stub"));
+        return new SimulationResult(true, false, false, false,
+                new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
+                List.of(), events, Duration.ofHours(12), false, true,
+                new OcTimelineValueSummary(null, 0, Duration.ofHours(12), Duration.ZERO,
+                        true, completionAt, 8, 2, 1,
                         OcValueEvidence.Level.OBSERVED_REWARD));
     }
 

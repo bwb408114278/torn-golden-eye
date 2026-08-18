@@ -115,6 +115,30 @@ class OcTimelineEventSchedulerTest {
         assertTrue(result.liquidityProof().continuousPath());
     }
 
+    @Test
+    @DisplayName("既有OC三固定一补位时新增补位24小时应计入1人天")
+    void shouldCountExistingOcNewAssignmentFromRealSchedule() {
+        List<OcPlanSlot> slots = List.of(
+                new OcPlanSlot("Worker#1", "Worker", 60, 1, null),
+                new OcPlanSlot("Worker#2", "Worker", 60, 2, null),
+                new OcPlanSlot("Worker#3", "Worker", 60, 3, null),
+                new OcPlanSlot("Worker#4", "Worker", 60, 4, null));
+        OcTimelineObligation existing = new OcTimelineObligation("oc:existing",
+                OcTimelineObligation.ObligationKind.EXISTING_JOINED,
+                new OcTeamDemand(1L, "Existing", 8, NOW, null, false, slots,
+                        Set.of("Worker#1", "Worker#2", "Worker#3"), Set.of(1L, 2L, 3L)),
+                null, null);
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(
+                List.of(member(1L), member(2L), member(3L), member(4L)), Set.of(),
+                List.of(existing), Map.of(), List.of(), List.of(), NOW);
+
+        OcTimelineEventScheduler.SimulationResult result = new OcTimelineEventScheduler()
+                .simulate(request, List.of(), Duration.ZERO, true, NOW.plusDays(2));
+
+        assertTrue(result.feasible(), result.toString());
+        assertEquals(1, result.timelineValue().actualIncrementalMemberDays());
+    }
+
     private List<OcTeamDemand> chain() {
         OcPlanSlot slot = new OcPlanSlot("Worker#1", "Worker", 60, 1, null);
         return List.of(
@@ -138,5 +162,11 @@ class OcTimelineEventSchedulerTest {
         return new OcMemberCandidate(id, "user" + id, NOW, false,
                 Map.of(OcMemberCandidate.capabilityKey(8, "Root", "Worker"), 90,
                         OcMemberCandidate.capabilityKey(9, "Child", "Worker"), 90), Map.of());
+    }
+
+    private OcMemberCandidate member(long id) {
+        return new OcMemberCandidate(id, "user" + id, NOW, false,
+                Map.of(OcMemberCandidate.capabilityKey(8, "Existing", "Worker"), 90),
+                Map.of());
     }
 }

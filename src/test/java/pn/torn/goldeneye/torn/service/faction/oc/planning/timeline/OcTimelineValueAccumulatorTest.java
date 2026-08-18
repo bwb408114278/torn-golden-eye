@@ -405,6 +405,77 @@ class OcTimelineValueAccumulatorTest {
                 selector.select(safety(outcome.candidates()), OcPlanMode.PROFIT));
     }
 
+    @Test
+    @DisplayName("既有OC固定成员不计入而本次新增补位成员24小时计入1人天")
+    void shouldCountExistingOcNewAssignmentWithoutCountingFixedMember() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW, NOW.plusDays(7), OcMemberInterval.IntervalSource.EXISTING_OC);
+        state.occupy(2L, NOW, NOW.plusDays(1),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(1, summary.actualIncrementalMemberDays());
+    }
+
+    @Test
+    @DisplayName("既有OC两个新增补位按实际区间总分钟数向上折算")
+    void shouldRoundExistingOcAssignmentsFromTotalMinutes() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+        state.occupy(2L, NOW, NOW.plusHours(24),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(2, summary.actualIncrementalMemberDays());
+    }
+
+    @Test
+    @DisplayName("固定成员释放后补入另一队只统计新增补位区间")
+    void shouldCountOnlyReassignmentIntervalAfterExistingRelease() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW.minusDays(2), NOW,
+                OcMemberInterval.IntervalSource.EXISTING_OC);
+        state.occupy(1L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(1, summary.actualIncrementalMemberDays());
+        assertTrue(state.hasNoOverlappingIntervals());
+    }
+
+    @Test
+    @DisplayName("既有新增来源仍然计入成员人天")
+    void shouldKeepCountingOtherIncrementalSources() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.COMMITTED_CHAIN);
+        state.occupy(2L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.PLANNED_EMPTY);
+        state.occupy(3L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.RANDOM_CANDIDATE);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(2, summary.actualIncrementalMemberDays());
+    }
+
+    private OcTimelineState newState() {
+        return new OcTimelineState(emptyRequest());
+    }
+
+    private OcRefreshSafetyRequest emptyRequest() {
+        return new OcRefreshSafetyRequest(List.of(), Set.of(), List.of(), Map.of(),
+                List.of(), List.of(), NOW);
+    }
+
     private OcRefreshVectorSearcher.OcVectorSearchOutcome searchThroughEvaluator(
             boolean profitDelayed, boolean profitUnprovable) {
         OcRefreshSafetyRequest request = evaluatorRequest();
@@ -416,6 +487,9 @@ class OcTimelineValueAccumulatorTest {
             Duration allowedPause = invocation.getArgument(2);
             if (candidates.isEmpty()) {
                 return simulationResult(req, NOW.plusHours(30));
+            }
+            if (candidates.size() >= 2) {
+                return infeasibleResult();
             }
             if (allowedPause.isZero()
                     || allowedPause.equals(Duration.ofHours(6))) {
@@ -429,7 +503,7 @@ class OcTimelineValueAccumulatorTest {
                     ? NOW.plusHours(40) : NOW.plusHours(30);
             return simulationResult(req, actual);
         });
-        OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(1, scheduler);
+        OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(2, scheduler);
         return searcher.search(request,
                 Map.of(OcPlanningSnapshot.ocKey(8, "Alpha"),
                         new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,

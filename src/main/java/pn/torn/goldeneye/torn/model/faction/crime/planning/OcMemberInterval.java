@@ -28,6 +28,10 @@ public record OcMemberInterval(
          */
         EXISTING_OC,
         /**
+         * 本次规划补入既有OC的新增成员占用。
+         */
+        EXISTING_OC_NEW_ASSIGNMENT,
+        /**
          * 已启动链后继的义务占用。
          */
         COMMITTED_CHAIN,
