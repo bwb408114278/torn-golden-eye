@@ -51,7 +51,7 @@ public class OcRefreshModeSelector {
             return Optional.empty();
         }
         List<SafeCandidate> candidates = safety.candidates();
-        OcTimelineValueSummary zeroPauseBaseline = valueComparator
+        SafeCandidate zeroPauseBaseline = valueComparator
                 .bestZeroPauseBaseline(candidates);
         List<SafeCandidate> eligible = candidates.stream()
                 .filter(candidate -> withinPausePolicy(candidate, mode, candidates,
@@ -80,12 +80,12 @@ public class OcRefreshModeSelector {
      * @param candidate         安全候选
      * @param mode              刷新策略模式
      * @param candidates        本次求解的完整安全候选集合
-     * @param zeroPauseBaseline 候选集合中的最优零新增停转替代时间线摘要；不存在时为null
+     * @param zeroPauseBaseline 候选集合中的最优零停转替代候选；不存在时为null
      * @return 满足政策时返回true
      */
     private boolean withinPausePolicy(SafeCandidate candidate, OcPlanMode mode,
                                       List<SafeCandidate> candidates,
-                                      OcTimelineValueSummary zeroPauseBaseline) {
+                                      SafeCandidate zeroPauseBaseline) {
         return switch (mode) {
             case CONSERVATIVE -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE;
             case BALANCED -> candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT;
@@ -104,11 +104,11 @@ public class OcRefreshModeSelector {
      *
      * @param candidate         安全候选
      * @param candidates        本次求解的完整安全候选集合
-     * @param zeroPauseBaseline 候选集合中的最优零新增停转替代时间线摘要；不存在时为null
+     * @param zeroPauseBaseline 候选集合中的最优零停转替代候选；不存在时为null
      * @return 满足收益模式前提时返回true
      */
     private boolean withinProfitPolicy(SafeCandidate candidate, List<SafeCandidate> candidates,
-                                       OcTimelineValueSummary zeroPauseBaseline) {
+                                       SafeCandidate zeroPauseBaseline) {
         if (candidate.vector().totalCount() == 0) {
             return true;
         }
@@ -116,9 +116,9 @@ public class OcRefreshModeSelector {
             return false;
         }
         if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_PROFIT) {
-            return candidate.pauseCandidateStrictlyBetterThanBaseline()
-                    && valueComparator.isStrictlyBetterThanZeroPauseBaseline(
-                    candidate.timelineValue(), zeroPauseBaseline);
+            return zeroPauseBaseline != null
+                    && candidate.zeroPauseBaselineComparable()
+                    && candidate.pauseCandidateStrictlyBetterThanBaseline();
         }
         return hasComparableEvidence(candidate, candidates);
     }

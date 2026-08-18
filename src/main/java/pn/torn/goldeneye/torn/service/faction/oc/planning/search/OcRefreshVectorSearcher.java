@@ -176,7 +176,16 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
                 && metrics.budgetTruncations() == 0
                 && metrics.alternativesCapHits() == 0
                 && !touchesSearchLimit(candidates)
-                && VALUE_COMPARATOR.bestZeroPauseBaseline(candidates) != null;
+                && isComparableBaseline(VALUE_COMPARATOR.bestZeroPauseBaseline(candidates));
+    }
+
+    private boolean isComparableBaseline(OcRefreshSafetyResult.SafeCandidate baseline) {
+        return baseline != null && baseline.timelineValue() != null
+                && baseline.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && baseline.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && baseline.timelineValue().existingObligationDelay()
+                .compareTo(OcTimelineValueSummary.UNPROVEN_OBLIGATION_DELAY) != 0
+                && baseline.timelineValue().guaranteedReleaseAt() != null;
     }
 
     /**
@@ -189,7 +198,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     private List<OcRefreshSafetyResult.SafeCandidate> finalizeCandidates(
             List<OcRefreshSafetyResult.SafeCandidate> candidates,
             boolean comparisonComplete) {
-        OcTimelineValueSummary baseline = comparisonComplete
+        OcRefreshSafetyResult.SafeCandidate baseline = comparisonComplete
                 ? VALUE_COMPARATOR.bestZeroPauseBaseline(candidates) : null;
         return candidates.stream()
                 .map(candidate -> finalizeCandidate(candidate, baseline, comparisonComplete))
@@ -206,7 +215,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
      */
     private OcRefreshSafetyResult.SafeCandidate finalizeCandidate(
             OcRefreshSafetyResult.SafeCandidate candidate,
-            OcTimelineValueSummary baseline,
+            OcRefreshSafetyResult.SafeCandidate baseline,
             boolean comparisonComplete) {
         if (candidate.pauseTier() != OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_PROFIT) {
             return candidate;
@@ -214,7 +223,7 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         boolean comparable = comparisonComplete && baseline != null;
         boolean strictlyBetter = comparable
                 && VALUE_COMPARATOR.isStrictlyBetterThanZeroPauseBaseline(
-                candidate.timelineValue(), baseline);
+                candidate, baseline);
         return new OcRefreshSafetyResult.SafeCandidate(candidate.vector(), candidate.pauseTier(),
                 candidate.timelineValue(), candidate.anchorCount(), candidate.valueEvidenceLevel(),
                 comparable, strictlyBetter);

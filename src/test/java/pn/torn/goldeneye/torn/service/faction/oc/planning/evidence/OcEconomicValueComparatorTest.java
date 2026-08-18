@@ -2,12 +2,15 @@ package pn.torn.goldeneye.torn.service.faction.oc.planning.evidence;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshVector;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineValueSummary;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,7 +85,9 @@ class OcEconomicValueComparatorTest {
                 8, 2, 1, OcValueEvidence.Level.OBSERVED_REWARD);
 
         assertTrue(comparator.compareTimelineValue(candidate, baseline) > 0);
-        assertFalse(comparator.isStrictlyBetterThanZeroPauseBaseline(candidate, baseline));
+        assertFalse(comparator.isStrictlyBetterThanZeroPauseBaseline(
+                safeCandidate(candidate, 2, SafeCandidate.PauseTier.WITHIN_PROFIT),
+                safeCandidate(baseline, 2, SafeCandidate.PauseTier.ZERO_PAUSE)));
     }
 
     @Test
@@ -92,11 +97,13 @@ class OcEconomicValueComparatorTest {
                 10, Duration.ZERO, Duration.ZERO, true, NOW, 8, 2, 1,
                 OcValueEvidence.Level.OBSERVED_REWARD);
         OcTimelineValueSummary candidate = new OcTimelineValueSummary(BigDecimal.valueOf(500),
-                10, Duration.ofHours(2), Duration.ZERO, true, NOW.plusHours(2),
+                10, Duration.ofHours(2), Duration.ZERO, true, NOW,
                 8, 2, 1, OcValueEvidence.Level.OBSERVED_REWARD);
 
         assertTrue(comparator.compareTimelineValue(candidate, baseline) < 0);
-        assertTrue(comparator.isStrictlyBetterThanZeroPauseBaseline(candidate, baseline));
+        assertTrue(comparator.isStrictlyBetterThanZeroPauseBaseline(
+                safeCandidate(candidate, 2, SafeCandidate.PauseTier.WITHIN_PROFIT),
+                safeCandidate(baseline, 2, SafeCandidate.PauseTier.ZERO_PAUSE)));
     }
 
     @Test
@@ -109,6 +116,163 @@ class OcEconomicValueComparatorTest {
                 10, Duration.ofHours(2), Duration.ZERO, true, NOW.plusHours(2),
                 8, 2, 1, OcValueEvidence.Level.OBSERVED_REWARD);
 
-        assertFalse(comparator.isStrictlyBetterThanZeroPauseBaseline(candidate, baseline));
+        assertFalse(comparator.isStrictlyBetterThanZeroPauseBaseline(
+                safeCandidate(candidate, 2, SafeCandidate.PauseTier.WITHIN_PROFIT),
+                safeCandidate(baseline, 2, SafeCandidate.PauseTier.ZERO_PAUSE)));
+    }
+
+    @Test
+    @DisplayName("金额更高但新增无人OC可避免过期时必须拒绝")
+    void shouldRejectHigherValueWhenExpiryPressureWorsens() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10,
+                true, NOW);
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("金额更高但单位成员人天价值降低时必须拒绝")
+    void shouldRejectHigherValueWhenUnitMemberDayValueDrops() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 100,
+                false, NOW);
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("金额相同且候选人天更低时允许严格更优")
+    void shouldAcceptEqualValueWithFewerMemberDays() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 20,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+
+        assertTrue(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("金额更高但保证释放延后时必须拒绝")
+    void shouldRejectHigherValueWhenReleaseIsLater() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10,
+                false, NOW.plusHours(1));
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("候选锚点减少时必须拒绝")
+    void shouldRejectWhenAnchorCountDrops() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10,
+                false, NOW);
+
+        assertFalse(strict(candidate, 1, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("候选释放时间缺失时必须fail-closed")
+    void shouldFailClosedWhenCandidateReleaseIsMissing() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10,
+                false, null);
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("基准释放时间缺失时必须fail-closed")
+    void shouldFailClosedWhenBaselineReleaseIsMissing() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, null);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10,
+                false, NOW);
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("金额均缺失但先验完整时应按先验严格比较")
+    void shouldCompareByCompletePriorWhenValuesAreMissing() {
+        OcTimelineValueSummary baseline = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 8, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+        OcTimelineValueSummary candidate = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 9, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+
+        assertTrue(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("金额缺失且先验不完整时必须fail-closed")
+    void shouldFailClosedWhenPriorEvidenceIsIncomplete() {
+        OcTimelineValueSummary baseline = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 0, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+        OcTimelineValueSummary candidate = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 9, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("实际增量成员人天为0时必须fail-closed")
+    void shouldFailClosedWhenMemberDaysAreZero() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10,
+                false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 0,
+                false, NOW);
+
+        assertFalse(strict(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("零停转正向基准应优先于零刷新保底")
+    void shouldPreferPositiveZeroPauseBaseline() {
+        SafeCandidate fallback = safeCandidate(summary(BigDecimal.valueOf(100), 10,
+                false, NOW), 1, SafeCandidate.PauseTier.ZERO_PAUSE);
+        SafeCandidate positive = new SafeCandidate(new OcRefreshVector(1, 0),
+                SafeCandidate.PauseTier.ZERO_PAUSE,
+                summary(BigDecimal.valueOf(200), 10, false, NOW), 2,
+                OcValueEvidence.Level.OBSERVED_REWARD, true, true);
+
+        assertEquals(positive, comparator.bestZeroPauseBaseline(List.of(fallback, positive)));
+    }
+
+    @Test
+    @DisplayName("无零停转候选时基准应为空")
+    void shouldReturnNoBaselineWhenZeroPauseCandidateIsAbsent() {
+        SafeCandidate candidate = safeCandidate(summary(BigDecimal.valueOf(200), 10,
+                false, NOW), 1, SafeCandidate.PauseTier.WITHIN_PROFIT);
+
+        assertNull(comparator.bestZeroPauseBaseline(List.of(candidate)));
+    }
+
+    private boolean strict(OcTimelineValueSummary candidate, int candidateAnchors,
+                           OcTimelineValueSummary baseline, int baselineAnchors) {
+        return comparator.isStrictlyBetterThanZeroPauseBaseline(
+                safeCandidate(candidate, candidateAnchors, SafeCandidate.PauseTier.WITHIN_PROFIT),
+                safeCandidate(baseline, baselineAnchors, SafeCandidate.PauseTier.ZERO_PAUSE));
+    }
+
+    private OcTimelineValueSummary summary(BigDecimal value, int memberDays,
+                                           boolean avoidableExpiry, LocalDateTime releaseAt) {
+        return new OcTimelineValueSummary(value, memberDays, Duration.ZERO, Duration.ZERO,
+                avoidableExpiry, releaseAt, 8, 2, 1, OcValueEvidence.Level.OBSERVED_REWARD);
+    }
+
+    private SafeCandidate safeCandidate(OcTimelineValueSummary summary, int anchorCount,
+                                        SafeCandidate.PauseTier pauseTier) {
+        return new SafeCandidate(new OcRefreshVector(1, 0), pauseTier, summary, anchorCount,
+                summary.evidenceLevel(), true, true);
     }
 }

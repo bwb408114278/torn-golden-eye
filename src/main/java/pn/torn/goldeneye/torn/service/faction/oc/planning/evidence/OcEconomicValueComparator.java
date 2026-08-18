@@ -5,6 +5,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.planning.OcTimelineValueSummar
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcValueEvidence;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -98,63 +99,111 @@ public class OcEconomicValueComparator {
     }
 
     /**
-     * 判断收益级停转候选是否严格优于同组合零新增停转基准。
-     * 任一摘要金额、先验或既有义务完成延迟不可比较时返回false，
-     * 不得据此提高收益停转建议。既有义务完成延迟是完整净价值的负向事实，
-     * 即使名义奖励更高，也不能让延迟更长的收益级停转候选通过严格比较。
+     * 判断收益级停转候选是否严格优于全局零停转基准。
+     * 所有最低改进门禁必须先于金额或先验排序执行。
      *
-     * @param candidate 收益级停转候选摘要
-     * @param baseline  同组合零新增停转基准摘要
+     * @param candidate 收益级停转候选
+     * @param baseline  全局零停转基准候选
      * @return 严格更优时返回true
      */
-    public boolean isStrictlyBetterThanZeroPauseBaseline(OcTimelineValueSummary candidate,
-                                                         OcTimelineValueSummary baseline) {
+    public boolean isStrictlyBetterThanZeroPauseBaseline(SafeCandidate candidate,
+                                                         SafeCandidate baseline) {
         if (candidate == null || baseline == null
-                || candidate.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT
-                || baseline.evidenceLevel() == OcValueEvidence.Level.INSUFFICIENT
-                || candidate.hasUnprovableExistingObligationDelay()
-                || baseline.hasUnprovableExistingObligationDelay()) {
+                || baseline.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE
+                || candidate.timelineValue() == null || baseline.timelineValue() == null) {
             return false;
         }
-        if ((candidate.monetaryValue() == null || baseline.monetaryValue() == null)
-                && !priorComparable(candidate, baseline)) {
+        OcTimelineValueSummary candidateValue = candidate.timelineValue();
+        OcTimelineValueSummary baselineValue = baseline.timelineValue();
+        if (!hasSufficientEvidence(candidate, baseline)
+                || !passesMinimumImprovementGates(candidate, baseline)) {
             return false;
         }
-        if (candidate.existingObligationDelay().compareTo(
-                baseline.existingObligationDelay()) > 0) {
+        if (candidateValue.monetaryValue() != null && baselineValue.monetaryValue() != null) {
+            if (!hasStrictUnitMemberDayImprovement(candidateValue, baselineValue)) {
+                return false;
+            }
+        } else if (candidateValue.monetaryValue() != null
+                || baselineValue.monetaryValue() != null
+                || !priorComparable(candidateValue, baselineValue)) {
             return false;
         }
-
-        return compareTimelineValue(candidate, baseline) < 0;
+        return compareTimelineValue(candidateValue, baselineValue) < 0;
     }
 
     /**
-     * 在候选集合中选择全局零新增停转替代时间线摘要。
+     * 在候选集合中选择全局零停转替代候选。
      * 正向零停转候选优先于零刷新候选；只有不存在正向候选时才使用零刷新保底。
      * 无零停转候选时返回null，调用方必须fail-closed。
      *
      * @param candidates 已证明安全的候选集合
-     * @return 最优零停转候选的时间线价值摘要；不存在时为null
+     * @return 最优零停转候选；不存在时为null
      */
-    public OcTimelineValueSummary bestZeroPauseBaseline(List<SafeCandidate> candidates) {
-        OcTimelineValueSummary positive = bestZeroPauseBaseline(candidates, true);
+    public SafeCandidate bestZeroPauseBaseline(List<SafeCandidate> candidates) {
+        if (candidates == null) {
+            return null;
+        }
+        SafeCandidate positive = bestZeroPauseBaseline(candidates, true);
         return positive != null ? positive : bestZeroPauseBaseline(candidates, false);
     }
 
-    private OcTimelineValueSummary bestZeroPauseBaseline(List<SafeCandidate> candidates,
-                                                         boolean positiveOnly) {
-        OcTimelineValueSummary best = null;
+    private SafeCandidate bestZeroPauseBaseline(List<SafeCandidate> candidates,
+                                                boolean positiveOnly) {
+        SafeCandidate best = null;
         for (SafeCandidate candidate : candidates) {
             if (candidate.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE
                     || candidate.timelineValue() == null
                     || positiveOnly != (candidate.vector().totalCount() > 0)) {
                 continue;
             }
-            if (best == null || compareTimelineValue(candidate.timelineValue(), best) < 0) {
-                best = candidate.timelineValue();
+            if (best == null || compareTimelineValue(candidate.timelineValue(),
+                    best.timelineValue()) < 0) {
+                best = candidate;
             }
         }
         return best;
+    }
+
+    private boolean hasSufficientEvidence(SafeCandidate candidate, SafeCandidate baseline) {
+        return candidate.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && baseline.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && candidate.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && baseline.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT;
+    }
+
+    private boolean passesMinimumImprovementGates(SafeCandidate candidate,
+                                                  SafeCandidate baseline) {
+        OcTimelineValueSummary candidateValue = candidate.timelineValue();
+        OcTimelineValueSummary baselineValue = baseline.timelineValue();
+        if (candidateValue.hasUnprovableExistingObligationDelay()
+                || baselineValue.hasUnprovableExistingObligationDelay()
+                || candidateValue.existingObligationDelay().compareTo(
+                baselineValue.existingObligationDelay()) > 0) {
+            return false;
+        }
+        if (!baselineValue.avoidableExpiryPressure() && candidateValue.avoidableExpiryPressure()) {
+            return false;
+        }
+        if (candidate.anchorCount() < baseline.anchorCount()) {
+            return false;
+        }
+        return candidateValue.guaranteedReleaseAt() != null
+                && baselineValue.guaranteedReleaseAt() != null
+                && !candidateValue.guaranteedReleaseAt().isAfter(
+                baselineValue.guaranteedReleaseAt());
+    }
+
+    private boolean hasStrictUnitMemberDayImprovement(OcTimelineValueSummary candidate,
+                                                      OcTimelineValueSummary baseline) {
+        if (candidate.actualIncrementalMemberDays() <= 0
+                || baseline.actualIncrementalMemberDays() <= 0) {
+            return false;
+        }
+        BigDecimal candidateUnitValue = candidate.monetaryValue().divide(
+                BigDecimal.valueOf(candidate.actualIncrementalMemberDays()), MathContext.DECIMAL64);
+        BigDecimal baselineUnitValue = baseline.monetaryValue().divide(
+                BigDecimal.valueOf(baseline.actualIncrementalMemberDays()), MathContext.DECIMAL64);
+        return candidateUnitValue.compareTo(baselineUnitValue) > 0;
     }
 
     /**
@@ -218,7 +267,11 @@ public class OcEconomicValueComparator {
                                     OcTimelineValueSummary right) {
         return left.highestRank() > 0 && right.highestRank() > 0
                 && left.totalRequiredMembers() > 0 && right.totalRequiredMembers() > 0
-                && left.chainNodeCount() > 0 && right.chainNodeCount() > 0;
+                && left.chainNodeCount() > 0 && right.chainNodeCount() > 0
+                && left.actualIncrementalMemberDays() > 0
+                && right.actualIncrementalMemberDays() > 0
+                && left.guaranteedReleaseAt() != null
+                && right.guaranteedReleaseAt() != null;
     }
 
     /**

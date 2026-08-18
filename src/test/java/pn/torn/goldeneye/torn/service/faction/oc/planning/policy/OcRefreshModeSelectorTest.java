@@ -62,7 +62,7 @@ class OcRefreshModeSelectorTest {
     void shouldNotSelectProfitTierCandidateNotStrictlyBetterThanBaseline() {
         OcRefreshSafetyResult safety = result(List.of(
                         candidate(new OcRefreshVector(2, 0), SafeCandidate.PauseTier.WITHIN_PROFIT,
-                                BigDecimal.valueOf(1000)),
+                                BigDecimal.valueOf(1000), false),
                         candidate(new OcRefreshVector(1, 0), SafeCandidate.PauseTier.ZERO_PAUSE)),
                 OcProofStatusEnum.PROVEN_SAFE, Set.of());
 
@@ -261,9 +261,22 @@ class OcRefreshModeSelectorTest {
     private SafeCandidate candidate(OcRefreshVector vector,
                                     SafeCandidate.PauseTier tier, BigDecimal value,
                                     OcValueEvidence.Level level) {
+        return candidate(vector, tier, value, level, true);
+    }
+
+    private SafeCandidate candidate(OcRefreshVector vector,
+                                    SafeCandidate.PauseTier tier, BigDecimal value,
+                                    boolean strictlyBetter) {
+        return candidate(vector, tier, value, OcValueEvidence.Level.OBSERVED_REWARD,
+                strictlyBetter);
+    }
+
+    private SafeCandidate candidate(OcRefreshVector vector,
+                                    SafeCandidate.PauseTier tier, BigDecimal value,
+                                    OcValueEvidence.Level level, boolean strictlyBetter) {
         OcTimelineValueSummary summary = new OcTimelineValueSummary(value, 10,
                 Duration.ZERO, Duration.ZERO, true, null, 8, 2, 1, level);
-        return new SafeCandidate(vector, tier, summary, 1, level, true, true);
+        return new SafeCandidate(vector, tier, summary, 1, level, true, strictlyBetter);
     }
 
     /**

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshSafetySolver;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcCurrentOccupancyCalculator;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.snapshot.OcRefreshSafetyRequestFactory;
@@ -149,7 +150,7 @@ public class OcRefreshInstructionPlanner {
                 assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
                 pauseAllowed, pauseSelected, pauseSelected ? selectedPauseDuration : null,
                 replanWindow, evidenceLevel, occupancySummary, warnings);
-        logShadow(plan, safety);
+        logShadow(plan, safety, selected.orElse(null));
         return plan;
     }
 
@@ -255,18 +256,36 @@ public class OcRefreshInstructionPlanner {
      * 输出匿名结构化Shadow日志，不记录成员、岗位、内部排程或奖励明细。
      * 搜索遥测按一次规划汇总，不逐分支输出。
      *
-     * @param plan   已生成的刷新指令
-     * @param safety 时间线求解结果，提供耗时与搜索遥测
+     * @param plan     已生成的刷新指令
+     * @param safety   时间线求解结果，提供耗时与搜索遥测
+     * @param selected 已选候选的匿名价值事实
      */
-    private void logShadow(OcRefreshInstructionPlan plan, OcRefreshSafetyResult safety) {
+    private void logShadow(OcRefreshInstructionPlan plan, OcRefreshSafetyResult safety,
+                           SafeCandidate selected) {
         OcSearchTelemetry telemetry = safety.searchTelemetry();
+        SafeCandidate baseline = new OcEconomicValueComparator()
+                .bestZeroPauseBaseline(safety.candidates());
+        int positiveCandidateCount = (int) safety.candidates().stream()
+                .filter(candidate -> candidate.vector().totalCount() > 0).count();
+        boolean positiveCandidateProven = safety.candidates().stream()
+                .filter(candidate -> candidate.vector().totalCount() > 0)
+                .anyMatch(this::isPositiveCandidateProven);
+        boolean failClosedOnly = positiveCandidateCount > 0 && !positiveCandidateProven;
         log.info("OC新队Shadow: factionId={}, mode={}, snapshotTime={}, configurationStatus={}, "
                         + "proofStatus={}, riskFlags={}, lowerBound={}, selectedVector=({},{}), "
                         + "nextCriticalReleaseAt={}, nextReplanAt={}, latestReplanAt={}, "
                         + "pauseAllowed={}, pauseSelected={}, pendingEmptyCount={}, "
                         + "reasonCodes={}, warningCount={}, solveElapsedMillis={}, "
                         + "combinationEvaluations={}, budgetTruncations={}, "
-                        + "alternativesCapHits={}",
+                        + "alternativesCapHits={}, selectedActualIncrementalMemberDays={}, "
+                        + "selectedAnchorCount={}, selectedValueEvidenceLevel={}, "
+                        + "selectedGuaranteedReleaseAt={}, selectedAvoidableExpiryPressure={}, "
+                        + "selectedPauseCandidateStrictlyBetterThanBaseline={}, "
+                        + "baselineActualIncrementalMemberDays={}, baselineAnchorCount={}, "
+                        + "baselineValueEvidenceLevel={}, baselineGuaranteedReleaseAt={}, "
+                        + "baselineAvoidableExpiryPressure={}, zeroPauseBaselineComparable={}, "
+                        + "baselineVectorTotalCount={}, positiveCandidateCount={}, "
+                        + "positiveCandidateProven={}, failClosedOnly={}",
                 plan.factionId(), plan.mode(), plan.snapshotTime(),
                 plan.configurationStatus(), plan.proofStatus(), plan.riskFlags(),
                 plan.lowerBound(), plan.normalRefreshCount(), plan.highRefreshCount(),
@@ -275,7 +294,40 @@ public class OcRefreshInstructionPlanner {
                 plan.pauseSelected(), plan.plannedEmptyOcCounts().values().stream()
                         .mapToInt(Integer::intValue).sum(),
                 plan.reasonCodes(), plan.warnings().size(), safety.elapsedMillis(),
-                telemetry.combinationEvaluations(), telemetry.budgetTruncations(),
-                telemetry.alternativesCapHits());
+                 telemetry.combinationEvaluations(), telemetry.budgetTruncations(),
+                 telemetry.alternativesCapHits(), selectedMemberDays(selected),
+                 selected == null ? null : selected.anchorCount(),
+                 selected == null ? null : selected.valueEvidenceLevel(),
+                 selected == null ? null : selected.guaranteedEarliestReleaseAt(),
+                 selected == null || selected.timelineValue() == null
+                         ? null : selected.timelineValue().avoidableExpiryPressure(),
+                 selected == null ? null : selected.pauseCandidateStrictlyBetterThanBaseline(),
+                 selectedMemberDays(baseline), baseline == null ? null : baseline.anchorCount(),
+                 baseline == null ? null : baseline.valueEvidenceLevel(),
+                 baseline == null ? null : baseline.guaranteedEarliestReleaseAt(),
+                 baseline == null || baseline.timelineValue() == null
+                         ? null : baseline.timelineValue().avoidableExpiryPressure(),
+                 isComparableBaseline(baseline),
+                 baseline == null ? null : baseline.vector().totalCount(), positiveCandidateCount,
+                 positiveCandidateProven, failClosedOnly);
+    }
+
+    private Integer selectedMemberDays(SafeCandidate candidate) {
+        return candidate == null || candidate.timelineValue() == null
+                ? null : candidate.timelineValue().actualIncrementalMemberDays();
+    }
+
+    private boolean isPositiveCandidateProven(SafeCandidate candidate) {
+        return candidate.zeroPauseBaselineComparable()
+                && (candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT
+                || candidate.pauseCandidateStrictlyBetterThanBaseline());
+    }
+
+    private boolean isComparableBaseline(SafeCandidate baseline) {
+        return baseline != null && baseline.timelineValue() != null
+                && baseline.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && baseline.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
+                && !baseline.timelineValue().hasUnprovableExistingObligationDelay()
+                && baseline.timelineValue().guaranteedReleaseAt() != null;
     }
 }

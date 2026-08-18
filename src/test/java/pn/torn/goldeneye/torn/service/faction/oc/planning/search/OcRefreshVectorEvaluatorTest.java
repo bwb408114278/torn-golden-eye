@@ -54,7 +54,7 @@ class OcRefreshVectorEvaluatorTest {
         assertTrue(vectorTwoZero.zeroPauseBaselineComparable(),
                 "已证明零停转正向量(1,0)必须构成可比较基准");
         OcRefreshModeSelector selector = new OcRefreshModeSelector();
-        assertEquals(new OcRefreshVector(2, 0),
+        assertEquals(new OcRefreshVector(1, 0),
                 selector.select(selectorResult(outcome), OcPlanMode.PROFIT));
     }
 
@@ -68,12 +68,12 @@ class OcRefreshVectorEvaluatorTest {
         SafeCandidate vectorTwoZero = candidate(outcome, 2, 0);
         assertTrue(vectorTwoZero.zeroPauseBaselineComparable(),
                 "评估(2,0)时(1,0)零停转正向量基准必须参与比较");
-        assertTrue(vectorTwoZero.pauseCandidateStrictlyBetterThanBaseline(),
-                "收益级组合价值400严格优于基准100时必须置位严格更优");
+        assertFalse(vectorTwoZero.pauseCandidateStrictlyBetterThanBaseline(),
+                "候选保证释放延后时，即使金额更高也必须拒绝");
         OcRefreshModeSelector selector = new OcRefreshModeSelector();
-        assertEquals(new OcRefreshVector(2, 0),
+        assertEquals(new OcRefreshVector(1, 0),
                 selector.select(selectorResult(outcome), OcPlanMode.PROFIT),
-                "通过基准比较的WITHIN_PROFIT正向量必须可被收益模式实际选中");
+                "保证释放延后的WITHIN_PROFIT正向量不得被收益模式实际选中");
     }
 
     @Test
@@ -111,8 +111,8 @@ class OcRefreshVectorEvaluatorTest {
     }
 
     @Test
-    @DisplayName("零停转基准不延后且候选释放更早时收益级正向量应被接受")
-    void shouldAcceptProfitCandidateWhenStrictlyBetterOnTimelineFacts() {
+    @DisplayName("金额与单位人天价值未严格提高时收益级正向量必须拒绝")
+    void shouldRejectProfitCandidateWhenUnitValueIsNotStrictlyBetter() {
         when(scheduler.simulate(any(), anyList(), any(), anyBoolean(), any()))
                 .thenAnswer(invocation -> {
                     List<CandidateRoot> roots = invocation.getArgument(1);
@@ -127,7 +127,7 @@ class OcRefreshVectorEvaluatorTest {
                             || allowedPause.equals(Duration.ofHours(6))) {
                         return infeasibleResult();
                     }
-                    return profitResult(Duration.ZERO, 0, NOW.plusHours(1));
+                    return profitResult(Duration.ZERO, 10, NOW.plusHours(1));
                 });
 
         OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(
@@ -136,11 +136,11 @@ class OcRefreshVectorEvaluatorTest {
 
         SafeCandidate vectorOneZero = candidate(outcome, 1, 0);
         assertTrue(vectorOneZero.zeroPauseBaselineComparable());
-        assertTrue(vectorOneZero.pauseCandidateStrictlyBetterThanBaseline());
+        assertFalse(vectorOneZero.pauseCandidateStrictlyBetterThanBaseline());
         OcRefreshModeSelector selector = new OcRefreshModeSelector();
-        assertEquals(new OcRefreshVector(2, 0),
+        assertEquals(new OcRefreshVector(0, 0),
                 selector.select(selectorResult(outcome), OcPlanMode.PROFIT),
-                "金额证据为空时按时间线事实决胜，更大的严格更优正向量胜出");
+                "金额证据存在但单位价值未严格提高时必须fail-closed");
     }
 
     @Test
@@ -411,7 +411,7 @@ class OcRefreshVectorEvaluatorTest {
         return new SimulationResult(true, false, false, false,
                 new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
                 List.of(), events, Duration.ZERO, false, false,
-                new OcTimelineValueSummary(null, 0, Duration.ZERO, Duration.ZERO,
+                new OcTimelineValueSummary(null, 10, Duration.ZERO, Duration.ZERO,
                         true, completionAt, 8, 2, 1,
                         OcValueEvidence.Level.OBSERVED_REWARD));
     }
