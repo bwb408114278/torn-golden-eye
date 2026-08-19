@@ -365,7 +365,7 @@ class OcTimelineValueAccumulatorTest {
                                     OcTimelineValueSummary summary,
                                     boolean strictlyBetter) {
         return new SafeCandidate(vector, tier, summary, 1,
-                OcValueEvidence.Level.OBSERVED_REWARD, true, strictlyBetter);
+                OcValueEvidence.Level.OBSERVED_REWARD, true, strictlyBetter, false);
     }
 
     private OcRefreshSafetyResult safety(List<SafeCandidate> candidates) {

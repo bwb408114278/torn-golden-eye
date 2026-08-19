@@ -673,7 +673,7 @@ class OcRefreshVectorEvaluator {
             return new VectorEvaluation(VectorEvaluation.Status.SAFE,
                     new SafeCandidate(vector, tier, summary, anchorCount, level,
                             tier != SafeCandidate.PauseTier.WITHIN_PROFIT,
-                            tier != SafeCandidate.PauseTier.WITHIN_PROFIT));
+                            tier != SafeCandidate.PauseTier.WITHIN_PROFIT, false));
         }
     }
 }

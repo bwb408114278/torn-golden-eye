@@ -64,6 +64,7 @@ public record OcRefreshSafetyResult(
      * @param valueEvidenceLevel                       最弱组合的价值证据层级
      * @param zeroPauseBaselineComparable              全部相关组合是否均存在可比较的零新增停转基准
      * @param pauseCandidateStrictlyBetterThanBaseline 含主动新增停转的收益候选是否严格优于零停转基准
+     * @param balancedPauseCandidateEligible           均衡级主动新增停转候选是否通过相对零停转基准的准入；仅表示"业务价值严格提高或保证完整释放严格提前"的均衡级结论，不能作为收益级严格优于事实使用
      */
     public record SafeCandidate(
             OcRefreshVector vector,
@@ -72,7 +73,8 @@ public record OcRefreshSafetyResult(
             int anchorCount,
             OcValueEvidence.Level valueEvidenceLevel,
             boolean zeroPauseBaselineComparable,
-            boolean pauseCandidateStrictlyBetterThanBaseline) {
+            boolean pauseCandidateStrictlyBetterThanBaseline,
+            boolean balancedPauseCandidateEligible) {
 
         /**
          * 获取聚合后的保证最早释放时间：全部随机组合最早完整释放中的最晚值。

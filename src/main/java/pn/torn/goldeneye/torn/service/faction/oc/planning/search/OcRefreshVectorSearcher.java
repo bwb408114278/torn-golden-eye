@@ -20,7 +20,7 @@ import java.util.Map;
  * 保证同一快照的搜索结果确定。纯内存对象，不访问数据库、HTTP或Redis。
  *
  * <p>搜索阶段只收集候选事实；搜索结束后统一形成全局零新增停转替代基准，
- * 再重建收益级停转候选的最终资格。</p>
+ * 再分别重建收益级与均衡级停转候选的模式资格。</p>
  *
  * @author Bai
  * @version 1.3.0
@@ -87,13 +87,13 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
         }
         OcRefreshSafetyResult.SafeCandidate baseline =
                 VALUE_COMPARATOR.bestZeroPauseBaseline(output.safe());
-        boolean comparisonComplete = isProfitComparisonComplete(output.safe(), timedOut,
-                budget.exhausted(), metrics, baseline);
+        boolean zeroPauseComparisonComplete = isZeroPauseComparisonComplete(output.safe(),
+                timedOut, budget.exhausted(), metrics, baseline);
         List<OcRefreshSafetyResult.SafeCandidate> finalized = finalizeCandidates(output.safe(),
-                comparisonComplete, baseline);
+                zeroPauseComparisonComplete, baseline);
         return new OcVectorSearchOutcome(finalized, timedOut, budget.exhausted(),
                 budget.consumed(), metrics.budgetTruncations(), metrics.alternativesCapHits(),
-                baseline, comparisonComplete);
+                baseline, zeroPauseComparisonComplete);
     }
 
     /**
@@ -162,15 +162,17 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     }
 
     /**
-     * 判断零停转基准集合是否已完成公平比较。
+     * 判断零停转基准比较是否完整。该完整性同时约束均衡级与收益级的
+     * 阶段二资格收敛：任一退化事实存在时两个停转层级的候选都必须fail-closed。
      *
      * @param candidates      阶段一已证明安全候选
      * @param timedOut        是否超时
      * @param budgetExhausted 是否耗尽组合预算
      * @param metrics         搜索遥测
-     * @return 可以进入阶段二统一比较时返回true
+     * @param baseline        阶段二全局零停转基准
+     * @return 零停转基准比较完整时返回true
      */
-    private boolean isProfitComparisonComplete(
+    private boolean isZeroPauseComparisonComplete(
             List<OcRefreshSafetyResult.SafeCandidate> candidates,
             boolean timedOut,
             boolean budgetExhausted,
@@ -193,10 +195,11 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     }
 
     /**
-     * 阶段二重建全部候选的收益级最终资格。
+     * 阶段二重建全部候选的模式级最终资格：收益级候选重建收益严格更优事实，
+     * 均衡级候选重建相对零停转基准的均衡准入事实。
      *
      * @param candidates         阶段一候选事实
-     * @param comparisonComplete 零停转基准集合是否完整
+     * @param comparisonComplete 零停转基准比较是否完整
      * @return 阶段二最终候选
      */
     private List<OcRefreshSafetyResult.SafeCandidate> finalizeCandidates(
@@ -209,27 +212,40 @@ public class OcRefreshVectorSearcher implements OcVectorSearchPort {
     }
 
     /**
-     * 重建单个候选，避免阶段一的收益资格成为最终事实。
+     * 重建单个候选的模式级资格，避免阶段一的粗粒度事实成为最终结论。
+     *
+     * <p>{@code WITHIN_PROFIT}按收益级门禁重建两个收益字段；{@code WITHIN_BALANCED}
+     * 仅在比较完整且基准存在时写入均衡准入，收益级两个字段保留既有含义；
+     * {@code ZERO_PAUSE}与零向量不参与自比较，均衡准入保持false。</p>
      *
      * @param candidate          阶段一候选
      * @param baseline           阶段二全局零停转基准
-     * @param comparisonComplete 零停转基准集合是否完整
+     * @param comparisonComplete 零停转基准比较是否完整
      * @return 阶段二候选
      */
     private OcRefreshSafetyResult.SafeCandidate finalizeCandidate(
             OcRefreshSafetyResult.SafeCandidate candidate,
             OcRefreshSafetyResult.SafeCandidate baseline,
             boolean comparisonComplete) {
-        if (candidate.pauseTier() != OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_PROFIT) {
-            return candidate;
+        if (candidate.pauseTier() == OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_PROFIT) {
+            boolean comparable = comparisonComplete && baseline != null;
+            boolean strictlyBetter = comparable
+                    && VALUE_COMPARATOR.isStrictlyBetterThanZeroPauseBaseline(
+                    candidate, baseline);
+            return new OcRefreshSafetyResult.SafeCandidate(candidate.vector(), candidate.pauseTier(),
+                    candidate.timelineValue(), candidate.anchorCount(), candidate.valueEvidenceLevel(),
+                    comparable, strictlyBetter, false);
         }
-        boolean comparable = comparisonComplete && baseline != null;
-        boolean strictlyBetter = comparable
-                && VALUE_COMPARATOR.isStrictlyBetterThanZeroPauseBaseline(
-                candidate, baseline);
-        return new OcRefreshSafetyResult.SafeCandidate(candidate.vector(), candidate.pauseTier(),
-                candidate.timelineValue(), candidate.anchorCount(), candidate.valueEvidenceLevel(),
-                comparable, strictlyBetter);
+        if (candidate.pauseTier()
+                == OcRefreshSafetyResult.SafeCandidate.PauseTier.WITHIN_BALANCED) {
+            boolean eligible = comparisonComplete && baseline != null
+                    && VALUE_COMPARATOR.isEligibleForBalancedPause(candidate, baseline);
+            return new OcRefreshSafetyResult.SafeCandidate(candidate.vector(), candidate.pauseTier(),
+                    candidate.timelineValue(), candidate.anchorCount(), candidate.valueEvidenceLevel(),
+                    candidate.zeroPauseBaselineComparable(),
+                    candidate.pauseCandidateStrictlyBetterThanBaseline(), eligible);
+        }
+        return candidate;
     }
 
     /**

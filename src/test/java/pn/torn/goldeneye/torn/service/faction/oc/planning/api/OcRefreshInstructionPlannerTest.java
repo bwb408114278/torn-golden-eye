@@ -185,7 +185,7 @@ class OcRefreshInstructionPlannerTest {
                 new OcTimelineValueSummary(null, 10, java.time.Duration.ZERO,
                         java.time.Duration.ZERO, false, NOW.plusHours(2), 8, 2, 1,
                         OcValueEvidence.Level.INSUFFICIENT),
-                1, OcValueEvidence.Level.INSUFFICIENT, false, false);
+                1, OcValueEvidence.Level.INSUFFICIENT, false, false, false);
         OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
                 OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
                 false, Set.of(), List.of(), null, null);
@@ -193,10 +193,36 @@ class OcRefreshInstructionPlannerTest {
                 List.of(candidate), false, 1L, OcSearchTelemetry.empty(), List.of(),
                 null, false);
 
-        OcRefreshInstructionPlanner.ShadowFacts facts = planner().buildShadowFacts(safety);
+        OcRefreshInstructionPlanner.ShadowFacts facts = planner().buildShadowFacts(safety,
+                OcPlanMode.BALANCED);
 
         assertEquals(1, facts.positiveCandidateCount());
         assertFalse(facts.positiveCandidateProven());
+        assertTrue(facts.failClosedOnly());
+    }
+
+    @Test
+    @DisplayName("均衡模式下未准入的均衡级停转候选不得被Shadow标记为已证明")
+    void shouldMarkShadowFailClosedWhenBalancedPauseCandidateNotEligible() {
+        SafeCandidate candidate = new SafeCandidate(new OcRefreshVector(2, 0),
+                SafeCandidate.PauseTier.WITHIN_BALANCED,
+                new OcTimelineValueSummary(null, 10, java.time.Duration.ZERO,
+                        java.time.Duration.ZERO, false, NOW.plusHours(2), 8, 2, 1,
+                        OcValueEvidence.Level.INSUFFICIENT),
+                1, OcValueEvidence.Level.INSUFFICIENT, false, false, false);
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        OcRefreshSafetyResult safety = new OcRefreshSafetyResult(assessment,
+                List.of(candidate), false, 1L, OcSearchTelemetry.empty(), List.of(),
+                null, false);
+
+        OcRefreshInstructionPlanner.ShadowFacts facts = planner().buildShadowFacts(safety,
+                OcPlanMode.BALANCED);
+
+        assertEquals(1, facts.positiveCandidateCount());
+        assertFalse(facts.positiveCandidateProven(),
+                "均衡级停转候选未通过均衡准入时Shadow必须保持fail-closed");
         assertTrue(facts.failClosedOnly());
     }
 

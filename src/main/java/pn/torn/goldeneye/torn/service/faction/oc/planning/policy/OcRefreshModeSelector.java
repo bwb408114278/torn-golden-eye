@@ -73,8 +73,10 @@ public class OcRefreshModeSelector {
     /**
      * 判断候选是否满足指定模式的选择前提。
      *
-     * <p>保守和均衡按停转层级放宽；收益模式的正向量必须具备可用的完整价值证据，
-     * 金额证据不足的候选仅用于匿名说明，不得提高刷新建议。</p>
+     * <p>保守按零停转层级放宽；均衡级主动新增停转必须在阶段二证明相对零停转基准
+     * "价值严格提高或完整释放严格提前"准入后才可参与均衡排序，过滤先于排序发生；
+     * 收益模式的正向量必须具备可用的完整价值证据，金额证据不足的候选仅用于匿名说明，
+     * 不得提高刷新建议。</p>
      *
      * @param candidate          安全候选
      * @param mode               刷新策略模式
@@ -89,7 +91,9 @@ public class OcRefreshModeSelector {
                                       boolean baselineComparable) {
         return switch (mode) {
             case CONSERVATIVE -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE;
-            case BALANCED -> candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_PROFIT;
+            case BALANCED -> candidate.pauseTier() == SafeCandidate.PauseTier.ZERO_PAUSE
+                    || (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_BALANCED
+                    && candidate.balancedPauseCandidateEligible());
             case PROFIT -> withinProfitPolicy(candidate, candidates, zeroPauseBaseline,
                     baselineComparable);
         };
@@ -129,15 +133,21 @@ public class OcRefreshModeSelector {
     }
 
     /**
-     * 判断正向候选是否具备收益模式可用的完整证据。
+     * 判断正向候选是否具备与调用模式一致的已证明资格。
+     *
+     * <p>收益模式下沿用收益级完整门禁；均衡模式下{@code WITHIN_BALANCED}正向候选
+     * 只有在阶段二均衡准入为真时才计为已证明正向停转候选，其余停转层级不得
+     * 借均衡模式提高建议。零停转正向候选的证据判断与模式无关，保持既有逻辑。</p>
      *
      * @param candidate          待判断的正向候选
+     * @param mode               调用方的刷新策略模式
      * @param candidates         当前求解结果中的全部候选
      * @param zeroPauseBaseline  阶段二确定的全局零停转基准
      * @param baselineComparable 全局零停转基准是否具备收益比较条件
-     * @return 证据完整且满足当前候选停转层级的收益资格时返回true
+     * @return 证据完整且满足当前候选停转层级在指定模式下的资格时返回true
      */
     public boolean isPositiveCandidateProven(SafeCandidate candidate,
+                                             OcPlanMode mode,
                                              List<SafeCandidate> candidates,
                                              SafeCandidate zeroPauseBaseline,
                                              boolean baselineComparable) {
@@ -150,6 +160,10 @@ public class OcRefreshModeSelector {
                     && hasCompleteValueEvidence(zeroPauseBaseline)
                     && candidate.zeroPauseBaselineComparable()
                     && candidate.pauseCandidateStrictlyBetterThanBaseline();
+        }
+        if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_BALANCED
+                && mode == OcPlanMode.BALANCED) {
+            return candidate.balancedPauseCandidateEligible();
         }
         return hasComparableEvidence(candidate, candidates);
     }

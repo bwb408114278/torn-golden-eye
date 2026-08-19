@@ -25,6 +25,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class OcRefreshModeSelectorTest {
 
     private final OcRefreshModeSelector selector = new OcRefreshModeSelector();
+    private static final java.time.LocalDateTime NOW =
+            java.time.LocalDateTime.of(2026, 8, 1, 8, 0);
 
     @Test
     @DisplayName("已证明安全向量存在时不得因旧比例取整返回0")
@@ -123,8 +125,9 @@ class OcRefreshModeSelectorTest {
                                 BigDecimal.valueOf(100))),
                 OcProofStatusEnum.PROVEN_SAFE, Set.of());
 
-        assertEquals(new OcRefreshVector(2, 0),
-                selector.select(safety, OcPlanMode.BALANCED));
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety, OcPlanMode.BALANCED),
+                "均衡级停转候选未通过均衡准入时均衡模式必须回落零停转候选");
         assertEquals(new OcRefreshVector(1, 0),
                 selector.select(safety, OcPlanMode.PROFIT));
     }
@@ -239,6 +242,70 @@ class OcRefreshModeSelectorTest {
         assertFalse(selector.economicEvidenceInsufficient(safety.candidates(), selected.orElse(null)));
     }
 
+    @Test
+    @DisplayName("均衡模式下未准入的均衡级停转候选不得因刷新数更多被选中")
+    void shouldNotSelectBalancedTierCandidateWithoutEligibilityInBalancedMode() {
+        OcRefreshSafetyResult safety = result(List.of(
+                        candidate(new OcRefreshVector(2, 0), SafeCandidate.PauseTier.WITHIN_BALANCED,
+                                null, OcValueEvidence.Level.INSUFFICIENT, false),
+                        candidate(new OcRefreshVector(1, 0), SafeCandidate.PauseTier.ZERO_PAUSE,
+                                BigDecimal.valueOf(100))),
+                OcProofStatusEnum.PROVEN_SAFE, Set.of());
+
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety, OcPlanMode.BALANCED),
+                "金额证据缺失且未通过均衡准入的WITHIN_BALANCED候选必须fail-closed到零停转候选");
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety, OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("均衡模式下已准入的均衡级停转候选可按均衡排序胜出")
+    void shouldSelectEligibleBalancedTierCandidateInBalancedMode() {
+        SafeCandidate balanced = balancedCandidate(new OcRefreshVector(2, 0),
+                BigDecimal.valueOf(2000), NOW);
+        SafeCandidate zeroPause = candidate(new OcRefreshVector(1, 0),
+                SafeCandidate.PauseTier.ZERO_PAUSE, BigDecimal.valueOf(100));
+        OcRefreshSafetyResult safety = result(List.of(balanced, zeroPause),
+                OcProofStatusEnum.PROVEN_SAFE, Set.of());
+
+        assertEquals(new OcRefreshVector(2, 0),
+                selector.select(safety, OcPlanMode.BALANCED),
+                "已通过均衡准入的WITHIN_BALANCED候选必须可参与均衡排序");
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety, OcPlanMode.CONSERVATIVE),
+                "均衡级停转候选不得进入保守模式");
+    }
+
+    @Test
+    @DisplayName("均衡模式选择不受候选输入顺序影响")
+    void shouldSelectSameBalancedResultRegardlessOfCandidateOrder() {
+        SafeCandidate balanced = balancedCandidate(new OcRefreshVector(2, 0),
+                BigDecimal.valueOf(2000), NOW);
+        SafeCandidate zeroPause = candidate(new OcRefreshVector(1, 0),
+                SafeCandidate.PauseTier.ZERO_PAUSE, BigDecimal.valueOf(100));
+
+        assertEquals(selector.select(result(List.of(balanced, zeroPause),
+                        OcProofStatusEnum.PROVEN_SAFE, Set.of()), OcPlanMode.BALANCED),
+                selector.select(result(List.of(zeroPause, balanced),
+                        OcProofStatusEnum.PROVEN_SAFE, Set.of()), OcPlanMode.BALANCED));
+    }
+
+    @Test
+    @DisplayName("零停转正向量在均衡模式下不因新增准入退化为零向量")
+    void shouldKeepZeroPausePositiveVectorInBalancedMode() {
+        OcRefreshSafetyResult safety = result(List.of(
+                        candidate(new OcRefreshVector(2, 0), SafeCandidate.PauseTier.ZERO_PAUSE,
+                                null, OcValueEvidence.Level.PRIOR_ONLY, false),
+                        candidate(new OcRefreshVector(2, 0), SafeCandidate.PauseTier.WITHIN_BALANCED,
+                                null, OcValueEvidence.Level.INSUFFICIENT, false)),
+                OcProofStatusEnum.PROVEN_SAFE, Set.of());
+
+        assertEquals(new OcRefreshVector(2, 0),
+                selector.select(safety, OcPlanMode.BALANCED),
+                "零停转正向量不适用均衡准入门禁，必须按既有均衡排序保留");
+    }
+
     private OcRefreshSafetyResult result(List<SafeCandidate> candidates,
                                          OcProofStatusEnum proofStatus,
                                          Set<OcRiskFlagEnum> riskFlags) {
@@ -276,9 +343,34 @@ class OcRefreshModeSelectorTest {
     private SafeCandidate candidate(OcRefreshVector vector,
                                     SafeCandidate.PauseTier tier, BigDecimal value,
                                     OcValueEvidence.Level level, boolean strictlyBetter) {
+        return candidate(vector, tier, value, level, strictlyBetter, false);
+    }
+
+    private SafeCandidate candidate(OcRefreshVector vector,
+                                    SafeCandidate.PauseTier tier, BigDecimal value,
+                                    OcValueEvidence.Level level, boolean strictlyBetter,
+                                    boolean balancedEligible) {
         OcTimelineValueSummary summary = new OcTimelineValueSummary(value, 10,
                 Duration.ZERO, Duration.ZERO, true, null, 8, 2, 1, level);
-        return new SafeCandidate(vector, tier, summary, 1, level, true, strictlyBetter);
+        return new SafeCandidate(vector, tier, summary, 1, level, true, strictlyBetter,
+                balancedEligible);
+    }
+
+    /**
+     * 构造已通过均衡准入的WITHIN_BALANCED候选，携带齐备的共同门禁字段。
+     *
+     * @param vector    刷新向量
+     * @param value     窗口金额价值
+     * @param releaseAt 保证释放时间
+     * @return 已准入的均衡级安全候选
+     */
+    private SafeCandidate balancedCandidate(OcRefreshVector vector, BigDecimal value,
+                                            java.time.LocalDateTime releaseAt) {
+        OcTimelineValueSummary summary = new OcTimelineValueSummary(value, 10,
+                Duration.ofHours(2), Duration.ZERO, false, releaseAt, 8, 2, 1,
+                OcValueEvidence.Level.OBSERVED_REWARD);
+        return new SafeCandidate(vector, SafeCandidate.PauseTier.WITHIN_BALANCED, summary,
+                2, OcValueEvidence.Level.OBSERVED_REWARD, true, false, true);
     }
 
     /**
@@ -296,6 +388,6 @@ class OcRefreshModeSelectorTest {
                 Duration.ZERO, Duration.ZERO, true, null, highestRank, totalMembers,
                 chainNodes, OcValueEvidence.Level.PRIOR_ONLY);
         return new SafeCandidate(vector, SafeCandidate.PauseTier.ZERO_PAUSE, summary, 1,
-                OcValueEvidence.Level.PRIOR_ONLY, true, true);
+                OcValueEvidence.Level.PRIOR_ONLY, true, true, false);
     }
 }

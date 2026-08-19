@@ -149,7 +149,8 @@ public class OcRefreshInstructionPlanner {
                 assessment.proofStatus(), riskFlags, reasonCodes, nextCriticalReleaseAt,
                 pauseAllowed, pauseSelected, pauseSelected ? selectedPauseDuration : null,
                 replanWindow, evidenceLevel, occupancySummary, warnings);
-        logShadow(plan, safety, selected.orElse(null), buildShadowFacts(safety));
+        logShadow(plan, safety, selected.orElse(null),
+                buildShadowFacts(safety, mode));
         return plan;
     }
 
@@ -157,9 +158,10 @@ public class OcRefreshInstructionPlanner {
      * 在主规划流程中一次构造Shadow所需的匿名事实，避免日志层重新执行业务选择规则。
      *
      * @param safety 时间线求解结果
+     * @param mode   本次规划的刷新策略模式
      * @return Shadow匿名事实
      */
-    ShadowFacts buildShadowFacts(OcRefreshSafetyResult safety) {
+    ShadowFacts buildShadowFacts(OcRefreshSafetyResult safety, OcPlanMode mode) {
         SafeCandidate baseline = safety.zeroPauseBaseline();
         int positiveCandidateCount = 0;
         boolean positiveCandidateProven = false;
@@ -168,7 +170,7 @@ public class OcRefreshInstructionPlanner {
                 continue;
             }
             positiveCandidateCount++;
-            positiveCandidateProven |= modeSelector.isPositiveCandidateProven(candidate,
+            positiveCandidateProven |= modeSelector.isPositiveCandidateProven(candidate, mode,
                     safety.candidates(), baseline, safety.baselineComparable());
         }
         return new ShadowFacts(baseline, safety.baselineComparable(),
@@ -297,6 +299,7 @@ public class OcRefreshInstructionPlanner {
                         + "selectedAnchorCount={}, selectedValueEvidenceLevel={}, "
                         + "selectedGuaranteedReleaseAt={}, selectedAvoidableExpiryPressure={}, "
                         + "selectedPauseCandidateStrictlyBetterThanBaseline={}, "
+                        + "selectedBalancedPauseCandidateEligible={}, "
                         + "baselineActualIncrementalMemberDays={}, baselineAnchorCount={}, "
                         + "baselineValueEvidenceLevel={}, baselineGuaranteedReleaseAt={}, "
                         + "baselineAvoidableExpiryPressure={}, zeroPauseBaselineComparable={}, "
@@ -318,6 +321,7 @@ public class OcRefreshInstructionPlanner {
                 selected == null || selected.timelineValue() == null
                         ? null : selected.timelineValue().avoidableExpiryPressure(),
                 selected == null ? null : selected.pauseCandidateStrictlyBetterThanBaseline(),
+                selected == null ? null : selected.balancedPauseCandidateEligible(),
                 selectedMemberDays(baseline), baseline == null ? null : baseline.anchorCount(),
                 baseline == null ? null : baseline.valueEvidenceLevel(),
                 baseline == null ? null : baseline.guaranteedEarliestReleaseAt(),

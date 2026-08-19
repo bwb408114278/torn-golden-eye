@@ -118,6 +118,74 @@ class OcExistingTimelineReconstructionGateTest {
                 "现实后继晚10小时完成时收益级主动停转候选必须被拒绝");
     }
 
+    @Test
+    @DisplayName("搜索阶段二为通过准入的均衡级候选写入均衡资格且均衡模式可选")
+    void shouldAdmitBalancedCandidateAfterSearchWhenValueStrictlyImproves() {
+        OcRefreshSafetyRequest request = requestWithSuccessor(NOW, delayedThirdMember());
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = search(request);
+
+        SafeCandidate balanced = candidate(outcome, 3, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_BALANCED, balanced.pauseTier());
+        assertTrue(balanced.balancedPauseCandidateEligible(),
+                "相对零停转基准价值严格提高时阶段二必须写入均衡准入");
+
+        OcRefreshSafetyResult safety = safety(outcome);
+        assertEquals(new OcRefreshVector(2, 0), safety.zeroPauseBaseline().vector());
+        assertEquals(new OcRefreshVector(3, 0), selector.select(safety, OcPlanMode.BALANCED));
+    }
+
+    @Test
+    @DisplayName("基准证据不足时均衡级候选不得在阶段二获得准入")
+    void shouldFailClosedBalancedCandidateWhenBaselineEvidenceInsufficient() {
+        OcRefreshSafetyRequest request = requestWithSuccessor(NOW, delayedThirdMember());
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome = searchWithInsufficientEvidence(
+                request);
+
+        SafeCandidate balanced = candidate(outcome, 3, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_BALANCED, balanced.pauseTier());
+        assertFalse(balanced.balancedPauseCandidateEligible(),
+                "零停转基准比较不完整时WITHIN_BALANCED必须fail-closed");
+
+        OcRefreshSafetyResult safety = safety(outcome);
+        assertFalse(safety.baselineComparable());
+        assertNotEquals(new OcRefreshVector(3, 0),
+                selector.select(safety, OcPlanMode.BALANCED),
+                "均衡级停转候选不得以更大刷新数提高均衡建议");
+    }
+
+    /**
+     * 构造携带外部创建时间事实且第三名成员延后30小时的成员集合，
+     * 使(3,0)向量稳定落入均衡级停转而(2,0)以内保持零停转。
+     *
+     * @return 候选成员
+     */
+    private List<OcMemberCandidate> delayedThirdMember() {
+        return List.of(
+                member(1L, NOW, Map.of(
+                        OcMemberCandidate.capabilityKey(9, "Child", "Worker"), 90)),
+                member(2L, NOW, Map.of(
+                        OcMemberCandidate.capabilityKey(8, "Alpha", "Worker"), 90)),
+                member(3L, NOW.plusHours(30), Map.of(
+                        OcMemberCandidate.capabilityKey(8, "Alpha", "Worker"), 90)));
+    }
+
+    /**
+     * 以INSUFFICIENT证据执行同一搜索，验证零停转基准不可比时均衡准入fail-closed。
+     *
+     * @param request 匿名求解请求
+     * @return 向量搜索结果
+     */
+    private OcRefreshVectorSearcher.OcVectorSearchOutcome searchWithInsufficientEvidence(
+            OcRefreshSafetyRequest request) {
+        OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(4,
+                new OcTimelineEventScheduler());
+        return searcher.search(request,
+                Map.of(ALPHA_KEY, new OcValueEvidence(OcValueEvidence.Level.INSUFFICIENT,
+                        null, 2, NOW.plusHours(24), false, 8, 2, 1)),
+                System.nanoTime() + Duration.ofSeconds(5).toNanos(),
+                OcProofWindow.valid(NOW.plusDays(7)));
+    }
+
     /**
      * 构造携带单个现实空链后继的匿名求解请求。
      *
@@ -262,7 +330,7 @@ class OcExistingTimelineReconstructionGateTest {
                                     OcTimelineValueSummary summary,
                                     boolean strictlyBetter) {
         return new SafeCandidate(vector, tier, summary, 1,
-                OcValueEvidence.Level.OBSERVED_REWARD, true, strictlyBetter);
+                OcValueEvidence.Level.OBSERVED_REWARD, true, strictlyBetter, false);
     }
 
     private OcTimelineValueSummary zeroDelaySummary() {

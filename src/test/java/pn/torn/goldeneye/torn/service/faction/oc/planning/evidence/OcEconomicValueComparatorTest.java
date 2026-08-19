@@ -243,7 +243,7 @@ class OcEconomicValueComparatorTest {
         SafeCandidate positive = new SafeCandidate(new OcRefreshVector(1, 0),
                 SafeCandidate.PauseTier.ZERO_PAUSE,
                 summary(BigDecimal.valueOf(200), 10, false, NOW), 2,
-                OcValueEvidence.Level.OBSERVED_REWARD, true, true);
+                OcValueEvidence.Level.OBSERVED_REWARD, true, true, false);
 
         assertEquals(positive, comparator.bestZeroPauseBaseline(List.of(fallback, positive)));
     }
@@ -313,6 +313,135 @@ class OcEconomicValueComparatorTest {
         assertNull(comparator.bestZeroPauseBaseline(List.of(candidate)));
     }
 
+    @Test
+    @DisplayName("均衡停转候选价值更低且释放更晚时必须拒绝准入")
+    void shouldRejectBalancedPauseCandidateWithLowerValueAndLaterRelease() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(200), 10,
+                false, NOW.plusHours(1));
+
+        assertFalse(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("均衡停转候选金额不可比较且释放相同时必须拒绝准入")
+    void shouldRejectBalancedPauseCandidateWhenValueIncomparableAndReleaseEqual() {
+        OcTimelineValueSummary baseline = summary(null, 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10, false, NOW);
+
+        assertFalse(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("双方金额缺失且先验不可比时均衡准入必须fail-closed")
+    void shouldRejectBalancedPauseCandidateWhenPriorNotComparable() {
+        OcTimelineValueSummary baseline = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 0, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+        OcTimelineValueSummary candidate = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 9, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+
+        assertFalse(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("均衡停转候选价值严格提高且共同门禁不差时允许准入")
+    void shouldAdmitBalancedPauseCandidateWithStrictValueImprovement() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 100, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10, false, NOW);
+
+        assertTrue(balanced(candidate, 2, baseline, 2),
+                "均衡准入只按金额严格提高判断，不适用单位成员人天门禁");
+    }
+
+    @Test
+    @DisplayName("双方金额缺失但完整先验严格更优时均衡准入按先验允许")
+    void shouldAdmitBalancedPauseCandidateByPriorWhenValuesMissing() {
+        OcTimelineValueSummary baseline = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 8, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+        OcTimelineValueSummary candidate = new OcTimelineValueSummary(null, 10,
+                Duration.ZERO, Duration.ZERO, false, NOW, 9, 2, 1,
+                OcValueEvidence.Level.PRIOR_ONLY);
+
+        assertTrue(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("金额不可比较但完整释放严格提前时均衡准入允许")
+    void shouldAdmitBalancedPauseCandidateWhenReleaseStrictlyEarlier() {
+        OcTimelineValueSummary baseline = summary(null, 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10,
+                false, NOW.minusHours(1));
+
+        assertTrue(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("均衡停转候选价值更高但既有义务延后时必须拒绝")
+    void shouldRejectBalancedPauseCandidateThatDelaysExistingObligation() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10, false, NOW);
+        OcTimelineValueSummary candidate = new OcTimelineValueSummary(BigDecimal.valueOf(500),
+                10, Duration.ofHours(2), Duration.ofHours(10), false, NOW, 8, 2, 1,
+                OcValueEvidence.Level.OBSERVED_REWARD);
+
+        assertFalse(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("均衡停转候选价值更高但新增可避免过期时必须拒绝")
+    void shouldRejectBalancedPauseCandidateWhenExpiryPressureWorsens() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10, true, NOW);
+
+        assertFalse(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("均衡停转候选价值更高但锚点减少时必须拒绝")
+    void shouldRejectBalancedPauseCandidateWhenAnchorCountDrops() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10, false, NOW);
+
+        assertFalse(balanced(candidate, 1, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("均衡停转候选价值相同且释放相同时必须拒绝准入")
+    void shouldRejectBalancedPauseCandidateWithoutStrictImprovement() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(300), 10, false, NOW);
+
+        assertFalse(balanced(candidate, 2, baseline, 2));
+    }
+
+    @Test
+    @DisplayName("非均衡级候选或非零停转基准不得进入均衡准入判断")
+    void shouldRejectBalancedAdmissionForWrongTierInputs() {
+        OcTimelineValueSummary baseline = summary(BigDecimal.valueOf(300), 10, false, NOW);
+        OcTimelineValueSummary candidate = summary(BigDecimal.valueOf(500), 10, false, NOW);
+
+        assertFalse(comparator.isEligibleForBalancedPause(null, null));
+        assertFalse(comparator.isEligibleForBalancedPause(
+                        safeCandidate(candidate, 2, SafeCandidate.PauseTier.WITHIN_PROFIT),
+                        safeCandidate(baseline, 2, SafeCandidate.PauseTier.ZERO_PAUSE)),
+                "收益级候选不得借均衡准入绕过单位成员人天门禁");
+        assertFalse(comparator.isEligibleForBalancedPause(
+                        safeCandidate(candidate, 2, SafeCandidate.PauseTier.WITHIN_BALANCED),
+                        safeCandidate(baseline, 2, SafeCandidate.PauseTier.WITHIN_BALANCED)),
+                "基准停转层级不为零时必须拒绝");
+    }
+
+    private boolean balanced(OcTimelineValueSummary candidate, int candidateAnchors,
+                             OcTimelineValueSummary baseline, int baselineAnchors) {
+        return comparator.isEligibleForBalancedPause(
+                safeCandidate(candidate, candidateAnchors,
+                        SafeCandidate.PauseTier.WITHIN_BALANCED),
+                safeCandidate(baseline, baselineAnchors,
+                        SafeCandidate.PauseTier.ZERO_PAUSE));
+    }
+
     private boolean strict(OcTimelineValueSummary candidate, int candidateAnchors,
                            OcTimelineValueSummary baseline, int baselineAnchors) {
         return comparator.isStrictlyBetterThanZeroPauseBaseline(
@@ -334,6 +463,6 @@ class OcEconomicValueComparatorTest {
     private SafeCandidate candidate(OcRefreshVector vector, OcTimelineValueSummary summary,
                                     int anchorCount, SafeCandidate.PauseTier pauseTier) {
         return new SafeCandidate(vector, pauseTier, summary, anchorCount,
-                summary.evidenceLevel(), true, true);
+                summary.evidenceLevel(), true, true, false);
     }
 }

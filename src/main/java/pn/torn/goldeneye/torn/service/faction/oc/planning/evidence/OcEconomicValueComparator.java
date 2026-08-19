@@ -116,7 +116,7 @@ public class OcEconomicValueComparator {
         OcTimelineValueSummary candidateValue = candidate.timelineValue();
         OcTimelineValueSummary baselineValue = baseline.timelineValue();
         if (!hasSufficientEvidence(candidate, baseline)
-                || !passesMinimumImprovementGates(candidate, baseline)) {
+                || !passesCommonMinimumGates(candidate, baseline)) {
             return false;
         }
         if (candidateValue.monetaryValue() != null && baselineValue.monetaryValue() != null) {
@@ -187,6 +187,58 @@ public class OcEconomicValueComparator {
         return Integer.compare(right.vector().highCount(), left.vector().highCount());
     }
 
+    /**
+     * 判断均衡级停转候选是否通过相对全局零停转基准的准入。
+     *
+     * <p>仅接受{@code WITHIN_BALANCED}候选与{@code ZERO_PAUSE}基准；先复用与收益级
+     * 相同的共同最低门禁（既有义务不延后、不新增可避免过期、锚点不减少、保证释放
+     * 不延后），再要求"业务价值严格提高OR保证完整释放严格提前"至少一项成立。
+     * 不适用收益级的单位成员人天严格提高门禁；金额不可比较不会阻断"完整释放
+     * 严格提前"这条独立路径，但金额不可比较且释放未严格提前时必须拒绝。</p>
+     *
+     * @param candidate 均衡级停转候选
+     * @param baseline  全局零停转基准候选
+     * @return 通过共同最低门禁且价值严格提高或完整释放严格提前时返回true
+     */
+    public boolean isEligibleForBalancedPause(SafeCandidate candidate, SafeCandidate baseline) {
+        if (candidate == null || baseline == null
+                || candidate.pauseTier() != SafeCandidate.PauseTier.WITHIN_BALANCED
+                || baseline.pauseTier() != SafeCandidate.PauseTier.ZERO_PAUSE
+                || candidate.timelineValue() == null || baseline.timelineValue() == null) {
+            return false;
+        }
+        if (!hasSufficientEvidence(candidate, baseline)
+                || !passesCommonMinimumGates(candidate, baseline)) {
+            return false;
+        }
+        OcTimelineValueSummary candidateValue = candidate.timelineValue();
+        OcTimelineValueSummary baselineValue = baseline.timelineValue();
+        boolean valueStrictlyImproved = hasStrictValueImprovement(candidateValue, baselineValue);
+        boolean releaseStrictlyEarlier = candidateValue.guaranteedReleaseAt()
+                .isBefore(baselineValue.guaranteedReleaseAt());
+        return valueStrictlyImproved || releaseStrictlyEarlier;
+    }
+
+    /**
+     * 判断均衡准入中的业务价值是否严格提高：双方金额均可用时按金额严格大于；
+     * 双方金额均缺失且先验完整可比时按固定先验顺序严格更优；其余情况均为否。
+     *
+     * @param candidateValue 候选时间线价值摘要
+     * @param baselineValue  基准时间线价值摘要
+     * @return 价值严格提高时返回true
+     */
+    private boolean hasStrictValueImprovement(OcTimelineValueSummary candidateValue,
+                                              OcTimelineValueSummary baselineValue) {
+        if (candidateValue.monetaryValue() != null && baselineValue.monetaryValue() != null) {
+            return candidateValue.monetaryValue().compareTo(baselineValue.monetaryValue()) > 0;
+        }
+        if (candidateValue.monetaryValue() == null && baselineValue.monetaryValue() == null
+                && priorComparable(candidateValue, baselineValue)) {
+            return compareTimelineValue(candidateValue, baselineValue) < 0;
+        }
+        return false;
+    }
+
     private boolean hasSufficientEvidence(SafeCandidate candidate, SafeCandidate baseline) {
         return candidate.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
                 && baseline.valueEvidenceLevel() != OcValueEvidence.Level.INSUFFICIENT
@@ -194,8 +246,17 @@ public class OcEconomicValueComparator {
                 && baseline.timelineValue().evidenceLevel() != OcValueEvidence.Level.INSUFFICIENT;
     }
 
-    private boolean passesMinimumImprovementGates(SafeCandidate candidate,
-                                                  SafeCandidate baseline) {
+    /**
+     * 收益级与均衡级候选共用的最低改进门禁：双方既有义务延迟可证明且候选不延后、
+     * 基准无可避免过期时候选不得新增、候选锚点不减少、双方保证释放齐备且候选不延后。
+     * 该校验只表达共同最低前提，不是任何模式的价值结论。
+     *
+     * @param candidate 停转候选
+     * @param baseline  全局零停转基准候选
+     * @return 全部共同最低门禁满足时返回true
+     */
+    private boolean passesCommonMinimumGates(SafeCandidate candidate,
+                                             SafeCandidate baseline) {
         OcTimelineValueSummary candidateValue = candidate.timelineValue();
         OcTimelineValueSummary baselineValue = baseline.timelineValue();
         if (candidateValue.hasUnprovableExistingObligationDelay()
