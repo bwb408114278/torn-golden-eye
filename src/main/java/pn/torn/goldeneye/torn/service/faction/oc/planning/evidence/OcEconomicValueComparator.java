@@ -164,7 +164,7 @@ public class OcEconomicValueComparator {
     }
 
     /**
-     * 比较零停转基准候选，补充候选级锚点和刷新向量稳定决胜。
+     * 比较零停转基准候选：完整时间线价值优先，价值不可区分时落到候选级稳定决胜。
      *
      * @param left  左候选
      * @param right 右候选
@@ -175,6 +175,19 @@ public class OcEconomicValueComparator {
         if (valueResult != 0) {
             return valueResult;
         }
+        return compareStableTieBreak(left, right);
+    }
+
+    /**
+     * 比较两个安全候选的候选级稳定决胜字段：已证明流动性锚点数量（多者优先）、
+     * 普通池刷新次数（多者优先）、高阶池刷新次数（多者优先）。
+     * 零停转基准遴选与模式排序器共用该决胜链，避免两处各自维护导致漂移。
+     *
+     * @param left  左候选
+     * @param right 右候选
+     * @return 左候选更优时返回负数
+     */
+    public int compareStableTieBreak(SafeCandidate left, SafeCandidate right) {
         int anchorResult = Integer.compare(right.anchorCount(), left.anchorCount());
         if (anchorResult != 0) {
             return anchorResult;

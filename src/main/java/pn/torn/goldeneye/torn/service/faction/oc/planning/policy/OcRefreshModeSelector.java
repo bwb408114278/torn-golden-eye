@@ -276,6 +276,7 @@ public class OcRefreshModeSelector {
 
     /**
      * 保守模式：更大已证明联合向量 → 更强流动性余量 → 普通池优先 → 稳定tie-break。
+     * 联合向量之外的决胜链复用价值比较器的候选级稳定决胜，取负适配排序器方向。
      *
      * @return 保守模式排序器
      */
@@ -286,14 +287,7 @@ public class OcRefreshModeSelector {
             if (total != 0) {
                 return total;
             }
-            int anchors = Integer.compare(left.anchorCount(), right.anchorCount());
-            if (anchors != 0) {
-                return anchors;
-            }
-            int normal = Integer.compare(left.vector().normalCount(),
-                    right.vector().normalCount());
-            return normal != 0 ? normal
-                    : Integer.compare(left.vector().highCount(), right.vector().highCount());
+            return -valueComparator.compareStableTieBreak(left, right);
         };
     }
 
