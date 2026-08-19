@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcMapper;
+import pn.torn.goldeneye.repository.model.faction.oc.OcRankNameKey;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 
 import java.util.Collection;
@@ -14,7 +15,7 @@ import java.util.List;
  * Torn Oc持久层类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.3.0
  * @since 2025.07.29
  */
 @Repository
@@ -30,6 +31,20 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         }
 
         baseMapper.deleteByIdList(idList);
+    }
+
+    /**
+     * 按OC等级和名称成对条件批量查询已完成状态的历史OC记录
+     *
+     * @param keys OC等级与名称参数对集合
+     * @return 已完成状态的历史OC记录；键为空时返回空集合
+     */
+    public List<TornFactionOcDO> queryCompletedByOcKeys(Collection<OcRankNameKey> keys) {
+        if (CollectionUtils.isEmpty(keys)) {
+            return List.of();
+        }
+
+        return baseMapper.selectCompletedByOcKeys(keys);
     }
 
     /**

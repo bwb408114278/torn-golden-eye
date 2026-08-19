@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_oc_torn_created_at
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: torn_created_at
+                  type: TIMESTAMP
+                  remarks: "Torn权威OC创建时间（API create_at映射的外部事实），缺失时规划按不可证明处理"

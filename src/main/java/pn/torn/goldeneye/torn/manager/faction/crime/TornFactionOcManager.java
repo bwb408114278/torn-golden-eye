@@ -31,7 +31,7 @@ import java.util.Map;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.0
  * @since 2025.08.08
  */
 @Component
@@ -170,6 +170,12 @@ public class TornFactionOcManager {
 
     /**
      * 更新可用OC
+     *
+     * <p>除阶段时间外，同步时还须保持Torn权威创建时间（create_at）事实：
+     * 历史行缺失该外部事实时按本次API响应回填；API缺失时不清空已有事实。</p>
+     *
+     * @param factionId 帮派ID
+     * @param ocList    可用OC列表
      */
     public void updateAvailableOcData(long factionId, List<TornFactionCrimeVO> ocList) {
         if (CollectionUtils.isEmpty(ocList)) {
@@ -180,12 +186,16 @@ public class TornFactionOcManager {
         List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(factionId, ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
             LocalDateTime readyTime = DateTimeUtils.convertToDateTime(oc.getReadyAt());
+            LocalDateTime tornCreatedAt = DateTimeUtils.convertToDateTime(oc.getCreateAt());
             boolean isDiff = oldDataList.stream().noneMatch(old ->
                     old.getId().equals(oc.getId()) && readyTime != null && readyTime.equals(old.getReadyTime()));
-            if (isDiff) {
+            boolean missingTornCreatedAt = tornCreatedAt != null && oldDataList.stream().anyMatch(old ->
+                    old.getId().equals(oc.getId()) && old.getTornCreatedAt() == null);
+            if (isDiff || missingTornCreatedAt) {
                 ocDao.lambdaUpdate()
                         .set(TornFactionOcDO::getReadyTime, readyTime)
                         .set(TornFactionOcDO::getStatus, oc.getStatus())
+                        .set(tornCreatedAt != null, TornFactionOcDO::getTornCreatedAt, tornCreatedAt)
                         .eq(TornFactionOcDO::getId, oc.getId())
                         .update();
             }

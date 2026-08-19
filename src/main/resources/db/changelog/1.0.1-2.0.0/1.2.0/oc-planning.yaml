@@ -381,3 +381,13 @@ databaseChangeLog:
                   remarks: "收益模式使用的安全刷新容量比例"
                   constraints:
                     nullable: false
+
+  - changeSet:
+      id: add_oc_planning_reward_rank_name_index
+      author: Bai
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: CREATE INDEX idx_faction_oc_rank_name_completed
+                 ON torn_faction_oc ("rank", name)
+                 WHERE deleted = 0 AND status IN ('Successful', 'Failure')

@@ -1,0 +1,583 @@
+package pn.torn.goldeneye.torn.service.faction.oc.planning.timeline;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshSafetyResult.SafeCandidate;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.evidence.OcEconomicValueComparator;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.policy.OcRefreshModeSelector;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.search.OcRefreshVectorSearcher;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler.CandidateRoot;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.timeline.OcTimelineEventScheduler.SimulationResult;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.LongStream;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * 时间线价值累积器真实既有义务完成延迟测试。直接构造已完成 {@link OcTimelineState}，
+ * 走真实累积器产出延迟，再经组合评估与模式选点器验证收益 fail-closed 行为。
+ *
+ * @author Bai
+ * @version 1.3.0
+ * @since 2026.08.15
+ */
+@DisplayName("时间线价值累积器既有义务延迟")
+class OcTimelineValueAccumulatorTest {
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 1, 8, 0);
+    private static final Duration TEN_HOURS = Duration.ofHours(10);
+
+    private final OcTimelineValueAccumulator accumulator = new OcTimelineValueAccumulator();
+    private final OcRefreshModeSelector selector = new OcRefreshModeSelector();
+
+    @Test
+    @DisplayName("计划内无人OC过期事实必须正向写入可避免过期压力")
+    void shouldPreservePlannedEmptyExpiryPressure() {
+        OcTimelineValueSummary expired = accumulator.accumulate(newState(), true,
+                emptyRequest());
+        OcTimelineValueSummary safe = accumulator.accumulate(newState(), false,
+                emptyRequest());
+
+        assertTrue(expired.avoidableExpiryPressure());
+        assertFalse(safe.avoidableExpiryPressure());
+    }
+
+    @Test
+    @DisplayName("收益级停转使既有C晚10小时完成时真实累积器必须产出10小时延迟")
+    void shouldAccumulateTenHourExistingObligationDelay() {
+        OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        LocalDateTime baseline = NOW.plusHours(30);
+        LocalDateTime actual = baseline.plus(TEN_HOURS);
+        OcTimelineValueSummary summary = accumulate(existing, actual);
+
+        assertEquals(TEN_HOURS, summary.existingObligationDelay());
+    }
+
+    @Test
+    @DisplayName("既有C按无主动停转原时间完成时真实累积器必须产出零延迟")
+    void shouldAccumulateZeroExistingObligationDelay() {
+        OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        LocalDateTime baseline = NOW.plusHours(30);
+        OcTimelineValueSummary summary = accumulate(existing, baseline);
+
+        assertEquals(Duration.ZERO, summary.existingObligationDelay());
+    }
+
+    @Test
+    @DisplayName("既有义务基准完成时间不可证明时真实累积器必须返回不可比较哨兵")
+    void shouldReturnUnprovableSentinelWhenBaselineCannotBeProved() {
+        OcTimelineObligation existing = joinedObligation(1L, null, 2, 1);
+        OcTimelineValueSummary summary = accumulate(existing, NOW.plusHours(40));
+
+        assertTrue(summary.hasUnprovableExistingObligationDelay());
+        assertEquals(OcTimelineValueSummary.UNPROVEN_OBLIGATION_DELAY,
+                summary.existingObligationDelay());
+    }
+
+    @Test
+    @DisplayName("真实累积器产出10小时延迟时收益模式必须拒绝该收益级正向量")
+    void shouldRejectProfitVectorWhenRealAccumulatorProducesDelay() {
+        OcTimelineValueSummary baseline = zeroDelaySummary();
+        OcTimelineValueSummary profit = tenHourDelaySummary();
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(baseline, BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(profit, BigDecimal.valueOf(1000)),
+                                false)));
+
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety, OcPlanMode.PROFIT),
+                "名义奖励更高但真实延迟10小时的收益级停转候选必须被拒绝");
+    }
+
+    @Test
+    @DisplayName("真实累积器不产出延迟且完整价值严格更优时收益模式允许选择")
+    void shouldAcceptProfitVectorWhenRealAccumulatorProducesNoDelay() {
+        OcTimelineValueSummary baseline = zeroDelaySummary();
+        OcTimelineValueSummary profit = zeroDelaySummary();
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(baseline, BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(profit, BigDecimal.valueOf(1000)),
+                                true)));
+
+        assertEquals(new OcRefreshVector(2, 0),
+                selector.select(safety, OcPlanMode.PROFIT),
+                "不延后既有义务且价值严格更优的收益级停转候选必须可选");
+    }
+
+    @Test
+    @DisplayName("真实累积器基准不可证明时收益级停转候选必须fail-closed")
+    void shouldFailClosedWhenRealAccumulatorCannotProveBaseline() {
+        OcTimelineValueSummary baseline = zeroDelaySummary();
+        OcTimelineValueSummary profit = unprovableDelaySummary();
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(baseline, BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(profit, BigDecimal.valueOf(1000)),
+                                false)));
+
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety, OcPlanMode.PROFIT),
+                "基准完成时间不可证明时收益级停转候选不得提高建议");
+    }
+
+    @Test
+    @DisplayName("前置根晚完成10小时时动态链后继也晚完成10小时必须计入最大延迟并拒绝收益候选")
+    void shouldAccumulateDynamicChainSuccessorDelayFromDelayedRoot() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        LocalDateTime rootBaseline = NOW.plusHours(30);
+        LocalDateTime rootActual = rootBaseline.plus(TEN_HOURS);
+        String childKey = "oc:1->1:9:Child";
+        OcTeamDemand childDemand = chainSuccessorDemand(2, 0);
+        LocalDateTime childActual = rootActual.plusHours(48).plus(TEN_HOURS);
+        OcTimelineValueSummary summary = accumulateDynamicChain(root, rootActual,
+                childKey, childDemand, childActual, true, true);
+
+        assertEquals(TEN_HOURS, summary.existingObligationDelay());
+
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(zeroDelaySummary(), BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(summary, BigDecimal.valueOf(1000)),
+                                false)));
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
+                "根与动态链后继均延迟10小时时收益级停转候选必须被拒绝");
+    }
+
+    @Test
+    @DisplayName("请求中已有链后继使用predecessorCompletedAt且不晚于理想完成时输出零")
+    void shouldUsePredecessorCompletedAtForRequestedChainSuccessor() {
+        OcTimelineObligation successor = chainSuccessorObligation("oc:2", NOW, 2, 1);
+        OcTimelineValueSummary summary = accumulate(successor, NOW.plusHours(24));
+
+        assertEquals(Duration.ZERO, summary.existingObligationDelay());
+    }
+
+    @Test
+    @DisplayName("链后继缺少生成事件/前置时间/完成锚点时必须不可证明且收益模式不提高")
+    void shouldFailClosedWhenChainSuccessorBaselineCannotBeProved() {
+        assertUnprovableChain(missingGeneratedEventSummary());
+        assertUnprovableChain(missingPredecessorSummary());
+        assertUnprovableChain(missingCompletionAnchorSummary());
+    }
+
+    @Test
+    @DisplayName("根无延迟但链后继晚完成10小时仍必须被拒绝")
+    void shouldRejectWhenOnlyChainSuccessorDelayed() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        LocalDateTime rootActual = NOW.plusHours(30);
+        String childKey = "oc:1->1:9:Child";
+        OcTeamDemand childDemand = chainSuccessorDemand(2, 0);
+        LocalDateTime childActual = rootActual.plusHours(48).plus(TEN_HOURS);
+        OcTimelineValueSummary summary = accumulateDynamicChain(root, rootActual,
+                childKey, childDemand, childActual, true, true);
+
+        assertEquals(TEN_HOURS, summary.existingObligationDelay());
+        assertFalse(summary.hasUnprovableExistingObligationDelay());
+
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(zeroDelaySummary(), BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(summary, BigDecimal.valueOf(1000)),
+                                false)));
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
+                "根无延迟但链后继延迟时仍不得选择收益级停转候选");
+    }
+
+    private OcTimelineValueSummary accumulateDynamicChain(OcTimelineObligation root,
+                                                          LocalDateTime rootActual,
+                                                          String childKey,
+                                                          OcTeamDemand childDemand,
+                                                          LocalDateTime childActual,
+                                                          boolean withGeneratedEvent,
+                                                          boolean withChildAnchor) {
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(List.of(), Set.of(),
+                List.of(root), Map.of(), List.of(), List.of(), NOW);
+        OcTimelineState state = new OcTimelineState(request);
+        state.addAnchor(new OcLiquidityAnchor(root.key(), rootActual, 2, false));
+        state.addEvent(new OcTimelineEvent(rootActual,
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, root.key()));
+        state.addChainSuccessorDemand(childKey, childDemand);
+        if (withGeneratedEvent) {
+            state.addEvent(new OcTimelineEvent(rootActual,
+                    OcTimelineEvent.EventType.CHAIN_SUCCESSOR_GENERATED, childKey));
+        }
+        if (withChildAnchor) {
+            state.addAnchor(new OcLiquidityAnchor(childKey, childActual, 2, false));
+            state.addEvent(new OcTimelineEvent(childActual,
+                    OcTimelineEvent.EventType.COMPLETION_RELEASE, childKey));
+        }
+        return accumulator.accumulate(state, false, request);
+    }
+
+    private OcTimelineValueSummary missingGeneratedEventSummary() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        String childKey = "oc:1->1:9:Child";
+        return accumulateDynamicChain(root, NOW.plusHours(30), childKey,
+                chainSuccessorDemand(2, 0), NOW.plusHours(78), false, true);
+    }
+
+    private OcTimelineValueSummary missingPredecessorSummary() {
+        OcTimelineObligation successor = chainSuccessorObligation("oc:2", null, 2, 0);
+        return accumulate(successor, NOW.plusHours(48));
+    }
+
+    private OcTimelineValueSummary missingCompletionAnchorSummary() {
+        OcTimelineObligation root = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        String childKey = "oc:1->1:9:Child";
+        return accumulateDynamicChain(root, NOW.plusHours(30), childKey,
+                chainSuccessorDemand(2, 0), NOW.plusHours(78), true, false);
+    }
+
+    private void assertUnprovableChain(OcTimelineValueSummary summary) {
+        assertTrue(summary.hasUnprovableExistingObligationDelay());
+        assertEquals(OcTimelineValueSummary.UNPROVEN_OBLIGATION_DELAY,
+                summary.existingObligationDelay());
+
+        OcRefreshSafetyResult safety = safety(
+                List.of(
+                        candidate(new OcRefreshVector(1, 0),
+                                SafeCandidate.PauseTier.ZERO_PAUSE,
+                                withValue(zeroDelaySummary(), BigDecimal.valueOf(100)),
+                                true),
+                        candidate(new OcRefreshVector(2, 0),
+                                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                                withValue(summary, BigDecimal.valueOf(1000)),
+                                false)));
+        assertEquals(new OcRefreshVector(1, 0), selector.select(safety, OcPlanMode.PROFIT),
+                "链后继基准不可证明时收益级停转候选不得提高建议");
+    }
+
+    private OcTimelineObligation chainSuccessorObligation(String key,
+                                                          LocalDateTime predecessorCompletedAt,
+                                                          int totalSlots,
+                                                          int joinedCount) {
+        List<OcPlanSlot> slots = IntStream.range(0, totalSlots)
+                .mapToObj(index -> new OcPlanSlot("Worker#" + index, "Worker", 60, 1, null))
+                .toList();
+        Set<String> fixedSlotCodes = IntStream.range(0, joinedCount)
+                .mapToObj(index -> "Worker#" + index)
+                .collect(Collectors.toSet());
+        Set<Long> fixedMemberIds = LongStream.range(1, joinedCount + 1)
+                .boxed().collect(Collectors.toSet());
+        OcTeamDemand demand = new OcTeamDemand(0L, "Child", 9, null, NOW.plusDays(7),
+                true, slots, fixedSlotCodes, fixedMemberIds);
+        return new OcTimelineObligation(key,
+                OcTimelineObligation.ObligationKind.COMMITTED_CHAIN_SUCCESSOR, demand,
+                demand.expiresAt(), predecessorCompletedAt);
+    }
+
+    private OcTeamDemand chainSuccessorDemand(int totalSlots, int joinedCount) {
+        return chainSuccessorObligation("dummy", NOW, totalSlots, joinedCount).demand();
+    }
+
+    private OcTimelineValueSummary accumulate(OcTimelineObligation obligation,
+                                              LocalDateTime actualCompletion) {
+        OcRefreshSafetyRequest request = new OcRefreshSafetyRequest(List.of(), Set.of(),
+                List.of(obligation), Map.of(), List.of(), List.of(), NOW);
+        OcTimelineState state = new OcTimelineState(request);
+        state.addAnchor(new OcLiquidityAnchor(obligation.key(), actualCompletion, 2, false));
+        state.addEvent(new OcTimelineEvent(actualCompletion,
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, obligation.key()));
+        return accumulator.accumulate(state, false, request);
+    }
+
+    private OcTimelineObligation joinedObligation(long ocId, LocalDateTime readyAt,
+                                                  int totalSlots, int joinedCount) {
+        List<OcPlanSlot> slots = IntStream.range(0, totalSlots)
+                .mapToObj(index -> new OcPlanSlot("Worker#" + index, "Worker", 60, 1, null))
+                .toList();
+        Set<String> fixedSlotCodes = IntStream.range(0, joinedCount)
+                .mapToObj(index -> "Worker#" + index)
+                .collect(Collectors.toSet());
+        Set<Long> fixedMemberIds = LongStream.range(1, joinedCount + 1)
+                .boxed().collect(Collectors.toSet());
+        OcTeamDemand demand = new OcTeamDemand(ocId, "C", 8, readyAt, null, false,
+                slots, fixedSlotCodes, fixedMemberIds);
+        return new OcTimelineObligation("oc:" + ocId,
+                OcTimelineObligation.ObligationKind.EXISTING_JOINED, demand, null, null);
+    }
+
+    private OcTimelineValueSummary zeroDelaySummary() {
+        OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        return accumulate(existing, NOW.plusHours(30));
+    }
+
+    private OcTimelineValueSummary tenHourDelaySummary() {
+        OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        return accumulate(existing, NOW.plusHours(40));
+    }
+
+    private OcTimelineValueSummary unprovableDelaySummary() {
+        OcTimelineObligation existing = joinedObligation(1L, null, 2, 1);
+        return accumulate(existing, NOW.plusHours(40));
+    }
+
+    private OcTimelineValueSummary withValue(OcTimelineValueSummary summary,
+                                             BigDecimal value) {
+        return new OcTimelineValueSummary(value,
+                summary.actualIncrementalMemberDays(),
+                summary.actualNewPause(),
+                summary.existingObligationDelay(),
+                summary.avoidableExpiryPressure(),
+                summary.guaranteedReleaseAt(),
+                8, 2, 1,
+                OcValueEvidence.Level.OBSERVED_REWARD);
+    }
+
+    private SafeCandidate candidate(OcRefreshVector vector,
+                                    SafeCandidate.PauseTier tier,
+                                    OcTimelineValueSummary summary,
+                                    boolean strictlyBetter) {
+        return new SafeCandidate(vector, tier, summary, 1,
+                OcValueEvidence.Level.OBSERVED_REWARD, true, strictlyBetter, false);
+    }
+
+    private OcRefreshSafetyResult safety(List<SafeCandidate> candidates) {
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        SafeCandidate baseline = new OcEconomicValueComparator().bestZeroPauseBaseline(candidates);
+        return new OcRefreshSafetyResult(assessment, candidates, false, 1L,
+                OcSearchTelemetry.empty(), List.of(), baseline, baseline != null);
+    }
+
+    private OcRefreshSafetyResult safety(OcRefreshVectorSearcher.OcVectorSearchOutcome outcome) {
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        return new OcRefreshSafetyResult(assessment, outcome.candidates(), false, 1L,
+                OcSearchTelemetry.empty(), List.of(), outcome.zeroPauseBaseline(),
+                outcome.baselineComparable());
+    }
+
+    @Test
+    @DisplayName("真实累积器延迟进入组合评估后收益级正向量必须被拒绝")
+    void shouldRejectProfitVectorThroughEvaluatorWhenRealAccumulatorDelays() {
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome =
+                searchThroughEvaluator(true, false);
+
+        SafeCandidate profit = candidateFrom(outcome, 1, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, profit.pauseTier());
+        assertFalse(profit.pauseCandidateStrictlyBetterThanBaseline(),
+                "真实延迟10小时进入组合评估后不得标记为严格优于零停转基准");
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(safety(outcome), OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("真实累积器无延迟且价值更优时组合评估允许收益级正向量")
+    void shouldAcceptProfitVectorThroughEvaluatorWhenRealAccumulatorNoDelay() {
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome =
+                searchThroughEvaluator(false, false);
+
+        SafeCandidate profit = candidateFrom(outcome, 1, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, profit.pauseTier());
+        assertTrue(profit.pauseCandidateStrictlyBetterThanBaseline(),
+                "真实零延迟且价值更优时组合评估必须标记严格更优");
+        assertEquals(new OcRefreshVector(1, 0),
+                selector.select(safety(outcome), OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("真实累积器基准不可证明进入组合评估后收益级正向量必须fail-closed")
+    void shouldFailClosedThroughEvaluatorWhenRealAccumulatorUnprovable() {
+        OcRefreshVectorSearcher.OcVectorSearchOutcome outcome =
+                searchThroughEvaluator(false, true);
+
+        SafeCandidate profit = candidateFrom(outcome, 1, 0);
+        assertEquals(SafeCandidate.PauseTier.WITHIN_PROFIT, profit.pauseTier());
+        assertFalse(profit.pauseCandidateStrictlyBetterThanBaseline(),
+                "基准不可证明时组合评估不得标记严格更优");
+        assertEquals(new OcRefreshVector(0, 0),
+                selector.select(safety(outcome), OcPlanMode.PROFIT));
+    }
+
+    @Test
+    @DisplayName("既有OC固定成员不计入而本次新增补位成员24小时计入1人天")
+    void shouldCountExistingOcNewAssignmentWithoutCountingFixedMember() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW, NOW.plusDays(7), OcMemberInterval.IntervalSource.EXISTING_OC);
+        state.occupy(2L, NOW, NOW.plusDays(1),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(1, summary.actualIncrementalMemberDays());
+    }
+
+    @Test
+    @DisplayName("既有OC两个新增补位按实际区间总分钟数向上折算")
+    void shouldRoundExistingOcAssignmentsFromTotalMinutes() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+        state.occupy(2L, NOW, NOW.plusHours(24),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(2, summary.actualIncrementalMemberDays());
+    }
+
+    @Test
+    @DisplayName("固定成员释放后补入另一队只统计新增补位区间")
+    void shouldCountOnlyReassignmentIntervalAfterExistingRelease() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW.minusDays(2), NOW,
+                OcMemberInterval.IntervalSource.EXISTING_OC);
+        state.occupy(1L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.EXISTING_OC_NEW_ASSIGNMENT);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(1, summary.actualIncrementalMemberDays());
+        assertTrue(state.hasNoOverlappingIntervals());
+    }
+
+    @Test
+    @DisplayName("既有新增来源仍然计入成员人天")
+    void shouldKeepCountingOtherIncrementalSources() {
+        OcTimelineState state = newState();
+        state.occupy(1L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.COMMITTED_CHAIN);
+        state.occupy(2L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.PLANNED_EMPTY);
+        state.occupy(3L, NOW, NOW.plusHours(12),
+                OcMemberInterval.IntervalSource.RANDOM_CANDIDATE);
+
+        OcTimelineValueSummary summary = accumulator.accumulate(state, false,
+                emptyRequest());
+
+        assertEquals(2, summary.actualIncrementalMemberDays());
+    }
+
+    private OcTimelineState newState() {
+        return new OcTimelineState(emptyRequest());
+    }
+
+    private OcRefreshSafetyRequest emptyRequest() {
+        return new OcRefreshSafetyRequest(List.of(), Set.of(), List.of(), Map.of(),
+                List.of(), List.of(), NOW);
+    }
+
+    private OcRefreshVectorSearcher.OcVectorSearchOutcome searchThroughEvaluator(
+            boolean profitDelayed, boolean profitUnprovable) {
+        OcRefreshSafetyRequest request = evaluatorRequest();
+        OcTimelineEventScheduler scheduler = Mockito.mock(OcTimelineEventScheduler.class);
+        Mockito.when(scheduler.simulate(Mockito.any(), Mockito.anyList(), Mockito.any(),
+                Mockito.anyBoolean(), Mockito.any())).thenAnswer(invocation -> {
+            OcRefreshSafetyRequest req = invocation.getArgument(0);
+            List<CandidateRoot> candidates = invocation.getArgument(1);
+            Duration allowedPause = invocation.getArgument(2);
+            if (candidates.isEmpty()) {
+                return simulationResult(req, NOW.plusHours(30));
+            }
+            if (candidates.size() >= 2) {
+                return infeasibleResult();
+            }
+            if (allowedPause.isZero()
+                    || allowedPause.equals(Duration.ofHours(6))) {
+                return infeasibleResult();
+            }
+            if (profitUnprovable) {
+                OcTimelineState state = new OcTimelineState(req);
+                return feasibleResult(accumulator.accumulate(state, false, req));
+            }
+            LocalDateTime actual = profitDelayed
+                    ? NOW.plusHours(40) : NOW.plusHours(30);
+            return simulationResult(req, actual);
+        });
+        OcRefreshVectorSearcher searcher = new OcRefreshVectorSearcher(2, scheduler);
+        return searcher.search(request,
+                Map.of(OcPlanningSnapshot.ocKey(8, "Alpha"),
+                        new OcValueEvidence(OcValueEvidence.Level.OBSERVED_REWARD,
+                                BigDecimal.valueOf(1000), 10, NOW.plusHours(8), true,
+                                8, 2, 1)),
+                System.nanoTime() + Duration.ofSeconds(5).toNanos(),
+                OcProofWindow.valid(NOW.plusDays(1)));
+    }
+
+    private OcRefreshSafetyRequest evaluatorRequest() {
+        OcTimelineObligation existing = joinedObligation(1L, NOW.plusHours(6), 2, 1);
+        OcPlanSlot slot = new OcPlanSlot("Worker#1", "Worker", 60, 1, null);
+        OcTeamDemand template = new OcTeamDemand(0L, "Alpha", 8, null,
+                NOW.plusDays(7), false, List.of(slot), Set.of(), Set.of());
+        return new OcRefreshSafetyRequest(List.of(), Set.of(), List.of(existing),
+                Map.of(), List.of(template), List.of(), NOW);
+    }
+
+    private SimulationResult simulationResult(OcRefreshSafetyRequest request,
+                                              LocalDateTime actualCompletion) {
+        OcTimelineState state = new OcTimelineState(request);
+        state.occupy(99L, request.planningTime(), request.planningTime().plusHours(12),
+                OcMemberInterval.IntervalSource.RANDOM_CANDIDATE);
+        state.addAnchor(new OcLiquidityAnchor("oc:1", actualCompletion, 2, false));
+        state.addEvent(new OcTimelineEvent(actualCompletion,
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, "oc:1"));
+        return feasibleResult(accumulator.accumulate(state, false, request));
+    }
+
+    private SimulationResult feasibleResult(OcTimelineValueSummary summary) {
+        List<OcTimelineEvent> events = summary.guaranteedReleaseAt() == null
+                ? List.of() : List.of(new OcTimelineEvent(summary.guaranteedReleaseAt(),
+                OcTimelineEvent.EventType.COMPLETION_RELEASE, "stub"));
+        return new SimulationResult(true, false, false, false,
+                new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
+                List.of(), events, Duration.ZERO, false, false, summary);
+    }
+
+    private SimulationResult infeasibleResult() {
+        return new SimulationResult(false, false, false, false,
+                new OcTimelineEventScheduler.LiquidityProof(List.of(), List.of(), true),
+                List.of(), List.of(), Duration.ZERO, false, false,
+                OcTimelineValueSummary.empty());
+    }
+
+    private SafeCandidate candidateFrom(OcRefreshVectorSearcher.OcVectorSearchOutcome outcome,
+                                        int normal, int high) {
+        return outcome.candidates().stream()
+                .filter(candidate -> candidate.vector()
+                        .equals(new OcRefreshVector(normal, high)))
+                .findFirst().orElseThrow();
+    }
+
+}
