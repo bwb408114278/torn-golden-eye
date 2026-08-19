@@ -135,9 +135,10 @@ public class OcRefreshModeSelector {
     /**
      * 判断正向候选是否具备与调用模式一致的已证明资格。
      *
-     * <p>收益模式下沿用收益级完整门禁；均衡模式下{@code WITHIN_BALANCED}正向候选
-     * 只有在阶段二均衡准入为真时才计为已证明正向停转候选，其余停转层级不得
-     * 借均衡模式提高建议。零停转正向候选的证据判断与模式无关，保持既有逻辑。</p>
+     * <p>先按调用模式限制可参与的停转层级，再执行对应资格判断：保守模式只承认
+     * 零停转层级；均衡模式额外承认通过阶段二均衡准入的{@code WITHIN_BALANCED}
+     * 正向候选，收益级停转候选不得借均衡模式提高建议；收益模式沿用各停转层级
+     * 既有收益资格判断。零停转正向候选的证据判断与模式无关，保持既有逻辑。</p>
      *
      * @param candidate          待判断的正向候选
      * @param mode               调用方的刷新策略模式
@@ -155,17 +156,41 @@ public class OcRefreshModeSelector {
                 || !hasCompleteValueEvidence(candidate)) {
             return false;
         }
+        if (!pauseTierAllowedForMode(candidate.pauseTier(), mode)) {
+            return false;
+        }
         if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_PROFIT) {
             return baselineComparable && zeroPauseBaseline != null
                     && hasCompleteValueEvidence(zeroPauseBaseline)
                     && candidate.zeroPauseBaselineComparable()
                     && candidate.pauseCandidateStrictlyBetterThanBaseline();
         }
-        if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_BALANCED
-                && mode == OcPlanMode.BALANCED) {
-            return candidate.balancedPauseCandidateEligible();
+        if (candidate.pauseTier() == SafeCandidate.PauseTier.WITHIN_BALANCED) {
+            if (mode == OcPlanMode.BALANCED) {
+                return candidate.balancedPauseCandidateEligible();
+            }
+            return hasComparableEvidence(candidate, candidates);
         }
         return hasComparableEvidence(candidate, candidates);
+    }
+
+    /**
+     * 判断停转层级是否允许参与指定模式的已证明判断。只表达模式对层级的准入边界，
+     * 与实际选择的层级边界保持一致，不包含任何价值或基准比较：保守模式仅零停转
+     * 层级，均衡模式零停转加均衡级停转，收益模式全部层级。
+     *
+     * @param pauseTier 候选停转层级
+     * @param mode      调用方的刷新策略模式
+     * @return 该层级可参与指定模式的已证明判断时返回true
+     */
+    private boolean pauseTierAllowedForMode(SafeCandidate.PauseTier pauseTier,
+                                            OcPlanMode mode) {
+        return switch (mode) {
+            case CONSERVATIVE -> pauseTier == SafeCandidate.PauseTier.ZERO_PAUSE;
+            case BALANCED -> pauseTier == SafeCandidate.PauseTier.ZERO_PAUSE
+                    || pauseTier == SafeCandidate.PauseTier.WITHIN_BALANCED;
+            case PROFIT -> true;
+        };
     }
 
     /**

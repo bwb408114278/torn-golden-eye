@@ -226,6 +226,43 @@ class OcRefreshInstructionPlannerTest {
         assertTrue(facts.failClosedOnly());
     }
 
+    @Test
+    @DisplayName("具备完整收益资格的收益级停转候选在均衡模式Shadow必须保持fail-closed")
+    void shouldNotProveProfitPauseCandidateInBalancedShadow() {
+        SafeCandidate zeroRefreshBaseline = new SafeCandidate(new OcRefreshVector(0, 0),
+                SafeCandidate.PauseTier.ZERO_PAUSE,
+                new OcTimelineValueSummary(BigDecimal.valueOf(100), 10,
+                        java.time.Duration.ZERO, java.time.Duration.ZERO, false,
+                        NOW.plusHours(2), 8, 2, 1, OcValueEvidence.Level.REWARD_FLOOR),
+                1, OcValueEvidence.Level.REWARD_FLOOR, true, false, false);
+        SafeCandidate profitPauseCandidate = new SafeCandidate(new OcRefreshVector(2, 0),
+                SafeCandidate.PauseTier.WITHIN_PROFIT,
+                new OcTimelineValueSummary(BigDecimal.valueOf(200), 10,
+                        java.time.Duration.ZERO, java.time.Duration.ZERO, false,
+                        NOW.plusHours(2), 8, 2, 1, OcValueEvidence.Level.REWARD_FLOOR),
+                1, OcValueEvidence.Level.REWARD_FLOOR, true, true, false);
+        OcTimelineSafetyAssessment assessment = new OcTimelineSafetyAssessment(
+                OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE, Set.of(),
+                false, Set.of(), List.of(), null, null);
+        OcRefreshSafetyResult safety = new OcRefreshSafetyResult(assessment,
+                List.of(profitPauseCandidate), false, 1L, OcSearchTelemetry.empty(),
+                List.of(), zeroRefreshBaseline, true);
+        OcRefreshInstructionPlanner planner = planner();
+
+        OcRefreshInstructionPlanner.ShadowFacts balancedFacts = planner.buildShadowFacts(
+                safety, OcPlanMode.BALANCED);
+        OcRefreshInstructionPlanner.ShadowFacts profitFacts = planner.buildShadowFacts(
+                safety, OcPlanMode.PROFIT);
+
+        assertEquals(1, balancedFacts.positiveCandidateCount());
+        assertFalse(balancedFacts.positiveCandidateProven(),
+                "收益级停转候选不可被均衡模式Shadow计为已证明");
+        assertTrue(balancedFacts.failClosedOnly());
+        assertTrue(profitFacts.positiveCandidateProven(),
+                "收益模式下同一候选仍应按既有收益逻辑计为已证明");
+        assertFalse(profitFacts.failClosedOnly());
+    }
+
     private TornSettingOcPlanProfileDO profile(String name, int rank, String pool) {
         TornSettingOcPlanProfileDO profile = new TornSettingOcPlanProfileDO();
         profile.setOcName(name);
