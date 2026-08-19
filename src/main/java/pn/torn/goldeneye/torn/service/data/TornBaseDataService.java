@@ -8,6 +8,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
@@ -24,6 +25,7 @@ import pn.torn.goldeneye.torn.manager.torn.TornItemHistoryManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemTrendManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
+import pn.torn.goldeneye.torn.model.torn.bank.TornBankRateVO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsDTO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsListVO;
@@ -38,13 +40,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
  * Torn基础数据逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.2
  * @since 2025.09.10
  */
 @Slf4j
@@ -52,6 +55,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 @Order(InitOrderConstants.TORN_BASE_DATA)
 public class TornBaseDataService {
+    private static final int BANK_RATE_DAYS = 90;
+
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
@@ -104,7 +109,12 @@ public class TornBaseDataService {
      */
     public void spiderBankRate() {
         TornBankVO bank = tornApi.sendRequest(new TornBankDTO(), TornBankVO.class);
-        BigDecimal bankRate = bank.getBank().get("3m");
+        BigDecimal bankRate = bank.getBank().stream()
+                .filter(rate -> Integer.valueOf(BANK_RATE_DAYS).equals(rate.getDays()))
+                .map(TornBankRateVO::getRate)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElseThrow(() -> new BizException("未查询到90天银行利率"));
         settingManager.updateSetting(SettingConstants.KEY_BANK_RATE, bankRate.toString());
     }
 

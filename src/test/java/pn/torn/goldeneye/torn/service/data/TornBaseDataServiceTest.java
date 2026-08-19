@@ -17,11 +17,13 @@ import pn.torn.goldeneye.repository.dao.torn.TornItemsDAO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.torn.manager.torn.TornItemTrendManager;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankDTO;
+import pn.torn.goldeneye.torn.model.torn.bank.TornBankRateVO;
 import pn.torn.goldeneye.torn.model.torn.bank.TornBankVO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsDTO;
 import pn.torn.goldeneye.torn.model.torn.items.TornItemsListVO;
 import pn.torn.goldeneye.torn.model.torn.stats.TornStatsDTO;
 import pn.torn.goldeneye.torn.model.torn.stats.TornStatsVO;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -161,8 +163,25 @@ class TornBaseDataServiceTest {
         TornBankVO bank = tornApi.sendRequest(new TornBankDTO(), TornBankVO.class);
         assertNotNull(bank);
         assertNotNull(bank.getBank());
-        assertTrue(bank.getBank().containsKey("3m"), "应包含3个月期利率");
-        assertTrue(bank.getBank().get("3m").compareTo(BigDecimal.ZERO) > 0);
+        TornBankRateVO rate = bank.getBank().stream()
+                .filter(item -> Integer.valueOf(90).equals(item.getDays()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(rate.getRate().compareTo(BigDecimal.ZERO) > 0);
+    }
+
+    @Test
+    @DisplayName("Torn Api - 银行利率新响应结构")
+    void tornBankVO_shouldDeserializeCurrentArrayResponse() {
+        String json = "{\"bank\":[{\"days\":7,\"rate\":38.17},{\"days\":14,\"rate\":43.08},"
+                + "{\"days\":30,\"rate\":44.91},{\"days\":60,\"rate\":44.23},"
+                + "{\"days\":90,\"rate\":49.2}]}";
+
+        TornBankVO bank = JsonUtils.jsonToObj(json, TornBankVO.class);
+
+        assertNotNull(bank.getBank());
+        assertEquals(5, bank.getBank().size());
+        assertEquals(new BigDecimal("49.2"), bank.getBank().get(4).getRate());
     }
 
     @Test
