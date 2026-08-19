@@ -39,9 +39,7 @@ public class OcNewTeamStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "根据当前成员时间线和安全边界给出OC刷新指令：g#" + BotCommands.OC_NEW_TEAM
-                + "#保守 / g#" + BotCommands.OC_NEW_TEAM + "#均衡 / g#"
-                + BotCommands.OC_NEW_TEAM + "#收益";
+        return "计算可开几个OC新队, 三模式: 保守/均衡/收益";
     }
 
     @Override
