@@ -23,7 +23,7 @@ import java.util.List;
  * Torn Api请求实现类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.3
  * @since 2025.07.22
  */
 @Slf4j
@@ -57,7 +57,7 @@ class TornApiImpl implements TornApi {
     @Override
     public <T> T sendRequest(TornReqParam param, TornApiKeyDO apiKey, Class<T> responseType) {
         TornApiRequestExecutor executor = key -> executeV1Request(param, key);
-        return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false);
+        return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false, 0L).result();
     }
 
     @Override
@@ -74,7 +74,7 @@ class TornApiImpl implements TornApi {
     @Override
     public <T> T sendRequest(TornReqParamV2 param, TornApiKeyDO apiKey, Class<T> responseType) {
         TornApiRequestExecutor executor = key -> executeV2Request(param, key);
-        return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false);
+        return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false, 0L).result();
     }
 
     /**
@@ -123,9 +123,10 @@ class TornApiImpl implements TornApi {
                 return null;
             }
 
-            T result = executeWithKeyManagement(executor, apiKey, uri, responseType, true);
-            if (result != null) {
-                return result;
+            ApiResponseResult<T> responseResult = executeWithKeyManagement(executor, apiKey, uri,
+                    responseType, true, factionId);
+            if (!responseResult.shouldRetry()) {
+                return responseResult.result();
             }
             log.warn("第 {}/{} 次重试...", attempt + 1, MAX_RETRIES);
         }
@@ -136,13 +137,14 @@ class TornApiImpl implements TornApi {
     /**
      * 核心执行方法：统一的 Key 管理和异常处理
      */
-    private <T> T executeWithKeyManagement(TornApiRequestExecutor executor, TornApiKeyDO apiKey, String uri,
-                                           Class<T> responseType, boolean isRetryContext) {
+    private <T> ApiResponseResult<T> executeWithKeyManagement(TornApiRequestExecutor executor, TornApiKeyDO apiKey,
+                                                              String uri, Class<T> responseType,
+                                                              boolean isRetryContext, long factionId) {
         try {
             ResponseEntity<String> response = executor.execute(apiKey);
             TornApiRequestContext context = new TornApiRequestContext(uri, apiKey, response);
 
-            T result = processResponse(context, responseType);
+            ApiResponseResult<T> result = processResponse(context, responseType, factionId);
             apiKeyConfig.returnKey(apiKey);
             return result;
         } catch (BizException e) {
@@ -151,7 +153,7 @@ class TornApiImpl implements TornApi {
         } catch (Exception e) {
             log.error("请求Torn API时发生未知错误", e);
             apiKeyConfig.returnKey(apiKey);
-            return null;
+            return ApiResponseResult.retry();
         }
     }
 
@@ -188,27 +190,30 @@ class TornApiImpl implements TornApi {
     /**
      * 处理响应并解析
      */
-    private <T> T processResponse(TornApiRequestContext context, Class<T> responseType) {
+    private <T> ApiResponseResult<T> processResponse(TornApiRequestContext context, Class<T> responseType,
+                                                     long factionId) {
         ResponseEntity<String> response = context.response();
         if (response == null) {
-            return null;
+            return ApiResponseResult.retry();
         }
 
         String body = response.getBody();
         if (body == null || body.isEmpty()) {
-            return null;
+            return ApiResponseResult.retry();
         }
         if (context.hasError()) {
-            handleApiError(context);
-            return null;
+            handleApiError(context, factionId != 0L);
+            return context.getErrorCode() == TornApiErrorCodeEnum.ID_ENTITY_RELATION_ERROR.getCode()
+                    ? ApiResponseResult.stop()
+                    : ApiResponseResult.retry();
         }
-        return JsonUtils.jsonToObj(body, responseType);
+        return ApiResponseResult.success(JsonUtils.jsonToObj(body, responseType));
     }
 
     /**
      * 统一处理 API 错误
      */
-    private void handleApiError(TornApiRequestContext context) {
+    private void handleApiError(TornApiRequestContext context, boolean factionRequest) {
         Integer errorCode = context.getErrorCode();
         if (errorCode == null) {
             log.error("Torn API报错但无法解析错误码, uri: {}, response: {}",
@@ -220,6 +225,16 @@ class TornApiImpl implements TornApi {
         String responseBody = context.response().getBody();
 
         switch (apiError) {
+            case ID_ENTITY_RELATION_ERROR -> {
+                if (factionRequest) {
+                    apiKeyConfig.removeFromFactionPool(context.apiKey());
+                    log.info("Torn API请求的ID与实体关系不符，已将Key移出当前帮派池，结束本次请求 [错误码:{}], uri: {}",
+                            errorCode, context.uri());
+                } else {
+                    log.info("Torn API请求的ID与实体关系不符，结束本次请求 [错误码:{}], uri: {}",
+                            errorCode, context.uri());
+                }
+            }
             case INVALID_KEY, KEY_OWNER_FJ, KEY_OWNER_INACTIVE, KEY_PAUSED -> {
                 log.warn("Torn API Key错误 [错误码:{}], uri: {}, Key ID: {}",
                         errorCode, context.uri(), context.apiKey().getId());
@@ -231,6 +246,22 @@ class TornApiImpl implements TornApi {
                     errorCode, context.uri(), context.apiKey().getId(), context.apiKey().getUserId());
             default -> log.error("Torn API报错 [错误码:{}], uri: {}, Key ID: {}, response: {}",
                     errorCode, context.uri(), context.apiKey().getId(), responseBody);
+        }
+    }
+
+    private record ApiResponseResult<T>(
+            T result,
+            boolean shouldRetry) {
+        private static <T> ApiResponseResult<T> success(T result) {
+            return new ApiResponseResult<>(result, result == null);
+        }
+
+        private static <T> ApiResponseResult<T> stop() {
+            return new ApiResponseResult<>(null, false);
+        }
+
+        private static <T> ApiResponseResult<T> retry() {
+            return new ApiResponseResult<>(null, true);
         }
     }
 }

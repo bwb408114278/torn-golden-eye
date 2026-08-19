@@ -152,6 +152,26 @@ public class TornApiKeyConfig {
     }
 
     /**
+     * 将Key从当前帮派Key池中临时移除，数据库记录和全局Key映射保持不变。
+     *
+     * @param apiKey 需要移除的Key
+     */
+    public void removeFromFactionPool(TornApiKeyDO apiKey) {
+        if (apiKey == null || apiKey.getId() == null || apiKey.getFactionId() == null) {
+            return;
+        }
+        lock.writeLock().lock();
+        try {
+            Set<Long> factionKeys = factionKeysMap.get(apiKey.getFactionId());
+            if (factionKeys != null) {
+                factionKeys.remove(apiKey.getId());
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
      * 获取用户对应的Api Key
      */
     public TornApiKeyDO getKeyByUserId(long userId) {
