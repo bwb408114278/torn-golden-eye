@@ -24,12 +24,12 @@ import java.util.stream.Collectors;
  * 单链收益事务Worker。
  *
  * <p>每个叶子由独立的Spring Bean代理调用，在自身事务中完成链完整性校验、income完整性审计、
- * 整链明细生成与受影响月份汇总重算，任一环节失败整链回滚，避免批量门面在大事务中循环
- * 提交残缺链。批量门面不持有覆盖整批的事务，因此该事务方法会在每次调用时自然创建独立事务；
+ * 整链明细生成，任一环节失败整链回滚，避免批量门面在大事务中循环提交残缺链。月汇总由
+ * 批量门面在所有单链事务提交后统一重算，因此该事务方法会在每次调用时自然创建独立事务；
  * 必须通过Spring代理由批量门面调用，禁止在同一Service内自调用。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.3.4
  * @since 2026.08.03
  */
 @Slf4j
@@ -151,7 +151,7 @@ public class TornOcIncomeTransactionWorker {
     }
 
     /**
-     * 校验链income完整性并按预期业务键审计，通过后生成明细并重算受影响月份汇总。
+     * 校验链income完整性并按预期业务键审计，通过后生成明细。
      *
      * @param factionId  帮派ID
      * @param leaf       叶子OC
@@ -187,8 +187,6 @@ public class TornOcIncomeTransactionWorker {
 
         try {
             incomeService.generateAndSaveIncome(leaf, chain);
-            // R8：跨月链统一归叶子月份，同时补偿重算受影响父节点月份
-            incomeService.recalcAffectedMonths(leaf.getFactionId(), chain);
         } catch (Exception e) {
             log.error("单链收益生成失败，整链回滚: factionId={}, leafOcId={}, leafOcName={}, chainOcIds={}",
                     factionId, leaf.getId(), leaf.getName(), chainOcIds, e);

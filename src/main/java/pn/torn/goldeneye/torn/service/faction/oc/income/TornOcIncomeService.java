@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * OC收益计算服务
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.4
  * @since 2025.11.03
  */
 @Service
@@ -399,9 +399,20 @@ public class TornOcIncomeService {
                 .filter(Objects::nonNull)
                 .map(time -> time.format(DateTimeUtils.YEAR_MONTH_FORMATTER))
                 .collect(Collectors.toSet());
-        for (String yearMonth : affectedMonths) {
-            calcMonthlyIncomeSummary(factionId, yearMonth);
-        }
+        recalcMonthlyIncomeSummaries(factionId, affectedMonths);
+    }
+
+    /**
+     * 按确定顺序重算多个受影响月份的收益汇总。
+     *
+     * <p>批量income任务必须在所有单链事务提交后调用本方法，确保汇总读取的是完整income快照。
+     * 该方法不持有跨月事务，各月份保持既有独立重算与幂等语义。</p>
+     *
+     * @param factionId  帮派ID
+     * @param yearMonths 待重算年月集合，格式yyyy-MM
+     */
+    void recalcMonthlyIncomeSummaries(long factionId, Set<String> yearMonths) {
+        yearMonths.stream().sorted().forEach(yearMonth -> calcMonthlyIncomeSummary(factionId, yearMonth));
     }
 
     /**

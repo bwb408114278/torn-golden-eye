@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -18,6 +19,7 @@ import pn.torn.goldeneye.repository.dao.setting.TornSettingOcChainDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingOcCoefficientDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcCoefficientDO;
@@ -29,15 +31,18 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * 大锅饭OC批量收益入口集成测试。
  *
  * <p>批量门面本身不持有事务，每个叶子由独立Worker事务提交，因此本测试不使用事务回滚，
  * 改为在@AfterEach通过JdbcTemplate物理删除清理测试数据，确保开发库干净且不残留逻辑删除记录。
- * 同时验证链配置按名称加等级匹配、等待后继与异常部分income统计。</p>
+ * 同时验证链配置按名称加等级匹配、等待后继、异常部分income统计与批次末统一汇总。</p>
  *
  * <p><b>为什么不能用测试级事务回滚：</b>本测试调用的{@link TornOcBatchIncomeService}按Review
  * 方案R1要求由独立Worker事务逐链提交，批量门面本身不持有事务。若测试方法标注
@@ -46,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 物理删除保证开发库零残留。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.3.4
  * @since 2026.04.20
  */
 @SpringBootTest
@@ -70,6 +75,8 @@ class TornOcBatchIncomeServiceTest {
     private TornSettingOcCoefficientManager coefficientManager;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @MockitoSpyBean
+    private TornOcIncomeService incomeService;
 
     private static final Long FACTION_ID = 1000L;
     private static final Long USER_ID = 2001L;
@@ -235,6 +242,15 @@ class TornOcBatchIncomeServiceTest {
         assertEquals(2, incomes.size());
         assertTrue(incomes.get(0).getIsSuccess());
         assertFalse(incomes.get(1).getIsSuccess());
+        TornFactionOcIncomeSummaryDO summary = incomeSummaryDao.lambdaQuery()
+                .eq(TornFactionOcIncomeSummaryDO::getFactionId, FACTION_ID)
+                .eq(TornFactionOcIncomeSummaryDO::getUserId, USER_ID)
+                .eq(TornFactionOcIncomeSummaryDO::getYearMonth, "2026-04")
+                .one();
+        assertNotNull(summary);
+        assertEquals(800000L, summary.getTotalReward());
+        assertEquals(70000L, summary.getTotalItemCost());
+        verify(incomeService, times(1)).recalcMonthlyIncomeSummaries(FACTION_ID, Set.of("2026-04"));
     }
 
     @Test

@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.torn.model.faction.crime.income.*;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -25,11 +26,11 @@ import java.util.stream.Collectors;
  * OC批量收益计算服务（非事务门面）
  *
  * <p>负责按帮派防重入、批量查询叶子候选、批量加载链与income键进行预分类、逐条调用单链
- * 事务Worker并统计结果。本身不持有覆盖整批的事务，每个叶子由独立Worker事务原子生成明细
- * 与汇总，避免循环提交残缺链。锁在Worker返回（事务提交/回滚完成）后于finally释放。</p>
+ * 事务Worker并统计结果。本身不持有覆盖整批的事务，每个叶子由独立Worker事务原子生成明细，
+ * 全部链提交后统一重算受影响月份汇总。锁在Worker返回（事务提交/回滚完成）后于finally释放。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.3.4
  * @since 2025.11.03
  */
 @Slf4j
@@ -130,7 +131,7 @@ public class TornOcBatchIncomeService {
      * 执行批量收益计算主体逻辑。
      *
      * <p>流程：查询目标叶子候选 → 过滤等待后继父节点 → 批量加载链上下文与income业务键预分类
-     * → 逐叶子调用单链事务Worker并累计统计。本身不持有覆盖整批的事务。</p>
+     * → 逐叶子调用单链事务Worker并累计统计 → 统一重算受影响月份。本身不持有覆盖整批的事务。</p>
      *
      * @param factionId 帮派ID
      * @param execTime  执行时间
@@ -159,9 +160,13 @@ public class TornOcBatchIncomeService {
         BatchChainContext batchContext = buildBatchChainContext(factionId, partition.candidates());
         BatchInputs inputs = loadBatchInputs(factionId, batchContext);
         BatchCounters counters = new BatchCounters();
+        Set<String> affectedYearMonths = new HashSet<>();
+        CandidateProcessingContext processingContext = new CandidateProcessingContext(factionId, startTime,
+                chainParentKeys, batchContext, inputs, counters, affectedYearMonths);
         for (TornFactionOcDO leaf : partition.candidates()) {
-            processLeafCandidate(factionId, leaf, startTime, chainParentKeys, batchContext, inputs, counters);
+            processLeafCandidate(leaf, processingContext);
         }
+        incomeService.recalcMonthlyIncomeSummaries(factionId, affectedYearMonths);
 
         log.info("批量计算收益完成: factionId={}, startTime={}, candidateCount={}, successCount={}, " +
                         "failureCount={}, waitingCount={}, alreadyCalculatedCount={}, abnormalCount={}, " +
@@ -172,6 +177,23 @@ public class TornOcBatchIncomeService {
         return new BatchIncomeResult(ocList.size(), counters.successCount, counters.failureCount,
                 counters.waitingCount, counters.alreadyCalculatedCount, counters.abnormalPartialIncomeCount,
                 counters.abnormalIncompleteChainCount, counters.skippedCount, List.copyOf(counters.abnormalChains));
+    }
+
+    /**
+     * 收集本批完整链涉及的月份。
+     *
+     * <p>所有单链事务提交完成后统一重算这些月份，避免每条链各自以不完整income快照覆盖同一月汇总。
+     * 只有已完整结算或本次成功生成income的链才允许纳入集合，异常部分income链继续保持fail-closed。</p>
+     *
+     * @param chain 本批已通过完整性审计的OC链
+     * @return 受影响年月集合
+     */
+    private Set<String> collectAffectedYearMonths(List<TornFactionOcDO> chain) {
+        return chain.stream()
+                .map(TornFactionOcDO::getExecutedTime)
+                .filter(Objects::nonNull)
+                .map(time -> time.format(DateTimeUtils.YEAR_MONTH_FORMATTER))
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -240,31 +262,28 @@ public class TornOcBatchIncomeService {
     /**
      * 处理单个叶子候选：链回溯不完整直接fail-closed，否则按income完整性预分类并分发Worker。
      *
-     * @param factionId       帮派ID
-     * @param leaf            叶子候选
-     * @param startTime       扫描起点（左闭区间）
-     * @param chainParentKeys 有效链配置父节点集合
-     * @param batchContext    批量链上下文
-     * @param inputs          批次输入数据
-     * @param counters        批次统计累计器
+     * @param leaf    叶子候选
+     * @param context 候选处理上下文
      */
-    private void processLeafCandidate(long factionId, TornFactionOcDO leaf, LocalDateTime startTime,
-                                      Set<OcKey> chainParentKeys, BatchChainContext batchContext,
-                                      BatchInputs inputs, BatchCounters counters) {
-        ChainSnapshot snapshot = batchContext.snapshotByLeaf().get(leaf.getId());
+    private void processLeafCandidate(TornFactionOcDO leaf, CandidateProcessingContext context) {
+        ChainSnapshot snapshot = context.batchContext().snapshotByLeaf().get(leaf.getId());
         if (snapshot == null || !snapshot.complete()) {
-            counters.recordIncompleteChain(factionId, leaf, snapshot);
+            context.counters().recordIncompleteChain(context.factionId(), leaf, snapshot);
             return;
         }
         List<TornFactionOcDO> chain = snapshot.chain();
         List<Long> chainOcIds = snapshot.chainOcIds();
-        Set<OcIncomeKey> expectedKeys = incomeService.buildExpectedIncomeKeys(chain, inputs.slotsByOcId());
-        List<TornFactionOcIncomeDO> actualIncome = collectActualIncome(inputs.incomeByOcId(), chainOcIds);
+        Set<OcIncomeKey> expectedKeys = incomeService.buildExpectedIncomeKeys(chain, context.inputs().slotsByOcId());
+        List<TornFactionOcIncomeDO> actualIncome = collectActualIncome(context.inputs().incomeByOcId(), chainOcIds);
         IncomeCompletenessEnum completeness = incomeService.classifyIncomeCompleteness(expectedKeys, actualIncome);
         switch (completeness) {
-            case ALREADY_CALCULATED -> counters.recordAlreadyCalculated(factionId, leaf);
-            case ABNORMAL_PARTIAL_INCOME -> counters.recordAbnormalPartial(factionId, leaf, chainOcIds, actualIncome);
-            case PENDING -> dispatchToWorker(factionId, leaf, startTime, chainParentKeys, chain, counters);
+            case ALREADY_CALCULATED -> {
+                context.counters().recordAlreadyCalculated(context.factionId(), leaf);
+                context.affectedYearMonths().addAll(collectAffectedYearMonths(chain));
+            }
+            case ABNORMAL_PARTIAL_INCOME -> context.counters().recordAbnormalPartial(
+                    context.factionId(), leaf, chainOcIds, actualIncome);
+            case PENDING -> dispatchToWorker(leaf, chain, context);
         }
     }
 
@@ -287,21 +306,21 @@ public class TornOcBatchIncomeService {
     /**
      * 对待计算叶子调用单链事务Worker并累计结果。
      *
-     * @param factionId       帮派ID
-     * @param leaf            叶子候选
-     * @param startTime       扫描起点（左闭区间）
-     * @param chainParentKeys 有效链配置父节点集合
-     * @param chain           预加载的完整链
-     * @param counters        批次统计累计器
+     * @param leaf    叶子候选
+     * @param chain   预加载的完整链
+     * @param context 候选处理上下文
      */
-    private void dispatchToWorker(long factionId, TornFactionOcDO leaf, LocalDateTime startTime,
-                                  Set<OcKey> chainParentKeys, List<TornFactionOcDO> chain, BatchCounters counters) {
+    private void dispatchToWorker(TornFactionOcDO leaf, List<TornFactionOcDO> chain,
+                                  CandidateProcessingContext context) {
         try {
             SingleChainResult result = transactionWorker.processSingleChain(
-                    factionId, leaf.getId(), startTime, chainParentKeys, chain);
-            counters.recordWorkerResult(factionId, leaf, result);
+                    context.factionId(), leaf.getId(), context.startTime(), context.chainParentKeys(), chain);
+            context.counters().recordWorkerResult(context.factionId(), leaf, result);
+            if (result.outcome() == SingleChainOutcomeEnum.SUCCESS) {
+                context.affectedYearMonths().addAll(collectAffectedYearMonths(chain));
+            }
         } catch (Exception e) {
-            counters.recordFailure(factionId, leaf, e);
+            context.counters().recordFailure(context.factionId(), leaf, e);
         }
     }
 
@@ -582,7 +601,9 @@ public class TornOcBatchIncomeService {
      * @param candidates   可处理候选
      * @param waitingCount 等待链式后继节点的父节点数量
      */
-    private record CandidatePartition(List<TornFactionOcDO> candidates, int waitingCount) {
+    private record CandidatePartition(
+            List<TornFactionOcDO> candidates,
+            int waitingCount) {
     }
 
     /**
@@ -591,8 +612,30 @@ public class TornOcBatchIncomeService {
      * @param incomeByOcId 按OC分组的income映射
      * @param slotsByOcId  按OC分组的岗位映射
      */
-    private record BatchInputs(Map<Long, List<TornFactionOcIncomeDO>> incomeByOcId,
-                               Map<Long, List<TornFactionOcSlotDO>> slotsByOcId) {
+    private record BatchInputs(
+            Map<Long, List<TornFactionOcIncomeDO>> incomeByOcId,
+            Map<Long, List<TornFactionOcSlotDO>> slotsByOcId) {
+    }
+
+    /**
+     * 单个叶子候选处理所需的批次共享上下文。
+     *
+     * @param factionId          帮派ID
+     * @param startTime          扫描起点（左闭区间）
+     * @param chainParentKeys    有效链配置父节点集合
+     * @param batchContext       批量链上下文
+     * @param inputs             批次输入数据
+     * @param counters           批次统计累计器
+     * @param affectedYearMonths 已完整结算或成功生成income的受影响年月
+     */
+    private record CandidateProcessingContext(
+            long factionId,
+            LocalDateTime startTime,
+            Set<OcKey> chainParentKeys,
+            BatchChainContext batchContext,
+            BatchInputs inputs,
+            BatchCounters counters,
+            Set<String> affectedYearMonths) {
     }
 
     /**
