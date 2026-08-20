@@ -153,7 +153,7 @@ public class TornOcAssignService {
 
             UserMatchScore bestMatch = candidates.stream()
                     .max(buildCandidateComparator(ocReadyMap, now))
-                    .orElse(null);
+                    .orElseThrow(() -> new IllegalStateException("OC候选不能为空"));
 
             BigDecimal score = bestMatch.score();
 
@@ -234,34 +234,37 @@ public class TornOcAssignService {
         return resultMap;
     }
 
+    /**
+     * 比较OC准备时间，空值排在有值之前，非空时间按倒序排列。
+     *
+     * @param first  第一个准备时间
+     * @param second 第二个准备时间
+     * @return 比较结果
+     */
     private int compareReadyTime(LocalDateTime first, LocalDateTime second) {
-        if (first == null && second == null) {
-            return 0;
-        }
-        if (first == null) {
-            return -1;
-        }
-        if (second == null) {
-            return 1;
-        }
-        return second.compareTo(first);
+        return Comparator.nullsFirst(Comparator.<LocalDateTime>reverseOrder()).compare(first, second);
     }
 
+    /**
+     * 比较OC ID，空值排在有值之前，非空ID按升序排列。
+     *
+     * @param first  第一个OC ID
+     * @param second 第二个OC ID
+     * @return 比较结果
+     */
     private int compareOcId(Long first, Long second) {
-        if (first == null && second == null) {
-            return 0;
-        }
-        if (first == null) {
-            return -1;
-        }
-        if (second == null) {
-            return 1;
-        }
-        return first.compareTo(second);
+        return Comparator.nullsFirst(Comparator.<Long>naturalOrder()).compare(first, second);
     }
 
+    /**
+     * 构建候选岗位比较器，依次按停转状态、综合评分、OC ID和岗位ID排序。
+     *
+     * @param originTimeMap OC原始准备时间
+     * @param now           本次分配的时间基准
+     * @return 候选岗位比较器
+     */
     private Comparator<UserMatchScore> buildCandidateComparator(Map<Long, LocalDateTime> originTimeMap,
-                                                                 LocalDateTime now) {
+                                                                LocalDateTime now) {
         return Comparator
                 .comparing((UserMatchScore match) -> isStopped(originTimeMap.get(match.oc().getId()), now))
                 .thenComparing(UserMatchScore::score)
@@ -269,6 +272,13 @@ public class TornOcAssignService {
                 .thenComparing(match -> match.slot().getId(), Comparator.nullsFirst(Long::compareTo));
     }
 
+    /**
+     * 判断原始准备时间是否已经进入停转状态。
+     *
+     * @param readyTime OC原始准备时间
+     * @param now       本次分配的时间基准
+     * @return 已到准备时间时返回true；准备时间为空或仍在未来时返回false
+     */
     private boolean isStopped(LocalDateTime readyTime, LocalDateTime now) {
         return readyTime != null && !readyTime.isAfter(now);
     }

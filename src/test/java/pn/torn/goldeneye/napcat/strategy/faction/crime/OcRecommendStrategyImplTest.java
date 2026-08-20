@@ -18,7 +18,6 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
@@ -26,8 +25,10 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * OC推荐策略测试，验证当前状态优先于普通空推荐提示。
@@ -92,8 +93,9 @@ class OcRecommendStrategyImplTest {
 
         String message = handleText();
 
-        assertThat(message).contains("当前加入的OC已被禁用");
-        assertThat(message).doesNotContain("暂时没有合适加入的OC");
+        assertThat(message)
+                .contains("当前加入的OC已被禁用")
+                .doesNotContain("暂时没有合适加入的OC");
     }
 
     @Test
@@ -104,8 +106,10 @@ class OcRecommendStrategyImplTest {
 
         String message = handleText();
 
-        assertThat(message).contains("当前岗位成功率不足").contains("当前50%", "要求60%");
-        assertThat(message).doesNotContain("暂时没有合适加入的OC");
+        assertThat(message)
+                .contains("当前岗位成功率不足")
+                .contains("当前50%", "要求60%")
+                .doesNotContain("暂时没有合适加入的OC");
     }
 
     @Test

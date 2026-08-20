@@ -32,7 +32,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -101,8 +102,9 @@ class OcBannedNoticeServiceTest {
                 .map(TextQqMsg.class::cast)
                 .map(item -> item.getData().text())
                 .toList();
-        assertThat(texts).anyMatch(text -> text.contains("Disabled OC") && text.contains("OC已禁用"));
-        assertThat(texts).anyMatch(text -> text.contains("Insufficient OC") && text.contains("当前50%，要求60%"));
+        assertThat(texts)
+                .anyMatch(text -> text.contains("Disabled OC") && text.contains("OC已禁用"))
+                .anyMatch(text -> text.contains("Insufficient OC") && text.contains("当前50%，要求60%"));
         verify(ocUserDao).queryByFactionIdAndUserIds(FACTION_ID, List.of(USER_ID));
     }
 
