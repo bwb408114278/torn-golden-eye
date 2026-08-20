@@ -26,7 +26,7 @@ import java.util.List;
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 1.2.7
+ * @version 1.3.6
  * @since 2025.11.01
  */
 @Slf4j
@@ -41,7 +41,10 @@ public class TornOcRecommendService {
     /**
      * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率
      *
-     * @param topN 返回Top N个推荐
+     * @param user     用户
+     * @param topN     返回Top N个推荐
+     * @param joinedOc 当前占用的OC岗位
+     * @return 可切换的推荐岗位列表
      */
     public List<OcRecommendationVO> recommendOcForUser(TornUserDO user, int topN, OcSlotDictBO joinedOc) {
         // 1. 查询所有招募中的OC
@@ -51,7 +54,7 @@ public class TornOcRecommendService {
         }
 
         // 2. 查询所有未满员的OC
-        List<TornFactionOcSlotDO> emptySlotList = findEmptySlotList(recruitOcList, joinedOc);
+        List<TornFactionOcSlotDO> emptySlotList = findEmptySlotList(recruitOcList);
         if (CollectionUtils.isEmpty(emptySlotList)) {
             return List.of();
         }
@@ -64,6 +67,7 @@ public class TornOcRecommendService {
 
         // 4. 为每个OC的每个空闲岗位计算推荐度
         boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
+        CurrentOcStatus currentStatus = buildCurrentOcStatus(user, joinedOc, userOcData, isReassign);
         List<OcRecommendationVO> recommendations = new ArrayList<>();
         for (TornFactionOcDO oc : recruitOcList) {
             if (shouldSkipOc(isReassign, user.getFactionId(), oc, joinedOc)) {
@@ -78,8 +82,56 @@ public class TornOcRecommendService {
                 .toList();
 
         // 6. 以当前队评分为基线过滤，返回Top N
-        sorted = filterBelowBaseline(sorted, joinedOc);
+        sorted = filterBelowBaseline(sorted, currentStatus.currentScore());
         return sorted.stream().limit(topN).toList();
+    }
+
+    /**
+     * 查询用户当前OC状态，供指令层输出明确的当前状态提示。
+     *
+     * @param user     用户
+     * @param joinedOc 当前占用的OC岗位
+     * @return 当前状态；未入队时返回joined为false的状态
+     */
+    public CurrentOcStatus queryCurrentOcStatus(TornUserDO user, OcSlotDictBO joinedOc) {
+        if (joinedOc == null) {
+            return CurrentOcStatus.notJoined();
+        }
+
+        List<TornFactionOcUserDO> userOcData = ocUserDao.queryByUserId(user.getId());
+        boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
+        return buildCurrentOcStatus(user, joinedOc, userOcData, isReassign);
+    }
+
+    private CurrentOcStatus buildCurrentOcStatus(TornUserDO user, OcSlotDictBO joinedOc,
+                                                 List<TornFactionOcUserDO> userOcData,
+                                                 boolean isReassign) {
+        if (joinedOc == null) {
+            return CurrentOcStatus.notJoined();
+        }
+
+        TornFactionOcDO oc = joinedOc.getOc();
+        TornFactionOcSlotDO slot = joinedOc.getSlot();
+        boolean disabled = ocRecommendManager.isOcDisabled(user.getFactionId(), oc);
+        TornSettingOcSlotDO requirement = ocRecommendManager.findSlotRequirement(user.getFactionId(), oc, slot);
+        TornFactionOcUserDO passRateData = ocRecommendManager.findUserPassRate(userOcData, oc, requirement);
+        Integer actualPassRate = passRateData == null ? null : passRateData.getPassRate();
+        Integer requiredPassRate = requirement == null ? null : requirement.getPassRate();
+        boolean passRateInsufficient = actualPassRate != null && requiredPassRate != null
+                && actualPassRate < requiredPassRate;
+        BigDecimal currentScore = calculateCurrentScore(isReassign, oc, requirement, passRateData);
+        return new CurrentOcStatus(true, disabled, passRateInsufficient,
+                actualPassRate, requiredPassRate, currentScore);
+    }
+
+    private BigDecimal calculateCurrentScore(boolean isReassign, TornFactionOcDO oc,
+                                             TornSettingOcSlotDO requirement,
+                                             TornFactionOcUserDO passRateData) {
+        if (requirement == null || passRateData == null
+                || passRateData.getPassRate() < requirement.getPassRate()) {
+            return null;
+        }
+        return ocRecommendManager.calcRecommendScore(isReassign, oc, requirement, passRateData);
     }
 
     /**
@@ -117,17 +169,14 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 已加入队伍时，过滤掉评分低于当前队的推荐
+     * 已加入队伍时，过滤掉评分低于当前队的推荐。
+     *
+     * @param sorted       已按评分排序的推荐列表
+     * @param currentScore 当前岗位评分基线
+     * @return 不低于当前岗位评分的推荐列表
      */
-    private List<OcRecommendationVO> filterBelowBaseline(List<OcRecommendationVO> sorted, OcSlotDictBO joinedOc) {
-        if (joinedOc == null) {
-            return sorted;
-        }
-        BigDecimal currentScore = sorted.stream()
-                .filter(r -> r.getOcId().equals(joinedOc.getOc().getId())
-                        && r.getRecommendedPosition().equals(joinedOc.getSlot().getPosition()))
-                .map(OcRecommendationVO::getRecommendScore)
-                .findFirst().orElse(null);
+    private List<OcRecommendationVO> filterBelowBaseline(List<OcRecommendationVO> sorted,
+                                                         BigDecimal currentScore) {
         if (currentScore == null) {
             return sorted;
         }
@@ -165,15 +214,30 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 查找招募中的OC空位
+     * 查找招募中的OC空位，当前占用岗位不作为候选。
+     *
+     * @param recruitOcList 招募中的OC列表
+     * @return 空闲岗位列表
      */
-    public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList,
-                                                       OcSlotDictBO joinedOcSlot) {
-        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(recruitOcList);
-        if (joinedOcSlot != null) {
-            emptySlotList.add(joinedOcSlot.getSlot());
-        }
+    public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList) {
+        return ocSlotDao.queryEmptySlotList(recruitOcList);
+    }
 
-        return emptySlotList;
+    /**
+     * 当前OC状态及评分基线。
+     *
+     * @param joined               是否已加入OC
+     * @param disabled             当前OC是否被禁用
+     * @param passRateInsufficient 当前岗位成功率是否低于要求
+     * @param actualPassRate       当前实际成功率
+     * @param requiredPassRate     岗位要求成功率
+     * @param currentScore         当前岗位评分基线
+     */
+    public record CurrentOcStatus(boolean joined, boolean disabled, boolean passRateInsufficient,
+                                  Integer actualPassRate, Integer requiredPassRate,
+                                  BigDecimal currentScore) {
+        private static CurrentOcStatus notJoined() {
+            return new CurrentOcStatus(false, false, false, null, null, null);
+        }
     }
 }

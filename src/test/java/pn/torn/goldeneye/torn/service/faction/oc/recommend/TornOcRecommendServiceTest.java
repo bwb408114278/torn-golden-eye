@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
  * OC推荐服务单元测试 —— 验证大锅饭模式下当前队的豁免逻辑
  *
  * @author Bai
- * @version 1.2.7
+ * @version 1.3.6
  * @since 2026.06.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -91,12 +91,12 @@ class TornOcRecommendServiceTest {
     // ========================================================
 
     @Test
-    @DisplayName("空转在非轮转OC → 当前队不被过滤，出现在推荐结果中")
-    void idlingInNonRotationOc_shouldIncludeCurrentOc() {
+    @DisplayName("空转在非轮转OC → 当前岗位不作为推荐结果")
+    void idlingInNonRotationOc_shouldExcludeCurrentOc() {
         // Given: 候选列表包含当前队和另一个轮转队
         when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new java.util.ArrayList<>(List.of(breakBankOc)));
 
-        // 空槽位（当前队的不在empty里，但会通过findEmptySlotList追加）
+        // 空槽位不包含当前岗位
         when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(List.of(breakBankSlot)));
 
         // 用户成功率：满足Break the Bank（触发大锅饭）
@@ -108,6 +108,7 @@ class TornOcRecommendServiceTest {
 
         // checkIsReassignRecommended → true（用户有轮转OC成功率）
         when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(true);
+        when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(false);
 
         // findSlotSetting → 正常返回
         TornSettingOcSlotDO slotSetting = new TornSettingOcSlotDO();
@@ -115,6 +116,7 @@ class TornOcRecommendServiceTest {
         slotSetting.setPassRate(60);
         slotSetting.setPriority(15);
         when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(slotSetting);
+        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(slotSetting);
 
         // findUserPassRate → 正常匹配
         TornFactionOcUserDO matched = new TornFactionOcUserDO();
@@ -129,10 +131,10 @@ class TornOcRecommendServiceTest {
         // When
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
 
-        // Then: 两个队都应该出现
-        assertThat(result).hasSize(2);
+        // Then: 当前岗位不作为可切换推荐结果
+        assertThat(result).hasSize(1);
         assertThat(result).extracting(OcRecommendationVO::getOcName)
-                .contains(OC_ACE, OC_BREAK_BANK);
+                .containsExactly(OC_BREAK_BANK);
     }
 
     // ========================================================
@@ -140,7 +142,7 @@ class TornOcRecommendServiceTest {
     // ========================================================
 
     @Test
-    @DisplayName("当前队评分最高 → 只展示当前队自己")
+    @DisplayName("当前队评分最高 → 不展示当前岗位")
     void currentTeamHasHighestScore_onlyCurrentTeamReturned() {
         when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new java.util.ArrayList<>(List.of(breakBankOc)));
         when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(List.of(breakBankSlot)));
@@ -151,12 +153,14 @@ class TornOcRecommendServiceTest {
         passRate.setPassRate(75);
         when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(passRate));
         when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(true);
+        when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(false);
 
         TornSettingOcSlotDO slotSetting = new TornSettingOcSlotDO();
         slotSetting.setSlotShortCode("Engineer#1");
         slotSetting.setPassRate(60);
         slotSetting.setPriority(15);
         when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(slotSetting);
+        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(slotSetting);
 
         TornFactionOcUserDO matched = new TornFactionOcUserDO();
         matched.setPassRate(70);
@@ -173,9 +177,8 @@ class TornOcRecommendServiceTest {
         // When
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
 
-        // Then: 只有当前队（别队85 < 基线90，被过滤）
-        assertThat(result).hasSize(1);
-        assertThat(result.getFirst().getOcName()).isEqualTo(OC_ACE);
+        // Then: 别队低于当前岗位基线，当前岗位也不进入推荐结果
+        assertThat(result).isEmpty();
     }
 
     // ========================================================

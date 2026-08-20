@@ -24,7 +24,7 @@ import java.util.List;
  * OC队伍推荐公共逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.6
  * @since 2025.11.24
  */
 @Component
@@ -42,6 +42,31 @@ public class TornOcRecommendManager {
         if (settingFactionOcManager.isOcDisabled(factionId, oc)) {
             return null;
         }
+
+        return findSlotRequirement(factionId, oc, slot);
+    }
+
+    /**
+     * 查询OC是否被帮派禁用。
+     *
+     * @param factionId 帮派ID
+     * @param oc        OC数据
+     * @return true表示已禁用
+     */
+    public boolean isOcDisabled(long factionId, TornFactionOcDO oc) {
+        return settingFactionOcManager.isOcDisabled(factionId, oc);
+    }
+
+    /**
+     * 查询岗位成功率要求，不判断OC是否被帮派禁用。
+     *
+     * @param factionId 帮派ID
+     * @param oc        OC数据
+     * @param slot      岗位数据
+     * @return 岗位配置，不存在时返回null
+     */
+    public TornSettingOcSlotDO findSlotRequirement(long factionId, TornFactionOcDO oc,
+                                                   TornFactionOcSlotDO slot) {
 
         TornSettingOcSlotDO globalSetting = settingOcSlotManager.getList().stream()
                 .filter(s -> s.getOcName().equals(oc.getName()))

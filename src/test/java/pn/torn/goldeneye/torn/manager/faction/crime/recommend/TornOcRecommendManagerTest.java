@@ -7,14 +7,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
-import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * OC推荐管理器集成测试，验证禁用过滤与岗位要求查询职责分离。
+ */
 @Slf4j
 @SpringBootTest
 @DisplayName("OC推荐集成测试")
@@ -34,6 +35,17 @@ class TornOcRecommendManagerTest {
 
         TornSettingOcSlotDO result = recommendManager.findSlotSetting(FACTION_BSU, oc, slot);
         assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("禁用OC仍可查询岗位要求")
+    void findSlotRequirement_disabledOc_returnsRequirement() {
+        TornFactionOcDO oc = oc("No Reserve", 5);
+        TornFactionOcSlotDO slot = slot("Engineer#1");
+
+        TornSettingOcSlotDO result = recommendManager.findSlotRequirement(FACTION_BSU, oc, slot);
+
+        assertThat(result).isNotNull();
     }
 
     @Test
@@ -84,14 +96,5 @@ class TornOcRecommendManagerTest {
         TornFactionOcSlotDO s = new TornFactionOcSlotDO();
         s.setPosition(position);
         return s;
-    }
-
-    private TornFactionOcUserDO user(String ocName, int rank, String position, int passRate) {
-        TornFactionOcUserDO u = new TornFactionOcUserDO();
-        u.setOcName(ocName);
-        u.setRank(rank);
-        u.setPosition(position);
-        u.setPassRate(passRate);
-        return u;
     }
 }

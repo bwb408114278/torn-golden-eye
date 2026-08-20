@@ -15,7 +15,7 @@ import java.util.Map;
  * Torn OC Crime详情响应参数
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.3.6
  * @since 2025.07.29
  */
 @Data
@@ -54,8 +54,8 @@ public class TornFactionCrimeVO implements TornFactionOc {
     /**
      * Torn权威创建时间（Unix时间戳）
      */
-    @JsonProperty("create_at")
-    private Long createAt;
+    @JsonProperty("created_at")
+    private Long createdAt;
     /**
      * 位置信息
      */
@@ -86,8 +86,8 @@ public class TornFactionCrimeVO implements TornFactionOc {
             oc.setReadyTime(DateTimeUtils.convertToDateTime(readyAt));
         }
 
-        if (this.createAt != null) {
-            oc.setTornCreatedAt(DateTimeUtils.convertToDateTime(createAt));
+        if (this.createdAt != null) {
+            oc.setTornCreatedAt(DateTimeUtils.convertToDateTime(createdAt));
         }
 
         if (this.executedAt != null) {
