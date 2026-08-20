@@ -25,17 +25,14 @@ import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 帮派RW警告公共逻辑类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.5
  * @since 2026.01.21
  */
 @Slf4j
@@ -183,6 +180,11 @@ public class TornRwWarningManager {
 
     /**
      * 填充对手数据
+     * <p>
+     * Torn成员接口中返程与去程的顶层state都可能保持Traveling, 旅行方向仅体现在
+     * status.description解析出的travelType上, 因此变更判定必须比较完整旅行快照
+     * (state、travelType、travelTarget、planeType)四字段, 仅比较state会漏掉
+     * Traveling→Returning的方向变化。
      */
     private void fillOpponentData(TornFactionRwDO rw, TornFactionMemberVO member, boolean isTravel,
                                   List<TornFactionRwUserStatusDO> statusList,
@@ -197,13 +199,28 @@ public class TornRwWarningManager {
             return;
         }
 
-        if (!member.getStatus().getState().equals(status.getState())) {
-            TornFactionRwUserStatusDO updateStatus = new TornFactionRwUserStatusDO(status.getId(), member);
-            updateDataList.add(updateStatus);
+        TornFactionRwUserStatusDO currentStatus = new TornFactionRwUserStatusDO(status.getId(), member);
+        if (hasTravelSnapshotChanged(status, currentStatus)) {
+            updateDataList.add(currentStatus);
             if (isTravel) {
-                warningList.add(updateStatus);
+                warningList.add(currentStatus);
             }
         }
+    }
+
+    /**
+     * 判断敌对成员旅行快照是否发生变化
+     *
+     * @param oldStatus     已持久化的快照
+     * @param currentStatus 按最新成员响应构建的快照
+     * @return 四个旅行字段任一不同即视为变化
+     */
+    private boolean hasTravelSnapshotChanged(TornFactionRwUserStatusDO oldStatus,
+                                             TornFactionRwUserStatusDO currentStatus) {
+        return !Objects.equals(oldStatus.getState(), currentStatus.getState())
+                || !Objects.equals(oldStatus.getTravelType(), currentStatus.getTravelType())
+                || !Objects.equals(oldStatus.getTravelTarget(), currentStatus.getTravelTarget())
+                || !Objects.equals(oldStatus.getPlaneType(), currentStatus.getPlaneType());
     }
 
     /**

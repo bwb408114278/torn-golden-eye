@@ -1,169 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.TornAttackLogMapper">
-    <!-- 统计指定时间窗口的玩家数据 -->
-    <select id="queryPlayerAttackStat" resultType="pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO">
-        <![CDATA[
-        WITH pair_attacks AS (
-            -- 双方（A打B + B打A）在时间区间内的所有战斗，用于判定“3分钟内是否>=minBattleCount”
-            SELECT fa.attack_end_time
-            FROM torn_faction_attack fa
-            WHERE fa.deleted = 0
-              AND fa.attack_end_time BETWEEN #{startTime} AND #{endTime}
-              AND (
-                (fa.attack_faction_id = #{factionId} AND fa.defend_faction_id = #{opponentFactionId})
-                    OR (fa.attack_faction_id = #{opponentFactionId} AND fa.defend_faction_id = #{factionId})
-                )
-        ),
-        anchor_points AS (
-            -- 以每个发生过战斗的时刻作为“滑动窗口右边界”
-            SELECT DISTINCT pa.attack_end_time
-            FROM pair_attacks pa
-        ),
-        qualified_points AS (
-            -- 任意连续 windowMinutes 分钟内，双方总战斗数 >= minBattleCount 的窗口右边界
-            SELECT ap.attack_end_time AS window_end
-            FROM anchor_points ap
-            JOIN pair_attacks pa
-                ON pa.attack_end_time >= ap.attack_end_time - (CAST(#{windowMinutes} AS TEXT) || ' minutes')::INTERVAL
-                AND pa.attack_end_time <= ap.attack_end_time
-            GROUP BY ap.attack_end_time
-            HAVING COUNT(*) >= #{minBattleCount}
-        ),
-        qualified_attacks AS (
-            -- 统计对象仍是“我方打对方”的战斗记录，但仅保留落在命中窗口里的记录
-            SELECT
-                fa.attack_user_id,
-                fa.attack_user_nickname,
-                fa.attack_result,
-                fa.defend_user_online_status,
-                fa.defender_elo,
-                fa.attack_log_id,
-                fa.attack_start_time,
-                fa.attack_end_time,
-                EXTRACT(EPOCH FROM (fa.attack_end_time - fa.attack_start_time))::INTEGER AS combat_duration
-            FROM torn_faction_attack fa
-            WHERE fa.deleted = 0
-                AND fa.attack_faction_id = #{factionId}
-                AND fa.defend_faction_id = #{opponentFactionId}
-                AND fa.attack_end_time BETWEEN #{startTime} AND #{endTime}
-                AND EXISTS (
-                    SELECT 1
-                    FROM qualified_points qp
-                    WHERE fa.attack_end_time >= qp.window_end - (CAST(#{windowMinutes} AS TEXT) || ' minutes')::INTERVAL
-                        AND fa.attack_end_time <= qp.window_end
-                )
-            ),
-            qualified_users AS (
-                SELECT DISTINCT qa.attack_user_id
-                FROM qualified_attacks qa
-            ),
-            player_attack_stats AS (
-                SELECT
-                    qa.attack_user_id,
-                    qa.attack_user_nickname,
-                    COUNT(*) AS total_attacks,
-                    COUNT(*) FILTER (WHERE qa.attack_result = 'Hospitalized') AS hosp_count,
-                    COUNT(*) FILTER (WHERE qa.attack_result IN ('Attacked', 'Special', 'Arrested', 'Mugged')) AS leave_count,
-                    COUNT(*) FILTER (WHERE qa.attack_result = 'Assist') AS assist_count,
-                    COUNT(*) FILTER (WHERE qa.attack_result IN ('Lost', 'Escape', 'Timeout', 'Stalemate', 'Interrupted')) AS lost_count,
-                    SUM(qa.combat_duration) AS total_combat_duration,
-                    ROUND(AVG(qa.combat_duration)::NUMERIC, 2) AS avg_combat_duration,
-                    COUNT(*) FILTER (WHERE qa.defend_user_online_status = 'Online') AS online_opponent_count,
-                    ROUND((AVG(qa.defender_elo) FILTER (WHERE qa.defender_elo IS NOT NULL))::NUMERIC, 2) AS avg_opponent_elo
-                FROM qualified_attacks qa
-                GROUP BY qa.attack_user_id, qa.attack_user_nickname
-            ),
-            qualified_logs AS (
-                -- 先按命中窗口 + 相关用户做日志裁剪
-                SELECT
-                    al.id,
-                    al.log_id,
-                    al.attacker_id,
-                    al.defender_id,
-                    al.log_action,
-                    al.damage,
-                    al.defender_elo,
-                    al.syringe_type,
-                    al.ammo_type,
-                    al.attacker_item_name,
-                    al.log_time
-                FROM torn_attack_log al
-                WHERE al.deleted = 0
-                    AND al.log_time BETWEEN #{startTime} AND #{endTime}
-                    AND EXISTS (
-                        SELECT 1
-                        FROM qualified_points qp
-                        WHERE al.log_time >= qp.window_end - (CAST(#{windowMinutes} AS TEXT) || ' minutes')::INTERVAL
-                            AND al.log_time <= qp.window_end
-                    )
-                    AND (
-                        al.attacker_id IN (SELECT qu.attack_user_id FROM qualified_users qu)
-                        OR al.defender_id IN (SELECT qu.attack_user_id FROM qualified_users qu)
-                    )
-            ),
-            log_stats AS (
-                SELECT
-                    ql.attacker_id AS attack_user_id,
-                    COUNT(*) FILTER (
-                    WHERE ql.log_action IN ('busy', 'critical hit', 'hit', 'missed', 'onItemUseEff', 'reload', 'specialTemp', 'specialTempI', 'won')
-                    ) AS total_rounds,
-                    COALESCE(SUM(ql.damage), 0) AS damage_dealt,
-                    COALESCE(SUM(
-                    CASE
-                    WHEN ql.defender_elo IS NOT NULL AND ql.defender_elo > 0
-                    THEN ((ql.defender_elo - 1000) / 1000.0) * ql.damage
-                    ELSE 0
-                    END
-                    ), 0) AS damage_score,
-                    COUNT(*) FILTER (WHERE ql.syringe_type IS NOT NULL) AS syringe_used,
-                    COUNT(ql.log_id) FILTER (WHERE ql.ammo_type IS NOT NULL) AS special_ammo_rounds,
-                    COUNT(*) FILTER (
-                    WHERE ql.attacker_item_name IN ('Smoke Grenade', 'Flash Grenade', 'Tear Gas', 'Pepper Spray')
-                    ) AS debuff_temp_count
-                FROM qualified_logs ql
-                    JOIN qualified_users qu ON qu.attack_user_id = ql.attacker_id
-                GROUP BY ql.attacker_id
-            ),
-            defender_stats AS (
-                SELECT
-                    ql.defender_id AS attack_user_id,
-                    COALESCE(SUM(ql.damage), 0) AS damage_taken
-                FROM qualified_logs ql
-                    JOIN qualified_users qu ON qu.attack_user_id = ql.defender_id
-                GROUP BY ql.defender_id
-            )
-
-            SELECT
-                pas.attack_user_id AS user_id,
-                pas.attack_user_nickname AS nickname,
-                pas.total_attacks,
-                pas.hosp_count,
-                pas.leave_count,
-                pas.assist_count,
-                pas.lost_count,
-                pas.total_combat_duration,
-                pas.avg_combat_duration,
-                pas.online_opponent_count,
-                pas.avg_opponent_elo,
-                COALESCE(ls.total_rounds, 0) AS total_rounds,
-                COALESCE(ls.damage_dealt, 0) AS damage_dealt,
-                COALESCE(ds.damage_taken, 0) AS damage_taken,
-                COALESCE(ls.damage_score, 0) *
-                (CASE
-                     WHEN pas.total_attacks = 0 THEN 0
-                     ELSE pas.online_opponent_count::NUMERIC / pas.total_attacks
-                 END) AS damage_score,
-                COALESCE(ls.syringe_used, 0) AS syringe_used,
-                COALESCE(ls.special_ammo_rounds, 0) AS special_ammo_rounds,
-                COALESCE(ls.debuff_temp_count, 0) AS debuff_temp_count
-            FROM player_attack_stats pas
-                     LEFT JOIN log_stats ls ON pas.attack_user_id = ls.attack_user_id
-                     LEFT JOIN defender_stats ds ON pas.attack_user_id = ds.attack_user_id
-            ORDER BY damage_score DESC
-            ]]>
-    </select>
-
     <!-- 统计指定时间窗口的玩家数据（基于已计算的时间窗口，不重复滑动窗口计算） -->
     <select id="queryPlayerAttackStatByWindows" resultType="pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO">
         WITH qualified_attacks AS (
@@ -345,4 +182,23 @@
         ORDER BY head_hit_damage DESC NULLS LAST
         LIMIT 30
     </select>
+
+    <!-- 冲突安全批量写入攻击日志: 主键由DAO以雪花ID补齐后显式写入, 冲突目标与有效事实部分唯一索引逐字一致 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_attack_log
+            (id, log_id, log_time, log_text, log_action, log_icon,
+             attacker_id, attacker_name, attacker_item_id, attacker_item_name,
+             defender_id, defender_name, damage, is_miss, is_critical, hit_location,
+             ammo_type, damage_type, syringe_type, attacker_elo, defender_elo,
+             deleted, create_time, update_time)
+        VALUES
+        <foreach collection="logList" item="item" separator=",">
+            (#{item.id}, #{item.logId}, #{item.logTime}, #{item.logText}, #{item.logAction}, #{item.logIcon},
+             #{item.attackerId}, #{item.attackerName}, #{item.attackerItemId}, #{item.attackerItemName},
+             #{item.defenderId}, #{item.defenderName}, #{item.damage}, #{item.isMiss}, #{item.isCritical}, #{item.hitLocation},
+             #{item.ammoType}, #{item.damageType}, #{item.syringeType}, #{item.attackerElo}, #{item.defenderElo},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (attacker_id, defender_id, log_time, log_text, log_action) WHERE deleted = 0 DO NOTHING
+    </insert>
 </mapper>

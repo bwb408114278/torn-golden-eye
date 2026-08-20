@@ -23,13 +23,15 @@ import java.util.stream.Collectors;
  * 攻击日志逻辑类
  *
  * @author Bai
- * @version 1.1.5
+ * @version 1.3.5
  * @since 2025.12.18
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class TornAttackLogService {
+    private static final int SAVE_BATCH_SIZE = 1000;
+
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApi tornApi;
     private final TornApiKeyConfig apiKeyConfig;
@@ -125,7 +127,11 @@ public class TornAttackLogService {
 
         List<TornAttackLogDO> logList = new ArrayList<>();
         allLogList.forEach(logList::addAll);
-        attackLogDao.saveBatch(logList);
+        // 数据库有效事实部分唯一索引承担最终幂等, filterRepeatLog仅作为减少重复API结果处理的预过滤
+        for (int start = 0; start < logList.size(); start += SAVE_BATCH_SIZE) {
+            int end = Math.min(start + SAVE_BATCH_SIZE, logList.size());
+            attackLogDao.insertIgnoreConflict(logList.subList(start, end));
+        }
     }
 
     /**
