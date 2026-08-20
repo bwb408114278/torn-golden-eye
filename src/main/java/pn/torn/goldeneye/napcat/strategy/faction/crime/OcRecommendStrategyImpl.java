@@ -59,7 +59,7 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
         TornOcRecommendService.CurrentOcStatus currentStatus = recommendService.queryCurrentOcStatus(user, joinedOc);
         if (currentStatus.disabled()) {
-            return super.buildTextMsg(buildDisabledMessage(user, currentStatus));
+            return buildDisabledWithRecommendMessage(user, currentStatus, result);
         }
         if (currentStatus.passRateInsufficient()) {
             return super.buildTextMsg(buildInsufficientMessage(user, currentStatus));
@@ -80,6 +80,27 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
             message += "，当前成功率" + status.actualPassRate() + "%，要求" + status.requiredPassRate() + "%";
         }
         return message;
+    }
+
+    /**
+     * 禁用当前OC时组合禁用提示与正常推荐结果；推荐为空时明确提示未找到正常OC。
+     *
+     * @param user          用户
+     * @param currentStatus 当前OC状态
+     * @param result        OC推荐结果
+     * @return 禁用提示在前、正常推荐文本/链接/图片在后的消息列表
+     */
+    private List<QqMsgParam<?>> buildDisabledWithRecommendMessage(TornUserDO user,
+                                                                  TornOcRecommendService.CurrentOcStatus currentStatus,
+                                                                  List<OcRecommendationVO> result) {
+        List<QqMsgParam<?>> messageList = new ArrayList<>();
+        messageList.add(new TextQqMsg(buildDisabledMessage(user, currentStatus)));
+        if (CollectionUtils.isEmpty(result)) {
+            messageList.add(new TextQqMsg(user.getNickname() + ", 暂未找到可加入的正常OC"));
+            return messageList;
+        }
+        messageList.addAll(buildRecommendTable(user, result));
+        return messageList;
     }
 
     private String buildInsufficientMessage(TornUserDO user, TornOcRecommendService.CurrentOcStatus status) {

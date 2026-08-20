@@ -220,6 +220,173 @@ class TornOcRecommendServiceTest {
     }
 
     // ========================================================
+    // 禁用当前OC且有进度的推荐范围与基线
+    // ========================================================
+
+    @Test
+    @DisplayName("禁用当前OC且有进度 → 返回正常OC推荐且当前禁用OC不作为候选")
+    void disabledCurrentOcWithProgress_shouldRecommendNormalOcAndExcludeDisabledOc() {
+        aceSlot.setProgress(BigDecimal.ONE);
+        TornFactionOcSlotDO normalSlot = new TornFactionOcSlotDO();
+        normalSlot.setOcId(2L);
+        normalSlot.setUserId(null);
+        normalSlot.setPosition("Engineer#2");
+        when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new java.util.ArrayList<>(List.of(breakBankOc)));
+        when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(List.of(normalSlot)));
+
+        TornFactionOcUserDO passRate = new TornFactionOcUserDO();
+        passRate.setOcName(OC_BREAK_BANK);
+        passRate.setPosition("Engineer#1");
+        passRate.setPassRate(75);
+        when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(passRate));
+        when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(true);
+        when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(true);
+
+        TornSettingOcSlotDO slotSetting = new TornSettingOcSlotDO();
+        slotSetting.setSlotShortCode("Engineer#1");
+        slotSetting.setPassRate(60);
+        slotSetting.setPriority(15);
+        when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(slotSetting);
+        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(slotSetting);
+
+        TornFactionOcUserDO matched = new TornFactionOcUserDO();
+        matched.setPassRate(70);
+        when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(matched);
+        when(ocRecommendManager.calcRecommendScore(anyBoolean(), any(), any(), any()))
+                .thenReturn(BigDecimal.valueOf(85));
+        when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+
+        assertThat(result).hasSize(1);
+        assertThat(result).extracting(OcRecommendationVO::getOcName)
+                .containsExactly(OC_BREAK_BANK);
+        assertThat(result).extracting(OcRecommendationVO::getOcId)
+                .doesNotContain(aceOc.getId());
+        assertThat(result).extracting(OcRecommendationVO::getRecommendedPosition)
+                .doesNotContain(aceSlot.getPosition());
+    }
+
+    @Test
+    @DisplayName("禁用当前OC且有进度 → 当前禁用OC评分不作为正常OC推荐基线")
+    void disabledCurrentOcWithProgress_shouldIgnoreDisabledOcScoreBaseline() {
+        aceSlot.setProgress(BigDecimal.ONE);
+        when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new java.util.ArrayList<>(List.of(breakBankOc)));
+        when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(List.of(breakBankSlot)));
+
+        TornFactionOcUserDO passRate = new TornFactionOcUserDO();
+        passRate.setOcName(OC_BREAK_BANK);
+        passRate.setPosition("Engineer#1");
+        passRate.setPassRate(75);
+        when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(passRate));
+        when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(true);
+        when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(true);
+
+        TornSettingOcSlotDO slotSetting = new TornSettingOcSlotDO();
+        slotSetting.setSlotShortCode("Engineer#1");
+        slotSetting.setPassRate(60);
+        slotSetting.setPriority(15);
+        when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(slotSetting);
+        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(slotSetting);
+
+        TornFactionOcUserDO matched = new TornFactionOcUserDO();
+        matched.setPassRate(70);
+        when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(matched);
+        // 禁用当前OC评分100，正常OC评分85；若仍按当前评分过滤会得到空结果
+        when(ocRecommendManager.calcRecommendScore(anyBoolean(), any(), any(), any()))
+                .thenAnswer(inv -> {
+                    TornFactionOcDO oc = inv.getArgument(1);
+                    return oc.getId() == 1L ? BigDecimal.valueOf(100) : BigDecimal.valueOf(85);
+                });
+        when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().getOcName()).isEqualTo(OC_BREAK_BANK);
+    }
+
+    @Test
+    @DisplayName("禁用当前OC且有进度 → 正常OC无符合成功率岗位时返回空且不抛异常")
+    void disabledCurrentOcWithProgress_noQualifiedNormalOc_shouldReturnEmpty() {
+        aceSlot.setProgress(BigDecimal.ONE);
+        when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new java.util.ArrayList<>(List.of(breakBankOc)));
+        when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(List.of(breakBankSlot)));
+
+        TornFactionOcUserDO passRate = new TornFactionOcUserDO();
+        passRate.setOcName(OC_BREAK_BANK);
+        passRate.setPosition("Engineer#1");
+        passRate.setPassRate(75);
+        when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(passRate));
+        when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(true);
+        when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(true);
+
+        TornSettingOcSlotDO slotSetting = new TornSettingOcSlotDO();
+        slotSetting.setSlotShortCode("Engineer#1");
+        slotSetting.setPassRate(60);
+        slotSetting.setPriority(15);
+        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(slotSetting);
+        // 正常OC岗位配置为空，等价于没有符合成功率要求的岗位
+        when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(null);
+
+        TornFactionOcUserDO matched = new TornFactionOcUserDO();
+        matched.setPassRate(70);
+        when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(matched);
+        when(ocRecommendManager.calcRecommendScore(anyBoolean(), any(), any(), any()))
+                .thenReturn(BigDecimal.valueOf(85));
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("当前OC未禁用且有进度 → 低于当前评分的同OC岗位仍不展示")
+    void joinedOcWithProgressNotDisabled_shouldKeepCurrentBaselineFilter() {
+        aceSlot.setProgress(BigDecimal.ONE);
+        TornFactionOcSlotDO aceEmptySlot = new TornFactionOcSlotDO();
+        aceEmptySlot.setOcId(aceOc.getId());
+        aceEmptySlot.setUserId(null);
+        aceEmptySlot.setPosition("Engineer#2");
+        when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(List.of(aceEmptySlot)));
+
+        TornFactionOcUserDO passRate = new TornFactionOcUserDO();
+        passRate.setOcName(OC_ACE);
+        passRate.setPosition("Engineer#1");
+        passRate.setPassRate(75);
+        when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(passRate));
+        when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(true);
+        when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(false);
+
+        TornSettingOcSlotDO currentRequirement = new TornSettingOcSlotDO();
+        currentRequirement.setSlotShortCode("Engineer#1");
+        currentRequirement.setPassRate(60);
+        currentRequirement.setPriority(15);
+        TornSettingOcSlotDO candidateSetting = new TornSettingOcSlotDO();
+        candidateSetting.setSlotShortCode("Engineer#2");
+        candidateSetting.setPassRate(60);
+        candidateSetting.setPriority(15);
+        when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(candidateSetting);
+        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(currentRequirement);
+
+        TornFactionOcUserDO matched = new TornFactionOcUserDO();
+        matched.setPassRate(70);
+        when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(matched);
+        // 当前岗位评分90，同OC可换岗位评分85，低于基线不展示
+        when(ocRecommendManager.calcRecommendScore(anyBoolean(), any(), any(), any()))
+                .thenAnswer(inv -> {
+                    TornSettingOcSlotDO setting = inv.getArgument(2);
+                    return "Engineer#1".equals(setting.getSlotShortCode())
+                            ? BigDecimal.valueOf(90) : BigDecimal.valueOf(85);
+                });
+        when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+
+        assertThat(result).isEmpty();
+    }
+
+    // ========================================================
     // 工具方法
     // ========================================================
 

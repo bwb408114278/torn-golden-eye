@@ -82,7 +82,9 @@ public class TornOcRecommendService {
                 .toList();
 
         // 6. 以当前队评分为基线过滤，返回Top N
-        sorted = filterBelowBaseline(sorted, currentStatus.currentScore());
+        // 当前OC已被禁用时，当前OC不是合法加入目标，其评分不能作为正常候选的过滤基线。
+        BigDecimal baseline = currentStatus.disabled() ? null : currentStatus.currentScore();
+        sorted = filterBelowBaseline(sorted, baseline);
         return sorted.stream().limit(topN).toList();
     }
 
@@ -186,9 +188,19 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 查找招募中的OC列表
+     * 查找推荐候选OC列表。
+     *
+     * <p>当前已加入禁用OC且有进度时，恢复为帮派正常招募OC范围；当前OC未禁用且有进度时仍只返回当前OC，保持原有行为。</p>
+     *
+     * @param factionId    帮派ID
+     * @param joinedOcSlot 当前占用的OC岗位，未加入时传null
+     * @return 推荐候选OC列表
      */
     public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot) {
+        // 当前已加入禁用OC且有进度时，恢复为帮派正常招募OC范围，禁用OC本身不作为候选。
+        if (shouldRecommendNormalOcForDisabledCurrentOc(factionId, joinedOcSlot)) {
+            return ocDao.queryRecrutList(factionId);
+        }
         // 跑了进度的, 只能判断当前队, 可以换位置
         if (joinedOcSlot != null && BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0) {
             return List.of(joinedOcSlot.getOc());
@@ -211,6 +223,19 @@ public class TornOcRecommendService {
             recruitOcList.add(joinedOc);
         }
         return recruitOcList;
+    }
+
+    /**
+     * 判断是否应为禁用当前OC且有进度的用户恢复正常招募OC候选范围。
+     *
+     * @param factionId    帮派ID
+     * @param joinedOcSlot 当前占用的OC岗位
+     * @return true表示当前OC被禁用且有进度，应使用正常招募OC作为推荐范围
+     */
+    private boolean shouldRecommendNormalOcForDisabledCurrentOc(long factionId, OcSlotDictBO joinedOcSlot) {
+        return joinedOcSlot != null
+                && BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0
+                && ocRecommendManager.isOcDisabled(factionId, joinedOcSlot.getOc());
     }
 
     /**

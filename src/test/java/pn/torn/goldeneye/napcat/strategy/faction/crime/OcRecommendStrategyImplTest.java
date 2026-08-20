@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
+import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
@@ -18,6 +19,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
@@ -25,13 +27,11 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
- * OC推荐策略测试，验证当前状态优先于普通空推荐提示。
+ * OC推荐策略测试，验证禁用当前OC时提示与正常推荐列表可同时输出。
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("OC推荐策略测试")
@@ -86,15 +86,56 @@ class OcRecommendStrategyImplTest {
     }
 
     @Test
-    @DisplayName("当前OC禁用时输出禁用状态而不是无推荐")
-    void disabledCurrentOc_shouldShowDisabledStatus() {
+    @DisplayName("当前OC禁用且有正常推荐 → 禁用提示与推荐列表、Torn链接同时存在")
+    void disabledCurrentOc_shouldCombineDisabledTipWithNormalRecommendation() {
+        stubCurrentStatus(true, false, 80, 60, BigDecimal.TEN);
+        TornFactionOcDO normalOc = new TornFactionOcDO();
+        normalOc.setId(2L);
+        normalOc.setFactionId(FACTION_ID);
+        normalOc.setName("Normal OC");
+        normalOc.setRank(5);
+        TornFactionOcSlotDO normalSlot = new TornFactionOcSlotDO();
+        normalSlot.setId(22L);
+        normalSlot.setOcId(2L);
+        normalSlot.setPosition("Thief#2");
+        OcRecommendationVO normalRecommendation = new OcRecommendationVO(
+                normalOc, normalSlot, BigDecimal.valueOf(90), "高成功率");
+        when(recommendService.recommendOcForUser(user, 3, new OcSlotDictBO(oc, slot)))
+                .thenReturn(List.of(normalRecommendation));
+        when(msgManager.buildRecommendTable(anyString(), eq(FACTION_ID), anyList()))
+                .thenReturn("tableBase64");
+
+        List<? extends QqMsgParam<?>> messages = handleMessages();
+
+        String message = collectText(messages);
+        assertThat(messages).hasSize(3);
+        assertThat(message)
+                .contains("当前加入的OC已被禁用")
+                .contains("推荐加入")
+                .contains("Normal OC")
+                .contains("Thief#2")
+                .contains("crimeId=2")
+                .doesNotContain("Break the Bank")
+                .doesNotContain("Thief#1");
+        assertThat(((TextQqMsg) messages.getFirst()).getData().text())
+                .contains("当前加入的OC已被禁用");
+        verify(msgManager).buildRecommendTable(anyString(), eq(FACTION_ID), anyList());
+    }
+
+    @Test
+    @DisplayName("当前OC禁用且无正常候选 → 保留禁用提示并明确说明没有正常OC")
+    void disabledCurrentOc_noNormalCandidate_shouldShowDisabledAndNoNormalOcTip() {
         stubCurrentStatus(true, false, 80, 60, BigDecimal.TEN);
         when(recommendService.recommendOcForUser(user, 3, new OcSlotDictBO(oc, slot))).thenReturn(List.of());
 
-        String message = handleText();
+        List<? extends QqMsgParam<?>> messages = handleMessages();
 
+        String message = collectText(messages);
+        assertThat(messages).hasSize(2);
         assertThat(message)
                 .contains("当前加入的OC已被禁用")
+                .contains("暂未找到可加入的正常OC")
+                .doesNotContain("推荐加入")
                 .doesNotContain("暂时没有合适加入的OC");
     }
 
@@ -134,5 +175,20 @@ class OcRecommendStrategyImplTest {
         QqRecMsgSender sender = new QqRecMsgSender();
         return ((TextQqMsg) strategy.handle(0L, sender, String.valueOf(USER_ID)).getFirst())
                 .getData().text();
+    }
+
+    private List<? extends QqMsgParam<?>> handleMessages() {
+        QqRecMsgSender sender = new QqRecMsgSender();
+        return strategy.handle(0L, sender, String.valueOf(USER_ID));
+    }
+
+    private String collectText(List<? extends QqMsgParam<?>> messages) {
+        StringBuilder builder = new StringBuilder();
+        for (QqMsgParam<?> message : messages) {
+            if (message instanceof TextQqMsg textQqMsg) {
+                builder.append(textQqMsg.getData().text()).append(System.lineSeparator());
+            }
+        }
+        return builder.toString();
     }
 }
