@@ -22,23 +22,6 @@ import java.util.List;
 @Mapper
 public interface TornAttackLogMapper extends BaseMapper<TornAttackLogDO> {
     /**
-     * 统计指定时间窗口的玩家数据
-     *
-     * @param factionId         帮派ID
-     * @param opponentFactionId 对手帮派ID
-     * @param windowMinutes     时间窗口长度
-     * @param minBattleCount    满足战斗场次才是对冲
-     * @param startTime         开始时间
-     * @param endTime           结束时间
-     */
-    List<PlayerAttackStatDO> queryPlayerAttackStat(@Param("factionId") long factionId,
-                                                   @Param("opponentFactionId") long opponentFactionId,
-                                                   @Param("windowMinutes") int windowMinutes,
-                                                   @Param("minBattleCount") int minBattleCount,
-                                                   @Param("startTime") LocalDateTime startTime,
-                                                   @Param("endTime") LocalDateTime endTime);
-
-    /**
      * 查询活跃对战时间窗口（滚动窗口：windowMinutes分钟内双方攻击次数>=minBattleCount的连续时间段）
      *
      * @param factionId         帮派ID

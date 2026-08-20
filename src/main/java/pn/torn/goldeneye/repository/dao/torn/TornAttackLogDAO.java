@@ -24,22 +24,6 @@ import java.util.List;
 @Repository
 public class TornAttackLogDAO extends ServiceImpl<TornAttackLogMapper, TornAttackLogDO> {
     /**
-     * 统计指定时间窗口的玩家数据
-     *
-     * @param factionId         帮派ID
-     * @param opponentFactionId 对手帮派ID
-     * @param windowMinutes     时间窗口长度
-     * @param minBattleCount    满足战斗场次才是对冲
-     * @param startTime         开始时间
-     * @param endTime           结束时间
-     */
-    public List<PlayerAttackStatDO> queryPlayerAttackStat(long factionId, long opponentFactionId,
-                                                          int windowMinutes, int minBattleCount,
-                                                          LocalDateTime startTime, LocalDateTime endTime) {
-        return baseMapper.queryPlayerAttackStat(factionId, opponentFactionId, windowMinutes, minBattleCount, startTime, endTime);
-    }
-
-    /**
      * 统计指定时间窗口的玩家数据（基于已计算的时间窗口列表，不重复滑动窗口计算）
      *
      * @param factionId         帮派ID
@@ -47,7 +31,7 @@ public class TornAttackLogDAO extends ServiceImpl<TornAttackLogMapper, TornAttac
      * @param windows           活跃时间窗口列表
      */
     public List<PlayerAttackStatDO> queryPlayerAttackStatByWindows(long factionId, long opponentFactionId,
-                                                                    List<AttackTimeWindowDO> windows) {
+                                                                   List<AttackTimeWindowDO> windows) {
         return baseMapper.queryPlayerAttackStatByWindows(factionId, opponentFactionId, windows);
     }
 

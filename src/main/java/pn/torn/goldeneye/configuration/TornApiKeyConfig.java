@@ -223,14 +223,6 @@ public class TornApiKeyConfig {
     }
 
     /**
-     * 标记Key为使用中
-     */
-    private TornApiKeyDO markKeyInUse(TornApiKeyDO key) {
-        inUseKeyIds.add(key.getId());
-        return key;
-    }
-
-    /**
      * 增加Key使用计数
      */
     private void incrementKeyUsageCount(TornApiKeyDO key) {
@@ -337,9 +329,9 @@ public class TornApiKeyConfig {
     /**
      * Key候选不可变快照
      *
-     * @param key 原Key对象
+     * @param key              原Key对象
      * @param useCountSnapshot 构建快照时的使用次数
-     * @param keyId Key ID
+     * @param keyId            Key ID
      */
     private record KeyCandidate(TornApiKeyDO key, int useCountSnapshot, long keyId) {
     }

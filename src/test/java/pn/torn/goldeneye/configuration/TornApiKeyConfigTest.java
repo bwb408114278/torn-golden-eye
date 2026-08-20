@@ -1,13 +1,14 @@
 package pn.torn.goldeneye.configuration;
 
+import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.function.Executable;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import pn.torn.goldeneye.repository.dao.setting.TornApiKeyDAO;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 
@@ -18,10 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -133,7 +131,8 @@ class TornApiKeyConfigTest {
 
             List<Future<Void>> futureList = executor.invokeAll(taskList);
             for (Future<Void> future : futureList) {
-                assertDoesNotThrow(() -> future.get(), "并发获取/归还不得抛出TimSort比较器契约异常");
+                // 显式Executable消解方法引用与ThrowingSupplier重载的二义性
+                assertDoesNotThrow((Executable) future::get, "并发获取/归还不得抛出TimSort比较器契约异常");
             }
         } finally {
             executor.shutdownNow();
@@ -147,9 +146,9 @@ class TornApiKeyConfigTest {
     /**
      * 构造测试Key
      *
-     * @param id              Key ID
-     * @param useCount        初始使用次数
-     * @param factionId       所属帮派ID
+     * @param id               Key ID
+     * @param useCount         初始使用次数
+     * @param factionId        所属帮派ID
      * @param hasFactionAccess 是否有帮派权限
      * @return 测试Key对象
      */
