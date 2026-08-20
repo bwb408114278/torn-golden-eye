@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  * OC队伍分配基础逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.6
  * @since 2025.11.24
  */
 @Slf4j
@@ -116,15 +116,11 @@ public class TornOcAssignService {
         List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(urgentOcList);
         TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> resultMap = new TreeMap<>(
                 (o1, o2) -> {
-                    if (o1.getReadyTime() == null) {
-                        return -1;
+                    int readyTimeCompare = compareReadyTime(o1.getReadyTime(), o2.getReadyTime());
+                    if (readyTimeCompare != 0) {
+                        return readyTimeCompare;
                     }
-
-                    if (o2.getReadyTime() == null) {
-                        return 1;
-                    }
-
-                    return o2.getReadyTime().compareTo(o1.getReadyTime());
+                    return compareOcId(o1.getId(), o2.getId());
                 });
         for (TornFactionOcDO oc : urgentOcList) {
             List<TornFactionOcSlotDO> slots = emptySlotList.stream()
@@ -144,7 +140,8 @@ public class TornOcAssignService {
             Map<TornUserDO, List<TornFactionOcUserDO>> userOcMap) {
         Map<TornUserDO, OcRecommendationVO> result = new HashMap<>();
         Set<Long> allocatedSlot = new HashSet<>();
-        Map<Long, LocalDateTime> ocReadyMap = buildOriginTimeMap(vacantSlots);
+        LocalDateTime now = LocalDateTime.now();
+        Map<Long, LocalDateTime> ocReadyMap = buildOriginTimeMap(vacantSlots, now);
 
         for (Map.Entry<TornUserDO, List<TornFactionOcUserDO>> entry : userOcMap.entrySet()) {
             List<UserMatchScore> candidates = findCandidatesForUser(entry.getKey(), entry.getValue(),
@@ -155,8 +152,8 @@ public class TornOcAssignService {
             }
 
             UserMatchScore bestMatch = candidates.stream()
-                    .max(Comparator.comparing(UserMatchScore::score))
-                    .orElse(null);
+                    .max(buildCandidateComparator(ocReadyMap, now))
+                    .orElseThrow(() -> new IllegalStateException("OC候选不能为空"));
 
             BigDecimal score = bestMatch.score();
 
@@ -198,6 +195,7 @@ public class TornOcAssignService {
 
                 // 跳过已分配的岗位, 检查是否满足最低成功率要求
                 if (allocatedPosition.contains(slot.getId()) ||
+                        setting == null ||
                         matchedData == null ||
                         matchedData.getPassRate() < setting.getPassRate()) {
                     continue;
@@ -217,7 +215,8 @@ public class TornOcAssignService {
      *
      * @return Key为OC ID, Value为原本的准备时间
      */
-    private Map<Long, LocalDateTime> buildOriginTimeMap(TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots) {
+    private Map<Long, LocalDateTime> buildOriginTimeMap(TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots,
+                                                        LocalDateTime now) {
         if (CollectionUtils.isEmpty(vacantSlots)) {
             return Map.of();
         }
@@ -226,13 +225,62 @@ public class TornOcAssignService {
         for (TornFactionOcDO oc : vacantSlots.keySet()) {
             resultMap.put(oc.getId(), oc.getReadyTime());
 
-            LocalDateTime originTime = oc.getReadyTime() == null ? LocalDateTime.now() : oc.getReadyTime();
-            long readyHours = Duration.between(LocalDateTime.now(), originTime).toHours();
-            LocalDateTime targetTime = readyHours < 8 ? LocalDateTime.now() : oc.getReadyTime();
+            LocalDateTime originTime = oc.getReadyTime() == null ? now : oc.getReadyTime();
+            long readyHours = Duration.between(now, originTime).toHours();
+            LocalDateTime targetTime = readyHours < 8 ? now : oc.getReadyTime();
             oc.setReadyTime(targetTime);
         }
 
         return resultMap;
+    }
+
+    /**
+     * 比较OC准备时间，空值排在有值之前，非空时间按倒序排列。
+     *
+     * @param first  第一个准备时间
+     * @param second 第二个准备时间
+     * @return 比较结果
+     */
+    private int compareReadyTime(LocalDateTime first, LocalDateTime second) {
+        return Comparator.nullsFirst(Comparator.<LocalDateTime>reverseOrder()).compare(first, second);
+    }
+
+    /**
+     * 比较OC ID，空值排在有值之前，非空ID按升序排列。
+     *
+     * @param first  第一个OC ID
+     * @param second 第二个OC ID
+     * @return 比较结果
+     */
+    private int compareOcId(Long first, Long second) {
+        return Comparator.nullsFirst(Comparator.<Long>naturalOrder()).compare(first, second);
+    }
+
+    /**
+     * 构建候选岗位比较器，依次按停转状态、综合评分、OC ID和岗位ID排序。
+     *
+     * @param originTimeMap OC原始准备时间
+     * @param now           本次分配的时间基准
+     * @return 候选岗位比较器
+     */
+    private Comparator<UserMatchScore> buildCandidateComparator(Map<Long, LocalDateTime> originTimeMap,
+                                                                LocalDateTime now) {
+        return Comparator
+                .comparing((UserMatchScore match) -> isStopped(originTimeMap.get(match.oc().getId()), now))
+                .thenComparing(UserMatchScore::score)
+                .thenComparing(match -> match.oc().getId(), Comparator.nullsFirst(Long::compareTo))
+                .thenComparing(match -> match.slot().getId(), Comparator.nullsFirst(Long::compareTo));
+    }
+
+    /**
+     * 判断原始准备时间是否已经进入停转状态。
+     *
+     * @param readyTime OC原始准备时间
+     * @param now       本次分配的时间基准
+     * @return 已到准备时间时返回true；准备时间为空或仍在未来时返回false
+     */
+    private boolean isStopped(LocalDateTime readyTime, LocalDateTime now) {
+        return readyTime != null && !readyTime.isAfter(now);
     }
 
     /**

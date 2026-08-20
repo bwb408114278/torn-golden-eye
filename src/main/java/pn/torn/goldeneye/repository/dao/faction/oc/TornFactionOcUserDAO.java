@@ -6,13 +6,14 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.mapper.faction.oc.TornFactionOcUserMapper;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
  * Torn Oc User持久层类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.3.6
  * @since 2025.07.29
  */
 @Repository
@@ -57,5 +58,23 @@ public class TornFactionOcUserDAO extends ServiceImpl<TornFactionOcUserMapper, T
      */
     public List<TornFactionOcUserDO> queryByFactionId(long factionId) {
         return lambdaQuery().eq(TornFactionOcUserDO::getFactionId, factionId).list();
+    }
+
+    /**
+     * 按帮派和用户集合批量查询用户成功率数据。
+     *
+     * @param factionId 帮派ID
+     * @param userIds   用户ID集合
+     * @return 指定帮派和用户的成功率数据
+     */
+    public List<TornFactionOcUserDO> queryByFactionIdAndUserIds(long factionId, Collection<Long> userIds) {
+        if (CollectionUtils.isEmpty(userIds)) {
+            return List.of();
+        }
+
+        return lambdaQuery()
+                .eq(TornFactionOcUserDO::getFactionId, factionId)
+                .in(TornFactionOcUserDO::getUserId, userIds)
+                .list();
     }
 }

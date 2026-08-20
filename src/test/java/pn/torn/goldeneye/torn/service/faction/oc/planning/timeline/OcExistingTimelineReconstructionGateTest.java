@@ -28,12 +28,12 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * OC新队第二批第六轮Torn权威创建时间到收益门禁的最小链夹具测试。
  *
- * <p>不使用 Mockito，从API JSON反序列化 {@code create_at} 开始，经真实DTO转DO、
+ * <p>不使用 Mockito，从API JSON反序列化 {@code created_at} 开始，经真实DTO转DO、
  * {@link OcExistingTimelineReconstructor} 重建、匿名求解请求、真实时间线搜索/累积器/选点器，
  * 验证现实空链后继的外部创建时间事实链；本地审计 createTime 与外部事实不同不得影响规划基准。</p>
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.3.6
  * @since 2026.08.17
  */
 @DisplayName("OC现实空链后继外部创建时间收益门禁链夹具")
@@ -69,7 +69,7 @@ class OcExistingTimelineReconstructionGateTest {
     }
 
     @Test
-    @DisplayName("API响应缺失create_at时前置事实为null且收益级候选必须fail-closed")
+    @DisplayName("API响应缺失created_at时前置事实为null且收益级候选必须fail-closed")
     void shouldFailClosedWhenApiOmitsCreateAt() {
         OcRefreshSafetyRequest request = requestWithSuccessor(null, memberSetForZeroDelay());
         assertNull(committedSuccessor(request).predecessorCompletedAt(),
@@ -189,7 +189,7 @@ class OcExistingTimelineReconstructionGateTest {
     /**
      * 构造携带单个现实空链后继的匿名求解请求。
      *
-     * @param tornCreatedAt Torn权威创建时间；null表示API响应缺失create_at
+     * @param tornCreatedAt Torn权威创建时间；null表示API响应缺失created_at
      * @param members       候选成员
      * @return 匿名求解请求
      */
@@ -221,10 +221,10 @@ class OcExistingTimelineReconstructionGateTest {
     /**
      * 按Torn API响应JSON反序列化并转换出现实空链后继DO。
      *
-     * <p>JSON按Swagger原始字段名携带create_at（Unix秒）；转换后另行写入与外部事实
+     * <p>JSON按Swagger原始字段名携带created_at（Unix秒）；转换后另行写入与外部事实
      * 不同的本地审计createTime，证明审计时间不进入规划基准。</p>
      *
-     * @param tornCreatedAt 期望得到的Torn权威创建时间；null时省略create_at字段
+     * @param tornCreatedAt 期望得到的Torn权威创建时间；null时省略created_at字段
      * @return 现实空链后继DO
      */
     private TornFactionOcDO childOcFromApiJson(LocalDateTime tornCreatedAt) {
@@ -232,12 +232,12 @@ class OcExistingTimelineReconstructionGateTest {
                 ? "{\"id\":1,\"name\":\"Child\",\"difficulty\":9,\"status\":\"Recruiting\","
                 + "\"previous_crime_id\":100}"
                 : "{\"id\":1,\"name\":\"Child\",\"difficulty\":9,\"status\":\"Recruiting\","
-                + "\"previous_crime_id\":100,\"create_at\":"
+                + "\"previous_crime_id\":100,\"created_at\":"
                 + tornCreatedAt.minusHours(8).toEpochSecond(ZoneOffset.UTC) + "}";
         TornFactionCrimeVO vo = readJson(json);
         TornFactionOcDO child = vo.convert2DO(1L, Map.of());
         assertEquals(tornCreatedAt, child.getTornCreatedAt(),
-                "DTO必须按create_at映射外部事实字段");
+                "DTO必须按created_at映射外部事实字段");
         child.setCreateTime(NOW);
         return child;
     }

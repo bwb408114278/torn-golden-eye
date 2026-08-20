@@ -28,7 +28,7 @@ import java.util.List;
  * OC推荐策略实现类
  *
  * @author Bai
- * @version 1.2.1
+ * @version 1.3.6
  * @since 2025.11.07
  */
 @Component
@@ -57,18 +57,55 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
 
         OcSlotDictBO joinedOc = getJoinedOc(user);
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+        TornOcRecommendService.CurrentOcStatus currentStatus = recommendService.queryCurrentOcStatus(user, joinedOc);
+        if (currentStatus.disabled()) {
+            return buildDisabledWithRecommendMessage(user, currentStatus, result);
+        }
+        if (currentStatus.passRateInsufficient()) {
+            return super.buildTextMsg(buildInsufficientMessage(user, currentStatus));
+        }
         if (CollectionUtils.isEmpty(result)) {
+            if (currentStatus.joined() && currentStatus.currentScore() != null) {
+                return super.buildTextMsg(user.getNickname() + ", 当前加入岗位已是最佳选择");
+            }
             return super.buildTextMsg(user.getNickname() + ", 暂时没有合适加入的OC");
         }
 
-        TornFactionOcSlotDO joinedSlot = joinedOc == null ? null : joinedOc.getSlot();
-        if (joinedSlot != null &&
-                result.getFirst().getOcId().equals(joinedSlot.getOcId()) &&
-                result.getFirst().getRecommendedPosition().equals(joinedSlot.getPosition())) {
-            return super.buildTextMsg(user.getNickname() + ", 当前加入岗位已是最佳选择");
-        }
-
         return buildRecommendTable(user, result);
+    }
+
+    private String buildDisabledMessage(TornUserDO user, TornOcRecommendService.CurrentOcStatus status) {
+        String message = user.getNickname() + ", 当前加入的OC已被禁用";
+        if (status.actualPassRate() != null && status.requiredPassRate() != null) {
+            message += "，当前成功率" + status.actualPassRate() + "%，要求" + status.requiredPassRate() + "%";
+        }
+        return message;
+    }
+
+    /**
+     * 禁用当前OC时组合禁用提示与正常推荐结果；推荐为空时明确提示未找到正常OC。
+     *
+     * @param user          用户
+     * @param currentStatus 当前OC状态
+     * @param result        OC推荐结果
+     * @return 禁用提示在前、正常推荐文本/链接/图片在后的消息列表
+     */
+    private List<QqMsgParam<?>> buildDisabledWithRecommendMessage(TornUserDO user,
+                                                                  TornOcRecommendService.CurrentOcStatus currentStatus,
+                                                                  List<OcRecommendationVO> result) {
+        List<QqMsgParam<?>> messageList = new ArrayList<>();
+        messageList.add(new TextQqMsg(buildDisabledMessage(user, currentStatus)));
+        if (CollectionUtils.isEmpty(result)) {
+            messageList.add(new TextQqMsg(user.getNickname() + ", 暂未找到可加入的正常OC"));
+            return messageList;
+        }
+        messageList.addAll(buildRecommendTable(user, result));
+        return messageList;
+    }
+
+    private String buildInsufficientMessage(TornUserDO user, TornOcRecommendService.CurrentOcStatus status) {
+        return user.getNickname() + ", 当前岗位成功率不足：当前"
+                + status.actualPassRate() + "%，要求" + status.requiredPassRate() + "%";
     }
 
     /**

@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * Torn OC表
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.3.6
  * @since 2025.07.29
  */
 @Data
@@ -52,7 +52,7 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      */
     private Long previousOcId;
     /**
-     * Torn权威创建时间（API create_at映射的外部事实）；本地入库审计时间见BaseDO.createTime，两者不得混用
+     * Torn权威创建时间（API created_at映射的外部事实）；本地入库审计时间见BaseDO.createTime，两者不得混用
      */
     private LocalDateTime tornCreatedAt;
     /**

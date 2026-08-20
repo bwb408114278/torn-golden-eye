@@ -31,7 +31,7 @@ import java.util.Map;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.3.6
  * @since 2025.08.08
  */
 @Component
@@ -171,7 +171,7 @@ public class TornFactionOcManager {
     /**
      * 更新可用OC
      *
-     * <p>除阶段时间外，同步时还须保持Torn权威创建时间（create_at）事实：
+     * <p>除阶段时间外，同步时还须保持Torn权威创建时间（created_at）事实：
      * 历史行缺失该外部事实时按本次API响应回填；API缺失时不清空已有事实。</p>
      *
      * @param factionId 帮派ID
@@ -186,7 +186,7 @@ public class TornFactionOcManager {
         List<TornFactionOcDO> oldDataList = ocDao.queryListByIdList(factionId, ocIdList);
         for (TornFactionCrimeVO oc : ocList) {
             LocalDateTime readyTime = DateTimeUtils.convertToDateTime(oc.getReadyAt());
-            LocalDateTime tornCreatedAt = DateTimeUtils.convertToDateTime(oc.getCreateAt());
+            LocalDateTime tornCreatedAt = DateTimeUtils.convertToDateTime(oc.getCreatedAt());
             boolean isDiff = oldDataList.stream().noneMatch(old ->
                     old.getId().equals(oc.getId()) && readyTime != null && readyTime.equals(old.getReadyTime()));
             boolean missingTornCreatedAt = tornCreatedAt != null && oldDataList.stream().anyMatch(old ->
