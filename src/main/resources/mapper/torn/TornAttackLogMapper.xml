@@ -345,4 +345,23 @@
         ORDER BY head_hit_damage DESC NULLS LAST
         LIMIT 30
     </select>
+
+    <!-- 冲突安全批量写入攻击日志: 主键由DAO以雪花ID补齐后显式写入, 冲突目标与有效事实部分唯一索引逐字一致 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_attack_log
+            (id, log_id, log_time, log_text, log_action, log_icon,
+             attacker_id, attacker_name, attacker_item_id, attacker_item_name,
+             defender_id, defender_name, damage, is_miss, is_critical, hit_location,
+             ammo_type, damage_type, syringe_type, attacker_elo, defender_elo,
+             deleted, create_time, update_time)
+        VALUES
+        <foreach collection="logList" item="item" separator=",">
+            (#{item.id}, #{item.logId}, #{item.logTime}, #{item.logText}, #{item.logAction}, #{item.logIcon},
+             #{item.attackerId}, #{item.attackerName}, #{item.attackerItemId}, #{item.attackerItemName},
+             #{item.defenderId}, #{item.defenderName}, #{item.damage}, #{item.isMiss}, #{item.isCritical}, #{item.hitLocation},
+             #{item.ammoType}, #{item.damageType}, #{item.syringeType}, #{item.attackerElo}, #{item.defenderElo},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (attacker_id, defender_id, log_time, log_text, log_action) WHERE deleted = 0 DO NOTHING
+    </insert>
 </mapper>

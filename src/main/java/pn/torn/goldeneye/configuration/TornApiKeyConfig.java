@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Torn Api Key配置类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.3.5
  * @since 2025.08.21
  */
 @Slf4j
@@ -47,15 +47,10 @@ public class TornApiKeyConfig {
     public TornApiKeyDO getEnableKey() {
         lock.readLock().lock();
         try {
-            List<TornApiKeyDO> candidates = allKeys.values().stream()
-                    .sorted(Comparator.comparingInt(TornApiKeyDO::getUseCount))
+            List<KeyCandidate> candidates = allKeys.values().stream()
+                    .map(this::toCandidate)
                     .toList();
-            for (TornApiKeyDO key : candidates) {
-                if (inUseKeyIds.add(key.getId())) {
-                    return key;
-                }
-            }
-            return null;
+            return selectLeastUsedKey(candidates);
         } finally {
             lock.readLock().unlock();
         }
@@ -134,18 +129,13 @@ public class TornApiKeyConfig {
             if (keyIds == null || keyIds.isEmpty()) {
                 return null;
             }
-            List<TornApiKeyDO> candidates = keyIds.stream()
+            List<KeyCandidate> candidates = keyIds.stream()
                     .map(allKeys::get)
                     .filter(Objects::nonNull)
                     .filter(key -> !needFactionAccess || Boolean.TRUE.equals(key.getHasFactionAccess()))
-                    .sorted(Comparator.comparingInt(TornApiKeyDO::getUseCount))
+                    .map(this::toCandidate)
                     .toList();
-            for (TornApiKeyDO key : candidates) {
-                if (inUseKeyIds.add(key.getId())) {
-                    return key;
-                }
-            }
-            return null;
+            return selectLeastUsedKey(candidates);
         } finally {
             lock.readLock().unlock();
         }
@@ -201,11 +191,12 @@ public class TornApiKeyConfig {
         if (!inUseKeyIds.remove(key.getId())) {
             return;
         }
-        lock.readLock().lock();
+        // 使用次数递增会修改排序比较字段, 必须在写锁内完成, 防止排序期间读取到被修改的计数
+        lock.writeLock().lock();
         try {
             incrementKeyUsageCount(key);
         } finally {
-            lock.readLock().unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -309,5 +300,47 @@ public class TornApiKeyConfig {
         clearAllMaps();
         List<TornApiKeyDO> keyList = keyDao.list();
         keyList.forEach(this::addKeyToMaps);
+    }
+
+    /**
+     * 从不可变候选快照中选出使用次数最少的未占用Key
+     * <p>
+     * 排序只依赖快照值：useCountSnapshot升序，再按keyId升序保证并列时的确定性；
+     * 选择与占用登记必须由调用方在同一次读锁临界区内完成，避免两个线程领到同一Key。
+     *
+     * @param candidates 构建完成的候选Key快照列表
+     * @return 使用次数最少的可用Key, 无可用Key时返回null
+     */
+    private TornApiKeyDO selectLeastUsedKey(List<KeyCandidate> candidates) {
+        List<KeyCandidate> sorted = candidates.stream()
+                .sorted(Comparator.comparingInt(KeyCandidate::useCountSnapshot)
+                        .thenComparingLong(KeyCandidate::keyId))
+                .toList();
+        for (KeyCandidate candidate : sorted) {
+            if (inUseKeyIds.add(candidate.keyId())) {
+                return candidate.key();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 以Key当前使用次数构建不可变候选快照
+     *
+     * @param key 池内Key
+     * @return 候选快照, 排序期间不受并发计数修改影响
+     */
+    private KeyCandidate toCandidate(TornApiKeyDO key) {
+        return new KeyCandidate(key, key.getUseCount(), key.getId());
+    }
+
+    /**
+     * Key候选不可变快照
+     *
+     * @param key 原Key对象
+     * @param useCountSnapshot 构建快照时的使用次数
+     * @param keyId Key ID
+     */
+    private record KeyCandidate(TornApiKeyDO key, int useCountSnapshot, long keyId) {
     }
 }

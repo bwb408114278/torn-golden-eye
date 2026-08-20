@@ -1,7 +1,9 @@
 package pn.torn.goldeneye.repository.dao.torn;
 
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.mapper.torn.TornAttackLogMapper;
 import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackItemDO;
@@ -16,7 +18,7 @@ import java.util.List;
  * Torn战斗日志持久层类
  *
  * @author Bai
- * @version 1.1.4
+ * @version 1.3.5
  * @since 2025.12.18
  */
 @Repository
@@ -86,5 +88,25 @@ public class TornAttackLogDAO extends ServiceImpl<TornAttackLogMapper, TornAttac
      */
     public List<PlayerDefendStatDO> queryPlayerHeadHit(long factionId, LocalDateTime startTime, LocalDateTime endTime) {
         return baseMapper.queryPlayerHeadHit(factionId, startTime, endTime);
+    }
+
+    /**
+     * 冲突安全批量写入攻击日志
+     * <p>
+     * 有效攻击日志事实以(attacker_id, defender_id, log_time, log_text, log_action)为唯一键,
+     * 冲突行仅跳过自身, 数据库非唯一冲突类异常正常抛出。自定义XML不经过MyBatis-Plus
+     * 主键自动填充, 缺失ID的记录在此统一以雪花ID补齐, 此处是XML写入主键补齐的唯一位置。
+     *
+     * @param logList 待写入日志列表, 空集合直接返回
+     * @return 实际插入行数, 有效事实冲突跳过的行不计入
+     */
+    public int insertIgnoreConflict(List<TornAttackLogDO> logList) {
+        if (CollectionUtils.isEmpty(logList)) {
+            return 0;
+        }
+        logList.stream()
+                .filter(log -> log.getId() == null)
+                .forEach(log -> log.setId(IdWorker.getId()));
+        return baseMapper.insertIgnoreConflict(logList);
     }
 }

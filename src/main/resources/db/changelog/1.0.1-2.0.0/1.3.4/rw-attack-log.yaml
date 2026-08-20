@@ -1,0 +1,21 @@
+databaseChangeLog:
+  # ========== RW攻击日志有效事实部分唯一索引 ==========
+  # 生产修复: Torn API可为同一场攻击返回不同log_id, log_id不是事实唯一键;
+  # 应用层filterRepeatLog预过滤无法覆盖同log_id内重复与重叠采集/重试/重启后的并发写入,
+  # 曾导致有效日志802,002行中59,694行为重复事实, 污染RW统计口径。
+  # 唯一性收敛为五字段业务事实键(attacker_id, defender_id, log_time, log_text, log_action),
+  # 仅约束deleted=0有效行; 冲突安全INSERT(insertIgnoreConflict)以此为ON CONFLICT目标,
+  # conflict target须与本索引逐字一致(字段顺序与WHERE deleted = 0)。
+  # 前置sqlCheck断言有效事实重复组为0: 历史重复由运维在发布窗口以独立交付的SQL物理清理,
+  # 若重复仍存在则HALT阻止创建半成品索引, 严禁跳过前置条件或改由Liquibase删除数据。
+  - changeSet:
+      id: create_uk_torn_attack_log_active_fact
+      author: Bai
+      preConditions:
+        onFail: HALT
+        sqlCheck:
+          expectedResult: 0
+          sql: "SELECT COUNT(*) FROM (SELECT 1 FROM torn_attack_log WHERE deleted = 0 GROUP BY attacker_id, defender_id, log_time, log_text, log_action HAVING COUNT(*) > 1) dup"
+      changes:
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_torn_attack_log_active_fact ON torn_attack_log (attacker_id, defender_id, log_time, log_text, log_action) WHERE deleted = 0"

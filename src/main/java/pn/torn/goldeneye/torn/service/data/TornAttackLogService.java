@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
  * 攻击日志逻辑类
  *
  * @author Bai
- * @version 1.1.5
+ * @version 1.3.5
  * @since 2025.12.18
  */
 @Slf4j
@@ -125,7 +125,8 @@ public class TornAttackLogService {
 
         List<TornAttackLogDO> logList = new ArrayList<>();
         allLogList.forEach(logList::addAll);
-        attackLogDao.saveBatch(logList);
+        // 数据库有效事实部分唯一索引承担最终幂等, filterRepeatLog仅作为减少重复API结果处理的预过滤
+        attackLogDao.insertIgnoreConflict(logList);
     }
 
     /**
