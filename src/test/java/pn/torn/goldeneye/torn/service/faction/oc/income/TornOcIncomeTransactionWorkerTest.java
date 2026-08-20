@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -41,15 +42,15 @@ import static org.mockito.Mockito.doThrow;
 /**
  * 单链事务原子回滚测试。
  *
- * <p>通过真实数据库约束故障注入验证：链明细或汇总任一环节失败，整条链的income与summary
- * 在独立Worker事务中全部回滚，不会留下部分提交；故障清除后重试同一链成功。</p>
+ * <p>通过真实数据库约束故障注入验证：单链income写入失败时整链回滚；批次汇总失败不会回滚
+ * 已提交income，后续批次可基于完整明细重新汇总。</p>
  *
  * <p><b>为什么不能用测试级事务回滚：</b>本测试验证独立Worker事务自身的回滚
  * 语义，若测试方法再标注{@code @Transactional}会因测试层事务与Worker各自持有独立事务边界而
  * 破坏被测行为。测试结束后通过JdbcTemplate物理删除测试帮派数据保证开发库零残留。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.3.4
  * @since 2026.08.03
  */
 @SpringBootTest
@@ -153,36 +154,32 @@ class TornOcIncomeTransactionWorkerTest {
     }
 
     @Test
-    @DisplayName("最终节点写入后、汇总阶段失败：整链income回滚")
-    void summaryQueryFailure_duplicateSummary_rollsBackWholeChain() {
+    @DisplayName("批次汇总查询失败时，已提交整链income保留以供后续重算")
+    void summaryQueryFailure_duplicateSummary_keepsCommittedIncome() {
         TornFactionOcDO[] chain = createTwoStepChain();
+        LocalDateTime batchExecTime = LocalDateTime.of(2026, 4, 10, 0, 0, 0);
         // 预置同一结算键的两条汇总，使汇总查询one()触发TooManyResults，发生在income写入之后
         insertSummary(USER_ID, "2026-04");
         insertSummary(USER_ID, "2026-04");
 
-        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID,
-                LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+        assertThrows(RuntimeException.class, () -> batchIncomeService.batchCalculateIncome(FACTION_ID, batchExecTime));
 
-        assertNotNull(result);
-        assertEquals(1, result.failureCount());
-        assertEquals(0, countIncome(chain[0].getId(), chain[1].getId()));
+        assertEquals(2, countIncome(chain[0].getId(), chain[1].getId()));
         assertEquals(2L, countSummary());
     }
 
     @Test
-    @DisplayName("汇总写入失败：整链income与summary全部回滚")
-    void summaryWriteFailure_rollsBackWholeChain() {
+    @DisplayName("批次汇总写入失败时，已提交整链income保留以供后续重算")
+    void summaryWriteFailure_keepsCommittedIncome() {
         TornFactionOcDO[] chain = createTwoStepChain();
-        // 在income明细写入后、受影响月份汇总重算阶段抛出异常，模拟汇总写入失败
+        LocalDateTime batchExecTime = LocalDateTime.of(2026, 4, 10, 0, 0, 0);
+        // 在单链income提交后、批次汇总阶段抛出异常，模拟汇总写入失败
         doThrow(new RuntimeException("注入的汇总写入失败"))
-                .when(incomeService).recalcAffectedMonths(anyLong(), anyList());
+                .when(incomeService).recalcMonthlyIncomeSummaries(anyLong(), anySet());
 
-        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID,
-                LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+        assertThrows(RuntimeException.class, () -> batchIncomeService.batchCalculateIncome(FACTION_ID, batchExecTime));
 
-        assertNotNull(result);
-        assertEquals(1, result.failureCount());
-        assertEquals(0, countIncome(chain[0].getId(), chain[1].getId()));
+        assertEquals(2, countIncome(chain[0].getId(), chain[1].getId()));
         assertEquals(0L, countSummary());
     }
 
@@ -235,8 +232,9 @@ class TornOcIncomeTransactionWorkerTest {
     }
 
     @Test
-    @DisplayName("多用户summary第一条真实写入后第二条失败：首条修改与整链income全部回滚")
-    void multiUserSummary_secondWriteFailure_rollsBackFirstSummaryAndIncome() {
+    @DisplayName("多用户批次汇总第二条写入失败时，income和首条汇总保留以供后续重算")
+    void multiUserSummary_secondWriteFailure_keepsCommittedIncome() {
+        LocalDateTime batchExecTime = LocalDateTime.of(2026, 4, 10, 0, 0, 0);
         // 链上两个节点分别由不同用户参与，汇总阶段会为两个用户分别写summary
         TornFactionOcDO step1 = createOc(null, TornConstants.OC_NAME_STACKING_THE_DECK, 8,
                 TornOcStatusEnum.SUCCESSFUL, LocalDateTime.of(2026, 4, 1, 10, 0), 0L);
@@ -260,14 +258,10 @@ class TornOcIncomeTransactionWorkerTest {
             return invocation.callRealMethod();
         }).when(incomeSummaryDao).updateById(any());
 
-        BatchIncomeResult result = batchIncomeService.batchCalculateIncome(FACTION_ID,
-                LocalDateTime.of(2026, 4, 10, 0, 0, 0));
+        assertThrows(RuntimeException.class, () -> batchIncomeService.batchCalculateIncome(FACTION_ID, batchExecTime));
 
-        assertNotNull(result);
-        assertEquals(1, result.failureCount());
-        assertEquals(0, countIncome(step1.getId(), step2.getId()));
-        // 第一条summary的写入也随整链回滚，不残留
-        assertEquals(0L, countSummary());
+        assertEquals(2, countIncome(step1.getId(), step2.getId()));
+        assertEquals(1L, countSummary());
     }
 
     @Test
