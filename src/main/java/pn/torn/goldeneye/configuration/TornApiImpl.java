@@ -15,6 +15,7 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.key.TornApiErrorCodeEnum;
 import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
+import pn.torn.goldeneye.torn.manager.torn.TornApiKeySecurityNoticeManager;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.util.List;
@@ -23,12 +24,13 @@ import java.util.List;
  * Torn Api请求实现类
  *
  * @author Bai
- * @version 1.3.3
+ * @version 1.3.7
  * @since 2025.07.22
  */
 @Slf4j
 class TornApiImpl implements TornApi {
     private final TornApiKeyConfig apiKeyConfig;
+    private final TornApiKeySecurityNoticeManager apiKeySecurityNoticeManager;
     /**
      * Web请求
      */
@@ -41,8 +43,9 @@ class TornApiImpl implements TornApi {
     private static final int MAX_RETRIES = 3;
     private static final int HTTP_RETRY_COUNT = 3;
 
-    public TornApiImpl(TornApiKeyConfig apiKeyConfig) {
+    public TornApiImpl(TornApiKeyConfig apiKeyConfig, TornApiKeySecurityNoticeManager apiKeySecurityNoticeManager) {
         this.apiKeyConfig = apiKeyConfig;
+        this.apiKeySecurityNoticeManager = apiKeySecurityNoticeManager;
         this.restClient = RestClient.builder()
                 .baseUrl(TornConstants.BASE_URL)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/json")
@@ -242,8 +245,7 @@ class TornApiImpl implements TornApi {
                     throw new BizException(BotConstants.EX_INVALID_KEY, apiError.getMessage());
                 }
             }
-            case TOO_MANY_REQUESTS -> log.error("Torn API请求过于频繁 [错误码:{}], uri: {}, Key ID: {}, User ID: {}",
-                    errorCode, context.uri(), context.apiKey().getId(), context.apiKey().getUserId());
+            case TOO_MANY_REQUESTS -> apiKeySecurityNoticeManager.noticeApiKeySecurity(context.apiKey(), context.uri());
             default -> log.error("Torn API报错 [错误码:{}], uri: {}, Key ID: {}, response: {}",
                     errorCode, context.uri(), context.apiKey().getId(), responseBody);
         }
