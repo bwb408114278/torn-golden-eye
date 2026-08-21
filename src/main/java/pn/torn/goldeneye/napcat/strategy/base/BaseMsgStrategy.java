@@ -4,6 +4,7 @@ import jakarta.annotation.Resource;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
+import pn.torn.goldeneye.napcat.receive.parser.QqCommandMessage;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
@@ -17,7 +18,7 @@ import java.util.List;
  * 基础消息策略
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.4.0
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
@@ -46,6 +47,19 @@ public abstract class BaseMsgStrategy {
      * @return 需要发送的消息，为空则为不发送
      */
     public abstract List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg);
+
+    /**
+     * 当前策略是否支持通过 QQ at 指定用户查询目标。
+     *
+     * <p>默认返回 {@code false}；只有实际使用 {@link #getTornUser(QqRecMsgSender, String)} 且
+     * 命令参数本身是“单个 Torn 用户目标”的策略才应返回 {@code true}。非用户查询策略不得开启，
+     * 以免 at 被当作普通命令参数。</p>
+     *
+     * @return true 表示支持 at 用户目标
+     */
+    public boolean notSupportsAtUserTarget() {
+        return true;
+    }
 
     /**
      * 发送文本消息
@@ -86,8 +100,15 @@ public abstract class BaseMsgStrategy {
 
     /**
      * 根据消息和发送人获取用户, 不抛出异常
+     *
+     * <p>用户目标优先级：内部 at 标记优先解析为 QQ 用户；无 at 时保留原有规则，
+     * 有文本参数按 Torn userId 查询，无参数按发送者 QQ 查询。</p>
      */
     protected TornUserDO getTornUserWithoutException(QqRecMsgSender sender, String msg) {
+        if (hasAtMarker(msg)) {
+            return getTornUserByAtMarker(msg);
+        }
+
         TornUserDO user;
         if (StringUtils.hasText(msg)) {
             String[] msgArray = msg.split("#");
@@ -102,6 +123,60 @@ public abstract class BaseMsgStrategy {
         }
 
         return user;
+    }
+
+    /**
+     * 判断消息是否包含解析层生成的内部 at 标记。
+     *
+     * @param msg 策略参数
+     * @return true 表示包含内部 at 标记
+     */
+    private boolean hasAtMarker(String msg) {
+        return msg != null && (msg.contains(QqCommandMessage.AT_MARKER_PREFIX)
+                || msg.contains(QqCommandMessage.INVALID_AT_MARKER));
+    }
+
+    /**
+     * 根据内部 at 标记查询 QQ 绑定的 Torn 用户。
+     *
+     * @param msg 策略参数
+     * @return Torn 用户；未绑定时返回 {@code null}
+     */
+    private TornUserDO getTornUserByAtMarker(String msg) {
+        if (msg.contains(QqCommandMessage.INVALID_AT_MARKER)) {
+            throw new BizException("参数有误");
+        }
+
+        int prefixIndex = msg.indexOf(QqCommandMessage.AT_MARKER_PREFIX);
+        if (prefixIndex < 0) {
+            throw new BizException("参数有误");
+        }
+
+        int valueStart = prefixIndex + QqCommandMessage.AT_MARKER_PREFIX.length();
+        int suffixIndex = msg.indexOf(QqCommandMessage.AT_MARKER_SUFFIX, valueStart);
+        if (suffixIndex < 0) {
+            throw new BizException("参数有误");
+        }
+        if (msg.indexOf(QqCommandMessage.AT_MARKER_PREFIX, valueStart) >= 0) {
+            throw new BizException("参数有误");
+        }
+
+        String before = msg.substring(0, prefixIndex);
+        String after = msg.substring(suffixIndex + QqCommandMessage.AT_MARKER_SUFFIX.length());
+        if (!before.isBlank() || !after.isBlank()) {
+            throw new BizException("参数有误");
+        }
+
+        String qqText = msg.substring(valueStart, suffixIndex);
+        if (!NumberUtils.isLong(qqText)) {
+            throw new BizException("参数有误");
+        }
+        long qq = Long.parseLong(qqText);
+        if (qq <= 0L) {
+            throw new BizException("参数有误");
+        }
+
+        return userManager.getUserByQq(qq);
     }
 
     /**

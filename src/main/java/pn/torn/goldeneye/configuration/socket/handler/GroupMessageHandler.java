@@ -21,7 +21,7 @@ import java.util.List;
  * 群聊消息处理器
  *
  * @author Bai
- * @version 1.1.3
+ * @version 1.4.0
  * @since 2026.05.20
  */
 @Component
@@ -34,11 +34,27 @@ public class GroupMessageHandler {
     private final BotReplyService botReplyService;
 
     /**
-     * 处理群消息
+     * 处理群消息（兼容无 at 标记调用）。
+     *
+     * @param msg      入站消息
+     * @param msgArray 命令数组
+     * @param faction  群对应帮派
      */
     public void handle(QqRecMsg msg, String[] msgArray, TornFactionBO faction) {
+        handle(msg, msgArray, "", faction);
+    }
+
+    /**
+     * 处理群消息。
+     *
+     * @param msg      入站消息
+     * @param msgArray 命令数组
+     * @param atMarker 内部 at 目标标记；无 at 时为空字符串
+     * @param faction  群对应帮派
+     */
+    public void handle(QqRecMsg msg, String[] msgArray, String atMarker, TornFactionBO faction) {
         if (!StringUtils.hasText(msgArray[1])) {
-            replyDocMessage(msg, msgArray, faction);
+            replyDocMessage(msg, msgArray, atMarker, faction);
             return;
         }
         BaseGroupMsgStrategy strategy = findStrategy(msgArray[1]);
@@ -52,7 +68,7 @@ public class GroupMessageHandler {
         if (groupPermissionService.invalidAdmin(msg.getUserId(), strategy, faction)) {
             builder.addMsg(new TextQqMsg("没有对应的权限"));
         } else {
-            List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, strategy);
+            List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, atMarker, strategy);
             paramList.forEach(builder::addMsg);
         }
         TornFactionBO latestFaction = factionManager.getByGroup(msg.getGroupId());
@@ -62,9 +78,9 @@ public class GroupMessageHandler {
     /**
      * 回复手册消息
      */
-    private void replyDocMessage(QqRecMsg msg, String[] msgArray, TornFactionBO faction) {
+    private void replyDocMessage(QqRecMsg msg, String[] msgArray, String atMarker, TornFactionBO faction) {
         GroupMsgSocketBuilder builder = new GroupMsgSocketBuilder().setGroupId(msg.getGroupId());
-        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, docStrategy);
+        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, atMarker, docStrategy);
         paramList.forEach(builder::addMsg);
         botReplyService.replyGroup(faction, builder.build());
     }
@@ -96,11 +112,24 @@ public class GroupMessageHandler {
      */
     private List<? extends QqMsgParam<?>> buildReplyMsg(QqRecMsg msg,
                                                         String[] msgArray,
+                                                        String atMarker,
                                                         BaseGroupMsgStrategy strategy) {
         try {
-            return strategy.handle(msg.getGroupId(), msg.getSender(), msgArray.length > 2 ? msgArray[2] : "");
+            String param = resolveParam(msgArray, atMarker, strategy);
+            return strategy.handle(msg.getGroupId(), msg.getSender(), param);
         } catch (BizException e) {
             return strategy.buildTextMsg(e.getMsg());
         }
+    }
+
+    /**
+     * 组装策略参数：仅用户查询策略接收内部 at 标记，其他策略保持纯文本参数不变。
+     */
+    private String resolveParam(String[] msgArray, String atMarker, BaseGroupMsgStrategy strategy) {
+        String plainParam = msgArray.length > 2 ? msgArray[2] : "";
+        if (!StringUtils.hasText(atMarker) || strategy.notSupportsAtUserTarget()) {
+            return plainParam;
+        }
+        return plainParam + atMarker;
     }
 }

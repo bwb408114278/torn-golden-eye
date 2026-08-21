@@ -7,6 +7,8 @@ import pn.torn.goldeneye.configuration.socket.handler.GroupMessageHandler;
 import pn.torn.goldeneye.configuration.socket.handler.PrivateMessageHandler;
 import pn.torn.goldeneye.configuration.socket.service.BlockedWordService;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsg;
+import pn.torn.goldeneye.napcat.receive.parser.QqCommandMessage;
+import pn.torn.goldeneye.napcat.receive.parser.QqCommandMessageParser;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.TornFactionBO;
 import pn.torn.goldeneye.utils.JsonUtils;
@@ -15,7 +17,7 @@ import pn.torn.goldeneye.utils.JsonUtils;
  * 机器人消息调度器
  *
  * @author Bai
- * @version 1.1.3
+ * @version 1.4.0
  * @since 2026.05.20
  */
 @Component
@@ -47,29 +49,20 @@ public class BotMessageDispatcher {
             return;
         }
 
-        if (!isCommandMsg(msg)) {
+        QqCommandMessage commandMessage = QqCommandMessageParser.parse(msg);
+        if (commandMessage == null) {
             return;
         }
 
-        String text = msg.getMessage().getFirst().getData().getText();
-        String[] msgArray = text.split("#", 3);
+        String[] msgArray = commandMessage.commandText().split("#", 3);
         if (msgArray.length < 2) {
             return;
         }
 
         if (isGroupMessage) {
-            groupMessageHandler.handle(msg, msgArray, faction);
+            groupMessageHandler.handle(msg, msgArray, commandMessage.atMarker(), faction);
         } else {
-            privateMessageHandler.handle(msg, msgArray);
+            privateMessageHandler.handle(msg, msgArray, commandMessage.atMarker());
         }
-    }
-
-    /**
-     * 判断是否为指令消息
-     */
-    private boolean isCommandMsg(QqRecMsg msg) {
-        return msg.getMessage().size() == 1
-                && "text".equals(msg.getMessage().getFirst().getType())
-                && msg.getMessage().getFirst().getData().getText().startsWith("g#");
     }
 }

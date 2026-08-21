@@ -27,7 +27,7 @@ import java.util.List;
  * OC成功率查询实现类
  *
  * @author Bai
- * @version 1.2.1
+ * @version 1.4.0
  * @since 2025.08.20
  */
 @Component
@@ -52,6 +52,11 @@ public class OcRateQueryStrategyImpl extends SmthMsgStrategy {
     @Override
     public String getCommandDescription() {
         return "获取OC成功率，例g#" + BotCommands.OC_PASS_RATE + "(#用户ID)";
+    }
+
+    @Override
+    public boolean notSupportsAtUserTarget() {
+        return false;
     }
 
     @Override

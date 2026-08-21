@@ -19,7 +19,7 @@ import java.util.List;
  * 私聊消息处理器
  *
  * @author Bai
- * @version 1.1.3
+ * @version 1.4.0
  * @since 2026.05.20
  */
 @Component
@@ -30,11 +30,25 @@ public class PrivateMessageHandler {
     private final BotReplyService botReplyService;
 
     /**
-     * 处理私聊消息
+     * 处理私聊消息（兼容无 at 标记调用）。
+     *
+     * @param msg      入站消息
+     * @param msgArray 命令数组
      */
     public void handle(QqRecMsg msg, String[] msgArray) {
+        handle(msg, msgArray, "");
+    }
+
+    /**
+     * 处理私聊消息。
+     *
+     * @param msg      入站消息
+     * @param msgArray 命令数组
+     * @param atMarker 内部 at 目标标记；无 at 时为空字符串
+     */
+    public void handle(QqRecMsg msg, String[] msgArray, String atMarker) {
         if (!StringUtils.hasText(msgArray[1])) {
-            replyDocMessage(msg, msgArray);
+            replyDocMessage(msg, msgArray, atMarker);
             return;
         }
 
@@ -43,8 +57,8 @@ public class PrivateMessageHandler {
             return;
         }
 
-        List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(),
-                msgArray.length > 2 ? msgArray[2] : "");
+        String param = resolveParam(msgArray, atMarker, strategy);
+        List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(), param);
 
         if (!CollectionUtils.isEmpty(paramList)) {
             PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
@@ -56,9 +70,9 @@ public class PrivateMessageHandler {
     /**
      * 回复手册消息
      */
-    private void replyDocMessage(QqRecMsg msg, String[] msgArray) {
+    private void replyDocMessage(QqRecMsg msg, String[] msgArray, String atMarker) {
         PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
-        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, privateDocStrategy);
+        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, atMarker, privateDocStrategy);
         paramList.forEach(builder::addMsg);
         botReplyService.replyPrivate(builder.build());
     }
@@ -81,14 +95,27 @@ public class PrivateMessageHandler {
      * 如果你的 BasePrivateMsgStrategy 没有 buildTextMsg，则按你的项目实际改。
      */
     private List<? extends QqMsgParam<?>> buildReplyMsg(QqRecMsg msg, String[] msgArray,
+                                                        String atMarker,
                                                         BasePrivateMsgStrategy strategy) {
         try {
-            return strategy.handle(msg.getSender(), msgArray.length > 2 ? msgArray[2] : "");
+            String param = resolveParam(msgArray, atMarker, strategy);
+            return strategy.handle(msg.getSender(), param);
         } catch (BizException e) {
             if (strategy instanceof PrivateDocStrategyImpl privateDoc) {
                 return privateDoc.buildTextMsg(e.getMsg());
             }
             return List.of(new TextQqMsg(e.getMsg()));
         }
+    }
+
+    /**
+     * 组装策略参数：仅用户查询策略接收内部 at 标记，其他策略保持纯文本参数不变。
+     */
+    private String resolveParam(String[] msgArray, String atMarker, BasePrivateMsgStrategy strategy) {
+        String plainParam = msgArray.length > 2 ? msgArray[2] : "";
+        if (!StringUtils.hasText(atMarker) || strategy.notSupportsAtUserTarget()) {
+            return plainParam;
+        }
+        return plainParam + atMarker;
     }
 }
