@@ -182,6 +182,36 @@ class TornAttackLogServiceTest {
                 "第二个logId来源的三条日志不得被预过滤");
     }
 
+    @Test
+    @DisplayName("匿名上游参与者通过重试昵称映射生成真实事实文本")
+    void saveAttackLog_anonymousUpstreamParticipant_retryMapRestoresRealFactText() {
+        AttackLogAttackerVO attacker = new AttackLogAttackerVO();
+        attacker.setId(4174070L);
+        attacker.setName(null);
+        AttackLogDefenderVO defender = new AttackLogDefenderVO();
+        defender.setId(2356929L);
+        defender.setName("GoodLuck");
+        AttackLogVO joined = new AttackLogVO();
+        joined.setAttacker(attacker);
+        joined.setDefender(defender);
+        joined.setText("Someone joined the fight against GoodLuck");
+        joined.setTimestamp(PAGE_BASE_TIMESTAMP);
+        joined.setAction("joinfight");
+        joined.setIcon("icon");
+        when(tornApi.sendRequest(eq(FACTION_ID), any(AttackLogDTO.class), eq(AttackLogRespVO.class)))
+                .thenReturn(buildResp(List.of(joined), null));
+
+        buildService().saveAttackLog(FACTION_ID, Set.of("3762529d"),
+                Map.of(4174070L, "ZerionDz0", 2356929L, "GoodLuck"), Map.of());
+
+        verify(attackLogDao).insertIgnoreConflict(logListCaptor.capture());
+        TornAttackLogDO saved = logListCaptor.getValue().getFirst();
+        assertEquals("ZerionDz0", saved.getAttackerName(), "重试昵称映射必须覆盖上游null昵称");
+        assertEquals("ZerionDz0 joined the fight against GoodLuck", saved.getLogText(),
+                "事实文本必须使用真实昵称, 与历史行六字段幂等键保持一致");
+        assertFalse(saved.getLogText().contains("Someone"), "事实文本不得残留匿名占位符Someone");
+    }
+
     private TornAttackLogService buildService() {
         return new TornAttackLogService(virtualThreadExecutor, tornApi, attackLogDao);
     }

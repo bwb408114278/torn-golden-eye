@@ -59,11 +59,14 @@ class TornFactionAttackServiceTest {
         TornFactionAttackRespVO resp = buildResp(buildAttack(attackId, "3762529d"));
 
         Set<String> logIdSet = new HashSet<>();
+        Map<Long, String> userNameMap = new HashMap<>();
         List<TornFactionAttackDO> attackList = buildService().parseAttackList(
-                LocalDateTime.now(), resp, Map.of(), logIdSet, new HashMap<>(), Map.of());
+                LocalDateTime.now(), resp, Map.of(), logIdSet, userNameMap, Map.of());
 
         assertTrue(attackList.isEmpty(), "已存在攻击不得重复生成DO落库");
         assertEquals(Set.of("3762529d"), logIdSet, "已存在攻击的非空日志Code必须收集, 保证重叠重试可重抓");
+        assertEquals("ZerionDz0", userNameMap.get(4174070L), "已存在攻击的攻方昵称必须恢复, 供日志重抓还原事实文本");
+        assertEquals("GoodLuck", userNameMap.get(2356929L), "已存在攻击的守方昵称必须恢复, 供日志重抓还原事实文本");
     }
 
     @Test
@@ -74,11 +77,13 @@ class TornFactionAttackServiceTest {
                 buildAttack(460002L, null), buildAttack(460003L, "   "));
 
         Set<String> logIdSet = new HashSet<>();
+        Map<Long, String> userNameMap = new HashMap<>();
         List<TornFactionAttackDO> attackList = buildService().parseAttackList(
-                LocalDateTime.now(), resp, Map.of(), logIdSet, new HashMap<>(), Map.of());
+                LocalDateTime.now(), resp, Map.of(), logIdSet, userNameMap, Map.of());
 
         assertTrue(logIdSet.isEmpty(), "null或空白Code不得进入logIdSet");
         assertEquals(2, attackList.size(), "新攻击仍正常解析为DO");
+        assertEquals("rwDefender", userNameMap.get(DEFENDER_ID), "新攻击的攻守昵称仍必须写入userNameMap");
     }
 
     private TornFactionAttackService buildService() {
@@ -95,6 +100,10 @@ class TornFactionAttackServiceTest {
     private TornFactionAttackDO buildExistingAttack(long attackId) {
         TornFactionAttackDO existing = new TornFactionAttackDO();
         existing.setId(attackId);
+        existing.setAttackUserId(4174070L);
+        existing.setAttackUserNickname("ZerionDz0");
+        existing.setDefendUserId(2356929L);
+        existing.setDefendUserNickname("GoodLuck");
         return existing;
     }
 
