@@ -1,0 +1,33 @@
+databaseChangeLog:
+  # ========== RW攻击日志有效事实唯一索引升级为六字段(含source_occurrence) ==========
+  # 生产修复: Torn API可对同一攻守、同一秒、同动作、同文本返回两条独立合法事件,
+  # 五字段有效事实键会将第二条合法事件误判为重复而稳定丢弃。
+  # 新增source_occurrence按同一log_id响应流内API返回顺序编号, 逻辑事实键升级为六字段。
+  # 历史行统一以默认occurrence=1保留, 不做历史回填、不清理历史数据;
+  # 新索引沿用旧索引名, 避免运维诊断脚本和已知索引命名习惯无意义变化。
+  # 前置sqlCheck在addColumn前执行, 此时source_occurrence列尚不存在;
+  # 升级后历史行默认occurrence=1, 六字段重复与升级时刻的五字段重复完全等价,
+  # 故以五字段形式断言重复组为0, 失败则HALT阻止生成半成品索引。
+  - changeSet:
+      id: upgrade_uk_torn_attack_log_active_fact_occurrence
+      author: Bai
+      preConditions:
+        onFail: HALT
+        sqlCheck:
+          expectedResult: 0
+          sql: "SELECT COUNT(*) FROM (SELECT 1 FROM torn_attack_log WHERE deleted = 0 GROUP BY attacker_id, defender_id, log_time, log_text, log_action HAVING COUNT(*) > 1) duplicate_rows"
+      changes:
+        - addColumn:
+            tableName: torn_attack_log
+            columns:
+              - column:
+                  name: source_occurrence
+                  type: INTEGER
+                  defaultValueNumeric: 1
+                  constraints:
+                    nullable: false
+                  remarks: 同一来源攻击日志流中相同事实的出现序号
+        - sql:
+            sql: "DROP INDEX IF EXISTS uk_torn_attack_log_active_fact"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_torn_attack_log_active_fact ON torn_attack_log (attacker_id, defender_id, log_time, log_text, log_action, source_occurrence) WHERE deleted = 0"

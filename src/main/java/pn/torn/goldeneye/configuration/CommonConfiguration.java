@@ -11,12 +11,13 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.configuration.property.larksuite.LarkSuiteProperty;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.manager.torn.TornApiKeySecurityNoticeManager;
 
 /**
  * 通用配置类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.3.7
  * @since 2025.07.10
  */
 @Configuration
@@ -39,8 +40,8 @@ public class CommonConfiguration {
     }
 
     @Bean
-    public TornApi buildTornApi() {
-        return new TornApiImpl(this.apiKeyConfig);
+    public TornApi buildTornApi(TornApiKeySecurityNoticeManager apiKeySecurityNoticeManager) {
+        return new TornApiImpl(this.apiKeyConfig, apiKeySecurityNoticeManager);
     }
 
     @Bean

@@ -21,16 +21,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 攻击日志冲突安全批量写入 Mapper 真实 PostgreSQL 测试
  * <p>
  * 验证 {@code insertIgnoreConflict} 的幂等语义：有效攻击日志事实以
- * (attacker_id, defender_id, log_time, log_text, log_action)五字段为唯一键
- * (部分唯一索引, 仅约束 deleted=0 行), 同批次/跨批次重放只保留一条有效事实,
- * 重复行仅跳过自身且不影响批次内后续新事实写入; 自定义 XML 批量 INSERT 由 DAO
- * 以雪花 ID 补齐主键, 落库主键非空。
+ * (attacker_id, defender_id, log_time, log_text, log_action, source_occurrence)
+ * 六字段为唯一键(部分唯一索引, 仅约束 deleted=0 行), 其中 sourceOccurrence 为同一来源
+ * API日志流中相同五字段事实按返回顺序的出现序号; 相同五字段不同出现序号是独立合法事实
+ * 均可写入, 相同出现序号重放只跳过自身且不影响批次内后续新事实写入; 自定义 XML 批量
+ * INSERT 由 DAO 以雪花 ID 补齐主键, 落库主键非空。
  * <p>
  * 数据使用 2099 严格未来时间与测试专用攻/守方 ID 命名空间隔离真实 RW 数据,
  * 类级事务以 {@code @Rollback} 回滚, 测试库零残留。
  *
  * @author Bai
- * @version 1.3.5
+ * @version 1.3.8
  * @since 2026.08.20
  */
 @SpringBootTest
@@ -85,6 +86,25 @@ class TornAttackLogMapperTest {
     }
 
     @Test
+    @DisplayName("真实PG_相同五字段不同出现序号均可保存, 相同出现序号重放跳过")
+    void insertIgnoreConflict_sameFactDifferentOccurrence_bothSavedAndReplaySkipped() {
+        int inserted = attackLogDao.insertIgnoreConflict(List.of(
+                attackLog("rw-o-1", "hit", "A hit B", 1),
+                attackLog("rw-o-2", "hit", "A hit B", 2)));
+        assertEquals(2, inserted, "同五字段不同occurrence是两条独立合法事实, 必须均可写入");
+
+        int replayInserted = attackLogDao.insertIgnoreConflict(List.of(
+                attackLog("rw-o-3", "hit", "A hit B", 1),
+                attackLog("rw-o-4", "hit", "A hit B", 2)));
+        assertEquals(0, replayInserted, "相同occurrence重放只跳过自身, 不得影响幂等");
+
+        List<TornAttackLogDO> saved = queryByLogIds("rw-o-1", "rw-o-2", "rw-o-3", "rw-o-4");
+        assertEquals(2, saved.size(), "隔离范围只允许保留occurrence 1与occurrence 2两行");
+        assertEquals(Set.of(1, 2), saved.stream().map(TornAttackLogDO::getSourceOccurrence).collect(Collectors.toSet()),
+                "有效事实的出现序号集合必须为{1, 2}");
+    }
+
+    @Test
     @DisplayName("真实PG_逻辑删除行不占有效事实唯一性, 同事实有效行仍可写入")
     void insertIgnoreConflict_deletedRowNotConflict_activeFactWritable() {
         TornAttackLogDO deletedRow = attackLog("rw-d-1", "hit", "deleted fact");
@@ -100,7 +120,7 @@ class TornAttackLogMapperTest {
     }
 
     /**
-     * 构造测试攻击日志
+     * 构造测试攻击日志, 出现序号默认为1
      *
      * @param logId     日志ID
      * @param logAction 发生动作
@@ -108,11 +128,25 @@ class TornAttackLogMapperTest {
      * @return 待写入的攻击日志对象, 主键保持为空由DAO补齐
      */
     private TornAttackLogDO attackLog(String logId, String logAction, String logText) {
+        return attackLog(logId, logAction, logText, 1);
+    }
+
+    /**
+     * 构造测试攻击日志
+     *
+     * @param logId            日志ID
+     * @param logAction        发生动作
+     * @param logText          日志文本
+     * @param sourceOccurrence 来源流内出现序号
+     * @return 待写入的攻击日志对象, 主键保持为空由DAO补齐
+     */
+    private TornAttackLogDO attackLog(String logId, String logAction, String logText, int sourceOccurrence) {
         TornAttackLogDO logDO = new TornAttackLogDO();
         logDO.setLogId(logId);
         logDO.setLogTime(LOG_TIME);
         logDO.setLogText(logText);
         logDO.setLogAction(logAction);
+        logDO.setSourceOccurrence(sourceOccurrence);
         logDO.setLogIcon("icon");
         logDO.setAttackerId(ATTACKER_ID);
         logDO.setAttackerName("rw测试攻方");

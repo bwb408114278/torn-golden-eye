@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionAttackDAO;
@@ -22,13 +23,12 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * 帮派攻击记录逻辑类
  *
  * @author Bai
- * @version 1.1.5
+ * @version 1.3.8
  * @since 2025.12.18
  */
 @Slf4j
@@ -81,7 +81,19 @@ public class TornFactionAttackService {
     }
 
     /**
-     * 解析新闻列表为攻击记录
+     * 解析新闻列表为攻击记录。
+     * <p>
+     * 已存在的攻击仅跳过DO创建和落库, 其非空日志Code仍必须收集,
+     * 且其攻守昵称必须恢复到userNameMap, 保证重叠重试窗口内日志服务
+     * 重抓时能用既有昵称还原事实文本, 不产生"Someone"伪造日志。
+     *
+     * @param now         当前时间, 用于计算守方在线状态
+     * @param resp        攻击记录响应
+     * @param userMap     双方帮派成员在线状态映射
+     * @param logIdSet    本轮攻击日志Code收集集合
+     * @param userNameMap 攻守双方用户ID到昵称映射, 供日志抓取补齐昵称
+     * @param eloMap      用户ID到ELO映射
+     * @return 待新建的攻击记录列表, 已存在ID不在其中
      */
     public List<TornFactionAttackDO> parseAttackList(LocalDateTime now, TornFactionAttackRespVO resp,
                                                      Map<Long, TornFactionMemberVO> userMap, Set<String> logIdSet,
@@ -91,25 +103,56 @@ public class TornFactionAttackService {
         }
 
         List<Long> idList = resp.getAttacks().stream().map(TornFactionAttackVO::getId).toList();
-        Set<Long> existingIds = attackDao.lambdaQuery().in(TornFactionAttackDO::getId, idList).list().stream()
-                .map(TornFactionAttackDO::getId).collect(Collectors.toSet());
+        Map<Long, TornFactionAttackDO> existingAttackMap = new HashMap<>();
+        for (TornFactionAttackDO existing : attackDao.lambdaQuery().in(TornFactionAttackDO::getId, idList).list()) {
+            existingAttackMap.put(existing.getId(), existing);
+        }
 
         List<TornFactionAttackDO> attackList = new ArrayList<>();
         for (TornFactionAttackVO attack : resp.getAttacks()) {
-            if (existingIds.contains(attack.getId())) {
+            collectAttackLogId(attack, logIdSet);
+            TornFactionAttackDO existing = existingAttackMap.get(attack.getId());
+            if (existing != null) {
+                populateUserNameMap(existing, userNameMap);
                 continue;
             }
 
             TornFactionAttackDO data = parseNews(now, attack, userMap, eloMap);
             attackList.add(data);
 
-            existingIds.add(data.getId());
-            logIdSet.add(data.getAttackLogId());
-            userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
-            userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
+            existingAttackMap.put(data.getId(), data);
+            populateUserNameMap(data, userNameMap);
         }
 
         return attackList;
+    }
+
+    /**
+     * 将攻击记录的攻守双方用户ID到昵称映射写入userNameMap。
+     * <p>
+     * 新建与已存在攻击必须共用本方法, 保证重叠重试时Torn API缺失的参与者昵称
+     * 能从既有昵称映射恢复, 战斗日志文本不回退为"Someone"伪造事实。
+     *
+     * @param attack      攻击记录
+     * @param userNameMap 攻守双方用户ID到昵称映射, 供日志抓取补齐昵称
+     */
+    private void populateUserNameMap(TornFactionAttackDO attack, Map<Long, String> userNameMap) {
+        userNameMap.put(attack.getAttackUserId(), attack.getAttackUserNickname());
+        userNameMap.put(attack.getDefendUserId(), attack.getDefendUserNickname());
+    }
+
+    /**
+     * 收集非空攻击日志Code。
+     * <p>
+     * 该收集在已存在攻击跳过判断之前执行, 不得因攻击已落库而遗漏。
+     *
+     * @param attack   单条攻击响应
+     * @param logIdSet 日志Code收集集合
+     */
+    private void collectAttackLogId(TornFactionAttackVO attack, Set<String> logIdSet) {
+        if (StringUtils.hasText(attack.getCode())) {
+            logIdSet.add(attack.getCode());
+        }
     }
 
     /**
