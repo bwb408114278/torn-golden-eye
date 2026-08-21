@@ -15,14 +15,9 @@ import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.torn.TornAttackLogDO;
-import pn.torn.goldeneye.torn.model.common.TornRespMetaDataVO;
 import pn.torn.goldeneye.torn.model.common.TornRepsLinkVO;
-import pn.torn.goldeneye.torn.model.torn.attack.AttackLogAttackerVO;
-import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDTO;
-import pn.torn.goldeneye.torn.model.torn.attack.AttackLogDefenderVO;
-import pn.torn.goldeneye.torn.model.torn.attack.AttackLogListVO;
-import pn.torn.goldeneye.torn.model.torn.attack.AttackLogRespVO;
-import pn.torn.goldeneye.torn.model.torn.attack.AttackLogVO;
+import pn.torn.goldeneye.torn.model.common.TornRespMetaDataVO;
+import pn.torn.goldeneye.torn.model.torn.attack.*;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
@@ -32,18 +27,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * 攻击日志保存服务测试。
@@ -162,8 +148,12 @@ class TornAttackLogServiceTest {
                 .thenReturn(firstPage)
                 .thenReturn(null);
 
+        TornAttackLogService service = buildService();
+        Set<String> logIdSet = Set.of("3762529d");
+        Map<Long, String> userNameMap = Map.of();
+        Map<Long, Integer> eloMap = Map.of();
         BizException exception = assertThrows(BizException.class,
-                () -> buildService().saveAttackLog(FACTION_ID, Set.of("3762529d"), Map.of(), Map.of()));
+                () -> service.saveAttackLog(FACTION_ID, logIdSet, userNameMap, eloMap));
 
         // BizException只填充自身msg字段, 不调用super(msg), 断言须走getMsg()
         assertTrue(exception.getMsg().contains("3762529d"), "异常消息必须包含logId");
