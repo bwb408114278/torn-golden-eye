@@ -37,7 +37,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * OC巡检提醒服务测试，验证活动OC扫描、问题分类、成功率缺失和消息@去重。
+ * OC巡检提醒服务测试，验证活动OC扫描、问题分类、成功率检查级别范围和消息@去重。
+ *
+ * @author Bai
+ * @version 1.3.9
+ * @since 2026.08.20
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("OC巡检提醒服务测试")
@@ -77,19 +81,17 @@ class OcBannedNoticeServiceTest {
     @DisplayName("Recruiting和Planning活动OC均扫描且同一用户只@一次")
     void activeOcs_shouldScanBothStatusesAndMentionUserOnce() {
         when(settingFactionManager.getList()).thenReturn(List.of(faction));
-        TornFactionOcDO disabledOc = buildOc(1L, TornOcStatusEnum.RECRUITING.getCode(), "Disabled OC");
-        TornFactionOcDO insufficientOc = buildOc(2L, TornOcStatusEnum.PLANNING.getCode(), "Insufficient OC");
+        TornFactionOcDO disabledOc = buildOc(1L, TornOcStatusEnum.RECRUITING.getCode(), "Disabled OC", 5);
+        TornFactionOcDO insufficientOc = buildOc(2L, TornOcStatusEnum.PLANNING.getCode(), "Insufficient OC", 7);
         TornFactionOcSlotDO disabledSlot = buildSlot(11L, disabledOc.getId(), USER_ID, "Engineer#1");
-        TornFactionOcSlotDO insufficientSlot = buildSlot(12L, insufficientOc.getId(), USER_ID, "Engineer#1");
+        TornFactionOcSlotDO insufficientSlot = buildSlot(12L, insufficientOc.getId(), USER_ID, "Sniper#2");
         mockActiveOcs(List.of(disabledOc, insufficientOc), List.of(disabledSlot, insufficientSlot));
         TornUserDO user = buildUser();
         when(userDao.queryUserMap(List.of(USER_ID))).thenReturn(Map.of(USER_ID, user));
         when(ocUserDao.queryByFactionIdAndUserIds(FACTION_ID, List.of(USER_ID)))
-                .thenReturn(List.of(passRate(USER_ID, "Disabled OC", 5, "Engineer", 80),
-                        passRate(USER_ID, "Insufficient OC", 5, "Engineer", 50)));
+                .thenReturn(List.of(passRate(USER_ID, "Insufficient OC", 7, "Sniper", 50)));
         when(ocRecommendManager.isOcDisabled(FACTION_ID, disabledOc)).thenReturn(true);
         when(ocRecommendManager.isOcDisabled(FACTION_ID, insufficientOc)).thenReturn(false);
-        when(ocRecommendManager.findSlotRequirement(FACTION_ID, disabledOc, disabledSlot)).thenReturn(requirement(60));
         when(ocRecommendManager.findSlotRequirement(FACTION_ID, insufficientOc, insufficientSlot)).thenReturn(requirement(60));
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class))).thenReturn(null);
 
@@ -103,25 +105,55 @@ class OcBannedNoticeServiceTest {
                 .map(item -> item.getData().text())
                 .toList();
         assertThat(texts)
-                .anyMatch(text -> text.contains("Disabled OC") && text.contains("OC已禁用"))
-                .anyMatch(text -> text.contains("Insufficient OC") && text.contains("当前50%，要求60%"));
+                .anyMatch(text -> text.contains("你加入了禁用的OC, 需要更换其他OC"))
+                .anyMatch(text -> text.contains("当前岗位Sniper#2成功率: 50, 帮派要求: 60"));
+        // 禁用OC不检查成功率，问题行不附带成功率信息
+        assertThat(texts)
+                .filteredOn(text -> text.contains("你加入了禁用的OC"))
+                .noneMatch(text -> text.contains("成功率"));
         verify(ocUserDao).queryByFactionIdAndUserIds(FACTION_ID, List.of(USER_ID));
+        verify(ocRecommendManager).findSlotRequirement(FACTION_ID, insufficientOc, insufficientSlot);
+        verify(ocRecommendManager, never()).findSlotRequirement(anyLong(), eq(disabledOc), any());
     }
 
     @Test
-    @DisplayName("成功率缺失不伪造成成功率不足且禁用问题仍提醒")
-    void missingPassRate_shouldNotBeReportedAsInsufficient() {
+    @DisplayName("成功率未知也提醒且文案展示未知")
+    void unknownPassRate_shouldRemindAsUnknown() {
         when(settingFactionManager.getList()).thenReturn(List.of(faction));
-        TornFactionOcDO normalOc = buildOc(1L, TornOcStatusEnum.RECRUITING.getCode(), "Normal OC");
-        TornFactionOcSlotDO slot = buildSlot(11L, normalOc.getId(), USER_ID, "Engineer#1");
+        TornFactionOcDO normalOc = buildOc(1L, TornOcStatusEnum.RECRUITING.getCode(), "Normal OC", 7);
+        TornFactionOcSlotDO slot = buildSlot(11L, normalOc.getId(), USER_ID, "Sniper#2");
         mockActiveOcs(List.of(normalOc), List.of(slot));
         when(userDao.queryUserMap(List.of(USER_ID))).thenReturn(Map.of(USER_ID, buildUser()));
         when(ocUserDao.queryByFactionIdAndUserIds(FACTION_ID, List.of(USER_ID))).thenReturn(List.of());
         when(ocRecommendManager.isOcDisabled(FACTION_ID, normalOc)).thenReturn(false);
-        when(ocRecommendManager.findSlotRequirement(FACTION_ID, normalOc, slot)).thenReturn(requirement(60));
+        when(ocRecommendManager.findSlotRequirement(FACTION_ID, normalOc, slot)).thenReturn(requirement(65));
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class))).thenReturn(null);
 
         noticeService.checkAndNotice(LocalDateTime.of(2026, 8, 20, 12, 0));
 
+        List<String> texts = captureMessage().getMessage().stream()
+                .filter(TextQqMsg.class::isInstance)
+                .map(TextQqMsg.class::cast)
+                .map(item -> item.getData().text())
+                .toList();
+        assertThat(texts).anyMatch(text -> text.contains("当前岗位Sniper#2成功率: 未知, 帮派要求: 65"));
+    }
+
+    @Test
+    @DisplayName("1-6级OC不做成功率检查，成功率不足也不提醒")
+    void lowRankOc_shouldSkipPassRateCheck() {
+        when(settingFactionManager.getList()).thenReturn(List.of(faction));
+        TornFactionOcDO lowRankOc = buildOc(1L, TornOcStatusEnum.RECRUITING.getCode(), "Low Rank OC", 5);
+        TornFactionOcSlotDO slot = buildSlot(11L, lowRankOc.getId(), USER_ID, "Engineer#1");
+        mockActiveOcs(List.of(lowRankOc), List.of(slot));
+        when(userDao.queryUserMap(List.of(USER_ID))).thenReturn(Map.of(USER_ID, buildUser()));
+        when(ocUserDao.queryByFactionIdAndUserIds(FACTION_ID, List.of(USER_ID)))
+                .thenReturn(List.of(passRate(USER_ID, "Low Rank OC", 5, "Engineer", 50)));
+        when(ocRecommendManager.isOcDisabled(FACTION_ID, lowRankOc)).thenReturn(false);
+
+        noticeService.checkAndNotice(LocalDateTime.of(2026, 8, 20, 12, 0));
+
+        verify(ocRecommendManager, never()).findSlotRequirement(anyLong(), any(), any());
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
     }
 
@@ -143,12 +175,12 @@ class OcBannedNoticeServiceTest {
         when(slotDao.queryListByOc(ocs)).thenReturn(slots);
     }
 
-    private TornFactionOcDO buildOc(long id, String status, String name) {
+    private TornFactionOcDO buildOc(long id, String status, String name, int rank) {
         TornFactionOcDO oc = new TornFactionOcDO();
         oc.setId(id);
         oc.setFactionId(FACTION_ID);
         oc.setName(name);
-        oc.setRank(5);
+        oc.setRank(rank);
         oc.setStatus(status);
         return oc;
     }

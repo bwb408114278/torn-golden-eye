@@ -19,6 +19,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
@@ -33,10 +34,11 @@ import java.util.stream.Collectors;
 
 /**
  * OC巡检提醒逻辑层。
- * <p>定时检测活动OC中的禁用和岗位成功率问题，并在帮派群内合并发送提醒消息。</p>
+ * <p>定时检测活动OC中的禁用和岗位成功率问题，并在帮派群内合并发送提醒消息。
+ * 禁用检查覆盖全部级别OC，成功率检查仅覆盖{@value #PASS_RATE_CHECK_MIN_RANK}级及以上OC。</p>
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.3.9
  * @since 2026.07.17
  */
 @Slf4j
@@ -51,6 +53,10 @@ public class OcBannedNoticeService {
      * 静默结束小时（不含）
      */
     private static final int QUIET_HOUR_END = 6;
+    /**
+     * 成功率检查最低OC级别（含），低于该级别的OC只检查禁用
+     */
+    private static final int PASS_RATE_CHECK_MIN_RANK = 7;
 
     private final Bot bot;
     private final TornFactionOcDAO ocDao;
@@ -157,9 +163,11 @@ public class OcBannedNoticeService {
                 msgList.add(new TextQqMsg(displayName + " "));
             }
 
-            for (InspectionIssue issue : entry.getValue()) {
-                msgList.add(new TextQqMsg(formatIssue(issue)));
-            }
+            // 禁用问题文案不区分OC，同一用户重复加入禁用OC时按文本去重
+            entry.getValue().stream()
+                    .map(this::formatIssue)
+                    .distinct()
+                    .forEach(text -> msgList.add(new TextQqMsg(text)));
         }
 
         BotHttpReqParam param = new GroupMsgHttpBuilder()
@@ -169,6 +177,13 @@ public class OcBannedNoticeService {
         bot.sendRequest(param, String.class);
     }
 
+    /**
+     * 构建成功率记录映射，同键重复记录仅保留首条并记录错误日志。
+     *
+     * @param factionId    帮派ID
+     * @param passRateList 成功率记录列表
+     * @return 以定位键索引的成功率映射
+     */
     private Map<PassRateKey, TornFactionOcUserDO> buildPassRateMap(long factionId,
                                                                    List<TornFactionOcUserDO> passRateList) {
         if (CollectionUtils.isEmpty(passRateList)) {
@@ -189,10 +204,25 @@ public class OcBannedNoticeService {
         return result;
     }
 
+    /**
+     * 以用户、OC名称、级别和岗位短码构建成功率记录定位键。
+     *
+     * @param data 成功率记录
+     * @return 定位键
+     */
     private PassRateKey buildPassRateKey(TornFactionOcUserDO data) {
         return new PassRateKey(data.getUserId(), data.getOcName(), data.getRank(), data.getPosition());
     }
 
+    /**
+     * 扫描在岗岗位并收集巡检问题：禁用OC全部级别检查，成功率仅检查{@value #PASS_RATE_CHECK_MIN_RANK}级及以上OC。
+     *
+     * @param factionId     帮派ID
+     * @param occupiedSlots 在岗岗位列表
+     * @param ocMap         活动OC映射
+     * @param passRateMap   成功率记录映射
+     * @return 巡检问题列表
+     */
     private List<InspectionIssue> findIssues(long factionId, List<TornFactionOcSlotDO> occupiedSlots,
                                              Map<Long, TornFactionOcDO> ocMap,
                                              Map<PassRateKey, TornFactionOcUserDO> passRateMap) {
@@ -202,28 +232,68 @@ public class OcBannedNoticeService {
             if (oc == null) {
                 continue;
             }
-
-            boolean disabled = ocRecommendManager.isOcDisabled(factionId, oc);
-            var requirement = ocRecommendManager.findSlotRequirement(factionId, oc, slot);
-            TornFactionOcUserDO passRateData = passRateMap.get(
-                    new PassRateKey(slot.getUserId(), oc.getName(), oc.getRank(), toSlotShortCode(slot.getPosition())));
-            Integer actualPassRate = passRateData == null ? null : passRateData.getPassRate();
-            Integer requiredPassRate = requirement == null ? null : requirement.getPassRate();
-            boolean passRateInsufficient = isPassRateInsufficient(actualPassRate, requiredPassRate);
-            if (requirement != null && (passRateData == null || actualPassRate == null)) {
-                log.warn("OC巡检成功率记录缺失, factionId={}, userId={}, ocId={}, ocName={}, rank={}, position={}",
-                        factionId, slot.getUserId(), oc.getId(), oc.getName(), oc.getRank(), slot.getPosition());
-            }
-            if (disabled || passRateInsufficient) {
-                issues.add(new InspectionIssue(slot.getUserId(), oc.getId(), oc.getName(), oc.getRank(),
-                        slot.getPosition(), actualPassRate, requiredPassRate, disabled, passRateInsufficient));
+            InspectionIssue issue = inspectSlot(factionId, slot, oc, passRateMap);
+            if (issue != null) {
+                issues.add(issue);
             }
         }
         return issues;
     }
 
-    private boolean isPassRateInsufficient(Integer actualPassRate, Integer requiredPassRate) {
-        return actualPassRate != null && requiredPassRate != null && actualPassRate < requiredPassRate;
+    /**
+     * 检测单个在岗岗位：禁用OC直接产生禁用问题且不检查成功率，未禁用时仅{@value #PASS_RATE_CHECK_MIN_RANK}级及以上OC检查成功率。
+     *
+     * @param factionId   帮派ID
+     * @param slot        岗位数据
+     * @param oc          OC数据
+     * @param passRateMap 成功率记录映射
+     * @return 巡检问题，无问题时返回null
+     */
+    private InspectionIssue inspectSlot(long factionId, TornFactionOcSlotDO slot, TornFactionOcDO oc,
+                                        Map<PassRateKey, TornFactionOcUserDO> passRateMap) {
+        if (ocRecommendManager.isOcDisabled(factionId, oc)) {
+            return InspectionIssue.ofDisabled(slot.getUserId());
+        }
+        return checkPassRate(factionId, slot, oc, passRateMap);
+    }
+
+    /**
+     * 检查岗位成功率：无岗位要求时不检查，成功率为未知或低于帮派要求时产生问题。
+     *
+     * @param factionId   帮派ID
+     * @param slot        岗位数据
+     * @param oc          OC数据
+     * @param passRateMap 成功率记录映射
+     * @return 巡检问题，达到要求时返回null
+     */
+    private InspectionIssue checkPassRate(long factionId, TornFactionOcSlotDO slot, TornFactionOcDO oc,
+                                          Map<PassRateKey, TornFactionOcUserDO> passRateMap) {
+        if (!isPassRateCheckable(oc)) {
+            return null;
+        }
+        TornSettingOcSlotDO requirement = ocRecommendManager.findSlotRequirement(factionId, oc, slot);
+        Integer requiredPassRate = requirement == null ? null : requirement.getPassRate();
+        if (requiredPassRate == null) {
+            return null;
+        }
+        TornFactionOcUserDO passRateData = passRateMap.get(
+                new PassRateKey(slot.getUserId(), oc.getName(), oc.getRank(), toSlotShortCode(slot.getPosition())));
+        Integer actualPassRate = passRateData == null ? null : passRateData.getPassRate();
+        if (actualPassRate == null) {
+            log.warn("OC巡检成功率记录缺失, factionId={}, userId={}, ocId={}, ocName={}, rank={}, position={}",
+                    factionId, slot.getUserId(), oc.getId(), oc.getName(), oc.getRank(), slot.getPosition());
+        }
+        if (actualPassRate == null || actualPassRate < requiredPassRate) {
+            return new InspectionIssue(slot.getUserId(), slot.getPosition(), actualPassRate, requiredPassRate, false);
+        }
+        return null;
+    }
+
+    /**
+     * 成功率检查是否覆盖该OC：仅{@value #PASS_RATE_CHECK_MIN_RANK}级及以上检查，低级别只检查禁用。
+     */
+    private boolean isPassRateCheckable(TornFactionOcDO oc) {
+        return oc.getRank() != null && oc.getRank() >= PASS_RATE_CHECK_MIN_RANK;
     }
 
     private String toSlotShortCode(String position) {
@@ -234,41 +304,58 @@ public class OcBannedNoticeService {
         return separatorIndex < 0 ? position : position.substring(0, separatorIndex);
     }
 
+    /**
+     * 格式化单条巡检问题文本：禁用问题提示更换OC，成功率问题展示当前值与帮派要求。
+     *
+     * @param issue 巡检问题
+     * @return 消息文本行
+     */
     private String formatIssue(InspectionIssue issue) {
-        StringBuilder builder = new StringBuilder(" OC：")
-                .append(issue.ocName())
-                .append("（级别：")
-                .append(issue.rank())
-                .append("），岗位：")
-                .append(issue.position());
         if (issue.disabled()) {
-            builder.append("，问题：OC已禁用");
+            return " 你加入了禁用的OC, 需要更换其他OC\n";
         }
-        if (issue.passRateInsufficient()) {
-            builder.append("，成功率不足：当前")
-                    .append(issue.actualPassRate())
-                    .append("%，要求")
-                    .append(issue.requiredPassRate())
-                    .append("%");
-        } else if (issue.disabled()) {
-            builder.append("，成功率：当前")
-                    .append(formatPassRate(issue.actualPassRate()))
-                    .append("%，要求")
-                    .append(formatPassRate(issue.requiredPassRate()))
-                    .append("%");
-        }
-        return builder.append("\n").toString();
+        return " 当前岗位" + issue.position() + "成功率: " + formatPassRate(issue.actualPassRate())
+                + ", 帮派要求: " + issue.requiredPassRate() + "\n";
     }
 
+    /**
+     * 格式化成功率数值，无数据时显示未知。
+     *
+     * @param passRate 成功率
+     * @return 展示文本
+     */
     private String formatPassRate(Integer passRate) {
         return passRate == null ? "未知" : String.valueOf(passRate);
     }
 
-    private record PassRateKey(Long userId, String ocName, Integer rank, String position) {
+    /**
+     * 成功率记录定位键
+     */
+    private record PassRateKey(
+            Long userId,
+            String ocName,
+            Integer rank,
+            String position) {
     }
 
-    private record InspectionIssue(Long userId, Long ocId, String ocName, Integer rank, String position,
-                                   Integer actualPassRate, Integer requiredPassRate, boolean disabled,
-                                   boolean passRateInsufficient) {
+    /**
+     * 巡检问题
+     */
+    private record InspectionIssue(
+            Long userId,
+            String position,
+            Integer actualPassRate,
+            Integer requiredPassRate,
+            boolean disabled) {
+
+        /**
+         * 构建禁用OC问题，不携带成功率信息
+         *
+         * @param userId 用户ID
+         * @return 禁用问题
+         */
+        static InspectionIssue ofDisabled(Long userId) {
+            return new InspectionIssue(userId, null, null, null, true);
+        }
     }
 }
