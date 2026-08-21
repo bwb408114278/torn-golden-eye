@@ -27,8 +27,8 @@ import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.armory.TornFactionArmoryDTO;
-import pn.torn.goldeneye.torn.model.faction.armory.TornFactionArmoryVO;
-import pn.torn.goldeneye.torn.model.faction.armory.TornFactionUsageItem;
+import pn.torn.goldeneye.torn.model.faction.armory.TornFactionInventoryItemVO;
+import pn.torn.goldeneye.torn.model.faction.armory.TornFactionInventoryVO;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
@@ -43,7 +43,7 @@ import java.util.concurrent.CompletableFuture;
  * Torn帮派物资逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.3.10
  * @since 2026.01.13
  */
 @Slf4j
@@ -51,6 +51,9 @@ import java.util.concurrent.CompletableFuture;
 @RequiredArgsConstructor
 @Order(InitOrderConstants.TORN_FACTION_ARMORY)
 public class TornFactionArmoryService {
+    private static final int INVENTORY_PAGE_SIZE = 100;
+    private static final List<String> INVENTORY_CATEGORIES = List.of("consumables", "medical", "temporary");
+
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final Bot bot;
@@ -116,23 +119,12 @@ public class TornFactionArmoryService {
             return;
         }
 
-        TornFactionArmoryDTO param = new TornFactionArmoryDTO();
-        TornFactionArmoryVO resp = tornApi.sendRequest(faction.getId(), param, TornFactionArmoryVO.class);
-        if (resp == null) {
-            throw new BizException("同步帮派物资出错");
-        }
-
         Map<TornFactionArmoryWarningDO, Integer> msgMap = new HashMap<>();
-        List<TornFactionUsageItem> itemList = new ArrayList<>(resp.getBoosters());
-        itemList.addAll(resp.getMedical());
-        itemList.addAll(resp.getTemporary());
+        Map<Long, Integer> availableQuantityMap = queryAvailableQuantity(faction.getId());
         for (TornFactionArmoryWarningDO warning : warningList) {
-            TornFactionUsageItem item = itemList.stream()
-                    .filter(i -> i.getItemId().equals(warning.getItemId()))
-                    .findAny()
-                    .orElse(null);
-            if (item == null || item.getAvailableQty().compareTo(warning.getWarningQty()) < 0) {
-                msgMap.put(warning, item == null ? 0 : item.getAvailableQty());
+            Integer availableQuantity = availableQuantityMap.get(warning.getItemId());
+            if (availableQuantity == null || availableQuantity < warning.getWarningQty()) {
+                msgMap.put(warning, availableQuantity == null ? 0 : availableQuantity);
             }
         }
 
@@ -154,6 +146,44 @@ public class TornFactionArmoryService {
                     + ", 现在仅剩" + entry.getValue()));
         }
         bot.sendRequest(msgBuilder.build(), String.class);
+    }
+
+    /**
+     * 查询分类下可用数量
+     */
+    private Map<Long, Integer> queryAvailableQuantity(long factionId) {
+        Map<Long, Integer> availableQuantityMap = new HashMap<>();
+        for (String category : INVENTORY_CATEGORIES) {
+            queryCategoryAvailableQuantity(factionId, category, availableQuantityMap);
+        }
+        return availableQuantityMap;
+    }
+
+    /**
+     * 查询分类下可用数量
+     */
+    private void queryCategoryAvailableQuantity(long factionId, String category,
+                                                Map<Long, Integer> availableQuantityMap) {
+        int offset = 0;
+        while (true) {
+            TornFactionArmoryDTO param = new TornFactionArmoryDTO(category, INVENTORY_PAGE_SIZE, offset);
+            TornFactionInventoryVO response = tornApi.sendRequest(factionId, param, TornFactionInventoryVO.class);
+            if (response == null || response.getInventory() == null) {
+                throw new BizException("同步帮派物资出错");
+            }
+
+            for (TornFactionInventoryItemVO item : response.getInventory()) {
+                if (item.getLoaned() == null && item.getId() != null && item.getAmount() != null) {
+                    availableQuantityMap.merge(item.getId(), item.getAmount(), Integer::sum);
+                }
+            }
+
+            Integer total = response.getMetadata() == null ? null : response.getMetadata().getTotal();
+            if (response.getInventory().isEmpty() || total == null || offset + INVENTORY_PAGE_SIZE >= total) {
+                return;
+            }
+            offset += INVENTORY_PAGE_SIZE;
+        }
     }
 
     /**

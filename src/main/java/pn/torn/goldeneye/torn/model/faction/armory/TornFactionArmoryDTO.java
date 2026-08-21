@@ -12,15 +12,19 @@ import java.util.List;
  * Torn帮派物资请求
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.3.10
  * @since 2025.12.30
  */
 @Data
 @AllArgsConstructor
 public class TornFactionArmoryDTO implements TornReqParamV2 {
+    private String category;
+    private int limit;
+    private int offset;
+
     @Override
     public String uri() {
-        return "/faction";
+        return "/faction/inventory";
     }
 
     @Override
@@ -30,8 +34,10 @@ public class TornFactionArmoryDTO implements TornReqParamV2 {
 
     @Override
     public MultiValueMap<String, String> buildReqParam() {
-        MultiValueMap<String, String> resultMap = new LinkedMultiValueMap<>(1);
-        resultMap.put("selections", List.of("boosters,medical,temporary"));
+        MultiValueMap<String, String> resultMap = new LinkedMultiValueMap<>(3);
+        resultMap.put("cat", List.of(category));
+        resultMap.put("limit", List.of(String.valueOf(limit)));
+        resultMap.put("offset", List.of(String.valueOf(offset)));
         return resultMap;
     }
 }
