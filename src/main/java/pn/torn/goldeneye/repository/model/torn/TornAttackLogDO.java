@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * Torn攻击日志表
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.3.8
  * @since 2025.12.18
  */
 @Data
@@ -38,6 +38,10 @@ public class TornAttackLogDO extends BaseDO {
      * 发生动作
      */
     private String logAction;
+    /**
+     * 同一来源日志流中相同事实的出现序号。
+     */
+    private Integer sourceOccurrence;
     /**
      * 图标
      */
