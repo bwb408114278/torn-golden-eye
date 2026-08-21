@@ -1,6 +1,5 @@
 package pn.torn.goldeneye.torn.service.data;
 
-import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,7 +27,8 @@ import java.util.Set;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -87,7 +87,6 @@ class TornAttackLogServiceTest {
     @Test
     @DisplayName("同一来源中相同五字段出现两次时分配occurrence 1和2")
     void saveAttackLog_duplicateFactInSameStream_assignsSequentialOccurrence() {
-        stubEmptyExistingLog();
         AttackLogVO missed = buildLogVO(1755100800L, "missed", "GoodLuck missed peterors with her Pillow");
         when(tornApi.sendRequest(eq(FACTION_ID), any(AttackLogDTO.class), eq(AttackLogRespVO.class)))
                 .thenReturn(buildResp(List.of(missed, missed), null));
@@ -102,9 +101,8 @@ class TornAttackLogServiceTest {
     }
 
     @Test
-    @DisplayName("首页99条且next存在_第二页9条时108条全部落库且occurrence跨页连续")
-    void saveAttackLog_paged99And9_writesAllWithContinuousOccurrence() {
-        stubEmptyExistingLog();
+    @DisplayName("已有来源日志不阻止完整分页重抓_99+9页全量候选且occurrence跨页连续")
+    void saveAttackLog_existingSourceRows_refetchesFullPagination() {
         long repeatedTimestamp = 1755100900L;
         List<AttackLogVO> firstPage = new ArrayList<>();
         firstPage.add(buildLogVO(repeatedTimestamp, "hit", "rwAttacker hit rwDefender"));
@@ -125,6 +123,8 @@ class TornAttackLogServiceTest {
         verify(tornApi, times(2)).sendRequest(eq(FACTION_ID), paramCaptor.capture(), eq(AttackLogRespVO.class));
         assertEquals(List.of(0, 100), paramCaptor.getAllValues().stream().map(AttackLogDTO::getOffset).toList(),
                 "分页offset必须按0、100递增");
+        // 已有行不得作为跳过依据, 不允许出现按logId预查库的调用
+        verify(attackLogDao, never()).lambdaQuery();
 
         verify(attackLogDao).insertIgnoreConflict(logListCaptor.capture());
         List<TornAttackLogDO> saved = logListCaptor.getValue();
@@ -141,7 +141,6 @@ class TornAttackLogServiceTest {
     @Test
     @DisplayName("首页声明next而第二页请求失败时抛BizException且不落库部分数据")
     void saveAttackLog_secondPageFailed_throwsBizExceptionWithoutPartialSave() {
-        stubEmptyExistingLog();
         AttackLogRespVO firstPage = buildResp(
                 List.of(buildLogVO(PAGE_BASE_TIMESTAMP, "hit", "rwAttacker hit rwDefender")), "next-link");
         when(tornApi.sendRequest(eq(FACTION_ID), any(AttackLogDTO.class), eq(AttackLogRespVO.class)))
@@ -164,7 +163,6 @@ class TornAttackLogServiceTest {
     @Test
     @DisplayName("不同logId返回共享战斗流时两份来源结果均传给DAO")
     void saveAttackLog_sharedStreamBetweenLogIds_bothSourcesPassedToDao() {
-        stubEmptyExistingLog();
         AttackLogRespVO sharedResp = buildResp(List.of(
                 buildLogVO(PAGE_BASE_TIMESTAMP, "hit", "rwAttacker hit rwDefender"),
                 buildLogVO(PAGE_BASE_TIMESTAMP + 1, "missed", "rwAttacker missed rwDefender"),
@@ -186,13 +184,6 @@ class TornAttackLogServiceTest {
 
     private TornAttackLogService buildService() {
         return new TornAttackLogService(virtualThreadExecutor, tornApi, attackLogDao);
-    }
-
-    private void stubEmptyExistingLog() {
-        LambdaQueryChainWrapper<TornAttackLogDO> wrapper = mock(LambdaQueryChainWrapper.class);
-        doReturn(wrapper).when(attackLogDao).lambdaQuery();
-        doReturn(wrapper).when(wrapper).in(any(), anyCollection());
-        doReturn(List.of()).when(wrapper).list();
     }
 
     private AttackLogRespVO buildResp(List<AttackLogVO> logList, String next) {

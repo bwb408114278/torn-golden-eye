@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionAttackDAO;
@@ -28,7 +29,7 @@ import java.util.stream.Collectors;
  * 帮派攻击记录逻辑类
  *
  * @author Bai
- * @version 1.1.5
+ * @version 1.3.8
  * @since 2025.12.18
  */
 @Slf4j
@@ -81,7 +82,18 @@ public class TornFactionAttackService {
     }
 
     /**
-     * 解析新闻列表为攻击记录
+     * 解析新闻列表为攻击记录。
+     * <p>
+     * 已存在的攻击仅跳过DO创建和落库, 其非空日志Code仍必须收集,
+     * 保证重叠重试窗口内日志服务能重抓全部来源流补齐缺失事实。
+     *
+     * @param now         当前时间, 用于计算守方在线状态
+     * @param resp        攻击记录响应
+     * @param userMap     双方帮派成员在线状态映射
+     * @param logIdSet    本轮攻击日志Code收集集合
+     * @param userNameMap 攻守双方用户ID到昵称映射, 供日志抓取补齐昵称
+     * @param eloMap      用户ID到ELO映射
+     * @return 待新建的攻击记录列表, 已存在ID不在其中
      */
     public List<TornFactionAttackDO> parseAttackList(LocalDateTime now, TornFactionAttackRespVO resp,
                                                      Map<Long, TornFactionMemberVO> userMap, Set<String> logIdSet,
@@ -96,6 +108,7 @@ public class TornFactionAttackService {
 
         List<TornFactionAttackDO> attackList = new ArrayList<>();
         for (TornFactionAttackVO attack : resp.getAttacks()) {
+            collectAttackLogId(attack, logIdSet);
             if (existingIds.contains(attack.getId())) {
                 continue;
             }
@@ -104,12 +117,25 @@ public class TornFactionAttackService {
             attackList.add(data);
 
             existingIds.add(data.getId());
-            logIdSet.add(data.getAttackLogId());
             userNameMap.put(data.getAttackUserId(), data.getAttackUserNickname());
             userNameMap.put(data.getDefendUserId(), data.getDefendUserNickname());
         }
 
         return attackList;
+    }
+
+    /**
+     * 收集非空攻击日志Code。
+     * <p>
+     * 该收集在已存在攻击跳过判断之前执行, 不得因攻击已落库而遗漏。
+     *
+     * @param attack   单条攻击响应
+     * @param logIdSet 日志Code收集集合
+     */
+    private void collectAttackLogId(TornFactionAttackVO attack, Set<String> logIdSet) {
+        if (StringUtils.hasText(attack.getCode())) {
+            logIdSet.add(attack.getCode());
+        }
     }
 
     /**

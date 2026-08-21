@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.stream.Collectors;
 
 /**
  * 攻击日志逻辑类
@@ -42,9 +41,9 @@ public class TornAttackLogService {
     /**
      * 保存攻击日志。
      * <p>
-     * 每个logId独立分页抓取完整日志流, 不做任何战斗指纹整组预过滤;
-     * 多个logId返回同一共享战斗流时, 各来源结果均交给数据库六字段有效事实
-     * 部分唯一索引裁决幂等。任一logId分页未完成时抛出异常, 不落库部分数据。
+     * 本轮传入的每个logId都完整抓取全部API分页, 重叠重试窗口内已落库的日志事实
+     * 由数据库六字段有效事实部分唯一索引幂等裁决; 多个logId返回同一共享战斗流时,
+     * 各来源结果同样交给该索引裁决。任一logId分页未完成时抛出异常, 不落库部分数据。
      *
      * @param factionId   帮派ID
      * @param logIdSet    本轮待抓取的攻击日志ID集合
@@ -58,15 +57,11 @@ public class TornAttackLogService {
             return;
         }
 
-        Set<String> existingLogIds = queryExistingLogIds(logIdSet);
-        List<String> pendingLogIds = logIdSet.stream()
-                .filter(logId -> !existingLogIds.contains(logId))
-                .toList();
-
+        List<String> logIdList = List.copyOf(logIdSet);
         List<List<TornAttackLogDO>> allLogList = new ArrayList<>();
-        for (int start = 0; start < pendingLogIds.size(); start += LOG_ID_BATCH_SIZE) {
-            int end = Math.min(start + LOG_ID_BATCH_SIZE, pendingLogIds.size());
-            allLogList.addAll(fetchLogBatch(factionId, pendingLogIds.subList(start, end), userNameMap, eloMap));
+        for (int start = 0; start < logIdList.size(); start += LOG_ID_BATCH_SIZE) {
+            int end = Math.min(start + LOG_ID_BATCH_SIZE, logIdList.size());
+            allLogList.addAll(fetchLogBatch(factionId, logIdList.subList(start, end), userNameMap, eloMap));
         }
 
         saveLogData(allLogList);
@@ -89,20 +84,6 @@ public class TornAttackLogService {
             int end = Math.min(start + SAVE_BATCH_SIZE, logList.size());
             attackLogDao.insertIgnoreConflict(logList.subList(start, end));
         }
-    }
-
-    /**
-     * 查询已落库的日志ID集合, 用于跳过已完整保存过的logId
-     *
-     * @param logIdSet 本轮待抓取的攻击日志ID集合
-     * @return 已存在于库中的日志ID集合
-     */
-    private Set<String> queryExistingLogIds(Set<String> logIdSet) {
-        return attackLogDao.lambdaQuery()
-                .in(TornAttackLogDO::getLogId, logIdSet)
-                .list().stream()
-                .map(TornAttackLogDO::getLogId)
-                .collect(Collectors.toSet());
     }
 
     /**
