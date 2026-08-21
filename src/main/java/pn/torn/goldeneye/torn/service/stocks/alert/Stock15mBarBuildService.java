@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -166,7 +166,7 @@ public class Stock15mBarBuildService {
 
         Map<Integer, List<StockPricePoint>> groupedByStock = points.stream()
                 .collect(Collectors.groupingBy(StockPricePoint::stocksId));
-        log.info("桶[{}, {})共获取{}条分钟采样,涉及{}支股票",
+        log.debug("桶[{}, {})共获取{}条分钟采样,涉及{}支股票",
                 barStart, barEnd, points.size(), groupedByStock.size());
 
         List<TornStockMarketBar15mDO> bars = new ArrayList<>(groupedByStock.size());
@@ -185,7 +185,7 @@ public class Stock15mBarBuildService {
         for (TornStockMarketBar15mDO bar : bars) {
             bar15mDao.upsertBar(bar);
         }
-        log.info("桶[{}, {})成功构建并保存{}支股票的15分钟bar", barStart, barEnd, bars.size());
+        log.debug("桶[{}, {})成功构建并保存{}支股票的15分钟bar", barStart, barEnd, bars.size());
         return bars;
     }
 

@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 异常不向{@code ApplicationReadyEvent}逃逸;定时入口的异常上抛语义保持不变。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.0
  * @since 2026.07.25
  */
 @Slf4j
@@ -128,7 +128,7 @@ public class VipStockAlertScheduler {
             return;
         }
 
-        log.info("VIP股票策略调度-任务开始, shouldBuildRounds={}, shouldSendPendingNotices={}, "
+        log.debug("VIP股票策略调度-任务开始, shouldBuildRounds={}, shouldSendPendingNotices={}, "
                         + "manageResearchObligations={}",
                 decision.shouldBuildRounds(), decision.shouldSendPendingNotices(),
                 decision.manageResearchObligations());
@@ -151,7 +151,7 @@ public class VipStockAlertScheduler {
         } finally {
             processing.set(false);
         }
-        log.info("VIP股票策略调度-任务结束");
+        log.debug("VIP股票策略调度-任务结束");
     }
 
     /**
@@ -218,7 +218,7 @@ public class VipStockAlertScheduler {
             return;
         }
 
-        log.info("VIP股票策略调度-发现{}个待处理轮次, currentEndedBucket={}, allowNewEntry={}",
+        log.debug("VIP股票策略调度-发现{}个待处理轮次, currentEndedBucket={}, allowNewEntry={}",
                 pendingRounds.size(), currentEndedBucket, allowNewEntry);
         for (TornStockMarketRoundDO round : pendingRounds) {
             if (!processing.get()) {
@@ -528,7 +528,7 @@ public class VipStockAlertScheduler {
      * @param allowNewEntry 是否允许创建新的正式/候选影子批次,透传给轮次事务
      */
     private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime, boolean allowNewEntry) {
-        log.info("VIP股票策略调度-开始处理轮次, roundTime={}, 当前状态={}", roundTime, round.getRoundStatus());
+        log.debug("VIP股票策略调度-开始处理轮次, roundTime={}, 当前状态={}", roundTime, round.getRoundStatus());
 
         // 防御式第二道防线:查询层白名单(selectPendingRoundsUpTo)已过滤数据修复终态,
         // 此处再遇 REPAIRED_DATA_ONLY 时跳过策略消费,防止白名单外的旁路写入。
@@ -544,7 +544,7 @@ public class VipStockAlertScheduler {
                 return;
             }
         } else {
-            log.info("VIP股票策略调度-轮次已是READY,跳过数据构建, roundTime={}", roundTime);
+            log.debug("VIP股票策略调度-轮次已是READY,跳过数据构建, roundTime={}", roundTime);
         }
 
         StockMarketRoundLoader.RoundSnapshot snapshot = roundLoader.loadRoundSnapshot(roundTime);
@@ -592,7 +592,7 @@ public class VipStockAlertScheduler {
 
         round.setRoundStatus(StockRoundStatusEnum.READY.getCode());
         roundDao.updateById(round);
-        log.info("VIP股票策略调度-轮次数据就绪, roundTime={}, 预期股票={}, 特征股票={}",
+        log.debug("VIP股票策略调度-轮次数据就绪, roundTime={}, 预期股票={}, 特征股票={}",
                 roundTime, bars.size(), featureCount);
         return true;
     }

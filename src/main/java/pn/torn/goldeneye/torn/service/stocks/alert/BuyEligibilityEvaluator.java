@@ -20,7 +20,7 @@ import java.util.Map;
  * 边沿与守卫逻辑独立于通用门禁,保证守卫失败仍写原始信号与拒绝观察。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.0
  * @since 2026.08.09
  */
 @Slf4j
@@ -117,7 +117,7 @@ public class BuyEligibilityEvaluator {
         if (guardReason == null || guardReason.isBlank()) {
             return eligibility;
         }
-        log.info("买入信号未通过策略绝对趋势守卫: stocksId={}, strategy={}, reason={}",
+        log.debug("买入信号未通过策略绝对趋势守卫: stocksId={}, strategy={}, reason={}",
                 context.stocksId(), primaryStrategy.getStrategyType(), guardReason);
         return new EligibilityResult(StockEligibilityResultEnum.REJECTED, List.of(guardReason));
     }

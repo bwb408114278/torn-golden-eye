@@ -26,7 +26,7 @@ import java.util.Set;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -92,7 +92,7 @@ public class StrictReboundConfirmBuyStrategy implements StockBuyStrategy {
 
         boolean matched = lowDistanceOk && return1dOk && z1Ok && priceOk;
         if (matched) {
-            log.info("严格反弹确认-条件命中: stocksId={}, pctAbove30dLow={}, return1d={}, zscore1d={}",
+            log.debug("严格反弹确认-条件命中: stocksId={}, pctAbove30dLow={}, return1d={}, zscore1d={}",
                     context.stocksId(), context.pctAbove30dLow(), context.return1d(), context.zscore1d());
         }
         return matched;

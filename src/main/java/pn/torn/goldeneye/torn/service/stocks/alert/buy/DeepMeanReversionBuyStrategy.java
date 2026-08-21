@@ -28,7 +28,7 @@ import java.util.Set;
  * NARROW风格：effectiveZ1 = zscore1d × 0.6；其他风格：effectiveZ1 = zscore1d。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -105,7 +105,7 @@ public class DeepMeanReversionBuyStrategy implements StockBuyStrategy {
 
         boolean matched = lowDistanceOk && z1Ok && return7dOk && trendOk;
         if (matched) {
-            log.info("深度均值回归-条件命中: stocksId={}, effectiveZ1={}, pctAbove30dLow={}, return7d={}",
+            log.debug("深度均值回归-条件命中: stocksId={}, effectiveZ1={}, pctAbove30dLow={}, return7d={}",
                     context.stocksId(), effectiveZ1, context.pctAbove30dLow(), context.return7d());
         }
         return matched;

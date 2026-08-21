@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
  * </p>
  *
  * @author Bai
- * @version 1.2.17
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -138,7 +138,7 @@ public class Stock15mFeatureBuildService {
                 .filter(feature -> !Boolean.TRUE.equals(feature.getStrategyReady()))
                 .collect(Collectors.groupingBy(TornStockStrategyFeature15mDO::getDataQualityReason,
                         Collectors.counting()));
-        log.info("桶{}成功构建并保存{}支股票的策略特征, readyCount={}, notReadyCount={}, notReadyCountByReason={}",
+        log.debug("桶{}成功构建并保存{}支股票的策略特征, readyCount={}, notReadyCount={}, notReadyCountByReason={}",
                 alignedTime, features.size(), readyCount, features.size() - readyCount, notReadyCountByReason);
         return features;
     }

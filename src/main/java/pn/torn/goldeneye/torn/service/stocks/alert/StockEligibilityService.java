@@ -32,7 +32,7 @@ import java.util.List;
  * context中的stylePrior是否落在该集合内；若调用方未传入策略风格集合则跳过该项检查。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -117,7 +117,7 @@ public class StockEligibilityService {
         // 3. 风险等级为HIGH -> 仅记录风险快照,不阻断,继续后续检查
         StockRiskLevelEnum riskLevel = context.riskLevel();
         if (StockRiskLevelEnum.HIGH == riskLevel) {
-            log.info("资格判断-高风险记录: stocksId={}, 风险等级HIGH,不阻断资格判断", stocksId);
+            log.debug("资格判断-高风险记录: stocksId={}, 风险等级HIGH,不阻断资格判断", stocksId);
         }
 
         // 4. 冷却中(使用roundTime而非LocalDateTime.now())
@@ -142,7 +142,7 @@ public class StockEligibilityService {
         }
 
         // 全部通过
-        log.info("资格判断-通过: stocksId={}, style={}, maturity={}, risk={}",
+        log.debug("资格判断-通过: stocksId={}, style={}, maturity={}, risk={}",
                 stocksId, style, maturity, riskLevel);
         return new EligibilityResult(StockEligibilityResultEnum.ALLOWED, List.of());
     }
@@ -219,7 +219,7 @@ public class StockEligibilityService {
      * @return REJECTED结果
      */
     private EligibilityResult reject(Integer stocksId, String reason, String detail) {
-        log.info("资格判断-拒绝: stocksId={}, reason={}, detail={}", stocksId, reason, detail);
+        log.debug("资格判断-拒绝: stocksId={}, reason={}, detail={}", stocksId, reason, detail);
         return new EligibilityResult(StockEligibilityResultEnum.REJECTED, List.of(reason));
     }
 

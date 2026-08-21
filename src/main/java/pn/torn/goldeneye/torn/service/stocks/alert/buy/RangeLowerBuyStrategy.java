@@ -36,7 +36,7 @@ import java.util.Set;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -120,7 +120,7 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
 
         boolean matched = widthOk && positionOk && z1Ok && return6hOk && trendOk;
         if (matched) {
-            log.info("区间下沿-条件命中: stocksId={}, effectiveZ1={}, width30d={}, position30={}",
+            log.debug("区间下沿-条件命中: stocksId={}, effectiveZ1={}, width30d={}, position30={}",
                     context.stocksId(), effectiveZ1, context.width30d(), context.position30());
         }
         return matched;
@@ -160,12 +160,12 @@ public class RangeLowerBuyStrategy implements StockBuyStrategy {
         BigDecimal ma7d = context.ma7d();
         BigDecimal ma30d = context.ma30d();
         if (return7d == null || ma7d == null || ma30d == null) {
-            log.info("区间下沿-绝对趋势守卫数据不足: stocksId={}, return7d={}, ma7d={}, ma30d={}, reason={}",
+            log.debug("区间下沿-绝对趋势守卫数据不足: stocksId={}, return7d={}, ma7d={}, ma30d={}, reason={}",
                     context.stocksId(), return7d, ma7d, ma30d, TREND_GUARD_DATA_INSUFFICIENT);
             return TREND_GUARD_DATA_INSUFFICIENT;
         }
         if (return7d.compareTo(RANGE_RETURN_7D_FLOOR) < 0) {
-            log.info("区间下沿-绝对趋势守卫失败: stocksId={}, return7d={}, reason={}",
+            log.debug("区间下沿-绝对趋势守卫失败: stocksId={}, return7d={}, reason={}",
                     context.stocksId(), return7d, ABSOLUTE_TREND_GUARD_FAILED);
             return ABSOLUTE_TREND_GUARD_FAILED;
         }
