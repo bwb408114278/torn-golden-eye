@@ -45,7 +45,7 @@ import static org.mockito.Mockito.*;
  * </ul>
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.0
  * @since 2026.08.14
  */
 @ExtendWith(MockitoExtension.class)
@@ -81,6 +81,8 @@ class TornStocksManagerTest {
     private ProjectProperty projectProperty;
     @Mock
     private StockMarketClock marketClock;
+    @Mock
+    private StockCollectionLogSummary collectionLogSummary;
 
     @InjectMocks
     private TornStocksManager manager;
@@ -127,10 +129,19 @@ class TornStocksManagerTest {
         when(stocksHistoryDao.insertRealtimeIgnoreConflict(anyList())).thenReturn(inserted);
     }
 
+    /**
+     * 装配日志汇总组件空结果桩（仅全量插入成功路径需要）。
+     */
+    private void stubCollectionLogSummary() {
+        when(collectionLogSummary.recordSuccess(any()))
+                .thenReturn(StockCollectionLogSummary.WindowRecordResult.empty());
+    }
+
     @Test
     @DisplayName("实时采集_开始时间10:15:27写入计划自然分钟键10:15:00")
     void spiderStockData_writesPlannedMinuteToHistory() {
         stubCommon(1, 1);
+        stubCollectionLogSummary();
 
         manager.spiderStockData();
 
@@ -144,6 +155,7 @@ class TornStocksManagerTest {
     @DisplayName("实时采集_全量插入成功_异步派发大额交易与旧分钟特征")
     void spiderStockData_fullInsert_dispatchesDownstreamAsync() {
         stubCommon(1, 1);
+        stubCollectionLogSummary();
 
         manager.spiderStockData();
 
@@ -169,6 +181,37 @@ class TornStocksManagerTest {
         assertThrows(IllegalStateException.class, manager::spiderStockData,
                 "部分冲突必须fail-closed抛出");
         verify(virtualThreadExecutor, never()).execute(any(Runnable.class));
+    }
+
+    @Test
+    @DisplayName("实时采集_全量插入成功_向日志汇总组件提交成功窗口指标")
+    void spiderStockData_fullInsert_submitsCollectionLogSummary() {
+        stubCommon(1, 1);
+        stubCollectionLogSummary();
+
+        manager.spiderStockData();
+
+        verify(collectionLogSummary).recordSuccess(any(StockCollectionLogSummary.MinuteMetric.class));
+    }
+
+    @Test
+    @DisplayName("实时采集_本分钟已写入(全冲突)_不向日志汇总组件提交成功窗口指标")
+    void spiderStockData_fullConflict_doesNotSubmitCollectionLogSummary() {
+        stubCommon(1, 0);
+
+        manager.spiderStockData();
+
+        verify(collectionLogSummary, never()).recordSuccess(any(StockCollectionLogSummary.MinuteMetric.class));
+    }
+
+    @Test
+    @DisplayName("实时采集_部分分钟冲突_不向日志汇总组件提交成功窗口指标")
+    void spiderStockData_partialConflict_doesNotSubmitCollectionLogSummary() {
+        stubCommon(2, 1);
+
+        assertThrows(IllegalStateException.class, manager::spiderStockData,
+                "部分冲突必须fail-closed抛出");
+        verify(collectionLogSummary, never()).recordSuccess(any(StockCollectionLogSummary.MinuteMetric.class));
     }
 
     @Test

@@ -18,7 +18,7 @@ import java.util.List;
  * {@link CandidateInfo} 时完成。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -47,7 +47,7 @@ public class StockCandidateRankingPolicy {
         List<CandidateInfo> ranked = candidates.stream()
                 .sorted(RANKING_COMPARATOR)
                 .toList();
-        log.info("候选排序-完成: 输入{}个候选, 排序后首位stocksId={}, score={}",
+        log.debug("候选排序-完成: 输入{}个候选, 排序后首位stocksId={}, score={}",
                 candidates.size(),
                 ranked.getFirst().stocksId(),
                 ranked.getFirst().qualityScore());

@@ -5,20 +5,18 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
 
-import java.util.List;
-
 /**
  * 帮派CE排名请求
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.3.10
  * @since 2025.12.03
  */
 @Data
 public class TornFactionCeRankDTO implements TornReqParamV2 {
     @Override
     public String uri() {
-        return "/faction";
+        return "/faction/crimeexp";
     }
 
     @Override
@@ -28,9 +26,6 @@ public class TornFactionCeRankDTO implements TornReqParamV2 {
 
     @Override
     public MultiValueMap<String, String> buildReqParam() {
-        MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
-        param.put("selections", List.of("crimeexp"));
-
-        return param;
+        return new LinkedMultiValueMap<>();
     }
 }

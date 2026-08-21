@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
  * Torn股票公共逻辑层
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.0
  * @since 2025.09.26
  */
 @Slf4j
@@ -68,6 +68,7 @@ public class TornStocksManager {
     private final TornStocksHistoryDAO stocksHistoryDao;
     private final ProjectProperty projectProperty;
     private final StockMarketClock marketClock;
+    private final StockCollectionLogSummary collectionLogSummary;
     private static final long NOTICE_THRESHOLD = 100_000_000_000L;
     private static final String BUY_COUNT = "买入量: ";
     private static final String SELL_COUNT = "卖出量: ";
@@ -170,7 +171,7 @@ public class TornStocksManager {
      */
     private void handleInsertResult(HistoryInsertResult insertResult, LocalDateTime plannedMinute) {
         if (insertResult.insertedCount() == insertResult.expectedCount()) {
-            log.info("股票实时采集-本分钟写入完成, 派发下游异步处理, plannedMinute={}, expected={}, inserted={}",
+            log.debug("股票实时采集-本分钟写入完成, 派发下游异步处理, plannedMinute={}, expected={}, inserted={}",
                     plannedMinute, insertResult.expectedCount(), insertResult.insertedCount());
             virtualThreadExecutor.execute(() -> sendGreatTradeChangeMsg(plannedMinute));
             calcStockFeature(plannedMinute);
@@ -199,14 +200,36 @@ public class TornStocksManager {
     private void logCollectionTiming(LocalDateTime plannedMinute, LocalDateTime startedAt,
                                      LocalDateTime apiCompletedAt, LocalDateTime historyPersistedAt,
                                      int expectedStockCount, int insertedStockCount) {
-        log.info("股票实时采集-时序, plannedMinute={}, startedAt={}, apiCompletedAt={}, historyPersistedAt={}, "
+        long queueOrStartDelayMillis = Duration.between(plannedMinute, startedAt).toMillis();
+        long apiCostMillis = Duration.between(startedAt, apiCompletedAt).toMillis();
+        long dbCostMillis = Duration.between(apiCompletedAt, historyPersistedAt).toMillis();
+        log.debug("股票实时采集-时序, plannedMinute={}, startedAt={}, apiCompletedAt={}, historyPersistedAt={}, "
                         + "queueOrStartDelayMillis={}, apiCostMillis={}, dbCostMillis={}, "
                         + "expectedStockCount={}, insertedStockCount={}",
                 plannedMinute, startedAt, apiCompletedAt, historyPersistedAt,
-                Duration.between(plannedMinute, startedAt).toMillis(),
-                Duration.between(startedAt, apiCompletedAt).toMillis(),
-                Duration.between(apiCompletedAt, historyPersistedAt).toMillis(),
+                queueOrStartDelayMillis, apiCostMillis, dbCostMillis,
                 expectedStockCount, insertedStockCount);
+        if (insertedStockCount == expectedStockCount) {
+            StockCollectionLogSummary.WindowRecordResult result = collectionLogSummary.recordSuccess(
+                    new StockCollectionLogSummary.MinuteMetric(
+                            plannedMinute,
+                            expectedStockCount,
+                            insertedStockCount,
+                            queueOrStartDelayMillis,
+                            apiCostMillis,
+                            dbCostMillis));
+            if (result.discardedIncompleteWindow()) {
+                log.debug("股票实时采集-窗口摘要-跨窗口丢弃未完成窗口, plannedMinute={}", plannedMinute);
+            }
+            result.completedWindow().ifPresent(summary ->
+                    log.info("股票实时采集-窗口摘要, windowStart={}, windowEndExclusive={}, "
+                                    + "successfulMinuteCount={}, expectedStockRows={}, insertedStockRows={}, "
+                                    + "maxQueueOrStartDelayMs={}, maxApiCostMs={}, maxDbCostMs={}",
+                            summary.windowStart(), summary.windowEndExclusive(),
+                            summary.successfulMinuteCount(), summary.expectedStockRows(),
+                            summary.insertedStockRows(), summary.maxQueueOrStartDelayMs(),
+                            summary.maxApiCostMs(), summary.maxDbCostMs()));
+        }
     }
 
     /**

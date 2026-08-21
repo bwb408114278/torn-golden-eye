@@ -26,7 +26,7 @@ import java.util.*;
  * 产生不同成交价格或时间边界。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.0
  * @since 2026.08.09
  */
 @Slf4j
@@ -103,7 +103,7 @@ public class StockCandidateTrackAllocationService {
             candidateRank++;
             Optional<TornStockPortfolioSlotDO> slotOpt = findFirstAvailableFromSnapshot(snapshot, target.portfolioCode());
             if (slotOpt.isEmpty()) {
-                log.info("无可用槽位,拒绝接纳候选: stocksId={}, rank={}, portfolioCode={}",
+                log.debug("无可用槽位,拒绝接纳候选: stocksId={}, rank={}, portfolioCode={}",
                         candidate.stocksId(), candidateRank, target.portfolioCode());
                 resultByStockId.put(candidate.stocksId(), StockCandidateAllocationResultEnum.NO_AVAILABLE_SLOT);
                 continue;
@@ -169,7 +169,7 @@ public class StockCandidateTrackAllocationService {
         BigDecimal reservedAmount = slot.getAvailableCash();
         Long quantity = StockPortfolioService.calculateQuantity(reservedAmount, signalReferencePrice);
         if (quantity <= 0) {
-            log.info("候选[{}]可用资金不足买入1股,跳过: availableCash={}, price={}",
+            log.debug("候选[{}]可用资金不足买入1股,跳过: availableCash={}, price={}",
                     candidate.stocksId(), reservedAmount, signalReferencePrice);
             return new CandidateAcceptance(null, StockCandidateAllocationResultEnum.INSUFFICIENT_FUNDS);
         }

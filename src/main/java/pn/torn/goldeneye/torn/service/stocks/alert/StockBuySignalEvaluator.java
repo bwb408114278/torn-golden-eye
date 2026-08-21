@@ -37,7 +37,7 @@ import java.util.*;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.0
  * @since 2026.07.25
  */
 @Slf4j
@@ -178,10 +178,10 @@ public class StockBuySignalEvaluator {
         builder.acceptedFormal(accepted);
 
         if (accepted) {
-            log.info("买入信号通过资格: stocksId={}, strategy={}, score={}",
+            log.debug("买入信号通过资格: stocksId={}, strategy={}, score={}",
                     stocksId, matchResult.primaryStrategy().getStrategyType(), matchResult.bestScore());
         } else {
-            log.info("买入信号未通过资格: stocksId={}, result={}, reasons={}",
+            log.debug("买入信号未通过资格: stocksId={}, result={}, reasons={}",
                     stocksId, eligibility.result(), eligibility.reasons());
         }
         return builder.build();
