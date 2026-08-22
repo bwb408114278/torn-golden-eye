@@ -9,7 +9,6 @@ import pn.torn.goldeneye.configuration.socket.service.BotReplyService;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsg;
 import pn.torn.goldeneye.napcat.send.msg.PrivateMsgSocketBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.manage.PrivateDocStrategyImpl;
 
@@ -19,22 +18,36 @@ import java.util.List;
  * 私聊消息处理器
  *
  * @author Bai
- * @version 1.1.3
+ * @version 1.4.0
  * @since 2026.05.20
  */
 @Component
 @RequiredArgsConstructor
-public class PrivateMessageHandler {
+public class PrivateMessageHandler extends BaseMessageHandler {
     private final List<BasePrivateMsgStrategy> privateMsgStrategyList;
     private final PrivateDocStrategyImpl privateDocStrategy;
     private final BotReplyService botReplyService;
 
     /**
-     * 处理私聊消息
+     * 处理私聊消息（兼容无 at 标记调用）。
+     *
+     * @param msg      入站消息
+     * @param msgArray 命令数组
      */
     public void handle(QqRecMsg msg, String[] msgArray) {
+        handle(msg, msgArray, "");
+    }
+
+    /**
+     * 处理私聊消息。
+     *
+     * @param msg      入站消息
+     * @param msgArray 命令数组
+     * @param atMarker 内部 at 目标标记；无 at 时为空字符串
+     */
+    public void handle(QqRecMsg msg, String[] msgArray, String atMarker) {
         if (!StringUtils.hasText(msgArray[1])) {
-            replyDocMessage(msg, msgArray);
+            replyDocMessage(msg, msgArray, atMarker);
             return;
         }
 
@@ -43,9 +56,7 @@ public class PrivateMessageHandler {
             return;
         }
 
-        List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(),
-                msgArray.length > 2 ? msgArray[2] : "");
-
+        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, atMarker, strategy);
         if (!CollectionUtils.isEmpty(paramList)) {
             PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
             paramList.forEach(builder::addMsg);
@@ -56,9 +67,9 @@ public class PrivateMessageHandler {
     /**
      * 回复手册消息
      */
-    private void replyDocMessage(QqRecMsg msg, String[] msgArray) {
+    private void replyDocMessage(QqRecMsg msg, String[] msgArray, String atMarker) {
         PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
-        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, privateDocStrategy);
+        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, atMarker, privateDocStrategy);
         paramList.forEach(builder::addMsg);
         botReplyService.replyPrivate(builder.build());
     }
@@ -76,19 +87,17 @@ public class PrivateMessageHandler {
     }
 
     /**
-     * 构建私聊帮助/文档回复
-     * <p>
-     * 如果你的 BasePrivateMsgStrategy 没有 buildTextMsg，则按你的项目实际改。
+     * 构建私聊回复：组装策略参数并执行策略；业务异常统一转为文本回复，
+     * 与群聊的 at 拒绝和参数错误提示语义保持一致。
      */
     private List<? extends QqMsgParam<?>> buildReplyMsg(QqRecMsg msg, String[] msgArray,
+                                                        String atMarker,
                                                         BasePrivateMsgStrategy strategy) {
         try {
-            return strategy.handle(msg.getSender(), msgArray.length > 2 ? msgArray[2] : "");
+            String param = resolveParam(msgArray, atMarker, strategy);
+            return strategy.handle(msg.getSender(), param);
         } catch (BizException e) {
-            if (strategy instanceof PrivateDocStrategyImpl privateDoc) {
-                return privateDoc.buildTextMsg(e.getMsg());
-            }
-            return List.of(new TextQqMsg(e.getMsg()));
+            return strategy.buildTextMsg(e.getMsg());
         }
     }
 }

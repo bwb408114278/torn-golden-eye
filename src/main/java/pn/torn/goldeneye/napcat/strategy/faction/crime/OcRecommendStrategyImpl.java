@@ -28,7 +28,7 @@ import java.util.List;
  * OC推荐策略实现类
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.4.0
  * @since 2025.11.07
  */
 @Component
@@ -48,6 +48,11 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
     @Override
     public String getCommandDescription() {
         return "选择金蝶Team, 选择成功";
+    }
+
+    @Override
+    public boolean supportsAtUserTarget() {
+        return true;
     }
 
     @Override

@@ -25,7 +25,7 @@ import java.util.List;
  * BS增幅实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.4.0
  * @since 2025.10.27
  */
 @Component
@@ -42,6 +42,11 @@ public class TornUserBsSnapshotStrategyImpl extends SmthMsgStrategy {
     @Override
     public String getCommandDescription() {
         return "变强了,也变秃了";
+    }
+
+    @Override
+    public boolean supportsAtUserTarget() {
+        return true;
     }
 
     @Override

@@ -39,7 +39,7 @@ import java.util.Objects;
  * OC收益查询实现类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.0
  * @since 2025.08.20
  */
 @Component
@@ -57,6 +57,11 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     @Override
     public String getCommandDescription() {
         return "获取当月OC收益，例g#" + BotCommands.OC_BENEFIT + "(#用户ID)";
+    }
+
+    @Override
+    public boolean supportsAtUserTarget() {
+        return true;
     }
 
     @Override
