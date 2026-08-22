@@ -11,7 +11,6 @@ import pn.torn.goldeneye.napcat.send.msg.GroupMsgSocketBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
-import pn.torn.goldeneye.napcat.strategy.base.BaseMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.manage.DocStrategyImpl;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.TornFactionBO;
@@ -27,7 +26,7 @@ import java.util.List;
  */
 @Component
 @RequiredArgsConstructor
-public class GroupMessageHandler {
+public class GroupMessageHandler extends BaseMessageHandler {
     private final List<BaseGroupMsgStrategy> groupMsgStrategyList;
     private final DocStrategyImpl docStrategy;
     private final TornSettingFactionManager factionManager;
@@ -121,20 +120,5 @@ public class GroupMessageHandler {
         } catch (BizException e) {
             return strategy.buildTextMsg(e.getMsg());
         }
-    }
-
-    /**
-     * 组装策略参数：无 at 时保持纯文本参数；有 at 时仅用户查询策略接收内部 at 标记，
-     * 不支持 at 的策略拒绝执行并返回稳定错误，不静默丢弃 at。
-     */
-    private String resolveParam(String[] msgArray, String atMarker, BaseGroupMsgStrategy strategy) {
-        String plainParam = msgArray.length > 2 ? msgArray[2] : "";
-        if (!StringUtils.hasText(atMarker)) {
-            return plainParam;
-        }
-        if (!strategy.supportsAtUserTarget()) {
-            throw new BizException(BaseMsgStrategy.AT_UNSUPPORTED_MSG);
-        }
-        return plainParam + atMarker;
     }
 }
