@@ -1,11 +1,15 @@
 package pn.torn.goldeneye.torn.service.faction.oc;
 
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,9 +36,6 @@ import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeUserVO;
-import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
@@ -46,11 +47,11 @@ import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -89,9 +90,11 @@ class TornOcCompleteNoticeServiceTest {
     private TornUserDAO userDao;
 
     private TornOcCompleteNoticeService noticeService;
+    private AtomicReference<List<TornFactionOcDO>> ocDaoListRef;
 
     @BeforeEach
     void setUp() {
+        ocDaoListRef = new AtomicReference<>(List.of());
         noticeService = new TornOcCompleteNoticeService(bot, tornApi, taskService,
                 assignService, ocRefreshManager, itemsManager, msgManager, settingFactionManager,
                 ocDao, ocSlotDao, ocUserDao, userDao);
@@ -104,8 +107,8 @@ class TornOcCompleteNoticeServiceTest {
         TornFactionOcDO oc = buildOc();
         TornUserDO user = buildUser();
 
-        mockInitScheduling(faction, oc);
-        mockNoticeExecution(faction, oc, user, buildMemberListResp(user.getId(),
+        mockInitScheduling(faction, List.of(oc));
+        mockNoticeExecution(faction, List.of(oc), user, buildMemberListResp(user.getId(),
                 TornUserStatusEnum.HOSPITAL.getCode()));
 
         runNoticeTask(faction);
@@ -121,8 +124,8 @@ class TornOcCompleteNoticeServiceTest {
         TornFactionOcDO oc = buildOc();
         TornUserDO user = buildUser();
 
-        mockInitScheduling(faction, oc);
-        mockNoticeExecution(faction, oc, user, null);
+        mockInitScheduling(faction, List.of(oc));
+        mockNoticeExecution(faction, List.of(oc), user, null);
 
         runNoticeTask(faction);
 
@@ -130,69 +133,8 @@ class TornOcCompleteNoticeServiceTest {
     }
 
     @Test
-    @DisplayName("OC下一分钟正常完成时不追加延误提醒")
-    void shouldNotAppendDelayNotice_whenCompletedOnPlannedMinute() {
-        TornSettingFactionDO faction = buildFaction();
-        TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
-                LocalDateTime.of(2026, 8, 1, 20, 20),
-                LocalDateTime.of(2026, 8, 1, 20, 21));
-
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
-
-        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("#8 Clinical Precision 已完成")));
-        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
-        assertFalse(sentAtQqIds().contains(3001L));
-    }
-
-    @Test
-    @DisplayName("秒数跨分钟但同一分钟桶执行完成时不误判延误")
-    void shouldNotAppendDelayNotice_whenSecondsCrossMinute() {
-        TornSettingFactionDO faction = buildFaction();
-        TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
-                LocalDateTime.of(2026, 8, 1, 20, 20, 45),
-                LocalDateTime.of(2026, 8, 1, 20, 21, 10));
-
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
-
-        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
-        assertFalse(sentAtQqIds().contains(3001L));
-    }
-
-    @Test
-    @DisplayName("延误4分钟在可接受范围内不提醒指挥官")
-    void shouldNotAtCommander_whenDelayFourMinutes() {
-        TornSettingFactionDO faction = buildFaction();
-        TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
-                LocalDateTime.of(2026, 8, 1, 20, 20),
-                LocalDateTime.of(2026, 8, 1, 20, 25));
-
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
-
-        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
-        assertFalse(sentAtQqIds().contains(3001L));
-    }
-
-    @Test
-    @DisplayName("延误5分钟属于可接受边界，不提醒指挥官")
-    void shouldNotAtCommander_whenDelayFiveMinutes() {
-        TornSettingFactionDO faction = buildFaction();
-        TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
-                LocalDateTime.of(2026, 8, 1, 20, 20),
-                LocalDateTime.of(2026, 8, 1, 20, 26));
-
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
-
-        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
-        assertFalse(sentAtQqIds().contains(3001L));
-    }
-
-    @Test
-    @DisplayName("延误9分钟时在完成通知中@指挥官并展示分钟口径文案")
-    void shouldAtCommanderAndShowDelayDetail_whenDelayNineMinutes() {
+    @DisplayName("消息组装：延误9分钟展示计划/实际分钟与延误约9分钟")
+    void shouldFormatDelayDetail_whenDelayNineMinutes() {
         TornSettingFactionDO faction = buildFaction();
         TornUserDO user = buildUser();
         TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
@@ -208,7 +150,33 @@ class TornOcCompleteNoticeServiceTest {
     }
 
     @Test
-    @DisplayName("同批多个明显延误OC合并为一条提醒且只@一次指挥官")
+    @DisplayName("消息组装：延误4分钟和5分钟不提醒，延误6分钟提醒")
+    void shouldUseDelayThreshold_overFiveMinutes() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+
+        sendCompleteNotice(faction, List.of(buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 25))), List.of(user));
+        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
+        assertFalse(sentAtQqIds().contains(3001L));
+
+        sendCompleteNotice(faction, List.of(buildCompletedOc(502L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 26))), List.of(user));
+        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
+        assertFalse(sentAtQqIds().contains(3001L));
+
+        sendCompleteNotice(faction, List.of(buildCompletedOc(503L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 27))), List.of(user));
+        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
+                && text.contains("#8 Clinical Precision：计划20:21完成，实际20:27完成，延误约6分钟")));
+        assertEquals(1L, sentAtQqIds().stream().filter(qq -> qq.equals(3001L)).count());
+    }
+
+    @Test
+    @DisplayName("消息组装：同批多个明显延误OC合并为一条提醒且只@一次")
     void shouldMergeMultipleDelayedOcsInOneNotice() {
         TornSettingFactionDO faction = buildFaction();
         TornUserDO user = buildUser();
@@ -230,89 +198,185 @@ class TornOcCompleteNoticeServiceTest {
     }
 
     @Test
-    @DisplayName("OC完成时间为空时不阻塞完成通知也不发送延误提醒")
-    void shouldKeepOriginalNotice_whenTimeMissing() {
+    @DisplayName("真实完成检测：已完成OC延误9分钟时发送完成通知并@一次指挥官")
+    void shouldSendDelayNoticeThroughCompleteCheck_whenOcCompletedLate() {
         TornSettingFactionDO faction = buildFaction();
         TornUserDO user = buildUser();
-        TornFactionOcDO missingReadyOc = buildCompletedOc(501L, 8, "Clinical Precision",
-                null, LocalDateTime.of(2026, 8, 1, 20, 30));
-        TornFactionOcDO missingExecutedOc = buildCompletedOc(502L, 7, "Window of Opportunity",
-                LocalDateTime.of(2026, 8, 1, 20, 30), null);
-
-        sendCompleteNotice(faction, List.of(missingReadyOc, missingExecutedOc), List.of(user));
-
-        List<String> texts = sentTexts();
-        assertTrue(texts.stream().anyMatch(text -> text.contains("已完成，可以加入新的OC了")));
-        assertTrue(texts.stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
-        assertFalse(sentAtQqIds().contains(3001L));
-    }
-
-    @Test
-    @DisplayName("实际完成早于计划完成时按时间异常处理且不发送延误提醒")
-    void shouldSkipDelay_whenExecutedBeforePlanned() {
-        TornSettingFactionDO faction = buildFaction();
-        TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
+        TornFactionOcDO planningOc = buildOc();
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
                 LocalDateTime.of(2026, 8, 1, 20, 20),
-                LocalDateTime.of(2026, 8, 1, 20, 19));
+                LocalDateTime.of(2026, 8, 1, 20, 30));
 
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
+        mockInitScheduling(faction, List.of(planningOc));
+        mockNoticeExecution(faction, List.of(planningOc), user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), user.getId())), List.of(user));
 
-        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("已完成，可以加入新的OC了")));
-        assertTrue(sentTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
-        assertFalse(sentAtQqIds().contains(3001L));
+        assertEquals(1L, completionRequestCount());
+        List<String> texts = completionTexts();
+        assertTrue(texts.stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
+                && text.contains("#8 Clinical Precision：计划20:21完成，实际20:30完成，延误约9分钟")));
+        assertTrue(completionAtQqIds().contains(2001L));
+        assertEquals(1L, completionAtQqIds().stream().filter(qq -> qq.equals(3001L)).count());
     }
 
     @Test
-    @DisplayName("无延误批次保留原有成员@、完成文案和推荐内容")
-    void shouldKeepOriginalNotice_whenNoDelay() {
+    @DisplayName("真实完成检测：下一分钟正常完成不产生延误提醒")
+    void shouldNotAppendDelayNoticeThroughCompleteCheck_whenCompletedOnPlannedMinute() {
         TornSettingFactionDO faction = buildFaction();
         TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
+        TornFactionOcDO planningOc = buildOc();
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
                 LocalDateTime.of(2026, 8, 1, 20, 20),
                 LocalDateTime.of(2026, 8, 1, 20, 21));
 
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
+        mockInitScheduling(faction, List.of(planningOc));
+        mockNoticeExecution(faction, List.of(planningOc), user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), user.getId())), List.of(user));
 
-        List<Long> atIds = sentAtQqIds();
-        assertTrue(atIds.contains(2001L));
-        assertFalse(atIds.contains(3001L));
-        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("已完成，可以加入新的OC了")));
-        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("暂未适合加入的OC，联系OC指挥官生成")));
+        assertEquals(1L, completionRequestCount());
+        List<String> texts = completionTexts();
+        assertTrue(texts.stream().anyMatch(text -> text.contains("#8 Clinical Precision 已完成")));
+        assertTrue(texts.stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
+        assertTrue(completionAtQqIds().contains(2001L));
+        assertFalse(completionAtQqIds().contains(3001L));
+        assertTrue(texts.stream().anyMatch(text -> text.contains("暂未适合加入的OC，联系OC指挥官生成")));
     }
 
     @Test
-    @DisplayName("指挥官配置为空时延误文本仍正常发送且不阻塞完成通知")
-    void shouldSendDelayText_whenCommanderIdsBlank() {
+    @DisplayName("真实完成检测：秒数跨分钟但同一分钟桶执行完成时不误判延误")
+    void shouldNotAppendDelayNoticeThroughCompleteCheck_whenSecondsCrossMinute() {
         TornSettingFactionDO faction = buildFaction();
-        faction.setOcCommanderIds("");
         TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
-                LocalDateTime.of(2026, 8, 1, 20, 20),
-                LocalDateTime.of(2026, 8, 1, 20, 30));
+        TornFactionOcDO planningOc = buildOc();
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20, 45),
+                LocalDateTime.of(2026, 8, 1, 20, 21, 10));
 
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
+        mockInitScheduling(faction, List.of(planningOc));
+        mockNoticeExecution(faction, List.of(planningOc), user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), user.getId())), List.of(user));
 
-        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
-                && text.contains("#8 Clinical Precision：计划20:21完成，实际20:30完成，延误约9分钟")));
-        assertFalse(sentAtQqIds().contains(3001L));
+        assertEquals(1L, completionRequestCount());
+        assertTrue(completionTexts().stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
+        assertFalse(completionAtQqIds().contains(3001L));
     }
 
     @Test
-    @DisplayName("指挥官配置为无效值时延误文本仍正常发送且不阻塞完成通知")
-    void shouldSendDelayText_whenCommanderIdsInvalid() {
+    @DisplayName("真实完成检测：未完成OC不产生完成通知并继续轮询")
+    void shouldNotSendCompleteNoticeThroughCompleteCheck_whenOcStillPlanning() {
         TornSettingFactionDO faction = buildFaction();
-        faction.setOcCommanderIds("abc");
         TornUserDO user = buildUser();
-        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
+        TornFactionOcDO planningOc = buildOc();
+
+        mockInitScheduling(faction, List.of(planningOc));
+        mockNoticeExecution(faction, List.of(planningOc), user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, List.of(planningOc), List.of(), List.of());
+
+        assertEquals(0L, completionRequestCount());
+        assertTrue(completionTexts().isEmpty());
+        verify(taskService, atLeast(2)).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                any(Runnable.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("真实完成检测：同一批已完成和未完成OC混合时只通知已完成OC")
+    void shouldOnlyIncludeCompletedOcThroughCompleteCheck_whenMixedWithPlanning() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO oc1Planning = buildPlanningOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20));
+        TornFactionOcDO oc2Planning = buildPlanningOc(502L, 7, "Window of Opportunity",
+                LocalDateTime.of(2026, 8, 1, 20, 30));
+        TornFactionOcDO oc1Completed = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 30));
+        TornFactionOcDO oc2Pending = buildPlanningOc(502L, 7, "Window of Opportunity",
+                LocalDateTime.of(2026, 8, 1, 20, 30));
+
+        mockInitScheduling(faction, List.of(oc1Planning, oc2Planning));
+        mockNoticeExecution(faction, List.of(oc1Planning, oc2Planning), user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, List.of(oc1Completed, oc2Pending),
+                List.of(buildSlot(oc1Completed.getId(), user.getId())), List.of(user));
+
+        assertEquals(1L, completionRequestCount());
+        List<String> texts = completionTexts();
+        assertTrue(texts.stream().anyMatch(text -> text.contains("#8 Clinical Precision 已完成")));
+        assertTrue(texts.stream().noneMatch(text -> text.contains("Window of Opportunity")));
+        assertTrue(texts.stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
+                && text.contains("#8 Clinical Precision：计划20:21完成，实际20:30完成，延误约9分钟")));
+        assertEquals(1L, completionAtQqIds().stream().filter(qq -> qq.equals(3001L)).count());
+        verify(taskService, atLeast(2)).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                any(Runnable.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("真实完成检测：完成时间为空或早于计划时不阻塞完成通知也不产生延误提醒")
+    void shouldKeepCompletionNoticeWithoutDelay_whenTimeDataAbnormal() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        List<TornFactionOcDO> planningList = List.of(
+                buildPlanningOc(501L, 8, "Clinical Precision", LocalDateTime.of(2026, 8, 1, 20, 20)),
+                buildPlanningOc(502L, 7, "Window of Opportunity", LocalDateTime.of(2026, 8, 1, 20, 30)),
+                buildPlanningOc(503L, 6, "Sweep and Clear", LocalDateTime.of(2026, 8, 1, 20, 40)));
+        List<TornFactionOcDO> abnormalCompletedList = List.of(
+                buildCompletedOc(501L, 8, "Clinical Precision", null,
+                        LocalDateTime.of(2026, 8, 1, 20, 30)),
+                buildCompletedOc(502L, 7, "Window of Opportunity",
+                        LocalDateTime.of(2026, 8, 1, 20, 30), null),
+                buildCompletedOc(503L, 6, "Sweep and Clear",
+                        LocalDateTime.of(2026, 8, 1, 20, 40),
+                        LocalDateTime.of(2026, 8, 1, 20, 39)));
+
+        mockInitScheduling(faction, planningList);
+        mockNoticeExecution(faction, planningList, user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, abnormalCompletedList,
+                List.of(buildSlot(501L, user.getId()), buildSlot(502L, user.getId()),
+                        buildSlot(503L, user.getId())), List.of(user));
+
+        assertEquals(1L, completionRequestCount());
+        List<String> texts = completionTexts();
+        assertTrue(texts.stream().anyMatch(text -> text.contains("已完成，可以加入新的OC了")));
+        assertTrue(texts.stream().noneMatch(text -> text.contains("以下OC完成时存在明显延误")));
+        assertFalse(completionAtQqIds().contains(3001L));
+    }
+
+    @ParameterizedTest(name = "真实完成检测：指挥官配置[{0}]不阻塞完成通知也不产生延误@")
+    @MethodSource("blankOrInvalidCommanderConfigs")
+    @DisplayName("真实完成检测：指挥官配置为空或无效时不阻塞完成通知也不产生延误@")
+    void shouldKeepCompletionNoticeWithoutDelay_whenCommanderConfigBlankOrInvalid(String commanderIds) {
+        TornSettingFactionDO faction = buildFaction();
+        faction.setOcCommanderIds(commanderIds);
+        TornUserDO user = buildUser();
+        TornFactionOcDO planningOc = buildOc();
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
                 LocalDateTime.of(2026, 8, 1, 20, 20),
                 LocalDateTime.of(2026, 8, 1, 20, 30));
 
-        sendCompleteNotice(faction, List.of(oc), List.of(user));
+        mockInitScheduling(faction, List.of(planningOc));
+        mockNoticeExecution(faction, List.of(planningOc), user, null);
+        runNoticeTask(faction);
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), user.getId())), List.of(user));
 
-        assertTrue(sentTexts().stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
+        assertEquals(1L, completionRequestCount());
+        assertTrue(completionTexts().stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
                 && text.contains("#8 Clinical Precision：计划20:21完成，实际20:30完成，延误约9分钟")));
-        assertFalse(sentAtQqIds().contains(3001L));
+        assertFalse(completionAtQqIds().contains(3001L));
+    }
+
+    static Stream<Arguments> blankOrInvalidCommanderConfigs() {
+        return Stream.of(Arguments.of(""), Arguments.of("abc"));
     }
 
     /**
@@ -327,15 +391,48 @@ class TornOcCompleteNoticeServiceTest {
     }
 
     /**
-     * 直接调用私有发送OC完成通知方法，便于聚焦验证完成消息组装。
+     * 通过已注册的完成检测任务执行 checkOcCompleted 真实入口。
+     *
+     * @param faction        帮派配置
+     * @param currentOcList  完成检测时数据库返回的最新OC列表
+     * @param completedSlots 已完成OC对应的岗位列表
+     * @param completedUsers 已完成OC的参与成员
+     */
+    private void runCompleteCheckTask(TornSettingFactionDO faction, List<TornFactionOcDO> currentOcList,
+                                      List<TornFactionOcSlotDO> completedSlots,
+                                      List<TornUserDO> completedUsers) {
+        ocDaoListRef.set(currentOcList);
+        enableOcDaoInQuery();
+        if (currentOcList.stream().anyMatch(oc -> TornOcStatusEnum.getCompleteStatusList().contains(oc.getStatus()))) {
+            mockCompletedSlots(completedSlots);
+        }
+        if (!completedUsers.isEmpty()) {
+            mockCompleteNoticeData(faction, completedUsers);
+        }
+        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskService, atLeastOnce()).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                taskCaptor.capture(), any(LocalDateTime.class));
+        taskCaptor.getValue().run();
+    }
+
+    /**
+     * 覆盖完成检测入口使用的OC查询Mock，按最新OC列表返回数据。
+     */
+    private void enableOcDaoInQuery() {
+        LambdaQueryChainWrapper<TornFactionOcDO> query = mock(LambdaQueryChainWrapper.class);
+        when(query.in(any(), anyCollection())).thenReturn(query);
+        when(query.list()).thenAnswer(invocation -> ocDaoListRef.get());
+        when(ocDao.lambdaQuery()).thenReturn(query);
+    }
+
+    /**
+     * 直接调用私有发送OC完成通知方法，仅用于少量消息组装单元测试，不经过完成检测入口。
      */
     private void sendCompleteNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
                                     List<TornUserDO> users) {
         List<Long> userIdList = users.stream().map(TornUserDO::getId).toList();
-        when(userDao.queryUserMap(userIdList)).thenReturn(users.stream()
-                .collect(Collectors.toMap(TornUserDO::getId, user -> user)));
-        when(ocUserDao.queryByUserId(userIdList)).thenReturn(List.of());
-        when(assignService.assignUserList(eq(faction.getId()), any())).thenReturn(Map.of());
+        mockCompleteNoticeData(faction, users);
         try {
             Method method = TornOcCompleteNoticeService.class.getDeclaredMethod(
                     "sendOcCompleteNotice", TornSettingFactionDO.class, List.class, List.class);
@@ -344,6 +441,73 @@ class TornOcCompleteNoticeServiceTest {
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("调用sendOcCompleteNotice失败", e);
         }
+    }
+
+    /**
+     * 模拟初始化时的OC调度查询
+     */
+    private void mockInitScheduling(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
+        List<Long> factionIdList = List.of(TornConstants.FACTION_PN_ID, TornConstants.FACTION_SH_ID,
+                TornConstants.FACTION_HP_ID, TornConstants.FACTION_BSU_ID,
+                TornConstants.FACTION_PTA_ID, TornConstants.FACTION_CCRC_ID);
+        when(settingFactionManager.getIdMap()).thenReturn(factionIdList.stream()
+                .collect(Collectors.toMap(id -> id, id -> faction)));
+        ocDaoListRef.set(ocList);
+        LambdaQueryChainWrapper<TornFactionOcDO> query = mock(LambdaQueryChainWrapper.class);
+        when(ocDao.lambdaQuery()).thenReturn(query);
+        when(query.eq(any(), any())).thenReturn(query);
+        when(query.orderByAsc(any(SFunction.class))).thenReturn(query);
+        when(query.list()).thenAnswer(invocation -> ocDaoListRef.get());
+        doNothing().when(taskService).updateTask(anyString(), any(Runnable.class), any(LocalDateTime.class));
+    }
+
+    /**
+     * 模拟通知执行链路
+     */
+    private void mockNoticeExecution(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
+                                     TornUserDO user, TornFactionMemberListVO memberResp) {
+        List<TornFactionOcSlotDO> slots = user == null ? List.of()
+                : List.of(buildSlot(ocList.getFirst().getId(), user.getId()));
+        doNothing().when(ocRefreshManager).refreshOc(1, faction.getId());
+        when(ocSlotDao.queryListByOc(anyCollection())).thenReturn(slots);
+        List<Long> userIds = slots.stream().map(TornFactionOcSlotDO::getUserId).distinct().toList();
+        if (!userIds.isEmpty()) {
+            when(userDao.queryUserMap(userIds)).thenReturn(Map.of(user.getId(), user));
+        }
+        when(msgManager.buildOcTable(anyString(), anyList())).thenReturn("base64-image");
+        when(tornApi.sendRequest(eq(faction.getId()), any(), eq(TornFactionOcVO.class)))
+                .thenReturn(new TornFactionOcVO());
+        when(tornApi.sendRequest(any(TornFactionMemberDTO.class), eq(TornFactionMemberListVO.class)))
+                .thenReturn(memberResp);
+        when(ocDao.lambdaUpdate()).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            LambdaUpdateChainWrapper<TornFactionOcDO> wrapper = mock(LambdaUpdateChainWrapper.class);
+            when(wrapper.set(any(), any())).thenReturn(wrapper);
+            when(wrapper.in(any(), anyCollection())).thenReturn(wrapper);
+            when(wrapper.update()).thenReturn(true);
+            return wrapper;
+        });
+    }
+
+    /**
+     * 模拟完成通知所需的成员、推荐和Bot发送依赖。
+     */
+    private void mockCompleteNoticeData(TornSettingFactionDO faction, List<TornUserDO> users) {
+        List<Long> userIdList = users.stream().map(TornUserDO::getId).toList();
+        when(userDao.queryUserMap(userIdList)).thenReturn(users.stream()
+                .collect(Collectors.toMap(TornUserDO::getId, user -> user)));
+        when(ocUserDao.queryByUserId(userIdList)).thenReturn(List.of());
+        when(assignService.assignUserList(eq(faction.getId()), any())).thenReturn(Map.of());
+    }
+
+    /**
+     * 模拟完成检测中按已完成OC查询岗位列表。
+     */
+    private void mockCompletedSlots(List<TornFactionOcSlotDO> slots) {
+        LambdaQueryChainWrapper<TornFactionOcSlotDO> query = mock(LambdaQueryChainWrapper.class);
+        when(query.in(any(), anyCollection())).thenReturn(query);
+        when(query.list()).thenReturn(slots);
+        when(ocSlotDao.lambdaQuery()).thenReturn(query);
     }
 
     /**
@@ -383,45 +547,69 @@ class TornOcCompleteNoticeServiceTest {
     }
 
     /**
-     * 模拟初始化时的OC调度查询
+     * 提取实际OC完成通知对应的群消息参数，避免与“即将结束”的指挥官预告消息混淆。
      */
-    private void mockInitScheduling(TornSettingFactionDO faction, TornFactionOcDO oc) {
-        List<Long> factionIdList = List.of(TornConstants.FACTION_PN_ID, TornConstants.FACTION_SH_ID,
-                TornConstants.FACTION_HP_ID, TornConstants.FACTION_BSU_ID,
-                TornConstants.FACTION_PTA_ID, TornConstants.FACTION_CCRC_ID);
-        when(settingFactionManager.getIdMap()).thenReturn(factionIdList.stream()
-                .collect(Collectors.toMap(id -> id, id -> faction)));
-        LambdaQueryChainWrapper<TornFactionOcDO> query = mock(LambdaQueryChainWrapper.class);
-        when(ocDao.lambdaQuery()).thenReturn(query);
-        when(query.eq(any(), any())).thenReturn(query);
-        when(query.orderByAsc(any(com.baomidou.mybatisplus.core.toolkit.support.SFunction.class))).thenReturn(query);
-        when(query.list()).thenReturn(List.of(oc));
-        doNothing().when(taskService).updateTask(anyString(), any(Runnable.class), any(LocalDateTime.class));
+    private List<QqMsgParam<?>> completionMessages() {
+        return sentMessagesFromRequestsContaining("已完成，可以加入新的OC了");
     }
 
     /**
-     * 模拟通知执行链路
+     * 提取实际OC完成通知中的文本内容
      */
-    private void mockNoticeExecution(TornSettingFactionDO faction, TornFactionOcDO oc,
-                                     TornUserDO user, TornFactionMemberListVO memberResp) {
-        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
-        slot.setUserId(user.getId());
-        doNothing().when(ocRefreshManager).refreshOc(1, faction.getId());
-        when(ocSlotDao.queryListByOc(List.of(oc))).thenReturn(List.of(slot));
-        when(userDao.queryUserMap(List.of(user.getId()))).thenReturn(Map.of(user.getId(), user));
-        when(msgManager.buildOcTable(anyString(), eq(List.of(oc)))).thenReturn("base64-image");
-        when(tornApi.sendRequest(eq(faction.getId()), any(), eq(TornFactionOcVO.class)))
-                .thenReturn(buildOcApiResp(oc, user.getId()));
-        when(tornApi.sendRequest(any(TornFactionMemberDTO.class), eq(TornFactionMemberListVO.class)))
-                .thenReturn(memberResp);
-        when(ocDao.lambdaUpdate()).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            LambdaUpdateChainWrapper<TornFactionOcDO> wrapper = mock(LambdaUpdateChainWrapper.class);
-            when(wrapper.set(any(), any())).thenReturn(wrapper);
-            when(wrapper.in(any(), anyCollection())).thenReturn(wrapper);
-            when(wrapper.update()).thenReturn(true);
-            return wrapper;
-        });
+    private List<String> completionTexts() {
+        return completionMessages().stream()
+                .filter(TextQqMsg.class::isInstance)
+                .map(TextQqMsg.class::cast)
+                .map(msg -> msg.getData().text())
+                .toList();
+    }
+
+    /**
+     * 提取实际OC完成通知中的At QQ号
+     */
+    private List<Long> completionAtQqIds() {
+        return completionMessages().stream()
+                .filter(AtQqMsg.class::isInstance)
+                .map(AtQqMsg.class::cast)
+                .map(msg -> msg.getData().qq())
+                .toList();
+    }
+
+    /**
+     * 统计实际OC完成通知的Bot发送次数
+     */
+    private long completionRequestCount() {
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot, atLeastOnce()).sendRequest(paramCaptor.capture(), eq(String.class));
+        return paramCaptor.getAllValues().stream()
+                .map(BotHttpReqParam::body)
+                .filter(GroupMsgReqParam.class::isInstance)
+                .map(GroupMsgReqParam.class::cast)
+                .filter(body -> body.getMessage().stream()
+                        .filter(TextQqMsg.class::isInstance)
+                        .map(TextQqMsg.class::cast)
+                        .map(msg -> msg.getData().text())
+                        .anyMatch(text -> text.contains("已完成，可以加入新的OC了")))
+                .count();
+    }
+
+    /**
+     * 提取包含指定关键文本的群消息请求中的所有消息参数
+     */
+    private List<QqMsgParam<?>> sentMessagesFromRequestsContaining(String keyword) {
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot, atLeastOnce()).sendRequest(paramCaptor.capture(), eq(String.class));
+        return paramCaptor.getAllValues().stream()
+                .map(BotHttpReqParam::body)
+                .filter(GroupMsgReqParam.class::isInstance)
+                .map(GroupMsgReqParam.class::cast)
+                .filter(body -> body.getMessage().stream()
+                        .filter(TextQqMsg.class::isInstance)
+                        .map(TextQqMsg.class::cast)
+                        .map(msg -> msg.getData().text())
+                        .anyMatch(text -> text.contains(keyword)))
+                .flatMap(body -> body.getMessage().stream())
+                .toList();
     }
 
     /**
@@ -453,18 +641,35 @@ class TornOcCompleteNoticeServiceTest {
     }
 
     /**
+     * 构建计划中的OC
+     */
+    private TornFactionOcDO buildPlanningOc(Long id, int rank, String name, LocalDateTime readyTime) {
+        TornFactionOcDO oc = new TornFactionOcDO();
+        oc.setId(id);
+        oc.setFactionId(10L);
+        oc.setName(name);
+        oc.setRank(rank);
+        oc.setStatus(TornOcStatusEnum.PLANNING.getCode());
+        oc.setReadyTime(readyTime);
+        oc.setHasNoticed(false);
+        return oc;
+    }
+
+    /**
      * 构建即将完成的OC
      */
     private TornFactionOcDO buildOc() {
-        TornFactionOcDO oc = new TornFactionOcDO();
-        oc.setId(501L);
-        oc.setFactionId(10L);
-        oc.setName("测试OC");
-        oc.setRank(8);
-        oc.setStatus(TornOcStatusEnum.PLANNING.getCode());
-        oc.setReadyTime(LocalDateTime.now().plusMinutes(10));
-        oc.setHasNoticed(false);
-        return oc;
+        return buildPlanningOc(501L, 8, "测试OC", LocalDateTime.now().plusMinutes(10));
+    }
+
+    /**
+     * 构建OC岗位
+     */
+    private TornFactionOcSlotDO buildSlot(Long ocId, Long userId) {
+        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
+        slot.setOcId(ocId);
+        slot.setUserId(userId);
+        return slot;
     }
 
     /**
@@ -476,22 +681,6 @@ class TornOcCompleteNoticeServiceTest {
         user.setNickname("测试用户");
         user.setQqId(2001L);
         return user;
-    }
-
-    /**
-     * 构建OC接口响应
-     */
-    private TornFactionOcVO buildOcApiResp(TornFactionOcDO oc, Long userId) {
-        TornFactionCrimeUserVO crimeUser = new TornFactionCrimeUserVO();
-        crimeUser.setId(userId);
-        TornFactionCrimeSlotVO crimeSlot = new TornFactionCrimeSlotVO();
-        crimeSlot.setUser(crimeUser);
-        TornFactionCrimeVO crime = new TornFactionCrimeVO();
-        crime.setId(oc.getId());
-        crime.setSlots(List.of(crimeSlot));
-        TornFactionOcVO resp = new TornFactionOcVO();
-        resp.setCrimes(List.of(crime));
-        return resp;
     }
 
     /**
