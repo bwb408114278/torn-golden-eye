@@ -16,9 +16,7 @@ import pn.torn.goldeneye.torn.manager.user.TornUserManager;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -93,10 +91,10 @@ class BaseMsgStrategyTest {
     @DisplayName("at 与数字参数混用返回参数有误")
     void getTornUser_atAndNumericMixed_rejected() {
         QqRecMsgSender sender = sender(999L);
+        String mixedMsg = "12345" + QqCommandMessage.buildAtMarker(67890L);
 
         BizException exception = assertThrows(BizException.class,
-                () -> strategy.getTornUserWithoutException(sender,
-                        "12345" + QqCommandMessage.buildAtMarker(67890L)));
+                () -> strategy.getTornUserWithoutException(sender, mixedMsg));
 
         assertEquals("参数有误", exception.getMsg());
     }
@@ -116,10 +114,11 @@ class BaseMsgStrategyTest {
     @DisplayName("at 对应 QQ 未绑定用户时 getTornUser 抛出既有业务提示")
     void getTornUser_atNotBound_throwsBusinessTip() {
         QqRecMsgSender sender = sender(999L);
+        String atMarker = QqCommandMessage.buildAtMarker(12345L);
         when(userManager.getUserByQq(12345L)).thenReturn(null);
 
         BizException exception = assertThrows(BizException.class,
-                () -> strategy.getTornUser(sender, QqCommandMessage.buildAtMarker(12345L)));
+                () -> strategy.getTornUser(sender, atMarker));
 
         assertEquals("金蝶不认识你哦", exception.getMsg());
         assertNull(exception.getCause());
