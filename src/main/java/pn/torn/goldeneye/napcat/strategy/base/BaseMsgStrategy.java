@@ -132,12 +132,15 @@ public abstract class BaseMsgStrategy {
     }
 
     /**
-     * 判断消息是否包含解析层生成的内部 at 标记。
+     * 判断策略参数或其拆分出的目标片段是否包含解析层生成的内部 at 标记。
      *
-     * @param msg 策略参数
+     * <p>供“模式#目标”类策略在拆分业务模式后探测目标片段是否携带 at 标记；
+     * 标记结构与 QQ 合法性校验仍统一由 {@link #getTornUser(QqRecMsgSender, String)} 完成。</p>
+     *
+     * @param msg 策略参数或拆分出的目标片段
      * @return true 表示包含内部 at 标记
      */
-    private boolean hasAtMarker(String msg) {
+    protected boolean hasAtMarker(String msg) {
         return msg != null && (msg.contains(QqCommandMessage.AT_MARKER_PREFIX)
                 || msg.contains(QqCommandMessage.INVALID_AT_MARKER));
     }

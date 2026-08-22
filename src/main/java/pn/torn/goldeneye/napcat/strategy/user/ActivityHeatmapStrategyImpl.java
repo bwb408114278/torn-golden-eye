@@ -8,6 +8,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
@@ -20,7 +21,7 @@ import java.util.List;
  * 活跃度热力图指令
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.4.0
  * @since 2026.07.07
  */
 @Slf4j
@@ -41,6 +42,17 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
         return "查询活跃度热力图，支持帮派/用户";
     }
 
+    /**
+     * 仅“用户”模式把 at 目标按 QQ 解析为绑定用户的 Torn userId；
+     * “帮派”模式不接受 at 目标，收到 at 标记时按参数错误处理。
+     *
+     * @return true 表示支持 at 用户目标
+     */
+    @Override
+    public boolean supportsAtUserTarget() {
+        return true;
+    }
+
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         if (!StringUtils.hasText(msg)) {
@@ -52,27 +64,62 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
         String type = msgArray[0].trim();
-        String idText = msgArray[1].trim();
+        // at 标记以 \u0000 为边界，trim 会破坏标记结构，必须基于原始目标片段探测
+        String targetText = msgArray[1];
+        if (super.hasAtMarker(targetText)) {
+            return handleAtTarget(sender, type, targetText);
+        }
+
+        String idText = targetText.trim();
         if (!isValidQuery(type, idText)) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
         long id = Long.parseLong(idText);
         if ("帮派".equals(type)) {
-            FactionActivityHeatmapVO heatmap = heatmapService.queryFactionHeatmap(id, DEFAULT_DAYS);
-            if (heatmap.isDataSufficient()) {
-                return super.buildImageMsg(HeatmapImageRenderer.renderFactionAsBase64(heatmap));
-            } else {
-                return super.buildTextMsg(heatmap.getInsufficientMessage());
-            }
-        } else {
-            PersonalActivityHeatmapVO heatmap = heatmapService.queryPersonalHeatmap(id, DEFAULT_DAYS);
-            if (heatmap.isDataSufficient()) {
-                return super.buildImageMsg(HeatmapImageRenderer.renderPersonalAsBase64(heatmap));
-            } else {
-                return super.buildTextMsg(heatmap.getInsufficientMessage());
-            }
+            return buildFactionHeatmapReply(id);
         }
+        return buildPersonalHeatmapReply(id);
+    }
+
+    /**
+     * 处理携带 at 标记的查询：仅“用户”模式把 at 目标转换为绑定用户的 Torn userId，
+     * 其余模式返回参数错误提示，不把 QQ 号当作业务 ID 使用。
+     *
+     * @param sender     消息发送人
+     * @param type       查询类型
+     * @param targetText 携带 at 标记的原始目标片段
+     * @return 回复消息
+     */
+    private List<? extends QqMsgParam<?>> handleAtTarget(QqRecMsgSender sender, String type, String targetText) {
+        if (!"用户".equals(type)) {
+            return super.buildTextMsg(buildFormatIntroMsg());
+        }
+
+        TornUserDO user = super.getTornUser(sender, targetText);
+        return buildPersonalHeatmapReply(user.getId());
+    }
+
+    /**
+     * 构建帮派热力图回复
+     */
+    private List<? extends QqMsgParam<?>> buildFactionHeatmapReply(long factionId) {
+        FactionActivityHeatmapVO heatmap = heatmapService.queryFactionHeatmap(factionId, DEFAULT_DAYS);
+        if (heatmap.isDataSufficient()) {
+            return super.buildImageMsg(HeatmapImageRenderer.renderFactionAsBase64(heatmap));
+        }
+        return super.buildTextMsg(heatmap.getInsufficientMessage());
+    }
+
+    /**
+     * 构建个人热力图回复
+     */
+    private List<? extends QqMsgParam<?>> buildPersonalHeatmapReply(long userId) {
+        PersonalActivityHeatmapVO heatmap = heatmapService.queryPersonalHeatmap(userId, DEFAULT_DAYS);
+        if (heatmap.isDataSufficient()) {
+            return super.buildImageMsg(HeatmapImageRenderer.renderPersonalAsBase64(heatmap));
+        }
+        return super.buildTextMsg(heatmap.getInsufficientMessage());
     }
 
     /**
