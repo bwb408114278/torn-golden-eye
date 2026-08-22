@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026.08.06
  */
 @SpringBootTest
+@Tag("shared-db")
 @DisplayName("回放只读事务守卫真实PostgreSQL测试")
 class StockReplayReadOnlyGuardTest {
 

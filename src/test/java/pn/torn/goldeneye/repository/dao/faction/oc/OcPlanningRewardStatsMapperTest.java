@@ -2,6 +2,7 @@ package pn.torn.goldeneye.repository.dao.faction.oc;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026.08.15
  */
 @SpringBootTest
+@Tag("shared-db")
 @Transactional
 @Rollback
 @DisplayName("OC规划收益统计Mapper")

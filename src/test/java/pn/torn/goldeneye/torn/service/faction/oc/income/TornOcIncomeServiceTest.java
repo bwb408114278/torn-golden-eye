@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.faction.oc.income;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026.04.20
  */
 @SpringBootTest
+@Tag("shared-db")
 @Transactional
 @Rollback
 @DisplayName("大锅饭收入生成测试")

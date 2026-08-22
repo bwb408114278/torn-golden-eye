@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.napcat.strategy.faction.crime.benefit;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +42,7 @@ import static org.mockito.Mockito.verify;
  * @since 2026.08.04
  */
 @SpringBootTest
+@Tag("shared-db")
 @DisplayName("OC收益查询策略编排测试")
 class OcBenefitQueryStrategyImplTest {
     @Autowired

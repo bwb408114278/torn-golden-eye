@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.income;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,7 @@ import static org.mockito.Mockito.doThrow;
  * @since 2026.08.03
  */
 @SpringBootTest
+@Tag("shared-db")
 @DisplayName("单链事务原子回滚测试")
 class TornOcIncomeTransactionWorkerTest {
     @Autowired

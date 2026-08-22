@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.repository.mapper.torn;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026.08.20
  */
 @SpringBootTest
+@Tag("shared-db")
 @DisplayName("攻击日志冲突安全批量写入Mapper真实PostgreSQL测试")
 @Transactional
 @Rollback

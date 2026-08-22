@@ -2,6 +2,7 @@ package pn.torn.goldeneye.repository.mapper.faction.oc;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026.08.03
  */
 @SpringBootTest
+@Tag("shared-db")
 @Transactional
 @Rollback
 @DisplayName("OC收益排除规则数据库边界测试")
