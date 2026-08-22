@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.data;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -26,13 +27,22 @@ import pn.torn.goldeneye.torn.model.torn.stats.TornStatsVO;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
+/**
+ * Torn基础数据测试。
+ *
+ * @author Bai
+ * @version 1.4.0
+ * @since 2025.08.22
+ */
 @SpringBootTest
 @Transactional
 @Rollback
@@ -118,43 +128,32 @@ class TornBaseDataServiceTest {
     @Test
     @DisplayName("基础数据爬取集成测试")
     void spiderBaseData_shouldExecuteAllStepsAndScheduleNextTask() {
+        LocalDate today = LocalDate.now();
         tornBaseDataService.spiderBaseData();
 
         // 验证银行利率已写入
         String bankRate = settingDao.querySettingValue(SettingConstants.KEY_BANK_RATE);
-        assertNotNull(bankRate);
+        assertNotNull(bankRate, "银行利率不应为空");
+        assertTrue(new BigDecimal(bankRate).compareTo(BigDecimal.ZERO) > 0, "银行利率应大于0");
 
         // 验证PT价值已写入
         String pointValue = settingDao.querySettingValue(SettingConstants.KEY_POINT_VALUE);
-        assertNotNull(pointValue);
+        assertNotNull(pointValue, "PT价值不应为空");
+        long value = assertDoesNotThrow(() -> Long.parseLong(pointValue), "PT价值应为合法整数");
+        assertTrue(value > 0, "PT价值应大于0");
 
         // 验证物品已写入
         List<TornItemsDO> items = itemsDao.list();
         assertFalse(items.isEmpty());
 
         // 验证基础数据加载日期已更新
-        String loadDate = settingDao.querySettingValue(SettingConstants.KEY_BASE_DATA_LOAD);
-        assertNotNull(loadDate, "基础数据加载日期应已更新");
+        String loadDateValue = settingDao.querySettingValue(SettingConstants.KEY_BASE_DATA_LOAD);
+        assertNotNull(loadDateValue, "基础数据加载日期应已更新");
 
-        // 验证下一次定时任务已注册
-        verify(taskService).updateTask(eq("base-data-reload"), any(Runnable.class), any(LocalDateTime.class));
-    }
-
-    @Test
-    @DisplayName("失败后建立5分钟后重新爬取任务")
-    void spiderBaseData_whenApiFails_shouldScheduleRetryIn5Minutes() {
-        // 用一个会抛异常的 tornApi 场景来测试重试逻辑
-        // 这里我们通过 mock tornApi 来模拟失败（需要临时替换）
-        // 由于 tornApi 是真实 bean，这个测试需要单独处理
-        // 如果无法 mock tornApi，可以通过断网或无效 key 触发异常
-
-        // 简化方案：验证正常流程下不会走重试分支
-        tornBaseDataService.spiderBaseData();
-
-        // 正常情况下，任务时间应该是明天 8:40，而不是 5 分钟后
-        verify(taskService).updateTask(eq("base-data-reload"), any(Runnable.class), argThat(time ->
-                time.isAfter(LocalDateTime.now().plusHours(1))
-        ));
+        // 验证下一次定时任务安排在次日08:40
+        ArgumentCaptor<LocalDateTime> executionTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(taskService).updateTask(eq("base-data-reload"), any(Runnable.class), executionTimeCaptor.capture());
+        assertEquals(today.plusDays(1).atTime(8, 40), executionTimeCaptor.getValue());
     }
 
     @Test

@@ -1,36 +1,29 @@
 package pn.torn.goldeneye.torn.model.torn.stats;
 
 import lombok.Data;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import pn.torn.goldeneye.base.torn.TornReqParamV2;
-
-import java.util.List;
+import pn.torn.goldeneye.base.torn.TornReqParam;
 
 /**
  * Torn状态请求
  *
  * @author Bai
- * @version 0.2.0
+ * @version 1.4.0
  * @since 2025.09.26
  */
 @Data
-public class TornStatsDTO implements TornReqParamV2 {
+public class TornStatsDTO implements TornReqParam {
     @Override
     public String uri() {
         return "/torn";
     }
 
     @Override
-    public boolean needFactionAccess() {
-        return false;
+    public Long getId() {
+        return null;
     }
 
     @Override
-    public MultiValueMap<String, String> buildReqParam() {
-        MultiValueMap<String, String> param = new LinkedMultiValueMap<>(1);
-        param.put("selections", List.of("stats"));
-
-        return param;
+    public String getSection() {
+        return "stats";
     }
 }
