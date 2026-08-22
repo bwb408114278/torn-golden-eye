@@ -9,6 +9,7 @@ import org.apache.ibatis.plugin.Signature;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -51,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026.08.04
  */
 @SpringBootTest
+@Tag("shared-db")
 @DisplayName("批量收益计算SQL查询次数证据测试")
 class TornOcBatchIncomeQueryCountTest {
     @Autowired

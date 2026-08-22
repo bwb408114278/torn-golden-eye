@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * @since 2026.08.06
  */
 @SpringBootTest
+@Tag("shared-db")
 @Transactional
 @DisplayName("月度状态Mapper真实PostgreSQL集成测试")
 class TornStockMonthlyStateMapperTest {

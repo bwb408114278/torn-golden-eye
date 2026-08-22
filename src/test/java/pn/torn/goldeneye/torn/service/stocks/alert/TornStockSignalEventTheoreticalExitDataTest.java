@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * @since 2026.08.06
  */
 @SpringBootTest
+@Tag("shared-db")
 @Transactional
 @DisplayName("拒绝观察理论退出生命周期真实PostgreSQL集成测试")
 class TornStockSignalEventTheoreticalExitDataTest {

@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.data;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,7 @@ import static org.mockito.Mockito.verify;
  * @since 2025.08.22
  */
 @SpringBootTest
+@Tag("shared-db")
 @Transactional
 @Rollback
 @DisplayName("爬取基础数据测试")

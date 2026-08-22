@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026.08.11
  */
 @SpringBootTest
+@Tag("shared-db")
 @DisplayName("双Shadow候选接纳端到端真实PostgreSQL集成测试")
 class StockShadowTrackEndToEndItTest {
 
