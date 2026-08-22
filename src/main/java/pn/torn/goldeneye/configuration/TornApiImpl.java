@@ -24,7 +24,7 @@ import java.util.List;
  * Torn Api请求实现类
  *
  * @author Bai
- * @version 1.3.7
+ * @version 1.4.0
  * @since 2025.07.22
  */
 @Slf4j
@@ -61,6 +61,12 @@ class TornApiImpl implements TornApi {
     public <T> T sendRequest(TornReqParam param, TornApiKeyDO apiKey, Class<T> responseType) {
         TornApiRequestExecutor executor = key -> executeV1Request(param, key);
         return executeWithKeyManagement(executor, apiKey, param.uri(), responseType, false, 0L).result();
+    }
+
+    @Override
+    public <T> T sendRequest(TornReqParam param, Class<T> responseType) {
+        TornApiRequestExecutor executor = key -> executeV1Request(param, key);
+        return executeWithRetry(executor, param.uri(), 0L, false, responseType);
     }
 
     @Override

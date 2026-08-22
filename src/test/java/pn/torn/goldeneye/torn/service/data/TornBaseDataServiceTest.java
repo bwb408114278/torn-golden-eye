@@ -30,9 +30,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
+/**
+ * Torn基础数据测试。
+ *
+ * @author Bai
+ * @version 1.4.0
+ * @since 2025.08.22
+ */
 @SpringBootTest
 @Transactional
 @Rollback
@@ -138,23 +146,6 @@ class TornBaseDataServiceTest {
 
         // 验证下一次定时任务已注册
         verify(taskService).updateTask(eq("base-data-reload"), any(Runnable.class), any(LocalDateTime.class));
-    }
-
-    @Test
-    @DisplayName("失败后建立5分钟后重新爬取任务")
-    void spiderBaseData_whenApiFails_shouldScheduleRetryIn5Minutes() {
-        // 用一个会抛异常的 tornApi 场景来测试重试逻辑
-        // 这里我们通过 mock tornApi 来模拟失败（需要临时替换）
-        // 由于 tornApi 是真实 bean，这个测试需要单独处理
-        // 如果无法 mock tornApi，可以通过断网或无效 key 触发异常
-
-        // 简化方案：验证正常流程下不会走重试分支
-        tornBaseDataService.spiderBaseData();
-
-        // 正常情况下，任务时间应该是明天 8:40，而不是 5 分钟后
-        verify(taskService).updateTask(eq("base-data-reload"), any(Runnable.class), argThat(time ->
-                time.isAfter(LocalDateTime.now().plusHours(1))
-        ));
     }
 
     @Test

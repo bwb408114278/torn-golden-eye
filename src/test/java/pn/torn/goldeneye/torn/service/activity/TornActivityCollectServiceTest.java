@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
@@ -25,7 +26,7 @@ import static org.mockito.Mockito.*;
  * 活跃度采集服务测试
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.4.0
  * @since 2026.07.10
  */
 @DisplayName("活跃度采集服务测试")
@@ -89,7 +90,7 @@ class TornActivityCollectServiceTest {
             }
             throw new RejectedExecutionException("executor stopped");
         }).when(executor).execute(any(Runnable.class));
-        when(tornApi.sendRequest(any(), any())).thenReturn(null);
+        when(tornApi.sendRequest(any(TornReqParamV2.class), any())).thenReturn(null);
 
         TornActivityCollectService service = new TornActivityCollectService(
                 tornApi,
