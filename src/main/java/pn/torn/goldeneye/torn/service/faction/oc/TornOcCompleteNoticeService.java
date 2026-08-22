@@ -37,6 +37,8 @@ import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -44,7 +46,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.4.1
  * @since 2025.11.26
  */
 @Slf4j
@@ -65,6 +67,12 @@ public class TornOcCompleteNoticeService {
     private final TornUserDAO userDao;
     // 时间窗口: 3分钟内完成的OC合并通知
     private static final int TIME_WINDOW_MINUTES = 3;
+    // Torn OC在准备时间所在分钟的下一分钟统一执行
+    private static final int OC_PLANNED_START_OFFSET_MINUTES = 1;
+    // OC可接受延误阈值，超过该分钟数才提醒指挥官
+    private static final int OC_ACCEPTABLE_DELAY_MINUTES = 5;
+    // 延误提醒中只展示到分钟的时间格式
+    private static final DateTimeFormatter OC_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     public void init() {
         List<Long> noticeFactionIdList = new ArrayList<>();
@@ -399,6 +407,9 @@ public class TornOcCompleteNoticeService {
 
         msgList.add(new TextQqMsg(ocDesc.toString()));
 
+        // 明显延误提醒：合并到当前完成通知，不单独发送消息
+        msgList.addAll(buildDelayNotice(faction, ocList));
+
         // 推荐表格（仅对本次完成的OC成员做推荐）
         List<TornFactionOcUserDO> allUsers = ocUserDao.queryByUserId(userIdList);
         Map<Long, List<TornFactionOcUserDO>> completeUserMap = allUsers.stream()
@@ -427,10 +438,135 @@ public class TornOcCompleteNoticeService {
     }
 
     /**
+     * 计算OC计划完成时间。
+     * Torn在准备时间所在分钟的下一分钟统一执行。
+     *
+     * @param readyTime OC准备时间
+     * @return 计划完成时间
+     */
+    private LocalDateTime calculatePlannedTime(LocalDateTime readyTime) {
+        return readyTime.truncatedTo(ChronoUnit.MINUTES)
+                .plusMinutes(OC_PLANNED_START_OFFSET_MINUTES);
+    }
+
+    /**
+     * 计算OC实际完成时间的展示口径，秒和纳秒归零。
+     *
+     * @param executedTime OC实际执行完成时间
+     * @return 实际完成时间
+     */
+    private LocalDateTime calculateActualTime(LocalDateTime executedTime) {
+        return executedTime.truncatedTo(ChronoUnit.MINUTES);
+    }
+
+    /**
+     * 按分钟桶计算延误分钟数。
+     *
+     * @param oc OC数据
+     * @return 延误分钟数；无法计算或时间异常时为空
+     */
+    private OptionalLong calculateDelayMinutes(TornFactionOcDO oc) {
+        if (oc.getReadyTime() == null || oc.getExecutedTime() == null) {
+            log.debug("OC完成时间缺失，跳过延误计算, ocId={}, readyTime={}, executedTime={}",
+                    oc.getId(), oc.getReadyTime(), oc.getExecutedTime());
+            return OptionalLong.empty();
+        }
+        LocalDateTime plannedTime = calculatePlannedTime(oc.getReadyTime());
+        LocalDateTime actualTime = calculateActualTime(oc.getExecutedTime());
+        long delayMinutes = ChronoUnit.MINUTES.between(plannedTime, actualTime);
+        if (delayMinutes < 0) {
+            log.warn("OC完成时间异常，实际完成早于计划完成，跳过延误提醒, ocId={}, readyTime={}, executedTime={}",
+                    oc.getId(), oc.getReadyTime(), oc.getExecutedTime());
+            return OptionalLong.empty();
+        }
+        return OptionalLong.of(delayMinutes);
+    }
+
+    /**
+     * 构建明显延误提醒消息段；没有明显延误时返回空列表。
+     *
+     * @param faction 帮派配置
+     * @param ocList  本次完成的OC列表
+     * @return 延误提醒消息参数列表
+     */
+    private List<QqMsgParam<?>> buildDelayNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
+        List<OcDelayInfo> delayedOcs = new ArrayList<>();
+        Set<Long> seenOcIds = new HashSet<>();
+        for (TornFactionOcDO oc : ocList) {
+            if (oc.getId() == null || seenOcIds.add(oc.getId())) {
+                OptionalLong delayMinutes = calculateDelayMinutes(oc);
+                if (delayMinutes.isPresent() && delayMinutes.getAsLong() > OC_ACCEPTABLE_DELAY_MINUTES) {
+                    delayedOcs.add(new OcDelayInfo(oc, calculatePlannedTime(oc.getReadyTime()),
+                            calculateActualTime(oc.getExecutedTime()), delayMinutes.getAsLong()));
+                }
+            }
+        }
+        if (delayedOcs.isEmpty()) {
+            return List.of();
+        }
+
+        List<QqMsgParam<?>> delayMsgs = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
+        List<String> detailLines = delayedOcs.stream()
+                .map(this::buildDelayDetail)
+                .toList();
+        delayMsgs.add(new TextQqMsg("\n以下OC完成时存在明显延误，请关注：\n\n"
+                + String.join("\n", detailLines) + "\n"));
+        return delayMsgs;
+    }
+
+    /**
+     * 构建单个OC的延误明细文案。
+     *
+     * @param delayInfo 延误计算中间结果
+     * @return 延误明细文案
+     */
+    private String buildDelayDetail(OcDelayInfo delayInfo) {
+        String name = "#" + delayInfo.oc().getRank() + " " + delayInfo.oc().getName();
+        return name + "：计划" + delayInfo.plannedTime().format(OC_TIME_FORMATTER)
+                + "完成，实际" + delayInfo.actualTime().format(OC_TIME_FORMATTER)
+                + "完成，延误约" + delayInfo.delayMinutes() + "分钟";
+    }
+
+    /**
+     * 单个OC的延误计算中间结果。
+     *
+     * @param oc           OC数据
+     * @param plannedTime  计划完成时间
+     * @param actualTime   实际完成时间（分钟口径）
+     * @param delayMinutes 延误分钟数
+     */
+    private record OcDelayInfo(TornFactionOcDO oc, LocalDateTime plannedTime,
+                               LocalDateTime actualTime, long delayMinutes) {
+    }
+
+    /**
      * 构建At消息
      */
     private List<? extends QqMsgParam<?>> buildAtMsg(String userIdString) {
-        String[] commanders = userIdString.split(",");
-        return Arrays.stream(commanders).map(s -> new AtQqMsg(Long.parseLong(s))).toList();
+        if (userIdString == null || userIdString.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(userIdString.split(","))
+                .filter(s -> !s.isBlank())
+                .map(String::trim)
+                .map(this::parseCommanderId)
+                .filter(Objects::nonNull)
+                .map(AtQqMsg::new)
+                .toList();
+    }
+
+    /**
+     * 解析指挥官QQ号；配置无效时记录告警并忽略，避免阻塞完成通知。
+     *
+     * @param commanderId 指挥官QQ号文本
+     * @return 解析后的QQ号，无效时返回null
+     */
+    private Long parseCommanderId(String commanderId) {
+        try {
+            return Long.parseLong(commanderId);
+        } catch (NumberFormatException e) {
+            log.warn("OC指挥官QQ配置无效，已忽略该配置");
+            return null;
+        }
     }
 }
