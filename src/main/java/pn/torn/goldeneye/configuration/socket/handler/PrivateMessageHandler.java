@@ -9,7 +9,7 @@ import pn.torn.goldeneye.configuration.socket.service.BotReplyService;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsg;
 import pn.torn.goldeneye.napcat.send.msg.PrivateMsgSocketBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
+import pn.torn.goldeneye.napcat.strategy.base.BaseMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.base.BasePrivateMsgStrategy;
 import pn.torn.goldeneye.napcat.strategy.manage.PrivateDocStrategyImpl;
 
@@ -57,9 +57,7 @@ public class PrivateMessageHandler {
             return;
         }
 
-        String param = resolveParam(msgArray, atMarker, strategy);
-        List<? extends QqMsgParam<?>> paramList = strategy.handle(msg.getSender(), param);
-
+        List<? extends QqMsgParam<?>> paramList = buildReplyMsg(msg, msgArray, atMarker, strategy);
         if (!CollectionUtils.isEmpty(paramList)) {
             PrivateMsgSocketBuilder builder = new PrivateMsgSocketBuilder().setUserId(msg.getUserId());
             paramList.forEach(builder::addMsg);
@@ -90,9 +88,8 @@ public class PrivateMessageHandler {
     }
 
     /**
-     * 构建私聊帮助/文档回复
-     * <p>
-     * 如果你的 BasePrivateMsgStrategy 没有 buildTextMsg，则按你的项目实际改。
+     * 构建私聊回复：组装策略参数并执行策略；业务异常统一转为文本回复，
+     * 与群聊的 at 拒绝和参数错误提示语义保持一致。
      */
     private List<? extends QqMsgParam<?>> buildReplyMsg(QqRecMsg msg, String[] msgArray,
                                                         String atMarker,
@@ -101,20 +98,21 @@ public class PrivateMessageHandler {
             String param = resolveParam(msgArray, atMarker, strategy);
             return strategy.handle(msg.getSender(), param);
         } catch (BizException e) {
-            if (strategy instanceof PrivateDocStrategyImpl privateDoc) {
-                return privateDoc.buildTextMsg(e.getMsg());
-            }
-            return List.of(new TextQqMsg(e.getMsg()));
+            return strategy.buildTextMsg(e.getMsg());
         }
     }
 
     /**
-     * 组装策略参数：仅用户查询策略接收内部 at 标记，其他策略保持纯文本参数不变。
+     * 组装策略参数：无 at 时保持纯文本参数；有 at 时仅用户查询策略接收内部 at 标记，
+     * 不支持 at 的策略拒绝执行并返回稳定错误，不静默丢弃 at。
      */
     private String resolveParam(String[] msgArray, String atMarker, BasePrivateMsgStrategy strategy) {
         String plainParam = msgArray.length > 2 ? msgArray[2] : "";
-        if (!StringUtils.hasText(atMarker) || strategy.notSupportsAtUserTarget()) {
+        if (!StringUtils.hasText(atMarker)) {
             return plainParam;
+        }
+        if (!strategy.supportsAtUserTarget()) {
+            throw new BizException(BaseMsgStrategy.AT_UNSUPPORTED_MSG);
         }
         return plainParam + atMarker;
     }

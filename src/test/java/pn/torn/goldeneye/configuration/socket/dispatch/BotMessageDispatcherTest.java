@@ -98,4 +98,55 @@ class BotMessageDispatcherTest {
         verify(groupMessageHandler).handle(any(), arrayCaptor.capture(), eq(""), any());
         assertArrayEquals(new String[]{"g", "战力增长", "12345"}, arrayCaptor.getValue());
     }
+
+    @Test
+    @DisplayName("真实 text + at 私聊消息识别为命令并传递 at 标记")
+    void dispatch_privateTextAt_shouldPassAtMarkerToPrivateHandler() {
+        BotMessageDispatcher dispatcher = new BotMessageDispatcher(
+                factionManager, blockedWordService, groupMessageHandler, privateMessageHandler);
+
+        dispatcher.dispatch("""
+                {
+                  "message_type":"private",
+                  "user_id": 999,
+                  "raw_message": "g#战力增长#[CQ:at,qq=12345] ",
+                  "message": [
+                    {"type": "text", "data": {"text": "g#战力增长#"}},
+                    {"type": "at", "data": {"qq": "12345"}},
+                    {"type": "text", "data": {"text": " "}}
+                  ],
+                  "message_format": "array"
+                }
+                """);
+
+        ArgumentCaptor<String[]> arrayCaptor = ArgumentCaptor.forClass(String[].class);
+        verify(privateMessageHandler).handle(any(), arrayCaptor.capture(), eq(QqCommandMessage.buildAtMarker(12345L)));
+        assertArrayEquals(new String[]{"g", "战力增长", ""}, arrayCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("群消息多个 at 生成非法标记并原样传递给 handler 不丢弃")
+    void dispatch_groupMultipleAt_shouldPassInvalidMarkerToGroupHandler() {
+        BotMessageDispatcher dispatcher = new BotMessageDispatcher(
+                factionManager, blockedWordService, groupMessageHandler, privateMessageHandler);
+        when(factionManager.getByGroup(333L)).thenReturn(new TornFactionBO(new TornSettingFactionDO()));
+        when(blockedWordService.handleBlockedWords(any(), any())).thenReturn(false);
+
+        dispatcher.dispatch("""
+                {
+                  "message_type":"group",
+                  "group_id": 333,
+                  "user_id": 999,
+                  "raw_message": "g#战力增长#[CQ:at,qq=12345][CQ:at,qq=67890] ",
+                  "message": [
+                    {"type": "text", "data": {"text": "g#战力增长#"}},
+                    {"type": "at", "data": {"qq": "12345"}},
+                    {"type": "at", "data": {"qq": "67890"}}
+                  ],
+                  "message_format": "array"
+                }
+                """);
+
+        verify(groupMessageHandler).handle(any(), any(), eq(QqCommandMessage.INVALID_AT_MARKER), any());
+    }
 }

@@ -55,8 +55,8 @@ public class OcRateQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     @Override
-    public boolean notSupportsAtUserTarget() {
-        return false;
+    public boolean supportsAtUserTarget() {
+        return true;
     }
 
     @Override

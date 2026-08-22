@@ -22,6 +22,11 @@ import java.util.List;
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
+    /**
+     * 消息携带 at 目标但当前策略不支持用户目标查询时的稳定提示文案。
+     */
+    public static final String AT_UNSUPPORTED_MSG = "该指令不支持@用户查询";
+
     @Resource
     protected TornUserManager userManager;
 
@@ -51,14 +56,15 @@ public abstract class BaseMsgStrategy {
     /**
      * 当前策略是否支持通过 QQ at 指定用户查询目标。
      *
-     * <p>默认返回 {@code false}；只有实际使用 {@link #getTornUser(QqRecMsgSender, String)} 且
-     * 命令参数本身是“单个 Torn 用户目标”的策略才应返回 {@code true}。非用户查询策略不得开启，
-     * 以免 at 被当作普通命令参数。</p>
+     * <p>默认返回 {@code false} 表示不支持 at；只有命令参数语义为“单个 Torn 用户目标”且
+     * 通过 {@link #getTornUser(QqRecMsgSender, String)} 解析目标参数的策略才覆写为 {@code true}。
+     * 非 at 用户目标策略收到 at 时由消息处理器统一返回 {@link #AT_UNSUPPORTED_MSG}，
+     * 不会静默丢弃 at。</p>
      *
      * @return true 表示支持 at 用户目标
      */
-    public boolean notSupportsAtUserTarget() {
-        return true;
+    public boolean supportsAtUserTarget() {
+        return false;
     }
 
     /**
