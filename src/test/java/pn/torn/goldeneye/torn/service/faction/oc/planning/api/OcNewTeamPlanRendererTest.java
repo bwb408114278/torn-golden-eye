@@ -206,6 +206,23 @@ class OcNewTeamPlanRendererTest {
     }
 
     @Test
+    @DisplayName("下次建议时间已到当前时应立即执行")
+    void shouldRenderNowWhenNextReplanAtSnapshotTime() {
+        OcRefreshInstructionPlan plan = new PlanBuilder()
+                .normal(1)
+                .high(0)
+                .nextReplanAt(SNAPSHOT_TIME)
+                .latestReplanAt(LocalDateTime.of(2026, 7, 16, 17, 30))
+                .nextCriticalReleaseAt(LocalDateTime.of(2026, 7, 16, 16, 0))
+                .build();
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("建议下次刷新时间: 现在"));
+        assertFalse(text.contains("15:04 - 17:30"));
+    }
+
+    @Test
     @DisplayName("无法形成完整范围但有未来关键成员释放时输出等待事件")
     void shouldRenderWaitingCriticalReleaseWhenNoFullRange() {
         LocalDateTime nextEvent = SNAPSHOT_TIME.plusHours(2);

@@ -113,6 +113,9 @@ public class OcNewTeamPlanRenderer {
     /**
      * 判断当前建议是否已经不能安全延后。
      *
+     * <p>窗口起点已到达当前时刻（nextReplanAt 等于快照时间）、窗口终点已不晚于当前时刻、
+     * 或明确要求立即重评估时，必须立即重新执行，不能沿用看似可延后的时间范围。</p>
+     *
      * @param plan 刷新操作指令
      * @return 需要立即重新评估时返回true
      */
@@ -134,7 +137,7 @@ public class OcNewTeamPlanRenderer {
         if (next == null || latest == null) {
             return plan.nextCriticalReleaseAt() == null;
         }
-        if (next.equals(snapshotTime) && latest.equals(snapshotTime)) {
+        if (next.equals(snapshotTime)) {
             return true;
         }
         if (latest.isBefore(snapshotTime)) {
