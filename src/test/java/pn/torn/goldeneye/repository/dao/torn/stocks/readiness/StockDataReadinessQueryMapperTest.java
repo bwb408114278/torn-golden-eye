@@ -21,9 +21,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 数据就绪只读查询 Mapper 真实 PostgreSQL 测试。
@@ -68,7 +66,7 @@ class StockDataReadinessQueryMapperTest {
     @Test
     @DisplayName("真实PG_分钟范围左闭右开且逻辑删除不计入")
     void minuteRange_isHalfOpenAndDeletedExcluded() {
-        int stocksId = activeStockIds().get(0);
+        int stocksId = activeStockIds().getFirst();
         insertHistory(stocksId, WIN_START);
         insertHistory(stocksId, WIN_END.minusMinutes(1));
         insertHistory(stocksId, WIN_END);
@@ -131,8 +129,17 @@ class StockDataReadinessQueryMapperTest {
         assertEquals(1435L, internalCoverage.trailingGapMinutes());
         assertEquals(1L + 2L + 1435L, internalCoverage.totalMissingMinutes());
 
-        assertTrue(queryDao.selectValidMinuteCount(WIN_START, WIN_END) > 0);
-        assertTrue(queryDao.selectInvalidMinuteCount(WIN_START, WIN_END) > 0);
+        StockMinuteCoverage zeroSharesCoverage = findCoverage(summary, zeroShares);
+        assertNotNull(zeroSharesCoverage);
+        assertEquals(1L, zeroSharesCoverage.minuteCount(), "total_shares=0 仍应计为存在分钟事实");
+        assertEquals(2L, zeroSharesCoverage.leadingGapMinutes());
+        assertEquals(1437L, zeroSharesCoverage.trailingGapMinutes());
+        assertEquals(1439L, zeroSharesCoverage.totalMissingMinutes());
+
+        assertEquals(3L, queryDao.selectValidMinuteCount(WIN_START, WIN_END), "total_shares=0 不计入有效分钟");
+        assertEquals(1L, queryDao.selectInvalidMinuteCount(WIN_START, WIN_END), "total_shares=0 计入非法分钟");
+        assertEquals(0L, summary.duplicateMinuteGroupCount(), "唯一索引保证自然分钟无重复组");
+        assertEquals(0L, summary.duplicateMinuteRedundantRowCount(), "唯一索引保证自然分钟无冗余行");
     }
 
     private List<Integer> activeStockIds() {

@@ -29,13 +29,18 @@ public interface StockDataReadinessQueryMapper {
 
     /**
      * 查询所有当前有效股票的分钟覆盖汇总。
+     * <p>
+     * 由当前有效股票逐支驱动读取范围分钟流，不在全市场分钟上做全局分组/排序。
+     * duplicateGroupCount 与 duplicateRedundantRowCount 固定为 0，由部分唯一索引
+     * {@code uk_torn_stocks_history_stock_minute} 保证自然分钟唯一；调用方不得把该
+     * 0 值解释为“未统计重复”。
      *
      * @param startInclusive 起始时间（含，必须整分钟）
      * @param endExclusive   结束时间（不含，必须整分钟）
      * @return 全股票覆盖汇总
      */
     List<StockMinuteCoverage> selectMinuteCoverageSummary(@Param("startInclusive") LocalDateTime startInclusive,
-                                                         @Param("endExclusive") LocalDateTime endExclusive);
+                                                          @Param("endExclusive") LocalDateTime endExclusive);
 
     /**
      * 查询范围内分钟事实的来源分布。

@@ -44,6 +44,30 @@ class StockDataReadinessReportRunnerTest {
     private StockDataReadinessReportRunner runner;
 
     @Test
+    @DisplayName("非整分钟起始边界直接拒绝且不触碰只读事务/查询/Writer")
+    void run_startWithSeconds_failsFastBeforeAnyInteraction() {
+        LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 1, 2, 0, 0);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> runner.run(start.plusSeconds(30), end));
+
+        verifyNoInteractions(readOnlyGuard, queryDao, writer);
+    }
+
+    @Test
+    @DisplayName("非整分钟结束边界直接拒绝且不触碰只读事务/查询/Writer")
+    void run_endWithNanos_failsFastBeforeAnyInteraction() {
+        LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 1, 2, 0, 0);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> runner.run(start, end.plusNanos(1)));
+
+        verifyNoInteractions(readOnlyGuard, queryDao, writer);
+    }
+
+    @Test
     @DisplayName("在单一只读回调中加载非零统计并交给Writer同一报告")
     void run_loadsRealSnapshotAndWritesReport() throws Exception {
         LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);

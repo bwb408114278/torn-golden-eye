@@ -36,8 +36,10 @@ public class StockDataReadinessQueryDAO {
     /**
      * 查询所有当前有效股票的分钟覆盖汇总（含全空股票、leading/internal/trailing 缺口）。
      * <p>
-     * 该方法在一次 SQL 中同时完成自然分钟边界、重复分钟与缺口统计，供报告快照复用；
-     * 不在 Java 层按股票循环查询。
+     * 该方法在一次 SQL 中由当前有效股票逐支驱动读取范围分钟流，同时完成自然分钟边界、
+     * 重复分钟与缺口统计，供报告快照复用；不在 Java 层按股票循环查询。
+     * 重复分钟字段固定为 0：数据库部分唯一索引
+     * {@code uk_torn_stocks_history_stock_minute} 已保证 deleted=0 的自然分钟唯一。
      *
      * @param start 起始时间（含，必须整分钟）
      * @param end   结束时间（不含，必须整分钟）

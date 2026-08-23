@@ -49,6 +49,8 @@ public class StockDataReadinessReportRunner {
         if (startInclusive == null || endExclusive == null || !startInclusive.isBefore(endExclusive)) {
             throw new IllegalArgumentException("数据就绪报告要求 startInclusive < endExclusive");
         }
+        requireWholeMinute(startInclusive, "startInclusive");
+        requireWholeMinute(endExclusive, "endExclusive");
         StockDataReadinessSnapshot snapshot = readOnlyGuard.inReadOnlyTransaction(
                 status -> loadSnapshot(startInclusive, endExclusive));
         String runId = UUID.randomUUID().toString();
@@ -67,6 +69,22 @@ public class StockDataReadinessReportRunner {
             return new ReportRunResult(output, report);
         } catch (Exception e) {
             throw new IllegalStateException("数据就绪报告生成失败", e);
+        }
+    }
+
+    /**
+     * 校验报告边界必须是自然分钟（秒与纳秒均为 0）。
+     * <p>
+     * coverage 的业务键是自然分钟；允许非整分钟边界会使 date_trunc 分钟事实与 range 边界
+     * 混合，leading/trailing 统计失去可解释性，因此在进入只读事务/查询/文件输出前 fail-fast。
+     *
+     * @param value 待校验时间
+     * @param name  参数名，用于异常信息
+     * @throws IllegalArgumentException 非自然分钟边界时抛出
+     */
+    private void requireWholeMinute(LocalDateTime value, String name) {
+        if (value.getSecond() != 0 || value.getNano() != 0) {
+            throw new IllegalArgumentException("数据就绪报告要求 " + name + " 为自然分钟边界");
         }
     }
 

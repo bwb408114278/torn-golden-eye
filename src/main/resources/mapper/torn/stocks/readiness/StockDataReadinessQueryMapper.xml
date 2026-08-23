@@ -9,7 +9,12 @@
         WHERE deleted = 0
     </select>
 
-    <!-- 查询所有当前有效股票的分钟覆盖汇总(含全空/leading/internal/trailing缺口、重复分钟统计) -->
+    <!-- 查询所有当前有效股票的分钟覆盖汇总(含全空/leading/internal/trailing缺口)
+         由 active_stocks 驱动，每支股票通过 LATERAL 按 stocks_id + reg_date_time 索引
+         读取自身范围分钟流；不在全市场分钟上做全局 GROUP BY / 排序。
+         自然分钟重复统计固定为 0，由部分唯一索引
+         uk_torn_stocks_history_stock_minute(stocks_id, date_trunc('minute', reg_date_time))
+         WHERE deleted = 0 保证。 -->
     <select id="selectMinuteCoverageSummary"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage">
         WITH active_stocks AS (
@@ -17,63 +22,6 @@
                    stocks_shortname
             FROM torn_stocks
             WHERE deleted = 0
-        ),
-        minute_slots AS (
-            SELECT stocks_id,
-                   date_trunc('minute', reg_date_time) AS minute_time,
-                   COUNT(*)                            AS row_count
-            FROM torn_stocks_history
-            WHERE deleted = 0
-              AND reg_date_time &gt;= #{startInclusive}
-              AND reg_date_time &lt; #{endExclusive}
-            GROUP BY stocks_id, date_trunc('minute', reg_date_time)
-        ),
-        ordered_minutes AS (
-            SELECT a.id                                            AS stocks_id,
-                   a.stocks_shortname,
-                   ms.minute_time,
-                   ms.row_count,
-                   LAG(ms.minute_time) OVER (
-                       PARTITION BY a.id ORDER BY ms.minute_time
-                   )                                               AS prev_minute
-            FROM active_stocks a
-            LEFT JOIN minute_slots ms ON ms.stocks_id = a.id
-        ),
-        stock_coverage AS (
-            SELECT stocks_id,
-                   MIN(stocks_shortname)                                  AS stocks_shortname,
-                   MIN(minute_time)                                       AS first_minute,
-                   MAX(minute_time)                                       AS last_minute,
-                   COUNT(minute_time)                                     AS minute_count,
-                   COUNT(*) FILTER (
-                       WHERE minute_time IS NOT NULL
-                         AND prev_minute IS NOT NULL
-                         AND minute_time - prev_minute &gt; interval '1 minute'
-                   )                                                      AS internal_gap_segment_count,
-                   COALESCE(MAX(
-                       CASE
-                           WHEN minute_time IS NOT NULL
-                            AND prev_minute IS NOT NULL
-                            AND minute_time - prev_minute &gt; interval '1 minute'
-                           THEN EXTRACT(EPOCH FROM (minute_time - prev_minute)) / 60 - 1
-                       END
-                   ), 0)                                                  AS internal_max_gap_minutes,
-                   COALESCE(SUM(
-                       CASE
-                           WHEN minute_time IS NOT NULL
-                            AND prev_minute IS NOT NULL
-                            AND minute_time - prev_minute &gt; interval '1 minute'
-                           THEN EXTRACT(EPOCH FROM (minute_time - prev_minute)) / 60 - 1
-                           ELSE 0
-                       END
-                   ), 0)                                                  AS internal_total_gap_minutes,
-                   COUNT(*) FILTER (
-                       WHERE minute_time IS NOT NULL AND row_count &gt; 1
-                   )                                                      AS duplicate_group_count,
-                   COALESCE(SUM(CASE WHEN row_count &gt; 1 THEN row_count - 1 ELSE 0 END), 0)
-                                                                          AS duplicate_redundant_row_count
-            FROM ordered_minutes
-            GROUP BY stocks_id
         )
         SELECT s.id                                                         AS stocksId,
                s.stocks_shortname                                           AS stocksShortname,
@@ -101,10 +49,44 @@
                             + COALESCE(c.internal_total_gap_minutes, 0)
                             + EXTRACT(EPOCH FROM (#{endExclusive} - (c.last_minute + INTERVAL '1 minute'))) / 60
                    END AS bigint)                                           AS totalMissingMinutes,
-               COALESCE(c.duplicate_group_count, 0)                         AS duplicateGroupCount,
-               COALESCE(c.duplicate_redundant_row_count, 0)                 AS duplicateRedundantRowCount
+               0                                                             AS duplicateGroupCount,
+               0                                                             AS duplicateRedundantRowCount
         FROM active_stocks s
-        LEFT JOIN stock_coverage c ON c.stocks_id = s.id
+        LEFT JOIN LATERAL (
+            SELECT MIN(raw.minute_time)                                       AS first_minute,
+                   MAX(raw.minute_time)                                       AS last_minute,
+                   COUNT(*)                                                   AS minute_count,
+                   COUNT(*) FILTER (
+                       WHERE raw.newer_minute IS NOT NULL
+                         AND raw.newer_minute - raw.minute_time &gt; interval '1 minute'
+                   )                                                          AS internal_gap_segment_count,
+                   COALESCE(MAX(
+                       CASE
+                           WHEN raw.newer_minute IS NOT NULL
+                            AND raw.newer_minute - raw.minute_time &gt; interval '1 minute'
+                           THEN EXTRACT(EPOCH FROM (raw.newer_minute - raw.minute_time)) / 60 - 1
+                       END
+                   ), 0)                                                      AS internal_max_gap_minutes,
+                   COALESCE(SUM(
+                       CASE
+                           WHEN raw.newer_minute IS NOT NULL
+                            AND raw.newer_minute - raw.minute_time &gt; interval '1 minute'
+                           THEN EXTRACT(EPOCH FROM (raw.newer_minute - raw.minute_time)) / 60 - 1
+                           ELSE 0
+                       END
+                   ), 0)                                                      AS internal_total_gap_minutes
+            FROM (
+                SELECT date_trunc('minute', h.reg_date_time)                 AS minute_time,
+                       LAG(date_trunc('minute', h.reg_date_time)) OVER (
+                           ORDER BY h.reg_date_time DESC
+                       )                                                      AS newer_minute
+                FROM torn_stocks_history h
+                WHERE h.stocks_id = s.id
+                  AND h.deleted = 0
+                  AND h.reg_date_time &gt;= #{startInclusive}
+                  AND h.reg_date_time &lt; #{endExclusive}
+            ) raw
+        ) c ON true
         ORDER BY s.id
     </select>
 
