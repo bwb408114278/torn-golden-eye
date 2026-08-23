@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
  * 保持既有终态,绝不写生产消费语义的READY。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.11
  */
 @DisplayName("历史重建完整数据义务测试")
@@ -310,8 +310,13 @@ class StockHistoryRebuildServiceTest {
     private TornStockMarketBar15mDO bar(int stock) {
         TornStockMarketBar15mDO bar = new TornStockMarketBar15mDO();
         bar.setStocksId(stock);
+        bar.setStocksShortname("T" + stock);
         bar.setBarStartTime(BUCKET);
+        bar.setBarEndTime(BUCKET.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
+        bar.setLastSampleTime(BUCKET.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES - 1));
+        bar.setSampleCount(Stock15mBarBuildService.MIN_SAMPLE_COUNT);
         bar.setBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
+        bar.setUsable(true);
         return bar;
     }
 

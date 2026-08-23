@@ -102,4 +102,27 @@ public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketB
      * @return 受影响行数
      */
     int upsertBar(@Param("bar") TornStockMarketBar15mDO bar);
+
+    /**
+     * 批量按逻辑唯一键插入或更新股票bar。
+     *
+     * @param bars 待插入或更新的bar列表
+     * @return 受影响行数
+     */
+    int upsertBars(@Param("bars") List<TornStockMarketBar15mDO> bars);
+
+    /**
+     * 按单支股票、时间范围与构建版本批量查询bar，供 feature 顺序批处理使用。
+     *
+     * @param stocksId     股票ID
+     * @param startTime    起始时间（含）
+     * @param endTime      结束时间（含）
+     * @param buildVersion bar构建版本
+     * @return 按bar时间升序排列的bar列表
+     */
+    List<TornStockMarketBar15mDO> selectByStockAndTimeRange(
+            @Param("stocksId") Integer stocksId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("buildVersion") String buildVersion);
 }

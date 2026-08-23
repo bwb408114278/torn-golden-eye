@@ -34,7 +34,7 @@ import static org.mockito.Mockito.*;
  * 静态方法直接调用,实例方法通过Mock DAO验证交互。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.2
  * @since 2026.07.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -42,10 +42,10 @@ import static org.mockito.Mockito.*;
 class Stock15mBarBuildServiceTest {
 
     @Mock
-    private TornStocksHistoryDAO stocksHistoryDAO;
+    private TornStocksHistoryDAO stocksHistoryDao;
 
     @Mock
-    private TornStockMarketBar15mDAO bar15mDAO;
+    private TornStockMarketBar15mDAO bar15mDao;
 
     @InjectMocks
     private Stock15mBarBuildService barBuildService;
@@ -178,7 +178,7 @@ class Stock15mBarBuildServiceTest {
         points.add(buildPoint(1, "TST", new BigDecimal("999.00"), barStart.plusMinutes(5)));
         points.add(buildPoint(1, "TST", new BigDecimal("888.00"), barStart.plusMinutes(6)));
 
-        when(stocksHistoryDAO.selectHistoryPointsRange(barStart, barEnd)).thenReturn(points);
+        when(stocksHistoryDao.selectHistoryPointsRange(barStart, barEnd)).thenReturn(points);
 
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(barStart);
 
@@ -194,7 +194,7 @@ class Stock15mBarBuildServiceTest {
         // 重复时间保留最后一条: 第1分钟价格应为999(后插入的覆盖)
         assertEquals(0, bar.getFirstPrice().compareTo(new BigDecimal("999.00")),
                 "去重后第1分钟价格应为最后插入的999");
-        verify(bar15mDAO, atLeastOnce()).upsertBar(any(TornStockMarketBar15mDO.class));
+        verify(bar15mDao, atLeastOnce()).upsertBars(any());
     }
 
     @Test
@@ -205,7 +205,7 @@ class Stock15mBarBuildServiceTest {
         // 从第2分钟开始采样到第14分钟,共13条(>=10),最后采样14分钟满足尾部新鲜
         List<StockPricePoint> points = buildMinutesForStock(2, "ABC", barStart.plusMinutes(2), 13, 0);
 
-        when(stocksHistoryDAO.selectHistoryPointsRange(barStart, barEnd)).thenReturn(points);
+        when(stocksHistoryDao.selectHistoryPointsRange(barStart, barEnd)).thenReturn(points);
 
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(barStart);
 
@@ -224,12 +224,12 @@ class Stock15mBarBuildServiceTest {
         LocalDateTime barStart = LocalDateTime.of(2026, 7, 24, 10, 0);
         LocalDateTime barEnd = barStart.plusMinutes(15);
 
-        when(stocksHistoryDAO.selectHistoryPointsRange(barStart, barEnd)).thenReturn(List.of());
+        when(stocksHistoryDao.selectHistoryPointsRange(barStart, barEnd)).thenReturn(List.of());
 
         List<TornStockMarketBar15mDO> bars = barBuildService.buildBars(barStart);
 
         assertTrue(bars.isEmpty());
-        verify(bar15mDAO, never()).saveBatch(any());
+        verify(bar15mDao, never()).saveBatch(any());
     }
 
     // ==================== 辅助方法 ====================

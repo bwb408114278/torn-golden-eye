@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -183,6 +183,10 @@ public class BotCommands {
      * 同步Tornsy股票数据
      */
     public static final String TORNSY_STOCK_HISTORY_SYNC = "同步Tornsy股票数据";
+    /**
+     * 重建股票派生数据
+     */
+    public static final String DERIVED_STOCK_DATA_REBUILD = "重建股票派生数据";
     /**
      * 绑Key
      */

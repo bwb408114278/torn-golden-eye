@@ -477,16 +477,14 @@ public class StockHistoryRebuildService {
      */
     private boolean isFeatureComplete(List<TornStockMarketBar15mDO> bars,
                                       List<TornStockStrategyFeature15mDO> features) {
-        if (CollectionUtils.isEmpty(features)) {
-            return false;
-        }
-        Set<Integer> barStocks = bars.stream()
+        Set<Integer> usableBarStocks = bars.stream()
+                .filter(Stock15mBarBuildService::isUsable)
                 .map(TornStockMarketBar15mDO::getStocksId)
                 .collect(Collectors.toSet());
         Set<Integer> featureStocks = features.stream()
                 .map(TornStockStrategyFeature15mDO::getStocksId)
                 .collect(Collectors.toSet());
-        return barStocks.equals(featureStocks);
+        return usableBarStocks.equals(featureStocks);
     }
 
     /**

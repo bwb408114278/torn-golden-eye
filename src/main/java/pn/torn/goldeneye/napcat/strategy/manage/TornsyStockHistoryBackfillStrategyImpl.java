@@ -72,7 +72,7 @@ public class TornsyStockHistoryBackfillStrategyImpl extends BaseGroupMsgStrategy
             return super.sendErrorFormatMsg();
         }
 
-        BackfillSubmission submission = scheduler.submitManualBackfill(start, end);
+        BackfillSubmission submission = scheduler.submitManualBackfill(start, end, groupId);
         if (submission == BackfillSubmission.ACCEPTED) {
             return super.buildTextMsg("Tornsy股票数据同步任务已受理，范围：[" + DateTimeUtils.convertToString(start)
                     + ", " + DateTimeUtils.convertToString(end) + ")，请关注日志和数据验收结果。");

@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
  * 提交调度器并回复已受理、参数错误走既有格式错误响应、调度器拒绝时回复可区分原因。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.15
  */
 @ExtendWith(MockitoExtension.class)
@@ -55,14 +55,16 @@ class TornsyStockHistoryBackfillStrategyImplTest {
     void handle_validRange_submitsAndRepliesAccepted() {
         when(scheduler.submitManualBackfill(
                 LocalDateTime.of(2026, 7, 1, 0, 0, 0),
-                LocalDateTime.of(2026, 7, 2, 0, 0, 0)))
+                LocalDateTime.of(2026, 7, 2, 0, 0, 0),
+                10000L))
                 .thenReturn(BackfillSubmission.ACCEPTED);
 
         String reply = handleMsg("2026-07-01 00:00:00#2026-07-02 00:00:00");
 
         verify(scheduler, times(1)).submitManualBackfill(
                 LocalDateTime.of(2026, 7, 1, 0, 0, 0),
-                LocalDateTime.of(2026, 7, 2, 0, 0, 0));
+                LocalDateTime.of(2026, 7, 2, 0, 0, 0),
+                10000L);
         assertTrue(reply.startsWith("Tornsy股票数据同步任务已受理"), "合法范围必须回复已受理, 实际: " + reply);
         assertTrue(reply.contains("[2026-07-01 00:00:00, 2026-07-02 00:00:00)"), "已受理回复需包含固定范围: " + reply);
     }
@@ -113,7 +115,7 @@ class TornsyStockHistoryBackfillStrategyImplTest {
      * @param reasonKey  原因关键字
      */
     private void assertRejectedReason(BackfillSubmission submission, String reasonKey) {
-        when(scheduler.submitManualBackfill(any(LocalDateTime.class), any(LocalDateTime.class)))
+        when(scheduler.submitManualBackfill(any(LocalDateTime.class), any(LocalDateTime.class), anyLong()))
                 .thenReturn(submission);
         String reply = handleMsg("2026-07-01 00:00:00#2026-07-02 00:00:00");
         assertTrue(reply.startsWith("Tornsy股票数据同步未受理"), "拒绝回复需以未受理开头, 实际: " + reply);

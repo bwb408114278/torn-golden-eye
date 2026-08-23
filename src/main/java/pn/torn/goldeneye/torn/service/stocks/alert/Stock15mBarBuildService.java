@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.4.2
  * @since 2026.07.24
  */
 @Slf4j
@@ -182,9 +182,7 @@ public class Stock15mBarBuildService {
             return List.of();
         }
 
-        for (TornStockMarketBar15mDO bar : bars) {
-            bar15mDao.upsertBar(bar);
-        }
+        bar15mDao.upsertBars(bars);
         log.debug("桶[{}, {})成功构建并保存{}支股票的15分钟bar", barStart, barEnd, bars.size());
         return bars;
     }
@@ -202,9 +200,9 @@ public class Stock15mBarBuildService {
      * @param barEnd    桶结束时间
      * @return 构建完成的bar,原始数据为空时返回null
      */
-    private TornStockMarketBar15mDO buildSingleBar(List<StockPricePoint> rawPoints,
-                                                   LocalDateTime barStart,
-                                                   LocalDateTime barEnd) {
+    public static TornStockMarketBar15mDO buildSingleBar(List<StockPricePoint> rawPoints,
+                                                         LocalDateTime barStart,
+                                                         LocalDateTime barEnd) {
         DedupResult dedup = dedupByTime(rawPoints);
         List<StockPricePoint> uniquePoints = dedup.uniquePoints();
         if (uniquePoints.isEmpty()) {
@@ -257,7 +255,7 @@ public class Stock15mBarBuildService {
      * @param rawPoints 原始采样列表(已按id升序排序)
      * @return 去重结果(去重后列表 + 重复数量 + 最大历史ID)
      */
-    private DedupResult dedupByTime(List<StockPricePoint> rawPoints) {
+    private static DedupResult dedupByTime(List<StockPricePoint> rawPoints) {
         int totalCount = rawPoints.size();
         LinkedHashMap<LocalDateTime, StockPricePoint> byTime = new LinkedHashMap<>();
         Long maxHistoryId = null;
@@ -284,7 +282,7 @@ public class Stock15mBarBuildService {
      *
      * @param bar 待评估的bar(会修改usable和qualityReason字段)
      */
-    private void evaluateUsability(TornStockMarketBar15mDO bar) {
+    private static void evaluateUsability(TornStockMarketBar15mDO bar) {
         boolean sampleSufficient = bar.getSampleCount() != null
                 && bar.getSampleCount() >= MIN_SAMPLE_COUNT;
         boolean tailFresh = bar.getLastSampleTime() != null
@@ -313,6 +311,9 @@ public class Stock15mBarBuildService {
      * @param duplicateCount 被去除的重复记录数量
      * @param maxHistoryId   本桶使用的最大原始历史ID
      */
-    private record DedupResult(List<StockPricePoint> uniquePoints, int duplicateCount, Long maxHistoryId) {
+    private record DedupResult(
+            List<StockPricePoint> uniquePoints,
+            int duplicateCount,
+            Long maxHistoryId) {
     }
 }

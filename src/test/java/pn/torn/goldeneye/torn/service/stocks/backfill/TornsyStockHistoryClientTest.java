@@ -25,7 +25,7 @@ import static org.mockito.Mockito.when;
  * 有限退避重试（非2xx/空 body/解析失败均视为失败）以及 {@code from/to/limit} 分页推进逻辑。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.2
  * @since 2026.08.13
  */
 @ExtendWith(MockitoExtension.class)
@@ -75,8 +75,8 @@ class TornsyStockHistoryClientTest {
     }
 
     @Test
-    @DisplayName("拉取数据_满页后按最后epoch推进分页 -> 返回拼接结果")
-    void fetchMinuteData_fullPage_advancesPagination() {
+    @DisplayName("拉取数据_满页响应只返回当前页且不根据首/末时间猜测下一页")
+    void fetchMinuteData_fullPage_returnsOnlyCurrentPageWithoutPagination() {
         String page1 = "{\"data\": [[1000, \"10.00\", 100], [1060, \"11.00\", 100]]}";
         String page2 = "{\"data\": [[1120, \"12.00\", 100]]}";
         when(restClient.get().uri(anyString()).retrieve().toEntity(String.class))
@@ -84,7 +84,7 @@ class TornsyStockHistoryClientTest {
 
         List<JsonNode> rows = client.fetchMinuteData("ass", 1000L, 2000L, 2);
 
-        assertEquals(3, rows.size());
+        assertEquals(2, rows.size(), "客户端只应返回调用方传入的单个非饱和时间片响应");
     }
 
     @Test

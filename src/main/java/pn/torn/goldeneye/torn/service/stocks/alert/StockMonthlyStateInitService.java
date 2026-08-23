@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
@@ -74,7 +75,17 @@ public class StockMonthlyStateInitService {
      * @return 本次初始化实际新建的草稿记录数量;全部股票已有有效状态时返回0
      */
     public int initCurrentMonth() {
-        LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+        return initMonth(marketClock.today().withDayOfMonth(1));
+    }
+
+    /**
+     * 为指定生效月份初始化全部缺失股票的 DRAFT 月度状态。
+     *
+     * @param effectiveMonth 目标生效月份（当月 1 日）
+     * @return 本次实际新建的草稿记录数量
+     */
+    @Transactional
+    public int initMonth(LocalDate effectiveMonth) {
         List<TornStocksDO> allStocks = tornStocksDao.list();
         if (CollectionUtils.isEmpty(allStocks)) {
             log.warn("月度状态初始化-股票列表为空,跳过, effectiveMonth={}", effectiveMonth);
@@ -137,7 +148,19 @@ public class StockMonthlyStateInitService {
      * @return 本次实际更新的DRAFT记录数量
      */
     public int recalculateCurrentMonthDrafts() {
-        LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+        return recalculateMonthDrafts(marketClock.today().withDayOfMonth(1));
+    }
+
+    /**
+     * 重算指定生效月份中未确认且非人工覆盖的 DRAFT 月度状态。
+     * <p>
+     * 供历史范围重建按月正序调用；仅更新 DRAFT 且 manual_override=false 的记录。
+     *
+     * @param effectiveMonth 目标生效月份（当月 1 日）
+     * @return 本次实际更新的 DRAFT 记录数量
+     */
+    @Transactional
+    public int recalculateMonthDrafts(LocalDate effectiveMonth) {
         List<TornStockMonthlyStateDO> drafts = monthlyStateDao.lambdaQuery()
                 .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
                 .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
@@ -219,6 +242,7 @@ public class StockMonthlyStateInitService {
      * @param effectiveMonth 生效月份
      * @return 本次实际自动确认的记录数量(数据库实际受影响行数,非候选数量)
      */
+    @Transactional
     public int autoConfirmDraftStates(LocalDate effectiveMonth) {
         List<TornStockMonthlyStateDO> draftStates = monthlyStateDao.lambdaQuery()
                 .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)

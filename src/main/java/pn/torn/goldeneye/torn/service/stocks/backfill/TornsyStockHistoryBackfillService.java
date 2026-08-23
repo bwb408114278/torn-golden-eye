@@ -27,10 +27,10 @@ import java.util.*;
  * <h3>幂等与并发</h3>
  * 候选先按 {@code (stocksId, minuteTime)} 内存去重，再按批量存在性查询过滤，
  * 最终以 {@code INSERT ... ON CONFLICT DO NOTHING} 匹配自然分钟部分唯一索引兜底；
- * 外网调用不进入 VIP 轮次事务，按股票 × 最多 1 天时间片串行请求、短事务写入。
+ * 外网调用不进入 VIP 轮次事务，按股票 × 非饱和时间片（默认最多 900 分钟）串行请求、短事务写入。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.13
  */
 @Slf4j
@@ -39,9 +39,9 @@ import java.util.*;
 public class TornsyStockHistoryBackfillService {
 
     /**
-     * 单个时间片的最大时长（小时）
+     * 单个时间片的最大时长（分钟）：默认 pageLimit=1000 时最多 900 分钟，确保永不满页。
      */
-    private static final int SLICE_HOURS = 24;
+    private static final int MAX_SLICE_MINUTES = 900;
     /**
      * 后向 feature 重算窗口（天）：feature 最大回看窗口 30 天
      */
@@ -69,7 +69,7 @@ public class TornsyStockHistoryBackfillService {
     /**
      * 回填指定股票集合在指定时间范围内的历史缺口
      * <p>
-     * 按 1 天时间片切分，每个时间片先全股票批量读取已存在分钟（避免 N+1），
+     * 按非饱和时间片切分，每个时间片先全股票批量读取已存在分钟（避免 N+1），
      * 再逐股请求、校验、冲突安全写入，收集实际插入分钟所属 15 分钟桶，
      * 最后合并相邻桶并定向重建派生数据。
      *
@@ -95,13 +95,24 @@ public class TornsyStockHistoryBackfillService {
         log.info("历史回填-开始, 区间=[{}, {}), 股票数={}, 当前最新历史时间={}, runId={}",
                 startInclusive, endExclusive, stocks.size(), latestHistoryTime, runId);
 
+        int pageLimit = property.getPageLimit();
+        if (pageLimit <= 1) {
+            throw new IllegalArgumentException("Tornsy分页大小必须大于1: " + pageLimit);
+        }
+        int sliceMinutes = Math.min(MAX_SLICE_MINUTES, pageLimit - 1);
+
         LocalDateTime sliceStart = startInclusive;
         while (sliceStart.isBefore(endExclusive)) {
-            LocalDateTime sliceEnd = sliceStart.plusHours(SLICE_HOURS);
+            LocalDateTime sliceEnd = sliceStart.plusMinutes(sliceMinutes);
             if (sliceEnd.isAfter(endExclusive)) {
                 sliceEnd = endExclusive;
             }
-            backfillDaySlice(stocks, stocksIds, sliceStart, sliceEnd, endExclusive, acc);
+            boolean saturated = backfillSlice(stocks, stocksIds, sliceStart, sliceEnd, endExclusive, acc);
+            if (saturated) {
+                log.error("历史回填-时间片达到pageLimit上限, 停止后续分片, sliceStart={}, sliceEnd={}, pageLimit={}",
+                        sliceStart, sliceEnd, pageLimit);
+                break;
+            }
             sliceStart = sliceEnd;
         }
 
@@ -117,41 +128,56 @@ public class TornsyStockHistoryBackfillService {
     }
 
     /**
-     * 回填单个 1 天时间片：先全股票批量读取已存在分钟，再逐股请求与写入
+     * 回填单个非饱和时间片：先全股票批量读取已存在分钟，再逐股请求与写入。
+     *
+     * @return true 表示本时间片响应达到 pageLimit 上限，应停止后续分片
      */
-    private void backfillDaySlice(List<TornStocksDO> stocks, List<Integer> stocksIds,
+    private boolean backfillSlice(List<TornStocksDO> stocks, List<Integer> stocksIds,
                                   LocalDateTime sliceStart, LocalDateTime sliceEnd,
                                   LocalDateTime stableEndExclusive, BackfillAccumulator acc) {
         Set<StockHistoryMinuteSlot> existing = loadExistingSlots(stocksIds, sliceStart, sliceEnd);
+        boolean saturated = false;
         for (TornStocksDO stock : stocks) {
             try {
-                backfillStockSlice(stock, sliceStart, sliceEnd, stableEndExclusive, existing, acc);
+                if (backfillStockSlice(stock, sliceStart, sliceEnd, stableEndExclusive, existing, acc)) {
+                    acc.failedSlices++;
+                    saturated = true;
+                    log.error("回填股票时间片响应满页, 当前切片失败并停止后续切片, 股票={}, 时间片=[{}, {})",
+                            stock.getStocksShortname(), sliceStart, sliceEnd);
+                    break;
+                }
             } catch (Exception e) {
                 acc.failedSlices++;
                 log.warn("回填股票时间片失败, 股票={}, 时间片=[{}, {}): {}",
                         stock.getStocksShortname(), sliceStart, sliceEnd, e.getMessage());
             }
         }
+        return saturated;
     }
 
     /**
      * 回填单支股票单个时间片：请求、校验、映射、内存去重、存在性过滤与冲突安全写入
      */
-    private void backfillStockSlice(TornStocksDO stock, LocalDateTime sliceStart, LocalDateTime sliceEnd,
-                                    LocalDateTime stableEndExclusive,
-                                    Set<StockHistoryMinuteSlot> existing, BackfillAccumulator acc) {
+    private boolean backfillStockSlice(TornStocksDO stock, LocalDateTime sliceStart, LocalDateTime sliceEnd,
+                                       LocalDateTime stableEndExclusive,
+                                       Set<StockHistoryMinuteSlot> existing, BackfillAccumulator acc) {
         long fromEpoch = sliceStart.atZone(TornsyMinuteQuoteParser.ZONE_ID).toEpochSecond();
         long toEpoch = sliceEnd.atZone(TornsyMinuteQuoteParser.ZONE_ID).toEpochSecond();
+        int pageLimit = property.getPageLimit();
 
-        List<JsonNode> rows = client.fetchMinuteData(stock.getStocksShortname(), fromEpoch, toEpoch,
-                property.getPageLimit());
+        List<JsonNode> rows = client.fetchMinuteData(stock.getStocksShortname(), fromEpoch, toEpoch, pageLimit);
+        if (rows.size() >= pageLimit) {
+            log.error("Tornsy m1响应达到pageLimit, 禁止解析/写入/重建, 股票={}, fromEpoch={}, toEpoch={}, rows={}",
+                    stock.getStocksShortname(), fromEpoch, toEpoch, rows.size());
+            return true;
+        }
         acc.sourceRows += rows.size();
 
         List<TornsyMinuteQuote> quotes = parser.parse(rows, sliceStart, sliceEnd, stableEndExclusive);
         acc.validRows += quotes.size();
         acc.rejectedRows += rows.size() - quotes.size();
         if (quotes.isEmpty()) {
-            return;
+            return false;
         }
 
         List<TornStocksHistoryDO> candidates = dedupByMinute(quotes.stream()
@@ -173,6 +199,7 @@ public class TornsyStockHistoryBackfillService {
         for (StockHistoryMinuteSlot slot : insertedSlots) {
             acc.affectedBuckets.add(Stock15mBarBuildService.alignToBucket(slot.minuteTime()));
         }
+        return false;
     }
 
     /**

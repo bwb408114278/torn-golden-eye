@@ -24,7 +24,7 @@ import java.util.Locale;
  * 均视为当前股票/时间片失败。日志仅输出股票、范围、页数、状态，不输出完整响应。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.2
  * @since 2026.08.13
  */
 @Slf4j
@@ -52,47 +52,21 @@ public class TornsyStockHistoryClient {
     private final RestClient restClient;
 
     /**
-     * 拉取指定股票、指定时间范围内的 m1 分钟数据（自动分页）
+     * 拉取指定股票、指定非饱和时间范围内的 m1 分钟数据。
+     * <p>
+     * 客户端只发起一次请求，不做任何基于响应首/末时间的分页推进。调用方必须保证
+     * {@code fromEpochSecond} 到 {@code toEpochSecond} 的窗口长度小于 {@code pageLimit}，
+     * 避免满页后无法判断是否漏数；若响应行数达到 {@code pageLimit}，由调用方 fail-closed。
      *
      * @param stocksShortname 股票简称（Tornsy 路径段）
      * @param fromEpochSecond 起始 epoch 秒（含）
      * @param toEpochSecond   结束 epoch 秒（不含）
      * @param pageLimit       单页返回上限
-     * @return 按时间升序拼接的 m1 原始行数组（可能为空）
+     * @return 该时间片的 m1 原始行数组（可能为空）
      */
     public List<JsonNode> fetchMinuteData(String stocksShortname, long fromEpochSecond,
                                           long toEpochSecond, int pageLimit) {
-        List<JsonNode> rows = new ArrayList<>();
-        long currentFrom = fromEpochSecond;
-        while (currentFrom < toEpochSecond) {
-            List<JsonNode> page = fetchPage(stocksShortname, currentFrom, toEpochSecond, pageLimit);
-            rows.addAll(page);
-            currentFrom = nextPageFrom(page, currentFrom, toEpochSecond, pageLimit);
-        }
-        return rows;
-    }
-
-    /**
-     * 计算下一页的起始 epoch 秒
-     * <p>
-     * 满页（行数等于上限）且最后一行 epoch 有进展时推进到最后 epoch 下一分钟；
-     * 空页、非满页或无进展时返回结束时间以终止分页循环。
-     *
-     * @param page          当前页行数组
-     * @param currentFrom   当前页起始 epoch 秒
-     * @param toEpochSecond 结束 epoch 秒（不含）
-     * @param pageLimit     单页返回上限
-     * @return 下一页起始 epoch 秒，或结束时间以终止循环
-     */
-    private long nextPageFrom(List<JsonNode> page, long currentFrom, long toEpochSecond, int pageLimit) {
-        if (page.isEmpty() || page.size() < pageLimit) {
-            return toEpochSecond;
-        }
-        long lastEpoch = extractEpochSecond(page.getLast());
-        if (lastEpoch <= currentFrom) {
-            return toEpochSecond;
-        }
-        return Math.min(lastEpoch + 60, toEpochSecond);
+        return fetchPage(stocksShortname, fromEpochSecond, toEpochSecond, pageLimit);
     }
 
     /**
@@ -168,19 +142,6 @@ public class TornsyStockHistoryClient {
             rows.add(row);
         }
         return rows;
-    }
-
-    /**
-     * 提取行内首个 epoch 秒字段
-     *
-     * @param row m1 数据行
-     * @return epoch 秒；非法行返回 {@link Long#MIN_VALUE}
-     */
-    private long extractEpochSecond(JsonNode row) {
-        if (row == null || !row.isArray() || row.isEmpty() || !row.get(0).isNumber()) {
-            return Long.MIN_VALUE;
-        }
-        return row.get(0).asLong();
     }
 
     /**

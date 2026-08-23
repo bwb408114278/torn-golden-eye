@@ -21,7 +21,7 @@ import java.util.concurrent.RejectedExecutionException;
  * 调度器的其余 {@code @Scheduled} 任务（非实时、非 VIP、非回填入口）。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.14
  */
 @Slf4j
@@ -73,14 +73,14 @@ public class StockSchedulingConfiguration {
     }
 
     /**
-     * Tornsy 历史回填专用执行器（单并发 + 队列容量1）。
+     * 股票历史数据维护专用执行器（单并发 + 队列容量1）。
      * <p>
-     * 回填的 HTTP 拉取、分钟事实插入与派生数据重建在本执行器内串行执行，与实时采集
-     * 和 VIP 轮次完全隔离。执行器已满时记录 WARN 并抛出 {@link RejectedExecutionException}，
-     * 使提交方（人工指令/每日巡检）能感知投递失败并释放防重入标记；禁止
-     * {@code CallerRuns} 让回填占用调度线程。
+     * Tornsy 历史回填与全范围派生数据重建共用本执行器，HTTP 拉取、分钟事实插入、
+     * bar/feature 派生重建在本执行器内串行执行，与实时采集和 VIP 轮次完全隔离。
+     * 执行器已满时记录 WARN 并抛出 {@link RejectedExecutionException}，
+     * 使提交方能感知投递失败并释放共享互斥门；禁止 {@code CallerRuns} 让维护任务占用调度线程。
      *
-     * @return 回填执行器 Bean
+     * @return 股票历史数据维护执行器 Bean
      */
     @Bean
     public ThreadPoolTaskExecutor stockBackfillExecutor() {

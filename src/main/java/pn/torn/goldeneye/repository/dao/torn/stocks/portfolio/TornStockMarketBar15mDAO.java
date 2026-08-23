@@ -82,6 +82,36 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
     }
 
     /**
+     * 批量按唯一键执行 UPSERT，空列表直接短路。
+     * <p>
+     * 供全范围派生数据重建使用，单批大小由调用方控制在 500 条以内。
+     *
+     * @param bars 待插入或更新的bar列表
+     */
+    public void upsertBars(List<TornStockMarketBar15mDO> bars) {
+        if (bars == null || bars.isEmpty()) {
+            return;
+        }
+        baseMapper.upsertBars(bars);
+    }
+
+    /**
+     * 按单支股票、时间范围与构建版本批量查询bar。
+     * <p>
+     * 供 feature 顺序批处理使用，避免一次加载全市场 30 天 bar。
+     *
+     * @param stocksId     股票ID
+     * @param startTime    起始时间（含）
+     * @param endTime      结束时间（含）
+     * @param buildVersion bar构建版本
+     * @return 按bar时间升序排列的bar列表
+     */
+    public List<TornStockMarketBar15mDO> selectByStockAndTimeRange(
+            Integer stocksId, LocalDateTime startTime, LocalDateTime endTime, String buildVersion) {
+        return baseMapper.selectByStockAndTimeRange(stocksId, startTime, endTime, buildVersion);
+    }
+
+    /**
      * 批量查询指定截止时间前每支股票可用bar的首尾时间,供月度状态证据窗口定位。
      *
      * @param stocksIds    股票ID列表
