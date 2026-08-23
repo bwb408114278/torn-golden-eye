@@ -48,9 +48,10 @@ class StockDataReadinessReportRunnerTest {
     void run_startWithSeconds_failsFastBeforeAnyInteraction() {
         LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 1, 2, 0, 0);
+        LocalDateTime invalidStart = start.plusSeconds(30);
 
         assertThrows(IllegalArgumentException.class,
-                () -> runner.run(start.plusSeconds(30), end));
+                () -> runner.run(invalidStart, end));
 
         verifyNoInteractions(readOnlyGuard, queryDao, writer);
     }
@@ -60,9 +61,10 @@ class StockDataReadinessReportRunnerTest {
     void run_endWithNanos_failsFastBeforeAnyInteraction() {
         LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 1, 2, 0, 0);
+        LocalDateTime invalidEnd = end.plusNanos(1);
 
         assertThrows(IllegalArgumentException.class,
-                () -> runner.run(start, end.plusNanos(1)));
+                () -> runner.run(start, invalidEnd));
 
         verifyNoInteractions(readOnlyGuard, queryDao, writer);
     }
@@ -103,7 +105,6 @@ class StockDataReadinessReportRunnerTest {
                 new SettingValue("VIP_STOCK_ALERT_ENABLED", "true"),
                 new SettingValue("VIP_STOCK_RULE_MODE", "SHADOW")));
         when(readOnlyGuard.inReadOnlyTransaction(any())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
             TransactionCallback<Object> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });

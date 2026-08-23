@@ -52,17 +52,20 @@ public class StockDataReadinessQueryDAO {
                 .filter(c -> c.firstMinute() == null)
                 .count();
         long gapSegmentCount = coverages.stream()
-                .mapToLong(c -> c.firstMinute() == null
-                        ? 1L
-                        : (c.leadingGapMinutes() > 0 ? 1L : 0L)
-                        + c.internalGapSegmentCount()
-                        + (c.trailingGapMinutes() > 0 ? 1L : 0L))
+                .mapToLong(c -> {
+                    if (c.firstMinute() == null) {
+                        return 1L;
+                    }
+                    long leadingGapSegment = c.leadingGapMinutes() > 0 ? 1L : 0L;
+                    long trailingGapSegment = c.trailingGapMinutes() > 0 ? 1L : 0L;
+                    return leadingGapSegment + c.internalGapSegmentCount() + trailingGapSegment;
+                })
                 .sum();
         long maxGapMinutes = coverages.stream()
                 .mapToLong(c -> c.firstMinute() == null
                         ? rangeMinutes
                         : Math.max(c.leadingGapMinutes(),
-                                Math.max(c.internalMaxGapMinutes(), c.trailingGapMinutes())))
+                        Math.max(c.internalMaxGapMinutes(), c.trailingGapMinutes())))
                 .max()
                 .orElse(0L);
         long totalMissingStockMinutes = coverages.stream()
