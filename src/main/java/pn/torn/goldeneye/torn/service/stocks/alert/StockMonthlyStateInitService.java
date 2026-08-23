@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  * 证据不完整的股票保持DRAFT且{@code strategyFitPrior/riskLevel}为空,禁止默认STEADY/NONE。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.2
  * @since 2026.07.25
  */
 @Slf4j
@@ -76,7 +76,7 @@ public class StockMonthlyStateInitService {
      */
     @Transactional
     public int initCurrentMonth() {
-        return initMonth(marketClock.today().withDayOfMonth(1));
+        return initMonthInternal(marketClock.today().withDayOfMonth(1));
     }
 
     /**
@@ -87,6 +87,19 @@ public class StockMonthlyStateInitService {
      */
     @Transactional
     public int initMonth(LocalDate effectiveMonth) {
+        return initMonthInternal(effectiveMonth);
+    }
+
+    /**
+     * 初始化指定月份缺失 DRAFT 状态的实际实现。
+     * <p>
+     * 供 {@link #initCurrentMonth()} 与 {@link #initMonth(LocalDate)} 共用，
+     * 避免事务方法通过 {@code this} 自调用导致 Spring 代理事务失效。
+     *
+     * @param effectiveMonth 目标生效月份（当月 1 日）
+     * @return 本次实际新建的草稿记录数量
+     */
+    private int initMonthInternal(LocalDate effectiveMonth) {
         List<TornStocksDO> allStocks = tornStocksDao.list();
         if (CollectionUtils.isEmpty(allStocks)) {
             log.warn("月度状态初始化-股票列表为空,跳过, effectiveMonth={}", effectiveMonth);
@@ -150,7 +163,7 @@ public class StockMonthlyStateInitService {
      */
     @Transactional
     public int recalculateCurrentMonthDrafts() {
-        return recalculateMonthDrafts(marketClock.today().withDayOfMonth(1));
+        return recalculateMonthDraftsInternal(marketClock.today().withDayOfMonth(1));
     }
 
     /**
@@ -163,6 +176,19 @@ public class StockMonthlyStateInitService {
      */
     @Transactional
     public int recalculateMonthDrafts(LocalDate effectiveMonth) {
+        return recalculateMonthDraftsInternal(effectiveMonth);
+    }
+
+    /**
+     * 重算指定月份 DRAFT 状态的实际实现。
+     * <p>
+     * 供 {@link #recalculateCurrentMonthDrafts()} 与 {@link #recalculateMonthDrafts(LocalDate)} 共用，
+     * 避免事务方法通过 {@code this} 自调用导致 Spring 代理事务失效。
+     *
+     * @param effectiveMonth 目标生效月份（当月 1 日）
+     * @return 本次实际更新的 DRAFT 记录数量
+     */
+    private int recalculateMonthDraftsInternal(LocalDate effectiveMonth) {
         List<TornStockMonthlyStateDO> drafts = monthlyStateDao.lambdaQuery()
                 .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
                 .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
