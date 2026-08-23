@@ -2,7 +2,7 @@
 
 > **文档类型：** 开发实施方案（技术基线）  
 > **适用项目：** Golden-Eye 1.2.14+  
-> **状态：** 已实施且 Review 通过（`e562573`）；本文不构成生产回填执行授权
+> **状态：** 基础补数能力已实施；2026-08-23 已确认满页方向缺陷，须按第13节修复并重新验收后才能继续扩大生产历史补数；本文不构成生产回填执行授权
 > **风险等级：** L3（生产历史事实表迁移、批量补数、第三方 HTTP、派生数据重建）  
 > **业务时区：** `Asia/Shanghai`  
 > **外部数据源：** `https://tornsy.com/api`，只允许使用 `m1` 分钟点接口
@@ -721,7 +721,83 @@ HTTP 并发：回填仅运行于 stockBackfillExecutor（单并发 + 队列1）
 
 ---
 
-## 13. 参考
+## 13. Tornsy 满页方向缺陷修订（2026-08-23）
+
+> 本节覆盖第 6.1 节中原有的“自动分页”实现说明、以及第 8 节对 24 小时请求时间片的技术指令。其他 m1、事实优先级、行级校验、自然分钟幂等、`NULL`、数据修复隔离和不产生交易副作用的契约保持不变。
+
+### 13.1 真实 API 与数据库复现
+
+以 `TSB` 为探针股票，实际请求：
+
+```text
+GET /tsb?interval=m1
+    &from=2026-01-27 00:00:00 Asia/Shanghai
+    &to=2026-01-28 00:00:00 Asia/Shanghai
+    &limit=1000
+```
+
+真实 Tornsy 响应恰好 1,000 条，第一条是 `2026-01-27 07:19`，最后一条是 `2026-01-27 23:59`。这证明 Tornsy 在窗口结果超过上限时返回的是**末尾**一页，而非客户端原先假设的开头一页。
+
+现有 `TornsyStockHistoryClient.nextPageFrom` 取页面最后一个 epoch 加一分钟作为下一页 `from`。在此例中，它得到 `2026-01-28 00:00`，等于请求 `to`，循环立即结束，导致 `2026-01-27 00:00～07:18` 未被请求。
+
+本地订阅库的交叉证据：35 支股票在该自然日均只有 1,089 个分钟；对每支股票，`TORN_API=288`、`TORNSY_BACKFILL=801`、尚缺 351 个分钟。缺口均位于服务端返回窗口前段，符合上述代码路径。
+
+将同一日改为两个真实 API 请求：
+
+```text
+[2026-01-27 00:00, 2026-01-27 15:00) → 899 条
+[2026-01-27 15:00, 2026-01-28 00:00) → 540 条
+```
+
+合并后为 1,439 条、无重复且按时间连续；Tornsy 原始响应只缺 `08:00` 一个分钟，但该分钟已经存在 `TORN_API` 事实。因此修复后的请求结果与现有实时事实并集可覆盖该自然日完整 1,440 分钟。该验证证明现有 351 分钟空洞不是策略或数据库计算问题，而是客户端错误分页造成的可恢复漏数。
+
+### 13.2 修复契约
+
+禁止依赖 Tornsy 的响应排序方向，也禁止继续以响应首尾 epoch 推进 cursor。固定采用非饱和请求时间片：
+
+```text
+requestSliceMinutes = min(900, pageLimit - 1)
+```
+
+其中 `pageLimit` 仍只来自 `StockHistoryBackfillProperty`；若 `pageLimit <= 1`，必须在发 HTTP 请求、解析、写入或派生重建之前 fail-fast。默认 `pageLimit=1000` 时，最长请求窗口为 900 分钟（15 小时），任何有效 m1 响应都不可能达到上限。
+
+精确改动：
+
+1. `TornsyStockHistoryBackfillService` 删除固定 `SLICE_HOURS=24`，按 `requestSliceMinutes` 对人工和每日巡检范围左闭右开顺序切分；
+2. `TornsyStockHistoryClient.fetchMinuteData` 只发送一次由调用方提供的非饱和窗口请求，删除 `nextPageFrom` 和基于响应最后 epoch 的循环；有限 HTTP 重试不变；
+3. 每个窗口响应后，由 service 在调用 parser 前检查：
+
+```text
+responseRows < pageLimit  → 合法，继续 parser / 缺口过滤 / INSERT ... ON CONFLICT DO NOTHING
+responseRows >= pageLimit → 当前窗口失败；不得 parser、写分钟、重建 bar/feature 或记为成功
+```
+
+4. 满页窗口使 `failedSlices` 增加并停止后续窗口处理；最终人工回填回执必须是失败，不得将已经完成的前置窗口包装成整个范围成功；
+5. 同一范围重提时，已成功插入分钟继续由自然分钟唯一索引跳过；此前因错误分页遗漏的分钟才写入，并仅由实际 `RETURNING` 行驱动数据修复；
+6. 仍不允许用 OHLC、插值、当前价格或前后值弥补 Tornsy 本身没有返回的分钟。
+
+### 13.3 验收标准
+
+开发和生产验收必须新增：
+
+1. 单元测试：恰好 `pageLimit` 条的正序或倒序 response 都不能触发第二个“推算 cursor”请求；
+2. 单元测试：`pageLimit=1000` 的一天范围精确切为 900 分钟与 540 分钟两个请求；
+3. 单元测试：`pageLimit<=1` 零 HTTP、零 parser、零数据库写入、零派生重建；
+4. 单元测试：任一 response `>= pageLimit` 时当前窗口 fail-closed，零 parser/INSERT/rebuild，范围最终失败；
+5. 单元测试：非饱和窗口维持既有 parser、来源、`NULL`、`ON CONFLICT` 与实际插入槽驱动 `REPAIRED_DATA_ONLY` 派生修复语义；
+6. 真实 API 契约探针：复现本节 TSB/2026-01-27 的两个非饱和请求，分别小于 1,000 行、合并 epoch 无重复；
+7. 经用户明确授权后，重新提交：
+
+```text
+同步Tornsy股票数据#2026-01-27 00:00:00#2026-01-28 00:00:00
+```
+
+AI 使用只读数据库核验 35 支股票原先各 351 个缺失分钟已经插入，或将 Tornsy 仍缺但已有 `TORN_API` 的分钟单列为来源事实；不得只凭 Bot 受理、日志或 HTTP 行数宣布补数成功；
+8. 修复上线前，禁止继续执行大范围历史 Tornsy 补数；每日巡检遇到满页必须明确失败而不是静默漏补。
+
+---
+
+## 14. 参考
 
 - Tornsy API：<https://tornsy.com/api>
 - `.ai/knowledge/stocks/vip_stock_business_handoff.md`

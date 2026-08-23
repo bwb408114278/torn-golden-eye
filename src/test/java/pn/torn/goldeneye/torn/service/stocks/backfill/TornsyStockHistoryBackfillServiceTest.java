@@ -23,9 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -247,13 +245,15 @@ class TornsyStockHistoryBackfillServiceTest {
     @Test
     @DisplayName("pageLimit=1或0_受控失败且零HTTP/parser/DAO/rebuild")
     void backfillStocks_invalidPageLimit_rejectsWithoutInteractions() {
+        List<TornStocksDO> stocks = List.of(stock());
+
         when(property.getPageLimit()).thenReturn(1);
         assertThrows(IllegalArgumentException.class,
-                () -> service.backfillStocks(List.of(stock()), START, END));
+                () -> service.backfillStocks(stocks, START, END));
 
         when(property.getPageLimit()).thenReturn(0);
         assertThrows(IllegalArgumentException.class,
-                () -> service.backfillStocks(List.of(stock()), START, END));
+                () -> service.backfillStocks(stocks, START, END));
 
         verifyNoInteractions(client, parser, stocksHistoryDao, rebuildService);
     }

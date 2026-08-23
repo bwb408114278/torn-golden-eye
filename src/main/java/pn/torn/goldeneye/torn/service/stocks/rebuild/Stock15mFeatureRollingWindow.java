@@ -211,10 +211,9 @@ public final class Stock15mFeatureRollingWindow {
         addToSums(bar);
         addToLowHigh(bar);
 
-        if (size > 1) {
-            if (!Stock15mBarBuildService.isConsecutive(barAt(size - 2), barAt(size - 1))) {
-                badAdjacencyCount++;
-            }
+        if (size > 1
+                && !Stock15mBarBuildService.isConsecutive(barAt(size - 2), barAt(size - 1))) {
+            badAdjacencyCount++;
         }
         if (size > Stock15mFeatureBuildService.BARS_30D) {
             if (!Stock15mBarBuildService.isConsecutive(barAt(0), barAt(1))) {
@@ -243,29 +242,33 @@ public final class Stock15mFeatureRollingWindow {
      * @param price  新价格
      */
     private void addToWindowSum(int window, BigDecimal price) {
-        if (window == Stock15mFeatureBuildService.BARS_PER_DAY) {
-            sum96 = sum96.add(price);
-            sumSq96 = sumSq96.add(price.multiply(price));
-            if (size > window) {
-                BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
-                sum96 = sum96.subtract(droppedPrice);
-                sumSq96 = sumSq96.subtract(droppedPrice.multiply(droppedPrice));
+        switch (window) {
+            case Stock15mFeatureBuildService.BARS_PER_DAY -> {
+                sum96 = sum96.add(price);
+                sumSq96 = sumSq96.add(price.multiply(price));
+                if (size > window) {
+                    BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
+                    sum96 = sum96.subtract(droppedPrice);
+                    sumSq96 = sumSq96.subtract(droppedPrice.multiply(droppedPrice));
+                }
             }
-        } else if (window == Stock15mFeatureBuildService.BARS_7D) {
-            sum672 = sum672.add(price);
-            sumSq672 = sumSq672.add(price.multiply(price));
-            if (size > window) {
-                BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
-                sum672 = sum672.subtract(droppedPrice);
-                sumSq672 = sumSq672.subtract(droppedPrice.multiply(droppedPrice));
+            case Stock15mFeatureBuildService.BARS_7D -> {
+                sum672 = sum672.add(price);
+                sumSq672 = sumSq672.add(price.multiply(price));
+                if (size > window) {
+                    BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
+                    sum672 = sum672.subtract(droppedPrice);
+                    sumSq672 = sumSq672.subtract(droppedPrice.multiply(droppedPrice));
+                }
             }
-        } else {
-            sum2880 = sum2880.add(price);
-            sumSq2880 = sumSq2880.add(price.multiply(price));
-            if (size > window) {
-                BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
-                sum2880 = sum2880.subtract(droppedPrice);
-                sumSq2880 = sumSq2880.subtract(droppedPrice.multiply(droppedPrice));
+            default -> {
+                sum2880 = sum2880.add(price);
+                sumSq2880 = sumSq2880.add(price.multiply(price));
+                if (size > window) {
+                    BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
+                    sum2880 = sum2880.subtract(droppedPrice);
+                    sumSq2880 = sumSq2880.subtract(droppedPrice.multiply(droppedPrice));
+                }
             }
         }
     }

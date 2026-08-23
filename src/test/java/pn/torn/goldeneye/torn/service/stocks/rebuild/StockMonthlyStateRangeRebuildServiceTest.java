@@ -14,11 +14,7 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * 月度状态范围重算服务单元测试。
@@ -119,8 +115,10 @@ class StockMonthlyStateRangeRebuildServiceTest {
     void rebuild_invalidRange_rejectsWithoutInteractions() {
         LocalDateTime time = LocalDateTime.of(2026, 1, 15, 0, 0);
 
+        LocalDateTime reversed = time.plusDays(1);
+
         assertThrows(IllegalArgumentException.class, () -> service.rebuild(time, time));
-        assertThrows(IllegalArgumentException.class, () -> service.rebuild(time.plusDays(1), time));
+        assertThrows(IllegalArgumentException.class, () -> service.rebuild(reversed, time));
 
         verifyNoInteractions(monthlyStateInitService);
     }

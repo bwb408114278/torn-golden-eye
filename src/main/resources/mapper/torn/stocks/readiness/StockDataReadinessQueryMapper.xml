@@ -2,12 +2,14 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.readiness.StockDataReadinessQueryMapper">
 
+    <!-- 当前有效股票数量 -->
     <select id="countStocks" resultType="int">
         SELECT COUNT(*)
         FROM torn_stocks
         WHERE deleted = 0
     </select>
 
+    <!-- 查询每支股票在范围内的最早/最晚分钟与有效自然分钟数 -->
     <select id="selectStockMinuteBoundaries"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteBoundary">
         SELECT stocks_id                                      AS stocksId,
@@ -23,6 +25,7 @@
         ORDER BY stocks_id
     </select>
 
+    <!-- 查询范围内分钟事实的来源分布 -->
     <select id="selectMinuteSourceDistribution"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.SourceCount">
         SELECT data_source AS source,
@@ -35,6 +38,7 @@
         ORDER BY data_source
     </select>
 
+    <!-- 查询范围内有效分钟事实行数 -->
     <select id="selectValidMinuteCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stocks_history
@@ -47,6 +51,7 @@
           AND total_shares &gt;= 0
     </select>
 
+    <!-- 查询自然分钟重复组数 -->
     <select id="selectDuplicateMinuteGroupCount" resultType="long">
         SELECT COUNT(*)
         FROM (
@@ -61,6 +66,7 @@
         ) duplicate_groups
     </select>
 
+    <!-- 查询自然分钟重复冗余行数（组内超出首行的行数合计） -->
     <select id="selectDuplicateMinuteRedundantRowCount" resultType="long">
         SELECT COALESCE(SUM(row_count - 1), 0)
         FROM (
@@ -76,6 +82,7 @@
         ) duplicate_groups
     </select>
 
+    <!-- 查询范围内价格/总股数非法分钟行数 -->
     <select id="selectInvalidMinuteCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stocks_history
@@ -86,6 +93,7 @@
                OR total_shares IS NULL OR total_shares &lt; 0)
     </select>
 
+    <!-- 查询范围内分钟连续缺口汇总 -->
     <select id="selectGapSummary"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.GapSummary">
         WITH minute_slots AS (
@@ -117,6 +125,7 @@
         FROM gaps
     </select>
 
+    <!-- 查询范围内当前版本 bar 行数 -->
     <select id="selectBarCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_market_bar_15m
@@ -126,6 +135,7 @@
           AND build_version = #{buildVersion}
     </select>
 
+    <!-- 查询范围内当前版本可用 bar 行数 -->
     <select id="selectUsableBarCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_market_bar_15m
@@ -136,6 +146,7 @@
           AND usable = true
     </select>
 
+    <!-- 查询不可用 bar 按原因分组计数 -->
     <select id="selectUnusableBarReasonCounts"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
         SELECT COALESCE(quality_reason, 'UNKNOWN') AS name,
@@ -150,6 +161,7 @@
         ORDER BY count DESC
     </select>
 
+    <!-- 查询范围内当前版本 feature 行数 -->
     <select id="selectFeatureCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_strategy_feature_15m
@@ -159,6 +171,7 @@
           AND feature_version = #{featureVersion}
     </select>
 
+    <!-- 查询 usable bar 缺 feature 的数量 -->
     <select id="selectUsableBarMissingFeatureCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_market_bar_15m b
@@ -175,6 +188,7 @@
           AND f.id IS NULL
     </select>
 
+    <!-- 查询 feature orphan（无对应 bar）的数量 -->
     <select id="selectFeatureOrphanCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_strategy_feature_15m f
@@ -190,6 +204,7 @@
           AND b.id IS NULL
     </select>
 
+    <!-- 查询范围内 strategyReady=true 的 feature 数量 -->
     <select id="selectStrategyReadyFeatureCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_strategy_feature_15m
@@ -200,6 +215,7 @@
           AND strategy_ready = true
     </select>
 
+    <!-- 查询范围内 strategyReady=false 的 feature 按原因分组计数 -->
     <select id="selectNotReadyFeatureReasonCounts"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
         SELECT COALESCE(data_quality_reason, 'UNKNOWN') AS name,
@@ -214,6 +230,7 @@
         ORDER BY count DESC
     </select>
 
+    <!-- 查询范围内月度状态分组计数 -->
     <select id="selectMonthlyStateCounts"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount">
         SELECT effective_month      AS effectiveMonth,
@@ -228,6 +245,7 @@
         ORDER BY effective_month, state_status, manual_override
     </select>
 
+    <!-- 查询 DRAFT 月度状态未完整原因汇总 -->
     <select id="selectMonthlyIncompleteReasonCounts"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
         SELECT COALESCE(metric_snapshot->>'incompleteReason', 'UNKNOWN') AS name,
@@ -241,6 +259,7 @@
         ORDER BY count DESC
     </select>
 
+    <!-- 查询范围内轮次状态计数 -->
     <select id="selectRoundStatusCounts"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.RoundStatusCount">
         SELECT round_status AS roundStatus,
@@ -253,6 +272,7 @@
         ORDER BY round_status
     </select>
 
+    <!-- 查询范围内版本不一致的轮次数 -->
     <select id="selectRoundVersionMismatchCount" resultType="long">
         SELECT COUNT(*)
         FROM torn_stock_market_round
@@ -263,6 +283,7 @@
                OR feature_version IS DISTINCT FROM #{featureVersion})
     </select>
 
+    <!-- 查询当前五个 VIP 股票开关只读值 -->
     <select id="selectVipStockSettings"
             resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.SettingValue">
         SELECT setting_key  AS settingKey,
