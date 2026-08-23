@@ -24,10 +24,10 @@ import java.time.LocalDateTime;
  * @param pctBelow30dHigh   距离30日高点跌幅
  * @param low30d            30天低价
  * @param high30d           30天高价
- * @param latestInvestors   最后投资者人数
- * @param investorsChange7d 投资人数7天变化
+ * @param latestInvestors   最后投资者人数；当前历史点未提供时为 {@code null}
+ * @param investorsChange7d 投资人数7天变化；当前或7日基准未提供时为 {@code null}
  * @author Bai
- * @version 1.1.6
+ * @version 1.4.3
  * @since 2026.06.02
  */
 public record StockStrategyFeatureUpsert(

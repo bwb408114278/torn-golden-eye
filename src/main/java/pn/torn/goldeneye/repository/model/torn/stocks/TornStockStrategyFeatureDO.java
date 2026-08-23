@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * 股票策略预计算特征表
  *
  * @author Bai
- * @version 1.1.6
+ * @version 1.4.3
  * @since 2026.05.29
  */
 @Data
@@ -96,11 +96,11 @@ public class TornStockStrategyFeatureDO extends BaseDO {
      */
     private BigDecimal high30d;
     /**
-     * 投资人数
+     * 最后投资人数；外部补数历史点未提供时为 {@code null}，禁止以 0 代表未知
      */
     private Integer latestInvestors;
     /**
-     * 近7日投资人数变化
+     * 近7日投资人数变化；当前或7日基准投资人数未知时为 {@code null}
      */
     private Integer investorsChange7d;
 }
