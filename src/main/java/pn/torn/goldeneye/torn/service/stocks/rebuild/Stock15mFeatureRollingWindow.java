@@ -42,12 +42,9 @@ public final class Stock15mFeatureRollingWindow {
     private int head;
     private int size;
 
-    private BigDecimal sum96 = BigDecimal.ZERO;
-    private BigDecimal sum672 = BigDecimal.ZERO;
-    private BigDecimal sum2880 = BigDecimal.ZERO;
-    private BigDecimal sumSq96 = BigDecimal.ZERO;
-    private BigDecimal sumSq672 = BigDecimal.ZERO;
-    private BigDecimal sumSq2880 = BigDecimal.ZERO;
+    private final SumState sum96 = new SumState();
+    private final SumState sum672 = new SumState();
+    private final SumState sum2880 = new SumState();
 
     /**
      * 最近 2,880 条窗口内的“不连续或不可用相邻关系”计数。
@@ -242,34 +239,17 @@ public final class Stock15mFeatureRollingWindow {
      * @param price  新价格
      */
     private void addToWindowSum(int window, BigDecimal price) {
-        switch (window) {
-            case Stock15mFeatureBuildService.BARS_PER_DAY -> {
-                sum96 = sum96.add(price);
-                sumSq96 = sumSq96.add(price.multiply(price));
-                if (size > window) {
-                    BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
-                    sum96 = sum96.subtract(droppedPrice);
-                    sumSq96 = sumSq96.subtract(droppedPrice.multiply(droppedPrice));
-                }
-            }
-            case Stock15mFeatureBuildService.BARS_7D -> {
-                sum672 = sum672.add(price);
-                sumSq672 = sumSq672.add(price.multiply(price));
-                if (size > window) {
-                    BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
-                    sum672 = sum672.subtract(droppedPrice);
-                    sumSq672 = sumSq672.subtract(droppedPrice.multiply(droppedPrice));
-                }
-            }
-            default -> {
-                sum2880 = sum2880.add(price);
-                sumSq2880 = sumSq2880.add(price.multiply(price));
-                if (size > window) {
-                    BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
-                    sum2880 = sum2880.subtract(droppedPrice);
-                    sumSq2880 = sumSq2880.subtract(droppedPrice.multiply(droppedPrice));
-                }
-            }
+        SumState state = switch (window) {
+            case Stock15mFeatureBuildService.BARS_PER_DAY -> sum96;
+            case Stock15mFeatureBuildService.BARS_7D -> sum672;
+            default -> sum2880;
+        };
+        state.sum = state.sum.add(price);
+        state.sumSq = state.sumSq.add(price.multiply(price));
+        if (size > window) {
+            BigDecimal droppedPrice = barAt(size - window - 1).getLastPrice();
+            state.sum = state.sum.subtract(droppedPrice);
+            state.sumSq = state.sumSq.subtract(droppedPrice.multiply(droppedPrice));
         }
     }
 
@@ -281,12 +261,12 @@ public final class Stock15mFeatureRollingWindow {
      */
     private BigDecimal sum(int window) {
         if (window == Stock15mFeatureBuildService.BARS_PER_DAY) {
-            return sum96;
+            return sum96.sum;
         }
         if (window == Stock15mFeatureBuildService.BARS_7D) {
-            return sum672;
+            return sum672.sum;
         }
-        return sum2880;
+        return sum2880.sum;
     }
 
     /**
@@ -297,12 +277,12 @@ public final class Stock15mFeatureRollingWindow {
      */
     private BigDecimal sumSq(int window) {
         if (window == Stock15mFeatureBuildService.BARS_PER_DAY) {
-            return sumSq96;
+            return sum96.sumSq;
         }
         if (window == Stock15mFeatureBuildService.BARS_7D) {
-            return sumSq672;
+            return sum672.sumSq;
         }
-        return sumSq2880;
+        return sum2880.sumSq;
     }
 
     /**
@@ -336,6 +316,14 @@ public final class Stock15mFeatureRollingWindow {
         if (highDeque.peekFirst() == dropped) {
             highDeque.pollFirst();
         }
+    }
+
+    /**
+     * 单个滚动价格窗口的 sum/sumSquare 可变状态。
+     */
+    private static final class SumState {
+        private BigDecimal sum = BigDecimal.ZERO;
+        private BigDecimal sumSq = BigDecimal.ZERO;
     }
 
 }
