@@ -68,4 +68,15 @@ public interface TornStockMarketRoundMapper extends BaseMapper<TornStockMarketRo
      * @return 实际插入行数(0表示已存在同round_time有效轮次)
      */
     int insertPendingRoundIgnoreConflict(@Param("round") TornStockMarketRoundDO round);
+
+    /**
+     * 批量 UPSERT 数据修复轮次。
+     * <p>
+     * 多值 INSERT ... ON CONFLICT (round_time) WHERE deleted = 0，DO UPDATE 仅对非终态
+     * （非 COMPLETED/FAILED_FINAL）生效；终态行保留原状态、版本、计数与时间。
+     *
+     * @param rounds 待写入/更新的数据修复轮次列表
+     * @return 实际受影响轮次数
+     */
+    int upsertRepairedDataOnlyRounds(@Param("rounds") List<TornStockMarketRoundDO> rounds);
 }

@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征数据库访问层
  *
  * @author Bai
- * @version 1.2.17
+ * @version 1.4.2
  * @since 2026.07.24
  */
 @Mapper
@@ -65,4 +65,14 @@ public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockS
      * @return 影响行数
      */
     int upsertFeature(@Param("feature") TornStockStrategyFeature15mDO feature);
+
+    /**
+     * 批量按唯一键(stocks_id, bar_start_time, feature_version)执行UPSERT
+     * <p>
+     * 与单条 UPSERT 使用完全相同的列、冲突键与更新列。
+     *
+     * @param features 待插入或更新的特征列表
+     * @return 影响行数
+     */
+    int upsertFeatures(@Param("features") List<TornStockStrategyFeature15mDO> features);
 }

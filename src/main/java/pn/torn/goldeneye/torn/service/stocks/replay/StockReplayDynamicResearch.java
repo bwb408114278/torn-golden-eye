@@ -5,7 +5,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEn
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySummary;
 
 import java.math.BigDecimal;

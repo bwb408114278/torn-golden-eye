@@ -15,7 +15,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockHistoryMinuteSlot;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockHistoryRebuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHistoryRebuildService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -23,8 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -241,5 +240,123 @@ class TornsyStockHistoryBackfillServiceTest {
         assertEquals(0, summary.insertedRows());
         verify(stocksHistoryDao, never()).insertBackfillReturningSlots(anyList());
         verify(rebuildService, never()).repairBackfilledHistory(anyCollection(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("pageLimit=1或0_受控失败且零HTTP/parser/DAO/rebuild")
+    void backfillStocks_invalidPageLimit_rejectsWithoutInteractions() {
+        List<TornStocksDO> stocks = List.of(stock());
+
+        when(property.getPageLimit()).thenReturn(1);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.backfillStocks(stocks, START, END));
+
+        when(property.getPageLimit()).thenReturn(0);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.backfillStocks(stocks, START, END));
+
+        verifyNoInteractions(client, parser, stocksHistoryDao, rebuildService);
+    }
+
+    @Test
+    @DisplayName("双股票同片原子fail-closed_满页时parser/DAO/rebuild全部零交互")
+    void backfillStocks_fullPageInSameSlice_atomicFailClosed() {
+        when(property.getPageLimit()).thenReturn(1000);
+        TornStocksDO stockA = stock(1, "AAA");
+        TornStocksDO stockB = stock(2, "BBB");
+        when(client.fetchMinuteData(eq("AAA"), anyLong(), anyLong(), eq(1000)))
+                .thenReturn(jsonRows(10));
+        when(client.fetchMinuteData(eq("BBB"), anyLong(), anyLong(), eq(1000)))
+                .thenReturn(jsonRows(1000));
+
+        TornsyStockHistoryBackfillService.BackfillSummary summary =
+                service.backfillStocks(List.of(stockA, stockB), START, END);
+
+        assertEquals(1, summary.failedSlices());
+        assertEquals(0, summary.sourceRows());
+        verify(parser, never()).parse(anyList(), any(), any(), any());
+        verify(stocksHistoryDao, never()).selectExistingMinuteSlots(anyList(), any(), any());
+        verify(stocksHistoryDao, never()).insertBackfillReturningSlots(anyList());
+        verify(rebuildService, never()).repairBackfilledHistory(anyCollection(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("满页后下一时间片不发HTTP_最终failedSlices=1")
+    void backfillStocks_fullPage_stopsSubsequentSlices() {
+        when(property.getPageLimit()).thenReturn(1000);
+        LocalDateTime dayStart = LocalDateTime.of(2026, 1, 27, 0, 0);
+        LocalDateTime dayEnd = LocalDateTime.of(2026, 1, 28, 0, 0);
+        when(client.fetchMinuteData(eq("ASS"), anyLong(), anyLong(), eq(1000)))
+                .thenReturn(jsonRows(1000));
+
+        TornsyStockHistoryBackfillService.BackfillSummary summary =
+                service.backfillStocks(List.of(stock()), dayStart, dayEnd);
+
+        assertEquals(1, summary.failedSlices());
+        verify(client, times(1)).fetchMinuteData(eq("ASS"), anyLong(), anyLong(), eq(1000));
+    }
+
+    @Test
+    @DisplayName("前片成功_后片满页_前片实际插入可重建_满页片零写入")
+    void backfillStocks_previousSliceSuccess_nextSliceFullPage_previousRebuildOnly() {
+        when(property.getPageLimit()).thenReturn(1000);
+        LocalDateTime dayStart = LocalDateTime.of(2026, 1, 27, 0, 0);
+        LocalDateTime dayEnd = LocalDateTime.of(2026, 1, 28, 0, 0);
+        LocalDateTime firstStart = dayStart;
+        LocalDateTime firstEnd = dayStart.plusHours(15);
+        List<JsonNode> firstRows = jsonRows(1);
+        when(client.fetchMinuteData(eq("ASS"), anyLong(), anyLong(), eq(1000)))
+                .thenReturn(firstRows, jsonRows(1000));
+        when(parser.parse(anyList(), eq(firstStart), eq(firstEnd), eq(dayEnd)))
+                .thenReturn(List.of(new TornsyMinuteQuote(firstStart.plusMinutes(5), new BigDecimal("10.00"), 100L, null)));
+        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(firstStart), eq(firstEnd)))
+                .thenReturn(List.of());
+        when(stocksHistoryDao.insertBackfillReturningSlots(anyList()))
+                .thenReturn(List.of(new StockHistoryMinuteSlot(32, firstStart.plusMinutes(5))));
+        when(rebuildService.repairBackfilledHistory(anyCollection(), any(), anyString()))
+                .thenReturn(new StockHistoryRebuildService.BackfillRepairResult(1, 1, 2, 0));
+
+        TornsyStockHistoryBackfillService.BackfillSummary summary =
+                service.backfillStocks(List.of(stock()), dayStart, dayEnd);
+
+        assertEquals(1, summary.insertedRows());
+        assertEquals(1, summary.failedSlices());
+        assertEquals(1, summary.affectedBucketCount());
+        verify(rebuildService, times(1)).repairBackfilledHistory(anyCollection(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("pageLimit=1000_24小时范围精确请求[00:00,15:00)和[15:00,24:00)")
+    void backfillStocks_24hRange_usesTwoExpectedSlices() {
+        when(property.getPageLimit()).thenReturn(1000);
+        LocalDateTime dayStart = LocalDateTime.of(2026, 1, 27, 0, 0);
+        LocalDateTime dayEnd = LocalDateTime.of(2026, 1, 28, 0, 0);
+        LocalDateTime firstEnd = dayStart.plusHours(15);
+        when(client.fetchMinuteData(eq("ASS"), anyLong(), anyLong(), eq(1000)))
+                .thenReturn(jsonRows(0), jsonRows(0));
+        when(parser.parse(anyList(), eq(dayStart), eq(firstEnd), eq(dayEnd))).thenReturn(List.of());
+        when(parser.parse(anyList(), eq(firstEnd), eq(dayEnd), eq(dayEnd))).thenReturn(List.of());
+        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(dayStart), eq(firstEnd))).thenReturn(List.of());
+        when(stocksHistoryDao.selectExistingMinuteSlots(anyList(), eq(firstEnd), eq(dayEnd))).thenReturn(List.of());
+
+        service.backfillStocks(List.of(stock()), dayStart, dayEnd);
+
+        verify(client, times(2)).fetchMinuteData(eq("ASS"), anyLong(), anyLong(), eq(1000));
+    }
+
+    private TornStocksDO stock(int id, String shortname) {
+        TornStocksDO stock = new TornStocksDO();
+        stock.setId(id);
+        stock.setStocksName("Stock " + id);
+        stock.setStocksShortname(shortname);
+        return stock;
+    }
+
+    private List<JsonNode> jsonRows(int count) {
+        List<JsonNode> rows = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            rows.add(JsonNodeFactory.instance.arrayNode().add(0L).add("1").add(1L));
+        }
+        return rows;
     }
 }

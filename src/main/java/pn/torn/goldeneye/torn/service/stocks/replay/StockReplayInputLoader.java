@@ -7,7 +7,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyF
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRequest;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplaySourceManifest;
 

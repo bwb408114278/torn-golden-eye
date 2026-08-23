@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.backfill;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -8,21 +9,21 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.test.util.ReflectionTestUtils;
+import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockHistoryMinuteCount;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.backfill.TornsyStockHistoryBackfillScheduler.BackfillSubmission;
+import pn.torn.goldeneye.torn.service.stocks.rebuild.StockHistoricalMaintenanceGate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,7 +39,7 @@ import static org.mockito.Mockito.*;
  * 测试捕获并实际运行投递的 {@link Runnable}，不只验证 executor.execute(any())。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.14
  */
 @ExtendWith(MockitoExtension.class)
@@ -67,9 +68,18 @@ class TornsyStockHistoryBackfillSchedulerTest {
     private ProjectProperty projectProperty;
     @Mock
     private ThreadPoolTaskExecutor stockBackfillExecutor;
+    @Mock
+    private StockHistoricalMaintenanceGate maintenanceGate;
+    @Mock
+    private Bot bot;
 
     @InjectMocks
     private TornsyStockHistoryBackfillScheduler scheduler;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(maintenanceGate.tryAcquire()).thenReturn(true);
+    }
 
     // ====================每日巡检====================
 
@@ -128,7 +138,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
     @DisplayName("每日巡检_上一轮运行中再次触发 -> 不重复投递、不重复调用服务")
     void dailyInspection_processingOccupied_skips() {
         stubProdYesterdayWithCounts(new StockHistoryMinuteCount(1, 100L));
-        ReflectionTestUtils.setField(scheduler, "processing", new AtomicBoolean(true));
+        when(maintenanceGate.tryAcquire()).thenReturn(false);
 
         scheduler.inspectYesterdayAndBackfillIfNeeded();
 
@@ -239,8 +249,9 @@ class TornsyStockHistoryBackfillSchedulerTest {
         when(clock.now()).thenReturn(NOW);
         when(clock.today()).thenReturn(LocalDate.of(2026, 8, 15));
         stubBackfillSuccess();
+        when(maintenanceGate.tryAcquire()).thenReturn(true, false);
 
-        // 人工先受理并占住 processing(Runnable 未执行模拟任务运行中)
+        // 人工先受理并占住共享互斥门(Runnable 未执行模拟任务运行中)
         assertEquals(BackfillSubmission.ACCEPTED, scheduler.submitManualBackfill(
                 LocalDateTime.of(2026, 7, 1, 0, 0), LocalDateTime.of(2026, 7, 2, 0, 0)));
         verify(stockBackfillExecutor, times(1)).execute(any(Runnable.class));
@@ -265,7 +276,7 @@ class TornsyStockHistoryBackfillSchedulerTest {
     void manualSubmit_alreadyProcessing_rejected() {
         stubProd();
         when(clock.now()).thenReturn(NOW);
-        ReflectionTestUtils.setField(scheduler, "processing", new AtomicBoolean(true));
+        when(maintenanceGate.tryAcquire()).thenReturn(false);
 
         assertEquals(BackfillSubmission.ALREADY_PROCESSING, scheduler.submitManualBackfill(
                 LocalDateTime.of(2026, 7, 1, 0, 0), LocalDateTime.of(2026, 7, 2, 0, 0)));

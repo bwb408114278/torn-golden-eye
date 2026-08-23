@@ -1,10 +1,11 @@
 package pn.torn.goldeneye.torn.service.stocks.replay.model;
 
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult.SignalEvaluation;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult;
 
 /**
  * 待结算理论观察候选(收尾阶段使用全窗口数据计算前向路径)。

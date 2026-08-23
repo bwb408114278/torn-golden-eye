@@ -3,16 +3,11 @@ package pn.torn.goldeneye.napcat.strategy.manage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
-import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
-import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.BaseGroupMsgStrategy;
 import pn.torn.goldeneye.torn.service.stocks.backfill.TornsyStockHistoryBackfillScheduler;
 import pn.torn.goldeneye.torn.service.stocks.backfill.TornsyStockHistoryBackfillScheduler.BackfillSubmission;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * Tornsy 股票历史人工范围回填策略实现类
@@ -23,12 +18,12 @@ import java.util.List;
  * 执行长范围 HTTP 请求、分钟入库和 feature 重算。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.15
  */
 @Component
 @RequiredArgsConstructor
-public class TornsyStockHistoryBackfillStrategyImpl extends BaseGroupMsgStrategy {
+public class TornsyStockHistoryBackfillStrategyImpl extends BaseStockHistoryRangeStrategy<BackfillSubmission> {
     /**
      * 回填调度器（唯一执行入口）
      */
@@ -45,39 +40,24 @@ public class TornsyStockHistoryBackfillStrategyImpl extends BaseGroupMsgStrategy
     }
 
     @Override
-    public boolean isNeedSa() {
-        return true;
+    protected BackfillSubmission submit(long groupId, LocalDateTime start, LocalDateTime end) {
+        return scheduler.submitManualBackfill(start, end, groupId);
     }
 
     @Override
-    public TornFactionRoleTypeEnum getRoleType() {
-        return null;
+    protected boolean isAccepted(BackfillSubmission submission) {
+        return submission == BackfillSubmission.ACCEPTED;
     }
 
     @Override
-    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        String[] msgArray = msg.split("#");
-        if (msgArray.length != 2) {
-            return super.sendErrorFormatMsg();
-        }
-        LocalDateTime start;
-        LocalDateTime end;
-        try {
-            start = DateTimeUtils.convertToDateTime(msgArray[0].trim());
-            end = DateTimeUtils.convertToDateTime(msgArray[1].trim());
-        } catch (RuntimeException e) {
-            return super.sendErrorFormatMsg();
-        }
-        if (!start.isBefore(end)) {
-            return super.sendErrorFormatMsg();
-        }
+    protected String buildAcceptedMessage(LocalDateTime start, LocalDateTime end) {
+        return "Tornsy股票数据同步任务已受理，范围：[" + DateTimeUtils.convertToString(start)
+                + ", " + DateTimeUtils.convertToString(end) + ")，请关注日志和数据验收结果。";
+    }
 
-        BackfillSubmission submission = scheduler.submitManualBackfill(start, end);
-        if (submission == BackfillSubmission.ACCEPTED) {
-            return super.buildTextMsg("Tornsy股票数据同步任务已受理，范围：[" + DateTimeUtils.convertToString(start)
-                    + ", " + DateTimeUtils.convertToString(end) + ")，请关注日志和数据验收结果。");
-        }
-        return super.buildTextMsg("Tornsy股票数据同步未受理：" + rejectReason(submission));
+    @Override
+    protected String buildRejectedMessage(BackfillSubmission submission) {
+        return "Tornsy股票数据同步未受理：" + rejectReason(submission);
     }
 
     /**

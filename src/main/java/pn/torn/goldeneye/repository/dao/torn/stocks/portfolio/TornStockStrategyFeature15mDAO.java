@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征持久层类
  *
  * @author Bai
- * @version 1.2.17
+ * @version 1.4.2
  * @since 2026.07.24
  */
 @Repository
@@ -70,5 +70,19 @@ public class TornStockStrategyFeature15mDAO
      */
     public void upsertFeature(TornStockStrategyFeature15mDO feature) {
         baseMapper.upsertFeature(feature);
+    }
+
+    /**
+     * 批量按唯一键执行 UPSERT，空列表直接短路。
+     * <p>
+     * 供全范围派生数据重建使用，单批大小由调用方控制在 500 条以内。
+     *
+     * @param features 待插入或更新的特征列表
+     */
+    public void upsertFeatures(List<TornStockStrategyFeature15mDO> features) {
+        if (features == null || features.isEmpty()) {
+            return;
+        }
+        baseMapper.upsertFeatures(features);
     }
 }

@@ -19,7 +19,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.torn.stocks.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

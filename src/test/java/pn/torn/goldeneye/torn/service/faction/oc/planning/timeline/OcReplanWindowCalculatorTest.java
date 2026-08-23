@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 重新评估窗口计算器测试。
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.4.1
  * @since 2026.08.15
  */
 @DisplayName("重新评估窗口计算")
@@ -65,5 +65,24 @@ class OcReplanWindowCalculatorTest {
         assertEquals(NOW, window.nextReplanAt());
         assertEquals(NOW, window.latestReplanAt());
         assertTrue(window.reasonCodes().contains(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED));
+    }
+
+    @Test
+    @DisplayName("没有建议事件但有未来业务边界时回退到最晚时间")
+    void shouldFallbackToLatestWhenNoAdviceChangeEvent() {
+        OcReplanWindow window = calculator.calculate(NOW,
+                List.of(), List.of(NOW.plusHours(10)));
+
+        assertEquals(NOW.plusHours(10).minusMinutes(30), window.nextReplanAt());
+        assertEquals(NOW.plusHours(10).minusMinutes(30), window.latestReplanAt());
+    }
+
+    @Test
+    @DisplayName("没有未来事件和边界时回退到当前时间")
+    void shouldFallbackToNowWhenNoEventAndNoBoundary() {
+        OcReplanWindow window = calculator.calculate(NOW, List.of(), List.of());
+
+        assertEquals(NOW, window.nextReplanAt());
+        assertEquals(NOW, window.latestReplanAt());
     }
 }

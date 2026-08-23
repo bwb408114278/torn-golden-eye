@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟K线(bar)数据库访问层
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.2
  * @since 2026.07.24
  */
 @Mapper
@@ -96,10 +96,25 @@ public interface TornStockMarketBar15mMapper extends BaseMapper<TornStockMarketB
                                                                    @Param("buildVersion") String buildVersion);
 
     /**
-     * 按逻辑唯一键插入或更新股票bar。
+     * 批量按逻辑唯一键插入或更新股票bar。
      *
-     * @param bar 待插入或更新的bar
+     * @param bars 待插入或更新的bar列表
      * @return 受影响行数
      */
-    int upsertBar(@Param("bar") TornStockMarketBar15mDO bar);
+    int upsertBars(@Param("bars") List<TornStockMarketBar15mDO> bars);
+
+    /**
+     * 按单支股票、时间范围与构建版本批量查询bar，供 feature 顺序批处理使用。
+     *
+     * @param stocksId        股票ID
+     * @param startInclusive  起始时间（含）
+     * @param endExclusive    结束时间（不含）
+     * @param buildVersion    bar构建版本
+     * @return 按bar时间升序排列的bar列表
+     */
+    List<TornStockMarketBar15mDO> selectByStockAndTimeRange(
+            @Param("stocksId") Integer stocksId,
+            @Param("startInclusive") LocalDateTime startInclusive,
+            @Param("endExclusive") LocalDateTime endExclusive,
+            @Param("buildVersion") String buildVersion);
 }

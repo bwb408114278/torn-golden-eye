@@ -7,6 +7,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketR
 
 import java.time.LocalDateTime;
 import java.util.List;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
 
 /**
  * Torn股票策略轮次记录持久层类
@@ -74,5 +75,22 @@ public class TornStockMarketRoundDAO extends ServiceImpl<TornStockMarketRoundMap
      */
     public int insertPendingRoundIgnoreConflict(TornStockMarketRoundDO round) {
         return baseMapper.insertPendingRoundIgnoreConflict(round);
+    }
+
+    /**
+     * 批量 UPSERT 数据修复轮次。
+     * <p>
+     * 仅用于全范围派生数据重建：一次多值 INSERT ... ON CONFLICT 将目标范围 bucket
+     * 标记为 {@code REPAIRED_DATA_ONLY}；保留 {@code COMPLETED}/{@code FAILED_FINAL}
+     * 终态不降级。单批大小由调用方控制在 500 条以内。
+     *
+     * @param rounds 待写入/更新的数据修复轮次（须经 {@code StockMarketRoundFactory} 初始化全部 NOT NULL 字段）
+     * @return 实际受影响（新插入或被更新）的轮次数
+     */
+    public int upsertRepairedDataOnlyRounds(List<TornStockMarketRoundDO> rounds) {
+        if (rounds == null || rounds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.upsertRepairedDataOnlyRounds(rounds);
     }
 }

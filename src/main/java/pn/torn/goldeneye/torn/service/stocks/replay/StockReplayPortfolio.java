@@ -4,8 +4,8 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEn
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockSignalStateKey;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateKey;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayTrackEnum;
 
 import java.math.BigDecimal;

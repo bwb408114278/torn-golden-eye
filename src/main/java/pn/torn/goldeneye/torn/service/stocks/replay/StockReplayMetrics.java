@@ -5,8 +5,8 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEn
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBatchExitService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchExitService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayEquityPoint;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayTrackEnum;
 

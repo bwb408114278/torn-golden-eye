@@ -29,7 +29,7 @@ import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksBonusVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDTO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksDetailVO;
 import pn.torn.goldeneye.torn.model.torn.stocks.TornStocksVO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TextImageUtils;

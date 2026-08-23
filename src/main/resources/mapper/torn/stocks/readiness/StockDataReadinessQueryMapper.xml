@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.readiness.StockDataReadinessQueryMapper">
+
+    <!-- 当前有效股票数量 -->
+    <select id="countStocks" resultType="int">
+        SELECT COUNT(*)
+        FROM torn_stocks
+        WHERE deleted = 0
+    </select>
+
+    <!-- 查询所有当前有效股票的分钟覆盖汇总(含全空/leading/internal/trailing缺口)
+         由 active_stocks 驱动，每支股票通过 LATERAL 按 stocks_id + reg_date_time 索引
+         读取自身范围分钟流；不在全市场分钟上做全局 GROUP BY / 排序。
+         自然分钟重复统计固定为 0，由部分唯一索引
+         uk_torn_stocks_history_stock_minute(stocks_id, date_trunc('minute', reg_date_time))
+         WHERE deleted = 0 保证。 -->
+    <select id="selectMinuteCoverageSummary"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage">
+        WITH active_stocks AS (
+            SELECT id,
+                   stocks_shortname
+            FROM torn_stocks
+            WHERE deleted = 0
+        )
+        SELECT s.id                                                         AS stocksId,
+               s.stocks_shortname                                           AS stocksShortname,
+               c.first_minute                                               AS firstMinute,
+               c.last_minute                                                AS lastMinute,
+               COALESCE(c.minute_count, 0)                                  AS minuteCount,
+               CAST(
+                   CASE
+                       WHEN c.minute_count IS NULL OR c.minute_count = 0
+                           THEN EXTRACT(EPOCH FROM (#{endExclusive} - #{startInclusive})) / 60
+                       ELSE EXTRACT(EPOCH FROM (c.first_minute - #{startInclusive})) / 60
+                   END AS bigint)                                           AS leadingGapMinutes,
+               COALESCE(c.internal_gap_segment_count, 0)                    AS internalGapSegmentCount,
+               COALESCE(c.internal_max_gap_minutes, 0)                      AS internalMaxGapMinutes,
+               CAST(
+                   CASE
+                       WHEN c.minute_count IS NULL OR c.minute_count = 0 THEN 0
+                       ELSE EXTRACT(EPOCH FROM (#{endExclusive} - (c.last_minute + INTERVAL '1 minute'))) / 60
+                   END AS bigint)                                           AS trailingGapMinutes,
+               CAST(
+                   CASE
+                       WHEN c.minute_count IS NULL OR c.minute_count = 0
+                           THEN EXTRACT(EPOCH FROM (#{endExclusive} - #{startInclusive})) / 60
+                       ELSE EXTRACT(EPOCH FROM (c.first_minute - #{startInclusive})) / 60
+                            + COALESCE(c.internal_total_gap_minutes, 0)
+                            + EXTRACT(EPOCH FROM (#{endExclusive} - (c.last_minute + INTERVAL '1 minute'))) / 60
+                   END AS bigint)                                           AS totalMissingMinutes,
+               0                                                             AS duplicateGroupCount,
+               0                                                             AS duplicateRedundantRowCount
+        FROM active_stocks s
+        LEFT JOIN LATERAL (
+            SELECT MIN(raw.minute_time)                                       AS first_minute,
+                   MAX(raw.minute_time)                                       AS last_minute,
+                   COUNT(*)                                                   AS minute_count,
+                   COUNT(*) FILTER (
+                       WHERE raw.newer_minute IS NOT NULL
+                         AND raw.newer_minute - raw.minute_time &gt; interval '1 minute'
+                   )                                                          AS internal_gap_segment_count,
+                   COALESCE(MAX(
+                       CASE
+                           WHEN raw.newer_minute IS NOT NULL
+                            AND raw.newer_minute - raw.minute_time &gt; interval '1 minute'
+                           THEN EXTRACT(EPOCH FROM (raw.newer_minute - raw.minute_time)) / 60 - 1
+                       END
+                   ), 0)                                                      AS internal_max_gap_minutes,
+                   COALESCE(SUM(
+                       CASE
+                           WHEN raw.newer_minute IS NOT NULL
+                            AND raw.newer_minute - raw.minute_time &gt; interval '1 minute'
+                           THEN EXTRACT(EPOCH FROM (raw.newer_minute - raw.minute_time)) / 60 - 1
+                           ELSE 0
+                       END
+                   ), 0)                                                      AS internal_total_gap_minutes
+            FROM (
+                SELECT date_trunc('minute', h.reg_date_time)                 AS minute_time,
+                       LAG(date_trunc('minute', h.reg_date_time)) OVER (
+                           ORDER BY h.reg_date_time DESC
+                       )                                                      AS newer_minute
+                FROM torn_stocks_history h
+                WHERE h.stocks_id = s.id
+                  AND h.deleted = 0
+                  AND h.reg_date_time &gt;= #{startInclusive}
+                  AND h.reg_date_time &lt; #{endExclusive}
+            ) raw
+        ) c ON true
+        ORDER BY s.id
+    </select>
+
+    <!-- 查询范围内分钟事实的来源分布 -->
+    <select id="selectMinuteSourceDistribution"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.SourceCount">
+        SELECT data_source AS source,
+               COUNT(*)    AS count
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+        GROUP BY data_source
+        ORDER BY data_source
+    </select>
+
+    <!-- 查询范围内有效分钟事实行数 -->
+    <select id="selectValidMinuteCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+          AND current_price IS NOT NULL
+          AND current_price &gt; 0
+          AND total_shares IS NOT NULL
+          AND total_shares &gt; 0
+    </select>
+
+    <!-- 查询范围内价格/总股数非法分钟行数 -->
+    <select id="selectInvalidMinuteCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+          AND (current_price IS NULL OR current_price &lt;= 0
+               OR total_shares IS NULL OR total_shares &lt;= 0)
+    </select>
+
+    <!-- 查询范围内当前版本 bar 行数 -->
+    <select id="selectBarCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_bar_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND build_version = #{buildVersion}
+    </select>
+
+    <!-- 查询范围内当前版本可用 bar 行数 -->
+    <select id="selectUsableBarCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_bar_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND build_version = #{buildVersion}
+          AND usable = true
+    </select>
+
+    <!-- 查询不可用 bar 按原因分组计数 -->
+    <select id="selectUnusableBarReasonCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
+        SELECT COALESCE(quality_reason, 'UNKNOWN') AS name,
+               COUNT(*)                            AS count
+        FROM torn_stock_market_bar_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND build_version = #{buildVersion}
+          AND usable = false
+        GROUP BY quality_reason
+        ORDER BY count DESC
+    </select>
+
+    <!-- 查询范围内当前版本 feature 行数 -->
+    <select id="selectFeatureCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_strategy_feature_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND feature_version = #{featureVersion}
+    </select>
+
+    <!-- 查询 usable bar 缺 feature 的数量 -->
+    <select id="selectUsableBarMissingFeatureCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_bar_15m b
+        LEFT JOIN torn_stock_strategy_feature_15m f
+               ON f.stocks_id = b.stocks_id
+              AND f.bar_start_time = b.bar_start_time
+              AND f.feature_version = #{featureVersion}
+              AND f.deleted = 0
+        WHERE b.deleted = 0
+          AND b.bar_start_time &gt;= #{startInclusive}
+          AND b.bar_start_time &lt; #{endExclusive}
+          AND b.build_version = #{buildVersion}
+          AND b.usable = true
+          AND f.id IS NULL
+    </select>
+
+    <!-- 查询 feature orphan（无对应 bar）的数量 -->
+    <select id="selectFeatureOrphanCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_strategy_feature_15m f
+        LEFT JOIN torn_stock_market_bar_15m b
+               ON b.stocks_id = f.stocks_id
+              AND b.bar_start_time = f.bar_start_time
+              AND b.build_version = #{buildVersion}
+              AND b.deleted = 0
+        WHERE f.deleted = 0
+          AND f.bar_start_time &gt;= #{startInclusive}
+          AND f.bar_start_time &lt; #{endExclusive}
+          AND f.feature_version = #{featureVersion}
+          AND b.id IS NULL
+    </select>
+
+    <!-- 查询范围内 strategyReady=true 的 feature 数量 -->
+    <select id="selectStrategyReadyFeatureCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_strategy_feature_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND feature_version = #{featureVersion}
+          AND strategy_ready = true
+    </select>
+
+    <!-- 查询范围内 strategyReady=false 的 feature 按原因分组计数 -->
+    <select id="selectNotReadyFeatureReasonCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
+        SELECT COALESCE(data_quality_reason, 'UNKNOWN') AS name,
+               COUNT(*)                                 AS count
+        FROM torn_stock_strategy_feature_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND feature_version = #{featureVersion}
+          AND strategy_ready = false
+        GROUP BY data_quality_reason
+        ORDER BY count DESC
+    </select>
+
+    <!-- 查询范围内月度状态分组计数 -->
+    <select id="selectMonthlyStateCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount">
+        SELECT effective_month      AS effectiveMonth,
+               state_status         AS stateStatus,
+               manual_override      AS manualOverride,
+               COUNT(*)             AS count
+        FROM torn_stock_monthly_state
+        WHERE deleted = 0
+          AND effective_month &gt;= DATE_TRUNC('month', #{startInclusive})::date
+          AND effective_month &lt;= DATE_TRUNC('month', #{endExclusive} - INTERVAL '1 microsecond')::date
+        GROUP BY effective_month, state_status, manual_override
+        ORDER BY effective_month, state_status, manual_override
+    </select>
+
+    <!-- 查询 DRAFT 月度状态未完整原因汇总 -->
+    <select id="selectMonthlyIncompleteReasonCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
+        SELECT COALESCE(metric_snapshot->>'incompleteReason', 'UNKNOWN') AS name,
+               COUNT(*) AS count
+        FROM torn_stock_monthly_state
+        WHERE deleted = 0
+          AND effective_month &gt;= DATE_TRUNC('month', #{startInclusive})::date
+          AND effective_month &lt;= DATE_TRUNC('month', #{endExclusive} - INTERVAL '1 microsecond')::date
+          AND state_status = 'DRAFT'
+        GROUP BY metric_snapshot->>'incompleteReason'
+        ORDER BY count DESC
+    </select>
+
+    <!-- 查询范围内轮次状态计数 -->
+    <select id="selectRoundStatusCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.RoundStatusCount">
+        SELECT round_status AS roundStatus,
+               COUNT(*)     AS count
+        FROM torn_stock_market_round
+        WHERE deleted = 0
+          AND round_time &gt;= #{startInclusive}
+          AND round_time &lt; #{endExclusive}
+        GROUP BY round_status
+        ORDER BY round_status
+    </select>
+
+    <!-- 查询范围内版本不一致的轮次数 -->
+    <select id="selectRoundVersionMismatchCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_round
+        WHERE deleted = 0
+          AND round_time &gt;= #{startInclusive}
+          AND round_time &lt; #{endExclusive}
+          AND (bar_build_version IS DISTINCT FROM #{buildVersion}
+               OR feature_version IS DISTINCT FROM #{featureVersion})
+    </select>
+
+    <!-- 查询当前五个 VIP 股票开关只读值 -->
+    <select id="selectVipStockSettings"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.SettingValue">
+        SELECT setting_key  AS settingKey,
+               setting_value AS settingValue
+        FROM sys_setting
+        WHERE deleted = 0
+          AND setting_key IN (
+              'VIP_STOCK_ALERT_ENABLED',
+              'VIP_STOCK_NEW_ENTRY_ENABLED',
+              'VIP_STOCK_FORMAL_NOTICE_ENABLED',
+              'VIP_STOCK_DAILY_SUMMARY_ENABLED',
+              'VIP_STOCK_RULE_MODE'
+          )
+        ORDER BY setting_key
+    </select>
+</mapper>
