@@ -36,8 +36,11 @@ public class StockMonthlyStateRangeRebuildService {
      * @return 本次新建/重算/自动确认的月度状态记录总数（仅用于日志观测）
      */
     public int rebuild(LocalDateTime startInclusive, LocalDateTime endExclusive) {
+        if (startInclusive == null || endExclusive == null || !startInclusive.isBefore(endExclusive)) {
+            throw new IllegalArgumentException("月度状态范围重建要求 startInclusive < endExclusive");
+        }
         LocalDate startMonth = startInclusive.toLocalDate().withDayOfMonth(1);
-        LocalDate endMonth = endExclusive.toLocalDate().withDayOfMonth(1);
+        LocalDate endMonth = endExclusive.minusNanos(1).toLocalDate().withDayOfMonth(1);
         int total = 0;
         LocalDate month = startMonth;
         while (!month.isAfter(endMonth)) {

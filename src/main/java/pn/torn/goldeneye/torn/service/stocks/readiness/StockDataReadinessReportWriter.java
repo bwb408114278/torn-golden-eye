@@ -4,19 +4,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteBoundary;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 股票数据就绪报告本地写出器。
  * <p>
  * 在本地只读环境将 {@link StockDataReadinessReport} 输出为同 runId 的
  * {@code <runId>-summary.json} 与 {@code <runId>-summary.md}，使用临时文件 + 原子改名，
- * 不写生产数据库。
+ * 不写生产数据库。JSON 与 Markdown 必须来自同一个不可变 Report。
  *
  * @author Bai
  * @version 1.4.2
@@ -52,28 +56,92 @@ public class StockDataReadinessReportWriter {
     }
 
     /**
-     * 将报告模型转换为可序列化 Map，时间字段转为字符串以避免 LocalDateTime 序列化差异。
+     * 将报告模型转换为可序列化 Map。
      *
      * @param report 就绪报告模型
      * @return JSON 输出用的有序 Map
      */
-    private java.util.Map<String, Object> toMap(StockDataReadinessReport report) {
-        return java.util.Map.ofEntries(
-                java.util.Map.entry("runId", report.runId()),
-                java.util.Map.entry("generatedAt", report.generatedAt() == null ? null : report.generatedAt().toString()),
-                java.util.Map.entry("startInclusive", report.startInclusive() == null ? null : report.startInclusive().toString()),
-                java.util.Map.entry("endExclusive", report.endExclusive() == null ? null : report.endExclusive().toString()),
-                java.util.Map.entry("barBuildVersion", report.barBuildVersion()),
-                java.util.Map.entry("featureVersion", report.featureVersion()),
-                java.util.Map.entry("stockCount", report.stockCount()),
-                java.util.Map.entry("minuteFactCount", report.minuteFactCount()),
-                java.util.Map.entry("barCount", report.barCount()),
-                java.util.Map.entry("usableBarCount", report.usableBarCount()),
-                java.util.Map.entry("featureCount", report.featureCount()),
-                java.util.Map.entry("repairedDataOnlyRoundCount", report.repairedDataOnlyRoundCount()),
-                java.util.Map.entry("draftMonthCount", report.draftMonthCount()),
-                java.util.Map.entry("confirmedMonthCount", report.confirmedMonthCount()),
-                java.util.Map.entry("manifestHash", report.manifestHash()));
+    private Map<String, Object> toMap(StockDataReadinessReport report) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("runId", report.runId());
+        map.put("generatedAt", report.generatedAt() == null ? null : report.generatedAt().toString());
+        map.put("startInclusive", report.startInclusive() == null ? null : report.startInclusive().toString());
+        map.put("endExclusive", report.endExclusive() == null ? null : report.endExclusive().toString());
+        map.put("barBuildVersion", report.barBuildVersion());
+        map.put("featureVersion", report.featureVersion());
+        map.put("manifestHash", report.manifestHash());
+        map.put("snapshot", snapshotToMap(report.snapshot()));
+        return map;
+    }
+
+    /**
+     * 将统计快照转换为可序列化 Map。
+     *
+     * @param snapshot 统计快照
+     * @return 有序 Map
+     */
+    private Map<String, Object> snapshotToMap(StockDataReadinessSnapshot snapshot) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("stockCount", snapshot.stockCount());
+        map.put("stockMinuteBoundaries", snapshot.stockMinuteBoundaries().stream()
+                .map(this::boundaryToMap)
+                .toList());
+        map.put("minuteSourceDistribution", snapshot.minuteSourceDistribution());
+        map.put("validMinuteCount", snapshot.validMinuteCount());
+        map.put("duplicateMinuteGroupCount", snapshot.duplicateMinuteGroupCount());
+        map.put("duplicateMinuteRedundantRowCount", snapshot.duplicateMinuteRedundantRowCount());
+        map.put("invalidMinuteCount", snapshot.invalidMinuteCount());
+        map.put("gapSegmentCount", snapshot.gapSegmentCount());
+        map.put("maxGapMinutes", snapshot.maxGapMinutes());
+        map.put("theoreticalBucketCount", snapshot.theoreticalBucketCount());
+        map.put("barCount", snapshot.barCount());
+        map.put("usableBarCount", snapshot.usableBarCount());
+        map.put("unusableBarReasonCounts", snapshot.unusableBarReasonCounts());
+        map.put("noMinuteFactBucketCount", snapshot.noMinuteFactBucketCount());
+        map.put("featureCount", snapshot.featureCount());
+        map.put("usableBarMissingFeatureCount", snapshot.usableBarMissingFeatureCount());
+        map.put("featureOrphanCount", snapshot.featureOrphanCount());
+        map.put("strategyReadyFeatureCount", snapshot.strategyReadyFeatureCount());
+        map.put("notReadyFeatureReasonCounts", snapshot.notReadyFeatureReasonCounts());
+        map.put("monthlyStateCounts", snapshot.monthlyStateCounts().stream()
+                .map(this::monthlyStateToMap)
+                .toList());
+        map.put("roundStatusCounts", snapshot.roundStatusCounts());
+        map.put("monthlyIncompleteReasonCounts", snapshot.monthlyIncompleteReasonCounts());
+        map.put("roundVersionMismatchCount", snapshot.roundVersionMismatchCount());
+        map.put("auditSettings", snapshot.auditSettings());
+        return map;
+    }
+
+    /**
+     * 将分钟边界转换为可序列化 Map。
+     *
+     * @param boundary 分钟边界
+     * @return 有序 Map
+     */
+    private Map<String, Object> boundaryToMap(StockMinuteBoundary boundary) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("stocksId", boundary.stocksId());
+        map.put("stocksShortname", boundary.stocksShortname());
+        map.put("earliestMinute", boundary.earliestMinute() == null ? null : boundary.earliestMinute().toString());
+        map.put("latestMinute", boundary.latestMinute() == null ? null : boundary.latestMinute().toString());
+        map.put("minuteCount", boundary.minuteCount());
+        return map;
+    }
+
+    /**
+     * 将月度状态计数转换为可序列化 Map。
+     *
+     * @param count 月度状态计数
+     * @return 有序 Map
+     */
+    private Map<String, Object> monthlyStateToMap(MonthlyStateCount count) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("effectiveMonth", count.effectiveMonth() == null ? null : count.effectiveMonth().toString());
+        map.put("stateStatus", count.stateStatus());
+        map.put("manualOverride", count.manualOverride());
+        map.put("count", count.count());
+        return map;
     }
 
     /**
@@ -100,28 +168,58 @@ public class StockDataReadinessReportWriter {
      * @return Markdown 文本
      */
     private String buildMarkdown(StockDataReadinessReport report) {
-        return """
-                # VIP 股票数据就绪报告
-                
-                - runId: %s
-                - 生成时刻: %s
-                - 范围: [%s, %s)
-                - bar版本: %s
-                - feature版本: %s
-                - 股票数: %d
-                - 分钟事实行数: %d
-                - bar行数: %d
-                - 可用bar行数: %d
-                - feature行数: %d
-                - REPAIRED_DATA_ONLY轮次数: %d
-                - DRAFT月度状态数: %d
-                - CONFIRMED月度状态数: %d
-                - manifestHash: %s
-                """.formatted(
-                report.runId(), report.generatedAt(), report.startInclusive(), report.endExclusive(),
-                report.barBuildVersion(), report.featureVersion(), report.stockCount(),
-                report.minuteFactCount(), report.barCount(), report.usableBarCount(), report.featureCount(),
-                report.repairedDataOnlyRoundCount(), report.draftMonthCount(), report.confirmedMonthCount(),
-                report.manifestHash());
+        StockDataReadinessSnapshot s = report.snapshot();
+        StringBuilder md = new StringBuilder();
+        md.append("# VIP 股票数据就绪报告\n\n");
+        md.append("- runId: ").append(report.runId()).append('\n');
+        md.append("- 生成时刻: ").append(report.generatedAt()).append('\n');
+        md.append("- 范围: [").append(report.startInclusive()).append(", ")
+                .append(report.endExclusive()).append(")\n");
+        md.append("- bar版本: ").append(report.barBuildVersion()).append('\n');
+        md.append("- feature版本: ").append(report.featureVersion()).append('\n');
+        md.append("- manifestHash: ").append(report.manifestHash()).append('\n');
+        md.append("\n## 输入与版本\n\n");
+        md.append("- 股票数: ").append(s.stockCount()).append('\n');
+        md.append("- 分钟事实来源分布: ").append(s.minuteSourceDistribution()).append('\n');
+        md.append("\n## 分钟质量\n\n");
+        md.append("- 有效分钟: ").append(s.validMinuteCount()).append('\n');
+        md.append("- 自然分钟重复组: ").append(s.duplicateMinuteGroupCount()).append('\n');
+        md.append("- 自然分钟重复冗余行: ").append(s.duplicateMinuteRedundantRowCount()).append('\n');
+        md.append("- 价格/总股数非法数: ").append(s.invalidMinuteCount()).append('\n');
+        md.append("- 连续缺口段数: ").append(s.gapSegmentCount()).append('\n');
+        md.append("- 最大缺口分钟数: ").append(s.maxGapMinutes()).append('\n');
+        md.append("\n## 每股票分钟边界\n\n");
+        md.append("|股票ID|简称|最早分钟|最晚分钟|有效自然分钟|\n");
+        md.append("|---|---|---|---|---|\n");
+        for (StockMinuteBoundary b : s.stockMinuteBoundaries()) {
+            md.append('|').append(b.stocksId())
+                    .append('|').append(b.stocksShortname())
+                    .append('|').append(b.earliestMinute())
+                    .append('|').append(b.latestMinute())
+                    .append('|').append(b.minuteCount())
+                    .append("|\n");
+        }
+        md.append("\n## bar\n\n");
+        md.append("- 理论桶数: ").append(s.theoreticalBucketCount()).append('\n');
+        md.append("- 存在bar: ").append(s.barCount()).append('\n');
+        md.append("- 可用bar: ").append(s.usableBarCount()).append('\n');
+        md.append("- 不可用原因: ").append(s.unusableBarReasonCounts()).append('\n');
+        md.append("- 无分钟事实桶数: ").append(s.noMinuteFactBucketCount()).append('\n');
+        md.append("\n## feature\n\n");
+        md.append("- 当前版本feature: ").append(s.featureCount()).append('\n');
+        md.append("- usable bar缺feature: ").append(s.usableBarMissingFeatureCount()).append('\n');
+        md.append("- feature orphan: ").append(s.featureOrphanCount()).append('\n');
+        md.append("- strategyReady: ").append(s.strategyReadyFeatureCount()).append('\n');
+        md.append("- 未就绪原因: ").append(s.notReadyFeatureReasonCounts()).append('\n');
+        md.append("\n## 月度状态\n\n");
+        md.append("- DRAFT未完整原因: ").append(s.monthlyIncompleteReasonCounts()).append('\n');
+        md.append("- 月度状态计数: ").append(s.monthlyStateCounts()).append('\n');
+        md.append("\n## round\n\n");
+        md.append("- 轮次状态计数: ").append(s.roundStatusCounts()).append('\n');
+        md.append("- 版本不一致轮次数: ").append(s.roundVersionMismatchCount()).append('\n');
+        md.append("\n## 审计\n\n");
+        md.append("- 当前VIP_STOCK_*开关只读值: ").append(s.auditSettings()).append('\n');
+        md.append("- 局限: 报告生成本身无法证明历史副作用增量，副作用delta仍须在生产运行前后用独立只读SQL比对。\n");
+        return md.toString();
     }
 }

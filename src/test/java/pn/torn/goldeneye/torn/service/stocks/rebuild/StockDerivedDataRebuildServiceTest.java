@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
@@ -13,22 +14,30 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRou
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
  * 全范围派生数据重建服务单元测试。
+ *
+ * @author Bai
+ * @version 1.4.2
+ * @since 2026.08.23
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("全范围派生数据重建服务测试")
@@ -94,6 +103,97 @@ class StockDerivedDataRebuildServiceTest {
         verify(bar15mDao).upsertBars(any());
         verify(roundDao).updateById(any());
         verify(monthlyStateRangeRebuildService).rebuild(START, END);
+    }
+
+    @Test
+    @DisplayName("三支股票_feature每支仅一次范围查询且预热/不可用不写、usable写feature")
+    void rebuildRange_threeStocks_oneQueryPerStockAndWritesOnlyUsableTargets() {
+        TornStocksDO stock1 = stock(1, "AAA");
+        TornStocksDO stock2 = stock(2, "BBB");
+        TornStocksDO stock3 = stock(3, "CCC");
+        when(stocksDao.list()).thenReturn(List.of(stock1, stock2, stock3));
+        when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenReturn(List.of());
+
+        LocalDateTime prewarm = START.minusMinutes(15);
+        LocalDateTime unusableTarget = START.plusMinutes(15);
+        when(bar15mDao.selectByStockAndTimeRange(eq(1), any(), any(), any()))
+                .thenReturn(List.of(
+                        bar(1, "AAA", prewarm, true),
+                        bar(1, "AAA", START, true),
+                        bar(1, "AAA", unusableTarget, false)));
+        when(bar15mDao.selectByStockAndTimeRange(eq(2), any(), any(), any()))
+                .thenReturn(List.of(bar(2, "BBB", START, true)));
+        when(bar15mDao.selectByStockAndTimeRange(eq(3), any(), any(), any()))
+                .thenReturn(List.of(bar(3, "CCC", START, true)));
+
+        StockDerivedDataRebuildResult result = service.rebuildRange(START, END);
+
+        assertTrue(result.isSuccess());
+        assertEquals(3, result.featureWriteCount());
+        verify(bar15mDao, times(1)).selectByStockAndTimeRange(eq(1), any(), any(), any());
+        verify(bar15mDao, times(1)).selectByStockAndTimeRange(eq(2), any(), any(), any());
+        verify(bar15mDao, times(1)).selectByStockAndTimeRange(eq(3), any(), any(), any());
+        ArgumentCaptor<List<TornStockStrategyFeature15mDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(feature15mDao, times(3)).upsertFeatures(captor.capture());
+        List<TornStockStrategyFeature15mDO> features = captor.getAllValues().stream()
+                .flatMap(List::stream)
+                .toList();
+        assertEquals(3, features.size());
+        assertTrue(features.stream().noneMatch(f -> f.getBarStartTime().equals(prewarm)),
+                "预热bar不得写feature");
+        assertTrue(features.stream().noneMatch(f -> f.getBarStartTime().equals(unusableTarget)),
+                "不可用target不得写feature");
+    }
+
+    @Test
+    @DisplayName("feature批量写入_500条触发第一批_余量第二批")
+    void rebuildRange_featureBatch_500AndRemainder() {
+        when(stocksDao.list()).thenReturn(List.of(stock()));
+        when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenReturn(List.of());
+
+        LocalDateTime rangeStart = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime rangeEnd = rangeStart.plusMinutes(15L * 501);
+        List<TornStockMarketBar15mDO> bars = new ArrayList<>(501);
+        for (int i = 0; i < 501; i++) {
+            bars.add(bar(1, "TST", rangeStart.plusMinutes(15L * i), true));
+        }
+        when(bar15mDao.selectByStockAndTimeRange(eq(1), any(), any(), any())).thenReturn(bars);
+
+        StockDerivedDataRebuildResult result = service.rebuildRange(rangeStart, rangeEnd);
+
+        assertTrue(result.isSuccess());
+        assertEquals(501, result.featureWriteCount());
+        ArgumentCaptor<List<TornStockStrategyFeature15mDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(feature15mDao, times(2)).upsertFeatures(captor.capture());
+        assertEquals(500, captor.getAllValues().get(0).size());
+        assertEquals(1, captor.getAllValues().get(1).size());
+    }
+
+    private TornStocksDO stock(int id, String shortname) {
+        TornStocksDO stock = new TornStocksDO();
+        stock.setId(id);
+        stock.setStocksName("Test Stock " + id);
+        stock.setStocksShortname(shortname);
+        return stock;
+    }
+
+    private TornStockMarketBar15mDO bar(int stockId, String shortname, LocalDateTime start, boolean usable) {
+        TornStockMarketBar15mDO bar = new TornStockMarketBar15mDO();
+        bar.setStocksId(stockId);
+        bar.setStocksShortname(shortname);
+        bar.setBarStartTime(start);
+        bar.setBarEndTime(start.plusMinutes(15));
+        bar.setFirstSampleTime(start);
+        bar.setLastSampleTime(start.plusMinutes(14));
+        bar.setFirstPrice(new BigDecimal("100.00"));
+        bar.setLastPrice(new BigDecimal("100.00"));
+        bar.setLowPrice(new BigDecimal("100.00"));
+        bar.setHighPrice(new BigDecimal("100.00"));
+        bar.setSampleCount(usable ? 15 : 1);
+        bar.setDuplicateCount(0);
+        bar.setUsable(usable);
+        bar.setBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
+        return bar;
     }
 
     private TornStocksDO stock() {

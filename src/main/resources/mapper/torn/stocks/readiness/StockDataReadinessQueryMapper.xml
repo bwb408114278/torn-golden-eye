@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.readiness.StockDataReadinessQueryMapper">
+
+    <select id="countStocks" resultType="int">
+        SELECT COUNT(*)
+        FROM torn_stocks
+        WHERE deleted = 0
+    </select>
+
+    <select id="selectStockMinuteBoundaries"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteBoundary">
+        SELECT stocks_id                                      AS stocksId,
+               MIN(stocks_shortname)                          AS stocksShortname,
+               MIN(reg_date_time)                             AS earliestMinute,
+               MAX(reg_date_time)                             AS latestMinute,
+               COUNT(DISTINCT date_trunc('minute', reg_date_time)) AS minuteCount
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+        GROUP BY stocks_id
+        ORDER BY stocks_id
+    </select>
+
+    <select id="selectMinuteSourceDistribution"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.SourceCount">
+        SELECT data_source AS source,
+               COUNT(*)    AS count
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+        GROUP BY data_source
+        ORDER BY data_source
+    </select>
+
+    <select id="selectValidMinuteCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+          AND current_price IS NOT NULL
+          AND current_price &gt; 0
+          AND total_shares IS NOT NULL
+          AND total_shares &gt;= 0
+    </select>
+
+    <select id="selectDuplicateMinuteGroupCount" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT stocks_id,
+                   date_trunc('minute', reg_date_time) AS minute_time
+            FROM torn_stocks_history
+            WHERE deleted = 0
+              AND reg_date_time &gt;= #{startInclusive}
+              AND reg_date_time &lt; #{endExclusive}
+            GROUP BY stocks_id, date_trunc('minute', reg_date_time)
+            HAVING COUNT(*) &gt; 1
+        ) duplicate_groups
+    </select>
+
+    <select id="selectDuplicateMinuteRedundantRowCount" resultType="long">
+        SELECT COALESCE(SUM(row_count - 1), 0)
+        FROM (
+            SELECT stocks_id,
+                   date_trunc('minute', reg_date_time) AS minute_time,
+                   COUNT(*)                            AS row_count
+            FROM torn_stocks_history
+            WHERE deleted = 0
+              AND reg_date_time &gt;= #{startInclusive}
+              AND reg_date_time &lt; #{endExclusive}
+            GROUP BY stocks_id, date_trunc('minute', reg_date_time)
+            HAVING COUNT(*) &gt; 1
+        ) duplicate_groups
+    </select>
+
+    <select id="selectInvalidMinuteCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stocks_history
+        WHERE deleted = 0
+          AND reg_date_time &gt;= #{startInclusive}
+          AND reg_date_time &lt; #{endExclusive}
+          AND (current_price IS NULL OR current_price &lt;= 0
+               OR total_shares IS NULL OR total_shares &lt; 0)
+    </select>
+
+    <select id="selectGapSummary"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.GapSummary">
+        WITH minute_slots AS (
+            SELECT stocks_id,
+                   date_trunc('minute', reg_date_time) AS minute_time
+            FROM torn_stocks_history
+            WHERE deleted = 0
+              AND reg_date_time &gt;= #{startInclusive}
+              AND reg_date_time &lt; #{endExclusive}
+            GROUP BY stocks_id, date_trunc('minute', reg_date_time)
+        ),
+        with_prev AS (
+            SELECT stocks_id,
+                   minute_time,
+                   LAG(minute_time) OVER (
+                       PARTITION BY stocks_id ORDER BY minute_time
+                   ) AS prev_minute
+            FROM minute_slots
+        ),
+        gaps AS (
+            SELECT stocks_id,
+                   (EXTRACT(EPOCH FROM (minute_time - prev_minute)) / 60 - 1) AS gap_minutes
+            FROM with_prev
+            WHERE prev_minute IS NOT NULL
+              AND minute_time - prev_minute &gt; interval '1 minute'
+        )
+        SELECT COUNT(*)                                          AS gapSegmentCount,
+               COALESCE(MAX(gap_minutes::bigint), 0)             AS maxGapMinutes
+        FROM gaps
+    </select>
+
+    <select id="selectBarCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_bar_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND build_version = #{buildVersion}
+    </select>
+
+    <select id="selectUsableBarCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_bar_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND build_version = #{buildVersion}
+          AND usable = true
+    </select>
+
+    <select id="selectUnusableBarReasonCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
+        SELECT COALESCE(quality_reason, 'UNKNOWN') AS name,
+               COUNT(*)                            AS count
+        FROM torn_stock_market_bar_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND build_version = #{buildVersion}
+          AND usable = false
+        GROUP BY quality_reason
+        ORDER BY count DESC
+    </select>
+
+    <select id="selectFeatureCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_strategy_feature_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND feature_version = #{featureVersion}
+    </select>
+
+    <select id="selectUsableBarMissingFeatureCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_bar_15m b
+        LEFT JOIN torn_stock_strategy_feature_15m f
+               ON f.stocks_id = b.stocks_id
+              AND f.bar_start_time = b.bar_start_time
+              AND f.feature_version = #{featureVersion}
+              AND f.deleted = 0
+        WHERE b.deleted = 0
+          AND b.bar_start_time &gt;= #{startInclusive}
+          AND b.bar_start_time &lt; #{endExclusive}
+          AND b.build_version = #{buildVersion}
+          AND b.usable = true
+          AND f.id IS NULL
+    </select>
+
+    <select id="selectFeatureOrphanCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_strategy_feature_15m f
+        LEFT JOIN torn_stock_market_bar_15m b
+               ON b.stocks_id = f.stocks_id
+              AND b.bar_start_time = f.bar_start_time
+              AND b.build_version = #{buildVersion}
+              AND b.deleted = 0
+        WHERE f.deleted = 0
+          AND f.bar_start_time &gt;= #{startInclusive}
+          AND f.bar_start_time &lt; #{endExclusive}
+          AND f.feature_version = #{featureVersion}
+          AND b.id IS NULL
+    </select>
+
+    <select id="selectStrategyReadyFeatureCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_strategy_feature_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND feature_version = #{featureVersion}
+          AND strategy_ready = true
+    </select>
+
+    <select id="selectNotReadyFeatureReasonCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
+        SELECT COALESCE(data_quality_reason, 'UNKNOWN') AS name,
+               COUNT(*)                                 AS count
+        FROM torn_stock_strategy_feature_15m
+        WHERE deleted = 0
+          AND bar_start_time &gt;= #{startInclusive}
+          AND bar_start_time &lt; #{endExclusive}
+          AND feature_version = #{featureVersion}
+          AND strategy_ready = false
+        GROUP BY data_quality_reason
+        ORDER BY count DESC
+    </select>
+
+    <select id="selectMonthlyStateCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount">
+        SELECT effective_month      AS effectiveMonth,
+               state_status         AS stateStatus,
+               manual_override      AS manualOverride,
+               COUNT(*)             AS count
+        FROM torn_stock_monthly_state
+        WHERE deleted = 0
+          AND effective_month &gt;= DATE_TRUNC('month', #{startInclusive})::date
+          AND effective_month &lt;= DATE_TRUNC('month', #{endExclusive} - INTERVAL '1 microsecond')::date
+        GROUP BY effective_month, state_status, manual_override
+        ORDER BY effective_month, state_status, manual_override
+    </select>
+
+    <select id="selectMonthlyIncompleteReasonCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount">
+        SELECT COALESCE(metric_snapshot->>'incompleteReason', 'UNKNOWN') AS name,
+               COUNT(*) AS count
+        FROM torn_stock_monthly_state
+        WHERE deleted = 0
+          AND effective_month &gt;= DATE_TRUNC('month', #{startInclusive})::date
+          AND effective_month &lt;= DATE_TRUNC('month', #{endExclusive} - INTERVAL '1 microsecond')::date
+          AND state_status = 'DRAFT'
+        GROUP BY metric_snapshot->>'incompleteReason'
+        ORDER BY count DESC
+    </select>
+
+    <select id="selectRoundStatusCounts"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.RoundStatusCount">
+        SELECT round_status AS roundStatus,
+               COUNT(*)     AS count
+        FROM torn_stock_market_round
+        WHERE deleted = 0
+          AND round_time &gt;= #{startInclusive}
+          AND round_time &lt; #{endExclusive}
+        GROUP BY round_status
+        ORDER BY round_status
+    </select>
+
+    <select id="selectRoundVersionMismatchCount" resultType="long">
+        SELECT COUNT(*)
+        FROM torn_stock_market_round
+        WHERE deleted = 0
+          AND round_time &gt;= #{startInclusive}
+          AND round_time &lt; #{endExclusive}
+          AND (bar_build_version IS DISTINCT FROM #{buildVersion}
+               OR feature_version IS DISTINCT FROM #{featureVersion})
+    </select>
+
+    <select id="selectVipStockSettings"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.SettingValue">
+        SELECT setting_key  AS settingKey,
+               setting_value AS settingValue
+        FROM sys_setting
+        WHERE deleted = 0
+          AND setting_key IN (
+              'VIP_STOCK_ALERT_ENABLED',
+              'VIP_STOCK_NEW_ENTRY_ENABLED',
+              'VIP_STOCK_FORMAL_NOTICE_ENABLED',
+              'VIP_STOCK_DAILY_SUMMARY_ENABLED',
+              'VIP_STOCK_RULE_MODE'
+          )
+        ORDER BY setting_key
+    </select>
+</mapper>

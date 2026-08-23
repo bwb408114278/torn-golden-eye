@@ -244,50 +244,23 @@ public class StockDerivedDataRebuildService {
             return 0;
         }
 
-        ArrayDeque<TornStockMarketBar15mDO> window = new ArrayDeque<>();
+        Stock15mFeatureRollingWindow window = new Stock15mFeatureRollingWindow();
         List<TornStockStrategyFeature15mDO> features = new ArrayList<>();
         int featureWrites = 0;
         for (TornStockMarketBar15mDO bar : bars) {
-            if (tryAppendFeature(bar, start, window, features, featureCountByBucket)
-                    && features.size() >= BATCH_SIZE) {
-                featureWrites += flushFeatures(features);
-            }
-            window.addLast(bar);
-            if (window.size() > Stock15mFeatureBuildService.BARS_30D) {
-                window.removeFirst();
+            TornStockStrategyFeature15mDO feature = window.append(bar);
+            if (feature != null && !bar.getBarStartTime().isBefore(start)) {
+                features.add(feature);
+                featureCountByBucket.merge(bar.getBarStartTime(), 1, Integer::sum);
+                if (features.size() >= BATCH_SIZE) {
+                    featureWrites += flushFeatures(features);
+                }
             }
         }
         featureWrites += flushFeatures(features);
         log.info("派生重建-feature股票完成, stockId={}, stockName={}, scanBars={}, featureWrites={}",
                 stock.getId(), stock.getStocksShortname(), bars.size(), featureWrites);
         return featureWrites;
-    }
-
-    /**
-     * 尝试为目标范围内的可用 bar 追加一条 feature；不满足条件时返回 false。
-     *
-     * @param bar                  当前 bar
-     * @param start                重建起始桶（含）
-     * @param window               该股票当前 30 日后向窗口
-     * @param features             feature 累积列表
-     * @param featureCountByBucket 每桶 feature 数映射（累积）
-     * @return 已追加 feature 返回 true
-     */
-    private boolean tryAppendFeature(TornStockMarketBar15mDO bar, LocalDateTime start,
-                                     ArrayDeque<TornStockMarketBar15mDO> window,
-                                     List<TornStockStrategyFeature15mDO> features,
-                                     Map<LocalDateTime, Integer> featureCountByBucket) {
-        if (bar.getBarStartTime().isBefore(start) || !Stock15mBarBuildService.isUsable(bar)) {
-            return false;
-        }
-        TornStockStrategyFeature15mDO feature =
-                Stock15mFeatureCalculator.buildSingleFeature(bar, List.copyOf(window));
-        if (feature == null) {
-            return false;
-        }
-        features.add(feature);
-        featureCountByBucket.merge(bar.getBarStartTime(), 1, Integer::sum);
-        return true;
     }
 
     /**

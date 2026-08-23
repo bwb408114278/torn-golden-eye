@@ -16,7 +16,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Tornsy 股票历史 HTTP 客户端单元测试 - 覆盖 URI 参数、HTTP 非2xx、空 body、解析失败、有限重试与分页
@@ -124,5 +124,19 @@ class TornsyStockHistoryClientTest {
                 .thenReturn(ResponseEntity.ok("not-a-json"));
 
         assertThrows(BizException.class, () -> client.fetchPage("ass", 1786520040L, 1786520100L, 1000));
+    }
+
+    @Test
+    @DisplayName("满页响应_只返回当前页且不发起第二个猜测式请求")
+    void fetchMinuteData_fullPage_doesNotIssueSecondRequest() {
+        String body = "{\"data\": [[1000, \"10.00\", 100], [1060, \"11.00\", 100]]}";
+        when(restClient.get().uri(anyString()).retrieve().toEntity(String.class))
+                .thenReturn(ResponseEntity.ok(body));
+        clearInvocations(restClient);
+
+        List<JsonNode> rows = client.fetchMinuteData("ass", 1000L, 2000L, 2);
+
+        assertEquals(2, rows.size(), "满页只返回当前页");
+        verify(restClient, times(1)).get();
     }
 }

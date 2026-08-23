@@ -9,8 +9,6 @@ import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -43,7 +41,7 @@ public final class Stock15mFeatureCalculator {
     private static final String QUALITY_REASON_NOT_CONSECUTIVE = "HISTORY_NOT_CONSECUTIVE";
 
     /**
-     * 为单支股票构建策略特征。
+     * 为单支股票构建策略特征（纯历史列表入口）。
      *
      * @param currentBar  当前 bar（必须可用）
      * @param historyBars 该股票的历史 bar 列表（不含当前 bar，按时间升序排列）
@@ -51,48 +49,60 @@ public final class Stock15mFeatureCalculator {
      */
     public static TornStockStrategyFeature15mDO buildSingleFeature(TornStockMarketBar15mDO currentBar,
                                                                    List<TornStockMarketBar15mDO> historyBars) {
+        Stock15mFeatureRollingWindow window = new Stock15mFeatureRollingWindow();
+        if (historyBars != null) {
+            for (TornStockMarketBar15mDO historyBar : historyBars) {
+                window.append(historyBar);
+            }
+        }
+        return window.append(currentBar);
+    }
+
+    /**
+     * 为单支股票构建策略特征（滚动窗口入口）。
+     * <p>
+     * 窗口已包含当前 bar 之前的所有应保留历史，调用方须先通过
+     * {@link Stock15mFeatureRollingWindow#append} 将当前 bar 加入窗口。
+     *
+     * @param currentBar 当前 bar（必须可用）
+     * @param window     已追加当前 bar 的滚动窗口
+     * @return 填充完整的特征 DO；当前 bar 不可用时返回 {@code null}
+     */
+    public static TornStockStrategyFeature15mDO buildFeature(TornStockMarketBar15mDO currentBar,
+                                                             Stock15mFeatureRollingWindow window) {
         if (!Stock15mBarBuildService.isUsable(currentBar)) {
             return null;
         }
 
-        List<TornStockMarketBar15mDO> allBars = new ArrayList<>(historyBars);
-        allBars.add(currentBar);
-        allBars.sort(Comparator.comparing(TornStockMarketBar15mDO::getBarStartTime));
-
         BigDecimal referencePrice = currentBar.getLastPrice();
-        List<BigDecimal> prices = allBars.stream()
-                .map(TornStockMarketBar15mDO::getLastPrice)
-                .toList();
-
-        int totalBars = prices.size();
         int barsPerDay = Stock15mFeatureBuildService.BARS_PER_DAY;
         int bars6h = Stock15mFeatureBuildService.BARS_6H;
         int bars7d = Stock15mFeatureBuildService.BARS_7D;
         int bars14d = Stock15mFeatureBuildService.BARS_14D;
         int bars30d = Stock15mFeatureBuildService.BARS_30D;
 
-        BigDecimal ma1d = calculateMa(prices, totalBars, barsPerDay);
-        BigDecimal ma7d = calculateMa(prices, totalBars, bars7d);
-        BigDecimal ma30d = calculateMa(prices, totalBars, bars30d);
+        BigDecimal ma1d = window.calculateMa(barsPerDay);
+        BigDecimal ma7d = window.calculateMa(bars7d);
+        BigDecimal ma30d = window.calculateMa(bars30d);
 
-        BigDecimal zscore1d = calculateZScore(referencePrice, ma1d, prices, totalBars, barsPerDay);
-        BigDecimal zscore7d = calculateZScore(referencePrice, ma7d, prices, totalBars, bars7d);
-        BigDecimal zscore30d = calculateZScore(referencePrice, ma30d, prices, totalBars, bars30d);
+        BigDecimal zscore1d = calculateZScore(referencePrice, ma1d, window.calculateStd(barsPerDay, ma1d));
+        BigDecimal zscore7d = calculateZScore(referencePrice, ma7d, window.calculateStd(bars7d, ma7d));
+        BigDecimal zscore30d = calculateZScore(referencePrice, ma30d, window.calculateStd(bars30d, ma30d));
 
-        BigDecimal return6h = calculateReturn(prices, totalBars, bars6h);
-        BigDecimal return1d = calculateReturn(prices, totalBars, barsPerDay);
-        BigDecimal return7d = calculateReturn(prices, totalBars, bars7d);
-        BigDecimal return14d = calculateReturn(prices, totalBars, bars14d);
+        BigDecimal return6h = window.calculateReturn(bars6h);
+        BigDecimal return1d = window.calculateReturn(barsPerDay);
+        BigDecimal return7d = window.calculateReturn(bars7d);
+        BigDecimal return14d = window.calculateReturn(bars14d);
 
-        BigDecimal low30d = calculateLow(allBars, bars30d);
-        BigDecimal high30d = calculateHigh(allBars, bars30d);
+        BigDecimal low30d = window.low30d();
+        BigDecimal high30d = window.high30d();
         BigDecimal width30d = calculateWidth30(low30d, high30d);
         BigDecimal position30 = calculatePosition30(referencePrice, low30d, high30d);
         BigDecimal pctAbove30dLow = calculatePctAboveLow(referencePrice, low30d);
         BigDecimal pctBelow30dHigh = calculatePctBelowHigh(referencePrice, high30d);
 
-        boolean strategyReady = checkStrategyReady(allBars);
-        String dataQualityReason = strategyReady ? null : resolveDataQualityReason(allBars);
+        boolean strategyReady = window.isStrategyReady();
+        String dataQualityReason = strategyReady ? null : resolveDataQualityReason(window.size());
 
         TornStockStrategyFeature15mDO feature = new TornStockStrategyFeature15mDO();
         feature.setStocksId(currentBar.getStocksId());
@@ -122,117 +132,21 @@ public final class Stock15mFeatureCalculator {
     }
 
     /**
-     * 计算简单移动平均。
-     *
-     * @param prices    按时间升序的价格序列
-     * @param totalBars 当前总 bar 数
-     * @param window    均线窗口
-     * @return 窗口内简单移动平均；历史不足时返回 {@code null}
-     */
-    private static BigDecimal calculateMa(List<BigDecimal> prices, int totalBars, int window) {
-        if (totalBars < window) {
-            return null;
-        }
-        BigDecimal sum = BigDecimal.ZERO;
-        for (int i = totalBars - window; i < totalBars; i++) {
-            sum = sum.add(prices.get(i));
-        }
-        return sum.divide(BigDecimal.valueOf(window), CALC_SCALE, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * 计算窗口内价格标准差。
-     *
-     * @param prices    按时间升序的价格序列
-     * @param totalBars 当前总 bar 数
-     * @param window    统计窗口
-     * @param ma        窗口均线（可为空）
-     * @return 标准差；均线为空或历史不足时返回 {@code null}
-     */
-    private static BigDecimal calculateStd(List<BigDecimal> prices, int totalBars, int window, BigDecimal ma) {
-        if (ma == null || totalBars < window) {
-            return null;
-        }
-        BigDecimal sumSqDiff = BigDecimal.ZERO;
-        for (int i = totalBars - window; i < totalBars; i++) {
-            BigDecimal diff = prices.get(i).subtract(ma);
-            sumSqDiff = sumSqDiff.add(diff.multiply(diff));
-        }
-        BigDecimal variance = sumSqDiff.divide(BigDecimal.valueOf(window), CALC_SCALE, RoundingMode.HALF_UP);
-        return BigDecimal.valueOf(Math.sqrt(variance.doubleValue())).setScale(CALC_SCALE, RoundingMode.HALF_UP);
-    }
-
-    /**
      * 计算 Z-Score。
      *
-     * @param price     当前参考价
-     * @param ma        窗口均线
-     * @param prices    按时间升序的价格序列
-     * @param totalBars 当前总 bar 数
-     * @param window    统计窗口
+     * @param price 当前参考价
+     * @param ma    窗口均线
+     * @param std   窗口标准差
      * @return Z-Score；均线为空时返回 {@code null}，标准差为 0 时返回 0
      */
-    private static BigDecimal calculateZScore(BigDecimal price, BigDecimal ma,
-                                              List<BigDecimal> prices, int totalBars, int window) {
+    private static BigDecimal calculateZScore(BigDecimal price, BigDecimal ma, BigDecimal std) {
         if (ma == null) {
             return null;
         }
-        BigDecimal std = calculateStd(prices, totalBars, window, ma);
         if (std == null || std.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
         }
         return price.subtract(ma).divide(std, CALC_SCALE, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * 计算窗口前至今的涨跌幅。
-     *
-     * @param prices    按时间升序的价格序列
-     * @param totalBars 当前总 bar 数
-     * @param windowAgo 回溯 bar 数
-     * @return 涨跌幅；历史不足或基准价为 0 时返回 {@code null}
-     */
-    private static BigDecimal calculateReturn(List<BigDecimal> prices, int totalBars, int windowAgo) {
-        if (totalBars <= windowAgo) {
-            return null;
-        }
-        BigDecimal pastPrice = prices.get(totalBars - 1 - windowAgo);
-        BigDecimal currentPrice = prices.get(totalBars - 1);
-        if (pastPrice.compareTo(BigDecimal.ZERO) == 0) {
-            return null;
-        }
-        return currentPrice.divide(pastPrice, CALC_SCALE, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.ONE);
-    }
-
-    /**
-     * 计算窗口内最低价。
-     *
-     * @param bars   按时间升序的 bar 列表
-     * @param window 窗口 bar 数
-     * @return 窗口内最低价；列表为空时返回 {@code null}
-     */
-    private static BigDecimal calculateLow(List<TornStockMarketBar15mDO> bars, int window) {
-        int start = Math.max(0, bars.size() - window);
-        return bars.subList(start, bars.size()).stream()
-                .map(TornStockMarketBar15mDO::getLastPrice)
-                .min(BigDecimal::compareTo)
-                .orElse(null);
-    }
-
-    /**
-     * 计算窗口内最高价。
-     *
-     * @param bars   按时间升序的 bar 列表
-     * @param window 窗口 bar 数
-     * @return 窗口内最高价；列表为空时返回 {@code null}
-     */
-    private static BigDecimal calculateHigh(List<TornStockMarketBar15mDO> bars, int window) {
-        int start = Math.max(0, bars.size() - window);
-        return bars.subList(start, bars.size()).stream()
-                .map(TornStockMarketBar15mDO::getLastPrice)
-                .max(BigDecimal::compareTo)
-                .orElse(null);
     }
 
     /**
@@ -301,43 +215,13 @@ public final class Stock15mFeatureCalculator {
     }
 
     /**
-     * 检查 30 日窗口是否连续且历史足够，决定策略是否就绪。
-     *
-     * @param allBars 含当前 bar 的全量按时间升序 bar 列表
-     * @return 策略就绪返回 {@code true}
-     */
-    private static boolean checkStrategyReady(List<TornStockMarketBar15mDO> allBars) {
-        if (allBars.size() < Stock15mFeatureBuildService.BARS_30D) {
-            return false;
-        }
-        List<TornStockMarketBar15mDO> windowBars =
-                allBars.subList(allBars.size() - Stock15mFeatureBuildService.BARS_30D, allBars.size());
-        return isConsecutiveWindow(windowBars);
-    }
-
-    /**
-     * 校验窗口内相邻 bar 是否连续。
-     *
-     * @param bars 按时间升序的窗口 bar 列表
-     * @return 全部相邻连续时返回 {@code true}
-     */
-    private static boolean isConsecutiveWindow(List<TornStockMarketBar15mDO> bars) {
-        for (int i = 1; i < bars.size(); i++) {
-            if (!Stock15mBarBuildService.isConsecutive(bars.get(i - 1), bars.get(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
      * 解析数据质量原因：历史不足或历史不连续。
      *
-     * @param allBars 含当前 bar 的全量按时间升序 bar 列表
+     * @param totalBars 当前窗口总 bar 数
      * @return 质量原因枚举字符串
      */
-    private static String resolveDataQualityReason(List<TornStockMarketBar15mDO> allBars) {
-        if (allBars.size() < Stock15mFeatureBuildService.BARS_30D) {
+    private static String resolveDataQualityReason(int totalBars) {
+        if (totalBars < Stock15mFeatureBuildService.BARS_30D) {
             return QUALITY_REASON_INSUFFICIENT;
         }
         return QUALITY_REASON_NOT_CONSECUTIVE;
