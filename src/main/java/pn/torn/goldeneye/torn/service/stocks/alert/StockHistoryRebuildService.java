@@ -56,7 +56,7 @@ import java.util.stream.Collectors;
  * 不得扩散到回填入口,回填修复的轮次永不进入策略事务。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.07.25
  */
 @Slf4j
@@ -312,15 +312,7 @@ public class StockHistoryRebuildService {
         }
         TornStockMarketRoundDO target = round != null ? round : createRound(bucket, now);
         target.setRoundStatus(StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode());
-        target.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
-        target.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
-        target.setExpectedStockCount(barCount);
-        target.setUsableStockCount(featureCount);
-        if (target.getStartedAt() == null) {
-            target.setStartedAt(now);
-        }
-        target.setCompletedAt(now);
-        roundDao.updateById(target);
+        applyRoundDataCounts(target, barCount, featureCount, now);
         return true;
     }
 
@@ -629,6 +621,22 @@ public class StockHistoryRebuildService {
     private void markRoundReady(TornStockMarketRoundDO round, int expectedStockCount,
                                 int usableStockCount, LocalDateTime now) {
         round.setRoundStatus(StockRoundStatusEnum.READY.getCode());
+        applyRoundDataCounts(round, expectedStockCount, usableStockCount, now);
+    }
+
+    /**
+     * 写入轮次的当前 bar/feature 版本、预期/可用股票数与审计时间并持久化。
+     * <p>
+     * 供 {@code REPAIRED_DATA_ONLY} 与 {@code READY} 两种终态共用，避免版本/计数/时间
+     * 赋值逻辑重复。
+     *
+     * @param round              轮次记录（须已持久化含主键）
+     * @param expectedStockCount 预期股票数（bar 数）
+     * @param usableStockCount   可用股票数（feature 数）
+     * @param now                审计时间
+     */
+    private void applyRoundDataCounts(TornStockMarketRoundDO round, int expectedStockCount,
+                                      int usableStockCount, LocalDateTime now) {
         round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
         round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
         round.setExpectedStockCount(expectedStockCount);

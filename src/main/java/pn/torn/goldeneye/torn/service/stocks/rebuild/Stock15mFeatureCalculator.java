@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.rebuild;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
@@ -24,6 +26,7 @@ import java.util.List;
  * @version 1.4.2
  * @since 2026.08.23
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Stock15mFeatureCalculator {
 
     /**
@@ -38,9 +41,6 @@ public final class Stock15mFeatureCalculator {
      * 质量原因：历史不连续。
      */
     private static final String QUALITY_REASON_NOT_CONSECUTIVE = "HISTORY_NOT_CONSECUTIVE";
-
-    private Stock15mFeatureCalculator() {
-    }
 
     /**
      * 为单支股票构建策略特征。
@@ -121,6 +121,14 @@ public final class Stock15mFeatureCalculator {
         return feature;
     }
 
+    /**
+     * 计算简单移动平均。
+     *
+     * @param prices    按时间升序的价格序列
+     * @param totalBars 当前总 bar 数
+     * @param window    均线窗口
+     * @return 窗口内简单移动平均；历史不足时返回 {@code null}
+     */
     private static BigDecimal calculateMa(List<BigDecimal> prices, int totalBars, int window) {
         if (totalBars < window) {
             return null;
@@ -132,6 +140,15 @@ public final class Stock15mFeatureCalculator {
         return sum.divide(BigDecimal.valueOf(window), CALC_SCALE, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 计算窗口内价格标准差。
+     *
+     * @param prices    按时间升序的价格序列
+     * @param totalBars 当前总 bar 数
+     * @param window    统计窗口
+     * @param ma        窗口均线（可为空）
+     * @return 标准差；均线为空或历史不足时返回 {@code null}
+     */
     private static BigDecimal calculateStd(List<BigDecimal> prices, int totalBars, int window, BigDecimal ma) {
         if (ma == null || totalBars < window) {
             return null;
@@ -145,6 +162,16 @@ public final class Stock15mFeatureCalculator {
         return BigDecimal.valueOf(Math.sqrt(variance.doubleValue())).setScale(CALC_SCALE, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 计算 Z-Score。
+     *
+     * @param price     当前参考价
+     * @param ma        窗口均线
+     * @param prices    按时间升序的价格序列
+     * @param totalBars 当前总 bar 数
+     * @param window    统计窗口
+     * @return Z-Score；均线为空时返回 {@code null}，标准差为 0 时返回 0
+     */
     private static BigDecimal calculateZScore(BigDecimal price, BigDecimal ma,
                                               List<BigDecimal> prices, int totalBars, int window) {
         if (ma == null) {
@@ -157,6 +184,14 @@ public final class Stock15mFeatureCalculator {
         return price.subtract(ma).divide(std, CALC_SCALE, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 计算窗口前至今的涨跌幅。
+     *
+     * @param prices    按时间升序的价格序列
+     * @param totalBars 当前总 bar 数
+     * @param windowAgo 回溯 bar 数
+     * @return 涨跌幅；历史不足或基准价为 0 时返回 {@code null}
+     */
     private static BigDecimal calculateReturn(List<BigDecimal> prices, int totalBars, int windowAgo) {
         if (totalBars <= windowAgo) {
             return null;
@@ -170,6 +205,13 @@ public final class Stock15mFeatureCalculator {
                 .subtract(BigDecimal.ONE);
     }
 
+    /**
+     * 计算窗口内最低价。
+     *
+     * @param bars   按时间升序的 bar 列表
+     * @param window 窗口 bar 数
+     * @return 窗口内最低价；列表为空时返回 {@code null}
+     */
     private static BigDecimal calculateLow(List<TornStockMarketBar15mDO> bars, int window) {
         int start = Math.max(0, bars.size() - window);
         return bars.subList(start, bars.size()).stream()
@@ -178,6 +220,13 @@ public final class Stock15mFeatureCalculator {
                 .orElse(null);
     }
 
+    /**
+     * 计算窗口内最高价。
+     *
+     * @param bars   按时间升序的 bar 列表
+     * @param window 窗口 bar 数
+     * @return 窗口内最高价；列表为空时返回 {@code null}
+     */
     private static BigDecimal calculateHigh(List<TornStockMarketBar15mDO> bars, int window) {
         int start = Math.max(0, bars.size() - window);
         return bars.subList(start, bars.size()).stream()
@@ -186,6 +235,13 @@ public final class Stock15mFeatureCalculator {
                 .orElse(null);
     }
 
+    /**
+     * 计算 30 日振幅宽度。
+     *
+     * @param low30d  30 日最低价
+     * @param high30d 30 日最高价
+     * @return 振幅宽度；基准为 0 或高低价缺失时返回 0
+     */
     private static BigDecimal calculateWidth30(BigDecimal low30d, BigDecimal high30d) {
         if (low30d == null || high30d == null || low30d.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
@@ -194,6 +250,14 @@ public final class Stock15mFeatureCalculator {
                 .divide(low30d, CALC_SCALE, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 计算当前价格在 30 日高低区间中的位置。
+     *
+     * @param currentPrice 当前价格
+     * @param low30d       30 日最低价
+     * @param high30d      30 日最高价
+     * @return 0 到 1 区间位置；数据缺失或区间为 0 时返回 {@code null}
+     */
     private static BigDecimal calculatePosition30(BigDecimal currentPrice, BigDecimal low30d, BigDecimal high30d) {
         if (currentPrice == null || low30d == null || high30d == null) {
             return null;
@@ -206,6 +270,13 @@ public final class Stock15mFeatureCalculator {
                 .divide(range, CALC_SCALE, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 计算当前价格相对 30 日最低价的涨幅。
+     *
+     * @param currentPrice 当前价格
+     * @param low30d       30 日最低价
+     * @return 相对最低价涨幅；数据缺失或基准为 0 时返回 0
+     */
     private static BigDecimal calculatePctAboveLow(BigDecimal currentPrice, BigDecimal low30d) {
         if (currentPrice == null || low30d == null || low30d.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
@@ -214,6 +285,13 @@ public final class Stock15mFeatureCalculator {
                 .subtract(BigDecimal.ONE);
     }
 
+    /**
+     * 计算当前价格相对 30 日最高价的跌幅（正数表示低于最高价的幅度）。
+     *
+     * @param currentPrice 当前价格
+     * @param high30d      30 日最高价
+     * @return 相对最高价跌幅；数据缺失或基准为 0 时返回 0
+     */
     private static BigDecimal calculatePctBelowHigh(BigDecimal currentPrice, BigDecimal high30d) {
         if (currentPrice == null || high30d == null || high30d.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
@@ -222,6 +300,12 @@ public final class Stock15mFeatureCalculator {
                 .subtract(BigDecimal.ONE);
     }
 
+    /**
+     * 检查 30 日窗口是否连续且历史足够，决定策略是否就绪。
+     *
+     * @param allBars 含当前 bar 的全量按时间升序 bar 列表
+     * @return 策略就绪返回 {@code true}
+     */
     private static boolean checkStrategyReady(List<TornStockMarketBar15mDO> allBars) {
         if (allBars.size() < Stock15mFeatureBuildService.BARS_30D) {
             return false;
@@ -231,6 +315,12 @@ public final class Stock15mFeatureCalculator {
         return isConsecutiveWindow(windowBars);
     }
 
+    /**
+     * 校验窗口内相邻 bar 是否连续。
+     *
+     * @param bars 按时间升序的窗口 bar 列表
+     * @return 全部相邻连续时返回 {@code true}
+     */
     private static boolean isConsecutiveWindow(List<TornStockMarketBar15mDO> bars) {
         for (int i = 1; i < bars.size(); i++) {
             if (!Stock15mBarBuildService.isConsecutive(bars.get(i - 1), bars.get(i))) {
@@ -240,6 +330,12 @@ public final class Stock15mFeatureCalculator {
         return true;
     }
 
+    /**
+     * 解析数据质量原因：历史不足或历史不连续。
+     *
+     * @param allBars 含当前 bar 的全量按时间升序 bar 列表
+     * @return 质量原因枚举字符串
+     */
     private static String resolveDataQualityReason(List<TornStockMarketBar15mDO> allBars) {
         if (allBars.size() < Stock15mFeatureBuildService.BARS_30D) {
             return QUALITY_REASON_INSUFFICIENT;

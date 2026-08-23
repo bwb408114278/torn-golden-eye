@@ -22,14 +22,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -93,40 +86,26 @@ public class StockDerivedDataRebuildService {
         Set<LocalDateTime> actualBuckets = new TreeSet<>();
         Map<LocalDateTime, Integer> barCountByBucket = new HashMap<>();
         Map<LocalDateTime, Integer> featureCountByBucket = new HashMap<>();
-        int barWrites = 0;
-        int featureWrites = 0;
+        RebuildProgress progress = new RebuildProgress(stocks.size(), 0, 0, 0);
 
         try {
             // 4.2 bar 批处理：按自然日分片
-            LocalDateTime dayStart = start;
-            while (dayStart.isBefore(end)) {
-                LocalDateTime dayEnd = dayStart.plusDays(1);
-                if (dayEnd.isAfter(end)) {
-                    dayEnd = end;
-                }
-                try {
-                    DayBarResult dayResult = rebuildDayBars(dayStart, dayEnd, actualBuckets, barCountByBucket);
-                    barWrites += dayResult.barWrites();
-                } catch (Exception e) {
-                    log.error("派生重建-bar日分片失败, dayStart={}, dayEnd={}: {}", dayStart, dayEnd, e.getMessage(), e);
-                    return failureWithProgress(start, end, stocks.size(), actualBuckets.size(), barWrites,
-                            featureWrites, dayStart, dayEnd, e.getMessage(), startNanos);
-                }
-                dayStart = dayEnd;
+            RebuildStepOutcome barOutcome = rebuildAllDayBars(start, end, actualBuckets, barCountByBucket);
+            if (!barOutcome.success()) {
+                return failureWithProgress(start, end,
+                        progress.withProcessed(actualBuckets.size()),
+                        barOutcome.failedStart(), barOutcome.failedEnd(), barOutcome.error(), startNanos);
             }
+            progress = progress.withBarWrites(barOutcome.writes());
 
             // 4.3 feature 顺序批处理：每支股票扫描一次
-            for (TornStocksDO stock : stocks) {
-                try {
-                    featureWrites += rebuildStockFeatures(stock, start, end, featureCountByBucket);
-                } catch (Exception e) {
-                    log.error("派生重建-feature股票处理失败, stockId={}, stockName={}: {}",
-                            stock.getId(), stock.getStocksShortname(), e.getMessage(), e);
-                    return failureWithProgress(start, end, stocks.size(), actualBuckets.size(), barWrites,
-                            featureWrites, start, end, "股票[" + stock.getStocksShortname() + "]特征处理失败: " + e.getMessage(),
-                            startNanos);
-                }
+            RebuildStepOutcome featureOutcome = rebuildAllStockFeatures(stocks, start, end, featureCountByBucket);
+            if (!featureOutcome.success()) {
+                return failureWithProgress(start, end,
+                        progress.withProcessed(actualBuckets.size()),
+                        featureOutcome.failedStart(), featureOutcome.failedEnd(), featureOutcome.error(), startNanos);
             }
+            progress = progress.withFeatureWrites(featureOutcome.writes());
 
             // 4.5 数据修复 round：仅实际存在分钟事实的桶
             int dataOnlyRounds = markRoundsDataRepaired(actualBuckets, barCountByBucket, featureCountByBucket);
@@ -137,15 +116,82 @@ public class StockDerivedDataRebuildService {
             long elapsedMillis = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
             long skippedEmpty = bucketCount(start, end) - actualBuckets.size();
             return new StockDerivedDataRebuildResult(
-                    start, end, stocks.size(), actualBuckets.size(), barWrites, featureWrites,
-                    dataOnlyRounds, (int) Math.max(0L, skippedEmpty), elapsedMillis, null, null, null);
+                    start, end, progress.stockCount(), actualBuckets.size(), progress.barWrites(),
+                    progress.featureWrites(), dataOnlyRounds, (int) Math.max(0L, skippedEmpty),
+                    elapsedMillis, null, null, null);
         } catch (Exception e) {
             log.error("派生重建-未预期异常, start={}, end={}: {}", start, end, e.getMessage(), e);
-            return failureWithProgress(start, end, stocks.size(), actualBuckets.size(), barWrites,
-                    featureWrites, start, end, e.getMessage(), startNanos);
+            return failureWithProgress(start, end, progress.withProcessed(actualBuckets.size()),
+                    start, end, e.getMessage(), startNanos);
         }
     }
 
+    /**
+     * 按自然日分片重建全部 bar，单日失败时返回带失败分片的结果。
+     *
+     * @param start            起始桶（含）
+     * @param end              结束桶（不含）
+     * @param actualBuckets    实际出现分钟事实的桶集合（累积）
+     * @param barCountByBucket 每桶 bar 数映射（累积）
+     * @return bar 分片结果；成功时包含 bar 写入总数，失败时包含失败分片
+     */
+    private RebuildStepOutcome rebuildAllDayBars(LocalDateTime start, LocalDateTime end,
+                                                 Set<LocalDateTime> actualBuckets,
+                                                 Map<LocalDateTime, Integer> barCountByBucket) {
+        int barWrites = 0;
+        LocalDateTime dayStart = start;
+        while (dayStart.isBefore(end)) {
+            LocalDateTime dayEnd = dayStart.plusDays(1);
+            if (dayEnd.isAfter(end)) {
+                dayEnd = end;
+            }
+            try {
+                DayBarResult dayResult = rebuildDayBars(dayStart, dayEnd, actualBuckets, barCountByBucket);
+                barWrites += dayResult.barWrites();
+            } catch (Exception e) {
+                log.error("派生重建-bar日分片失败, dayStart={}, dayEnd={}: {}", dayStart, dayEnd, e.getMessage(), e);
+                return RebuildStepOutcome.failure(dayStart, dayEnd, e.getMessage());
+            }
+            dayStart = dayEnd;
+        }
+        return RebuildStepOutcome.success(barWrites);
+    }
+
+    /**
+     * 按股票顺序重建全部股票 feature，单股票失败时返回带失败分片的结果。
+     *
+     * @param stocks               有效股票清单
+     * @param start                起始桶（含）
+     * @param end                  结束桶（不含）
+     * @param featureCountByBucket 每桶 feature 数映射（累积）
+     * @return feature 分片结果；成功时包含 feature 写入总数，失败时包含失败范围与原因
+     */
+    private RebuildStepOutcome rebuildAllStockFeatures(List<TornStocksDO> stocks, LocalDateTime start,
+                                                       LocalDateTime end,
+                                                       Map<LocalDateTime, Integer> featureCountByBucket) {
+        int featureWrites = 0;
+        for (TornStocksDO stock : stocks) {
+            try {
+                featureWrites += rebuildStockFeatures(stock, start, end, featureCountByBucket);
+            } catch (Exception e) {
+                log.error("派生重建-feature股票处理失败, stockId={}, stockName={}: {}",
+                        stock.getId(), stock.getStocksShortname(), e.getMessage(), e);
+                return RebuildStepOutcome.failure(start, end,
+                        "股票[" + stock.getStocksShortname() + "]特征处理失败: " + e.getMessage());
+            }
+        }
+        return RebuildStepOutcome.success(featureWrites);
+    }
+
+    /**
+     * 重建单个自然日内全部 bar。
+     *
+     * @param dayStart         自然日开始（含）
+     * @param dayEnd           自然日结束（不含）
+     * @param actualBuckets    实际出现分钟事实的桶集合（累积）
+     * @param barCountByBucket 每桶 bar 数映射（累积）
+     * @return 该日 bar 写入数
+     */
     private DayBarResult rebuildDayBars(LocalDateTime dayStart, LocalDateTime dayEnd,
                                         Set<LocalDateTime> actualBuckets,
                                         Map<LocalDateTime, Integer> barCountByBucket) {
@@ -180,6 +226,15 @@ public class StockDerivedDataRebuildService {
         return new DayBarResult(bars.size());
     }
 
+    /**
+     * 重建单支股票在目标范围内的 feature。
+     *
+     * @param stock                股票
+     * @param start                起始桶（含）
+     * @param end                  结束桶（不含）
+     * @param featureCountByBucket 每桶 feature 数映射（累积）
+     * @return 该股票 feature 写入数
+     */
     private int rebuildStockFeatures(TornStocksDO stock, LocalDateTime start, LocalDateTime end,
                                      Map<LocalDateTime, Integer> featureCountByBucket) {
         LocalDateTime scanStart = start.minusDays(FEATURE_WARMUP_DAYS);
@@ -193,18 +248,9 @@ public class StockDerivedDataRebuildService {
         List<TornStockStrategyFeature15mDO> features = new ArrayList<>();
         int featureWrites = 0;
         for (TornStockMarketBar15mDO bar : bars) {
-            if (!bar.getBarStartTime().isBefore(start)) {
-                if (Stock15mBarBuildService.isUsable(bar)) {
-                    TornStockStrategyFeature15mDO feature =
-                            Stock15mFeatureCalculator.buildSingleFeature(bar, List.copyOf(window));
-                    if (feature != null) {
-                        features.add(feature);
-                        featureCountByBucket.merge(bar.getBarStartTime(), 1, Integer::sum);
-                        if (features.size() >= BATCH_SIZE) {
-                            featureWrites += flushFeatures(features);
-                        }
-                    }
-                }
+            if (tryAppendFeature(bar, start, window, features, featureCountByBucket)
+                    && features.size() >= BATCH_SIZE) {
+                featureWrites += flushFeatures(features);
             }
             window.addLast(bar);
             if (window.size() > Stock15mFeatureBuildService.BARS_30D) {
@@ -217,6 +263,39 @@ public class StockDerivedDataRebuildService {
         return featureWrites;
     }
 
+    /**
+     * 尝试为目标范围内的可用 bar 追加一条 feature；不满足条件时返回 false。
+     *
+     * @param bar                  当前 bar
+     * @param start                重建起始桶（含）
+     * @param window               该股票当前 30 日后向窗口
+     * @param features             feature 累积列表
+     * @param featureCountByBucket 每桶 feature 数映射（累积）
+     * @return 已追加 feature 返回 true
+     */
+    private boolean tryAppendFeature(TornStockMarketBar15mDO bar, LocalDateTime start,
+                                     ArrayDeque<TornStockMarketBar15mDO> window,
+                                     List<TornStockStrategyFeature15mDO> features,
+                                     Map<LocalDateTime, Integer> featureCountByBucket) {
+        if (bar.getBarStartTime().isBefore(start) || !Stock15mBarBuildService.isUsable(bar)) {
+            return false;
+        }
+        TornStockStrategyFeature15mDO feature =
+                Stock15mFeatureCalculator.buildSingleFeature(bar, List.copyOf(window));
+        if (feature == null) {
+            return false;
+        }
+        features.add(feature);
+        featureCountByBucket.merge(bar.getBarStartTime(), 1, Integer::sum);
+        return true;
+    }
+
+    /**
+     * 将累积 feature 列表按批写出并清空。
+     *
+     * @param features 待写出 feature 列表（会清空）
+     * @return 本次写出的 feature 条数
+     */
     private int flushFeatures(List<TornStockStrategyFeature15mDO> features) {
         if (features.isEmpty()) {
             return 0;
@@ -227,6 +306,11 @@ public class StockDerivedDataRebuildService {
         return batch.size();
     }
 
+    /**
+     * 将 bar 列表按固定批次 UPSERT。
+     *
+     * @param bars 待写入 bar 列表
+     */
     private void upsertBarsInBatches(List<TornStockMarketBar15mDO> bars) {
         for (int i = 0; i < bars.size(); i += BATCH_SIZE) {
             List<TornStockMarketBar15mDO> batch = bars.subList(i, Math.min(i + BATCH_SIZE, bars.size()));
@@ -234,6 +318,16 @@ public class StockDerivedDataRebuildService {
         }
     }
 
+    /**
+     * 将实际存在分钟事实的桶标记为 {@code REPAIRED_DATA_ONLY}。
+     * <p>
+     * 已处于 {@code COMPLETED} 或 {@code FAILED_FINAL} 的桶保留原终态，不降级。
+     *
+     * @param buckets              实际分钟桶集合
+     * @param barCountByBucket     每桶 bar 数
+     * @param featureCountByBucket 每桶 feature 数
+     * @return 本次写入数据修复轮次数
+     */
     private int markRoundsDataRepaired(Set<LocalDateTime> buckets,
                                        Map<LocalDateTime, Integer> barCountByBucket,
                                        Map<LocalDateTime, Integer> featureCountByBucket) {
@@ -263,6 +357,13 @@ public class StockDerivedDataRebuildService {
         return count;
     }
 
+    /**
+     * 幂等创建数据修复轮次并返回持久化记录。
+     *
+     * @param bucket 桶开始时间
+     * @param now    审计时间
+     * @return 已持久化的轮次记录
+     */
     private TornStockMarketRoundDO createDataRepairRound(LocalDateTime bucket, LocalDateTime now) {
         TornStockMarketRoundDO round = roundFactory.createRound(bucket, StockRoundStatusEnum.PENDING.getCode());
         round.setStartedAt(now);
@@ -274,21 +375,50 @@ public class StockDerivedDataRebuildService {
         return persisted;
     }
 
+    /**
+     * 计算范围内的 15 分钟桶总数。
+     *
+     * @param start 起始桶（含）
+     * @param end   结束桶（不含）
+     * @return 桶总数
+     */
     private long bucketCount(LocalDateTime start, LocalDateTime end) {
         return Duration.between(start, end).toMinutes() / Stock15mBarBuildService.BUCKET_MINUTES;
     }
 
+    /**
+     * 构造带已有进度的失败结果。
+     *
+     * @param start       起始桶（含）
+     * @param end         结束桶（不含）
+     * @param progress    当前已处理进度
+     * @param failedStart 失败分片起始（含）
+     * @param failedEnd   失败分片结束（不含）
+     * @param error       错误摘要
+     * @param startNanos  开始纳秒时间
+     * @return 失败重建结果
+     */
     private StockDerivedDataRebuildResult failureWithProgress(LocalDateTime start, LocalDateTime end,
-                                                              int stockCount, int processedBucketCount,
-                                                              int barWrites, int featureWrites,
+                                                              RebuildProgress progress,
                                                               LocalDateTime failedStart, LocalDateTime failedEnd,
                                                               String error, long startNanos) {
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-        return new StockDerivedDataRebuildResult(start, end, stockCount, processedBucketCount, barWrites,
-                featureWrites, 0, Math.max(0, (int) (bucketCount(start, end) - processedBucketCount)),
+        return new StockDerivedDataRebuildResult(start, end, progress.stockCount(),
+                progress.processedBucketCount(), progress.barWrites(), progress.featureWrites(),
+                0, Math.max(0, (int) (bucketCount(start, end) - progress.processedBucketCount())),
                 elapsedMillis, failedStart, failedEnd, error);
     }
 
+    /**
+     * 构造尚未开始时即失败的简要结果。
+     *
+     * @param start       起始桶（含）
+     * @param end         结束桶（不含）
+     * @param failedStart 失败分片起始（含）
+     * @param failedEnd   失败分片结束（不含）
+     * @param error       错误摘要
+     * @return 失败重建结果
+     */
     private StockDerivedDataRebuildResult failure(LocalDateTime start, LocalDateTime end,
                                                   LocalDateTime failedStart, LocalDateTime failedEnd,
                                                   String error) {
@@ -297,9 +427,82 @@ public class StockDerivedDataRebuildService {
                 failedStart, failedEnd, error);
     }
 
-    private record BucketKey(Integer stocksId, LocalDateTime bucketStart) {
+    /**
+     * 重建进度快照。
+     *
+     * @param stockCount           有效股票数
+     * @param processedBucketCount 已处理桶数
+     * @param barWrites            bar 写入数
+     * @param featureWrites        feature 写入数
+     */
+    private record RebuildProgress(int stockCount, int processedBucketCount, int barWrites, int featureWrites) {
+        /**
+         * 更新已处理桶数。
+         *
+         * @param processedBucketCount 已处理桶数
+         * @return 新进度快照
+         */
+        RebuildProgress withProcessed(int processedBucketCount) {
+            return new RebuildProgress(stockCount, processedBucketCount, barWrites, featureWrites);
+        }
+
+        /**
+         * 更新 bar 写入数。
+         *
+         * @param barWrites bar 写入数
+         * @return 新进度快照
+         */
+        RebuildProgress withBarWrites(int barWrites) {
+            return new RebuildProgress(stockCount, processedBucketCount, barWrites, featureWrites);
+        }
+
+        /**
+         * 更新 feature 写入数。
+         *
+         * @param featureWrites feature 写入数
+         * @return 新进度快照
+         */
+        RebuildProgress withFeatureWrites(int featureWrites) {
+            return new RebuildProgress(stockCount, processedBucketCount, barWrites, featureWrites);
+        }
     }
 
-    private record DayBarResult(int barWrites) {
+    /**
+     * 单步重建结果：成功时携带写入数，失败时携带失败分片与错误摘要。
+     */
+    private record RebuildStepOutcome(boolean success, int writes,
+                                      LocalDateTime failedStart, LocalDateTime failedEnd, String error) {
+        /**
+         * 构造成功结果。
+         *
+         * @param writes 写入数
+         * @return 成功结果
+         */
+        static RebuildStepOutcome success(int writes) {
+            return new RebuildStepOutcome(true, writes, null, null, null);
+        }
+
+        /**
+         * 构造失败结果。
+         *
+         * @param failedStart 失败分片起始（含）
+         * @param failedEnd   失败分片结束（不含）
+         * @param error       错误摘要
+         * @return 失败结果
+         */
+        static RebuildStepOutcome failure(LocalDateTime failedStart, LocalDateTime failedEnd, String error) {
+            return new RebuildStepOutcome(false, 0, failedStart, failedEnd, error);
+        }
+    }
+
+    private record BucketKey(
+            Integer stocksId,
+            LocalDateTime bucketStart
+    ) {
+    }
+
+    private record DayBarResult(
+            int barWrites
+    ) {
     }
 }

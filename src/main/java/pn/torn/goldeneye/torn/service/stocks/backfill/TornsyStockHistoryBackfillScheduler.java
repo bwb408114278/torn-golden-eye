@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  * 专用执行器 Runnable 内执行，调度线程只做缺口聚合查询、状态判断与任务投递。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.2
  * @since 2026.08.13
  */
 @Slf4j
@@ -274,6 +274,7 @@ public class TornsyStockHistoryBackfillScheduler {
                                       TornsyStockHistoryBackfillService.BackfillSummary summary, long elapsed) {
         return "【Tornsy股票历史回填失败】\n"
                 + "范围：[" + start + ", " + end + ")\n"
+                + "耗时：" + elapsed + "ms\n"
                 + "已完成分片：" + (summary.failedSlices()) + "个失败\n"
                 + "实际插入：" + summary.insertedRows() + "\n"
                 + "受影响桶数：" + summary.affectedBucketCount() + "\n"

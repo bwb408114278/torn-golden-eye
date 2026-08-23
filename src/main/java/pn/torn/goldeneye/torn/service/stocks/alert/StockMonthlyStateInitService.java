@@ -74,6 +74,7 @@ public class StockMonthlyStateInitService {
      *
      * @return 本次初始化实际新建的草稿记录数量;全部股票已有有效状态时返回0
      */
+    @Transactional
     public int initCurrentMonth() {
         return initMonth(marketClock.today().withDayOfMonth(1));
     }
@@ -147,6 +148,7 @@ public class StockMonthlyStateInitService {
      *
      * @return 本次实际更新的DRAFT记录数量
      */
+    @Transactional
     public int recalculateCurrentMonthDrafts() {
         return recalculateMonthDrafts(marketClock.today().withDayOfMonth(1));
     }

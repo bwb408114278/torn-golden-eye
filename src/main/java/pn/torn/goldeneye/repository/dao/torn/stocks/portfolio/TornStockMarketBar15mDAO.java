@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟K线(bar)持久层类
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.2
  * @since 2026.07.24
  */
 @Repository
@@ -70,15 +70,6 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
     public List<TornStockMarketBar15mDO> selectLatestUsableByStocks(
             List<Integer> stocksIds, LocalDateTime cutoffTime, LocalDateTime minBarEndTime, String buildVersion) {
         return baseMapper.selectLatestUsableByStocks(stocksIds, cutoffTime, minBarEndTime, buildVersion);
-    }
-
-    /**
-     * 按唯一键执行UPSERT,支持幂等重试
-     *
-     * @param bar 待插入或更新的bar
-     */
-    public void upsertBar(TornStockMarketBar15mDO bar) {
-        baseMapper.upsertBar(bar);
     }
 
     /**

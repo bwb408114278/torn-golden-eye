@@ -13,12 +13,15 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 /**
  * 月度状态范围重算服务单元测试。
+ *
+ * @author Bai
+ * @version 1.4.2
+ * @since 2026.08.13
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("月度状态范围重算服务测试")
@@ -33,15 +36,15 @@ class StockMonthlyStateRangeRebuildServiceTest {
     @Test
     @DisplayName("跨月范围_按月份升序依次初始化/重算/自动确认")
     void rebuild_crossMonth_callsMonthsInOrder() {
-        when(monthlyStateInitService.initMonth(eq(LocalDate.of(2026, 1, 1)))).thenReturn(1);
-        when(monthlyStateInitService.recalculateMonthDrafts(eq(LocalDate.of(2026, 1, 1)))).thenReturn(1);
-        when(monthlyStateInitService.autoConfirmDraftStates(eq(LocalDate.of(2026, 1, 1)))).thenReturn(1);
-        when(monthlyStateInitService.initMonth(eq(LocalDate.of(2026, 2, 1)))).thenReturn(0);
-        when(monthlyStateInitService.recalculateMonthDrafts(eq(LocalDate.of(2026, 2, 1)))).thenReturn(0);
-        when(monthlyStateInitService.autoConfirmDraftStates(eq(LocalDate.of(2026, 2, 1)))).thenReturn(0);
-        when(monthlyStateInitService.initMonth(eq(LocalDate.of(2026, 3, 1)))).thenReturn(0);
-        when(monthlyStateInitService.recalculateMonthDrafts(eq(LocalDate.of(2026, 3, 1)))).thenReturn(0);
-        when(monthlyStateInitService.autoConfirmDraftStates(eq(LocalDate.of(2026, 3, 1)))).thenReturn(0);
+        when(monthlyStateInitService.initMonth(LocalDate.of(2026, 1, 1))).thenReturn(1);
+        when(monthlyStateInitService.recalculateMonthDrafts(LocalDate.of(2026, 1, 1))).thenReturn(1);
+        when(monthlyStateInitService.autoConfirmDraftStates(LocalDate.of(2026, 1, 1))).thenReturn(1);
+        when(monthlyStateInitService.initMonth(LocalDate.of(2026, 2, 1))).thenReturn(0);
+        when(monthlyStateInitService.recalculateMonthDrafts(LocalDate.of(2026, 2, 1))).thenReturn(0);
+        when(monthlyStateInitService.autoConfirmDraftStates(LocalDate.of(2026, 2, 1))).thenReturn(0);
+        when(monthlyStateInitService.initMonth(LocalDate.of(2026, 3, 1))).thenReturn(0);
+        when(monthlyStateInitService.recalculateMonthDrafts(LocalDate.of(2026, 3, 1))).thenReturn(0);
+        when(monthlyStateInitService.autoConfirmDraftStates(LocalDate.of(2026, 3, 1))).thenReturn(0);
 
         int total = service.rebuild(
                 LocalDateTime.of(2026, 1, 15, 0, 0),

@@ -51,6 +51,12 @@ public class StockDataReadinessReportWriter {
         return jsonTarget;
     }
 
+    /**
+     * 将报告模型转换为可序列化 Map，时间字段转为字符串以避免 LocalDateTime 序列化差异。
+     *
+     * @param report 就绪报告模型
+     * @return JSON 输出用的有序 Map
+     */
     private java.util.Map<String, Object> toMap(StockDataReadinessReport report) {
         return java.util.Map.ofEntries(
                 java.util.Map.entry("runId", report.runId()),
@@ -70,6 +76,13 @@ public class StockDataReadinessReportWriter {
                 java.util.Map.entry("manifestHash", report.manifestHash()));
     }
 
+    /**
+     * 使用临时文件 + 原子改名写出文本内容，避免半成品文件被读取。
+     *
+     * @param target  目标文件路径
+     * @param content 文件内容
+     * @throws IOException 文件写出或移动失败时抛出
+     */
     private void writeAtomically(Path target, String content) throws IOException {
         Path temp = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(temp, content, StandardCharsets.UTF_8);
@@ -80,10 +93,16 @@ public class StockDataReadinessReportWriter {
         }
     }
 
+    /**
+     * 构建 Markdown 人工可读报告。
+     *
+     * @param report 就绪报告模型
+     * @return Markdown 文本
+     */
     private String buildMarkdown(StockDataReadinessReport report) {
         return """
                 # VIP 股票数据就绪报告
-
+                
                 - runId: %s
                 - 生成时刻: %s
                 - 范围: [%s, %s)

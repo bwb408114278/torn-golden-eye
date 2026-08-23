@@ -163,12 +163,13 @@ public class StockDerivedDataRebuildScheduler {
         return """
                 【VIP股票派生数据重建失败】
                 范围：[%s, %s)
+                耗时：%dms
                 已完成分片：%d
                 失败分片：[%s, %s)
                 错误摘要：%s
                 可使用相同范围重新提交；已写入部分保持幂等。
                 """.formatted(
-                result.startInclusive(), result.endExclusive(),
+                result.startInclusive(), result.endExclusive(), result.elapsedMillis(),
                 result.processedBucketCount(),
                 result.failedSliceStart() == null ? "未知" : result.failedSliceStart(),
                 result.failedSliceEnd() == null ? "未知" : result.failedSliceEnd(),
@@ -179,11 +180,12 @@ public class StockDerivedDataRebuildScheduler {
         return """
                 【VIP股票派生数据重建失败】
                 范围：[%s, %s)
+                耗时：%dms
                 已完成分片：0
                 失败分片：[%s, %s)
                 错误摘要：%s
                 可使用相同范围重新提交；已写入部分保持幂等。
-                """.formatted(start, end, start, end, error == null ? "未知异常" : error);
+                """.formatted(start, end, elapsed, start, end, error == null ? "未知异常" : error);
     }
 
     private void sendReceipt(long groupId, String text) {
