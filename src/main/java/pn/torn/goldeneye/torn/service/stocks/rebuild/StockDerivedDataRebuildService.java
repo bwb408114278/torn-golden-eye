@@ -15,15 +15,16 @@ import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundFactory;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
 
 /**
  * 全范围 VIP 股票派生数据重建服务。
@@ -239,7 +240,7 @@ public class StockDerivedDataRebuildService {
                                      Map<LocalDateTime, Integer> featureCountByBucket) {
         LocalDateTime scanStart = start.minusDays(FEATURE_WARMUP_DAYS);
         List<TornStockMarketBar15mDO> bars = bar15mDao.selectByStockAndTimeRange(
-                stock.getId(), scanStart, end.minusNanos(1), Stock15mBarBuildService.BUILD_VERSION);
+                stock.getId(), scanStart, end, Stock15mBarBuildService.BUILD_VERSION);
         if (CollectionUtils.isEmpty(bars)) {
             return 0;
         }
@@ -248,12 +249,15 @@ public class StockDerivedDataRebuildService {
         List<TornStockStrategyFeature15mDO> features = new ArrayList<>();
         int featureWrites = 0;
         for (TornStockMarketBar15mDO bar : bars) {
-            TornStockStrategyFeature15mDO feature = window.append(bar);
-            if (feature != null && !bar.getBarStartTime().isBefore(start)) {
-                features.add(feature);
-                featureCountByBucket.merge(bar.getBarStartTime(), 1, Integer::sum);
-                if (features.size() >= BATCH_SIZE) {
-                    featureWrites += flushFeatures(features);
+            window.advance(bar);
+            if (!bar.getBarStartTime().isBefore(start) && Stock15mBarBuildService.isUsable(bar)) {
+                TornStockStrategyFeature15mDO feature = window.materializeCurrent();
+                if (feature != null) {
+                    features.add(feature);
+                    featureCountByBucket.merge(bar.getBarStartTime(), 1, Integer::sum);
+                    if (features.size() >= BATCH_SIZE) {
+                        featureWrites += flushFeatures(features);
+                    }
                 }
             }
         }
@@ -292,60 +296,40 @@ public class StockDerivedDataRebuildService {
     }
 
     /**
-     * 将实际存在分钟事实的桶标记为 {@code REPAIRED_DATA_ONLY}。
+     * 将实际存在分钟事实的桶批量标记为 {@code REPAIRED_DATA_ONLY}。
      * <p>
-     * 已处于 {@code COMPLETED} 或 {@code FAILED_FINAL} 的桶保留原终态，不降级。
+     * 使用最多 500 条一批的多值 INSERT ... ON CONFLICT UPSERT，不在循环中执行
+     * select/insert/update。已处于 {@code COMPLETED} 或 {@code FAILED_FINAL} 的桶由 SQL
+     * WHERE 条件保留原终态，不降级、不计入受影响行数。
      *
      * @param buckets              实际分钟桶集合
      * @param barCountByBucket     每桶 bar 数
      * @param featureCountByBucket 每桶 feature 数
-     * @return 本次写入数据修复轮次数
+     * @return 本次实际受影响的数据修复轮次数
      */
     private int markRoundsDataRepaired(Set<LocalDateTime> buckets,
                                        Map<LocalDateTime, Integer> barCountByBucket,
                                        Map<LocalDateTime, Integer> featureCountByBucket) {
         LocalDateTime now = marketClock.now();
-        int count = 0;
+        List<TornStockMarketRoundDO> rounds = new ArrayList<>(buckets.size());
         for (LocalDateTime bucket : buckets) {
-            TornStockMarketRoundDO round = roundDao.selectByRoundTime(bucket);
-            if (round != null && (StockRoundStatusEnum.COMPLETED.getCode().equals(round.getRoundStatus())
-                    || StockRoundStatusEnum.FAILED_FINAL.getCode().equals(round.getRoundStatus()))) {
-                log.info("派生重建-round保留原终态, bucket={}, status={}", bucket, round.getRoundStatus());
-                continue;
-            }
-            TornStockMarketRoundDO target = round != null ? round : createDataRepairRound(bucket, now);
-            target.setRoundStatus(StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode());
-            target.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
-            target.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
-            target.setExpectedStockCount(barCountByBucket.getOrDefault(bucket, 0));
-            target.setUsableStockCount(featureCountByBucket.getOrDefault(bucket, 0));
-            if (target.getStartedAt() == null) {
-                target.setStartedAt(now);
-            }
-            target.setCompletedAt(now);
-            roundDao.updateById(target);
-            count++;
+            TornStockMarketRoundDO round = roundFactory.createRound(
+                    bucket, StockRoundStatusEnum.REPAIRED_DATA_ONLY.getCode());
+            round.setBarBuildVersion(Stock15mBarBuildService.BUILD_VERSION);
+            round.setFeatureVersion(Stock15mFeatureBuildService.FEATURE_VERSION);
+            round.setExpectedStockCount(barCountByBucket.getOrDefault(bucket, 0));
+            round.setUsableStockCount(featureCountByBucket.getOrDefault(bucket, 0));
+            round.setStartedAt(now);
+            round.setCompletedAt(now);
+            rounds.add(round);
         }
-        log.info("派生重建-round标记完成, actualBuckets={}, dataOnlyRoundCount={}", buckets.size(), count);
+        int count = 0;
+        for (int i = 0; i < rounds.size(); i += BATCH_SIZE) {
+            List<TornStockMarketRoundDO> batch = rounds.subList(i, Math.min(i + BATCH_SIZE, rounds.size()));
+            count += roundDao.upsertRepairedDataOnlyRounds(batch);
+        }
+        log.info("派生重建-round批量标记完成, actualBuckets={}, affectedRoundCount={}", buckets.size(), count);
         return count;
-    }
-
-    /**
-     * 幂等创建数据修复轮次并返回持久化记录。
-     *
-     * @param bucket 桶开始时间
-     * @param now    审计时间
-     * @return 已持久化的轮次记录
-     */
-    private TornStockMarketRoundDO createDataRepairRound(LocalDateTime bucket, LocalDateTime now) {
-        TornStockMarketRoundDO round = roundFactory.createRound(bucket, StockRoundStatusEnum.PENDING.getCode());
-        round.setStartedAt(now);
-        roundDao.insertPendingRoundIgnoreConflict(round);
-        TornStockMarketRoundDO persisted = roundDao.selectByRoundTime(bucket);
-        if (persisted == null) {
-            throw new IllegalStateException("派生重建-轮次插入后无法查询: " + bucket);
-        }
-        return persisted;
     }
 
     /**

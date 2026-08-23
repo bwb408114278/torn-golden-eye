@@ -1,7 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.readiness;
 
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteBoundary;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 
 import java.util.List;
 import java.util.Map;
@@ -13,14 +13,16 @@ import java.util.Map;
  * 事务内加载，所有字段来自数据库真实统计，不硬编码零值。
  *
  * @param stockCount                       当前有效股票数
- * @param stockMinuteBoundaries            每支股票分钟边界与有效自然分钟数
+ * @param stockMinuteCoverages             每股分钟覆盖与缺口统计
+ * @param stockWithoutAnyMinuteCount       范围内无任何分钟事实的股票数
  * @param minuteSourceDistribution         分钟事实来源分布
  * @param validMinuteCount                 有效分钟行数
  * @param duplicateMinuteGroupCount        自然分钟重复组数
  * @param duplicateMinuteRedundantRowCount 自然分钟重复冗余行数
  * @param invalidMinuteCount               价格/总股数非法分钟行数
- * @param gapSegmentCount                  分钟连续缺口段数
+ * @param gapSegmentCount                  全空/leading/internal/trailing 正缺口段数
  * @param maxGapMinutes                    最大缺口分钟数
+ * @param totalMissingStockMinutes         所有当前有效股票累计缺失分钟数
  * @param theoreticalBucketCount           理论 15 分钟桶数（股票×桶）
  * @param barCount                         bar 行数
  * @param usableBarCount                   可用 bar 行数
@@ -42,7 +44,8 @@ import java.util.Map;
  */
 public record StockDataReadinessSnapshot(
         int stockCount,
-        List<StockMinuteBoundary> stockMinuteBoundaries,
+        List<StockMinuteCoverage> stockMinuteCoverages,
+        long stockWithoutAnyMinuteCount,
         Map<String, Long> minuteSourceDistribution,
         long validMinuteCount,
         long duplicateMinuteGroupCount,
@@ -50,6 +53,7 @@ public record StockDataReadinessSnapshot(
         long invalidMinuteCount,
         long gapSegmentCount,
         long maxGapMinutes,
+        long totalMissingStockMinutes,
         long theoreticalBucketCount,
         long barCount,
         long usableBarCount,

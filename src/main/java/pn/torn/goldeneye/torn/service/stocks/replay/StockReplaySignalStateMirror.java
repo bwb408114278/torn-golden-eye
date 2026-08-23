@@ -2,13 +2,15 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalStateDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockBuySignalResult.SignalEvaluation;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockRoundTransactionService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockSignalStateKey;
-import pn.torn.goldeneye.torn.service.stocks.alert.buy.StockBuyStrategy;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult.SignalEvaluation;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateKey;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.strategy.StockBuyStrategy;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdater;
 
 /**
  * 回放信号状态机镜像。

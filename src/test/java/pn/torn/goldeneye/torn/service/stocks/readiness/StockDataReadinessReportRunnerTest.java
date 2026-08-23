@@ -10,7 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionCallback;
 import pn.torn.goldeneye.repository.dao.torn.stocks.readiness.StockDataReadinessQueryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.replay.StockReplayReadOnlyGuard;
 
 import java.nio.file.Path;
@@ -50,15 +50,14 @@ class StockDataReadinessReportRunnerTest {
         LocalDateTime end = LocalDateTime.of(2026, 1, 2, 0, 0);
         when(marketClock.now()).thenReturn(LocalDateTime.of(2026, 1, 2, 1, 0));
         when(queryDao.countStocks()).thenReturn(35);
-        when(queryDao.selectStockMinuteBoundaries(start, end)).thenReturn(List.of(
-                new StockMinuteBoundary(1, "TST", start.plusMinutes(1), end.minusMinutes(1), 1000L)));
+        when(queryDao.selectMinuteCoverageSummary(start, end)).thenReturn(new StockMinuteCoverageSummary(
+                35, 0L, 1L, 2L, 3L, 0L, 0L,
+                List.of(new StockMinuteCoverage(1, "TST", start.plusMinutes(1), end.minusMinutes(1), 1000L,
+                        1L, 0L, 0L, 0L, 1L, 0L, 0L))));
         when(queryDao.selectMinuteSourceDistribution(start, end)).thenReturn(List.of(
                 new SourceCount("TORN_API", 600L), new SourceCount("TORNSY_BACKFILL", 400L)));
         when(queryDao.selectValidMinuteCount(start, end)).thenReturn(1000L);
-        when(queryDao.selectDuplicateMinuteGroupCount(start, end)).thenReturn(0L);
-        when(queryDao.selectDuplicateMinuteRedundantRowCount(start, end)).thenReturn(0L);
         when(queryDao.selectInvalidMinuteCount(start, end)).thenReturn(0L);
-        when(queryDao.selectGapSummary(start, end)).thenReturn(new GapSummary(0L, 0L));
         when(queryDao.selectBarCount(start, end, "1.0.0")).thenReturn(900L);
         when(queryDao.selectUsableBarCount(start, end, "1.0.0")).thenReturn(800L);
         when(queryDao.selectUnusableBarReasonCounts(start, end, "1.0.0")).thenReturn(List.of(
@@ -100,6 +99,8 @@ class StockDataReadinessReportRunnerTest {
         assertEquals(900L, report.snapshot().barCount());
         assertEquals(750L, report.snapshot().featureCount());
         assertEquals(100L, report.snapshot().roundStatusCounts().get("REPAIRED_DATA_ONLY"));
+        assertEquals(1, report.snapshot().stockMinuteCoverages().size());
+        assertEquals(3L, report.snapshot().totalMissingStockMinutes());
         assertFalse(report.manifestHash().isBlank(), "manifestHash不得为空");
         assertEquals("1.0.0", report.barBuildVersion());
         assertEquals("1.0.0", report.featureVersion());

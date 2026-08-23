@@ -11,8 +11,8 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgHttpBuilder;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.RejectedExecutionException;

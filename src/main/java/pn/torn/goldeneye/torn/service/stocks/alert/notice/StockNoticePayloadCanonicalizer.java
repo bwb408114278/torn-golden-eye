@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockHashUtils;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHashUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;

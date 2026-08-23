@@ -91,15 +91,15 @@ public class TornStockMarketBar15mDAO extends ServiceImpl<TornStockMarketBar15mM
      * <p>
      * 供 feature 顺序批处理使用，避免一次加载全市场 30 天 bar。
      *
-     * @param stocksId     股票ID
-     * @param startTime    起始时间（含）
-     * @param endTime      结束时间（含）
-     * @param buildVersion bar构建版本
+     * @param stocksId        股票ID
+     * @param startInclusive  起始时间（含）
+     * @param endExclusive    结束时间（不含）
+     * @param buildVersion    bar构建版本
      * @return 按bar时间升序排列的bar列表
      */
     public List<TornStockMarketBar15mDO> selectByStockAndTimeRange(
-            Integer stocksId, LocalDateTime startTime, LocalDateTime endTime, String buildVersion) {
-        return baseMapper.selectByStockAndTimeRange(stocksId, startTime, endTime, buildVersion);
+            Integer stocksId, LocalDateTime startInclusive, LocalDateTime endExclusive, String buildVersion) {
+        return baseMapper.selectByStockAndTimeRange(stocksId, startInclusive, endExclusive, buildVersion);
     }
 
     /**

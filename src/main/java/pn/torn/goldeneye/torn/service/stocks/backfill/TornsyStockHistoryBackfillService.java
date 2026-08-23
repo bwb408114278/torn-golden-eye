@@ -10,8 +10,8 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockHistoryMinuteSlot;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockHistoryRebuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHistoryRebuildService;
 
 import java.time.LocalDateTime;
 import java.util.*;

@@ -7,7 +7,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMonthlyStateInitService;
+import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

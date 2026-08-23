@@ -1,6 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.replay.model;
 
-import pn.torn.goldeneye.torn.service.stocks.alert.StockHashUtils;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHashUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

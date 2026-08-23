@@ -16,7 +16,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockHistoryMinuteCount;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.rebuild.StockHistoricalMaintenanceGate;
 
 import java.time.LocalDate;

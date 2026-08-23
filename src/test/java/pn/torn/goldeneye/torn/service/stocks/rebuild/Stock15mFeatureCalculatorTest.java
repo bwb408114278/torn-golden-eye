@@ -4,8 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -121,8 +121,9 @@ class Stock15mFeatureCalculatorTest {
         TornStockStrategyFeature15mDO realtime = Stock15mFeatureCalculator.buildSingleFeature(currentBar, history);
 
         Stock15mFeatureRollingWindow window = new Stock15mFeatureRollingWindow();
-        history.forEach(window::append);
-        TornStockStrategyFeature15mDO rolling = window.append(currentBar);
+        history.forEach(window::advance);
+        window.advance(currentBar);
+        TornStockStrategyFeature15mDO rolling = window.materializeCurrent();
 
         assertFeatureEquals(realtime, rolling);
     }
@@ -135,12 +136,28 @@ class Stock15mFeatureCalculatorTest {
         TornStockMarketBar15mDO currentBar = bar(anchor.plusMinutes(15L * 3), "110.00", true);
 
         Stock15mFeatureRollingWindow window = new Stock15mFeatureRollingWindow();
-        longHistory.forEach(window::append);
+        longHistory.forEach(window::advance);
         assertEquals(BARS_30D + 1, window.size(), "滚动窗口容量应始终不超过BARS_30D+1");
-        TornStockStrategyFeature15mDO feature = window.append(currentBar);
+        window.advance(currentBar);
+        TornStockStrategyFeature15mDO feature = window.materializeCurrent();
         assertEquals(BARS_30D + 1, window.size());
         assertNotNull(feature);
         assertTrue(feature.getStrategyReady(), "淘汰最早历史后最后2880条仍应连续");
+    }
+
+    @Test
+    @DisplayName("预热只advance不物化_最终current仅materialize一次")
+    void prewarm_advanceOnly_materializeOnce() {
+        LocalDateTime current = LocalDateTime.of(2026, 7, 24, 10, 0);
+        List<TornStockMarketBar15mDO> history = historyBars(current, BARS_30D - 1, "100.00");
+        Stock15mFeatureRollingWindow window = new Stock15mFeatureRollingWindow();
+        history.forEach(window::advance);
+        assertEquals(0, window.materializedFeatureCount(), "预热advance不得物化feature");
+        window.advance(bar(current, "100.00", true));
+        TornStockStrategyFeature15mDO feature = window.materializeCurrent();
+        assertNotNull(feature);
+        assertEquals(1, window.materializedFeatureCount(), "最终current只应物化一次");
+        assertEquals(0, window.materializedFeatureCount() - 1, "materializeCurrent不改变窗口状态");
     }
 
     private void assertFeatureEquals(TornStockStrategyFeature15mDO expected, TornStockStrategyFeature15mDO actual) {

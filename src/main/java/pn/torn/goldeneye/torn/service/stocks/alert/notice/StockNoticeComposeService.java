@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 /**
  * 股票通知组合服务 - 将内部英文编码转换为正式中文消息,执行同轮合并与优先级排序

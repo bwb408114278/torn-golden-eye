@@ -48,4 +48,32 @@
              0, 0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (round_time) WHERE deleted = 0 DO NOTHING
     </insert>
+
+    <!-- 批量UPSERT数据修复轮次: 非终态更新为REPAIRED_DATA_ONLY, COMPLETED/FAILED_FINAL保留原样 -->
+    <insert id="upsertRepairedDataOnlyRounds">
+        INSERT INTO torn_stock_market_round
+            (round_time, round_status, bar_build_version, feature_version,
+             buy_rule_version, sell_rule_version, allocation_rule_version, message_rule_version,
+             expected_stock_count, usable_stock_count, attempt_count, started_at, completed_at,
+             deleted, create_time, update_time)
+        VALUES
+        <foreach collection="rounds" item="round" separator=",">
+            (#{round.roundTime}, #{round.roundStatus}, #{round.barBuildVersion}, #{round.featureVersion},
+             #{round.buyRuleVersion}, #{round.sellRuleVersion}, #{round.allocationRuleVersion}, #{round.messageRuleVersion},
+             #{round.expectedStockCount}, #{round.usableStockCount}, #{round.attemptCount},
+             #{round.startedAt}, #{round.completedAt},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (round_time) WHERE deleted = 0
+        DO UPDATE SET
+            round_status = EXCLUDED.round_status,
+            bar_build_version = EXCLUDED.bar_build_version,
+            feature_version = EXCLUDED.feature_version,
+            expected_stock_count = EXCLUDED.expected_stock_count,
+            usable_stock_count = EXCLUDED.usable_stock_count,
+            started_at = COALESCE(torn_stock_market_round.started_at, EXCLUDED.started_at),
+            completed_at = EXCLUDED.completed_at,
+            update_time = CURRENT_TIMESTAMP
+        WHERE torn_stock_market_round.round_status NOT IN ('COMPLETED', 'FAILED_FINAL')
+    </insert>
 </mapper>

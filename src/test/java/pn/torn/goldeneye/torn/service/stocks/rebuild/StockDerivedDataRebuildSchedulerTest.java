@@ -12,7 +12,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.rebuild.StockDerivedDataRebuildScheduler.DerivedRebuildSubmission;
 
 import java.time.LocalDateTime;

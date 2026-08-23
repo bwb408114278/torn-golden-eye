@@ -2,8 +2,8 @@ package pn.torn.goldeneye.torn.service.stocks.rebuild;
 
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -52,23 +52,46 @@ public final class Stock15mFeatureRollingWindow {
     private int badAdjacencyCount;
 
     /**
-     * 追加一个 bar 并返回该 bar 的特征。
-     * <p>
-     * 无论当前 bar 是否 usable 都会先进入滚动窗口（历史连续性语义需要不可用 bar），
-     * 但仅当当前 bar usable 时返回非空特征。
-     *
-     * @param currentBar 当前 bar（不允许为 null）
-     * @return 当前 bar 的 feature；当前 bar 不可用时返回 {@code null}
+     * 已物化 feature 次数。仅测试可观测钩子，不写日志/数据库/全局状态。
      */
-    public TornStockStrategyFeature15mDO append(TornStockMarketBar15mDO currentBar) {
-        if (currentBar == null) {
+    private int materializeCount;
+
+    /**
+     * 仅推进滚动窗口，不物化 feature。
+     * <p>
+     * 用于预热历史 bar：只更新窗口、sum、deque、连续性状态；绝不创建
+     * {@link TornStockStrategyFeature15mDO}，也不执行 MA/Z-Score/标准差等指标计算。
+     *
+     * @param bar 新 bar（不允许为 null）
+     */
+    public void advance(TornStockMarketBar15mDO bar) {
+        if (bar == null) {
             throw new IllegalArgumentException("滚动窗口不允许追加 null bar");
         }
         if (size == CAPACITY) {
             removeOldestPhysical();
         }
-        addLast(currentBar);
-        return Stock15mFeatureCalculator.buildFeature(currentBar, this);
+        addLast(bar);
+    }
+
+    /**
+     * 仅按已追加的最后一条 bar 构造 feature，不改变窗口状态。
+     * <p>
+     * 当前 bar 不可用时返回 {@code null}；可用时返回完整特征。该方法是唯一允许
+     * 触发指标计算/物化 feature 的公开入口。
+     *
+     * @return 当前 bar 的 feature；当前 bar 不可用时返回 {@code null}
+     */
+    public TornStockStrategyFeature15mDO materializeCurrent() {
+        if (size == 0) {
+            return null;
+        }
+        TornStockMarketBar15mDO currentBar = barAt(size - 1);
+        TornStockStrategyFeature15mDO feature = Stock15mFeatureCalculator.buildFeature(currentBar, this);
+        if (feature != null) {
+            materializeCount++;
+        }
+        return feature;
     }
 
     /**
@@ -78,6 +101,15 @@ public final class Stock15mFeatureRollingWindow {
      */
     public int size() {
         return size;
+    }
+
+    /**
+     * 已物化的 feature 次数（仅测试可观测钩子，不参与业务逻辑）。
+     *
+     * @return 累计物化次数
+     */
+    int materializedFeatureCount() {
+        return materializeCount;
     }
 
     /**

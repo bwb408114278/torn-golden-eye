@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import pn.torn.goldeneye.repository.mapper.torn.stocks.readiness.StockDataReadinessQueryMapper;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -33,14 +34,53 @@ public class StockDataReadinessQueryDAO {
     }
 
     /**
-     * 查询每支股票在范围内的最早/最晚分钟与有效自然分钟数。
+     * 查询所有当前有效股票的分钟覆盖汇总（含全空股票、leading/internal/trailing 缺口）。
+     * <p>
+     * 该方法在一次 SQL 中同时完成自然分钟边界、重复分钟与缺口统计，供报告快照复用；
+     * 不在 Java 层按股票循环查询。
      *
-     * @param start 起始时间（含）
-     * @param end   结束时间（不含）
-     * @return 每支有数据股票的边界
+     * @param start 起始时间（含，必须整分钟）
+     * @param end   结束时间（不含，必须整分钟）
+     * @return 全股票覆盖汇总
      */
-    public List<StockMinuteBoundary> selectStockMinuteBoundaries(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectStockMinuteBoundaries(start, end);
+    public StockMinuteCoverageSummary selectMinuteCoverageSummary(LocalDateTime start, LocalDateTime end) {
+        List<StockMinuteCoverage> coverages = mapper.selectMinuteCoverageSummary(start, end);
+        long rangeMinutes = Duration.between(start, end).toMinutes();
+        long stockWithoutAnyMinuteCount = coverages.stream()
+                .filter(c -> c.firstMinute() == null)
+                .count();
+        long gapSegmentCount = coverages.stream()
+                .mapToLong(c -> c.firstMinute() == null
+                        ? 1L
+                        : (c.leadingGapMinutes() > 0 ? 1L : 0L)
+                        + c.internalGapSegmentCount()
+                        + (c.trailingGapMinutes() > 0 ? 1L : 0L))
+                .sum();
+        long maxGapMinutes = coverages.stream()
+                .mapToLong(c -> c.firstMinute() == null
+                        ? rangeMinutes
+                        : Math.max(c.leadingGapMinutes(),
+                                Math.max(c.internalMaxGapMinutes(), c.trailingGapMinutes())))
+                .max()
+                .orElse(0L);
+        long totalMissingStockMinutes = coverages.stream()
+                .mapToLong(StockMinuteCoverage::totalMissingMinutes)
+                .sum();
+        long duplicateMinuteGroupCount = coverages.stream()
+                .mapToLong(StockMinuteCoverage::duplicateGroupCount)
+                .sum();
+        long duplicateMinuteRedundantRowCount = coverages.stream()
+                .mapToLong(StockMinuteCoverage::duplicateRedundantRowCount)
+                .sum();
+        return new StockMinuteCoverageSummary(
+                coverages.size(),
+                stockWithoutAnyMinuteCount,
+                gapSegmentCount,
+                maxGapMinutes,
+                totalMissingStockMinutes,
+                duplicateMinuteGroupCount,
+                duplicateMinuteRedundantRowCount,
+                coverages);
     }
 
     /**
@@ -66,28 +106,6 @@ public class StockDataReadinessQueryDAO {
     }
 
     /**
-     * 查询自然分钟重复组数。
-     *
-     * @param start 起始时间（含）
-     * @param end   结束时间（不含）
-     * @return 重复组数
-     */
-    public long selectDuplicateMinuteGroupCount(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectDuplicateMinuteGroupCount(start, end);
-    }
-
-    /**
-     * 查询自然分钟重复冗余行数（组内超出首行的行数合计）。
-     *
-     * @param start 起始时间（含）
-     * @param end   结束时间（不含）
-     * @return 冗余行数
-     */
-    public long selectDuplicateMinuteRedundantRowCount(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectDuplicateMinuteRedundantRowCount(start, end);
-    }
-
-    /**
      * 查询范围内价格/总股数非法分钟行数。
      *
      * @param start 起始时间（含）
@@ -96,17 +114,6 @@ public class StockDataReadinessQueryDAO {
      */
     public long selectInvalidMinuteCount(LocalDateTime start, LocalDateTime end) {
         return mapper.selectInvalidMinuteCount(start, end);
-    }
-
-    /**
-     * 查询范围内分钟连续缺口汇总。
-     *
-     * @param start 起始时间（含）
-     * @param end   结束时间（不含）
-     * @return 缺口段数与最大缺口分钟数
-     */
-    public GapSummary selectGapSummary(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectGapSummary(start, end);
     }
 
     /**

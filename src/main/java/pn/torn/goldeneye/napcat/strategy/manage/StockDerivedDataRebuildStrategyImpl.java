@@ -3,7 +3,7 @@ package pn.torn.goldeneye.napcat.strategy.manage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.rebuild.StockDerivedDataRebuildScheduler;
 import pn.torn.goldeneye.torn.service.stocks.rebuild.StockDerivedDataRebuildScheduler.DerivedRebuildSubmission;
 import pn.torn.goldeneye.utils.DateTimeUtils;

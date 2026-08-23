@@ -2,9 +2,9 @@ package pn.torn.goldeneye.torn.service.stocks.replay;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockRoundTransactionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.*;
 
 import java.nio.charset.StandardCharsets;

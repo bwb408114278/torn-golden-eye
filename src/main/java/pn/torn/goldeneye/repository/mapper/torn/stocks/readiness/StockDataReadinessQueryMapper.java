@@ -28,14 +28,14 @@ public interface StockDataReadinessQueryMapper {
     int countStocks();
 
     /**
-     * 查询每支股票在范围内的最早/最晚分钟与有效自然分钟数。
+     * 查询所有当前有效股票的分钟覆盖汇总。
      *
-     * @param startInclusive 起始时间（含）
-     * @param endExclusive   结束时间（不含）
-     * @return 每支有数据股票的边界
+     * @param startInclusive 起始时间（含，必须整分钟）
+     * @param endExclusive   结束时间（不含，必须整分钟）
+     * @return 全股票覆盖汇总
      */
-    List<StockMinuteBoundary> selectStockMinuteBoundaries(@Param("startInclusive") LocalDateTime startInclusive,
-                                                          @Param("endExclusive") LocalDateTime endExclusive);
+    List<StockMinuteCoverage> selectMinuteCoverageSummary(@Param("startInclusive") LocalDateTime startInclusive,
+                                                         @Param("endExclusive") LocalDateTime endExclusive);
 
     /**
      * 查询范围内分钟事实的来源分布。
@@ -58,26 +58,6 @@ public interface StockDataReadinessQueryMapper {
                                 @Param("endExclusive") LocalDateTime endExclusive);
 
     /**
-     * 查询自然分钟重复组数。
-     *
-     * @param startInclusive 起始时间（含）
-     * @param endExclusive   结束时间（不含）
-     * @return 重复组数
-     */
-    long selectDuplicateMinuteGroupCount(@Param("startInclusive") LocalDateTime startInclusive,
-                                         @Param("endExclusive") LocalDateTime endExclusive);
-
-    /**
-     * 查询自然分钟重复冗余行数（组内超出首行的行数合计）。
-     *
-     * @param startInclusive 起始时间（含）
-     * @param endExclusive   结束时间（不含）
-     * @return 冗余行数
-     */
-    long selectDuplicateMinuteRedundantRowCount(@Param("startInclusive") LocalDateTime startInclusive,
-                                                @Param("endExclusive") LocalDateTime endExclusive);
-
-    /**
      * 查询范围内价格/总股数非法分钟行数。
      *
      * @param startInclusive 起始时间（含）
@@ -86,16 +66,6 @@ public interface StockDataReadinessQueryMapper {
      */
     long selectInvalidMinuteCount(@Param("startInclusive") LocalDateTime startInclusive,
                                   @Param("endExclusive") LocalDateTime endExclusive);
-
-    /**
-     * 查询范围内分钟连续缺口汇总。
-     *
-     * @param startInclusive 起始时间（含）
-     * @param endExclusive   结束时间（不含）
-     * @return 缺口段数与最大缺口分钟数
-     */
-    GapSummary selectGapSummary(@Param("startInclusive") LocalDateTime startInclusive,
-                                @Param("endExclusive") LocalDateTime endExclusive);
 
     /**
      * 查询范围内当前版本 bar 行数。

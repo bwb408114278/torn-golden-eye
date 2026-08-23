@@ -4,8 +4,8 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -52,17 +52,18 @@ public final class Stock15mFeatureCalculator {
         Stock15mFeatureRollingWindow window = new Stock15mFeatureRollingWindow();
         if (historyBars != null) {
             for (TornStockMarketBar15mDO historyBar : historyBars) {
-                window.append(historyBar);
+                window.advance(historyBar);
             }
         }
-        return window.append(currentBar);
+        window.advance(currentBar);
+        return window.materializeCurrent();
     }
 
     /**
      * 为单支股票构建策略特征（滚动窗口入口）。
      * <p>
      * 窗口已包含当前 bar 之前的所有应保留历史，调用方须先通过
-     * {@link Stock15mFeatureRollingWindow#append} 将当前 bar 加入窗口。
+     * {@link Stock15mFeatureRollingWindow#advance} 将当前 bar 加入窗口。
      *
      * @param currentBar 当前 bar（必须可用）
      * @param window     已追加当前 bar 的滚动窗口

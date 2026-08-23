@@ -5,9 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.repository.dao.torn.stocks.readiness.StockDataReadinessQueryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mFeatureBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.replay.StockReplayReadOnlyGuard;
 
 import java.nio.charset.StandardCharsets;
@@ -79,18 +79,18 @@ public class StockDataReadinessReportRunner {
      */
     private StockDataReadinessSnapshot loadSnapshot(LocalDateTime startInclusive, LocalDateTime endExclusive) {
         int stockCount = queryDao.countStocks();
-        List<StockMinuteBoundary> boundaries = queryDao.selectStockMinuteBoundaries(startInclusive, endExclusive);
+        StockMinuteCoverageSummary coverageSummary =
+                queryDao.selectMinuteCoverageSummary(startInclusive, endExclusive);
+        List<StockMinuteCoverage> coverages = coverageSummary.coverages();
         Map<String, Long> sourceDistribution = toNameCountMap(
                 queryDao.selectMinuteSourceDistribution(startInclusive, endExclusive)
                         .stream()
                         .map(row -> new NameCount(row.source(), row.count()))
                         .toList());
         long validMinuteCount = queryDao.selectValidMinuteCount(startInclusive, endExclusive);
-        long duplicateMinuteGroupCount = queryDao.selectDuplicateMinuteGroupCount(startInclusive, endExclusive);
-        long duplicateMinuteRedundantRowCount =
-                queryDao.selectDuplicateMinuteRedundantRowCount(startInclusive, endExclusive);
+        long duplicateMinuteGroupCount = coverageSummary.duplicateMinuteGroupCount();
+        long duplicateMinuteRedundantRowCount = coverageSummary.duplicateMinuteRedundantRowCount();
         long invalidMinuteCount = queryDao.selectInvalidMinuteCount(startInclusive, endExclusive);
-        GapSummary gapSummary = queryDao.selectGapSummary(startInclusive, endExclusive);
 
         String barBuildVersion = Stock15mBarBuildService.BUILD_VERSION;
         String featureVersion = Stock15mFeatureBuildService.FEATURE_VERSION;
@@ -130,9 +130,11 @@ public class StockDataReadinessReportRunner {
         long noMinuteFactBucketCount = Math.max(0, theoreticalBucketCount - barCount);
 
         return new StockDataReadinessSnapshot(
-                stockCount, boundaries, sourceDistribution,
+                stockCount, coverages, coverageSummary.stockWithoutAnyMinuteCount(),
+                sourceDistribution,
                 validMinuteCount, duplicateMinuteGroupCount, duplicateMinuteRedundantRowCount,
-                invalidMinuteCount, gapSummary.gapSegmentCount(), gapSummary.maxGapMinutes(),
+                invalidMinuteCount, coverageSummary.gapSegmentCount(), coverageSummary.maxGapMinutes(),
+                coverageSummary.totalMissingStockMinutes(),
                 theoreticalBucketCount, barCount, usableBarCount, unusableBarReasonCounts,
                 noMinuteFactBucketCount, featureCount, usableBarMissingFeatureCount,
                 featureOrphanCount, strategyReadyFeatureCount, notReadyFeatureReasonCounts,
@@ -173,9 +175,12 @@ public class StockDataReadinessReportRunner {
             sb.append("range=").append(startInclusive).append('|').append(endExclusive).append('\n');
             sb.append("versions=").append(barBuildVersion).append('|').append(featureVersion).append('\n');
             sb.append("stockCount=").append(snapshot.stockCount()).append('\n');
-            sb.append("boundaries=").append(snapshot.stockMinuteBoundaries().stream()
-                    .sorted(Comparator.comparing(StockMinuteBoundary::stocksId))
-                    .map(b -> b.stocksId() + ":" + b.earliestMinute() + ":" + b.latestMinute() + ":" + b.minuteCount())
+            sb.append("coverage=").append(snapshot.stockMinuteCoverages().stream()
+                    .sorted(Comparator.comparing(StockMinuteCoverage::stocksId))
+                    .map(c -> c.stocksId() + ":" + c.firstMinute() + ":" + c.lastMinute() + ":"
+                            + c.minuteCount() + ":" + c.leadingGapMinutes() + ":"
+                            + c.internalGapSegmentCount() + ":" + c.internalMaxGapMinutes() + ":"
+                            + c.trailingGapMinutes() + ":" + c.totalMissingMinutes())
                     .toList()).append('\n');
             sb.append("minuteSource=").append(snapshot.minuteSourceDistribution()).append('\n');
             sb.append("minutes=").append(snapshot.validMinuteCount()).append(',')
@@ -183,7 +188,8 @@ public class StockDataReadinessReportRunner {
                     .append(snapshot.duplicateMinuteRedundantRowCount()).append(',')
                     .append(snapshot.invalidMinuteCount()).append(',')
                     .append(snapshot.gapSegmentCount()).append(',')
-                    .append(snapshot.maxGapMinutes()).append('\n');
+                    .append(snapshot.maxGapMinutes()).append(',')
+                    .append(snapshot.totalMissingStockMinutes()).append('\n');
             sb.append("bars=").append(snapshot.theoreticalBucketCount()).append(',')
                     .append(snapshot.barCount()).append(',')
                     .append(snapshot.usableBarCount()).append(',')

@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteBoundary;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -74,11 +74,13 @@ class StockDataReadinessReportWriterTest {
 
         return new StockDataReadinessSnapshot(
                 35,
-                List.of(new StockMinuteBoundary(1, "TST",
+                List.of(new StockMinuteCoverage(1, "TST",
                         LocalDateTime.of(2026, 1, 1, 0, 0),
-                        LocalDateTime.of(2026, 8, 22, 23, 59), 1000L)),
+                        LocalDateTime.of(2026, 8, 22, 23, 59), 1000L,
+                        0L, 0L, 0L, 0L, 0L, 0L, 0L)),
+                0L,
                 source,
-                1000L, 0L, 0L, 0L, 0L, 0L,
+                1000L, 0L, 0L, 0L, 0L, 0L, 0L,
                 100_800L, 900L, 800L, unusable, 100_000L,
                 750L, 0L, 0L, 700L, notReady,
                 List.of(new MonthlyStateCount(LocalDate.of(2026, 1, 1), "CONFIRMED", false, 30L)),

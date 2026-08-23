@@ -3,7 +3,7 @@ package pn.torn.goldeneye.torn.service.stocks.rebuild;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMonthlyStateInitService;
+import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

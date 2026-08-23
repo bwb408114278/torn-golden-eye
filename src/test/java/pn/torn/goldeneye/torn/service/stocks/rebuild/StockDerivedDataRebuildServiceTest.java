@@ -17,9 +17,9 @@ import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.StockMarketRoundFactory;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -90,8 +90,7 @@ class StockDerivedDataRebuildServiceTest {
                         point(START.plusMinutes(14))));
         when(bar15mDao.selectByStockAndTimeRange(eq(1), any(), any(), any()))
                 .thenReturn(List.of());
-        when(roundDao.selectByRoundTime(START)).thenReturn(null, persistedRound());
-        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(1);
+        when(roundDao.upsertRepairedDataOnlyRounds(any())).thenReturn(1);
 
         StockDerivedDataRebuildResult result = service.rebuildRange(START, END);
 
@@ -101,7 +100,10 @@ class StockDerivedDataRebuildServiceTest {
         assertEquals(0, result.featureWriteCount());
         assertEquals(1, result.repairedDataOnlyRoundCount());
         verify(bar15mDao).upsertBars(any());
-        verify(roundDao).updateById(any());
+        verify(roundDao).upsertRepairedDataOnlyRounds(any());
+        verify(roundDao, never()).updateById(any());
+        verify(roundDao, never()).selectByRoundTime(any());
+        verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
         verify(monthlyStateRangeRebuildService).rebuild(START, END);
     }
 
@@ -130,9 +132,12 @@ class StockDerivedDataRebuildServiceTest {
 
         assertTrue(result.isSuccess());
         assertEquals(3, result.featureWriteCount());
+        ArgumentCaptor<LocalDateTime> endCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(bar15mDao, times(3)).selectByStockAndTimeRange(any(), any(), endCaptor.capture(), any());
         verify(bar15mDao, times(1)).selectByStockAndTimeRange(eq(1), any(), any(), any());
         verify(bar15mDao, times(1)).selectByStockAndTimeRange(eq(2), any(), any(), any());
         verify(bar15mDao, times(1)).selectByStockAndTimeRange(eq(3), any(), any(), any());
+        endCaptor.getAllValues().forEach(end -> assertEquals(END, end, "feature范围必须传递原始endExclusive"));
         ArgumentCaptor<List<TornStockStrategyFeature15mDO>> captor = ArgumentCaptor.forClass(List.class);
         verify(feature15mDao, times(3)).upsertFeatures(captor.capture());
         List<TornStockStrategyFeature15mDO> features = captor.getAllValues().stream()
@@ -167,6 +172,33 @@ class StockDerivedDataRebuildServiceTest {
         verify(feature15mDao, times(2)).upsertFeatures(captor.capture());
         assertEquals(500, captor.getAllValues().get(0).size());
         assertEquals(1, captor.getAllValues().get(1).size());
+    }
+
+    @Test
+    @DisplayName("round批量标记_501桶只调用2次批量UPSERT且无逐桶SQL")
+    void rebuildRange_roundBatch_501Buckets_usesTwoBatchUpserts() {
+        when(stocksDao.list()).thenReturn(List.of(stock()));
+        when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenReturn(List.of());
+        when(bar15mDao.selectByStockAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
+        when(roundDao.upsertRepairedDataOnlyRounds(any())).thenReturn(0);
+
+        LocalDateTime rangeStart = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime rangeEnd = rangeStart.plusMinutes(15L * 501);
+        // 不直接 mock 501 个桶集合；通过 selectHistoryPointsRange 返回 501 个不同分钟事实构造 actualBuckets
+        List<StockPricePoint> points = new ArrayList<>();
+        for (int i = 0; i < 501; i++) {
+            points.add(point(rangeStart.plusMinutes(15L * i)));
+        }
+        when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenReturn(points);
+
+        StockDerivedDataRebuildResult result = service.rebuildRange(rangeStart, rangeEnd);
+
+        assertTrue(result.isSuccess());
+        assertEquals(501, result.processedBucketCount());
+        verify(roundDao, times(2)).upsertRepairedDataOnlyRounds(any());
+        verify(roundDao, never()).selectByRoundTime(any());
+        verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
+        verify(roundDao, never()).updateById(any());
     }
 
     private TornStocksDO stock(int id, String shortname) {

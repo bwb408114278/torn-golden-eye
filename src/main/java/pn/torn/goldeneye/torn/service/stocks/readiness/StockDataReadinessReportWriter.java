@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteBoundary;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -83,9 +83,10 @@ public class StockDataReadinessReportWriter {
     private Map<String, Object> snapshotToMap(StockDataReadinessSnapshot snapshot) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("stockCount", snapshot.stockCount());
-        map.put("stockMinuteBoundaries", snapshot.stockMinuteBoundaries().stream()
-                .map(this::boundaryToMap)
+        map.put("stockMinuteCoverages", snapshot.stockMinuteCoverages().stream()
+                .map(this::coverageToMap)
                 .toList());
+        map.put("stockWithoutAnyMinuteCount", snapshot.stockWithoutAnyMinuteCount());
         map.put("minuteSourceDistribution", snapshot.minuteSourceDistribution());
         map.put("validMinuteCount", snapshot.validMinuteCount());
         map.put("duplicateMinuteGroupCount", snapshot.duplicateMinuteGroupCount());
@@ -93,6 +94,7 @@ public class StockDataReadinessReportWriter {
         map.put("invalidMinuteCount", snapshot.invalidMinuteCount());
         map.put("gapSegmentCount", snapshot.gapSegmentCount());
         map.put("maxGapMinutes", snapshot.maxGapMinutes());
+        map.put("totalMissingStockMinutes", snapshot.totalMissingStockMinutes());
         map.put("theoreticalBucketCount", snapshot.theoreticalBucketCount());
         map.put("barCount", snapshot.barCount());
         map.put("usableBarCount", snapshot.usableBarCount());
@@ -114,18 +116,23 @@ public class StockDataReadinessReportWriter {
     }
 
     /**
-     * 将分钟边界转换为可序列化 Map。
+     * 将每股覆盖统计转换为可序列化 Map。
      *
-     * @param boundary 分钟边界
+     * @param coverage 每股覆盖统计
      * @return 有序 Map
      */
-    private Map<String, Object> boundaryToMap(StockMinuteBoundary boundary) {
+    private Map<String, Object> coverageToMap(StockMinuteCoverage coverage) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("stocksId", boundary.stocksId());
-        map.put("stocksShortname", boundary.stocksShortname());
-        map.put("earliestMinute", boundary.earliestMinute() == null ? null : boundary.earliestMinute().toString());
-        map.put("latestMinute", boundary.latestMinute() == null ? null : boundary.latestMinute().toString());
-        map.put("minuteCount", boundary.minuteCount());
+        map.put("stocksId", coverage.stocksId());
+        map.put("stocksShortname", coverage.stocksShortname());
+        map.put("firstMinute", coverage.firstMinute() == null ? null : coverage.firstMinute().toString());
+        map.put("lastMinute", coverage.lastMinute() == null ? null : coverage.lastMinute().toString());
+        map.put("minuteCount", coverage.minuteCount());
+        map.put("leadingGapMinutes", coverage.leadingGapMinutes());
+        map.put("internalGapSegmentCount", coverage.internalGapSegmentCount());
+        map.put("internalMaxGapMinutes", coverage.internalMaxGapMinutes());
+        map.put("trailingGapMinutes", coverage.trailingGapMinutes());
+        map.put("totalMissingMinutes", coverage.totalMissingMinutes());
         return map;
     }
 
@@ -180,25 +187,33 @@ public class StockDataReadinessReportWriter {
         md.append("- manifestHash: ").append(report.manifestHash()).append('\n');
         md.append("\n## 输入与版本\n\n");
         md.append("- 股票数: ").append(s.stockCount()).append('\n');
+        md.append("- 无任何分钟股票数: ").append(s.stockWithoutAnyMinuteCount()).append('\n');
         md.append("- 分钟事实来源分布: ").append(s.minuteSourceDistribution()).append('\n');
         md.append("\n## 分钟质量\n\n");
         md.append("- 有效分钟: ").append(s.validMinuteCount()).append('\n');
         md.append("- 自然分钟重复组: ").append(s.duplicateMinuteGroupCount()).append('\n');
         md.append("- 自然分钟重复冗余行: ").append(s.duplicateMinuteRedundantRowCount()).append('\n');
         md.append("- 价格/总股数非法数: ").append(s.invalidMinuteCount()).append('\n');
-        md.append("- 连续缺口段数: ").append(s.gapSegmentCount()).append('\n');
+        md.append("- 缺口段数: ").append(s.gapSegmentCount()).append('\n');
         md.append("- 最大缺口分钟数: ").append(s.maxGapMinutes()).append('\n');
-        md.append("\n## 每股票分钟边界\n\n");
-        md.append("|股票ID|简称|最早分钟|最晚分钟|有效自然分钟|\n");
-        md.append("|---|---|---|---|---|\n");
-        for (StockMinuteBoundary b : s.stockMinuteBoundaries()) {
-            md.append('|').append(b.stocksId())
-                    .append('|').append(b.stocksShortname())
-                    .append('|').append(b.earliestMinute())
-                    .append('|').append(b.latestMinute())
-                    .append('|').append(b.minuteCount())
+        md.append("- 累计缺失股票分钟: ").append(s.totalMissingStockMinutes()).append('\n');
+        md.append("\n## 每股票分钟覆盖与缺口\n\n");
+        md.append("|股票ID|简称|最早分钟|最晚分钟|自然分钟|leading|internal段|internal最大|trailing|总缺失|\n");
+        md.append("|---|---|---|---|---|---|---|---|---|---|\n");
+        for (StockMinuteCoverage c : s.stockMinuteCoverages()) {
+            md.append('|').append(c.stocksId())
+                    .append('|').append(c.stocksShortname())
+                    .append('|').append(c.firstMinute())
+                    .append('|').append(c.lastMinute())
+                    .append('|').append(c.minuteCount())
+                    .append('|').append(c.leadingGapMinutes())
+                    .append('|').append(c.internalGapSegmentCount())
+                    .append('|').append(c.internalMaxGapMinutes())
+                    .append('|').append(c.trailingGapMinutes())
+                    .append('|').append(c.totalMissingMinutes())
                     .append("|\n");
         }
+        md.append("\n> 缺口是事实，不表示已补齐或允许插值。\n");
         md.append("\n## bar\n\n");
         md.append("- 理论桶数: ").append(s.theoreticalBucketCount()).append('\n');
         md.append("- 存在bar: ").append(s.barCount()).append('\n');

@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.StockReplayReadOnlyProbeMapper;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayRequest;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayResult;
 import pn.torn.goldeneye.torn.service.stocks.replay.model.StockReplayTrackEnum;
