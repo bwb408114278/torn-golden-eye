@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 /**
  * RW统计窗口查询参数。
  *
- * @param rwId 指定的RW ID，未指定时为null
+ * @param rwId       指定的RW ID，未指定时为null
  * @param windowCode 指定的窗口字母，未指定时为null
  * @author Bai
  * @version 1.4.4
@@ -53,6 +53,14 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
         throw invalidParameter();
     }
 
+    /**
+     * 解析RWID和窗口编码组合参数。
+     *
+     * @param rwIdPart   RWID文本
+     * @param windowPart 窗口编码文本
+     * @return 解析后的查询参数
+     * @throws IllegalArgumentException 任一参数格式不合法时抛出
+     */
     private static RwStatWindowQuery parseRwAndWindow(String rwIdPart, String windowPart) {
         if (!isPositiveLong(rwIdPart) || !isWindowCode(windowPart)) {
             throw invalidParameter();
@@ -60,6 +68,12 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
         return new RwStatWindowQuery(Long.parseLong(rwIdPart), normalizeWindowCode(windowPart));
     }
 
+    /**
+     * 判断参数是否为正整数RWID。
+     *
+     * @param value 待校验参数
+     * @return 参数为正整数时返回true，否则返回false
+     */
     private static boolean isPositiveLong(String value) {
         if (value == null || value.isEmpty()) {
             return false;
@@ -71,14 +85,31 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
         }
     }
 
+    /**
+     * 判断参数是否为仅包含英文字母的窗口编码。
+     *
+     * @param value 待校验参数
+     * @return 参数为合法窗口编码时返回true，否则返回false
+     */
     private static boolean isWindowCode(String value) {
         return value != null && WINDOW_CODE_PATTERN.matcher(value).matches();
     }
 
+    /**
+     * 将窗口编码统一转换为大写，保证窗口引用大小写不敏感。
+     *
+     * @param value 原始窗口编码
+     * @return 大写窗口编码
+     */
     private static String normalizeWindowCode(String value) {
         return value.toUpperCase(Locale.ROOT);
     }
 
+    /**
+     * 创建统一的参数错误异常，供所有解析失败分支使用。
+     *
+     * @return 参数错误异常
+     */
     private static IllegalArgumentException invalidParameter() {
         return new IllegalArgumentException(INVALID_PARAMETER_MESSAGE);
     }
