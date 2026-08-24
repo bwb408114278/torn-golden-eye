@@ -71,10 +71,58 @@ class RwStatWindowServiceTest {
         when(attackLogDao.queryActiveTimeWindows(eq(1L), eq(2L), eq(3), eq(100), eq(START), any(LocalDateTime.class)))
                 .thenReturn(List.of(candidate));
         when(windowDao.queryActiveWindows(1L)).thenReturn(List.of(unconfirmed));
+        when(windowDao.updateUnconfirmedWindow(any(TornFactionRwStatWindowDO.class), eq(false))).thenReturn(1);
 
         service.refreshWindows(rw);
 
         verify(windowDao).updateUnconfirmedWindow(any(TornFactionRwStatWindowDO.class), eq(false));
+    }
+
+    @Test
+    @DisplayName("插入冲突后重新读取窗口列表并继续追加正确窗口编码")
+    void refreshWindows_insertConflict_reloadsAndAppendsNextCode() {
+        TornFactionRwDO rw = rw(1L, LocalDateTime.of(2026, 8, 24, 13, 0));
+        AttackTimeWindowDO candidate = new AttackTimeWindowDO(START.plusMinutes(20), START.plusMinutes(25));
+        TornFactionRwStatWindowDO concurrentA = window(99L, "A", START, START.plusMinutes(10), true);
+        when(attackLogDao.queryActiveTimeWindows(1L, 2L, 3, 100, START, rw.getEndTime()))
+                .thenReturn(List.of(candidate));
+        when(windowDao.queryActiveWindows(1L))
+                .thenReturn(List.of())
+                .thenReturn(List.of(concurrentA));
+        when(windowDao.insertIgnoreConflict(any(TornFactionRwStatWindowDO.class)))
+                .thenReturn(0)
+                .thenReturn(1);
+
+        service.refreshWindows(rw);
+
+        verify(windowDao, times(2)).queryActiveWindows(1L);
+        verify(windowDao, times(2)).insertIgnoreConflict(any(TornFactionRwStatWindowDO.class));
+        verify(windowDao).insertIgnoreConflict(org.mockito.ArgumentMatchers.argThat(window ->
+                "A".equals(window.getWindowCode()) && Boolean.TRUE.equals(window.getConfirmed())));
+        verify(windowDao).insertIgnoreConflict(org.mockito.ArgumentMatchers.argThat(window ->
+                "B".equals(window.getWindowCode()) && Boolean.TRUE.equals(window.getConfirmed())));
+    }
+
+    @Test
+    @DisplayName("未确认窗口更新行数为0时重新读取并按已确认窗口跳过")
+    void refreshWindows_updateConflict_reloadsAndSkipsConfirmedOverlap() {
+        TornFactionRwDO rw = rw(1L, LocalDateTime.of(2026, 8, 24, 13, 0));
+        AttackTimeWindowDO candidate = new AttackTimeWindowDO(START, START.plusMinutes(10));
+        TornFactionRwStatWindowDO unconfirmed = window(2L, "A", candidate.start(), candidate.end(), false);
+        TornFactionRwStatWindowDO confirmed = window(2L, "A", candidate.start(), candidate.end(), true);
+        when(attackLogDao.queryActiveTimeWindows(1L, 2L, 3, 100, START, rw.getEndTime()))
+                .thenReturn(List.of(candidate));
+        when(windowDao.queryActiveWindows(1L))
+                .thenReturn(List.of(unconfirmed))
+                .thenReturn(List.of(confirmed));
+        when(windowDao.updateUnconfirmedWindow(any(TornFactionRwStatWindowDO.class), eq(true)))
+                .thenReturn(0);
+
+        service.refreshWindows(rw);
+
+        verify(windowDao, times(2)).queryActiveWindows(1L);
+        verify(windowDao, times(1)).updateUnconfirmedWindow(any(TornFactionRwStatWindowDO.class), eq(true));
+        verify(windowDao, never()).insertIgnoreConflict(any(TornFactionRwStatWindowDO.class));
     }
 
     private TornFactionRwDO rw(Long id, LocalDateTime endTime) {

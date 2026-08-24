@@ -86,3 +86,5 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.4.3/stocks-feature-investors.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.4.4/rw-stat-window.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.4.4/rw-stat-window-id-seq.yaml

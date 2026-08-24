@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * RW对冲统计窗口生命周期服务。
@@ -31,17 +32,36 @@ import java.util.Objects;
 public class RwStatWindowService {
     private static final int WINDOW_MINUTES = 3;
     private static final int MIN_BATTLE_COUNT = 100;
+    private static final int MAX_PERSIST_ATTEMPTS = 2;
 
     private final TornFactionRwStatWindowDAO windowDao;
     private final TornAttackLogDAO attackLogDao;
+    private final ReentrantLock refreshLock = new ReentrantLock();
 
     /**
      * 按需刷新RW窗口定义。
+     * <p>
+     * 当前项目为单实例部署，使用JVM内可重入锁将窗口刷新串行化；
+     * 冲突后重新读取当前窗口列表再继续，避免静默丢失并发写入的窗口。
      *
      * @param rw RW对象
      */
     @Transactional
     public void refreshWindows(TornFactionRwDO rw) {
+        refreshLock.lock();
+        try {
+            refreshWindowsInternal(rw);
+        } finally {
+            refreshLock.unlock();
+        }
+    }
+
+    /**
+     * 执行窗口刷新主流程。
+     *
+     * @param rw RW对象
+     */
+    private void refreshWindowsInternal(TornFactionRwDO rw) {
         LocalDateTime observedAt = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
         List<AttackTimeWindowDO> candidates = attackLogDao.queryActiveTimeWindows(
                 rw.getFactionId(), rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT,
@@ -121,6 +141,10 @@ public class RwStatWindowService {
 
     /**
      * 持久化单个候选窗口，并保护已确认窗口的不可变字段。
+     * <p>
+     * 插入冲突或未确认窗口更新行数为0时，重新读取当前RW窗口列表后重试，
+     * 最多重试 {@link #MAX_PERSIST_ATTEMPTS} 次；重试仍失败则抛出异常，由调用方记录日志，
+     * 不再静默丢弃候选窗口。
      *
      * @param rw              所属RW
      * @param candidate       活跃窗口候选
@@ -129,29 +153,37 @@ public class RwStatWindowService {
      */
     private void persistCandidate(TornFactionRwDO rw, AttackTimeWindowDO candidate,
                                   LocalDateTime observedAt, List<TornFactionRwStatWindowDO> existingWindows) {
-        if (findConfirmedOverlap(candidate, existingWindows) != null) {
-            return;
-        }
+        for (int attempt = 0; attempt < MAX_PERSIST_ATTEMPTS; attempt++) {
+            if (findConfirmedOverlap(candidate, existingWindows) != null) {
+                return;
+            }
 
-        TornFactionRwStatWindowDO unconfirmedWindow = findUnconfirmedOverlap(candidate, existingWindows);
-        boolean confirmed = isConfirmed(rw, candidate, observedAt);
-        if (unconfirmedWindow != null) {
-            windowDao.updateUnconfirmedWindow(toWindow(unconfirmedWindow, candidate), confirmed);
-            unconfirmedWindow.setStartTime(candidate.start());
-            unconfirmedWindow.setEndTime(candidate.end());
-            unconfirmedWindow.setConfirmed(confirmed);
-            return;
-        }
+            TornFactionRwStatWindowDO unconfirmedWindow = findUnconfirmedOverlap(candidate, existingWindows);
+            boolean confirmed = isConfirmed(rw, candidate, observedAt);
+            if (unconfirmedWindow != null) {
+                if (windowDao.updateUnconfirmedWindow(toWindow(unconfirmedWindow, candidate), confirmed) > 0) {
+                    unconfirmedWindow.setStartTime(candidate.start());
+                    unconfirmedWindow.setEndTime(candidate.end());
+                    unconfirmedWindow.setConfirmed(confirmed);
+                    return;
+                }
+                reloadWindows(rw, existingWindows);
+                continue;
+            }
 
-        TornFactionRwStatWindowDO newWindow = new TornFactionRwStatWindowDO();
-        newWindow.setRwId(rw.getId());
-        newWindow.setWindowCode(nextWindowCode(existingWindows));
-        newWindow.setStartTime(candidate.start());
-        newWindow.setEndTime(candidate.end());
-        newWindow.setConfirmed(confirmed);
-        if (windowDao.insertIgnoreConflict(newWindow) > 0) {
-            existingWindows.add(newWindow);
+            TornFactionRwStatWindowDO newWindow = new TornFactionRwStatWindowDO();
+            newWindow.setRwId(rw.getId());
+            newWindow.setWindowCode(nextWindowCode(existingWindows));
+            newWindow.setStartTime(candidate.start());
+            newWindow.setEndTime(candidate.end());
+            newWindow.setConfirmed(confirmed);
+            if (windowDao.insertIgnoreConflict(newWindow) > 0) {
+                existingWindows.add(newWindow);
+                return;
+            }
+            reloadWindows(rw, existingWindows);
         }
+        throw new IllegalStateException("RW对冲窗口并发写入冲突重试后仍失败, rwId=" + rw.getId());
     }
 
     /**
@@ -162,6 +194,17 @@ public class RwStatWindowService {
      */
     private List<TornFactionRwStatWindowDO> findWindows(long rwId) {
         return windowDao.queryActiveWindows(rwId);
+    }
+
+    /**
+     * 重新加载当前RW的有效窗口并替换内存列表。
+     *
+     * @param rw              RW对象
+     * @param existingWindows 待刷新的内存窗口列表
+     */
+    private void reloadWindows(TornFactionRwDO rw, List<TornFactionRwStatWindowDO> existingWindows) {
+        existingWindows.clear();
+        existingWindows.addAll(findWindows(rw.getId()));
     }
 
     /**

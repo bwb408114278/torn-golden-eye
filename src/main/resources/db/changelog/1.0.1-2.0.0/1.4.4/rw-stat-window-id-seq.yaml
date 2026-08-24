@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_torn_faction_rw_stat_window_id_seq
+      author: Bai
+      changes:
+        - createSequence:
+            sequenceName: torn_faction_rw_stat_window_id_seq
+            startValue: 1
+            incrementBy: 1
+      rollback:
+        - dropSequence:
+            sequenceName: torn_faction_rw_stat_window_id_seq
