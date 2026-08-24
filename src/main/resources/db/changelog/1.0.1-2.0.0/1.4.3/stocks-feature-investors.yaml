@@ -1,0 +1,22 @@
+databaseChangeLog:
+  # 旧分钟特征的投资人数由 Tornsy 外部补数补齐时可能未知；不得以 0 伪造该领域值。
+  - changeSet:
+      id: drop_not_null_torn_stock_strategy_feature_investors
+      author: Bai
+      changes:
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature
+            columnName: latest_investors
+            columnDataType: INT
+        - dropNotNullConstraint:
+            tableName: torn_stock_strategy_feature
+            columnName: investors_change_7d
+            columnDataType: INT
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature
+            columnName: latest_investors
+            remarks: "最后投资人数(Tornsy外部补数未提供时允许为空,禁止以0代表未知)"
+        - setColumnRemarks:
+            tableName: torn_stock_strategy_feature
+            columnName: investors_change_7d
+            remarks: "近7日投资人数变化(当前或7日基准投资人数未知时允许为空,禁止以0代表未知)"

@@ -13,10 +13,13 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * OC刷新指令渲染器测试，覆盖精简群消息结构和三种时间状态。
+ * OC刷新指令渲染器测试，覆盖精简群消息结构、三种时间状态和零刷新P0安全契约。
+ *
+ * <p>P0契约：两池刷新次数均为0时，“建议下次刷新时间”绝不输出“现在”；
+ * 有刷新次数时保持既有立即状态行为。</p>
  *
  * @author Bai
- * @version 1.4.1
+ * @version 1.4.4
  * @since 2026.07.17
  */
 @DisplayName("OC刷新指令渲染")
@@ -153,25 +156,100 @@ class OcNewTeamPlanRendererTest {
     }
 
     @Test
-    @DisplayName("窗口收敛到当前时间时输出现在")
-    void shouldRenderNowWhenWindowConvergedToSnapshot() {
+    @DisplayName("P0-1: 零刷新且不命中立即状态时输出完整未来范围而非现在")
+    void shouldRenderRangeForNoRefreshWithFutureRange() {
         OcRefreshInstructionPlan plan = new PlanBuilder()
                 .normal(0)
                 .high(0)
-                .nextReplanAt(SNAPSHOT_TIME)
-                .latestReplanAt(SNAPSHOT_TIME)
-                .nextCriticalReleaseAt(null)
+                .nextReplanAt(LocalDateTime.of(2026, 7, 16, 16, 0))
+                .latestReplanAt(LocalDateTime.of(2026, 7, 16, 17, 30))
+                .nextCriticalReleaseAt(LocalDateTime.of(2026, 7, 16, 16, 0))
                 .build();
 
         String text = renderer.render(plan);
 
-        assertTrue(text.contains("建议下次刷新时间: 现在"));
-        assertFalse(text.contains(" - "));
+        assertTrue(text.contains("暂不刷新"));
+        assertTrue(text.contains("建议下次刷新时间: 07-16 16:00 - 07-16 17:30"));
+        assertFalse(text.contains("建议下次刷新时间: 现在"));
     }
 
     @Test
-    @DisplayName("明确立即重评估时即使时间点不在当前也输出现在")
-    void shouldRenderNowWhenReplanRequiredNowReasonPresent() {
+    @DisplayName("P0-2至P0-5: 零刷新叠加任一立即原因码且有未来关键释放时输出释放后文案")
+    void shouldRenderCriticalReleaseForNoRefreshWithEachImmediateReasonCode() {
+        LocalDateTime release = SNAPSHOT_TIME.plusHours(2);
+        List<OcPlanReasonCodeEnum> immediateCodes = List.of(
+                OcPlanReasonCodeEnum.REPLAN_REQUIRED_NOW,
+                OcPlanReasonCodeEnum.REPLAN_LEAD_TIME_ALREADY_ENTERED,
+                OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED,
+                OcPlanReasonCodeEnum.PROOF_WINDOW_EXPIRED_FOR_NEW_REFRESH);
+        for (OcPlanReasonCodeEnum code : immediateCodes) {
+            OcRefreshInstructionPlan plan = new PlanBuilder()
+                    .normal(0)
+                    .high(0)
+                    .nextReplanAt(SNAPSHOT_TIME)
+                    .latestReplanAt(SNAPSHOT_TIME)
+                    .planReasonCodes(Set.of(code))
+                    .nextCriticalReleaseAt(release)
+                    .build();
+
+            String text = renderer.render(plan);
+
+            assertTrue(text.contains("暂不刷新"), () -> code + "应输出暂不刷新: " + text);
+            assertTrue(text.contains("建议下次刷新时间: 关键成员释放后（预计 07-16 17:04）"),
+                    () -> code + "应输出关键成员释放后: " + text);
+            assertFalse(text.contains("建议下次刷新时间: 现在"), () -> code + "不应输出现在: " + text);
+        }
+    }
+
+    @Test
+    @DisplayName("P0-6: 零刷新且nextReplanAt等于快照时间时有未来释放仍输出释放后文案")
+    void shouldRenderCriticalReleaseForNoRefreshWhenNextReplanAtEqualsSnapshot() {
+        OcRefreshInstructionPlan plan = new PlanBuilder()
+                .normal(0)
+                .high(0)
+                .nextReplanAt(SNAPSHOT_TIME)
+                .latestReplanAt(LocalDateTime.of(2026, 7, 16, 17, 30))
+                .nextCriticalReleaseAt(LocalDateTime.of(2026, 7, 16, 16, 0))
+                .build();
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("建议下次刷新时间: 关键成员释放后（预计 07-16 16:00）"));
+        assertFalse(text.contains("建议下次刷新时间: 现在"));
+        assertFalse(text.contains("15:04 - 17:30"));
+    }
+
+    @Test
+    @DisplayName("P0-7: 零刷新且无可证明未来事实时输出安全兜底文案而非现在")
+    void shouldRenderSafeFallbackForNoRefreshWithoutProvableFuture() {
+        List<OcRefreshInstructionPlan> noFuturePlans = List.of(
+                new PlanBuilder().normal(0).high(0)
+                        .nextReplanAt(SNAPSHOT_TIME).latestReplanAt(SNAPSHOT_TIME)
+                        .nextCriticalReleaseAt(null).build(),
+                new PlanBuilder().normal(0).high(0)
+                        .nextReplanAt(SNAPSHOT_TIME).latestReplanAt(SNAPSHOT_TIME)
+                        .windowReasonCodes(Set.of(OcPlanReasonCodeEnum.REPLAN_REQUIRED_NOW))
+                        .nextCriticalReleaseAt(null).build(),
+                new PlanBuilder().normal(0).high(0)
+                        .nextReplanAt(SNAPSHOT_TIME).latestReplanAt(SNAPSHOT_TIME)
+                        .windowReasonCodes(Set.of(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED))
+                        .nextCriticalReleaseAt(null).build(),
+                new PlanBuilder().normal(0).high(0)
+                        .nextReplanAt(null).latestReplanAt(null)
+                        .nextCriticalReleaseAt(null).build());
+        for (OcRefreshInstructionPlan noFuturePlan : noFuturePlans) {
+            String text = renderer.render(noFuturePlan);
+
+            assertTrue(text.contains("建议下次刷新时间: 下一次关键状态变化后重新评估"),
+                    () -> describePlan(noFuturePlan) + "应输出安全兜底文案: " + text);
+            assertFalse(text.contains("建议下次刷新时间: 现在"),
+                    () -> describePlan(noFuturePlan) + "不应输出现在: " + text);
+        }
+    }
+
+    @Test
+    @DisplayName("P0-Z3: 零刷新叠加立即原因码且仅有未来重评估时间点时输出指定时间后重新评估")
+    void shouldRenderReplanAfterTimeForNoRefreshWithFutureNextReplanOnly() {
         LocalDateTime singlePoint = SNAPSHOT_TIME.plusMinutes(30);
         OcRefreshInstructionPlan plan = new PlanBuilder()
                 .normal(0)
@@ -184,25 +262,51 @@ class OcNewTeamPlanRendererTest {
 
         String text = renderer.render(plan);
 
-        assertTrue(text.contains("建议下次刷新时间: 现在"));
-        assertFalse(text.contains("07-16 15:34 - 07-16 15:34"));
+        assertTrue(text.contains("建议下次刷新时间: 07-16 15:34 后重新评估"));
+        assertFalse(text.contains("建议下次刷新时间: 现在"));
+        assertFalse(text.contains("15:34 - 15:34"));
     }
 
     @Test
-    @DisplayName("随机结果已变化时输出现在")
-    void shouldRenderNowWhenRandomOutcomeChanged() {
+    @DisplayName("R1: 有刷新次数且明确立即重评估时保持输出现在")
+    void shouldRenderNowForRefreshCommandWhenReplanRequiredNow() {
+        LocalDateTime singlePoint = SNAPSHOT_TIME.plusMinutes(30);
         OcRefreshInstructionPlan plan = new PlanBuilder()
-                .normal(0)
+                .normal(1)
                 .high(0)
-                .nextReplanAt(SNAPSHOT_TIME)
-                .latestReplanAt(SNAPSHOT_TIME)
-                .windowReasonCodes(Set.of(OcPlanReasonCodeEnum.RANDOM_OUTCOME_CHANGED))
-                .nextCriticalReleaseAt(null)
+                .nextReplanAt(singlePoint)
+                .latestReplanAt(singlePoint)
+                .windowReasonCodes(Set.of(OcPlanReasonCodeEnum.REPLAN_REQUIRED_NOW))
+                .nextCriticalReleaseAt(LocalDateTime.of(2026, 7, 16, 16, 0))
                 .build();
 
         String text = renderer.render(plan);
 
         assertTrue(text.contains("建议下次刷新时间: 现在"));
+        assertFalse(text.contains("后重新评估"));
+    }
+
+    @Test
+    @DisplayName("PN生产回归：零刷新叠加立即原因码与未来关键释放时输出释放后文案")
+    void shouldRenderCriticalReleaseForPnProductionEquivalentFixture() {
+        OcRefreshInstructionPlan plan = new PlanBuilder()
+                .mode(OcPlanMode.PROFIT)
+                .snapshotTime(LocalDateTime.of(2026, 8, 23, 19, 35))
+                .normal(0)
+                .high(0)
+                .nextReplanAt(LocalDateTime.of(2026, 8, 23, 19, 35))
+                .latestReplanAt(LocalDateTime.of(2026, 8, 23, 19, 35))
+                .windowReasonCodes(Set.of(OcPlanReasonCodeEnum.REPLAN_REQUIRED_NOW))
+                .nextCriticalReleaseAt(LocalDateTime.of(2026, 8, 24, 13, 10))
+                .build();
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("【OC新队#收益】 执行时间: 08-23 19:35"));
+        assertTrue(text.contains("暂不刷新"));
+        assertTrue(text.contains("建议下次刷新时间: 关键成员释放后（预计 08-24 13:10）"));
+        assertFalse(text.contains("建议下次刷新时间: 现在"));
+        assertFalse(text.contains("完成后重新运行"));
     }
 
     @Test
@@ -283,6 +387,17 @@ class OcNewTeamPlanRendererTest {
         assertFalse(text.contains("已进入操作提前区间"));
         assertFalse(text.contains("Worker#"));
         assertFalse(text.contains("member"));
+    }
+
+    /**
+     * 描述零刷新夹具的窗口事实，用于断言失败时定位具体变体。
+     *
+     * @param plan 刷新操作指令
+     * @return 包含窗口原因码与重评估时间的描述文本
+     */
+    private String describePlan(OcRefreshInstructionPlan plan) {
+        OcReplanWindow window = plan.replanWindow();
+        return "夹具[windowCodes=" + window.reasonCodes() + ", nextReplanAt=" + window.nextReplanAt() + "]";
     }
 
     /**

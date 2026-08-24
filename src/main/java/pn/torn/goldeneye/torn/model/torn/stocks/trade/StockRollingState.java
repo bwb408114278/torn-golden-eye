@@ -15,7 +15,7 @@ import java.util.TreeMap;
  * 股票回溯状态
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.4.3
  * @since 2026.06.02
  */
 public class StockRollingState {
@@ -70,7 +70,7 @@ public class StockRollingState {
         BigDecimal return7d = calculateReturn(point.price(), point.time().minusDays(7));
         BigDecimal return14d = calculateReturn(point.price(), point.time().minusDays(14));
 
-        int investorsChange7d = calculateInvestorsChange(point.investors(), point.time().minusDays(7));
+        Integer investorsChange7d = calculateInvestorsChange(point.investors(), point.time().minusDays(7));
 
         return new StockStrategyFeatureUpsert(
                 point.stocksId(),
@@ -121,16 +121,31 @@ public class StockRollingState {
     }
 
     /**
-     * 计算投资人数变化
+     * 计算投资人数变化。
+     * <p>
+     * 当前点或7日基准点未提供投资人数时，变化量无法真实计算，返回 {@code null}；
+     * 不以 {@code 0} 伪造未知值。仅在当前投资人数已知、但尚无7日历史基准时，
+     * 保持既有的 {@code 0} 语义。
+     *
+     * @param currentInvestors 当前投资人数，外部补数未提供时为 {@code null}
+     * @param targetTime       7日历史基准时间
+     * @return 已知的7日变化量；任一投资人数未知时为 {@code null}
      */
-    private int calculateInvestorsChange(int currentInvestors, LocalDateTime targetTime) {
+    private Integer calculateInvestorsChange(Integer currentInvestors, LocalDateTime targetTime) {
+        if (currentInvestors == null) {
+            return null;
+        }
         Map.Entry<LocalDateTime, StockPricePoint> entry = priceMap.floorEntry(targetTime);
 
         if (entry == null) {
             return 0;
         }
 
-        return currentInvestors - entry.getValue().investors();
+        Integer historicalInvestors = entry.getValue().investors();
+        if (historicalInvestors == null) {
+            return null;
+        }
+        return currentInvestors - historicalInvestors;
     }
 
     /**

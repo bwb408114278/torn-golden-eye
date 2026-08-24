@@ -10,10 +10,10 @@ import java.time.LocalDateTime;
  * @param stocksId        股票ID
  * @param stocksShortname 股票简称
  * @param price           价格
- * @param investors       投资人数
+ * @param investors       投资人数；Tornsy 外部补数未提供时为 {@code null}，禁止以 0 代表未知
  * @param time            时间
  * @author Bai
- * @version 1.2.12
+ * @version 1.4.3
  * @since 2026.06.02
  */
 public record StockPricePoint(
