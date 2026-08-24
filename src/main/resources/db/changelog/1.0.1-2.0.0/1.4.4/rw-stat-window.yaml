@@ -1,0 +1,89 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_torn_faction_rw_stat_window
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_rw_stat_window
+            remarks: "RW对冲统计窗口定义"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "窗口记录ID"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: rw_id
+                  type: BIGINT
+                  remarks: "所属RW ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: window_code
+                  type: VARCHAR(8)
+                  remarks: "用户可引用的窗口字母编码"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: start_time
+                  type: TIMESTAMP
+                  remarks: "对冲窗口开始时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: end_time
+                  type: TIMESTAMP
+                  remarks: "对冲窗口结束时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: confirmed
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  remarks: "是否已确认且业务编号稳定"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: INTEGER
+                  defaultValueNumeric: "0"
+                  remarks: "逻辑删除标识"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "创建时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "更新时间"
+                  constraints:
+                    nullable: false
+        - sql:
+            remarks: "有效RW窗口业务编号唯一索引"
+            sql: CREATE UNIQUE INDEX uk_torn_faction_rw_stat_window_code ON torn_faction_rw_stat_window (rw_id, window_code) WHERE deleted = 0
+        - sql:
+            remarks: "RW窗口最近结束时间查询索引"
+            sql: CREATE INDEX idx_torn_faction_rw_stat_window_end ON torn_faction_rw_stat_window (rw_id, end_time DESC) WHERE deleted = 0
+        - sql:
+            remarks: "RW窗口时间范围查询索引"
+            sql: CREATE INDEX idx_torn_faction_rw_stat_window_time ON torn_faction_rw_stat_window (rw_id, start_time, end_time) WHERE deleted = 0
+        - sql:
+            remarks: "RW窗口唯一索引注释"
+            sql: COMMENT ON INDEX uk_torn_faction_rw_stat_window_code IS '有效RW窗口业务编号唯一索引'
+        - sql:
+            remarks: "RW窗口结束时间索引注释"
+            sql: COMMENT ON INDEX idx_torn_faction_rw_stat_window_end IS 'RW窗口最近结束时间查询索引'
+        - sql:
+            remarks: "RW窗口时间范围索引注释"
+            sql: COMMENT ON INDEX idx_torn_faction_rw_stat_window_time IS 'RW窗口时间范围查询索引'
+      rollback:
+        - sql:
+            sql: DROP TABLE IF EXISTS torn_faction_rw_stat_window

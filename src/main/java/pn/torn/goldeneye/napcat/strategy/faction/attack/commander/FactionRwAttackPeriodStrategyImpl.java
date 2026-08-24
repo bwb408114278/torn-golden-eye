@@ -1,38 +1,38 @@
 package pn.torn.goldeneye.napcat.strategy.faction.attack.commander;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
-import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionAttackDAO;
-import pn.torn.goldeneye.repository.model.faction.attack.TornFactionAttackDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
+import pn.torn.goldeneye.torn.model.faction.attack.RwAttackFrequencySummaryVO;
+import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowQuery;
+import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO;
+import pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Font;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
- * RW对冲战斗统计策略实现类
+ * RW对冲窗口攻击频率统计策略。
  *
  * @author Bai
- * @version 1.1.4
- * @since 2025.12.25
+ * @version 1.4.4
+ * @since 2026.08.24
  */
 @Component
-@RequiredArgsConstructor
 public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
-    private final TornFactionAttackDAO attackDao;
-
+    private static final DateTimeFormatter DISPLAY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter DISPLAY_TIME_ONLY_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     @Override
     public String getCommand() {
         return BotCommands.RW_ATTACK_PERIOD;
@@ -40,7 +40,7 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "RW真赛开场攻击频率分析";
+        return "RW对冲窗口攻击频率分析";
     }
 
     @Override
@@ -50,102 +50,116 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        TornFactionRwDO rw = getCurrentRw(sender, msg);
-        LocalDateTime startTime = rw.getStartTime();
-        LocalDateTime endTime = rw.getStartTime().plusMinutes(2L);
-        List<TornFactionAttackDO> attackList = attackDao.lambdaQuery()
-                .ge(TornFactionAttackDO::getAttackStartTime, startTime)
-                .le(TornFactionAttackDO::getAttackStartTime, endTime)
-                .list();
-        if (CollectionUtils.isEmpty(attackList)) {
-            return super.buildTextMsg("未查询到战斗记录");
+        RwStatWindowQuery query;
+        try {
+            query = parseStatWindowQuery(msg);
+        } catch (IllegalArgumentException e) {
+            return super.buildTextMsg(e.getMessage());
         }
 
-        return super.buildImageMsg(buildAttackMsg(rw.getStartTime(), rw.getFactionId(),
-                rw.getFactionName(), rw.getOpponentFactionName(), attackList));
+        TornFactionRwDO rw = getStatWindowRw(sender, query);
+        if (rw == null) {
+            return super.buildTextMsg("暂无RW真赛数据");
+        }
+
+        RwStatWindowVO window = resolveWindow(rw, query);
+        if (window == null) {
+            return super.buildTextMsg(query.windowCode() == null
+                    ? "未查询到已确认对冲窗口" : "未查询到对冲窗口");
+        }
+
+        RwAttackFrequencySummaryVO summary = queryFrequency(rw, window);
+        if (summary.getSelfAttackCount() == 0 && summary.getOpponentAttackCount() == 0) {
+            return super.buildTextMsg("未查询到战斗记录");
+        }
+        return super.buildImageMsg(buildAttackMsg(rw, summary));
     }
 
-    /**
-     * 构建战斗统计表格
-     */
-    private String buildAttackMsg(LocalDateTime startTime, long factionId, String factionName,
-                                  String opponentFactionName, List<TornFactionAttackDO> attackList) {
+    private RwStatWindowVO resolveWindow(TornFactionRwDO rw, RwStatWindowQuery query) {
+        if (query.windowCode() != null) {
+            return getExplicitStatWindow(rw, query.windowCode());
+        }
+        return getLatestConfirmedStatWindow(rw);
+    }
+
+    private String buildAttackMsg(TornFactionRwDO rw, RwAttackFrequencySummaryVO summary) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-        int allSelfCount = countUserNum(factionId, attackList, true);
-        int allOpponentCount = countUserNum(factionId, attackList, false);
-
-        tableData.add(List.of("时间窗口", factionName, opponentFactionName));
-
-        LocalDateTime end = startTime.plusSeconds(10L);
-        int selfCount = countAttackNum(factionId, end, attackList, true);
-        int opponentCount = countAttackNum(factionId, end, attackList, false);
-        tableData.add(List.of("10s", String.valueOf(selfCount), String.valueOf(opponentCount)));
-
-        end = end.plusSeconds(10L);
-        selfCount = countAttackNum(factionId, end, attackList, true);
-        opponentCount = countAttackNum(factionId, end, attackList, false);
-        tableData.add(List.of("20s", String.valueOf(selfCount), String.valueOf(opponentCount)));
-
-        end = end.plusSeconds(10L);
-        selfCount = countAttackNum(factionId, end, attackList, true);
-        opponentCount = countAttackNum(factionId, end, attackList, false);
-        tableData.add(List.of("30s", String.valueOf(selfCount), String.valueOf(opponentCount)));
-
-        end = end.plusSeconds(30L);
-        selfCount = countAttackNum(factionId, end, attackList, true);
-        opponentCount = countAttackNum(factionId, end, attackList, false);
-        tableData.add(List.of("60s", String.valueOf(selfCount), String.valueOf(opponentCount)));
-
-        end = end.plusSeconds(61L);
-        selfCount = countAttackNum(factionId, end, attackList, true);
-        opponentCount = countAttackNum(factionId, end, attackList, false);
-        tableData.add(List.of("120s", String.valueOf(selfCount), String.valueOf(opponentCount)));
-
-        tableData.add(List.of("人数", String.valueOf(allSelfCount), String.valueOf(allOpponentCount)));
-
-        int selfAttackCount = countAttackNum(factionId, null, attackList, true);
-        int opponentAttackCount = countAttackNum(factionId, null, attackList, false);
-        tableData.add(List.of("人均出手/分钟",
-                BigDecimal.valueOf(selfAttackCount).divide(BigDecimal.valueOf(allSelfCount), 3, RoundingMode.HALF_UP)
-                        .multiply(BigDecimal.valueOf(0.5))
-                        .toString(),
-                BigDecimal.valueOf(opponentAttackCount).divide(BigDecimal.valueOf(allOpponentCount), 3, RoundingMode.HALF_UP)
-                        .multiply(BigDecimal.valueOf(0.5))
-                        .toString()));
-
-        TableImageUtils.CellStyle style = new TableImageUtils.CellStyle()
-                .setFont(new Font("微软雅黑", Font.BOLD, 14));
-        tableConfig.setCellStyle(6, 0, style);
-        tableConfig.setCellStyle(6, 1, style);
-        tableConfig.setCellStyle(6, 2, style);
-        tableConfig.setCellStyle(7, 0, style);
-        tableConfig.setCellStyle(7, 1, style);
-        tableConfig.setCellStyle(7, 2, style);
-
+        addSummaryRows(tableData, tableConfig, rw, summary);
+        addUserRows(tableData, tableConfig, rw.getFactionName() + " 出手用户统计", summary.getSelfUsers());
+        addUserRows(tableData, tableConfig, rw.getOpponentFactionName() + " 出手用户统计", summary.getOpponentUsers());
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 
-    /**
-     * 计算攻击次数
-     */
-    private int countAttackNum(long factionId, LocalDateTime endTime,
-                               List<TornFactionAttackDO> attackList, boolean isSelf) {
-        return attackList.stream()
-                .filter(a -> endTime == null || a.getAttackStartTime().isBefore(endTime))
-                .filter(a -> a.getAttackFactionId().equals(factionId) == isSelf)
-                .toList()
-                .size();
+    private void addSummaryRows(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
+                                TornFactionRwDO rw, RwAttackFrequencySummaryVO summary) {
+        RwStatWindowVO window = summary.getWindow();
+        tableData.add(List.of("RW攻击频率", "", "", "", "", "", "", ""));
+        tableConfig.addMerge(0, 0, 1, 8);
+        tableConfig.setCellStyle(0, 0, titleStyle());
+        tableData.add(List.of("RWID", "窗口", "时间范围", "对冲时长", "己方总出手", "己方人数", "对方总出手", "对方人数"));
+        tableConfig.setSubTitle(1, 8);
+        tableData.add(List.of(String.valueOf(rw.getId()), formatWindowLabel(window),
+                formatRange(window.getStartTime(), window.getEndTime()),
+                formatDuration(window.getStartTime(), window.getEndTime()),
+                String.valueOf(summary.getSelfAttackCount()), String.valueOf(summary.getSelfUserCount()),
+                String.valueOf(summary.getOpponentAttackCount()), String.valueOf(summary.getOpponentUserCount())));
     }
 
-    /**
-     * 计算人数
-     */
-    private int countUserNum(long factionId, List<TornFactionAttackDO> attackList, boolean isSelf) {
-        return attackList.stream()
-                .filter(a -> a.getAttackFactionId().equals(factionId) == isSelf)
-                .map(TornFactionAttackDO::getAttackUserId)
-                .collect(Collectors.toSet())
-                .size();
+    private void addUserRows(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
+                             String title, List<RwUserAttackStatVO> users) {
+        int titleRow = tableData.size();
+        tableData.add(List.of(title, "", "", "", "", "", "", ""));
+        tableConfig.addMerge(titleRow, 0, 1, 8);
+        tableConfig.setCellStyle(titleRow, 0, sectionStyle());
+
+        int headerRow = tableData.size();
+        tableData.add(List.of("Rank", "ID", "昵称", "出手次数", "出手频率(次/分钟)", "", "", ""));
+        tableConfig.setSubTitle(headerRow, 8);
+        if (users.isEmpty()) {
+            tableData.add(List.of("", "", "无有效出手记录", "", "", "", "", ""));
+            return;
+        }
+        for (int i = 0; i < users.size(); i++) {
+            RwUserAttackStatVO user = users.get(i);
+            tableData.add(List.of(String.valueOf(i + 1), String.valueOf(user.getUserId()), user.getNickname(),
+                    String.valueOf(user.getAttackCount()), formatRate(user.getAttackRatePerMinute()), "", "", ""));
+        }
+    }
+
+    private TableImageUtils.CellStyle titleStyle() {
+        return new TableImageUtils.CellStyle()
+                .setBgColor(Color.WHITE)
+                .setPadding(20)
+                .setFont(new Font("微软雅黑", Font.BOLD, 26));
+    }
+
+    private TableImageUtils.CellStyle sectionStyle() {
+        return new TableImageUtils.CellStyle()
+                .setBgColor(Color.WHITE)
+                .setPadding(12)
+                .setFont(new Font("微软雅黑", Font.BOLD, 18));
+    }
+
+    private String formatRange(LocalDateTime startTime, LocalDateTime endTime) {
+        if (startTime.toLocalDate().equals(endTime.toLocalDate())) {
+            return startTime.format(DISPLAY_TIME_FORMATTER) + " ~ "
+                    + endTime.toLocalTime().format(DISPLAY_TIME_ONLY_FORMATTER);
+        }
+        return startTime.format(DISPLAY_TIME_FORMATTER) + " ~ " + endTime.format(DISPLAY_TIME_FORMATTER);
+    }
+
+    private String formatWindowLabel(RwStatWindowVO window) {
+        return Boolean.TRUE.equals(window.getConfirmed()) ? window.getWindowCode()
+                : window.getWindowCode() + " (进行中)";
+    }
+
+    private String formatDuration(LocalDateTime startTime, LocalDateTime endTime) {
+        long seconds = Math.max(0, Duration.between(startTime, endTime).getSeconds());
+        return (seconds / 60) + "分" + (seconds % 60) + "秒";
+    }
+
+    private String formatRate(BigDecimal rate) {
+        return rate == null ? "0.00" : rate.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 }
