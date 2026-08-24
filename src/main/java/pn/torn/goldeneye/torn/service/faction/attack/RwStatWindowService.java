@@ -69,7 +69,7 @@ public class RwStatWindowService {
     /**
      * 查询指定窗口目录项。
      *
-     * @param rw RW对象
+     * @param rw         RW对象
      * @param windowCode 窗口字母
      * @return 窗口目录项，不存在时返回null
      */
@@ -98,7 +98,7 @@ public class RwStatWindowService {
     /**
      * 查询指定窗口的双方用户出手统计。
      *
-     * @param rw RW对象
+     * @param rw     RW对象
      * @param window 窗口目录项
      * @return 双方统计摘要
      */
@@ -119,8 +119,16 @@ public class RwStatWindowService {
         return summary;
     }
 
+    /**
+     * 持久化单个候选窗口，并保护已确认窗口的不可变字段。
+     *
+     * @param rw              所属RW
+     * @param candidate       活跃窗口候选
+     * @param observedAt      本次刷新观测上界
+     * @param existingWindows 当前RW已有窗口
+     */
     private void persistCandidate(TornFactionRwDO rw, AttackTimeWindowDO candidate,
-                                 LocalDateTime observedAt, List<TornFactionRwStatWindowDO> existingWindows) {
+                                  LocalDateTime observedAt, List<TornFactionRwStatWindowDO> existingWindows) {
         if (findConfirmedOverlap(candidate, existingWindows) != null) {
             return;
         }
@@ -146,12 +154,25 @@ public class RwStatWindowService {
         }
     }
 
+    /**
+     * 查询指定RW的有效窗口。
+     *
+     * @param rwId RW ID
+     * @return 有效窗口列表
+     */
     private List<TornFactionRwStatWindowDO> findWindows(long rwId) {
         return windowDao.queryActiveWindows(rwId);
     }
 
+    /**
+     * 查找与候选窗口重叠的已确认窗口。
+     *
+     * @param candidate 活跃窗口候选
+     * @param windows   当前RW已有窗口
+     * @return 重叠的已确认窗口，不存在时返回null
+     */
     private TornFactionRwStatWindowDO findConfirmedOverlap(AttackTimeWindowDO candidate,
-                                                            List<TornFactionRwStatWindowDO> windows) {
+                                                           List<TornFactionRwStatWindowDO> windows) {
         return windows.stream()
                 .filter(window -> Boolean.TRUE.equals(window.getConfirmed()))
                 .filter(window -> overlaps(window.getStartTime(), window.getEndTime(), candidate.start(), candidate.end()))
@@ -159,8 +180,15 @@ public class RwStatWindowService {
                 .orElse(null);
     }
 
+    /**
+     * 查找与候选窗口重叠的未确认窗口。
+     *
+     * @param candidate 活跃窗口候选
+     * @param windows   当前RW已有窗口
+     * @return 重叠的未确认窗口，不存在时返回null
+     */
     private TornFactionRwStatWindowDO findUnconfirmedOverlap(AttackTimeWindowDO candidate,
-                                                              List<TornFactionRwStatWindowDO> windows) {
+                                                             List<TornFactionRwStatWindowDO> windows) {
         return windows.stream()
                 .filter(window -> !Boolean.TRUE.equals(window.getConfirmed()))
                 .filter(window -> overlaps(window.getStartTime(), window.getEndTime(), candidate.start(), candidate.end()))
@@ -168,15 +196,38 @@ public class RwStatWindowService {
                 .orElse(null);
     }
 
+    /**
+     * 判断两个时间区间是否存在交集。
+     *
+     * @param leftStart  左区间开始时间
+     * @param leftEnd    左区间结束时间
+     * @param rightStart 右区间开始时间
+     * @param rightEnd   右区间结束时间
+     * @return 是否重叠
+     */
     private boolean overlaps(LocalDateTime leftStart, LocalDateTime leftEnd,
                              LocalDateTime rightStart, LocalDateTime rightEnd) {
         return !leftEnd.isBefore(rightStart) && !rightEnd.isBefore(leftStart);
     }
 
+    /**
+     * 判断候选窗口是否已经满足确认条件。
+     *
+     * @param rw         所属RW
+     * @param candidate  活跃窗口候选
+     * @param observedAt 本次刷新观测上界
+     * @return 是否确认
+     */
     private boolean isConfirmed(TornFactionRwDO rw, AttackTimeWindowDO candidate, LocalDateTime observedAt) {
         return rw.getEndTime() != null || !candidate.end().plusMinutes(WINDOW_MINUTES).isAfter(observedAt);
     }
 
+    /**
+     * 根据已有窗口序号生成下一个窗口编码。
+     *
+     * @param windows 当前RW已有窗口
+     * @return 下一个窗口编码
+     */
     private String nextWindowCode(List<TornFactionRwStatWindowDO> windows) {
         long maxSequence = windows.stream()
                 .map(TornFactionRwStatWindowDO::getWindowCode)
@@ -186,12 +237,25 @@ public class RwStatWindowService {
         return RwStatWindowCodeUtils.toCode(maxSequence + 1);
     }
 
+    /**
+     * 将活跃窗口候选的时间范围写入持久化对象。
+     *
+     * @param source    原窗口对象
+     * @param candidate 活跃窗口候选
+     * @return 更新后的窗口对象
+     */
     private TornFactionRwStatWindowDO toWindow(TornFactionRwStatWindowDO source, AttackTimeWindowDO candidate) {
         source.setStartTime(candidate.start());
         source.setEndTime(candidate.end());
         return source;
     }
 
+    /**
+     * 将窗口持久化对象转换为业务展示对象。
+     *
+     * @param window 持久化窗口
+     * @return 窗口业务对象
+     */
     private RwStatWindowVO toWindowVO(TornFactionRwStatWindowDO window) {
         RwStatWindowVO result = new RwStatWindowVO();
         result.setRwId(window.getRwId());
@@ -202,12 +266,25 @@ public class RwStatWindowService {
         return result;
     }
 
+    /**
+     * 按攻击方帮派筛选用户统计。
+     *
+     * @param users     双方用户统计
+     * @param factionId 目标帮派ID
+     * @return 指定帮派用户统计
+     */
     private List<RwUserAttackStatVO> filterUsers(List<RwUserAttackStatVO> users, long factionId) {
         return users.stream()
                 .filter(user -> Objects.equals(user.getAttackFactionId(), factionId))
                 .toList();
     }
 
+    /**
+     * 汇总用户出手次数。
+     *
+     * @param users 用户出手统计
+     * @return 总出手次数
+     */
     private int sumAttackCount(List<RwUserAttackStatVO> users) {
         return users.stream().mapToInt(RwUserAttackStatVO::getAttackCount).sum();
     }

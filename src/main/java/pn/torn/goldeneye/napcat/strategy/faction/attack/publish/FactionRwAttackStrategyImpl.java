@@ -11,11 +11,11 @@ import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.torn.PlayerAttackStatDO;
 import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowQuery;
 import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,7 +29,6 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
-    private static final DateTimeFormatter DISPLAY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     @Override
     public String getCommand() {
         return BotCommands.RW_GOD;
@@ -42,18 +41,13 @@ public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        RwStatWindowQuery query;
-        try {
-            query = parseStatWindowQuery(msg);
-        } catch (IllegalArgumentException e) {
-            return super.buildTextMsg(e.getMessage());
+        RwStatWindowContext context = resolveStatWindowContext(sender, msg);
+        if (context.errorMessage() != null) {
+            return super.buildTextMsg(context.errorMessage());
         }
 
-        TornFactionRwDO rw = getStatWindowRw(sender, query);
-        if (rw == null) {
-            return super.buildTextMsg("暂无RW真赛数据");
-        }
-
+        RwStatWindowQuery query = context.query();
+        TornFactionRwDO rw = context.rw();
         RwStatWindowVO window = query.windowCode() == null ? null : getExplicitStatWindow(rw, query.windowCode());
         if (query.windowCode() != null && window == null) {
             return super.buildTextMsg("未查询到对冲窗口");
@@ -70,9 +64,15 @@ public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
     }
 
     /**
-     * 构建战斗统计表格
+     * 构建RW战神统计图片。
+     *
+     * @param rw         RW对象
+     * @param window     指定窗口，未指定时为null
+     * @param attackList 玩家攻击统计
+     * @return 图片Base64内容
      */
-    private String buildAttackMsg(TornFactionRwDO rw, RwStatWindowVO window, List<PlayerAttackStatDO> attackList) {
+    private String buildAttackMsg(TornFactionRwDO rw, RwStatWindowVO window,
+                                  List<PlayerAttackStatDO> attackList) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
@@ -130,12 +130,19 @@ public class FactionRwAttackStrategyImpl extends BaseRwStrategy {
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 
+    /**
+     * 构建战神统计范围标题。
+     *
+     * @param rw     RW对象
+     * @param window 指定窗口，未指定时为null
+     * @return 范围标题
+     */
     private String buildScopeTitle(TornFactionRwDO rw, RwStatWindowVO window) {
         if (window == null) {
             return "RW " + rw.getId() + " | 全场活跃对冲汇总";
         }
         return "RW " + rw.getId() + " | 对冲窗口 " + window.getWindowCode() + " | "
-                + window.getStartTime().format(DISPLAY_TIME_FORMATTER) + " - "
-                + window.getEndTime().format(DISPLAY_TIME_FORMATTER);
+                + DateTimeUtils.convertToString(window.getStartTime()) + " - "
+                + DateTimeUtils.convertToString(window.getEndTime());
     }
 }

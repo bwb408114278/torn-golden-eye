@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
  * 时间工具类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.4.4
  * @since 2025.07.29
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -20,10 +20,12 @@ public class DateTimeUtils {
     public static final DateTimeFormatter YEAR_MONTH_FORMATTER;
     private static final DateTimeFormatter DATE_FORMATTER;
     private static final DateTimeFormatter DATE_TIME_FORMATTER;
+    private static final DateTimeFormatter TIME_FORMATTER;
 
     static {
         DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
         YEAR_MONTH_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
     }
 
@@ -39,6 +41,16 @@ public class DateTimeUtils {
      */
     public static String convertToString(LocalDateTime datetime) {
         return datetime.format(DATE_TIME_FORMATTER);
+    }
+
+    /**
+     * 转换时间为时分秒字符串。
+     *
+     * @param time 时间
+     * @return 格式为HH:mm:ss的时间字符串
+     */
+    public static String convertToString(LocalTime time) {
+        return time.format(TIME_FORMATTER);
     }
 
     /**

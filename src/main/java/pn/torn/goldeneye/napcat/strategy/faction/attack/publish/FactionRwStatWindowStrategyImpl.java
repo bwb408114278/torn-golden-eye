@@ -8,13 +8,12 @@ import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowQuery;
 import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO;
+import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
-import java.awt.Color;
-import java.awt.Font;
+import java.awt.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,8 +26,6 @@ import java.util.List;
  */
 @Component
 public class FactionRwStatWindowStrategyImpl extends BaseRwStrategy {
-    private static final DateTimeFormatter DISPLAY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final DateTimeFormatter DISPLAY_TIME_ONLY_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
     @Override
     public String getCommand() {
         return BotCommands.RW_STAT_WINDOW;
@@ -41,20 +38,16 @@ public class FactionRwStatWindowStrategyImpl extends BaseRwStrategy {
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        RwStatWindowQuery query;
-        try {
-            query = parseStatWindowQuery(msg);
-        } catch (IllegalArgumentException e) {
-            return super.buildTextMsg(e.getMessage());
+        RwStatWindowContext context = resolveStatWindowContext(sender, msg);
+        if (context.errorMessage() != null) {
+            return super.buildTextMsg(context.errorMessage());
         }
+        RwStatWindowQuery query = context.query();
         if (query.windowCode() != null) {
             return super.buildTextMsg("参数有误");
         }
 
-        TornFactionRwDO rw = getStatWindowRw(sender, query);
-        if (rw == null) {
-            return super.buildTextMsg("暂无RW真赛数据");
-        }
+        TornFactionRwDO rw = context.rw();
         List<RwStatWindowVO> windows = getStatWindowCatalog(rw);
         if (windows.isEmpty()) {
             return super.buildTextMsg("未查询到对冲窗口");
@@ -62,11 +55,18 @@ public class FactionRwStatWindowStrategyImpl extends BaseRwStrategy {
         return super.buildImageMsg(buildCatalogImage(rw, windows));
     }
 
+    /**
+     * 构建RW对冲窗口目录图片。
+     *
+     * @param rw      RW对象
+     * @param windows 窗口目录
+     * @return 图片Base64内容
+     */
     private String buildCatalogImage(TornFactionRwDO rw, List<RwStatWindowVO> windows) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         tableData.add(List.of(rw.getFactionName() + " VS " + rw.getOpponentFactionName()
-                        + " RW " + rw.getId() + " 对冲窗口", "", "", "", "", ""));
+                + " RW " + rw.getId() + " 对冲窗口", "", "", "", "", ""));
         tableConfig.addMerge(0, 0, 1, 6);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
                 .setBgColor(Color.WHITE)
@@ -83,14 +83,28 @@ public class FactionRwStatWindowStrategyImpl extends BaseRwStrategy {
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 
+    /**
+     * 格式化窗口时间范围。
+     *
+     * @param startTime 开始时间
+     * @param endTime   结束时间
+     * @return 格式化后的时间范围
+     */
     private String formatRange(LocalDateTime startTime, LocalDateTime endTime) {
         if (startTime.toLocalDate().equals(endTime.toLocalDate())) {
-            return startTime.format(DISPLAY_TIME_FORMATTER) + " ~ "
-                    + endTime.toLocalTime().format(DISPLAY_TIME_ONLY_FORMATTER);
+            return DateTimeUtils.convertToString(startTime) + " ~ "
+                    + DateTimeUtils.convertToString(endTime.toLocalTime());
         }
-        return startTime.format(DISPLAY_TIME_FORMATTER) + " ~ " + endTime.format(DISPLAY_TIME_FORMATTER);
+        return DateTimeUtils.convertToString(startTime) + " ~ " + DateTimeUtils.convertToString(endTime);
     }
 
+    /**
+     * 格式化窗口持续时长。
+     *
+     * @param startTime 开始时间
+     * @param endTime   结束时间
+     * @return 分秒格式的持续时长
+     */
     private String formatDuration(LocalDateTime startTime, LocalDateTime endTime) {
         long seconds = Math.max(0, Duration.between(startTime, endTime).getSeconds());
         return (seconds / 60) + "分" + (seconds % 60) + "秒";

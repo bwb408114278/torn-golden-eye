@@ -17,9 +17,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * RW对冲统计窗口生命周期服务测试。
@@ -51,14 +49,14 @@ class RwStatWindowServiceTest {
     void refreshWindows_confirmedWindowRemainsStable_andAppendsNextCode() {
         TornFactionRwDO rw = rw(1L, LocalDateTime.of(2026, 8, 24, 13, 0));
         TornFactionRwStatWindowDO confirmed = window(1L, "A", START, START.plusMinutes(10), true);
-        when(attackLogDao.queryActiveTimeWindows(eq(1L), eq(2L), eq(3), eq(100), eq(START), eq(rw.getEndTime())))
+        when(attackLogDao.queryActiveTimeWindows(1L, 2L, 3, 100, START, rw.getEndTime()))
                 .thenReturn(List.of(new AttackTimeWindowDO(START.plusMinutes(20), START.plusMinutes(25))));
         when(windowDao.queryActiveWindows(1L)).thenReturn(List.of(confirmed));
         when(windowDao.insertIgnoreConflict(any(TornFactionRwStatWindowDO.class))).thenReturn(1);
 
         service.refreshWindows(rw);
 
-        verify(windowDao, never()).updateUnconfirmedWindow(any(), eq(true));
+        verify(windowDao, never()).updateUnconfirmedWindow(any(), any(boolean.class));
         verify(windowDao).insertIgnoreConflict(org.mockito.ArgumentMatchers.argThat(window ->
                 "B".equals(window.getWindowCode()) && Boolean.TRUE.equals(window.getConfirmed())));
     }

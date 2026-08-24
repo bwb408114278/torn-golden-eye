@@ -88,6 +88,26 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
     }
 
     /**
+     * 统一解析并定位RW统计指令的目标RW。
+     *
+     * @param sender 消息发送人
+     * @param msg    指令参数
+     * @return 解析结果，包含参数错误提示或目标RW
+     */
+    protected RwStatWindowContext resolveStatWindowContext(QqRecMsgSender sender, String msg) {
+        try {
+            RwStatWindowQuery query = parseStatWindowQuery(msg);
+            TornFactionRwDO rw = getStatWindowRw(sender, query);
+            if (rw == null) {
+                return new RwStatWindowContext(query, null, "暂无RW真赛数据");
+            }
+            return new RwStatWindowContext(query, rw, null);
+        } catch (IllegalArgumentException e) {
+            return new RwStatWindowContext(null, null, e.getMessage());
+        }
+    }
+
+    /**
      * 按统计参数定位RW，保持纯数字参数的既有RWID语义。
      *
      * @param sender 消息发送人
@@ -164,6 +184,16 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
      */
     protected RwAttackFrequencySummaryVO queryFrequency(TornFactionRwDO rw, RwStatWindowVO window) {
         return rwStatWindowService.queryFrequency(rw, window);
+    }
+
+    /**
+     * RW统计指令参数和目标RW的统一解析结果。
+     *
+     * @param query        解析后的查询参数
+     * @param rw           目标RW
+     * @param errorMessage 稳定错误提示
+     */
+    protected record RwStatWindowContext(RwStatWindowQuery query, TornFactionRwDO rw, String errorMessage) {
     }
 
     /**

@@ -37,6 +37,12 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
         throw invalidParameter();
     }
 
+    /**
+     * 解析单段RWID或窗口编码参数。
+     *
+     * @param part 单段参数
+     * @return 解析后的查询参数
+     */
     private static RwStatWindowQuery parseSinglePart(String part) {
         if (isPositiveLong(part)) {
             return new RwStatWindowQuery(Long.parseLong(part), null);
