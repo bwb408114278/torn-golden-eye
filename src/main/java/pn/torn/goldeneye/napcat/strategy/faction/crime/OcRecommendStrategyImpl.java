@@ -21,6 +21,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,7 +29,7 @@ import java.util.List;
  * OC推荐策略实现类
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.4.4
  * @since 2025.11.07
  */
 @Component
@@ -64,10 +65,10 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
         TornOcRecommendService.CurrentOcStatus currentStatus = recommendService.queryCurrentOcStatus(user, joinedOc);
         if (currentStatus.disabled()) {
-            return buildDisabledWithRecommendMessage(user, currentStatus, result);
+            return buildDisabledWithRecommendMessage(user, result);
         }
         if (currentStatus.passRateInsufficient()) {
-            return super.buildTextMsg(buildInsufficientMessage(user, currentStatus));
+            return buildInsufficientWithRecommendMessage(user, currentStatus, joinedOc, result);
         }
         if (CollectionUtils.isEmpty(result)) {
             if (currentStatus.joined() && currentStatus.currentScore() != null) {
@@ -79,27 +80,27 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
         return buildRecommendTable(user, result);
     }
 
-    private String buildDisabledMessage(TornUserDO user, TornOcRecommendService.CurrentOcStatus status) {
-        String message = user.getNickname() + ", 当前加入的OC已被禁用";
-        if (status.actualPassRate() != null && status.requiredPassRate() != null) {
-            message += "，当前成功率" + status.actualPassRate() + "%，要求" + status.requiredPassRate() + "%";
-        }
-        return message;
+    /**
+     * 构建禁用提示，对齐巡检定稿文案，禁用语义下不再附带成功率信息。
+     *
+     * @param user 用户
+     * @return 禁用提示文本
+     */
+    private String buildDisabledMessage(TornUserDO user) {
+        return user.getNickname() + ", 你加入了禁用的OC, 需要更换其他OC";
     }
 
     /**
      * 禁用当前OC时组合禁用提示与正常推荐结果；推荐为空时明确提示未找到正常OC。
      *
-     * @param user          用户
-     * @param currentStatus 当前OC状态
-     * @param result        OC推荐结果
+     * @param user   用户
+     * @param result OC推荐结果
      * @return 禁用提示在前、正常推荐文本/链接/图片在后的消息列表
      */
     private List<QqMsgParam<?>> buildDisabledWithRecommendMessage(TornUserDO user,
-                                                                  TornOcRecommendService.CurrentOcStatus currentStatus,
                                                                   List<OcRecommendationVO> result) {
         List<QqMsgParam<?>> messageList = new ArrayList<>();
-        messageList.add(new TextQqMsg(buildDisabledMessage(user, currentStatus)));
+        messageList.add(new TextQqMsg(buildDisabledMessage(user)));
         if (CollectionUtils.isEmpty(result)) {
             messageList.add(new TextQqMsg(user.getNickname() + ", 暂未找到可加入的正常OC"));
             return messageList;
@@ -108,9 +109,66 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
         return messageList;
     }
 
-    private String buildInsufficientMessage(TornUserDO user, TornOcRecommendService.CurrentOcStatus status) {
-        return user.getNickname() + ", 当前岗位成功率不足：当前"
-                + status.actualPassRate() + "%，要求" + status.requiredPassRate() + "%";
+    /**
+     * 成功率不足时组合状态提示与推荐结果，推荐范围由服务层限定（有进度时仅本队）；
+     * 推荐为空时有进度用户提示找OC指挥官决定是否换队，无进度用户提示未找到达标岗位。
+     *
+     * @param user          用户
+     * @param currentStatus 当前OC状态
+     * @param joinedOc      当前占用的OC岗位
+     * @param result        OC推荐结果
+     * @return 状态提示在前、推荐文本/链接/图片在后的消息列表
+     */
+    private List<QqMsgParam<?>> buildInsufficientWithRecommendMessage(TornUserDO user,
+                                                                      TornOcRecommendService.CurrentOcStatus currentStatus,
+                                                                      OcSlotDictBO joinedOc,
+                                                                      List<OcRecommendationVO> result) {
+        List<QqMsgParam<?>> messageList = new ArrayList<>();
+        messageList.add(new TextQqMsg(buildInsufficientMessage(user, currentStatus, joinedOc)));
+        if (CollectionUtils.isEmpty(result)) {
+            messageList.add(new TextQqMsg(buildNoRecommendMessage(user, joinedOc)));
+            return messageList;
+        }
+        messageList.addAll(buildRecommendTable(user, result));
+        return messageList;
+    }
+
+    /**
+     * 构建成功率不足状态提示，文案对齐巡检定稿格式。
+     *
+     * @param user     用户
+     * @param status   当前OC状态
+     * @param joinedOc 当前占用的OC岗位
+     * @return 状态提示文本
+     */
+    private String buildInsufficientMessage(TornUserDO user, TornOcRecommendService.CurrentOcStatus status,
+                                            OcSlotDictBO joinedOc) {
+        return user.getNickname() + ", 当前岗位" + joinedOc.getSlot().getPosition()
+                + "成功率: " + status.actualPassRate() + ", 帮派要求: " + status.requiredPassRate();
+    }
+
+    /**
+     * 构建成功率不足且无推荐时的兜底提示：有进度用户换队需OC指挥官决策，无进度用户仅提示无达标岗位。
+     *
+     * @param user     用户
+     * @param joinedOc 当前占用的OC岗位
+     * @return 兜底提示文本
+     */
+    private String buildNoRecommendMessage(TornUserDO user, OcSlotDictBO joinedOc) {
+        if (hasProgress(joinedOc)) {
+            return user.getNickname() + ", 本队暂无适合岗位, 请找OC指挥官决定是否换队";
+        }
+        return user.getNickname() + ", 暂未找到成功率达标的岗位";
+    }
+
+    /**
+     * 判断当前岗位是否已有进度（成功率不足的分支下joinedOc必非空）。
+     *
+     * @param joinedOc 当前占用的OC岗位
+     * @return true表示已有进度
+     */
+    private boolean hasProgress(OcSlotDictBO joinedOc) {
+        return BigDecimal.ZERO.compareTo(joinedOc.getSlot().getProgress()) < 0;
     }
 
     /**
