@@ -59,7 +59,7 @@ import static org.mockito.Mockito.*;
  * Torn OC完成通知服务测试
  *
  * @author Bai
- * @version 1.4.1
+ * @version 1.4.6
  * @since 2026.07.20
  */
 @ExtendWith(MockitoExtension.class)
@@ -375,6 +375,101 @@ class TornOcCompleteNoticeServiceTest {
         assertFalse(completionAtQqIds().contains(3001L));
     }
 
+    @Test
+    @DisplayName("启动时恢复已通知但未完成的OC完成检测")
+    void shouldRestoreCompleteCheckTask_whenOcNoticedButNotComplete() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO noticedOc = buildPlanningOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20));
+        noticedOc.setHasNoticed(true);
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 30));
+
+        mockInitScheduling(faction, List.of());
+        when(ocDao.queryNoticedNotCompleteByFaction(faction.getId()))
+                .thenReturn(List.of(noticedOc));
+        noticeService.init();
+
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), user.getId())), List.of(user));
+
+        assertEquals(1L, completionRequestCount());
+        List<String> texts = completionTexts();
+        assertTrue(texts.stream().anyMatch(text -> text.contains("#8 Clinical Precision 已完成")));
+        assertTrue(texts.stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误，请关注：")
+                && text.contains("#8 Clinical Precision：计划20:21完成，实际20:30完成，延误约9分钟")));
+        assertTrue(completionAtQqIds().contains(2001L));
+    }
+
+    @Test
+    @DisplayName("刷新异常时任务链不中断")
+    void shouldRescheduleCompleteCheckTask_whenRefreshThrows() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO planningOc = buildPlanningOc(501L, 8, "Clinical Precision",
+                LocalDateTime.now().minusMinutes(10));
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 30));
+
+        mockInitScheduling(faction, List.of(planningOc));
+        mockNoticeExecution(faction, List.of(planningOc), user, null);
+        runNoticeTask(faction);
+
+        doThrow(new RuntimeException("refresh failed"))
+                .doNothing()
+                .when(ocRefreshManager).refreshOc(1, faction.getId());
+
+        ArgumentCaptor<Runnable> firstTaskCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskService, atLeastOnce()).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                firstTaskCaptor.capture(), any(LocalDateTime.class));
+        firstTaskCaptor.getValue().run();
+
+        assertEquals(0L, completionRequestCount());
+        assertTrue(completionTexts().isEmpty());
+
+        ArgumentCaptor<LocalDateTime> retryTimeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(taskService, atLeast(2)).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                any(Runnable.class), retryTimeCaptor.capture());
+        LocalDateTime retryTime = retryTimeCaptor.getAllValues().getLast();
+        assertTrue(retryTime.isAfter(LocalDateTime.now().plusSeconds(30)));
+
+        ocDaoListRef.set(List.of(completedOc));
+        enableOcDaoInQuery();
+        mockCompletedSlots(List.of(buildSlot(completedOc.getId(), user.getId())));
+        mockCompleteNoticeData(faction, List.of(user));
+
+        ArgumentCaptor<Runnable> secondTaskCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskService, atLeast(2)).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                secondTaskCaptor.capture(), any(LocalDateTime.class));
+        secondTaskCaptor.getValue().run();
+
+        assertEquals(1L, completionRequestCount());
+        assertTrue(completionTexts().stream().anyMatch(text -> text.contains("以下OC完成时存在明显延误")));
+    }
+
+    @Test
+    @DisplayName("启动时无已通知未完成OC不额外调度完成检测")
+    void shouldNotScheduleCompleteCheck_whenNoNoticedNotCompleteOc() {
+        TornSettingFactionDO faction = buildFaction();
+        TornFactionOcDO planningOc = buildOc();
+
+        mockInitScheduling(faction, List.of(planningOc));
+        noticeService.init();
+
+        verify(taskService, atLeastOnce()).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete"),
+                any(Runnable.class), any(LocalDateTime.class));
+        verify(taskService, never()).updateTask(
+                eq(faction.getFactionShortName() + "-oc-complete-check"),
+                any(Runnable.class), any(LocalDateTime.class));
+    }
+
     static Stream<Arguments> blankOrInvalidCommanderConfigs() {
         return Stream.of(Arguments.of(""), Arguments.of("abc"));
     }
@@ -458,6 +553,7 @@ class TornOcCompleteNoticeServiceTest {
         when(query.eq(any(), any())).thenReturn(query);
         when(query.orderByAsc(any(SFunction.class))).thenReturn(query);
         when(query.list()).thenAnswer(invocation -> ocDaoListRef.get());
+        when(ocDao.queryNoticedNotCompleteByFaction(anyLong())).thenReturn(List.of());
         doNothing().when(taskService).updateTask(anyString(), any(Runnable.class), any(LocalDateTime.class));
     }
 
@@ -469,6 +565,7 @@ class TornOcCompleteNoticeServiceTest {
         List<TornFactionOcSlotDO> slots = user == null ? List.of()
                 : List.of(buildSlot(ocList.getFirst().getId(), user.getId()));
         doNothing().when(ocRefreshManager).refreshOc(1, faction.getId());
+        when(ocDao.queryNoticedNotCompleteByFaction(faction.getId())).thenReturn(ocList);
         when(ocSlotDao.queryListByOc(anyCollection())).thenReturn(slots);
         List<Long> userIds = slots.stream().map(TornFactionOcSlotDO::getUserId).distinct().toList();
         if (!userIds.isEmpty()) {
