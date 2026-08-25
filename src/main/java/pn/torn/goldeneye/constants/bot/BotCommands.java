@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.4
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -109,6 +109,10 @@ public class BotCommands {
      * RW攻击频率
      */
     public static final String RW_ATTACK_PERIOD = "RW攻击频率";
+    /**
+     * RW对冲窗口
+     */
+    public static final String RW_STAT_WINDOW = "RW对冲窗口";
     /**
      * RW集合时间
      */

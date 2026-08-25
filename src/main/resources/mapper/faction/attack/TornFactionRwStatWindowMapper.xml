@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.faction.attack.TornFactionRwStatWindowMapper">
+    <!-- 查询窗口目录并按当前RW双方帮派配对汇总窗口内的出手次数。 -->
+    <select id="queryWindowCatalog"
+            resultType="pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO">
+        SELECT sw.rw_id,
+               sw.window_code,
+               sw.start_time,
+               sw.end_time,
+               sw.confirmed,
+               COUNT(fa.id) FILTER (WHERE fa.attack_faction_id = #{factionId}) AS self_attack_count,
+               COUNT(fa.id) FILTER (WHERE fa.attack_faction_id = #{opponentFactionId}) AS opponent_attack_count,
+               COUNT(DISTINCT fa.attack_user_id) FILTER (WHERE fa.attack_faction_id = #{factionId}) AS self_user_count,
+               COUNT(DISTINCT fa.attack_user_id) FILTER (WHERE fa.attack_faction_id = #{opponentFactionId}) AS opponent_user_count
+        FROM torn_faction_rw_stat_window sw
+                 LEFT JOIN torn_faction_attack fa
+                           ON fa.deleted = 0
+                               AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
+                               AND ((fa.attack_faction_id = #{factionId}
+                                   AND fa.defend_faction_id = #{opponentFactionId})
+                                   OR (fa.attack_faction_id = #{opponentFactionId}
+                                       AND fa.defend_faction_id = #{factionId}))
+        WHERE sw.deleted = 0
+          AND sw.rw_id = #{rwId}
+        GROUP BY sw.rw_id, sw.window_code, sw.start_time, sw.end_time, sw.confirmed
+        ORDER BY sw.start_time
+    </select>
+
+    <!-- 查询指定RW的全部有效窗口，供刷新生命周期和稳定编号判断使用。 -->
+    <select id="queryActiveWindows"
+            resultType="pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwStatWindowDO">
+        SELECT id, rw_id, window_code, start_time, end_time, confirmed,
+               deleted, create_time, update_time
+        FROM torn_faction_rw_stat_window
+        WHERE deleted = 0
+          AND rw_id = #{rwId}
+        ORDER BY start_time
+    </select>
+
+    <!-- 查询最近一个已确认且双方均有有效进攻的窗口，作为默认攻击频率统计目标。 -->
+    <select id="queryLatestConfirmedWindow"
+            resultType="pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwStatWindowDO">
+        SELECT sw.id, sw.rw_id, sw.window_code, sw.start_time, sw.end_time, sw.confirmed,
+               sw.deleted, sw.create_time, sw.update_time
+        FROM torn_faction_rw_stat_window sw
+        WHERE sw.deleted = 0
+          AND sw.confirmed = true
+          AND sw.rw_id = #{rwId}
+          AND EXISTS (
+            SELECT 1
+            FROM torn_faction_attack fa
+            WHERE fa.deleted = 0
+              AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
+              AND fa.attack_faction_id = #{factionId}
+              AND fa.defend_faction_id = #{opponentFactionId}
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM torn_faction_attack fa
+            WHERE fa.deleted = 0
+              AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
+              AND fa.attack_faction_id = #{opponentFactionId}
+              AND fa.defend_faction_id = #{factionId}
+          )
+        ORDER BY sw.end_time DESC
+        LIMIT 1
+    </select>
+
+    <!-- 按攻击方帮派、用户和昵称聚合窗口内出手次数，频率按用户首末出手秒数计算，首末同秒（含单次出手）时为null。 -->
+    <select id="queryUserAttackStats"
+            resultType="pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO">
+        SELECT fa.attack_faction_id,
+               fa.attack_user_id AS user_id,
+               fa.attack_user_nickname AS nickname,
+               COUNT(*) AS attack_count,
+               ROUND(COUNT(*) * 60.0 /
+                     NULLIF(EXTRACT(EPOCH FROM (MAX(fa.attack_start_time) - MIN(fa.attack_start_time))), 0), 2)
+                   AS attack_rate_per_minute
+        FROM torn_faction_attack fa
+        WHERE fa.deleted = 0
+          AND fa.attack_start_time BETWEEN #{startTime} AND #{endTime}
+          AND ((fa.attack_faction_id = #{factionId}
+              AND fa.defend_faction_id = #{opponentFactionId})
+              OR (fa.attack_faction_id = #{opponentFactionId}
+                  AND fa.defend_faction_id = #{factionId}))
+        GROUP BY fa.attack_faction_id, fa.attack_user_id, fa.attack_user_nickname
+        HAVING COUNT(*) > 0
+        ORDER BY attack_count DESC, user_id
+    </select>
+
+    <!-- 按攻击方帮派和用户聚合RW全部窗口内出手次数，窗口互不重叠保证不重复计数；
+         频率先按用户在各窗口内首末出手秒数计算再求和，剔除窗口之间的轮空时段，各窗口首末同秒时为null。 -->
+    <select id="queryUserAttackStatsByRw"
+            resultType="pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO">
+        SELECT t.attack_faction_id,
+               t.user_id,
+               t.nickname,
+               SUM(t.cnt) AS attack_count,
+               ROUND(SUM(t.cnt) * 60.0 / NULLIF(SUM(t.active_seconds), 0), 2) AS attack_rate_per_minute
+        FROM (
+            SELECT fa.attack_faction_id,
+                   fa.attack_user_id AS user_id,
+                   fa.attack_user_nickname AS nickname,
+                   COUNT(*) AS cnt,
+                   EXTRACT(EPOCH FROM (MAX(fa.attack_start_time) - MIN(fa.attack_start_time))) AS active_seconds
+            FROM torn_faction_attack fa
+                     INNER JOIN torn_faction_rw_stat_window sw
+                                ON sw.deleted = 0
+                                    AND sw.rw_id = #{rwId}
+                                    AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
+            WHERE fa.deleted = 0
+              AND ((fa.attack_faction_id = #{factionId}
+                  AND fa.defend_faction_id = #{opponentFactionId})
+                  OR (fa.attack_faction_id = #{opponentFactionId}
+                      AND fa.defend_faction_id = #{factionId}))
+            GROUP BY fa.attack_faction_id, fa.attack_user_id, fa.attack_user_nickname, sw.id
+        ) t
+        GROUP BY t.attack_faction_id, t.user_id, t.nickname
+        ORDER BY attack_count DESC, user_id
+    </select>
+
+    <!-- 按RW和窗口编码幂等插入窗口定义，重复有效业务编号直接跳过。 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_faction_rw_stat_window
+            (id, rw_id, window_code, start_time, end_time, confirmed,
+             deleted, create_time, update_time)
+        VALUES (#{window.id}, #{window.rwId}, #{window.windowCode}, #{window.startTime}, #{window.endTime},
+                #{window.confirmed}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (rw_id, window_code) WHERE deleted = 0 DO NOTHING
+    </insert>
+
+    <!-- 只更新尚未确认窗口，确认后的时间范围和业务编号保持不变。 -->
+    <update id="updateUnconfirmedWindow">
+        UPDATE torn_faction_rw_stat_window
+        SET start_time = #{startTime},
+            end_time = #{endTime},
+            confirmed = #{confirmed},
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted = 0
+          AND confirmed = false
+    </update>
+</mapper>

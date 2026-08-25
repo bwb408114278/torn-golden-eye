@@ -31,7 +31,11 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * OC推荐策略测试，验证禁用当前OC时提示与正常推荐列表可同时输出。
+ * OC推荐策略测试，验证禁用/成功率不足状态提示与推荐列表组合输出。
+ *
+ * @author Bai
+ * @version 1.4.4
+ * @since 2026.08.20
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("OC推荐策略测试")
@@ -75,6 +79,7 @@ class OcRecommendStrategyImplTest {
         slot.setOcId(oc.getId());
         slot.setUserId(USER_ID);
         slot.setPosition("Thief#1");
+        slot.setProgress(BigDecimal.ZERO);
 
         when(userManager.getUserById(USER_ID)).thenReturn(user);
         LambdaQueryChainWrapper<TornFactionOcSlotDO> slotQuery = mock(LambdaQueryChainWrapper.class);
@@ -110,15 +115,16 @@ class OcRecommendStrategyImplTest {
         String message = collectText(messages);
         assertThat(messages).hasSize(3);
         assertThat(message)
-                .contains("当前加入的OC已被禁用")
+                .contains("你加入了禁用的OC, 需要更换其他OC")
                 .contains("推荐加入")
                 .contains("Normal OC")
                 .contains("Thief#2")
                 .contains("crimeId=2")
                 .doesNotContain("Break the Bank")
-                .doesNotContain("Thief#1");
+                .doesNotContain("Thief#1")
+                .doesNotContain("成功率", "帮派要求");
         assertThat(((TextQqMsg) messages.getFirst()).getData().text())
-                .contains("当前加入的OC已被禁用");
+                .contains("你加入了禁用的OC, 需要更换其他OC");
         verify(msgManager).buildRecommendTable(anyString(), eq(FACTION_ID), anyList());
     }
 
@@ -133,24 +139,77 @@ class OcRecommendStrategyImplTest {
         String message = collectText(messages);
         assertThat(messages).hasSize(2);
         assertThat(message)
-                .contains("当前加入的OC已被禁用")
+                .contains("你加入了禁用的OC, 需要更换其他OC")
                 .contains("暂未找到可加入的正常OC")
                 .doesNotContain("推荐加入")
-                .doesNotContain("暂时没有合适加入的OC");
+                .doesNotContain("暂时没有合适加入的OC")
+                .doesNotContain("成功率", "帮派要求");
     }
 
     @Test
-    @DisplayName("当前岗位成功率不足时输出实际值和要求值")
-    void insufficientCurrentOc_shouldShowPassRateStatus() {
+    @DisplayName("当前岗位成功率不足且有推荐 → 状态提示与推荐列表、Torn链接同时存在")
+    void insufficientCurrentOc_shouldCombineStatusWithRecommendation() {
+        stubCurrentStatus(false, true, 50, 60, null);
+        TornFactionOcSlotDO vacantSlot = new TornFactionOcSlotDO();
+        vacantSlot.setId(12L);
+        vacantSlot.setOcId(oc.getId());
+        vacantSlot.setPosition("Thief#2");
+        OcRecommendationVO recommendation = new OcRecommendationVO(
+                oc, vacantSlot, BigDecimal.valueOf(90), "高成功率");
+        when(recommendService.recommendOcForUser(user, 3, new OcSlotDictBO(oc, slot)))
+                .thenReturn(List.of(recommendation));
+        when(msgManager.buildRecommendTable(anyString(), eq(FACTION_ID), anyList()))
+                .thenReturn("tableBase64");
+
+        List<? extends QqMsgParam<?>> messages = handleMessages();
+
+        String message = collectText(messages);
+        assertThat(messages).hasSize(3);
+        assertThat(message)
+                .contains("当前岗位Thief#1成功率: 50, 帮派要求: 60")
+                .contains("推荐加入")
+                .contains("Break the Bank")
+                .contains("Thief#2")
+                .contains("crimeId=1")
+                .doesNotContain("暂时没有合适加入的OC");
+        assertThat(((TextQqMsg) messages.getFirst()).getData().text())
+                .contains("当前岗位Thief#1成功率: 50, 帮派要求: 60");
+        verify(msgManager).buildRecommendTable(anyString(), eq(FACTION_ID), anyList());
+    }
+
+    @Test
+    @DisplayName("成功率不足、无推荐且有进度 → 提示找OC指挥官决定是否换队")
+    void insufficientCurrentOc_noRecommendWithProgress_shouldShowCommanderTip() {
+        slot.setProgress(BigDecimal.ONE);
         stubCurrentStatus(false, true, 50, 60, null);
         when(recommendService.recommendOcForUser(user, 3, new OcSlotDictBO(oc, slot))).thenReturn(List.of());
 
-        String message = handleText();
+        List<? extends QqMsgParam<?>> messages = handleMessages();
 
+        String message = collectText(messages);
+        assertThat(messages).hasSize(2);
         assertThat(message)
-                .contains("当前岗位成功率不足")
-                .contains("当前50%", "要求60%")
-                .doesNotContain("暂时没有合适加入的OC");
+                .contains("当前岗位Thief#1成功率: 50, 帮派要求: 60")
+                .contains("本队暂无适合岗位, 请找OC指挥官决定是否换队")
+                .doesNotContain("推荐加入")
+                .doesNotContain("暂未找到成功率达标的岗位");
+    }
+
+    @Test
+    @DisplayName("成功率不足、无推荐且无进度 → 提示未找到成功率达标的岗位")
+    void insufficientCurrentOc_noRecommendWithoutProgress_shouldShowNoQualifyingTip() {
+        stubCurrentStatus(false, true, 50, 60, null);
+        when(recommendService.recommendOcForUser(user, 3, new OcSlotDictBO(oc, slot))).thenReturn(List.of());
+
+        List<? extends QqMsgParam<?>> messages = handleMessages();
+
+        String message = collectText(messages);
+        assertThat(messages).hasSize(2);
+        assertThat(message)
+                .contains("当前岗位Thief#1成功率: 50, 帮派要求: 60")
+                .contains("暂未找到成功率达标的岗位")
+                .doesNotContain("推荐加入")
+                .doesNotContain("OC指挥官");
     }
 
     @Test
