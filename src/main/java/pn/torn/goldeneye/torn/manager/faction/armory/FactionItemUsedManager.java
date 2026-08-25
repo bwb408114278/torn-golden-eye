@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
  * 帮派物品使用记录公共逻辑类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.4.5
  * @since 2026.01.12
  */
 @Component
@@ -58,36 +58,31 @@ public class FactionItemUsedManager {
     }
 
     /**
-     * 爬取物品使用记录
+     * 爬取物品使用记录。
+     *
+     * @param faction 帮派配置
+     * @param from    新闻窗口开始时间
+     * @param to      新闻窗口结束时间
+     * @return 所有分页均获得有效响应并完成处理时返回 true；上游返回空响应时返回 false
      */
-    public void spiderItemUseData(TornSettingFactionDO faction, LocalDateTime from, LocalDateTime to) {
+    public boolean spiderItemUseData(TornSettingFactionDO faction, LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionNewsDTO param;
         TornFactionNewsListVO resp;
         LocalDateTime queryTo = to;
-        List<TornFactionItemUsedDO> newsList;
         List<TornFactionItemUsedDO> misuseList = new ArrayList<>();
 
         do {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.ARMORY_ACTION, from, queryTo, limit);
             resp = tornApi.sendRequest(faction.getId(), param, TornFactionNewsListVO.class);
-            if (resp == null || CollectionUtils.isEmpty(resp.getNews())) {
+            if (resp == null) {
+                return false;
+            }
+            if (CollectionUtils.isEmpty(resp.getNews())) {
                 break;
             }
 
-            newsList = resp.getNews().stream()
-                    .map(n -> convert2DO(faction.getId(), n))
-                    .toList();
-            List<TornFactionItemUsedDO> dataList = buildDataList(newsList);
-            if (!CollectionUtils.isEmpty(dataList)) {
-                for (TornFactionItemUsedDO data : dataList) {
-                    if (checkIsMisuse(data)) {
-                        misuseList.add(data);
-                    }
-                }
-
-                usedDao.saveBatch(dataList);
-            }
+            processNewsPage(faction.getId(), resp, misuseList);
 
             queryTo = DateTimeUtils.convertToDateTime(resp.getNews().getLast().getTimestamp());
             try {
@@ -98,6 +93,43 @@ public class FactionItemUsedManager {
         } while (resp.getNews().size() >= limit);
 
         sendWarningMsg(faction, misuseList);
+        return true;
+    }
+
+    /**
+     * 处理单页新闻，完成转换、幂等过滤、误用物资收集和批量保存。
+     *
+     * @param factionId  帮派ID
+     * @param response   当前页新闻响应
+     * @param misuseList 当前批次已收集的误用物资列表
+     */
+    private void processNewsPage(long factionId, TornFactionNewsListVO response,
+                                 List<TornFactionItemUsedDO> misuseList) {
+        List<TornFactionItemUsedDO> newsList = response.getNews().stream()
+                .map(news -> convert2DO(factionId, news))
+                .toList();
+        List<TornFactionItemUsedDO> dataList = buildDataList(newsList);
+        if (CollectionUtils.isEmpty(dataList)) {
+            return;
+        }
+
+        collectMisuseItems(dataList, misuseList);
+        usedDao.saveBatch(dataList);
+    }
+
+    /**
+     * 收集当前页中的误用物资，供批次结束时统一发送提醒。
+     *
+     * @param dataList   当前页待保存的数据
+     * @param misuseList 当前批次已收集的误用物资列表
+     */
+    private void collectMisuseItems(List<TornFactionItemUsedDO> dataList,
+                                    List<TornFactionItemUsedDO> misuseList) {
+        for (TornFactionItemUsedDO data : dataList) {
+            if (checkIsMisuse(data)) {
+                misuseList.add(data);
+            }
+        }
     }
 
     /**

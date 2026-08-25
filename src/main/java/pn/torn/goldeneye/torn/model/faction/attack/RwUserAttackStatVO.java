@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.model.faction.attack;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * RW对冲窗口内的用户出手统计对象。
@@ -32,6 +33,16 @@ public class RwUserAttackStatVO {
      * 用户出手次数。
      */
     private Integer attackCount;
+
+    /**
+     * 用户第一次攻击时间。
+     */
+    private LocalDateTime firstAttackTime;
+
+    /**
+     * 用户最后一次攻击时间。
+     */
+    private LocalDateTime lastAttackTime;
 
     /**
      * 用户每分钟出手频率，按用户首末出手时长计算（全窗口合并时为各窗口首末时长求和），

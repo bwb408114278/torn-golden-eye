@@ -74,6 +74,8 @@
                fa.attack_user_id AS user_id,
                fa.attack_user_nickname AS nickname,
                COUNT(*) AS attack_count,
+               MIN(fa.attack_start_time) AS first_attack_time,
+               MAX(fa.attack_start_time) AS last_attack_time,
                ROUND(COUNT(*) * 60.0 /
                      NULLIF(EXTRACT(EPOCH FROM (MAX(fa.attack_start_time) - MIN(fa.attack_start_time))), 0), 2)
                    AS attack_rate_per_minute

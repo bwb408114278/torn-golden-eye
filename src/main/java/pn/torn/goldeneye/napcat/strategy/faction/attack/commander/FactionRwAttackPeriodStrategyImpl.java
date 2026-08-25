@@ -98,17 +98,20 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
     private String buildAttackMsg(TornFactionRwDO rw, RwAttackFrequencySummaryVO summary) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-        tableData.add(List.of("RW攻击频率", "", "", "", ""));
-        tableConfig.addMerge(0, 0, 1, 5);
+        boolean showAttackPeriod = summary.getWindow() != null;
+        int columnCount = showAttackPeriod ? 6 : 5;
+        tableData.add(emptyCells("RW攻击频率", columnCount));
+        tableConfig.addMerge(0, 0, 1, columnCount);
         tableConfig.setCellStyle(0, 0, titleStyle());
 
         int summaryRow = tableData.size();
-        tableData.add(List.of(buildSummaryText(rw, summary), "", "", "", ""));
-        tableConfig.addMerge(summaryRow, 0, 1, 5);
+        tableData.add(emptyCells(buildSummaryText(rw, summary), columnCount));
+        tableConfig.addMerge(summaryRow, 0, 1, columnCount);
         tableConfig.setCellStyle(summaryRow, 0, summaryStyle());
 
-        addUserRows(tableData, tableConfig, rw.getFactionName() + " 出手用户统计", summary.getSelfUsers());
-        addUserRows(tableData, tableConfig, rw.getOpponentFactionName() + " 出手用户统计", summary.getOpponentUsers());
+        addUserRows(tableData, tableConfig, rw.getFactionName() + " 出手用户统计", summary.getSelfUsers(), showAttackPeriod);
+        addUserRows(tableData, tableConfig, rw.getOpponentFactionName() + " 出手用户统计",
+                summary.getOpponentUsers(), showAttackPeriod);
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 
@@ -146,24 +149,48 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
      * @param users       用户统计
      */
     private void addUserRows(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
-                             String title, List<RwUserAttackStatVO> users) {
+                             String title, List<RwUserAttackStatVO> users, boolean showAttackPeriod) {
+        int columnCount = showAttackPeriod ? 6 : 5;
         int titleRow = tableData.size();
-        tableData.add(List.of(title, "", "", "", ""));
-        tableConfig.addMerge(titleRow, 0, 1, 5);
+        tableData.add(emptyCells(title, columnCount));
+        tableConfig.addMerge(titleRow, 0, 1, columnCount);
         tableConfig.setCellStyle(titleRow, 0, sectionStyle());
 
         int headerRow = tableData.size();
-        tableData.add(List.of("Rank", "ID", "昵称", "出手次数", "出手频率(次/分钟)"));
-        tableConfig.setSubTitle(headerRow, 5);
+        List<String> headers = new ArrayList<>(List.of("Rank", "ID", "昵称", "出手次数"));
+        headers.add("出手频率(次/分钟)");
+        if (showAttackPeriod) {
+            headers.add("攻击时间段");
+        }
+        tableData.add(headers);
+        tableConfig.setSubTitle(headerRow, columnCount);
         if (users.isEmpty()) {
-            tableData.add(List.of("", "", "无有效出手记录", "", ""));
+            tableData.add(emptyCells("", "", "无有效出手记录", columnCount - 3));
             return;
         }
         for (int i = 0; i < users.size(); i++) {
             RwUserAttackStatVO user = users.get(i);
-            tableData.add(List.of(String.valueOf(i + 1), String.valueOf(user.getUserId()), user.getNickname(),
-                    String.valueOf(user.getAttackCount()), formatRate(user)));
+            List<String> row = new ArrayList<>(List.of(String.valueOf(i + 1), String.valueOf(user.getUserId()),
+                    user.getNickname(), String.valueOf(user.getAttackCount())));
+            row.add(formatRate(user));
+            if (showAttackPeriod) {
+                row.add(formatAttackPeriod(user));
+            }
+            tableData.add(row);
         }
+    }
+
+    private List<String> emptyCells(String firstCell, int columnCount) {
+        List<String> cells = new ArrayList<>();
+        cells.add(firstCell);
+        cells.addAll(java.util.Collections.nCopies(columnCount - 1, ""));
+        return cells;
+    }
+
+    private List<String> emptyCells(String firstCell, String secondCell, String thirdCell, int remainingCount) {
+        List<String> cells = new ArrayList<>(List.of(firstCell, secondCell, thirdCell));
+        cells.addAll(java.util.Collections.nCopies(remainingCount, ""));
+        return cells;
     }
 
     /**
@@ -246,5 +273,12 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
             return user.getAttackCount().toString();
         }
         return user.getAttackRatePerMinute().setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String formatAttackPeriod(RwUserAttackStatVO user) {
+        if (user.getFirstAttackTime() == null || user.getLastAttackTime() == null) {
+            return "";
+        }
+        return formatRange(user.getFirstAttackTime(), user.getLastAttackTime());
     }
 }

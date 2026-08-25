@@ -116,9 +116,13 @@ class TornFactionRwStatWindowMapperTest {
                 .findFirst().orElseThrow();
         assertEquals(SELF_USER_3, self.getUserId());
         assertEquals(5, self.getAttackCount());
+        assertEquals(BASE.plusMinutes(10).plusSeconds(10), self.getFirstAttackTime());
+        assertEquals(BASE.plusMinutes(10).plusSeconds(14), self.getLastAttackTime());
         assertEquals(0, new BigDecimal("75.00").compareTo(self.getAttackRatePerMinute()));
         assertEquals(OPPONENT_USER_4, opponent.getUserId());
         assertEquals(1, opponent.getAttackCount());
+        assertEquals(BASE.plusMinutes(10).plusSeconds(20), opponent.getFirstAttackTime());
+        assertEquals(BASE.plusMinutes(10).plusSeconds(20), opponent.getLastAttackTime());
         assertNull(opponent.getAttackRatePerMinute(), "单次出手首末同秒，频率应为null");
         assertTrue(users.stream().noneMatch(user -> user.getAttackFactionId() == THIRD_FACTION),
                 "第三方帮派攻击不得混入用户聚合");
@@ -151,9 +155,13 @@ class TornFactionRwStatWindowMapperTest {
                 .findFirst().orElseThrow();
         assertEquals(SELF_USER_1, self.getUserId());
         assertEquals(5, self.getAttackCount());
+        assertNull(self.getFirstAttackTime(), "全场统计不计算攻击时间段");
+        assertNull(self.getLastAttackTime(), "全场统计不计算攻击时间段");
         assertEquals(0, new BigDecimal("100.00").compareTo(self.getAttackRatePerMinute()));
         assertEquals(OPPONENT_USER_1, opponent.getUserId());
         assertEquals(1, opponent.getAttackCount());
+        assertNull(opponent.getFirstAttackTime(), "全场统计不计算攻击时间段");
+        assertNull(opponent.getLastAttackTime(), "全场统计不计算攻击时间段");
         assertNull(opponent.getAttackRatePerMinute(), "单次出手首末同秒，频率应为null");
         assertTrue(users.stream().noneMatch(user -> user.getAttackFactionId() == THIRD_FACTION),
                 "第三方帮派攻击不得混入全窗口用户聚合");

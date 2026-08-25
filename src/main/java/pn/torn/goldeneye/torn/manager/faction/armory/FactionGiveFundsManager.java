@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  * 帮派取钱记录公共逻辑类
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.4.5
  * @since 2026.01.12
  */
 @Component
@@ -37,9 +37,14 @@ public class FactionGiveFundsManager {
             "<a href = \"http://www\\.torn\\.com/profiles\\.php\\?XID=(\\d+)\">([^<]+)</a> was given \\$([\\d,]+) by <a href = \"http://www\\.torn\\.com/profiles\\.php\\?XID=(\\d+)\">([^<]+)</a>");
 
     /**
-     * 爬取取款记录
+     * 爬取取款记录。
+     *
+     * @param faction 帮派配置
+     * @param from    新闻窗口开始时间
+     * @param to      新闻窗口结束时间
+     * @return 所有分页均获得有效响应并完成处理时返回 true；上游返回空响应时返回 false
      */
-    public void spiderGiveFundsData(TornSettingFactionDO faction, LocalDateTime from, LocalDateTime to) {
+    public boolean spiderGiveFundsData(TornSettingFactionDO faction, LocalDateTime from, LocalDateTime to) {
         int limit = 100;
         TornFactionNewsDTO param;
         TornFactionNewsListVO resp;
@@ -49,7 +54,10 @@ public class FactionGiveFundsManager {
         do {
             param = new TornFactionNewsDTO(TornFactionNewsTypeEnum.GIVE_FUNDS, from, queryTo, limit);
             resp = tornApi.sendRequest(faction.getId(), param, TornFactionNewsListVO.class);
-            if (resp == null || CollectionUtils.isEmpty(resp.getNews())) {
+            if (resp == null) {
+                return false;
+            }
+            if (CollectionUtils.isEmpty(resp.getNews())) {
                 break;
             }
 
@@ -68,6 +76,8 @@ public class FactionGiveFundsManager {
                 Thread.currentThread().interrupt();
             }
         } while (resp.getNews().size() >= limit);
+
+        return true;
     }
 
     /**
