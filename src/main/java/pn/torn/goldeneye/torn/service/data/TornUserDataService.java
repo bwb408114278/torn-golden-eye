@@ -186,6 +186,9 @@ public class TornUserDataService {
         LocalDateTime collectedAt = now();
         try {
             keyList = apiKeyConfig.getAllEnableKeys();
+            if (keyList.isEmpty()) {
+                throw new IllegalStateException("无启用Torn Api Key");
+            }
             Set<Long> expectedUserIds = keyList.stream().map(TornApiKeyDO::getUserId).collect(java.util.stream.Collectors.toSet());
             List<TornUserBsSnapshotDO> existingSnapshots = querySnapshots(recordDate);
             long existingSnapshotCount = countSnapshots(existingSnapshots, expectedUserIds);
@@ -214,11 +217,10 @@ public class TornUserDataService {
                     trigger, recordDate, expectedUserIds.size(), now(), elapsedMillis(collectedAt), nextDailyRunAt);
         } catch (Exception exception) {
             LocalDateTime retryAt = now().plusMinutes(RETRY_MINUTES);
+            FailureSnapshot failureSnapshot = buildFailureSnapshot(recordDate, keyList);
             log.error("BS日采集不完整或异常, trigger={}, recordDate={}, expectedUserCount={}, presentSnapshotCount={}, missingUserCount={}, retryAt={}",
-                    trigger, recordDate, keyList.size(), countSnapshots(querySnapshotsSafely(recordDate),
-                            keyList.stream().map(TornApiKeyDO::getUserId).collect(java.util.stream.Collectors.toSet())),
-                    Math.max(0, keyList.size() - countSnapshots(querySnapshotsSafely(recordDate),
-                            keyList.stream().map(TornApiKeyDO::getUserId).collect(java.util.stream.Collectors.toSet()))), retryAt, exception);
+                    trigger, recordDate, keyList.size(), failureSnapshot.presentSnapshotCount(),
+                    failureSnapshot.missingUserCount(), retryAt, exception);
             scheduleRetry(recordDate, retryAt);
         } finally {
             submitAncillaryRefreshes(keyList, trigger);
@@ -248,6 +250,25 @@ public class TornUserDataService {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    /**
+     * 汇总失败批次的快照数量，避免失败日志重复查询数据库。
+     *
+     * @param recordDate 业务日期
+     * @param keyList    当前批次冻结的 Key 集合
+     * @return 失败批次的快照统计
+     */
+    private FailureSnapshot buildFailureSnapshot(LocalDate recordDate, List<TornApiKeyDO> keyList) {
+        if (keyList.isEmpty()) {
+            return new FailureSnapshot(0L, 0L);
+        }
+        Set<Long> expectedUserIds = keyList.stream()
+                .map(TornApiKeyDO::getUserId)
+                .collect(java.util.stream.Collectors.toSet());
+        long presentSnapshotCount = countSnapshots(querySnapshotsSafely(recordDate), expectedUserIds);
+        return new FailureSnapshot(presentSnapshotCount,
+                Math.max(0L, expectedUserIds.size() - presentSnapshotCount));
     }
 
     /**
@@ -315,6 +336,9 @@ public class TornUserDataService {
      * @param trigger 任务触发来源
      */
     private void submitAncillaryRefreshes(List<TornApiKeyDO> keyList, Trigger trigger) {
+        if (keyList.isEmpty()) {
+            return;
+        }
         try {
             virtualThreadExecutor.execute(() -> {
                 for (TornApiKeyDO key : keyList) {
@@ -397,6 +421,15 @@ public class TornUserDataService {
         APPLICATION_STARTUP_RECOVERY,
         DAILY_SCHEDULE,
         RETRY
+    }
+
+    /**
+     * BS 失败批次的快照统计。
+     *
+     * @param presentSnapshotCount 已存在的目标用户快照数
+     * @param missingUserCount     缺失快照的目标用户数
+     */
+    private record FailureSnapshot(long presentSnapshotCount, long missingUserCount) {
     }
 
     private static final class BsIncompleteException extends RuntimeException {

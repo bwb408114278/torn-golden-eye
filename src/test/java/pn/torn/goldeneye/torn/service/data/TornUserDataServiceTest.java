@@ -159,6 +159,23 @@ class TornUserDataServiceTest {
     }
 
     @Test
+    @DisplayName("无启用Key时不推进标记并安排原日期当天重试")
+    void collect_whenNoEnabledKey_shouldFailClosedAndRetrySameRecordDate() {
+        LocalDate recordDate = LocalDate.now();
+        when(apiKeyConfig.getAllEnableKeys()).thenReturn(List.of());
+
+        invokeSubmittedTask(recordDate);
+
+        ArgumentCaptor<LocalDateTime> timeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(taskService).updateTask(eq("user-data-reload"), any(Runnable.class), timeCaptor.capture());
+        LocalDateTime retryAt = timeCaptor.getValue();
+        assertEquals(recordDate, retryAt.toLocalDate());
+        verify(settingDao, never()).updateSetting(eq(SettingConstants.KEY_USER_DATA_LOAD), any());
+        verify(userManager, never()).refreshCache();
+        verify(virtualThreadExecutor, never()).execute(any(Runnable.class));
+    }
+
+    @Test
     @DisplayName("BS成功但OC刷新失败仍推进BS完成标记")
     void collect_whenOcRefreshFails_shouldStillCompleteBs() {
         LocalDate recordDate = LocalDate.now();

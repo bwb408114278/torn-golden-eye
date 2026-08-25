@@ -8,14 +8,12 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
-import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.configuration.startup.StartupRecoveryDispatcher;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.armory.FactionGiveFundsManager;
 import pn.torn.goldeneye.torn.manager.faction.armory.FactionItemUsedManager;
@@ -52,7 +50,6 @@ public class FactionNewsService {
 
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
-    private final TornApiKeyConfig apiKeyConfig;
     private final TornSettingFactionManager settingFactionManager;
     private final FactionItemUsedManager itemUsedManager;
     private final FactionGiveFundsManager giveFundsManager;
@@ -159,21 +156,19 @@ public class FactionNewsService {
      * @return 两类新闻均成功时返回 true
      */
     private boolean collectFactionNews(TornSettingFactionDO faction, NewsWindow window, Trigger trigger) {
-        TornApiKeyDO key = null;
         try {
-            key = apiKeyConfig.getFactionKey(faction.getId(), true);
-            if (key == null) {
-                throw new IllegalStateException("帮派没有可用Key");
+            boolean itemUsedCompleted = itemUsedManager.spiderItemUseData(faction, window.from(), window.to());
+            boolean giveFundsCompleted = giveFundsManager.spiderGiveFundsData(faction, window.from(), window.to());
+            if (!itemUsedCompleted || !giveFundsCompleted) {
+                log.error("Faction News帮派采集未完成, trigger={}, recordDate={}, factionId={}",
+                        trigger, window.recordDate(), faction.getId());
+                return false;
             }
-            itemUsedManager.spiderItemUseData(faction, window.from(), window.to());
-            giveFundsManager.spiderGiveFundsData(faction, window.from(), window.to());
             return true;
         } catch (Exception exception) {
             log.error("Faction News帮派采集失败, trigger={}, recordDate={}, factionCount=1", trigger,
                     window.recordDate(), exception);
             return false;
-        } finally {
-            apiKeyConfig.returnKey(key);
         }
     }
 

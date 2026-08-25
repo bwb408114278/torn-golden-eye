@@ -16,7 +16,6 @@ import pn.torn.goldeneye.configuration.startup.StartupRecoveryDispatcher;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.dao.setting.SysSettingDAO;
-import pn.torn.goldeneye.repository.model.setting.TornApiKeyDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.faction.armory.FactionGiveFundsManager;
 import pn.torn.goldeneye.torn.manager.faction.armory.FactionItemUsedManager;
@@ -90,7 +89,6 @@ class FactionNewsServiceTest {
         LocalDate recordDate = LocalDate.now();
         TornSettingFactionDO faction = faction(1L);
         when(settingFactionManager.getList()).thenReturn(List.of(faction));
-        when(apiKeyConfig.getFactionKey(1L, true)).thenReturn(key(1L));
         doThrow(new IllegalStateException("news failure"))
                 .when(itemUsedManager).spiderItemUseData(eq(faction), any(), any());
 
@@ -106,12 +104,31 @@ class FactionNewsServiceTest {
     }
 
     @Test
+    @DisplayName("新闻管理器返回未完成时不推进标记并安排原窗口当天重试")
+    void collect_whenManagerReportsIncomplete_shouldRetrySameWindow() {
+        LocalDate recordDate = LocalDate.now();
+        TornSettingFactionDO faction = faction(1L);
+        when(settingFactionManager.getList()).thenReturn(List.of(faction));
+        when(itemUsedManager.spiderItemUseData(any(), any(), any())).thenReturn(false);
+        when(giveFundsManager.spiderGiveFundsData(any(), any(), any())).thenReturn(true);
+
+        invokeSubmittedNews(recordDate.minusDays(1).atTime(8, 0),
+                recordDate.atTime(7, 59, 59));
+
+        ArgumentCaptor<LocalDateTime> timeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(taskService).updateTask(eq("faction-news-reload"), any(Runnable.class), timeCaptor.capture());
+        assertEquals(recordDate, timeCaptor.getValue().toLocalDate());
+        verify(settingDao, never()).updateSetting(eq(SettingConstants.KEY_FACTION_NEWS_LOAD), any());
+    }
+
+    @Test
     @DisplayName("新闻全帮派成功后推进标记并仅注册明日任务")
     void collect_whenAllFactionsSucceed_shouldCompleteAndScheduleNextDay() {
         LocalDate recordDate = LocalDate.now();
         TornSettingFactionDO faction = faction(1L);
         when(settingFactionManager.getList()).thenReturn(List.of(faction));
-        when(apiKeyConfig.getFactionKey(1L, true)).thenReturn(key(1L));
+        when(itemUsedManager.spiderItemUseData(any(), any(), any())).thenReturn(true);
+        when(giveFundsManager.spiderGiveFundsData(any(), any(), any())).thenReturn(true);
 
         invokeSubmittedNews(recordDate.atTime(8, 0), recordDate.plusDays(1).atTime(7, 59, 59));
 
@@ -119,6 +136,7 @@ class FactionNewsServiceTest {
                 recordDate.plusDays(1).toString());
         verify(taskService).updateTask(eq("faction-news-reload"), any(Runnable.class),
                 eq(recordDate.plusDays(2).atTime(8, 15)));
+        verifyNoInteractions(apiKeyConfig);
     }
 
     private void invokeSubmittedNews(LocalDateTime from, LocalDateTime to) {
@@ -135,10 +153,4 @@ class FactionNewsServiceTest {
         return faction;
     }
 
-    private TornApiKeyDO key(long userId) {
-        TornApiKeyDO key = new TornApiKeyDO();
-        key.setId(userId);
-        key.setUserId(userId);
-        return key;
-    }
 }
