@@ -132,12 +132,13 @@ class RwStatWindowServiceTest {
     }
 
     @Test
-    @DisplayName("全部窗口合并按人统计并以窗口总秒数计算频率")
-    void queryFrequencyForAllWindows_mergesWindowsAndCalculatesRate() {
+    @DisplayName("全部窗口合并按人统计并保留持久层按首末时长计算的频率")
+    void queryFrequencyForAllWindows_mergesWindowsAndKeepsDaoRate() {
         TornFactionRwDO rw = rw(1L, null);
         RwStatWindowVO windowA = statWindow("A", START, START.plusMinutes(2).plusSeconds(30));
         RwStatWindowVO windowB = statWindow("B", START.plusMinutes(10), START.plusMinutes(10).plusSeconds(30));
         RwUserAttackStatVO selfUser = user(101L, 1L, 4);
+        selfUser.setAttackRatePerMinute(new BigDecimal("100.00"));
         RwUserAttackStatVO opponentUser = user(201L, 2L, 1);
         when(windowDao.queryUserAttackStatsByRw(1L, 1L, 2L)).thenReturn(List.of(selfUser, opponentUser));
 
@@ -150,8 +151,8 @@ class RwStatWindowServiceTest {
         assertEquals(1, summary.getSelfUserCount());
         assertEquals(1, summary.getOpponentAttackCount());
         assertEquals(1, summary.getOpponentUserCount());
-        assertEquals(0, new BigDecimal("1.33").compareTo(selfUser.getAttackRatePerMinute()));
-        assertEquals(0, new BigDecimal("0.33").compareTo(opponentUser.getAttackRatePerMinute()));
+        assertEquals(0, new BigDecimal("100.00").compareTo(selfUser.getAttackRatePerMinute()));
+        assertNull(opponentUser.getAttackRatePerMinute(), "单次出手频率为null时服务层不得覆盖");
     }
 
     private TornFactionRwDO rw(Long id, LocalDateTime endTime) {

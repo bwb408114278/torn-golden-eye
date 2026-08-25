@@ -15,7 +15,6 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
-import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -163,7 +162,7 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
         for (int i = 0; i < users.size(); i++) {
             RwUserAttackStatVO user = users.get(i);
             tableData.add(List.of(String.valueOf(i + 1), String.valueOf(user.getUserId()), user.getNickname(),
-                    String.valueOf(user.getAttackCount()), formatRate(user.getAttackRatePerMinute())));
+                    String.valueOf(user.getAttackCount()), formatRate(user)));
         }
     }
 
@@ -236,11 +235,16 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
 
     /**
      * 格式化每分钟出手频率。
+     * <p>
+     * 首末出手同秒（含单次出手）时频率无法定义，降级显示出手次数。
      *
-     * @param rate 每分钟出手频率
-     * @return 保留两位小数的频率文本
+     * @param user 用户出手统计
+     * @return 保留两位小数的频率文本，或"N次"形式的降级文本
      */
-    private String formatRate(BigDecimal rate) {
-        return rate == null ? "0.00" : rate.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    private String formatRate(RwUserAttackStatVO user) {
+        if (user.getAttackRatePerMinute() == null) {
+            return user.getAttackCount().toString();
+        }
+        return user.getAttackRatePerMinute().setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 }

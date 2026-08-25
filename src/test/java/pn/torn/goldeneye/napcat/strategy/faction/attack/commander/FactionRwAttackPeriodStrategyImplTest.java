@@ -232,7 +232,7 @@ class FactionRwAttackPeriodStrategyImplTest {
         user.setUserId(100L);
         user.setNickname("测试用户");
         user.setAttackCount(1);
-        user.setAttackRatePerMinute(java.math.BigDecimal.ONE);
+        user.setAttackRatePerMinute(null);
         summary.setSelfUsers(selfCount > 0 ? List.of(user) : List.of());
         summary.setOpponentUsers(opponentCount > 0 ? List.of(user) : List.of());
         return summary;

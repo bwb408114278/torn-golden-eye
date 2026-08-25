@@ -14,8 +14,6 @@ import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO;
 import pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO;
 import pn.torn.goldeneye.utils.RwStatWindowCodeUtils;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -133,6 +131,8 @@ public class RwStatWindowService {
 
     /**
      * 查询全部窗口合并的双方用户出手统计。
+     * <p>
+     * 频率由持久层按用户各窗口内首末出手时长汇总计算，已剔除窗口之间的轮空时段。
      *
      * @param rw      RW对象
      * @param windows 窗口目录
@@ -142,7 +142,6 @@ public class RwStatWindowService {
         List<RwUserAttackStatVO> users = windowDao.queryUserAttackStatsByRw(
                 rw.getId(), rw.getFactionId(), rw.getOpponentFactionId());
         long totalWindowSeconds = windows.stream().mapToLong(RwStatWindowService::windowSeconds).sum();
-        users.forEach(user -> user.setAttackRatePerMinute(ratePerMinute(user.getAttackCount(), totalWindowSeconds)));
         return buildSummary(rw, null, windows.size(), totalWindowSeconds, users);
     }
 
@@ -182,21 +181,6 @@ public class RwStatWindowService {
      */
     private static long windowSeconds(RwStatWindowVO window) {
         return Math.max(0, Duration.between(window.getStartTime(), window.getEndTime()).getSeconds());
-    }
-
-    /**
-     * 按统计窗口总秒数计算每分钟出手频率。
-     *
-     * @param attackCount        出手次数
-     * @param totalWindowSeconds 统计窗口总秒数
-     * @return 保留两位小数的每分钟出手频率
-     */
-    private static BigDecimal ratePerMinute(int attackCount, long totalWindowSeconds) {
-        if (totalWindowSeconds <= 0) {
-            return BigDecimal.ZERO;
-        }
-        return BigDecimal.valueOf(attackCount).multiply(BigDecimal.valueOf(60))
-                .divide(BigDecimal.valueOf(totalWindowSeconds), 2, RoundingMode.HALF_UP);
     }
 
     /**

@@ -67,7 +67,7 @@
         LIMIT 1
     </select>
 
-    <!-- 按攻击方帮派、用户和昵称聚合窗口内出手次数及每分钟出手频率。 -->
+    <!-- 按攻击方帮派、用户和昵称聚合窗口内出手次数，频率按用户首末出手秒数计算，首末同秒（含单次出手）时为null。 -->
     <select id="queryUserAttackStats"
             resultType="pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO">
         SELECT fa.attack_faction_id,
@@ -75,7 +75,7 @@
                fa.attack_user_nickname AS nickname,
                COUNT(*) AS attack_count,
                ROUND(COUNT(*) * 60.0 /
-                     GREATEST(1, EXTRACT(EPOCH FROM (#{endTime} - #{startTime}))), 2)
+                     NULLIF(EXTRACT(EPOCH FROM (MAX(fa.attack_start_time) - MIN(fa.attack_start_time))), 0), 2)
                    AS attack_rate_per_minute
         FROM torn_faction_attack fa
         WHERE fa.deleted = 0
@@ -89,24 +89,34 @@
         ORDER BY attack_count DESC, user_id
     </select>
 
-    <!-- 按攻击方帮派和用户聚合RW全部窗口内出手次数，窗口互不重叠保证不重复计数，频率由服务层按窗口总秒数统一计算。 -->
+    <!-- 按攻击方帮派和用户聚合RW全部窗口内出手次数，窗口互不重叠保证不重复计数；
+         频率先按用户在各窗口内首末出手秒数计算再求和，剔除窗口之间的轮空时段，各窗口首末同秒时为null。 -->
     <select id="queryUserAttackStatsByRw"
             resultType="pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO">
-        SELECT fa.attack_faction_id,
-               fa.attack_user_id AS user_id,
-               fa.attack_user_nickname AS nickname,
-               COUNT(*) AS attack_count
-        FROM torn_faction_attack fa
-                 INNER JOIN torn_faction_rw_stat_window sw
-                            ON sw.deleted = 0
-                                AND sw.rw_id = #{rwId}
-                                AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
-        WHERE fa.deleted = 0
-          AND ((fa.attack_faction_id = #{factionId}
-              AND fa.defend_faction_id = #{opponentFactionId})
-              OR (fa.attack_faction_id = #{opponentFactionId}
-                  AND fa.defend_faction_id = #{factionId}))
-        GROUP BY fa.attack_faction_id, fa.attack_user_id, fa.attack_user_nickname
+        SELECT t.attack_faction_id,
+               t.user_id,
+               t.nickname,
+               SUM(t.cnt) AS attack_count,
+               ROUND(SUM(t.cnt) * 60.0 / NULLIF(SUM(t.active_seconds), 0), 2) AS attack_rate_per_minute
+        FROM (
+            SELECT fa.attack_faction_id,
+                   fa.attack_user_id AS user_id,
+                   fa.attack_user_nickname AS nickname,
+                   COUNT(*) AS cnt,
+                   EXTRACT(EPOCH FROM (MAX(fa.attack_start_time) - MIN(fa.attack_start_time))) AS active_seconds
+            FROM torn_faction_attack fa
+                     INNER JOIN torn_faction_rw_stat_window sw
+                                ON sw.deleted = 0
+                                    AND sw.rw_id = #{rwId}
+                                    AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
+            WHERE fa.deleted = 0
+              AND ((fa.attack_faction_id = #{factionId}
+                  AND fa.defend_faction_id = #{opponentFactionId})
+                  OR (fa.attack_faction_id = #{opponentFactionId}
+                      AND fa.defend_faction_id = #{factionId}))
+            GROUP BY fa.attack_faction_id, fa.attack_user_id, fa.attack_user_nickname, sw.id
+        ) t
+        GROUP BY t.attack_faction_id, t.user_id, t.nickname
         ORDER BY attack_count DESC, user_id
     </select>
 

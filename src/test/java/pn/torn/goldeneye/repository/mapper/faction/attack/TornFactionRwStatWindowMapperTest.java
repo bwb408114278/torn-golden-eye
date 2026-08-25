@@ -92,7 +92,7 @@ class TornFactionRwStatWindowMapperTest {
     }
 
     @Test
-    @DisplayName("窗口用户出手聚合按攻击方阵营分组且频率为次数乘以60除以窗口秒数")
+    @DisplayName("窗口用户出手聚合按攻击方阵营分组且频率按用户首末出手秒数计算")
     void queryUserAttackStats_aggregatesByFactionAndCalculatesRate() {
         insertWindow("B", BASE.plusMinutes(10), BASE.plusMinutes(10).plusSeconds(150), true);
         for (int i = 0; i < 5; i++) {
@@ -116,15 +116,16 @@ class TornFactionRwStatWindowMapperTest {
                 .findFirst().orElseThrow();
         assertEquals(SELF_USER_3, self.getUserId());
         assertEquals(5, self.getAttackCount());
-        assertEquals(0, new BigDecimal("2.00").compareTo(self.getAttackRatePerMinute()));
+        assertEquals(0, new BigDecimal("75.00").compareTo(self.getAttackRatePerMinute()));
         assertEquals(OPPONENT_USER_4, opponent.getUserId());
         assertEquals(1, opponent.getAttackCount());
+        assertNull(opponent.getAttackRatePerMinute(), "单次出手首末同秒，频率应为null");
         assertTrue(users.stream().noneMatch(user -> user.getAttackFactionId() == THIRD_FACTION),
                 "第三方帮派攻击不得混入用户聚合");
     }
 
     @Test
-    @DisplayName("全窗口按人聚合合并多窗口出手且排除窗口外与第三方攻击")
+    @DisplayName("全窗口按人聚合合并多窗口出手，频率按各窗口首末时长求和剔除轮空")
     void queryUserAttackStatsByRw_mergesWindowsAndFiltersOutsideAttacks() {
         insertWindow("A", BASE, BASE.plusSeconds(150), true);
         insertWindow("B", BASE.plusMinutes(10), BASE.plusMinutes(10).plusSeconds(150), true);
@@ -150,8 +151,10 @@ class TornFactionRwStatWindowMapperTest {
                 .findFirst().orElseThrow();
         assertEquals(SELF_USER_1, self.getUserId());
         assertEquals(5, self.getAttackCount());
+        assertEquals(0, new BigDecimal("100.00").compareTo(self.getAttackRatePerMinute()));
         assertEquals(OPPONENT_USER_1, opponent.getUserId());
         assertEquals(1, opponent.getAttackCount());
+        assertNull(opponent.getAttackRatePerMinute(), "单次出手首末同秒，频率应为null");
         assertTrue(users.stream().noneMatch(user -> user.getAttackFactionId() == THIRD_FACTION),
                 "第三方帮派攻击不得混入全窗口用户聚合");
         assertTrue(users.stream().noneMatch(user -> user.getUserId() == SELF_USER_3),
