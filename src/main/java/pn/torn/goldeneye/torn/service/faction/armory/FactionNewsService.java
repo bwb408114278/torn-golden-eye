@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.TornApiKeyConfig;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.configuration.startup.StartupRecoveryDispatcher;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
@@ -23,15 +24,15 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 帮派新闻记录逻辑类
+ * 帮派新闻记录逻辑类。
  *
  * @author Bai
- * @version 0.4.0
+ * @version 1.4.5
  * @since 2025.07.24
  */
 @Component
@@ -39,6 +40,16 @@ import java.util.concurrent.CompletableFuture;
 @Order(InitOrderConstants.TORN_FACTION_NEWS)
 @Slf4j
 public class FactionNewsService {
+    private static final int DAILY_HOUR = 8;
+    private static final int DAILY_MINUTE = 15;
+    private static final int NEWS_WINDOW_START_HOUR = 8;
+    private static final int NEWS_WINDOW_END_HOUR = 7;
+    private static final int NEWS_WINDOW_END_MINUTE = 59;
+    private static final int NEWS_WINDOW_END_SECOND = 59;
+    private static final long RETRY_MINUTES = 5L;
+    private static final String TASK_ID = "faction-news-reload";
+    private static final String RECOVERY_TASK_NAME = "faction-news-recovery";
+
     private final DynamicTaskService taskService;
     private final ThreadPoolTaskExecutor virtualThreadExecutor;
     private final TornApiKeyConfig apiKeyConfig;
@@ -47,6 +58,8 @@ public class FactionNewsService {
     private final FactionGiveFundsManager giveFundsManager;
     private final SysSettingDAO settingDao;
     private final ProjectProperty projectProperty;
+    private final StartupRecoveryDispatcher recoveryDispatcher;
+    private final AtomicBoolean newsCollecting = new AtomicBoolean();
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
@@ -54,48 +67,183 @@ public class FactionNewsService {
             return;
         }
 
-        String value = settingDao.querySettingValue(SettingConstants.KEY_FACTION_NEWS_LOAD);
-        LocalDateTime from = DateTimeUtils.convertToDate(value).atTime(8, 0, 0);
-        LocalDateTime to = LocalDate.now().atTime(7, 59, 59);
-
-        if (LocalDateTime.now().minusDays(1).isAfter(from)) {
-            spiderNewsData(from, to);
+        LocalDate recordDate = now().toLocalDate();
+        LocalDate loadedDate = DateTimeUtils.convertToDate(
+                settingDao.querySettingValue(SettingConstants.KEY_FACTION_NEWS_LOAD));
+        if (loadedDate.isBefore(recordDate)) {
+            NewsWindow window = new NewsWindow(loadedDate.atTime(NEWS_WINDOW_START_HOUR, 0),
+                    recordDate.atTime(NEWS_WINDOW_END_HOUR, NEWS_WINDOW_END_MINUTE, NEWS_WINDOW_END_SECOND));
+            submitNewsCollection(window, Trigger.APPLICATION_STARTUP_RECOVERY);
+            return;
         }
 
-        addScheduleTask(to);
+        scheduleNextDailyRun(recordDate);
     }
 
     /**
-     * 爬取新闻记录
+     * 爬取指定新闻窗口。
+     *
+     * @param from 新闻窗口开始时间
+     * @param to   新闻窗口结束时间
      */
     public void spiderNewsData(LocalDateTime from, LocalDateTime to) {
-        List<TornSettingFactionDO> factionList = settingFactionManager.getList();
-        List<CompletableFuture<Void>> futureList = new ArrayList<>();
-        for (TornSettingFactionDO faction : factionList) {
-            futureList.add(CompletableFuture.runAsync(() -> {
-                        TornApiKeyDO key = apiKeyConfig.getFactionKey(faction.getId(), true);
-                        if (key == null) {
-                            return;
-                        }
-
-                        apiKeyConfig.returnKey(key);
-                        itemUsedManager.spiderItemUseData(faction, from, to);
-                        giveFundsManager.spiderGiveFundsData(faction, from, to);
-                    },
-                    virtualThreadExecutor));
-        }
-
-        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0])).join();
-        settingDao.updateSetting(SettingConstants.KEY_FACTION_NEWS_LOAD, DateTimeUtils.convertToString(to.toLocalDate()));
-        addScheduleTask(to);
+        submitNewsCollection(new NewsWindow(from, to), Trigger.DAILY_SCHEDULE);
     }
 
     /**
-     * 添加定时任务
+     * 投递指定新闻窗口的后台采集任务。
+     *
+     * @param window  新闻采集窗口
+     * @param trigger 任务触发来源
      */
-    private void addScheduleTask(LocalDateTime to) {
-        taskService.updateTask("faction-news-reload",
-                () -> spiderNewsData(to.plusSeconds(1), to.plusDays(1)),
-                to.plusDays(1).plusSeconds(1).plusMinutes(15));
+    private void submitNewsCollection(NewsWindow window, Trigger trigger) {
+        LocalDateTime scheduledAt = now();
+        log.info("Faction News日采集已受理, trigger={}, recordDate={}, scheduledAt={}, delayed={}",
+                trigger, window.recordDate(), scheduledAt, scheduledAt.isAfter(window.to()));
+        recoveryDispatcher.submit(new StartupRecoveryDispatcher.StartupRecoveryTask(
+                RECOVERY_TASK_NAME,
+                () -> collectNewsForRecordDate(window, trigger),
+                () -> scheduleRetry(window, now().plusMinutes(RETRY_MINUTES))));
+    }
+
+    /**
+     * 执行指定新闻窗口的全帮派采集并维护完成状态。
+     *
+     * @param window  新闻采集窗口
+     * @param trigger 任务触发来源
+     */
+    private void collectNewsForRecordDate(NewsWindow window, Trigger trigger) {
+        if (!newsCollecting.compareAndSet(false, true)) {
+            LocalDateTime retryAt = now().plusMinutes(RETRY_MINUTES);
+            log.warn("Faction News发生同JVM重入, trigger={}, recordDate={}, retryAt={}",
+                    trigger, window.recordDate(), retryAt);
+            scheduleRetry(window, retryAt);
+            return;
+        }
+
+        List<TornSettingFactionDO> factionList = List.of();
+        try {
+            factionList = List.copyOf(settingFactionManager.getList());
+            List<CompletableFuture<Boolean>> futures = factionList.stream()
+                    .map(faction -> CompletableFuture.supplyAsync(
+                            () -> collectFactionNews(faction, window, trigger),
+                            virtualThreadExecutor))
+                    .toList();
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            long successCount = futures.stream().filter(CompletableFuture::join).count();
+            if (successCount != factionList.size()) {
+                throw new NewsIncompleteException(factionList.size(), successCount);
+            }
+
+            settingDao.updateSetting(SettingConstants.KEY_FACTION_NEWS_LOAD,
+                    DateTimeUtils.convertToString(window.recordDate()));
+            LocalDateTime nextDailyRunAt = scheduleNextDailyRun(window.recordDate());
+            log.info("Faction News日采集完整成功, trigger={}, recordDate={}, factionCount={}, completedAt={}, nextDailyRunAt={}",
+                    trigger, window.recordDate(), factionList.size(), now(), nextDailyRunAt);
+        } catch (Exception exception) {
+            LocalDateTime retryAt = now().plusMinutes(RETRY_MINUTES);
+            log.error("Faction News日采集不完整或异常, trigger={}, recordDate={}, factionCount={}, retryAt={}",
+                    trigger, window.recordDate(), factionList.size(), retryAt, exception);
+            scheduleRetry(window, retryAt);
+        } finally {
+            newsCollecting.set(false);
+        }
+    }
+
+    /**
+     * 采集单个帮派在指定窗口内的两类新闻数据。
+     *
+     * @param faction 帮派配置
+     * @param window  新闻采集窗口
+     * @param trigger 任务触发来源
+     * @return 两类新闻均成功时返回 true
+     */
+    private boolean collectFactionNews(TornSettingFactionDO faction, NewsWindow window, Trigger trigger) {
+        TornApiKeyDO key = null;
+        try {
+            key = apiKeyConfig.getFactionKey(faction.getId(), true);
+            if (key == null) {
+                throw new IllegalStateException("帮派没有可用Key");
+            }
+            itemUsedManager.spiderItemUseData(faction, window.from(), window.to());
+            giveFundsManager.spiderGiveFundsData(faction, window.from(), window.to());
+            return true;
+        } catch (Exception exception) {
+            log.error("Faction News帮派采集失败, trigger={}, recordDate={}, factionCount=1", trigger,
+                    window.recordDate(), exception);
+            return false;
+        } finally {
+            apiKeyConfig.returnKey(key);
+        }
+    }
+
+    /**
+     * 为原新闻窗口注册同日 retry。
+     *
+     * @param window  新闻采集窗口
+     * @param retryAt 下一次 retry 的墙钟时间
+     * @return 注册的 retry 时间
+     */
+    private LocalDateTime scheduleRetry(NewsWindow window, LocalDateTime retryAt) {
+        log.info("Faction News retry已安排, recordDate={}, retryAt={}", window.recordDate(), retryAt);
+        taskService.updateTask(TASK_ID,
+                () -> submitNewsCollection(window, Trigger.RETRY), retryAt);
+        return retryAt;
+    }
+
+    /**
+     * 为已完成新闻日期注册次日 08:15 日常任务。
+     *
+     * @param completedRecordDate 已完成的新闻业务日期
+     * @return 次日 08:15 的执行时间
+     */
+    private LocalDateTime scheduleNextDailyRun(LocalDate completedRecordDate) {
+        LocalDate nextRecordDate = completedRecordDate.plusDays(1);
+        LocalDateTime nextDailyRunAt = nextRecordDate.atTime(DAILY_HOUR, DAILY_MINUTE);
+        taskService.updateTask(TASK_ID,
+                () -> submitNewsCollection(new NewsWindow(
+                                completedRecordDate.atTime(NEWS_WINDOW_START_HOUR, 0),
+                                nextRecordDate.atTime(NEWS_WINDOW_END_HOUR, NEWS_WINDOW_END_MINUTE, NEWS_WINDOW_END_SECOND)),
+                        Trigger.DAILY_SCHEDULE), nextDailyRunAt);
+        return nextDailyRunAt;
+    }
+
+    LocalDateTime now() {
+        return LocalDateTime.now();
+    }
+
+    /**
+     * 不可变新闻采集时间窗口。
+     *
+     * @param from 窗口开始时间
+     * @param to   窗口结束时间
+     */
+    private record NewsWindow(LocalDateTime from, LocalDateTime to) {
+        /**
+         * 获取窗口结束时间对应的业务日期。
+         *
+         * @return 新闻业务日期
+         */
+        private LocalDate recordDate() {
+            return to.toLocalDate();
+        }
+    }
+
+    private enum Trigger {
+        APPLICATION_STARTUP_RECOVERY,
+        DAILY_SCHEDULE,
+        RETRY
+    }
+
+    private static final class NewsIncompleteException extends RuntimeException {
+        /**
+         * 创建新闻采集不完整异常。
+         *
+         * @param factionCount 帮派总数
+         * @param successCount 采集成功的帮派数
+         */
+        private NewsIncompleteException(long factionCount, long successCount) {
+            super("Faction News采集不完整, factionCount=" + factionCount + ", successCount=" + successCount);
+        }
     }
 }
