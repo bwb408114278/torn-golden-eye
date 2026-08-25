@@ -10,7 +10,9 @@
                sw.end_time,
                sw.confirmed,
                COUNT(fa.id) FILTER (WHERE fa.attack_faction_id = #{factionId}) AS self_attack_count,
-               COUNT(fa.id) FILTER (WHERE fa.attack_faction_id = #{opponentFactionId}) AS opponent_attack_count
+               COUNT(fa.id) FILTER (WHERE fa.attack_faction_id = #{opponentFactionId}) AS opponent_attack_count,
+               COUNT(DISTINCT fa.attack_user_id) FILTER (WHERE fa.attack_faction_id = #{factionId}) AS self_user_count,
+               COUNT(DISTINCT fa.attack_user_id) FILTER (WHERE fa.attack_faction_id = #{opponentFactionId}) AS opponent_user_count
         FROM torn_faction_rw_stat_window sw
                  LEFT JOIN torn_faction_attack fa
                            ON fa.deleted = 0

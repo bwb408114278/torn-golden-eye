@@ -79,8 +79,12 @@ class TornFactionRwStatWindowMapperTest {
         RwStatWindowVO windowB = catalog.stream().filter(item -> "B".equals(item.getWindowCode())).findFirst().orElseThrow();
         assertEquals(2, windowA.getSelfAttackCount());
         assertEquals(1, windowA.getOpponentAttackCount());
+        assertEquals(1, windowA.getSelfUserCount());
+        assertEquals(1, windowA.getOpponentUserCount());
         assertEquals(5, windowB.getSelfAttackCount());
         assertEquals(1, windowB.getOpponentAttackCount());
+        assertEquals(1, windowB.getSelfUserCount());
+        assertEquals(1, windowB.getOpponentUserCount());
 
         TornFactionRwStatWindowDO latest = windowDao.queryLatestConfirmedWindow(RW_ID, SELF_FACTION, OPPONENT_FACTION);
         assertNotNull(latest);

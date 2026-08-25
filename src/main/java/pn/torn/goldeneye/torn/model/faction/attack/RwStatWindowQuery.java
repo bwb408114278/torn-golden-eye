@@ -7,13 +7,18 @@ import java.util.regex.Pattern;
  * RW统计窗口查询参数。
  *
  * @param rwId       指定的RW ID，未指定时为null
- * @param windowCode 指定的窗口字母，未指定时为null
+ * @param windowCode 指定的窗口字母，未指定时为null；allWindows=true时保留为ALL以兼容未支持all的指令
+ * @param allWindows 是否查询所有窗口
  * @author Bai
  * @version 1.4.4
  * @since 2026.08.24
  */
-public record RwStatWindowQuery(Long rwId, String windowCode) {
+public record RwStatWindowQuery(
+        Long rwId,
+        String windowCode,
+        boolean allWindows) {
     private static final Pattern WINDOW_CODE_PATTERN = Pattern.compile("[A-Za-z]+");
+    private static final String ALL_WINDOWS = "all";
     private static final String INVALID_PARAMETER_MESSAGE = "参数有误";
 
     /**
@@ -25,7 +30,7 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
      */
     public static RwStatWindowQuery parse(String text) {
         if (text == null || text.isEmpty()) {
-            return new RwStatWindowQuery(null, null);
+            return new RwStatWindowQuery(null, null, false);
         }
         String[] parts = text.split("#", -1);
         if (parts.length == 1) {
@@ -45,10 +50,13 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
      */
     private static RwStatWindowQuery parseSinglePart(String part) {
         if (isPositiveLong(part)) {
-            return new RwStatWindowQuery(Long.parseLong(part), null);
+            return new RwStatWindowQuery(Long.parseLong(part), null, false);
+        }
+        if (isAllWindows(part)) {
+            return new RwStatWindowQuery(null, normalizeWindowCode(part), true);
         }
         if (isWindowCode(part)) {
-            return new RwStatWindowQuery(null, normalizeWindowCode(part));
+            return new RwStatWindowQuery(null, normalizeWindowCode(part), false);
         }
         throw invalidParameter();
     }
@@ -62,10 +70,16 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
      * @throws IllegalArgumentException 任一参数格式不合法时抛出
      */
     private static RwStatWindowQuery parseRwAndWindow(String rwIdPart, String windowPart) {
-        if (!isPositiveLong(rwIdPart) || !isWindowCode(windowPart)) {
+        if (!isPositiveLong(rwIdPart)) {
             throw invalidParameter();
         }
-        return new RwStatWindowQuery(Long.parseLong(rwIdPart), normalizeWindowCode(windowPart));
+        if (isAllWindows(windowPart)) {
+            return new RwStatWindowQuery(Long.parseLong(rwIdPart), normalizeWindowCode(windowPart), true);
+        }
+        if (!isWindowCode(windowPart)) {
+            throw invalidParameter();
+        }
+        return new RwStatWindowQuery(Long.parseLong(rwIdPart), normalizeWindowCode(windowPart), false);
     }
 
     /**
@@ -83,6 +97,16 @@ public record RwStatWindowQuery(Long rwId, String windowCode) {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    /**
+     * 判断参数是否为all窗口特殊标记。
+     *
+     * @param value 待校验参数
+     * @return 参数为all时返回true，否则返回false
+     */
+    private static boolean isAllWindows(String value) {
+        return ALL_WINDOWS.equalsIgnoreCase(value);
     }
 
     /**

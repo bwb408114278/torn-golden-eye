@@ -51,6 +51,33 @@ class RwStatWindowQueryTest {
     }
 
     @Test
+    @DisplayName("all参数解析为查询所有窗口")
+    void parse_all_resolvesAllWindows() {
+        RwStatWindowQuery query = RwStatWindowQuery.parse("all");
+
+        assertNull(query.rwId());
+        assertEquals("ALL", query.windowCode());
+        assertTrue(query.allWindows());
+    }
+
+    @Test
+    @DisplayName("all大小写不敏感")
+    void parse_all_caseInsensitive() {
+        assertTrue(RwStatWindowQuery.parse("ALL").allWindows());
+        assertTrue(RwStatWindowQuery.parse("All").allWindows());
+    }
+
+    @Test
+    @DisplayName("RWID和all组合参数被正确解析")
+    void parse_rwIdAndAll_resolvesBoth() {
+        RwStatWindowQuery query = RwStatWindowQuery.parse("123#all");
+
+        assertEquals(123L, query.rwId());
+        assertEquals("ALL", query.windowCode());
+        assertTrue(query.allWindows());
+    }
+
+    @Test
     @DisplayName("空片段、超量参数和混合字符被拒绝")
     void parse_invalidSegments_rejected() {
         assertThrows(IllegalArgumentException.class, () -> RwStatWindowQuery.parse("#A"));

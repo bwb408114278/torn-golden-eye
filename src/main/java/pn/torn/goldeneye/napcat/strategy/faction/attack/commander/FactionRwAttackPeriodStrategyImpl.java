@@ -54,6 +54,14 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
 
         RwStatWindowQuery query = context.query();
         TornFactionRwDO rw = context.rw();
+        if (query.allWindows()) {
+            List<RwStatWindowVO> windows = getStatWindowCatalog(rw);
+            if (windows.isEmpty()) {
+                return super.buildTextMsg("未查询到对冲窗口");
+            }
+            return super.buildImageMsg(buildAllWindowsMsg(rw, windows));
+        }
+
         RwStatWindowVO window = resolveWindow(rw, query);
         if (window == null) {
             return super.buildTextMsg(query.windowCode() == null
@@ -94,6 +102,31 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
         addSummaryRows(tableData, tableConfig, rw, summary);
         addUserRows(tableData, tableConfig, rw.getFactionName() + " 出手用户统计", summary.getSelfUsers());
         addUserRows(tableData, tableConfig, rw.getOpponentFactionName() + " 出手用户统计", summary.getOpponentUsers());
+        return TableImageUtils.renderTableToBase64(tableData, tableConfig);
+    }
+
+    /**
+     * 构建所有窗口汇总统计图片。
+     *
+     * @param rw      RW对象
+     * @param windows 窗口目录
+     * @return 图片Base64内容
+     */
+    private String buildAllWindowsMsg(TornFactionRwDO rw, List<RwStatWindowVO> windows) {
+        List<List<String>> tableData = new ArrayList<>();
+        TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
+        tableData.add(List.of("RW攻击频率", "", "", "", "", "", "", ""));
+        tableConfig.addMerge(0, 0, 1, 8);
+        tableConfig.setCellStyle(0, 0, titleStyle());
+        tableData.add(List.of("RWID", "窗口", "时间范围", "对冲时长", "己方总出手", "己方人数", "对方总出手", "对方人数"));
+        tableConfig.setSubTitle(1, 8);
+        for (RwStatWindowVO window : windows) {
+            tableData.add(List.of(String.valueOf(rw.getId()), formatWindowLabel(window),
+                    formatRange(window.getStartTime(), window.getEndTime()),
+                    formatDuration(window.getStartTime(), window.getEndTime()),
+                    String.valueOf(window.getSelfAttackCount()), String.valueOf(window.getSelfUserCount()),
+                    String.valueOf(window.getOpponentAttackCount()), String.valueOf(window.getOpponentUserCount())));
+        }
         return TableImageUtils.renderTableToBase64(tableData, tableConfig);
     }
 

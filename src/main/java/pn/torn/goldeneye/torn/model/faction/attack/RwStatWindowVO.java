@@ -47,4 +47,14 @@ public class RwStatWindowVO {
      * 对方窗口内出手次数。
      */
     private Integer opponentAttackCount;
+
+    /**
+     * 己方窗口内出手人数。
+     */
+    private Integer selfUserCount;
+
+    /**
+     * 对方窗口内出手人数。
+     */
+    private Integer opponentUserCount;
 }

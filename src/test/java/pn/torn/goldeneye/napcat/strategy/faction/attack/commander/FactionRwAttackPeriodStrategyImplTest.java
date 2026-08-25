@@ -140,6 +140,37 @@ class FactionRwAttackPeriodStrategyImplTest {
         assertEquals("未查询到对冲窗口", ((TextQqMsg) result.getFirst()).getData().text());
     }
 
+    @Test
+    @DisplayName("all参数查询所有窗口并返回汇总图片")
+    void handle_all_queriesAllWindowsCatalog() {
+        TornFactionRwDO rw = rw(1L);
+        RwStatWindowVO windowA = window("A");
+        RwStatWindowVO windowB = window("B");
+        when(userManager.getUserByQq(SENDER_QQ)).thenReturn(user());
+        stubRwQuery(rw);
+        when(rwStatWindowService.queryCatalog(rw)).thenReturn(List.of(windowA, windowB));
+
+        List<? extends QqMsgParam<?>> result = strategy.handle(0L, sender(), "all");
+
+        assertInstanceOf(ImageQqMsg.class, result.getFirst());
+        verify(rwStatWindowService).queryCatalog(rw);
+        verify(rwStatWindowService, never()).queryLatestConfirmedWindow(any());
+        verify(rwStatWindowService, never()).queryFrequency(any(), any());
+    }
+
+    @Test
+    @DisplayName("all参数没有窗口时返回未查询到对冲窗口")
+    void handle_all_noWindow_returnsStableTip() {
+        TornFactionRwDO rw = rw(1L);
+        when(userManager.getUserByQq(SENDER_QQ)).thenReturn(user());
+        stubRwQuery(rw);
+        when(rwStatWindowService.queryCatalog(rw)).thenReturn(List.of());
+
+        List<? extends QqMsgParam<?>> result = strategy.handle(0L, sender(), "all");
+
+        assertEquals("未查询到对冲窗口", ((TextQqMsg) result.getFirst()).getData().text());
+    }
+
     private void stubRwQuery(TornFactionRwDO rw) {
         LambdaQueryChainWrapper<TornFactionRwDO> query = mock(LambdaQueryChainWrapper.class);
         when(rwDao.lambdaQuery()).thenReturn(query);
