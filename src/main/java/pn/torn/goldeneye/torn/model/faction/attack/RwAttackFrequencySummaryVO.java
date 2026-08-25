@@ -8,15 +8,25 @@ import java.util.List;
  * RW攻击频率图片所需的双方聚合数据。
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @Data
 public class RwAttackFrequencySummaryVO {
     /**
-     * 统计窗口。
+     * 统计窗口，全窗口合并统计时为null。
      */
     private RwStatWindowVO window;
+
+    /**
+     * 统计窗口数量，全窗口合并统计时为窗口总数，单窗口为1。
+     */
+    private int windowCount;
+
+    /**
+     * 统计窗口总秒数。
+     */
+    private long totalWindowSeconds;
 
     /**
      * 己方总出手次数。

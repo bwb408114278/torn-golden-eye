@@ -25,11 +25,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * RW对冲窗口真实 PostgreSQL Mapper 测试。
  *
- * <p>验证窗口目录、最近已确认窗口、双方用户聚合与第三方帮派攻击过滤，
+ * <p>验证窗口目录、最近已确认窗口、双方用户聚合、全窗口按人聚合与第三方帮派攻击过滤，
  * 使用2099严格未来时间和测试专用ID命名空间隔离真实数据，事务回滚保证零残留。</p>
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @SpringBootTest
@@ -121,6 +121,41 @@ class TornFactionRwStatWindowMapperTest {
         assertEquals(1, opponent.getAttackCount());
         assertTrue(users.stream().noneMatch(user -> user.getAttackFactionId() == THIRD_FACTION),
                 "第三方帮派攻击不得混入用户聚合");
+    }
+
+    @Test
+    @DisplayName("全窗口按人聚合合并多窗口出手且排除窗口外与第三方攻击")
+    void queryUserAttackStatsByRw_mergesWindowsAndFiltersOutsideAttacks() {
+        insertWindow("A", BASE, BASE.plusSeconds(150), true);
+        insertWindow("B", BASE.plusMinutes(10), BASE.plusMinutes(10).plusSeconds(150), true);
+        for (int i = 0; i < 3; i++) {
+            insertAttack(SELF_USER_1, SELF_FACTION, OPPONENT_USER_1, OPPONENT_FACTION, BASE.plusSeconds(10L + i));
+        }
+        for (int i = 0; i < 2; i++) {
+            insertAttack(SELF_USER_1, SELF_FACTION, OPPONENT_USER_1, OPPONENT_FACTION,
+                    BASE.plusMinutes(10).plusSeconds(10L + i));
+        }
+        insertAttack(OPPONENT_USER_1, OPPONENT_FACTION, SELF_USER_1, SELF_FACTION, BASE.plusSeconds(30));
+        insertAttack(SELF_USER_3, SELF_FACTION, OPPONENT_USER_4, OPPONENT_FACTION, BASE.plusMinutes(5));
+        insertThirdPartyAttack(BASE.plusSeconds(40));
+
+        List<RwUserAttackStatVO> users = windowDao.queryUserAttackStatsByRw(RW_ID, SELF_FACTION, OPPONENT_FACTION);
+
+        assertEquals(2, users.size());
+        RwUserAttackStatVO self = users.stream()
+                .filter(user -> user.getAttackFactionId() == SELF_FACTION)
+                .findFirst().orElseThrow();
+        RwUserAttackStatVO opponent = users.stream()
+                .filter(user -> user.getAttackFactionId() == OPPONENT_FACTION)
+                .findFirst().orElseThrow();
+        assertEquals(SELF_USER_1, self.getUserId());
+        assertEquals(5, self.getAttackCount());
+        assertEquals(OPPONENT_USER_1, opponent.getUserId());
+        assertEquals(1, opponent.getAttackCount());
+        assertTrue(users.stream().noneMatch(user -> user.getAttackFactionId() == THIRD_FACTION),
+                "第三方帮派攻击不得混入全窗口用户聚合");
+        assertTrue(users.stream().noneMatch(user -> user.getUserId() == SELF_USER_3),
+                "窗口外出手不得计入全窗口聚合");
     }
 
     private void insertWindow(String code, LocalDateTime start, LocalDateTime end, boolean confirmed) {

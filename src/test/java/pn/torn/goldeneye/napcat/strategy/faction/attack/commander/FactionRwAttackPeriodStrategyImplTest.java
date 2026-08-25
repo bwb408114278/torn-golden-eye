@@ -34,10 +34,10 @@ import static org.mockito.Mockito.*;
 /**
  * RW攻击频率策略测试。
  *
- * <p>验证默认最近确认窗口、显式窗口、空窗口提示和单侧无用户仍输出图片的入口行为。</p>
+ * <p>验证默认最近确认窗口、显式窗口、全部窗口合并按人统计和空数据提示的入口行为。</p>
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -141,19 +141,24 @@ class FactionRwAttackPeriodStrategyImplTest {
     }
 
     @Test
-    @DisplayName("all参数查询所有窗口并返回汇总图片")
-    void handle_all_queriesAllWindowsCatalog() {
+    @DisplayName("all参数合并全部窗口按人统计并返回频率图片")
+    void handle_all_queriesAllWindowsFrequency() {
         TornFactionRwDO rw = rw(1L);
         RwStatWindowVO windowA = window("A");
         RwStatWindowVO windowB = window("B");
         when(userManager.getUserByQq(SENDER_QQ)).thenReturn(user());
         stubRwQuery(rw);
         when(rwStatWindowService.queryCatalog(rw)).thenReturn(List.of(windowA, windowB));
+        RwAttackFrequencySummaryVO summary = summary(null, 5, 3);
+        summary.setWindowCount(2);
+        summary.setTotalWindowSeconds(300);
+        when(rwStatWindowService.queryFrequencyForAllWindows(rw, List.of(windowA, windowB))).thenReturn(summary);
 
         List<? extends QqMsgParam<?>> result = strategy.handle(0L, sender(), "all");
 
         assertInstanceOf(ImageQqMsg.class, result.getFirst());
         verify(rwStatWindowService).queryCatalog(rw);
+        verify(rwStatWindowService).queryFrequencyForAllWindows(rw, List.of(windowA, windowB));
         verify(rwStatWindowService, never()).queryLatestConfirmedWindow(any());
         verify(rwStatWindowService, never()).queryFrequency(any(), any());
     }

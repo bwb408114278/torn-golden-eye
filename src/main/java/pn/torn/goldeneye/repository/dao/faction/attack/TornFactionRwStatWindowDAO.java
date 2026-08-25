@@ -15,7 +15,7 @@ import java.util.List;
  * RW对冲统计窗口持久层封装。
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @Repository
@@ -68,6 +68,18 @@ public class TornFactionRwStatWindowDAO extends ServiceImpl<TornFactionRwStatWin
     public List<RwUserAttackStatVO> queryUserAttackStats(LocalDateTime startTime, LocalDateTime endTime,
                                                          long factionId, long opponentFactionId) {
         return baseMapper.queryUserAttackStats(startTime, endTime, factionId, opponentFactionId);
+    }
+
+    /**
+     * 按RW聚合全部窗口内的双方用户出手次数。
+     *
+     * @param rwId              RW ID
+     * @param factionId         己方帮派ID
+     * @param opponentFactionId 对方帮派ID
+     * @return 用户出手统计
+     */
+    public List<RwUserAttackStatVO> queryUserAttackStatsByRw(long rwId, long factionId, long opponentFactionId) {
+        return baseMapper.queryUserAttackStatsByRw(rwId, factionId, opponentFactionId);
     }
 
     /**

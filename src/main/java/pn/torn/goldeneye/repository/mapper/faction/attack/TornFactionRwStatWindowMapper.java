@@ -14,7 +14,7 @@ import java.util.List;
  * RW对冲统计窗口数据库访问层。
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @Mapper
@@ -64,6 +64,18 @@ public interface TornFactionRwStatWindowMapper extends BaseMapper<TornFactionRwS
                                                   @Param("endTime") LocalDateTime endTime,
                                                   @Param("factionId") long factionId,
                                                   @Param("opponentFactionId") long opponentFactionId);
+
+    /**
+     * 按RW聚合全部窗口内双方用户出手次数。
+     *
+     * @param rwId              RW ID
+     * @param factionId         己方帮派ID
+     * @param opponentFactionId 对方帮派ID
+     * @return 用户出手统计
+     */
+    List<RwUserAttackStatVO> queryUserAttackStatsByRw(@Param("rwId") long rwId,
+                                                      @Param("factionId") long factionId,
+                                                      @Param("opponentFactionId") long opponentFactionId);
 
     /**
      * 幂等插入窗口记录。

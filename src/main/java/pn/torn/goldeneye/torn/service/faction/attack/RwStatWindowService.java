@@ -14,6 +14,9 @@ import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO;
 import pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO;
 import pn.torn.goldeneye.utils.RwStatWindowCodeUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * RW对冲统计窗口生命周期服务。
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @Service
@@ -125,11 +128,43 @@ public class RwStatWindowService {
     public RwAttackFrequencySummaryVO queryFrequency(TornFactionRwDO rw, RwStatWindowVO window) {
         List<RwUserAttackStatVO> users = windowDao.queryUserAttackStats(
                 window.getStartTime(), window.getEndTime(), rw.getFactionId(), rw.getOpponentFactionId());
+        return buildSummary(rw, window, 1, windowSeconds(window), users);
+    }
+
+    /**
+     * 查询全部窗口合并的双方用户出手统计。
+     *
+     * @param rw      RW对象
+     * @param windows 窗口目录
+     * @return 双方统计摘要
+     */
+    public RwAttackFrequencySummaryVO queryFrequencyForAllWindows(TornFactionRwDO rw, List<RwStatWindowVO> windows) {
+        List<RwUserAttackStatVO> users = windowDao.queryUserAttackStatsByRw(
+                rw.getId(), rw.getFactionId(), rw.getOpponentFactionId());
+        long totalWindowSeconds = windows.stream().mapToLong(RwStatWindowService::windowSeconds).sum();
+        users.forEach(user -> user.setAttackRatePerMinute(ratePerMinute(user.getAttackCount(), totalWindowSeconds)));
+        return buildSummary(rw, null, windows.size(), totalWindowSeconds, users);
+    }
+
+    /**
+     * 组装双方用户出手统计摘要。
+     *
+     * @param rw                 RW对象
+     * @param window             统计窗口，全窗口合并统计时为null
+     * @param windowCount        统计窗口数量
+     * @param totalWindowSeconds 统计窗口总秒数
+     * @param users              双方用户出手统计
+     * @return 双方统计摘要
+     */
+    private RwAttackFrequencySummaryVO buildSummary(TornFactionRwDO rw, RwStatWindowVO window, int windowCount,
+                                                    long totalWindowSeconds, List<RwUserAttackStatVO> users) {
         List<RwUserAttackStatVO> selfUsers = filterUsers(users, rw.getFactionId());
         List<RwUserAttackStatVO> opponentUsers = filterUsers(users, rw.getOpponentFactionId());
 
         RwAttackFrequencySummaryVO summary = new RwAttackFrequencySummaryVO();
         summary.setWindow(window);
+        summary.setWindowCount(windowCount);
+        summary.setTotalWindowSeconds(totalWindowSeconds);
         summary.setSelfUsers(selfUsers);
         summary.setOpponentUsers(opponentUsers);
         summary.setSelfUserCount(selfUsers.size());
@@ -137,6 +172,31 @@ public class RwStatWindowService {
         summary.setSelfAttackCount(sumAttackCount(selfUsers));
         summary.setOpponentAttackCount(sumAttackCount(opponentUsers));
         return summary;
+    }
+
+    /**
+     * 计算窗口持续秒数。
+     *
+     * @param window 窗口目录项
+     * @return 持续秒数
+     */
+    private static long windowSeconds(RwStatWindowVO window) {
+        return Math.max(0, Duration.between(window.getStartTime(), window.getEndTime()).getSeconds());
+    }
+
+    /**
+     * 按统计窗口总秒数计算每分钟出手频率。
+     *
+     * @param attackCount        出手次数
+     * @param totalWindowSeconds 统计窗口总秒数
+     * @return 保留两位小数的每分钟出手频率
+     */
+    private static BigDecimal ratePerMinute(int attackCount, long totalWindowSeconds) {
+        if (totalWindowSeconds <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return BigDecimal.valueOf(attackCount).multiply(BigDecimal.valueOf(60))
+                .divide(BigDecimal.valueOf(totalWindowSeconds), 2, RoundingMode.HALF_UP);
     }
 
     /**

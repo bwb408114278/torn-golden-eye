@@ -89,6 +89,27 @@
         ORDER BY attack_count DESC, user_id
     </select>
 
+    <!-- 按攻击方帮派和用户聚合RW全部窗口内出手次数，窗口互不重叠保证不重复计数，频率由服务层按窗口总秒数统一计算。 -->
+    <select id="queryUserAttackStatsByRw"
+            resultType="pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO">
+        SELECT fa.attack_faction_id,
+               fa.attack_user_id AS user_id,
+               fa.attack_user_nickname AS nickname,
+               COUNT(*) AS attack_count
+        FROM torn_faction_attack fa
+                 INNER JOIN torn_faction_rw_stat_window sw
+                            ON sw.deleted = 0
+                                AND sw.rw_id = #{rwId}
+                                AND fa.attack_start_time BETWEEN sw.start_time AND sw.end_time
+        WHERE fa.deleted = 0
+          AND ((fa.attack_faction_id = #{factionId}
+              AND fa.defend_faction_id = #{opponentFactionId})
+              OR (fa.attack_faction_id = #{opponentFactionId}
+                  AND fa.defend_faction_id = #{factionId}))
+        GROUP BY fa.attack_faction_id, fa.attack_user_id, fa.attack_user_nickname
+        ORDER BY attack_count DESC, user_id
+    </select>
+
     <!-- 按RW和窗口编码幂等插入窗口定义，重复有效业务编号直接跳过。 -->
     <insert id="insertIgnoreConflict">
         INSERT INTO torn_faction_rw_stat_window

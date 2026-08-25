@@ -26,7 +26,7 @@ import java.util.List;
  * RW基础策略
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.06.17
  */
 @Slf4j
@@ -184,6 +184,18 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
      */
     protected RwAttackFrequencySummaryVO queryFrequency(TornFactionRwDO rw, RwStatWindowVO window) {
         return rwStatWindowService.queryFrequency(rw, window);
+    }
+
+    /**
+     * 查询全部窗口合并的用户出手统计。
+     *
+     * @param rw      RW对象
+     * @param windows 窗口目录
+     * @return 双方用户统计摘要
+     */
+    protected RwAttackFrequencySummaryVO queryFrequencyForAllWindows(TornFactionRwDO rw,
+                                                                     List<RwStatWindowVO> windows) {
+        return rwStatWindowService.queryFrequencyForAllWindows(rw, windows);
     }
 
     /**

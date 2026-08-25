@@ -11,10 +11,16 @@ import pn.torn.goldeneye.repository.dao.torn.TornAttackLogDAO;
 import pn.torn.goldeneye.repository.model.faction.attack.AttackTimeWindowDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwDO;
 import pn.torn.goldeneye.repository.model.faction.attack.TornFactionRwStatWindowDO;
+import pn.torn.goldeneye.torn.model.faction.attack.RwAttackFrequencySummaryVO;
+import pn.torn.goldeneye.torn.model.faction.attack.RwStatWindowVO;
+import pn.torn.goldeneye.torn.model.faction.attack.RwUserAttackStatVO;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -23,7 +29,7 @@ import static org.mockito.Mockito.*;
  * RW对冲统计窗口生命周期服务测试。
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.4.5
  * @since 2026.08.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -125,6 +131,29 @@ class RwStatWindowServiceTest {
         verify(windowDao, never()).insertIgnoreConflict(any(TornFactionRwStatWindowDO.class));
     }
 
+    @Test
+    @DisplayName("全部窗口合并按人统计并以窗口总秒数计算频率")
+    void queryFrequencyForAllWindows_mergesWindowsAndCalculatesRate() {
+        TornFactionRwDO rw = rw(1L, null);
+        RwStatWindowVO windowA = statWindow("A", START, START.plusMinutes(2).plusSeconds(30));
+        RwStatWindowVO windowB = statWindow("B", START.plusMinutes(10), START.plusMinutes(10).plusSeconds(30));
+        RwUserAttackStatVO selfUser = user(101L, 1L, 4);
+        RwUserAttackStatVO opponentUser = user(201L, 2L, 1);
+        when(windowDao.queryUserAttackStatsByRw(1L, 1L, 2L)).thenReturn(List.of(selfUser, opponentUser));
+
+        RwAttackFrequencySummaryVO summary = service.queryFrequencyForAllWindows(rw, List.of(windowA, windowB));
+
+        assertNull(summary.getWindow());
+        assertEquals(2, summary.getWindowCount());
+        assertEquals(180, summary.getTotalWindowSeconds());
+        assertEquals(4, summary.getSelfAttackCount());
+        assertEquals(1, summary.getSelfUserCount());
+        assertEquals(1, summary.getOpponentAttackCount());
+        assertEquals(1, summary.getOpponentUserCount());
+        assertEquals(0, new BigDecimal("1.33").compareTo(selfUser.getAttackRatePerMinute()));
+        assertEquals(0, new BigDecimal("0.33").compareTo(opponentUser.getAttackRatePerMinute()));
+    }
+
     private TornFactionRwDO rw(Long id, LocalDateTime endTime) {
         TornFactionRwDO rw = new TornFactionRwDO();
         rw.setId(id);
@@ -145,5 +174,24 @@ class RwStatWindowServiceTest {
         window.setEndTime(end);
         window.setConfirmed(confirmed);
         return window;
+    }
+
+    private RwStatWindowVO statWindow(String code, LocalDateTime start, LocalDateTime end) {
+        RwStatWindowVO window = new RwStatWindowVO();
+        window.setRwId(1L);
+        window.setWindowCode(code);
+        window.setStartTime(start);
+        window.setEndTime(end);
+        window.setConfirmed(true);
+        return window;
+    }
+
+    private RwUserAttackStatVO user(long userId, long attackFactionId, int attackCount) {
+        RwUserAttackStatVO user = new RwUserAttackStatVO();
+        user.setUserId(userId);
+        user.setAttackFactionId(attackFactionId);
+        user.setNickname("用户" + userId);
+        user.setAttackCount(attackCount);
+        return user;
     }
 }
