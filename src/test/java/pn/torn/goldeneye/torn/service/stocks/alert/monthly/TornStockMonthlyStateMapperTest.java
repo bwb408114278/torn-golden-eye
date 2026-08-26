@@ -18,8 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 月度状态Mapper/DAO真实PostgreSQL集成测试。
@@ -36,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.08.06
  */
 @SpringBootTest
@@ -101,6 +100,34 @@ class TornStockMonthlyStateMapperTest {
         assertThrows(DuplicateKeyException.class,
                 () -> monthlyStateDao.save(duplicate),
                 "数据库层部分唯一索引必须拒绝同股票同月重复行");
+    }
+
+    @Test
+    @DisplayName("真实PG_V2规则版本保存并通过生产DAO批量重算")
+    void recalculateDraftStates_v2Versions_arePreservedByRealBatchUpdate() {
+        TornStockMonthlyStateDO state = buildDraft(104, "T104");
+        state.setPersonalityRuleVersion("PERSONALITY_RULE_V2_OUTAGE_EXCLUSION");
+        state.setRiskRuleVersion("RISK_RULE_V2_OUTAGE_EXCLUSION");
+        assertEquals(1, monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(state)));
+
+        TornStockMonthlyStateDO persisted = monthlyStateDao.lambdaQuery()
+                .eq(TornStockMonthlyStateDO::getStocksId, 104)
+                .eq(TornStockMonthlyStateDO::getEffectiveMonth, TEST_MONTH)
+                .one();
+        assertNotNull(persisted, "V2 DRAFT应已保存");
+        assertNotNull(persisted.getId(), "保存后必须存在主键");
+
+        persisted.setMetricSnapshot(JsonUtils.objToJson(java.util.Map.of(
+                "stocksId", 104, "stocksShortname", "T104", "recalculated", true)));
+        int affectedRows = monthlyStateDao.recalculateDraftStates(List.of(persisted));
+
+        assertEquals(1, affectedRows, "真实批量重算应更新1行");
+        TornStockMonthlyStateDO recalculated = monthlyStateDao.getById(persisted.getId());
+        assertNotNull(recalculated, "重算后状态应仍存在");
+        assertEquals("PERSONALITY_RULE_V2_OUTAGE_EXCLUSION", recalculated.getPersonalityRuleVersion());
+        assertEquals("RISK_RULE_V2_OUTAGE_EXCLUSION", recalculated.getRiskRuleVersion());
+        assertEquals(JsonUtils.getNode(persisted.getMetricSnapshot(), "recalculated"),
+                JsonUtils.getNode(recalculated.getMetricSnapshot(), "recalculated"));
     }
 
     /**

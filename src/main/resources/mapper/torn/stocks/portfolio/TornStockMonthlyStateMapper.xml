@@ -98,8 +98,8 @@
              CAST(#{state.suggestedPersonality} AS VARCHAR(32)),
              CAST(#{state.previousPersonality} AS VARCHAR(32)),
              CAST(#{state.metricSnapshot} AS JSONB),
-             CAST(#{state.personalityRuleVersion} AS VARCHAR(32)),
-             CAST(#{state.riskRuleVersion} AS VARCHAR(32)),
+             CAST(#{state.personalityRuleVersion} AS VARCHAR(64)),
+             CAST(#{state.riskRuleVersion} AS VARCHAR(64)),
              CAST(#{state.evidenceStartTime} AS TIMESTAMP),
              CAST(#{state.evidenceEndTime} AS TIMESTAMP),
              CAST(#{state.calculatedAt} AS TIMESTAMP))
