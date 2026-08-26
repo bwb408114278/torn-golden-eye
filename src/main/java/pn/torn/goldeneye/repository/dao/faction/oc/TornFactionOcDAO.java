@@ -15,7 +15,7 @@ import java.util.List;
  * Torn Oc持久层类
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.4.6
  * @since 2025.07.29
  */
 @Repository
@@ -79,6 +79,24 @@ public class TornFactionOcDAO extends ServiceImpl<TornFactionOcMapper, TornFacti
         return lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                .list();
+    }
+
+    /**
+     * 查询已发送过“即将结束”提醒但尚未完成的 OC。
+     *
+     * <p>用于应用重启后恢复内存态完成检测任务。
+     * 查询条件为 hasNoticed=true 且 status 不在完成状态集合中。</p>
+     *
+     * @param factionId 帮派ID
+     * @return 待恢复完成检测的 OC 列表
+     */
+    public List<TornFactionOcDO> queryNoticedNotCompleteByFaction(long factionId) {
+        return lambdaQuery()
+                .eq(TornFactionOcDO::getFactionId, factionId)
+                .eq(TornFactionOcDO::getHasNoticed, true)
+                .notIn(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
+                .isNotNull(TornFactionOcDO::getReadyTime)
                 .list();
     }
 }

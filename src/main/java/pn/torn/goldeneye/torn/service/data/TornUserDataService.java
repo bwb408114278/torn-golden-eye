@@ -48,7 +48,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Torn 用户数据逻辑层。
  *
  * @author Bai
- * @version 1.4.5
+ * @version 1.4.7
  * @since 2025.08.20
  */
 @Service
@@ -169,7 +169,7 @@ public class TornUserDataService {
     }
 
     /**
-     * 执行指定业务日期的 BS 批次，并在成功或失败后安排对应日程。
+     * 执行指定业务日期的 BS 批次，并在成功或失败后安排对应日程。单用户采集失败只记录日志, 不阻断批次完成与次日日程。
      *
      * @param recordDate 需要完成的业务日期
      * @param trigger    任务触发来源
@@ -200,25 +200,22 @@ public class TornUserDataService {
                     .collect(java.util.stream.Collectors.toMap(TornApiKeyDO::getUserId, key -> key, (left, right) -> left));
             List<CompletableFuture<Void>> futures = missingKeys.values().stream()
                     .map(key -> CompletableFuture.runAsync(
-                            () -> updateBsSnapshot(key, recordDate, existingSnapshots), virtualThreadExecutor))
+                            () -> collectUserBsSnapshot(key, recordDate, existingSnapshots, trigger), virtualThreadExecutor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
             List<TornUserBsSnapshotDO> finalSnapshots = querySnapshots(recordDate);
             long presentSnapshotCount = countSnapshots(finalSnapshots, expectedUserIds);
-            if (!isBsSnapshotComplete(recordDate, expectedUserIds, finalSnapshots)) {
-                throw new BsIncompleteException(expectedUserIds.size(), presentSnapshotCount);
-            }
 
             userManager.refreshCache();
             settingDao.updateSetting(SettingConstants.KEY_USER_DATA_LOAD, DateTimeUtils.convertToString(recordDate));
             LocalDateTime nextDailyRunAt = scheduleNextDailyRun(recordDate);
-            log.info("BS日采集完整成功, trigger={}, recordDate={}, expectedUserCount={}, completedAt={}, durationMs={}, nextDailyRunAt={}",
-                    trigger, recordDate, expectedUserIds.size(), now(), elapsedMillis(collectedAt), nextDailyRunAt);
+            log.info("BS日采集完成, trigger={}, recordDate={}, expectedUserCount={}, presentSnapshotCount={}, completedAt={}, durationMs={}, nextDailyRunAt={}",
+                    trigger, recordDate, expectedUserIds.size(), presentSnapshotCount, now(), elapsedMillis(collectedAt), nextDailyRunAt);
         } catch (Exception exception) {
             LocalDateTime retryAt = now().plusMinutes(RETRY_MINUTES);
             FailureSnapshot failureSnapshot = buildFailureSnapshot(recordDate, keyList);
-            log.error("BS日采集不完整或异常, trigger={}, recordDate={}, expectedUserCount={}, presentSnapshotCount={}, missingUserCount={}, retryAt={}",
+            log.error("BS日采集异常, trigger={}, recordDate={}, expectedUserCount={}, presentSnapshotCount={}, missingUserCount={}, retryAt={}",
                     trigger, recordDate, keyList.size(), failureSnapshot.presentSnapshotCount(),
                     failureSnapshot.missingUserCount(), retryAt, exception);
             scheduleRetry(recordDate, retryAt);
@@ -296,18 +293,21 @@ public class TornUserDataService {
     }
 
     /**
-     * 根据本批次冻结的用户集合证明指定日期 BS 快照是否完整。
+     * 采集单个用户的 BS 快照; 单用户失败只记录日志, 不阻断批次完成与次日日程。
      *
-     * @param recordDate      业务日期
-     * @param expectedUserIds 本批次权威用户集合
-     * @param snapshots       已查询的快照列表
-     * @return 所有目标用户均有当天快照时返回 true
+     * @param key          用户 API Key
+     * @param recordDate   业务日期
+     * @param snapshotList 当前批次已存在的快照列表
+     * @param trigger      任务触发来源
      */
-    private boolean isBsSnapshotComplete(LocalDate recordDate, Set<Long> expectedUserIds,
-                                         List<TornUserBsSnapshotDO> snapshots) {
-        return snapshots.stream().filter(snapshot -> recordDate.equals(snapshot.getRecordDate()))
-                .map(TornUserBsSnapshotDO::getUserId).filter(expectedUserIds::contains).distinct().count()
-                == expectedUserIds.size();
+    private void collectUserBsSnapshot(TornApiKeyDO key, LocalDate recordDate,
+                                       List<TornUserBsSnapshotDO> snapshotList, Trigger trigger) {
+        try {
+            updateBsSnapshot(key, recordDate, snapshotList);
+        } catch (Exception exception) {
+            log.error("BS用户快照采集失败, trigger={}, userId={}, recordDate={}",
+                    trigger, key.getUserId(), recordDate, exception);
+        }
     }
 
     /**
@@ -430,18 +430,5 @@ public class TornUserDataService {
      * @param missingUserCount     缺失快照的目标用户数
      */
     private record FailureSnapshot(long presentSnapshotCount, long missingUserCount) {
-    }
-
-    private static final class BsIncompleteException extends RuntimeException {
-        /**
-         * 创建 BS 快照不完整异常。
-         *
-         * @param expectedUserCount    目标用户数
-         * @param presentSnapshotCount 已存在快照用户数
-         */
-        private BsIncompleteException(int expectedUserCount, long presentSnapshotCount) {
-            super("BS快照不完整, expectedUserCount=" + expectedUserCount
-                    + ", presentSnapshotCount=" + presentSnapshotCount);
-        }
     }
 }

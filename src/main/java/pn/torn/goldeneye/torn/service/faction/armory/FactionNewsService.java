@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 帮派新闻记录逻辑类。
  *
  * @author Bai
- * @version 1.4.5
+ * @version 1.4.7
  * @since 2025.07.24
  */
 @Component
@@ -104,7 +104,7 @@ public class FactionNewsService {
     }
 
     /**
-     * 执行指定新闻窗口的全帮派采集并维护完成状态。
+     * 执行指定新闻窗口的全帮派采集并维护完成状态。单个帮派采集失败只记录日志, 不阻断批次完成与次日日程。
      *
      * @param window  新闻采集窗口
      * @param trigger 任务触发来源
@@ -128,18 +128,15 @@ public class FactionNewsService {
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             long successCount = futures.stream().filter(CompletableFuture::join).count();
-            if (successCount != factionList.size()) {
-                throw new NewsIncompleteException(factionList.size(), successCount);
-            }
 
             settingDao.updateSetting(SettingConstants.KEY_FACTION_NEWS_LOAD,
                     DateTimeUtils.convertToString(window.recordDate()));
             LocalDateTime nextDailyRunAt = scheduleNextDailyRun(window.recordDate());
-            log.info("Faction News日采集完整成功, trigger={}, recordDate={}, factionCount={}, completedAt={}, nextDailyRunAt={}",
-                    trigger, window.recordDate(), factionList.size(), now(), nextDailyRunAt);
+            log.info("Faction News日采集完成, trigger={}, recordDate={}, factionCount={}, successCount={}, completedAt={}, nextDailyRunAt={}",
+                    trigger, window.recordDate(), factionList.size(), successCount, now(), nextDailyRunAt);
         } catch (Exception exception) {
             LocalDateTime retryAt = now().plusMinutes(RETRY_MINUTES);
-            log.error("Faction News日采集不完整或异常, trigger={}, recordDate={}, factionCount={}, retryAt={}",
+            log.error("Faction News日采集异常, trigger={}, recordDate={}, factionCount={}, retryAt={}",
                     trigger, window.recordDate(), factionList.size(), retryAt, exception);
             scheduleRetry(window, retryAt);
         } finally {
@@ -228,17 +225,5 @@ public class FactionNewsService {
         APPLICATION_STARTUP_RECOVERY,
         DAILY_SCHEDULE,
         RETRY
-    }
-
-    private static final class NewsIncompleteException extends RuntimeException {
-        /**
-         * 创建新闻采集不完整异常。
-         *
-         * @param factionCount 帮派总数
-         * @param successCount 采集成功的帮派数
-         */
-        private NewsIncompleteException(long factionCount, long successCount) {
-            super("Faction News采集不完整, factionCount=" + factionCount + ", successCount=" + successCount);
-        }
     }
 }

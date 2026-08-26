@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.4.1
+ * @version 1.4.6
  * @since 2025.11.26
  */
 @Slf4j
@@ -89,6 +89,7 @@ public class TornOcCompleteNoticeService {
                 continue;
             }
             scheduleOcTask(faction);
+            scheduleOcCompleteCheck(faction);
         }
     }
 
@@ -151,8 +152,8 @@ public class TornOcCompleteNoticeService {
         ocDao.lambdaUpdate().set(TornFactionOcDO::getHasNoticed, true).in(TornFactionOcDO::getId, ocIdSet).update();
         scheduleOcTask(faction);
 
-        // 6. 调度OC完成检测任务
-        scheduleOcCompleteCheck(faction, ocList);
+        // 6. 调度OC完成检测任务（合并当前所有已通知未完成OC，避免覆盖旧批次）
+        scheduleOcCompleteCheck(faction);
     }
 
     /**
@@ -306,8 +307,18 @@ public class TornOcCompleteNoticeService {
     /**
      * 调度OC完成检测任务
      * 在readyAt后下一个整分钟的第30秒首次检查，之后每分钟重试直到OC完成
+     *
+     * <p>每次基于当前所有已通知未完成 OC 统一调度，避免同帮派多个批次使用同一个任务 ID 时相互覆盖。</p>
      */
-    private void scheduleOcCompleteCheck(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
+    private void scheduleOcCompleteCheck(TornSettingFactionDO faction) {
+        List<TornFactionOcDO> ocList = ocDao.queryNoticedNotCompleteByFaction(faction.getId());
+        if (CollectionUtils.isEmpty(ocList)) {
+            return;
+        }
+
+        List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
+        log.info("调度OC完成检测, factionId={}, ocIds={}", faction.getId(), ocIdList);
+
         // 取最早readyAt，计算首次检查时间 = readyAt之后的下一个整分钟:30
         LocalDateTime earliestReady = ocList.stream()
                 .map(TornFactionOcDO::getReadyTime)
@@ -321,22 +332,30 @@ public class TornOcCompleteNoticeService {
         }
         // 在下一个整分钟的第30秒检查（避免Torn执行秒数漂移问题）
         LocalDateTime firstCheckTime = nextMinute.plusSeconds(30);
+        // readyTime 已经过期时，按当前时间退避，避免恢复或异常重试立即自旋
+        if (!firstCheckTime.isAfter(LocalDateTime.now())) {
+            firstCheckTime = LocalDateTime.now().plusMinutes(1);
+        }
 
-        List<Long> ocIdList = ocList.stream().map(TornFactionOcDO::getId).toList();
         String taskId = faction.getFactionShortName() + "-oc-complete-check";
         taskService.updateTask(taskId,
-                () -> checkOcCompleted(faction, ocIdList, 0),
+                () -> checkOcCompleted(faction, ocIdList),
                 firstCheckTime);
     }
 
     /**
      * 检查OC是否已完成（轮询逻辑）
-     *
-     * @param retryCount 已重试次数（仅用于日志）
      */
-    private void checkOcCompleted(TornSettingFactionDO faction, List<Long> ocIdList, int retryCount) {
+    private void checkOcCompleted(TornSettingFactionDO faction, List<Long> ocIdList) {
         // 刷新OC数据
-        ocRefreshManager.refreshOc(1, faction.getId());
+        try {
+            ocRefreshManager.refreshOc(1, faction.getId());
+        } catch (Exception e) {
+            log.error("OC完成检测刷新异常，稍后重试, factionId={}, ocIds={}",
+                    faction.getId(), ocIdList, e);
+            scheduleOcCompleteCheck(faction);
+            return;
+        }
 
         // 查询这些OC的最新状态
         List<TornFactionOcDO> currentOcList = ocDao.lambdaQuery()
@@ -368,12 +387,7 @@ public class TornOcCompleteNoticeService {
 
         // 未完成的继续轮询
         if (!pendingOcs.isEmpty()) {
-            String taskId = faction.getFactionShortName() + "-oc-complete-check";
-            int nextRetry = retryCount + 1;
-            List<Long> pendingOcIds = pendingOcs.stream().map(TornFactionOcDO::getId).toList();
-            taskService.updateTask(taskId,
-                    () -> checkOcCompleted(faction, pendingOcIds, nextRetry),
-                    LocalDateTime.now().plusMinutes(1));
+            scheduleOcCompleteCheck(faction);
         }
     }
 
