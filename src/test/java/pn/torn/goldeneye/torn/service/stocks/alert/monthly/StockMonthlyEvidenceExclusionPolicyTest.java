@@ -52,7 +52,7 @@ class StockMonthlyEvidenceExclusionPolicyTest {
         assertEquals(0L, disjoint.excludedMinutes(), "不相交范围不得排除任何分钟");
         assertTrue(disjoint.appliedExclusionIds().isEmpty(), "不相交范围不得记录排除ID");
         assertEquals(0L, v2.excludedOverlapMinutes(
-                LocalDateTime.of(2026, 3, 1, 0, 0), LocalDateTime.of(2026, 3, 1, 7, 45)),
+                        LocalDateTime.of(2026, 3, 1, 0, 0), LocalDateTime.of(2026, 3, 1, 7, 45)),
                 "不相交gap不得扣减分钟");
     }
 
@@ -110,18 +110,17 @@ class StockMonthlyEvidenceExclusionPolicyTest {
 
     @Test
     @DisplayName("固定窗口非法边界_非15分钟对齐或start>=end_fail-fast")
-    void fixedWindow_illegalBoundary_failFast() throws Exception {
+    void fixedWindow_illegalBoundary_failFast() {
+        String exclusionId = StockMonthlyEvidenceExclusionPolicy.EXCLUSION_ID;
+        LocalDateTime misalignedStart = LocalDateTime.of(2026, 2, 14, 8, 7);
         assertThrows(IllegalArgumentException.class,
-                () -> newWindow(StockMonthlyEvidenceExclusionPolicy.EXCLUSION_ID,
-                        LocalDateTime.of(2026, 2, 14, 8, 7), WINDOW_END),
+                () -> newWindow(exclusionId, misalignedStart, WINDOW_END),
                 "非15分钟对齐起点必须fail-fast");
         assertThrows(IllegalArgumentException.class,
-                () -> newWindow(StockMonthlyEvidenceExclusionPolicy.EXCLUSION_ID,
-                        WINDOW_END, WINDOW_START),
+                () -> newWindow(exclusionId, WINDOW_END, WINDOW_START),
                 "start>=end必须fail-fast");
         assertThrows(IllegalArgumentException.class,
-                () -> newWindow(StockMonthlyEvidenceExclusionPolicy.EXCLUSION_ID,
-                        null, WINDOW_END),
+                () -> newWindow(exclusionId, null, WINDOW_END),
                 "空边界必须fail-fast");
     }
 

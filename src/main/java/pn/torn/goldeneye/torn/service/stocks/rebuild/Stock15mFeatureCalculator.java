@@ -99,8 +99,8 @@ public final class Stock15mFeatureCalculator {
         BigDecimal high30d = window.high30d();
         BigDecimal width30d = calculateWidth30(low30d, high30d);
         BigDecimal position30 = calculatePosition30(referencePrice, low30d, high30d);
-        BigDecimal pctAbove30dLow = calculatePctAboveLow(referencePrice, low30d);
-        BigDecimal pctBelow30dHigh = calculatePctBelowHigh(referencePrice, high30d);
+        BigDecimal pctAbove30dLow = calculatePctAgainstBaseline(referencePrice, low30d);
+        BigDecimal pctBelow30dHigh = calculatePctAgainstBaseline(referencePrice, high30d);
 
         boolean strategyReady = window.isStrategyReady();
         String dataQualityReason = strategyReady ? null : resolveDataQualityReason(window.size());
@@ -169,38 +169,22 @@ public final class Stock15mFeatureCalculator {
     }
 
     /**
-     * 计算当前价格相对 30 日最低价的涨幅。
+     * 计算当前价格相对30日基准价的变化(current/baseline - 1)。
+     * <p>
+     * 供相对最低价涨幅与相对最高价跌幅共用同一公式。
      *
      * @param currentPrice 当前价格
-     * @param low30d       30 日最低价
-     * @return 相对最低价涨幅;预热不足30日(基准缺失)时返回 {@code null},基准为 0 时返回 0
+     * @param baseline     30日基准价(最低价或最高价)
+     * @return 相对变化;预热不足30日(基准缺失)时返回 {@code null},当前价缺失或基准为 0 时返回 0
      */
-    private static BigDecimal calculatePctAboveLow(BigDecimal currentPrice, BigDecimal low30d) {
-        if (low30d == null) {
+    private static BigDecimal calculatePctAgainstBaseline(BigDecimal currentPrice, BigDecimal baseline) {
+        if (baseline == null) {
             return null;
         }
-        if (currentPrice == null || low30d.compareTo(BigDecimal.ZERO) == 0) {
+        if (currentPrice == null || baseline.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
         }
-        return currentPrice.divide(low30d, CALC_SCALE, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.ONE);
-    }
-
-    /**
-     * 计算当前价格相对 30 日最高价的跌幅（正数表示低于最高价的幅度）。
-     *
-     * @param currentPrice 当前价格
-     * @param high30d      30 日最高价
-     * @return 相对最高价跌幅;预热不足30日(基准缺失)时返回 {@code null},基准为 0 时返回 0
-     */
-    private static BigDecimal calculatePctBelowHigh(BigDecimal currentPrice, BigDecimal high30d) {
-        if (high30d == null) {
-            return null;
-        }
-        if (currentPrice == null || high30d.compareTo(BigDecimal.ZERO) == 0) {
-            return BigDecimal.ZERO;
-        }
-        return currentPrice.divide(high30d, CALC_SCALE, RoundingMode.HALF_UP)
+        return currentPrice.divide(baseline, CALC_SCALE, RoundingMode.HALF_UP)
                 .subtract(BigDecimal.ONE);
     }
 

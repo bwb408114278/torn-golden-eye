@@ -487,6 +487,25 @@ public class StockMonthlyStateCalculator {
         snapshot.put("m4", metrics.m4());
         snapshot.put("m5", metrics.m5());
         snapshot.put("m6", metrics.m6());
+        putCoverageExclusionFields(snapshot, metrics);
+        snapshot.put("completeMonthCount", metrics.completeMonthCount());
+        snapshot.put("quarterWindowTruncated", metrics.quarterWindowTruncated());
+        snapshot.put("hysteresisReason", hysteresisReason);
+        snapshot.put("incompleteReason", metrics.incompleteReason());
+        return JsonUtils.objToJson(snapshot);
+    }
+
+    /**
+     * 写入覆盖率与排除审计快照键(完整/不完整草稿共用同一键序)。
+     * <p>
+     * {@code usableBarCoverage/maxMissingBucketGap} 为调整后(完整性判定)口径,
+     * raw与exclusion键用于raw/adjusted同时披露审计。
+     *
+     * @param snapshot 快照Map
+     * @param metrics  证据指标
+     */
+    private void putCoverageExclusionFields(Map<String, Object> snapshot,
+                                            StockMonthlyEvidenceMetrics metrics) {
         snapshot.put("usableBarCoverage", metrics.usableBarCoverage());
         snapshot.put("maxMissingBucketGap", metrics.maxMissingBucketGap());
         snapshot.put(SNAPSHOT_KEY_RAW_COVERAGE, metrics.rawUsableBarCoverage());
@@ -495,11 +514,6 @@ public class StockMonthlyStateCalculator {
         snapshot.put(SNAPSHOT_KEY_EXCLUDED_MINUTES, metrics.excludedMinutes());
         snapshot.put(SNAPSHOT_KEY_APPLIED_EXCLUSION_IDS, metrics.appliedExclusionIds());
         snapshot.put("evidenceDays", metrics.evidenceDays());
-        snapshot.put("completeMonthCount", metrics.completeMonthCount());
-        snapshot.put("quarterWindowTruncated", metrics.quarterWindowTruncated());
-        snapshot.put("hysteresisReason", hysteresisReason);
-        snapshot.put("incompleteReason", metrics.incompleteReason());
-        return JsonUtils.objToJson(snapshot);
     }
 
     /**
@@ -524,14 +538,7 @@ public class StockMonthlyStateCalculator {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put(SNAPSHOT_KEY_RAW_PERSONALITY, null);
         snapshot.put(SNAPSHOT_KEY_RAW_RISK_LEVEL, null);
-        snapshot.put("usableBarCoverage", metrics.usableBarCoverage());
-        snapshot.put("maxMissingBucketGap", metrics.maxMissingBucketGap());
-        snapshot.put(SNAPSHOT_KEY_RAW_COVERAGE, metrics.rawUsableBarCoverage());
-        snapshot.put(SNAPSHOT_KEY_RAW_MAX_GAP, metrics.rawMaxMissingBucketGap());
-        snapshot.put(SNAPSHOT_KEY_EXCLUDED_BUCKET_COUNT, metrics.excludedBucketCount());
-        snapshot.put(SNAPSHOT_KEY_EXCLUDED_MINUTES, metrics.excludedMinutes());
-        snapshot.put(SNAPSHOT_KEY_APPLIED_EXCLUSION_IDS, metrics.appliedExclusionIds());
-        snapshot.put("evidenceDays", metrics.evidenceDays());
+        putCoverageExclusionFields(snapshot, metrics);
         snapshot.put("incompleteReason", metrics.incompleteReason());
         snapshot.put("hysteresisReason", null);
         return new StockMonthlyStateDraft(
