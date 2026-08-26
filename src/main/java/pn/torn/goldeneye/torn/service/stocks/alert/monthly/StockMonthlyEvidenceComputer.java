@@ -14,7 +14,7 @@ import java.util.*;
  * 本类只做纯计算,不访问数据库、不写业务表、不依赖系统时钟;供 {@link StockMonthlyStateCalculator} 复用。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.08.06
  */
 public final class StockMonthlyEvidenceComputer {
@@ -36,7 +36,9 @@ public final class StockMonthlyEvidenceComputer {
     }
 
     /**
-     * 计算证据指标并判定数据完整性。
+     * 计算证据指标并判定数据完整性(V1无排除兼容入口)。
+     * <p>
+     * 语义保持V1:不应用任何排除策略,raw与adjusted全部一致;供既有测试与历史兼容调用。
      *
      * @param evidenceStartTime 证据起点
      * @param evidenceEndTime   证据终点
@@ -46,10 +48,43 @@ public final class StockMonthlyEvidenceComputer {
     static StockMonthlyEvidenceMetrics computeMetrics(LocalDateTime evidenceStartTime,
                                                       LocalDateTime evidenceEndTime,
                                                       List<TornStockMarketBar15mDO> usableBars) {
+        return computeMetrics(evidenceStartTime, evidenceEndTime, usableBars,
+                StockMonthlyEvidenceExclusionPolicy.empty());
+    }
+
+    /**
+     * 计算证据指标并判定数据完整性(带豁免策略入口)。
+     * <p>
+     * 完整性判定使用扣除已审批排除窗口后的adjusted覆盖率与adjusted最大间隔;
+     * 日收盘、趋势、收益、月均、回撤、投票仍只接收真实{@code usableBars},
+     * 排除窗口内没有真实usable bar时这些输入集合与不排除时完全相同。
+     * 无相交排除项时raw与adjusted所有值完全相等。
+     *
+     * @param evidenceStartTime 证据起点
+     * @param evidenceEndTime   证据终点
+     * @param usableBars        可用bar列表(按时间升序)
+     * @param exclusionPolicy   已验证宕机豁免策略(空策略即V1语义)
+     * @return 证据指标
+     */
+    static StockMonthlyEvidenceMetrics computeMetrics(LocalDateTime evidenceStartTime,
+                                                      LocalDateTime evidenceEndTime,
+                                                      List<TornStockMarketBar15mDO> usableBars,
+                                                      StockMonthlyEvidenceExclusionPolicy exclusionPolicy) {
+        StockMonthlyEvidenceExclusionPolicy policy =
+                exclusionPolicy == null ? StockMonthlyEvidenceExclusionPolicy.empty() : exclusionPolicy;
         List<DailyClose> dailyCloses = dailyCloses(usableBars);
         double evidenceDays = evidenceDays(evidenceStartTime, evidenceEndTime);
-        double usableBarCoverage = usableBarCoverage(evidenceStartTime, evidenceEndTime, usableBars.size());
-        long maxMissingBucketGap = maxMissingBucketGap(usableBars);
+
+        long rawExpectedBuckets = expectedBucketCount(evidenceStartTime, evidenceEndTime);
+        StockMonthlyEvidenceExclusionPolicy.Adjustment adjustment = policy.adjust(
+                evidenceStartTime, evidenceEndTime);
+        long adjustedExpectedBuckets = Math.max(0L, rawExpectedBuckets - adjustment.excludedBucketCount());
+        double rawUsableBarCoverage = usableBarCoverage(usableBars.size(), rawExpectedBuckets);
+        double usableBarCoverage = usableBarCoverage(usableBars.size(), adjustedExpectedBuckets);
+
+        MaxGaps maxGaps = maxMissingBucketGaps(usableBars, policy);
+        long rawMaxMissingBucketGap = maxGaps.raw();
+        long maxMissingBucketGap = maxGaps.adjusted();
         int dailyCloseCount = dailyCloses.size();
 
         TrendStats trend = computeTrend(dailyCloses);
@@ -90,6 +125,11 @@ public final class StockMonthlyEvidenceComputer {
                 monthStats.completeMonthCount(),
                 usableBarCoverage,
                 maxMissingBucketGap,
+                rawUsableBarCoverage,
+                rawMaxMissingBucketGap,
+                adjustment.excludedBucketCount(),
+                adjustment.excludedMinutes(),
+                adjustment.appliedExclusionIds(),
                 dailyCloseCount,
                 highVotes.count(),
                 mediumVotes.count(),
@@ -145,19 +185,27 @@ public final class StockMonthlyEvidenceComputer {
     }
 
     /**
-     * 计算可用bar覆盖率 = 可用bar数 / 期望15分钟桶数。
+     * 计算证据区间期望15分钟桶数(duration/15+1)。
      *
-     * @param start          证据起点
-     * @param end            证据终点
-     * @param usableBarCount 可用bar数
-     * @return 覆盖率(0~1);证据区间无效时返回0
+     * @param start 证据起点
+     * @param end   证据终点
+     * @return 期望桶数;任一端为空或区间无效时返回0
      */
-    private static double usableBarCoverage(LocalDateTime start, LocalDateTime end, int usableBarCount) {
+    private static long expectedBucketCount(LocalDateTime start, LocalDateTime end) {
         if (start == null || end == null || end.isBefore(start)) {
             return 0;
         }
-        long minutes = Duration.between(start, end).toMinutes();
-        long expectedBuckets = minutes / 15 + 1;
+        return Duration.between(start, end).toMinutes() / 15 + 1;
+    }
+
+    /**
+     * 计算可用bar覆盖率 = 可用bar数 / 期望15分钟桶数。
+     *
+     * @param usableBarCount  可用bar数
+     * @param expectedBuckets 期望桶数
+     * @return 覆盖率(0~1);期望桶数非正时返回0
+     */
+    private static double usableBarCoverage(int usableBarCount, long expectedBuckets) {
         if (expectedBuckets <= 0) {
             return 0;
         }
@@ -165,25 +213,36 @@ public final class StockMonthlyEvidenceComputer {
     }
 
     /**
-     * 计算相邻可用bar最大间隔(分钟)。
+     * 一次性计算raw与adjusted相邻可用bar最大间隔(分钟)。
+     * <p>
+     * raw间隔为相邻bar开始时间差;adjusted间隔额外扣除该间隔与已审批排除窗口的
+     * 实际重叠分钟数,单条扣减不得低于0。
      *
-     * @param usableBars 可用bar列表(按时间升序)
-     * @return 最大间隔分钟数;样本不足2个时返回0
+     * @param usableBars      可用bar列表(按时间升序)
+     * @param exclusionPolicy 豁免策略
+     * @return raw与adjusted最大间隔;样本不足2个时均为0
      */
-    private static long maxMissingBucketGap(List<TornStockMarketBar15mDO> usableBars) {
-        long maxGap = 0;
+    private static MaxGaps maxMissingBucketGaps(List<TornStockMarketBar15mDO> usableBars,
+                                                StockMonthlyEvidenceExclusionPolicy exclusionPolicy) {
+        long rawMaxGap = 0;
+        long adjustedMaxGap = 0;
         for (int i = 1; i < usableBars.size(); i++) {
             LocalDateTime prev = usableBars.get(i - 1).getBarStartTime();
             LocalDateTime next = usableBars.get(i).getBarStartTime();
             if (prev == null || next == null) {
                 continue;
             }
-            long gap = Duration.between(prev, next).toMinutes();
-            if (gap > maxGap) {
-                maxGap = gap;
+            long rawGap = Duration.between(prev, next).toMinutes();
+            long adjustedGap = Math.max(0L,
+                    rawGap - exclusionPolicy.excludedOverlapMinutes(prev, next));
+            if (rawGap > rawMaxGap) {
+                rawMaxGap = rawGap;
+            }
+            if (adjustedGap > adjustedMaxGap) {
+                adjustedMaxGap = adjustedGap;
             }
         }
-        return maxGap;
+        return new MaxGaps(rawMaxGap, adjustedMaxGap);
     }
 
     /**
@@ -540,6 +599,15 @@ public final class StockMonthlyEvidenceComputer {
      * @param price 日末价格
      */
     private record DailyClose(LocalDate date, double price) {
+    }
+
+    /**
+     * raw与adjusted相邻可用bar最大间隔结果。
+     *
+     * @param raw      原始最大间隔分钟数
+     * @param adjusted 扣除已审批排除重叠后的最大间隔分钟数
+     */
+    private record MaxGaps(long raw, long adjusted) {
     }
 
     /**

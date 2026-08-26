@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票月度风格状态数据库访问层
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.07.24
  */
 @Mapper
@@ -63,17 +63,22 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
     int insertDraftStatesIgnoreConflict(@Param("states") List<TornStockMonthlyStateDO> states);
 
     /**
-     * 批量查询每支股票最近一个更早生效月份且已确认的月度状态。
+     * 批量查询每支股票最近一个更早生效月份且已确认的月度状态(严格版本隔离)。
      * <p>
-     * 用于月度迟滞计算:同一股票取{@code effective_month < targetMonth}且
-     * {@code state_status = CONFIRMED}的最近一条;DRAFT/RETIRED不参与。
+     * 用于月度迟滞计算:同一股票取{@code effective_month < targetMonth}、
+     * {@code state_status = CONFIRMED}且规则版本精确等于当前双版本的最近一条;
+     * DRAFT/RETIRED与其它规则版本(含V1)不参与,V2首月无更早V2 CONFIRMED时自然为空。
      *
-     * @param stocksIds   股票ID列表
-     * @param targetMonth 目标生效月份(不含)
-     * @return 每支股票至多一条更早CONFIRMED月度状态(含metricSnapshot供读取raw字段)
+     * @param stocksIds              股票ID列表
+     * @param targetMonth            目标生效月份(不含)
+     * @param personalityRuleVersion 风格规则版本(精确匹配)
+     * @param riskRuleVersion        风险规则版本(精确匹配)
+     * @return 每支股票至多一条同版本更早CONFIRMED月度状态(含metricSnapshot供读取raw字段)
      */
     List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(@Param("stocksIds") List<Integer> stocksIds,
-                                                                  @Param("targetMonth") LocalDate targetMonth);
+                                                                  @Param("targetMonth") LocalDate targetMonth,
+                                                                  @Param("personalityRuleVersion") String personalityRuleVersion,
+                                                                  @Param("riskRuleVersion") String riskRuleVersion);
 
     /**
      * 条件批量重算当月未确认DRAFT月度状态。

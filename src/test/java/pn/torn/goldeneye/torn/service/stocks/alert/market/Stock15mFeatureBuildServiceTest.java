@@ -37,7 +37,7 @@ import static org.mockito.Mockito.*;
  * 通过Mock DAO注入固定历史bar,验证特征输出数值。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.8
  * @since 2026.07.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -90,8 +90,12 @@ class Stock15mFeatureBuildServiceTest {
         assertNotNull(f.getZscore1d(), "97根bar满足1日窗口,zscore1d应可计算");
         assertNotNull(f.getReturn6h(), "97根bar满足6小时窗口,return6h应可计算");
         assertNotNull(f.getReturn1d(), "97根bar满足1日窗口,return1d应可计算");
-        assertNotNull(f.getLow30d(), "30日高低按可用bar计算,low30d不应为空");
-        assertNotNull(f.getHigh30d(), "30日高低按可用bar计算,high30d不应为空");
+        // P1修复: 预热不足2880条时全部30日条件字段必须为null
+        assertNull(f.getLow30d(), "预热不足30日low30d应为null");
+        assertNull(f.getHigh30d(), "预热不足30日high30d应为null");
+        assertNull(f.getWidth30d(), "预热不足30日width30d应为null");
+        assertNull(f.getPctAbove30dLow(), "预热不足30日pctAbove30dLow应为null");
+        assertNull(f.getPctBelow30dHigh(), "预热不足30日pctBelow30dHigh应为null");
         // 窗口不足的指标必须为null,而非0/参考价等伪造值
         assertNull(f.getMa7d(), "97根bar不足7日窗口,ma7d应为null");
         assertNull(f.getMa30d(), "97根bar不足30日窗口,ma30d应为null");
@@ -155,12 +159,16 @@ class Stock15mFeatureBuildServiceTest {
         // 30日相关指标不可计算: ma30d/zscore30d必须为null
         assertNull(f.getMa30d(), "2879根bar不足30日窗口,ma30d应为null");
         assertNull(f.getZscore30d(), "ma30d为null则zscore30d应为null");
+        // P1修复: 预热不足2880条时low30d/high30d等30日条件字段同样为null
+        assertNull(f.getLow30d(), "预热不足30日low30d应为null");
+        assertNull(f.getHigh30d(), "预热不足30日high30d应为null");
+        assertNull(f.getWidth30d(), "预热不足30日width30d应为null");
+        assertNull(f.getPctAbove30dLow(), "预热不足30日pctAbove30dLow应为null");
+        assertNull(f.getPctBelow30dHigh(), "预热不足30日pctBelow30dHigh应为null");
         // 短窗口指标仍按可计算结果保留
         assertNotNull(f.getMa1d(), "2879根bar满足1日窗口,ma1d应可计算");
         assertNotNull(f.getMa7d(), "2879根bar满足7日窗口,ma7d应可计算");
         assertNotNull(f.getReturn14d(), "2879根bar满足14日窗口,return14d应可计算");
-        assertNotNull(f.getLow30d(), "30日高低按可用bar计算,low30d不应为空");
-        assertNotNull(f.getHigh30d(), "30日高低按可用bar计算,high30d不应为空");
         verify(feature15mDAO).upsertFeature(any(TornStockStrategyFeature15mDO.class));
     }
 

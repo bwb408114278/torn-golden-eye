@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 15 分钟策略特征纯计算器测试。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @DisplayName("15分钟策略特征纯计算器测试")
@@ -31,7 +31,7 @@ class Stock15mFeatureCalculatorTest {
     private static final int BARS_30D = Stock15mFeatureBuildService.BARS_30D;
 
     @Test
-    @DisplayName("预热不足_条件性指标NULL且INSUFFICIENT_HISTORY")
+    @DisplayName("预热不足_全部30日条件字段NULL且INSUFFICIENT_HISTORY")
     void prewarmInsufficient_conditionalsNull() {
         LocalDateTime current = LocalDateTime.of(2026, 7, 24, 10, 0);
         List<TornStockMarketBar15mDO> history = historyBars(current, 96, "100.00");
@@ -42,10 +42,35 @@ class Stock15mFeatureCalculatorTest {
         assertNull(feature.getMa7d());
         assertNull(feature.getMa30d());
         assertNull(feature.getZscore7d());
+        assertNull(feature.getZscore30d());
         assertNull(feature.getReturn7d());
         assertNull(feature.getReturn14d());
+        // P1修复: 预热不足2880条时全部8个30日条件字段必须为null,不得按已有bar部分计算
+        assertNull(feature.getLow30d(), "预热不足30日low30d必须为null");
+        assertNull(feature.getHigh30d(), "预热不足30日high30d必须为null");
+        assertNull(feature.getWidth30d(), "预热不足30日width30d必须为null");
+        assertNull(feature.getPosition30(), "预热不足30日position30必须为null");
+        assertNull(feature.getPctAbove30dLow(), "预热不足30日pctAbove30dLow必须为null");
+        assertNull(feature.getPctBelow30dHigh(), "预热不足30日pctBelow30dHigh必须为null");
         assertFalse(feature.getStrategyReady());
         assertEquals("INSUFFICIENT_HISTORY", feature.getDataQualityReason());
+    }
+
+    @Test
+    @DisplayName("预热恰好2880条_全部30日条件字段非空")
+    void prewarmExactly2880_all30dConditionalsPresent() {
+        LocalDateTime current = LocalDateTime.of(2026, 7, 24, 10, 0);
+        List<TornStockMarketBar15mDO> history = historyBars(current, BARS_30D - 1, "100.00");
+        TornStockStrategyFeature15mDO feature = Stock15mFeatureCalculator.buildSingleFeature(
+                bar(current, "100.00", true), history);
+
+        assertEquals(BARS_30D, history.size() + 1);
+        assertNotNull(feature.getLow30d(), "恰好2880条时low30d必须可计算");
+        assertNotNull(feature.getHigh30d(), "恰好2880条时high30d必须可计算");
+        assertNotNull(feature.getWidth30d(), "恰好2880条时width30d必须可计算");
+        assertNotNull(feature.getPctAbove30dLow(), "恰好2880条时pctAbove30dLow必须可计算");
+        assertNotNull(feature.getPctBelow30dHigh(), "恰好2880条时pctBelow30dHigh必须可计算");
+        assertTrue(feature.getStrategyReady());
     }
 
     @Test

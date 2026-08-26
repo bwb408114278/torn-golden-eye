@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 数据就绪报告写出器单元测试。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @DisplayName("数据就绪报告写出器测试")
@@ -84,6 +84,7 @@ class StockDataReadinessReportWriterTest {
                 100_800L, 900L, 800L, unusable, 100_000L,
                 750L, 0L, 0L, 700L, notReady,
                 List.of(new MonthlyStateCount(LocalDate.of(2026, 1, 1), "CONFIRMED", false, 30L)),
+                List.of(),
                 monthIncomplete, rounds, 1L, settings);
     }
 }

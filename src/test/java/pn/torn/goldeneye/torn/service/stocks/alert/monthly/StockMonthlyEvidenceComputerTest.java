@@ -11,15 +11,14 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 月度证据月均计算领域测试 - 保护P0-2修复: 完整自然月均价必须按全部可用15分钟bar的
  * lastPrice算术平均计算,而非日末价降采样;空/非正价格不得参与;月变化恰为0不计负月。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.08.06
  */
 @DisplayName("月度证据月均计算测试")
@@ -135,6 +134,61 @@ class StockMonthlyEvidenceComputerTest {
         assertEquals(1.0, metrics.negativeMonthRatio(), "三次月变化全为负");
         assertEquals(3, metrics.negativeMonthStreak(), "末尾连续负月应为3");
         assertEquals(4, metrics.completeMonthCount(), "窗口内应有4个完整自然月");
+    }
+
+    @Test
+    @DisplayName("豁免_跨宕机窗口450分钟gap加真实45分钟gap_adjusted间隔45且raw 450保留")
+    void outageWaiver_crossWindowGapAndRealGap_v2AdjustedPasses() {
+        // 跨窗口gap: 前bar 02-14 07:45, 后bar 15:15 -> raw 450, 排除重叠[08:00,15:15)=435 -> adjusted 15
+        // 真实gap: 15:30 -> 16:15 跳过15:45/16:00 -> 45分钟,与窗口无关不得扣减
+        List<TornStockMarketBar15mDO> bars = new ArrayList<>();
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 7, 45), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 15, 15), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 15, 30), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 16, 15), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 16, 30), 100));
+        LocalDateTime evidenceStart = LocalDateTime.of(2026, 2, 14, 7, 45);
+        LocalDateTime evidenceEnd = LocalDateTime.of(2026, 2, 14, 16, 30);
+
+        StockMonthlyEvidenceExclusionPolicy v2 = StockMonthlyEvidenceExclusionPolicy.forRuleVersion(
+                StockMonthlyEvidenceExclusionPolicy.V2_PERSONALITY_RULE_VERSION,
+                StockMonthlyEvidenceExclusionPolicy.V2_RISK_RULE_VERSION);
+        StockMonthlyEvidenceMetrics metrics = StockMonthlyEvidenceComputer.computeMetrics(
+                evidenceStart, evidenceEnd, bars, v2);
+
+        assertEquals(450L, metrics.rawMaxMissingBucketGap(), "原始450分钟gap必须保留");
+        assertEquals(45L, metrics.maxMissingBucketGap(), "跨豁免gap调整为15后,最大间隔应为真实45分钟(120阈值内)");
+        assertEquals(29L, metrics.excludedBucketCount(), "窗口29个完整桶全部落在证据区间内");
+        assertEquals(List.of(StockMonthlyEvidenceExclusionPolicy.EXCLUSION_ID),
+                metrics.appliedExclusionIds(), "应记录唯一排除窗口ID");
+        assertTrue(metrics.rawUsableBarCoverage() < metrics.usableBarCoverage(),
+                "adjusted覆盖率应高于raw覆盖率");
+    }
+
+    @Test
+    @DisplayName("豁免_相同数据V1空策略_仍MONTHLY_EVIDENCE_INCOMPLETE")
+    void outageWaiver_sameDataV1Policy_stillIncomplete() {
+        List<TornStockMarketBar15mDO> bars = new ArrayList<>();
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 7, 45), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 15, 15), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 15, 30), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 16, 15), 100));
+        bars.add(buildBar(LocalDateTime.of(2026, 2, 14, 16, 30), 100));
+        LocalDateTime evidenceStart = LocalDateTime.of(2026, 2, 14, 7, 45);
+        LocalDateTime evidenceEnd = LocalDateTime.of(2026, 2, 14, 16, 30);
+
+        StockMonthlyEvidenceExclusionPolicy v1 = StockMonthlyEvidenceExclusionPolicy.forRuleVersion(
+                "PERSONALITY_RULE_V1", "RISK_RULE_V1_SHADOW");
+        StockMonthlyEvidenceMetrics metrics = StockMonthlyEvidenceComputer.computeMetrics(
+                evidenceStart, evidenceEnd, bars, v1);
+
+        assertFalse(metrics.complete(), "V1口径下450分钟gap必须保持不完整");
+        assertEquals("MONTHLY_EVIDENCE_INCOMPLETE", metrics.incompleteReason());
+        assertEquals(metrics.rawUsableBarCoverage(), metrics.usableBarCoverage(),
+                "V1空策略下raw与adjusted覆盖率完全一致");
+        assertEquals(metrics.rawMaxMissingBucketGap(), metrics.maxMissingBucketGap(),
+                "V1空策略下raw与adjusted最大间隔完全一致");
+        assertTrue(metrics.appliedExclusionIds().isEmpty(), "V1空策略不得记录排除ID");
     }
 
     /**

@@ -24,7 +24,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
 
 /**
  * 全范围 VIP 股票派生数据重建服务。
@@ -39,7 +38,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransa
  * 失败时返回带失败分片的 {@link StockDerivedDataRebuildResult}，已完成部分保留，可同范围幂等重跑。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @Slf4j
@@ -229,6 +228,11 @@ public class StockDerivedDataRebuildService {
 
     /**
      * 重建单支股票在目标范围内的 feature。
+     * <p>
+     * 先构建 {@code [start-30天, start)} 的 warmup bar 只推进滚动窗口:
+     * warmup 不标记 REPAIRED_DATA_ONLY round、不写 target feature、不单独触发
+     * 月度重算,也不创建信号、batch、槽位、通知或开关变化;只有
+     * {@code [start, end)} 内的可用 bar 才物化并写出 feature。
      *
      * @param stock                股票
      * @param start                起始桶（含）

@@ -21,7 +21,7 @@ import java.util.List;
  * 因果性由调用方保证：传入的 {@code historyBars} 必须严格早于当前 bar，且按时间升序。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -155,14 +155,53 @@ public final class Stock15mFeatureCalculator {
      *
      * @param low30d  30 日最低价
      * @param high30d 30 日最高价
-     * @return 振幅宽度；基准为 0 或高低价缺失时返回 0
+     * @return 振幅宽度;预热不足30日(基准缺失)时返回 {@code null},基准为 0 时返回 0
      */
     private static BigDecimal calculateWidth30(BigDecimal low30d, BigDecimal high30d) {
-        if (low30d == null || high30d == null || low30d.compareTo(BigDecimal.ZERO) == 0) {
+        if (low30d == null || high30d == null) {
+            return null;
+        }
+        if (low30d.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
         }
         return high30d.subtract(low30d)
                 .divide(low30d, CALC_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 计算当前价格相对 30 日最低价的涨幅。
+     *
+     * @param currentPrice 当前价格
+     * @param low30d       30 日最低价
+     * @return 相对最低价涨幅;预热不足30日(基准缺失)时返回 {@code null},基准为 0 时返回 0
+     */
+    private static BigDecimal calculatePctAboveLow(BigDecimal currentPrice, BigDecimal low30d) {
+        if (low30d == null) {
+            return null;
+        }
+        if (currentPrice == null || low30d.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        return currentPrice.divide(low30d, CALC_SCALE, RoundingMode.HALF_UP)
+                .subtract(BigDecimal.ONE);
+    }
+
+    /**
+     * 计算当前价格相对 30 日最高价的跌幅（正数表示低于最高价的幅度）。
+     *
+     * @param currentPrice 当前价格
+     * @param high30d      30 日最高价
+     * @return 相对最高价跌幅;预热不足30日(基准缺失)时返回 {@code null},基准为 0 时返回 0
+     */
+    private static BigDecimal calculatePctBelowHigh(BigDecimal currentPrice, BigDecimal high30d) {
+        if (high30d == null) {
+            return null;
+        }
+        if (currentPrice == null || high30d.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        return currentPrice.divide(high30d, CALC_SCALE, RoundingMode.HALF_UP)
+                .subtract(BigDecimal.ONE);
     }
 
     /**
@@ -183,36 +222,6 @@ public final class Stock15mFeatureCalculator {
         }
         return currentPrice.subtract(low30d)
                 .divide(range, CALC_SCALE, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * 计算当前价格相对 30 日最低价的涨幅。
-     *
-     * @param currentPrice 当前价格
-     * @param low30d       30 日最低价
-     * @return 相对最低价涨幅；数据缺失或基准为 0 时返回 0
-     */
-    private static BigDecimal calculatePctAboveLow(BigDecimal currentPrice, BigDecimal low30d) {
-        if (currentPrice == null || low30d == null || low30d.compareTo(BigDecimal.ZERO) == 0) {
-            return BigDecimal.ZERO;
-        }
-        return currentPrice.divide(low30d, CALC_SCALE, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.ONE);
-    }
-
-    /**
-     * 计算当前价格相对 30 日最高价的跌幅（正数表示低于最高价的幅度）。
-     *
-     * @param currentPrice 当前价格
-     * @param high30d      30 日最高价
-     * @return 相对最高价跌幅；数据缺失或基准为 0 时返回 0
-     */
-    private static BigDecimal calculatePctBelowHigh(BigDecimal currentPrice, BigDecimal high30d) {
-        if (currentPrice == null || high30d == null || high30d.compareTo(BigDecimal.ZERO) == 0) {
-            return BigDecimal.ZERO;
-        }
-        return currentPrice.divide(high30d, CALC_SCALE, RoundingMode.HALF_UP)
-                .subtract(BigDecimal.ONE);
     }
 
     /**

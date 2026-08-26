@@ -45,7 +45,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
  * 通过 Mockito mock 全部DAO,使用 ArgumentCaptor 验证持久化字段。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.07.25
  */
 @ExtendWith(MockitoExtension.class)
@@ -128,7 +128,7 @@ class StockMonthlyStateInitServiceTest {
                 .thenReturn(List.of());
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
-        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
         when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
             List<TornStockMonthlyStateDO> states = inv.getArgument(0);
             return states.size();
@@ -177,7 +177,7 @@ class StockMonthlyStateInitServiceTest {
                 .thenReturn(List.of(buildConfirmedState(2, "MSG", currentMonth)));
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
-        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
         when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
             List<TornStockMonthlyStateDO> states = inv.getArgument(0);
             return states.size();
@@ -204,7 +204,7 @@ class StockMonthlyStateInitServiceTest {
                 .thenReturn(List.of());
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
-        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
         when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenReturn(1);
 
         int result = monthlyStateInitService.initCurrentMonth();
@@ -376,7 +376,7 @@ class StockMonthlyStateInitServiceTest {
         when(tornStocksDao.listByIds(any())).thenReturn(List.of(buildStock(1, "TCS")));
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
-        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
         when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
 
         int result = monthlyStateInitService.recalculateCurrentMonthDrafts();
@@ -446,7 +446,7 @@ class StockMonthlyStateInitServiceTest {
         edge.setBarEndTime(evidenceEnd);
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of(edge));
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(denseBars);
-        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
         when(monthlyStateDao.recalculateDraftStates(any())).thenAnswer(inv -> {
             List<TornStockMonthlyStateDO> states = inv.getArgument(0);
             return states.size();
@@ -500,7 +500,7 @@ class StockMonthlyStateInitServiceTest {
         edge.setBarEndTime(LocalDateTime.of(2026, 7, 31, 23, 45).plusMinutes(15));
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of(edge));
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
-        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
         when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
             List<TornStockMonthlyStateDO> states = inv.getArgument(0);
             return states.size();
@@ -512,6 +512,88 @@ class StockMonthlyStateInitServiceTest {
         TornStockMonthlyStateDO saved = monthlyStatesCaptor.getValue().getFirst();
         assertEquals(LocalDateTime.of(2026, 8, 1, 0, 0), saved.getEvidenceEndTime(),
                 "末日23:45末桶的证据终点必须取桶闭合时间(次日00:00),否则最近完整月被排除");
+    }
+
+    // ==================== V2严格版本隔离迟滞 ====================
+
+    @Test
+    @DisplayName("迟滞版本隔离_2026-03首月_SQL必须携带V2双版本且previous=null")
+    void loadPrevious_strictVersionIsolation_v2FirstMonthNullPrevious() {
+        LocalDate targetMonth = LocalDate.of(2026, 3, 1);
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", targetMonth);
+        draft.setId(99L);
+        draft.setManualOverride(false);
+
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+        when(tornStocksDao.listByIds(any())).thenReturn(List.of(buildStock(1, "TCS")));
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
+        // 数据库只有2026-02 V1 CONFIRMED: V2双版本过滤下必须返回空(2026-03 V2首月previous=null)
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(
+                eq(List.of(1)), eq(targetMonth),
+                eq(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION),
+                eq(StockMonthlyStateCalculator.RISK_RULE_VERSION)))
+                .thenReturn(List.of());
+        when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
+
+        monthlyStateInitService.recalculateMonthDrafts(targetMonth);
+
+        // 严格断言: SQL侧必须携带V2双版本精确过滤,禁止读到V1后再Java回退
+        verify(monthlyStateDao).selectPreviousConfirmedByStocks(
+                any(), eq(targetMonth),
+                eq(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION),
+                eq(StockMonthlyStateCalculator.RISK_RULE_VERSION));
+        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(monthlyStateDao).recalculateDraftStates(captor.capture());
+        assertNull(captor.getValue().getFirst().getPreviousPersonality(),
+                "V2首月无更早V2 CONFIRMED时previous必须为null");
+    }
+
+    @Test
+    @DisplayName("迟滞版本隔离_2026-04_仅使用2026-03的V2 CONFIRMED作为迟滞前态")
+    void loadPrevious_strictVersionIsolation_aprilUsesMarchV2Confirmed() {
+        LocalDate targetMonth = LocalDate.of(2026, 4, 1);
+        TornStockMonthlyStateDO marchV2Confirmed = buildConfirmedState(1, "TCS",
+                LocalDate.of(2026, 3, 1));
+        marchV2Confirmed.setPersonalityRuleVersion(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION);
+        marchV2Confirmed.setRiskRuleVersion(StockMonthlyStateCalculator.RISK_RULE_VERSION);
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", targetMonth);
+        draft.setId(99L);
+        draft.setManualOverride(false);
+        LocalDateTime evidenceEnd = targetMonth.atStartOfDay().minusMinutes(15);
+        List<TornStockMarketBar15mDO> denseBars = buildDenseEvidenceBars(
+                evidenceEnd.minusDays(30), evidenceEnd);
+
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+        when(tornStocksDao.listByIds(any())).thenReturn(List.of(buildStock(1, "TCS")));
+        TornStockMarketBar15mDO edge = new TornStockMarketBar15mDO();
+        edge.setStocksId(1);
+        edge.setFirstSampleTime(evidenceEnd.minusDays(30));
+        edge.setBarEndTime(evidenceEnd);
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of(edge));
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(denseBars);
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(
+                eq(List.of(1)), eq(targetMonth),
+                eq(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION),
+                eq(StockMonthlyStateCalculator.RISK_RULE_VERSION)))
+                .thenReturn(List.of(marchV2Confirmed));
+        when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
+
+        monthlyStateInitService.recalculateMonthDrafts(targetMonth);
+
+        ArgumentCaptor<List<TornStockMonthlyStateDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(monthlyStateDao).recalculateDraftStates(captor.capture());
+        TornStockMonthlyStateDO updated = captor.getValue().getFirst();
+        assertEquals("STEADY", updated.getPreviousPersonality(),
+                "2026-04迟滞前态必须来自2026-03 V2 CONFIRMED");
+        assertEquals(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION,
+                updated.getPersonalityRuleVersion(), "重算草稿必须写V2风格版本");
+        assertEquals(StockMonthlyStateCalculator.RISK_RULE_VERSION,
+                updated.getRiskRuleVersion(), "重算草稿必须写V2风险版本");
     }
 
     // ==================== 辅助方法 ====================

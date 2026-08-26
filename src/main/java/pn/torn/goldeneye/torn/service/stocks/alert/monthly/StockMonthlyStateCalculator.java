@@ -15,11 +15,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 月度状态纯计算器 - 按冻结公式 {@code PERSONALITY_RULE_V1} 与 {@code RISK_RULE_V1_SHADOW}
- * 计算月度证据指标、成熟度、六类原始风格、风险投票、迟滞建议与有效风险。
+ * 月度状态纯计算器 - 按冻结公式 {@code PERSONALITY_RULE_V2_OUTAGE_EXCLUSION} 与
+ * {@code RISK_RULE_V2_OUTAGE_EXCLUSION} 计算月度证据指标、成熟度、六类原始风格、
+ * 风险投票、迟滞建议与有效风险。
  * <p>
  * 本类只做纯计算与状态判定,不访问数据库、不写业务表、不依赖系统时钟,便于领域测试与回放复用。
- * 证据窗口指标、日级趋势与投票由 {@link StockMonthlyEvidenceComputer} 承担。
+ * 证据窗口指标、日级趋势与投票由 {@link StockMonthlyEvidenceComputer} 承担;
+ * 已验证宕机豁免由 {@link StockMonthlyEvidenceExclusionPolicy} 承担。
  * 冻结规则版本:
  * <ul>
  *   <li>风格规则版本: {@value #PERSONALITY_RULE_VERSION}</li>
@@ -27,20 +29,22 @@ import java.util.Map;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.08.06
  */
 @Component
 public class StockMonthlyStateCalculator {
 
     /**
-     * 人格分类规则版本(冻结)
+     * 人格分类规则版本(冻结,V2宕机豁免)
      */
-    public static final String PERSONALITY_RULE_VERSION = "PERSONALITY_RULE_V1";
+    public static final String PERSONALITY_RULE_VERSION =
+            StockMonthlyEvidenceExclusionPolicy.V2_PERSONALITY_RULE_VERSION;
     /**
-     * 风险分级规则版本(冻结)
+     * 风险分级规则版本(冻结,V2宕机豁免)
      */
-    public static final String RISK_RULE_VERSION = "RISK_RULE_V1_SHADOW";
+    public static final String RISK_RULE_VERSION =
+            StockMonthlyEvidenceExclusionPolicy.V2_RISK_RULE_VERSION;
 
     /**
      * 不完整原因: 证据数据不完整
@@ -64,6 +68,26 @@ public class StockMonthlyStateCalculator {
      * 快照键: 原始风险
      */
     private static final String SNAPSHOT_KEY_RAW_RISK_LEVEL = "rawRiskLevel";
+    /**
+     * 快照键: 原始可用bar覆盖率(不扣除排除窗口)
+     */
+    private static final String SNAPSHOT_KEY_RAW_COVERAGE = "rawUsableBarCoverage";
+    /**
+     * 快照键: 原始相邻可用bar最大间隔分钟数(不扣除排除窗口)
+     */
+    private static final String SNAPSHOT_KEY_RAW_MAX_GAP = "rawMaxMissingBucketGap";
+    /**
+     * 快照键: 相交排除桶数
+     */
+    private static final String SNAPSHOT_KEY_EXCLUDED_BUCKET_COUNT = "excludedBucketCount";
+    /**
+     * 快照键: 相交排除分钟数
+     */
+    private static final String SNAPSHOT_KEY_EXCLUDED_MINUTES = "excludedMinutes";
+    /**
+     * 快照键: 实际相交排除窗口ID列表
+     */
+    private static final String SNAPSHOT_KEY_APPLIED_EXCLUSION_IDS = "appliedExclusionIds";
 
     // ==================== 公开入口 ====================
 
@@ -87,7 +111,9 @@ public class StockMonthlyStateCalculator {
                                             List<TornStockMarketBar15mDO> usableBars,
                                             StockMonthlyPrevious previous) {
         StockMonthlyEvidenceMetrics metrics = StockMonthlyEvidenceComputer.computeMetrics(
-                evidenceStartTime, evidenceEndTime, usableBars);
+                evidenceStartTime, evidenceEndTime, usableBars,
+                StockMonthlyEvidenceExclusionPolicy.forRuleVersion(
+                        PERSONALITY_RULE_VERSION, RISK_RULE_VERSION));
         StockMaturityEnum maturity = determineMaturity(evidenceStartTime, evidenceEndTime);
         if (!metrics.complete()) {
             return buildIncompleteDraft(stocksId, stocksShortname, effectiveMonth,
@@ -463,6 +489,11 @@ public class StockMonthlyStateCalculator {
         snapshot.put("m6", metrics.m6());
         snapshot.put("usableBarCoverage", metrics.usableBarCoverage());
         snapshot.put("maxMissingBucketGap", metrics.maxMissingBucketGap());
+        snapshot.put(SNAPSHOT_KEY_RAW_COVERAGE, metrics.rawUsableBarCoverage());
+        snapshot.put(SNAPSHOT_KEY_RAW_MAX_GAP, metrics.rawMaxMissingBucketGap());
+        snapshot.put(SNAPSHOT_KEY_EXCLUDED_BUCKET_COUNT, metrics.excludedBucketCount());
+        snapshot.put(SNAPSHOT_KEY_EXCLUDED_MINUTES, metrics.excludedMinutes());
+        snapshot.put(SNAPSHOT_KEY_APPLIED_EXCLUSION_IDS, metrics.appliedExclusionIds());
         snapshot.put("evidenceDays", metrics.evidenceDays());
         snapshot.put("completeMonthCount", metrics.completeMonthCount());
         snapshot.put("quarterWindowTruncated", metrics.quarterWindowTruncated());
@@ -495,6 +526,11 @@ public class StockMonthlyStateCalculator {
         snapshot.put(SNAPSHOT_KEY_RAW_RISK_LEVEL, null);
         snapshot.put("usableBarCoverage", metrics.usableBarCoverage());
         snapshot.put("maxMissingBucketGap", metrics.maxMissingBucketGap());
+        snapshot.put(SNAPSHOT_KEY_RAW_COVERAGE, metrics.rawUsableBarCoverage());
+        snapshot.put(SNAPSHOT_KEY_RAW_MAX_GAP, metrics.rawMaxMissingBucketGap());
+        snapshot.put(SNAPSHOT_KEY_EXCLUDED_BUCKET_COUNT, metrics.excludedBucketCount());
+        snapshot.put(SNAPSHOT_KEY_EXCLUDED_MINUTES, metrics.excludedMinutes());
+        snapshot.put(SNAPSHOT_KEY_APPLIED_EXCLUSION_IDS, metrics.appliedExclusionIds());
         snapshot.put("evidenceDays", metrics.evidenceDays());
         snapshot.put("incompleteReason", metrics.incompleteReason());
         snapshot.put("hysteresisReason", null);

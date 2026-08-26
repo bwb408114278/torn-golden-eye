@@ -13,7 +13,7 @@ import java.util.List;
  * Torn股票月度风格状态持久层类
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.07.24
  */
 @Repository
@@ -67,18 +67,26 @@ public class TornStockMonthlyStateDAO extends ServiceImpl<TornStockMonthlyStateM
     }
 
     /**
-     * 查询上一确认月度状态(含metricSnapshot供读取raw字段)。
+     * 查询上一确认月度状态(严格版本隔离,含metricSnapshot供读取raw字段)。
+     * <p>
+     * 仅返回规则版本精确等于当前双版本的更早CONFIRMED状态;V2首月无更早
+     * V2 CONFIRMED时返回空列表,不得回退读取V1。
      *
-     * @param stockIds    股票ID列表
-     * @param targetMonth 目标生效月份(不含)
-     * @return 每支股票至多一条更早CONFIRMED月度状态
+     * @param stockIds               股票ID列表
+     * @param targetMonth            目标生效月份(不含)
+     * @param personalityRuleVersion 风格规则版本(精确匹配)
+     * @param riskRuleVersion        风险规则版本(精确匹配)
+     * @return 每支股票至多一条同版本更早CONFIRMED月度状态
      */
     public List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(List<Integer> stockIds,
-                                                                         LocalDate targetMonth) {
+                                                                         LocalDate targetMonth,
+                                                                         String personalityRuleVersion,
+                                                                         String riskRuleVersion) {
         if (stockIds == null || stockIds.isEmpty()) {
             return List.of();
         }
-        return baseMapper.selectPreviousConfirmedByStocks(stockIds, targetMonth);
+        return baseMapper.selectPreviousConfirmedByStocks(stockIds, targetMonth,
+                personalityRuleVersion, riskRuleVersion);
     }
 
     /**
