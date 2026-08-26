@@ -25,7 +25,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -34,7 +33,7 @@ import static org.mockito.Mockito.*;
  * Faction News 日采集补偿测试。
  *
  * @author Bai
- * @version 1.4.5
+ * @version 1.4.7
  * @since 2026.08.25
  */
 @ExtendWith(MockitoExtension.class)
@@ -84,8 +83,8 @@ class FactionNewsServiceTest {
     }
 
     @Test
-    @DisplayName("新闻任一帮派失败时不推进标记并保留原窗口同日重试")
-    void collect_whenFactionFails_shouldRetrySameWindow() {
+    @DisplayName("新闻单个帮派异常时仍推进标记并注册明日任务")
+    void collect_whenFactionFails_shouldCompleteAndScheduleNextDay() {
         LocalDate recordDate = LocalDate.now();
         TornSettingFactionDO faction = faction(1L);
         when(settingFactionManager.getList()).thenReturn(List.of(faction));
@@ -95,17 +94,16 @@ class FactionNewsServiceTest {
         invokeSubmittedNews(recordDate.minusDays(1).atTime(8, 0),
                 recordDate.atTime(7, 59, 59));
 
-        ArgumentCaptor<LocalDateTime> timeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(taskService).updateTask(eq("faction-news-reload"), any(Runnable.class), timeCaptor.capture());
-        assertEquals(recordDate, timeCaptor.getValue().toLocalDate());
-        verify(settingDao, never()).updateSetting(eq(SettingConstants.KEY_FACTION_NEWS_LOAD), any());
+        verify(settingDao).updateSetting(SettingConstants.KEY_FACTION_NEWS_LOAD, recordDate.toString());
+        verify(taskService).updateTask(eq("faction-news-reload"), any(Runnable.class),
+                eq(recordDate.plusDays(1).atTime(8, 15)));
         verify(itemUsedManager).spiderItemUseData(faction,
                 recordDate.minusDays(1).atTime(8, 0), recordDate.atTime(7, 59, 59));
     }
 
     @Test
-    @DisplayName("新闻管理器返回未完成时不推进标记并安排原窗口当天重试")
-    void collect_whenManagerReportsIncomplete_shouldRetrySameWindow() {
+    @DisplayName("新闻管理器返回未完成时仍推进标记并注册明日任务")
+    void collect_whenManagerReportsIncomplete_shouldCompleteAndScheduleNextDay() {
         LocalDate recordDate = LocalDate.now();
         TornSettingFactionDO faction = faction(1L);
         when(settingFactionManager.getList()).thenReturn(List.of(faction));
@@ -115,10 +113,9 @@ class FactionNewsServiceTest {
         invokeSubmittedNews(recordDate.minusDays(1).atTime(8, 0),
                 recordDate.atTime(7, 59, 59));
 
-        ArgumentCaptor<LocalDateTime> timeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(taskService).updateTask(eq("faction-news-reload"), any(Runnable.class), timeCaptor.capture());
-        assertEquals(recordDate, timeCaptor.getValue().toLocalDate());
-        verify(settingDao, never()).updateSetting(eq(SettingConstants.KEY_FACTION_NEWS_LOAD), any());
+        verify(settingDao).updateSetting(SettingConstants.KEY_FACTION_NEWS_LOAD, recordDate.toString());
+        verify(taskService).updateTask(eq("faction-news-reload"), any(Runnable.class),
+                eq(recordDate.plusDays(1).atTime(8, 15)));
     }
 
     @Test

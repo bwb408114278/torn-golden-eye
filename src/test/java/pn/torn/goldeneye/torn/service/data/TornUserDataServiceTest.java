@@ -44,7 +44,7 @@ import static org.mockito.Mockito.*;
  * 用户 BS 日采集补偿测试。
  *
  * @author Bai
- * @version 1.4.5
+ * @version 1.4.7
  * @since 2026.08.25
  */
 @ExtendWith(MockitoExtension.class)
@@ -138,24 +138,20 @@ class TornUserDataServiceTest {
     }
 
     @Test
-    @DisplayName("单个BS请求失败后安排当天五分钟重试并保留原日期")
-    void collect_whenBsRequestFails_shouldRetrySameRecordDate() {
+    @DisplayName("单个BS请求失败时仍推进完成标记并注册明日任务")
+    void collect_whenBsRequestFails_shouldCompleteAndScheduleNextDay() {
         LocalDate recordDate = LocalDate.now();
         TornApiKeyDO key = key(1L);
         when(apiKeyConfig.getAllEnableKeys()).thenReturn(List.of(key));
         when(snapshotQuery.list()).thenReturn(List.of());
         doThrow(new IllegalStateException("test api failure"))
                 .when(tornApi).sendRequest(any(TornReqParamV2.class), eq(key), any());
-        LocalDateTime before = LocalDateTime.now().plusMinutes(5);
 
         invokeSubmittedTask(recordDate);
 
-        ArgumentCaptor<LocalDateTime> timeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(taskService).updateTask(eq("user-data-reload"), any(Runnable.class), timeCaptor.capture());
-        LocalDateTime retryAt = timeCaptor.getValue();
-        assertEquals(recordDate, retryAt.toLocalDate());
-        org.junit.jupiter.api.Assertions.assertTrue(!retryAt.isBefore(before.minusSeconds(2)));
-        verify(settingDao, never()).updateSetting(eq(SettingConstants.KEY_USER_DATA_LOAD), any());
+        verify(settingDao).updateSetting(SettingConstants.KEY_USER_DATA_LOAD, recordDate.toString());
+        verify(taskService).updateTask(eq("user-data-reload"), any(Runnable.class),
+                eq(recordDate.plusDays(1).atTime(8, 5)));
     }
 
     @Test
