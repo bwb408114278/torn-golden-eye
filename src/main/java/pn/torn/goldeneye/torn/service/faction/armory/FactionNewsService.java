@@ -157,7 +157,7 @@ public class FactionNewsService {
             boolean itemUsedCompleted = itemUsedManager.spiderItemUseData(faction, window.from(), window.to());
             boolean giveFundsCompleted = giveFundsManager.spiderGiveFundsData(faction, window.from(), window.to());
             if (!itemUsedCompleted || !giveFundsCompleted) {
-                log.error("Faction News帮派采集未完成, trigger={}, recordDate={}, factionId={}",
+                log.warn("Faction News帮派采集未完成, trigger={}, recordDate={}, factionId={}",
                         trigger, window.recordDate(), faction.getId());
                 return false;
             }
