@@ -12,32 +12,30 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRou
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchPathService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService.EntrySettlementResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService.CandidateAcceptanceTarget;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowTrackRecorder;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalEvaluator;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult.BuySignalResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult.SignalEvaluation;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService.CandidateAcceptanceTarget;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService.EntrySettlementResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocationResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateKey;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdater;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.StockCandidateRankingPolicy;
 
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchPathService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowTrackRecorder;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalEvaluator;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocationResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateKey;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdater;
 
 /**
  * 股票轮次事务服务 - 短事务内编排12步组合决策流程
@@ -61,7 +59,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdate
  * </ol>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.9
  * @since 2026.07.25
  */
 @Slf4j
@@ -191,7 +189,7 @@ public class StockRoundTransactionService {
                     ruleMode.getCode(), allowNewEntry);
         } else {
             BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
-                    snapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
+                    mergedSnapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
             List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
             rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
             Map<Integer, SignalEvaluation> evaluationByStockId = signalResult.allEvaluations().stream()

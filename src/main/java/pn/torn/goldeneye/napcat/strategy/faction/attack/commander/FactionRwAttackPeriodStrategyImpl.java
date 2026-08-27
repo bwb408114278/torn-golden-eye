@@ -2,7 +2,6 @@ package pn.torn.goldeneye.napcat.strategy.faction.attack.commander;
 
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
@@ -24,7 +23,7 @@ import java.util.List;
  * RW对冲窗口攻击频率统计策略。
  *
  * @author Bai
- * @version 1.4.5
+ * @version 1.4.8
  * @since 2026.08.24
  */
 @Component
@@ -37,11 +36,6 @@ public class FactionRwAttackPeriodStrategyImpl extends BaseRwStrategy {
     @Override
     public String getCommandDescription() {
         return "RW对冲窗口攻击频率分析";
-    }
-
-    @Override
-    public TornFactionRoleTypeEnum getRoleType() {
-        return TornFactionRoleTypeEnum.WAR_COMMANDER;
     }
 
     @Override

@@ -19,9 +19,21 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketR
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult.BuySignalResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService.CandidateAcceptanceTarget;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchPathService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService.CandidateAcceptanceTarget;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
+import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowTrackRecorder;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalEvaluator;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult.BuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocationResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdater;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.StockCandidateRankingPolicy;
 
@@ -33,26 +45,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchPathService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockCandidateTrackAllocationService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowTrackRecorder;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalEvaluator;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocationResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdater;
 
 /**
  * 股票轮次事务编排测试，验证本轮正式平仓股票不会重新进入正式候选接纳。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.9
  * @since 2026.07.17
  */
 @ExtendWith(MockitoExtension.class)
@@ -141,6 +139,54 @@ class StockRoundTransactionServiceTest {
         assertEquals(List.of(shadowExitPendingBatch), capturedSnapshot.shadowBatches());
         assertSlotSetCompleteness(capturedSnapshot.slots(), lockedSlots);
         assertSlotSettlement(capturedSnapshot.slots());
+    }
+
+    @Test
+    @DisplayName("事务内锁定Shadow批次_信号评估必须使用合并快照并拒绝同股候选")
+    void executeRound_lockedShadowBatchIsMissingFromExternalSnapshot_rejectsSameStockCandidate() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        TornStockVirtualBatchDO lockedShadowBatch = openShadowBatch(21L, 2701, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot externalSnapshot = new RoundSnapshot(
+                List.of(usableBar(2701, roundTime)), List.of(), List.of(),
+                List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        List<CandidateInfo> candidates = List.of(candidate(2701), candidate(2702));
+
+        TornStockMarketRoundDO round = new TornStockMarketRoundDO();
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(round);
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(lockedSlots);
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(List.of());
+        when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of());
+        when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of(lockedShadowBatch));
+        when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime)))
+                .thenReturn(List.of());
+        when(buySignalEvaluator.evaluateSignals(any(), any(), any(), any(), eq(roundTime)))
+                .thenAnswer(invocation -> {
+                    RoundSnapshot evaluationSnapshot = invocation.getArgument(0);
+                    List<CandidateInfo> acceptedCandidates = evaluationSnapshot.activeBatches().stream()
+                            .anyMatch(batch -> batch.getStocksId() == 2701)
+                            ? List.of(candidate(2702)) : candidates;
+                    return new BuySignalResult(acceptedCandidates, List.of());
+                });
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
+                .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
+        when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
+                eq(CandidateAcceptanceTarget.formal())))
+                .thenReturn(StockCandidateAllocationResult.empty());
+
+        transactionService.executeRound(roundTime, externalSnapshot, true, roundTime);
+
+        verify(buySignalEvaluator).evaluateSignals(snapshotCaptor.capture(), any(), any(), any(), eq(roundTime));
+        RoundSnapshot evaluationSnapshot = snapshotCaptor.getValue();
+        assertTrue(evaluationSnapshot.activeBatches().contains(lockedShadowBatch));
+        verify(candidateTrackAllocationService).acceptCandidates(
+                candidatesCaptor.capture(), eq(evaluationSnapshot), any(), any(), any(), eq(roundTime),
+                eq(CandidateAcceptanceTarget.formal()));
+        assertEquals(List.of(2702), candidatesCaptor.getValue().stream()
+                .map(CandidateInfo::stocksId)
+                .toList());
     }
 
     @Test
@@ -336,6 +382,28 @@ class StockRoundTransactionServiceTest {
      */
     private CandidateInfo candidate(int stocksId) {
         return new CandidateInfo(stocksId, "T" + stocksId, null, List.of(), BigDecimal.ONE);
+    }
+
+    /**
+     * 创建事务内锁定的开放影子批次。
+     *
+     * @param id        批次ID
+     * @param stocksId  股票ID
+     * @param roundTime 轮次时间
+     * @return 开放影子批次
+     */
+    private TornStockVirtualBatchDO openShadowBatch(Long id, int stocksId, LocalDateTime roundTime) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo("B" + id);
+        batch.setStocksId(stocksId);
+        batch.setStocksShortname("T" + stocksId);
+        batch.setLedgerType(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode());
+        batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
+        batch.setEntryTime(roundTime.minusDays(1));
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setQuantity(100L);
+        return batch;
     }
 
     /**

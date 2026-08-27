@@ -13,23 +13,16 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusE
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
+import pn.torn.goldeneye.torn.service.stocks.alert.observation.StockRejectedObservationService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockAlertRuntimeGate;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHistoryRebuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
-import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
-import pn.torn.goldeneye.torn.service.stocks.alert.observation.StockRejectedObservationService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
 
 /**
  * VIP股票策略调度器 - 每分钟驱动数据轮次构建与启动补偿
@@ -58,13 +51,22 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitS
  * 异常不向{@code ApplicationReadyEvent}逃逸;定时入口的异常上抛语义保持不变。
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.4.9
  * @since 2026.07.25
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class VipStockAlertScheduler {
+    /**
+     * 轮次失败摘要与数据库字段长度保持一致。
+     */
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 1000;
+    /**
+     * 异常对象为空且没有可提取根因消息时的失败摘要。
+     */
+    private static final String UNKNOWN_EXCEPTION_MESSAGE = "UNKNOWN_EXCEPTION";
+
     /**
      * 买入规则版本(RANGE绝对趋势保护自1.1.0起生效)
      */
@@ -617,11 +619,32 @@ public class VipStockAlertScheduler {
     private void markFailed(TornStockMarketRoundDO round, Exception e) {
         try {
             round.setRoundStatus(StockRoundStatusEnum.FAILED_RETRYABLE.getCode());
-            round.setErrorMessage(e.getMessage());
+            round.setErrorMessage(buildFailureSummary(e));
             round.setCompletedAt(marketClock.now());
             roundDao.updateById(round);
         } catch (Exception updateEx) {
             log.error("VIP股票策略调度-标记轮次失败状态异常, roundTime={}", round.getRoundTime(), updateEx);
         }
+    }
+
+    /**
+     * 提取异常链中最深层的可读根因消息，并限制数据库摘要长度。
+     *
+     * @param exception 轮次处理异常
+     * @return 可持久化的失败摘要
+     */
+    private String buildFailureSummary(Exception exception) {
+        String summary = UNKNOWN_EXCEPTION_MESSAGE;
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && !message.isBlank()) {
+                summary = message;
+            }
+            current = current.getCause();
+        }
+        return summary.length() <= MAX_ERROR_MESSAGE_LENGTH
+                ? summary
+                : summary.substring(0, MAX_ERROR_MESSAGE_LENGTH);
     }
 }
