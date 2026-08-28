@@ -73,6 +73,8 @@ class ActivityDailyArchiveServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(userDailyDao.upsertBatch(any())).thenReturn(1);
+        lenient().when(factionDailyDao.upsertBatch(any())).thenReturn(1);
         service = new ActivityDailyArchiveService(
                 redisTemplate, userDailyDao, factionDailyDao, archiveDayDao, virtualThreadExecutor);
     }
@@ -122,6 +124,34 @@ class ActivityDailyArchiveServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.archiveDay(ARCHIVE_DATE));
 
+        verify(archiveDayDao, never()).insertMarker(any());
+    }
+
+    @Test
+    @DisplayName("用户日包 DAO 短写入时不写 marker")
+    void archiveDay_userUpsertShortWrite_neverWritesMarker() {
+        stubIndexSets(Set.of(String.valueOf(USER_ID)), Set.of());
+        stubMarkerMissing();
+        stubPipeline(bitmap((byte) 0x80), bitmap((byte) 0x40), bitmap((byte) 0x20));
+        when(userDailyDao.upsertBatch(any())).thenReturn(0);
+
+        service.archiveDay(ARCHIVE_DATE);
+
+        verify(userDailyDao).upsertBatch(any());
+        verify(archiveDayDao, never()).insertMarker(any());
+    }
+
+    @Test
+    @DisplayName("帮派日包 DAO 短写入时不写 marker")
+    void archiveDay_factionUpsertShortWrite_neverWritesMarker() {
+        stubIndexSets(Set.of(), Set.of(String.valueOf(FACTION_ID)));
+        stubMarkerMissing();
+        stubPipeline(bitmap((byte) 0x80), slotValue((byte) 10), slotValue((byte) 4), slotValue((byte) 90));
+        when(factionDailyDao.upsertBatch(any())).thenReturn(0);
+
+        service.archiveDay(ARCHIVE_DATE);
+
+        verify(factionDailyDao).upsertBatch(any());
         verify(archiveDayDao, never()).insertMarker(any());
     }
 
@@ -308,6 +338,22 @@ class ActivityDailyArchiveServiceTest {
         assertDoesNotThrow(service::compensateOnStartup);
         verify(virtualThreadExecutor).execute(any(Runnable.class));
         verifyNoInteractions(redisTemplate, archiveDayDao, userDailyDao, factionDailyDao);
+    }
+
+    @Test
+    @DisplayName("启动补偿正常提交时由虚拟线程执行器运行归档入口")
+    void compensateOnStartup_executorRunsSubmittedTask() {
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.rangeByScore(anyString(), anyDouble(), anyDouble())).thenReturn(Set.of());
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return null;
+        }).when(virtualThreadExecutor).execute(any(Runnable.class));
+
+        service.compensateOnStartup();
+
+        verify(virtualThreadExecutor).execute(any(Runnable.class));
+        verify(zSetOperations).rangeByScore(eq(ActivityRedisKeys.v3ArchiveDates()), anyDouble(), anyDouble());
     }
 
     @SuppressWarnings("unchecked")

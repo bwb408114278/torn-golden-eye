@@ -215,9 +215,8 @@ public class ActivityDailyArchiveService {
                 packs.add(buildUserPack(batch.get(j), date, observed, active, idle));
             }
             if (!packs.isEmpty()) {
-                userDailyDao.upsertBatch(packs);
+                archived += userDailyDao.upsertBatch(packs);
             }
-            archived += packs.size();
         }
         return archived;
     }
@@ -248,9 +247,8 @@ public class ActivityDailyArchiveService {
                 packs.add(buildFactionPack(batch.get(j), date, observed, activeCounts, idleCounts, memberCounts));
             }
             if (!packs.isEmpty()) {
-                factionDailyDao.upsertBatch(packs);
+                archived += factionDailyDao.upsertBatch(packs);
             }
-            archived += packs.size();
         }
         return archived;
     }

@@ -109,6 +109,13 @@ public class ActivityHeatmapDataLoader {
         return collectInDateOrder(byDate);
     }
 
+    /**
+     * 加载指定帮派日期范围内的完整 V3 PostgreSQL 归档日包。
+     *
+     * @param factionId 帮派 ID
+     * @param range     查询日期范围
+     * @param byDate    按日期保存已加载快照的目标映射
+     */
     private void loadFactionArchiveDays(long factionId, ActivityQueryRange range,
                                         Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate) {
         for (TornActivityFactionDailyDO row : factionDailyDao.selectByFactionAndDateRange(
@@ -122,6 +129,13 @@ public class ActivityHeatmapDataLoader {
         }
     }
 
+    /**
+     * 加载尚未命中归档的帮派 V3 Redis 日包，并校验其事实完整性。
+     *
+     * @param factionId  帮派 ID
+     * @param redisDates 查询范围与 Redis 原始窗口的交集日期
+     * @param byDate     按日期保存已加载快照的目标映射
+     */
     private void loadFactionV3RedisDays(long factionId, List<LocalDate> redisDates,
                                         Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate) {
         List<LocalDate> missingV3 = datesNotLoaded(redisDates, byDate);
@@ -144,6 +158,13 @@ public class ActivityHeatmapDataLoader {
         }
     }
 
+    /**
+     * 加载尚未命中 V3 的帮派 V2 legacy Redis 日包作为兼容回退数据。
+     *
+     * @param factionId  帮派 ID
+     * @param redisDates 查询范围与 Redis 原始窗口的交集日期
+     * @param byDate     按日期保存已加载快照的目标映射
+     */
     private void loadFactionV2RedisDays(long factionId, List<LocalDate> redisDates,
                                         Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate) {
         List<LocalDate> missingV2 = datesNotLoaded(redisDates, byDate);
@@ -152,9 +173,9 @@ public class ActivityHeatmapDataLoader {
         }
         List<Object> results = pipelineGet(buildFactionV2Keys(factionId, missingV2));
         for (int i = 0; i < missingV2.size(); i++) {
-            byte[] observed = asBytes(results, i * 3);
-            byte[] onlineCount = asBytes(results, i * 3 + 1);
-            byte[] memberCount = asBytes(results, i * 3 + 2);
+            byte[] onlineCount = asBytes(results, i * 3);
+            byte[] memberCount = asBytes(results, i * 3 + 1);
+            byte[] observed = asBytes(results, i * 3 + 2);
             if (observed == null || onlineCount == null || memberCount == null) {
                 continue;
             }

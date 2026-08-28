@@ -186,6 +186,52 @@ class ActivityHeatmapServiceTest {
     }
 
     @Test
+    @DisplayName("V2 帮派日包按 online/member/observed 顺序解包，并保持 legacy 语义")
+    void queryFactionHeatmap_v2Legacy_unpacksOnlineMemberObservedOrder() {
+        when(factionDailyDao.selectByFactionAndDateRange(FACTION_ID, RANGE_START, RANGE_END))
+                .thenReturn(List.of());
+        List<byte[]> v3Stage = nulls(9 * 4);
+        List<byte[]> v2Stage = nulls(9 * 3);
+        int legacyIndex = dayIndex(MIDDLE_DATE) * 3;
+        v2Stage.set(legacyIndex, slots(new int[]{10}));
+        v2Stage.set(legacyIndex + 1, slots(new int[]{50}));
+        v2Stage.set(legacyIndex + 2, bitmap(0x80));
+        stubPipelineGet(v3Stage, v2Stage);
+
+        FactionActivityHeatmapVO vo = service.queryFactionHeatmap(FACTION_ID, range());
+
+        int dow = dowOf(MIDDLE_DATE);
+        assertEquals(1, vo.getObservedSamples()[dow][0]);
+        assertEquals(10.0, vo.getAverageOnlineCount()[dow][0], 1e-9);
+        assertEquals(0.0, vo.getIdleRatio()[dow][0], 1e-9);
+        assertTrue(vo.isLegacyDataIncluded());
+    }
+
+    @Test
+    @DisplayName("帮派 V3 日包不完整时应回退同日 V2")
+    void queryFactionHeatmap_incompleteV3_fallsBackToV2() {
+        when(factionDailyDao.selectByFactionAndDateRange(FACTION_ID, RANGE_START, RANGE_END))
+                .thenReturn(List.of());
+        List<byte[]> v3Stage = nulls(9 * 4);
+        int incompleteIndex = dayIndex(MIDDLE_DATE) * 4;
+        v3Stage.set(incompleteIndex, bitmap(0x80));
+        List<byte[]> v2Stage = nulls(9 * 3);
+        int legacyIndex = dayIndex(MIDDLE_DATE) * 3;
+        v2Stage.set(legacyIndex, slots(new int[]{12}));
+        v2Stage.set(legacyIndex + 1, slots(new int[]{60}));
+        v2Stage.set(legacyIndex + 2, bitmap(0x80));
+        stubPipelineGet(v3Stage, v2Stage);
+
+        FactionActivityHeatmapVO vo = service.queryFactionHeatmap(FACTION_ID, range());
+
+        int dow = dowOf(MIDDLE_DATE);
+        assertEquals(1, vo.getObservedSamples()[dow][0]);
+        assertEquals(12.0, vo.getAverageOnlineCount()[dow][0], 1e-9);
+        assertEquals(0.0, vo.getIdleRatio()[dow][0], 1e-9);
+        assertTrue(vo.isLegacyDataIncluded());
+    }
+
+    @Test
     @DisplayName("对比图仅累计双方共同 observed 槽，副标题注明 Idle 不计入对比")
     void compareFactions_commonSlotsOnlyWithComparisonSubtitle() {
         when(factionDailyDao.selectByFactionAndDateRange(FACTION_ID, RANGE_START, RANGE_END))
