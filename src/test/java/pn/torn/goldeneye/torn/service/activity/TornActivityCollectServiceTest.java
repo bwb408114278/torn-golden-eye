@@ -22,15 +22,15 @@ import pn.torn.goldeneye.torn.model.activity.TornFactionHofVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 
-import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -162,12 +162,12 @@ class TornActivityCollectServiceTest {
         verify(redisTemplate).executePipelined(any(RedisCallback.class));
         LocalDate today = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
         verify(zSetCommands).zAdd(
-                eq(ActivityRedisKeys.v3ArchiveDates().getBytes(java.nio.charset.StandardCharsets.UTF_8)),
-                eq((double) today.toEpochDay()),
-                eq(today.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                ActivityRedisKeys.v3ArchiveDates().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                (double) today.toEpochDay(),
+                today.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         verify(keyCommands).expire(
-                eq(ActivityRedisKeys.v3ArchiveDates().getBytes(java.nio.charset.StandardCharsets.UTF_8)),
-                eq(30L * 24 * 60 * 60));
+                ActivityRedisKeys.v3ArchiveDates().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                30L * 24 * 60 * 60);
     }
 
     @Test

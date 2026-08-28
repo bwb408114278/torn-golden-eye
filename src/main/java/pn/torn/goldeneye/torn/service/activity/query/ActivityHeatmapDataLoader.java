@@ -16,7 +16,10 @@ import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 活跃度热力图三版本数据源加载器
@@ -42,7 +45,7 @@ public class ActivityHeatmapDataLoader {
      * 加载用户在指定日期范围内的日快照。归档读取覆盖完整范围，Redis 只读取最近 30 天交集。
      *
      * @param userId 用户 ID
-     * @param range 查询日期范围
+     * @param range  查询日期范围
      * @return 命中数据源的日快照列表，同一日期至多一个
      */
     public List<ActivityDaySnapshot.UserDay> loadUserDays(long userId, ActivityQueryRange range) {
@@ -93,11 +96,21 @@ public class ActivityHeatmapDataLoader {
      * 加载帮派在指定日期范围内的日快照。归档读取覆盖完整范围，Redis 只读取最近 30 天交集。
      *
      * @param factionId 帮派 ID
-     * @param range 查询日期范围
+     * @param range     查询日期范围
      * @return 命中数据源的日快照列表，同一日期至多一个
      */
     public List<ActivityDaySnapshot.FactionDay> loadFactionDays(long factionId, ActivityQueryRange range) {
         Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate = new HashMap<>();
+        loadFactionArchiveDays(factionId, range, byDate);
+
+        List<LocalDate> redisDates = range.redisWindowDates(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
+        loadFactionV3RedisDays(factionId, redisDates, byDate);
+        loadFactionV2RedisDays(factionId, redisDates, byDate);
+        return collectInDateOrder(byDate);
+    }
+
+    private void loadFactionArchiveDays(long factionId, ActivityQueryRange range,
+                                        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate) {
         for (TornActivityFactionDailyDO row : factionDailyDao.selectByFactionAndDateRange(
                 factionId, range.startDate(), range.endDate())) {
             if (ActivitySnapshotValidator.isCompleteFactionDay(
@@ -107,42 +120,48 @@ public class ActivityHeatmapDataLoader {
                         row.getActiveCounts(), row.getIdleCounts(), row.getMemberCounts()));
             }
         }
+    }
 
-        List<LocalDate> redisDates = range.redisWindowDates(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
+    private void loadFactionV3RedisDays(long factionId, List<LocalDate> redisDates,
+                                        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate) {
         List<LocalDate> missingV3 = datesNotLoaded(redisDates, byDate);
-        if (!missingV3.isEmpty()) {
-            List<Object> results = pipelineGet(buildFactionV3Keys(factionId, missingV3));
-            for (int i = 0; i < missingV3.size(); i++) {
-                byte[] observed = asBytes(results, i * 4);
-                byte[] activeCounts = asBytes(results, i * 4 + 1);
-                byte[] idleCounts = asBytes(results, i * 4 + 2);
-                byte[] memberCounts = asBytes(results, i * 4 + 3);
-                if (!ActivitySnapshotValidator.isCompleteFactionDay(
-                        observed, activeCounts, idleCounts, memberCounts)) {
-                    continue;
-                }
-                LocalDate date = missingV3.get(i);
-                byDate.put(date, new ActivityDaySnapshot.FactionDay(
-                        date, false, observed, activeCounts, idleCounts, memberCounts));
-            }
+        if (missingV3.isEmpty()) {
+            return;
         }
+        List<Object> results = pipelineGet(buildFactionV3Keys(factionId, missingV3));
+        for (int i = 0; i < missingV3.size(); i++) {
+            byte[] observed = asBytes(results, i * 4);
+            byte[] activeCounts = asBytes(results, i * 4 + 1);
+            byte[] idleCounts = asBytes(results, i * 4 + 2);
+            byte[] memberCounts = asBytes(results, i * 4 + 3);
+            if (!ActivitySnapshotValidator.isCompleteFactionDay(
+                    observed, activeCounts, idleCounts, memberCounts)) {
+                continue;
+            }
+            LocalDate date = missingV3.get(i);
+            byDate.put(date, new ActivityDaySnapshot.FactionDay(
+                    date, false, observed, activeCounts, idleCounts, memberCounts));
+        }
+    }
 
+    private void loadFactionV2RedisDays(long factionId, List<LocalDate> redisDates,
+                                        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate) {
         List<LocalDate> missingV2 = datesNotLoaded(redisDates, byDate);
-        if (!missingV2.isEmpty()) {
-            List<Object> results = pipelineGet(buildFactionV2Keys(factionId, missingV2));
-            for (int i = 0; i < missingV2.size(); i++) {
-                byte[] observed = asBytes(results, i * 3);
-                byte[] onlineCount = asBytes(results, i * 3 + 1);
-                byte[] memberCount = asBytes(results, i * 3 + 2);
-                if (observed == null || onlineCount == null || memberCount == null) {
-                    continue;
-                }
-                LocalDate date = missingV2.get(i);
-                byDate.put(date, new ActivityDaySnapshot.FactionDay(
-                        date, true, observed, onlineCount, null, memberCount));
-            }
+        if (missingV2.isEmpty()) {
+            return;
         }
-        return collectInDateOrder(byDate);
+        List<Object> results = pipelineGet(buildFactionV2Keys(factionId, missingV2));
+        for (int i = 0; i < missingV2.size(); i++) {
+            byte[] observed = asBytes(results, i * 3);
+            byte[] onlineCount = asBytes(results, i * 3 + 1);
+            byte[] memberCount = asBytes(results, i * 3 + 2);
+            if (observed == null || onlineCount == null || memberCount == null) {
+                continue;
+            }
+            LocalDate date = missingV2.get(i);
+            byDate.put(date, new ActivityDaySnapshot.FactionDay(
+                    date, true, observed, onlineCount, null, memberCount));
+        }
     }
 
     /**
@@ -159,7 +178,6 @@ public class ActivityHeatmapDataLoader {
     /**
      * 按输入日期顺序收集已命中快照
      *
-     * @param dates  查询日期列表
      * @param byDate 已命中快照的日期映射
      * @return 有序快照列表
      */

@@ -71,10 +71,10 @@ public class ActivityDailyArchiveService {
     /**
      * 创建日终归档服务。
      *
-     * @param redisTemplate Redis 模板
-     * @param userDailyDao 用户日包 DAO
-     * @param factionDailyDao 帮派日包 DAO
-     * @param archiveDayDao 归档 marker DAO
+     * @param redisTemplate         Redis 模板
+     * @param userDailyDao          用户日包 DAO
+     * @param factionDailyDao       帮派日包 DAO
+     * @param archiveDayDao         归档 marker DAO
      * @param virtualThreadExecutor 项目既有虚拟线程执行器
      */
     public ActivityDailyArchiveService(StringRedisTemplate redisTemplate,
@@ -273,6 +273,13 @@ public class ActivityDailyArchiveService {
         return List.copyOf(ids);
     }
 
+    /**
+     * 从日期 ZSET 读取指定范围内的归档候选日期。
+     *
+     * @param minDate 起始日期（含）
+     * @param maxDate 结束日期（含）
+     * @return 升序候选日期集合，无候选时返回空集合
+     */
     private Set<LocalDate> readArchiveDateIndex(LocalDate minDate, LocalDate maxDate) {
         Set<String> members = redisTemplate.opsForZSet().rangeByScore(
                 ActivityRedisKeys.v3ArchiveDates(), minDate.toEpochDay(), maxDate.toEpochDay());
@@ -286,6 +293,13 @@ public class ActivityDailyArchiveService {
         return dates;
     }
 
+    /**
+     * 判断索引侧是否完整归档；空索引侧是合法的无需归档状态。
+     *
+     * @param indexedCount  索引对象数量
+     * @param archivedCount 成功归档对象数量
+     * @return 索引为空或两者数量相等时返回 true
+     */
     private static boolean isArchiveSideComplete(int indexedCount, int archivedCount) {
         return indexedCount == 0 || indexedCount == archivedCount;
     }
