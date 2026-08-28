@@ -55,14 +55,17 @@ public sealed interface ActivityDaySnapshot {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof UserDay that)) {
+            if (!(obj instanceof UserDay(
+                    var thatDate, var thatLegacyV2, var thatObservedBitmap,
+                    var thatActiveBitmap, var thatIdleBitmap
+            ))) {
                 return false;
             }
-            return legacyV2 == that.legacyV2
-                    && Objects.equals(date, that.date)
-                    && Arrays.equals(observedBitmap, that.observedBitmap)
-                    && Arrays.equals(activeBitmap, that.activeBitmap)
-                    && Arrays.equals(idleBitmap, that.idleBitmap);
+            return legacyV2 == thatLegacyV2
+                    && Objects.equals(date, thatDate)
+                    && Arrays.equals(observedBitmap, thatObservedBitmap)
+                    && Arrays.equals(activeBitmap, thatActiveBitmap)
+                    && Arrays.equals(idleBitmap, thatIdleBitmap);
         }
 
         @Override
@@ -101,15 +104,18 @@ public sealed interface ActivityDaySnapshot {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof FactionDay that)) {
+            if (!(obj instanceof FactionDay(
+                    var thatDate, var thatLegacyV2, var thatObservedBitmap,
+                    var thatActiveCounts, var thatIdleCounts, var thatMemberCounts
+            ))) {
                 return false;
             }
-            return legacyV2 == that.legacyV2
-                    && Objects.equals(date, that.date)
-                    && Arrays.equals(observedBitmap, that.observedBitmap)
-                    && Arrays.equals(activeCounts, that.activeCounts)
-                    && Arrays.equals(idleCounts, that.idleCounts)
-                    && Arrays.equals(memberCounts, that.memberCounts);
+            return legacyV2 == thatLegacyV2
+                    && Objects.equals(date, thatDate)
+                    && Arrays.equals(observedBitmap, thatObservedBitmap)
+                    && Arrays.equals(activeCounts, thatActiveCounts)
+                    && Arrays.equals(idleCounts, thatIdleCounts)
+                    && Arrays.equals(memberCounts, thatMemberCounts);
         }
 
         @Override

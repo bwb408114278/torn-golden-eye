@@ -27,6 +27,9 @@ public final class ActivityHeatmapAggregator {
     private static final int SAMPLES_PER_HOUR = 4;
     private static final int HOURS_PER_DAY = 24;
     private static final int DAYS_PER_WEEK = 7;
+    private static final String TO_STRING_LEGACY_INCLUDED = ", legacyIncluded=";
+    private static final String TO_STRING_ACTUAL_DAYS = ", actualDays=";
+    private static final String TO_STRING_OBSERVED_DOW_COUNT = ", observedDowCount=";
 
     /**
      * 个人图聚合结果矩阵
@@ -53,16 +56,20 @@ public final class ActivityHeatmapAggregator {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof PersonalMatrix that)) {
+            if (!(obj instanceof PersonalMatrix(
+                    var thatActiveRate, var thatObservedSamples, var thatIdleRatio,
+                    var thatLegacyIncluded, var thatTotalObservedSlots, var thatActualDays,
+                    var thatObservedDowCount
+            ))) {
                 return false;
             }
-            return legacyIncluded == that.legacyIncluded
-                    && totalObservedSlots == that.totalObservedSlots
-                    && actualDays == that.actualDays
-                    && observedDowCount == that.observedDowCount
-                    && Arrays.deepEquals(activeRate, that.activeRate)
-                    && Arrays.deepEquals(observedSamples, that.observedSamples)
-                    && Arrays.deepEquals(idleRatio, that.idleRatio);
+            return legacyIncluded == thatLegacyIncluded
+                    && totalObservedSlots == thatTotalObservedSlots
+                    && actualDays == thatActualDays
+                    && observedDowCount == thatObservedDowCount
+                    && Arrays.deepEquals(activeRate, thatActiveRate)
+                    && Arrays.deepEquals(observedSamples, thatObservedSamples)
+                    && Arrays.deepEquals(idleRatio, thatIdleRatio);
         }
 
         @Override
@@ -82,10 +89,10 @@ public final class ActivityHeatmapAggregator {
             return "PersonalMatrix[activeRate=" + Arrays.deepToString(activeRate)
                     + ", observedSamples=" + Arrays.deepToString(observedSamples)
                     + ", idleRatio=" + Arrays.deepToString(idleRatio)
-                    + ", legacyIncluded=" + legacyIncluded
+                    + TO_STRING_LEGACY_INCLUDED + legacyIncluded
                     + ", totalObservedSlots=" + totalObservedSlots
-                    + ", actualDays=" + actualDays
-                    + ", observedDowCount=" + observedDowCount + "]";
+                    + TO_STRING_ACTUAL_DAYS + actualDays
+                    + TO_STRING_OBSERVED_DOW_COUNT + observedDowCount + "]";
         }
     }
 
@@ -114,16 +121,20 @@ public final class ActivityHeatmapAggregator {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof FactionMatrix that)) {
+            if (!(obj instanceof FactionMatrix(
+                    var thatAverageActiveCount, var thatObservedSamples, var thatIdleRatio,
+                    var thatLegacyIncluded, var thatTotalObservedSlots, var thatActualDays,
+                    var thatObservedDowCount
+            ))) {
                 return false;
             }
-            return legacyIncluded == that.legacyIncluded
-                    && totalObservedSlots == that.totalObservedSlots
-                    && actualDays == that.actualDays
-                    && observedDowCount == that.observedDowCount
-                    && Arrays.deepEquals(averageActiveCount, that.averageActiveCount)
-                    && Arrays.deepEquals(observedSamples, that.observedSamples)
-                    && Arrays.deepEquals(idleRatio, that.idleRatio);
+            return legacyIncluded == thatLegacyIncluded
+                    && totalObservedSlots == thatTotalObservedSlots
+                    && actualDays == thatActualDays
+                    && observedDowCount == thatObservedDowCount
+                    && Arrays.deepEquals(averageActiveCount, thatAverageActiveCount)
+                    && Arrays.deepEquals(observedSamples, thatObservedSamples)
+                    && Arrays.deepEquals(idleRatio, thatIdleRatio);
         }
 
         @Override
@@ -143,23 +154,23 @@ public final class ActivityHeatmapAggregator {
             return "FactionMatrix[averageActiveCount=" + Arrays.deepToString(averageActiveCount)
                     + ", observedSamples=" + Arrays.deepToString(observedSamples)
                     + ", idleRatio=" + Arrays.deepToString(idleRatio)
-                    + ", legacyIncluded=" + legacyIncluded
+                    + TO_STRING_LEGACY_INCLUDED + legacyIncluded
                     + ", totalObservedSlots=" + totalObservedSlots
-                    + ", actualDays=" + actualDays
-                    + ", observedDowCount=" + observedDowCount + "]";
+                    + TO_STRING_ACTUAL_DAYS + actualDays
+                    + TO_STRING_OBSERVED_DOW_COUNT + observedDowCount + "]";
         }
     }
 
     /**
      * 对比图聚合结果矩阵
      *
-     * @param faction1Average        7×24 帮派A 平均有效活跃人数矩阵（分母为双方共同 observed 槽）
-     * @param faction2Average        7×24 帮派B 平均有效活跃人数矩阵
-     * @param bothObserved           7×24 共同有效采样标记矩阵
-     * @param legacyIncluded         任一方是否包含 V2 legacy 快照
+     * @param faction1Average          7×24 帮派A 平均有效活跃人数矩阵（分母为双方共同 observed 槽）
+     * @param faction2Average          7×24 帮派B 平均有效活跃人数矩阵
+     * @param bothObserved             7×24 共同有效采样标记矩阵
+     * @param legacyIncluded           任一方是否包含 V2 legacy 快照
      * @param totalCommonObservedSlots 双方共同 observed 槽总数
-     * @param actualDays             存在共同 observed 的自然日数量
-     * @param observedDowCount       存在共同 observed 的星期行数量
+     * @param actualDays               存在共同 observed 的自然日数量
+     * @param observedDowCount         存在共同 observed 的星期行数量
      */
     public record ComparisonMatrix(
             double[][] faction1Average,
@@ -175,16 +186,20 @@ public final class ActivityHeatmapAggregator {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof ComparisonMatrix that)) {
+            if (!(obj instanceof ComparisonMatrix(
+                    var thatFaction1Average, var thatFaction2Average,
+                    var thatBothObserved, var thatLegacyIncluded, var thatTotalCommonObservedSlots,
+                    var thatActualDays, var thatObservedDowCount
+            ))) {
                 return false;
             }
-            return legacyIncluded == that.legacyIncluded
-                    && totalCommonObservedSlots == that.totalCommonObservedSlots
-                    && actualDays == that.actualDays
-                    && observedDowCount == that.observedDowCount
-                    && Arrays.deepEquals(faction1Average, that.faction1Average)
-                    && Arrays.deepEquals(faction2Average, that.faction2Average)
-                    && Arrays.deepEquals(bothObserved, that.bothObserved);
+            return legacyIncluded == thatLegacyIncluded
+                    && totalCommonObservedSlots == thatTotalCommonObservedSlots
+                    && actualDays == thatActualDays
+                    && observedDowCount == thatObservedDowCount
+                    && Arrays.deepEquals(faction1Average, thatFaction1Average)
+                    && Arrays.deepEquals(faction2Average, thatFaction2Average)
+                    && Arrays.deepEquals(bothObserved, thatBothObserved);
         }
 
         @Override
@@ -204,10 +219,10 @@ public final class ActivityHeatmapAggregator {
             return "ComparisonMatrix[faction1Average=" + Arrays.deepToString(faction1Average)
                     + ", faction2Average=" + Arrays.deepToString(faction2Average)
                     + ", bothObserved=" + Arrays.deepToString(bothObserved)
-                    + ", legacyIncluded=" + legacyIncluded
+                    + TO_STRING_LEGACY_INCLUDED + legacyIncluded
                     + ", totalCommonObservedSlots=" + totalCommonObservedSlots
-                    + ", actualDays=" + actualDays
-                    + ", observedDowCount=" + observedDowCount + "]";
+                    + TO_STRING_ACTUAL_DAYS + actualDays
+                    + TO_STRING_OBSERVED_DOW_COUNT + observedDowCount + "]";
         }
     }
 
@@ -520,10 +535,10 @@ public final class ActivityHeatmapAggregator {
     /**
      * 仅累计双方共同 observed 槽位中的帮派人数值
      *
-     * @param slotData          96 字节槽值
-     * @param faction1Observed  帮派A observed Bitmap
-     * @param faction2Observed  帮派B observed Bitmap
-     * @param hour              小时 (0-23)
+     * @param slotData         96 字节槽值
+     * @param faction1Observed 帮派A observed Bitmap
+     * @param faction2Observed 帮派B observed Bitmap
+     * @param hour             小时 (0-23)
      * @return 共同槽计数值之和
      */
     public static int sumCommonSlotValues(byte[] slotData, byte[] faction1Observed,

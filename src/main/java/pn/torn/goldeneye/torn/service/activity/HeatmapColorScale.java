@@ -155,7 +155,7 @@ public final class HeatmapColorScale {
      */
     public static int factionTierIndex(double averageActiveCount) {
         double clamped = Math.clamp(averageActiveCount, 0, Double.MAX_VALUE);
-        return (int) Math.min(FACTION_TIER_COUNT - 1, Math.floor(clamped / FACTION_TIER_STEP));
+        return (int) Math.min(FACTION_TIER_COUNT - 1.0, Math.floor(clamped / FACTION_TIER_STEP));
     }
 
     /**

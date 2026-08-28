@@ -89,13 +89,13 @@ public class TornActivityCollectService {
     /**
      * 创建活跃度采集服务。
      *
-     * @param tornApi              Torn API 客户端
-     * @param redisTemplate        Redis 操作模板
-     * @param taskService          动态任务服务
-     * @param settingManager       系统设置管理器
-     * @param projectProperty      项目配置
+     * @param tornApi               Torn API 客户端
+     * @param redisTemplate         Redis 操作模板
+     * @param taskService           动态任务服务
+     * @param settingManager        系统设置管理器
+     * @param projectProperty       项目配置
      * @param settingFactionManager 帮派配置管理器（提供有效配置帮派来源）
-     * @param executor             活跃度采集专用执行器
+     * @param executor              活跃度采集专用执行器
      */
     public TornActivityCollectService(TornApi tornApi,
                                       StringRedisTemplate redisTemplate,
@@ -411,16 +411,16 @@ public class TornActivityCollectService {
     /**
      * 采集预计算上下文，避免在 Pipeline lambda 中重复流操作
      *
-     * @param allMemberIds     全部有效成员 ID
-     * @param activeUserIds    有效活跃（Online 或 15 分钟内动作）的成员 ID
-     * @param idleOnlyUserIds  idle-only（Idle 且无近期动作）的成员 ID
-     * @param userNameMap      用户名称映射
-     * @param today            今天日期
-     * @param slot             当前槽位
-     * @param bitmapTtl        Bitmap TTL
-     * @param membersTtl       成员集合 TTL
+     * @param allMemberIds        全部有效成员 ID
+     * @param activeUserIds       有效活跃（Online 或 15 分钟内动作）的成员 ID
+     * @param idleOnlyUserIds     idle-only（Idle 且无近期动作）的成员 ID
+     * @param userNameMap         用户名称映射
+     * @param today               今天日期
+     * @param slot                当前槽位
+     * @param bitmapTtl           Bitmap TTL
+     * @param membersTtl          成员集合 TTL
      * @param temporaryMembersKey 临时成员集合 key
-     * @param membersKey       成员集合 key
+     * @param membersKey          成员集合 key
      */
     private record CollectionContext(
             List<Long> allMemberIds,
@@ -548,13 +548,13 @@ public class TornActivityCollectService {
     /**
      * 批量写入用户活跃 Bitmap 单槽位
      *
-     * @param conn          Redis 连接
-     * @param allMemberIds  全部有效成员 ID
+     * @param conn            Redis 连接
+     * @param allMemberIds    全部有效成员 ID
      * @param evidenceUserIds 当前证据成立的用户 ID
-     * @param today         今天日期
-     * @param slot          槽位
-     * @param bitmapTtl     Bitmap TTL
-     * @param keyBuilder    key 构造函数
+     * @param today           今天日期
+     * @param slot            槽位
+     * @param bitmapTtl       Bitmap TTL
+     * @param keyBuilder      key 构造函数
      */
     private void writeBitmapSlot(org.springframework.data.redis.connection.RedisConnection conn,
                                  List<Long> allMemberIds, List<Long> evidenceUserIds,
@@ -579,6 +579,34 @@ public class TornActivityCollectService {
             byte[] activeCount,
             byte[] idleCount,
             byte[] memberCount) {
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof FactionSlotCounts(var thatActiveCount, var thatIdleCount, var thatMemberCount))) {
+                return false;
+            }
+            return Arrays.equals(activeCount, thatActiveCount)
+                    && Arrays.equals(idleCount, thatIdleCount)
+                    && Arrays.equals(memberCount, thatMemberCount);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Arrays.hashCode(activeCount);
+            result = 31 * result + Arrays.hashCode(idleCount);
+            result = 31 * result + Arrays.hashCode(memberCount);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "FactionSlotCounts[activeCount=" + Arrays.toString(activeCount)
+                    + ", idleCount=" + Arrays.toString(idleCount)
+                    + ", memberCount=" + Arrays.toString(memberCount) + "]";
+        }
     }
 
     /**
@@ -699,7 +727,7 @@ public class TornActivityCollectService {
     /**
      * 为全部成员生成当前证据槽的显式布尔状态，支持同槽重采时清除旧的 true 位。
      *
-     * @param allMemberIds  全部有效成员 ID
+     * @param allMemberIds    全部有效成员 ID
      * @param evidenceUserIds 当前证据成立的成员 ID
      * @return 用户 ID 到当前槽状态的映射
      */
