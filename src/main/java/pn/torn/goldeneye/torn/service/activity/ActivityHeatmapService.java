@@ -9,7 +9,6 @@ import pn.torn.goldeneye.torn.service.activity.query.ActivityDaySnapshot;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityHeatmapAggregator;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityHeatmapDataLoader;
 
-import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -54,12 +53,11 @@ public class ActivityHeatmapService {
      */
     public PersonalActivityHeatmapVO queryPersonalHeatmap(long userId, ActivityQueryRange range) {
         validateQueryTarget(userId);
-        List<LocalDate> dates = range.dates();
         PersonalActivityHeatmapVO vo = PersonalActivityHeatmapVO.empty(buildPersonalTitle(userId));
         vo.setTotalDays(range.totalDays());
 
         ActivityHeatmapAggregator.PersonalMatrix matrix = ActivityHeatmapAggregator.aggregatePersonal(
-                dataLoader.loadUserDays(userId, dates));
+                dataLoader.loadUserDays(userId, range));
         vo.setActiveRate(matrix.activeRate());
         vo.setObservedSamples(matrix.observedSamples());
         vo.setIdleRatio(matrix.idleRatio());
@@ -80,12 +78,11 @@ public class ActivityHeatmapService {
      */
     public FactionActivityHeatmapVO queryFactionHeatmap(long factionId, ActivityQueryRange range) {
         validateQueryTarget(factionId);
-        List<LocalDate> dates = range.dates();
         FactionActivityHeatmapVO vo = FactionActivityHeatmapVO.empty(buildFactionTitle(factionId));
         vo.setTotalDays(range.totalDays());
 
         ActivityHeatmapAggregator.FactionMatrix matrix = ActivityHeatmapAggregator.aggregateFaction(
-                dataLoader.loadFactionDays(factionId, dates));
+                dataLoader.loadFactionDays(factionId, range));
         vo.setAverageOnlineCount(matrix.averageActiveCount());
         vo.setObservedSamples(matrix.observedSamples());
         vo.setIdleRatio(matrix.idleRatio());
@@ -111,15 +108,14 @@ public class ActivityHeatmapService {
     public ActivityComparisonHeatmapVO compareFactions(long faction1Id, long faction2Id, ActivityQueryRange range) {
         validateQueryTarget(faction1Id);
         validateQueryTarget(faction2Id);
-        List<LocalDate> dates = range.dates();
         String display1 = buildDisplayName(faction1Id);
         String display2 = buildDisplayName(faction2Id);
         ActivityComparisonHeatmapVO vo = ActivityComparisonHeatmapVO.empty(
                 faction1Id, display1, faction2Id, display2);
         vo.setTotalDays(range.totalDays());
 
-        List<ActivityDaySnapshot.FactionDay> faction1Days = dataLoader.loadFactionDays(faction1Id, dates);
-        List<ActivityDaySnapshot.FactionDay> faction2Days = dataLoader.loadFactionDays(faction2Id, dates);
+        List<ActivityDaySnapshot.FactionDay> faction1Days = dataLoader.loadFactionDays(faction1Id, range);
+        List<ActivityDaySnapshot.FactionDay> faction2Days = dataLoader.loadFactionDays(faction2Id, range);
         ActivityHeatmapAggregator.ComparisonMatrix matrix =
                 ActivityHeatmapAggregator.aggregateComparison(faction1Days, faction2Days);
         vo.setFaction1AverageOnline(matrix.faction1Average());

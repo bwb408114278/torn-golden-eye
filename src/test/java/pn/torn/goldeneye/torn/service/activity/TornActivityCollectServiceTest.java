@@ -3,6 +3,12 @@ package pn.torn.goldeneye.torn.service.activity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisKeyCommands;
+import org.springframework.data.redis.connection.RedisZSetCommands;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.SetOperations;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
@@ -11,14 +17,20 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.model.activity.TornFactionHofDTO;
+import pn.torn.goldeneye.torn.model.activity.TornFactionHofVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -87,6 +99,75 @@ class TornActivityCollectServiceTest {
     void shouldKeepGoldPlusOnlyWhenSettingEmpty() {
         assertEquals(List.of(4L, 9L),
                 TornActivityCollectService.mergeTrackedFactionIds(List.of(9L, 4L), List.of()));
+    }
+
+    @Test
+    @DisplayName("重启恢复 Gold+ 来源后 HoF 失败仍保留非配置帮派")
+    void shouldKeepRestoredGoldPlusWhenHofRefreshFails() {
+        TornApi tornApi = mock(TornApi.class);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        SetOperations<String, String> setOperations = mock(SetOperations.class);
+        TornSettingFactionManager settingFactionManager = mock(TornSettingFactionManager.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(setOperations.members(ActivityRedisKeys.v3TrackedGoldPlus())).thenReturn(Set.of("777"));
+        when(setOperations.members("faction:tracked")).thenReturn(Set.of("777"));
+        when(settingFactionManager.getList()).thenReturn(List.of(buildSettingFaction(888L)));
+        doReturn(null).when(tornApi).sendRequest(any(TornFactionHofDTO.class), eq(TornFactionHofVO.class));
+
+        TornActivityCollectService service = new TornActivityCollectService(
+                tornApi, redisTemplate, mock(DynamicTaskService.class), mock(SysSettingManager.class),
+                mock(ProjectProperty.class), settingFactionManager,
+                mock(SimpleAsyncTaskExecutor.class));
+
+        ReflectionTestUtils.invokeMethod(service, "loadFactionListFromRedis");
+        service.refreshFactionList();
+
+        @SuppressWarnings("unchecked")
+        AtomicReference<List<Long>> tracked = (AtomicReference<List<Long>>) ReflectionTestUtils
+                .getField(service, "trackedFactionIds");
+        assertEquals(List.of(777L, 888L), tracked.get());
+    }
+
+    @Test
+    @DisplayName("成功采集应在同一 Pipeline 写入当天 archive date ZSET")
+    void collectFaction_writesArchiveDateIndexInPipeline() {
+        TornApi tornApi = mock(TornApi.class);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        TornFactionMemberVO member = new TornFactionMemberVO();
+        member.setId(1001L);
+        member.setName("member");
+        TornFactionMemberListVO response = new TornFactionMemberListVO();
+        response.setMembers(List.of(member));
+        when(tornApi.sendRequest(any(TornReqParamV2.class), eq(TornFactionMemberListVO.class)))
+                .thenReturn(response);
+        RedisZSetCommands zSetCommands = mock(RedisZSetCommands.class);
+        RedisKeyCommands keyCommands = mock(RedisKeyCommands.class);
+        when(redisTemplate.executePipelined(any(RedisCallback.class))).thenAnswer(invocation -> {
+            RedisCallback<?> callback = invocation.getArgument(0);
+            RedisConnection connection = mock(RedisConnection.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
+            when(connection.zSetCommands()).thenReturn(zSetCommands);
+            when(connection.keyCommands()).thenReturn(keyCommands);
+            callback.doInRedis(connection);
+            return List.of();
+        });
+
+        TornActivityCollectService service = new TornActivityCollectService(
+                tornApi, redisTemplate, mock(DynamicTaskService.class), mock(SysSettingManager.class),
+                mock(ProjectProperty.class), mock(TornSettingFactionManager.class),
+                mock(SimpleAsyncTaskExecutor.class));
+
+        Boolean result = ReflectionTestUtils.invokeMethod(service, "collectFaction", 2002L);
+
+        assertTrue(result);
+        verify(redisTemplate).executePipelined(any(RedisCallback.class));
+        LocalDate today = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
+        verify(zSetCommands).zAdd(
+                eq(ActivityRedisKeys.v3ArchiveDates().getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                eq((double) today.toEpochDay()),
+                eq(today.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        verify(keyCommands).expire(
+                eq(ActivityRedisKeys.v3ArchiveDates().getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                eq(30L * 24 * 60 * 60));
     }
 
     @Test

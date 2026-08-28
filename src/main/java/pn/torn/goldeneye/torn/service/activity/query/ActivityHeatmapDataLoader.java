@@ -9,7 +9,10 @@ import pn.torn.goldeneye.repository.dao.activity.TornActivityFactionDailyDAO;
 import pn.torn.goldeneye.repository.dao.activity.TornActivityUserDailyDAO;
 import pn.torn.goldeneye.repository.model.activity.TornActivityFactionDailyDO;
 import pn.torn.goldeneye.repository.model.activity.TornActivityUserDailyDO;
+import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.service.activity.ActivityRedisKeys;
+import pn.torn.goldeneye.torn.service.activity.ActivitySnapshotValidator;
+import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -36,39 +39,41 @@ public class ActivityHeatmapDataLoader {
     private final TornActivityFactionDailyDAO factionDailyDao;
 
     /**
-     * 加载用户在指定日期列表内的日快照，按输入日期顺序返回存在的快照
+     * 加载用户在指定日期范围内的日快照。归档读取覆盖完整范围，Redis 只读取最近 30 天交集。
      *
      * @param userId 用户 ID
-     * @param dates  查询日期列表（升序）
+     * @param range 查询日期范围
      * @return 命中数据源的日快照列表，同一日期至多一个
      */
-    public List<ActivityDaySnapshot.UserDay> loadUserDays(long userId, List<LocalDate> dates) {
-        if (dates.isEmpty()) {
-            return List.of();
-        }
-        Map<LocalDate, ActivityDaySnapshot.UserDay> byDate = HashMap.newHashMap(dates.size());
+    public List<ActivityDaySnapshot.UserDay> loadUserDays(long userId, ActivityQueryRange range) {
+        Map<LocalDate, ActivityDaySnapshot.UserDay> byDate = new HashMap<>();
         for (TornActivityUserDailyDO row : userDailyDao.selectByUserAndDateRange(
-                userId, dates.getFirst(), dates.getLast())) {
-            byDate.putIfAbsent(row.getActivityDate(), new ActivityDaySnapshot.UserDay(
-                    row.getActivityDate(), false,
-                    row.getObservedBitmap(), row.getActiveBitmap(), row.getIdleBitmap()));
+                userId, range.startDate(), range.endDate())) {
+            if (ActivitySnapshotValidator.isCompleteUserDay(
+                    row.getObservedBitmap(), row.getActiveBitmap(), row.getIdleBitmap())) {
+                byDate.putIfAbsent(row.getActivityDate(), new ActivityDaySnapshot.UserDay(
+                        row.getActivityDate(), false,
+                        row.getObservedBitmap(), row.getActiveBitmap(), row.getIdleBitmap()));
+            }
         }
 
-        List<LocalDate> missingV3 = datesNotLoaded(dates, byDate);
+        List<LocalDate> redisDates = range.redisWindowDates(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
+        List<LocalDate> missingV3 = datesNotLoaded(redisDates, byDate);
         if (!missingV3.isEmpty()) {
             List<Object> results = pipelineGet(buildUserV3Keys(userId, missingV3));
             for (int i = 0; i < missingV3.size(); i++) {
                 byte[] observed = asBytes(results, i * 3);
-                if (observed == null) {
+                byte[] active = asBytes(results, i * 3 + 1);
+                byte[] idle = asBytes(results, i * 3 + 2);
+                if (!ActivitySnapshotValidator.isCompleteUserDay(observed, active, idle)) {
                     continue;
                 }
                 LocalDate date = missingV3.get(i);
-                byDate.put(date, new ActivityDaySnapshot.UserDay(date, false,
-                        observed, asBytes(results, i * 3 + 1), asBytes(results, i * 3 + 2)));
+                byDate.put(date, new ActivityDaySnapshot.UserDay(date, false, observed, active, idle));
             }
         }
 
-        List<LocalDate> missingV2 = datesNotLoaded(dates, byDate);
+        List<LocalDate> missingV2 = datesNotLoaded(redisDates, byDate);
         if (!missingV2.isEmpty()) {
             List<Object> results = pipelineGet(buildUserV2Keys(userId, missingV2));
             for (int i = 0; i < missingV2.size(); i++) {
@@ -81,43 +86,48 @@ public class ActivityHeatmapDataLoader {
                         orBitmaps(asBytes(results, i * 3 + 1), asBytes(results, i * 3 + 2)), null));
             }
         }
-        return collectInOrder(dates, byDate);
+        return collectInDateOrder(byDate);
     }
 
     /**
-     * 加载帮派在指定日期列表内的日快照，按输入日期顺序返回存在的快照
+     * 加载帮派在指定日期范围内的日快照。归档读取覆盖完整范围，Redis 只读取最近 30 天交集。
      *
      * @param factionId 帮派 ID
-     * @param dates     查询日期列表（升序）
+     * @param range 查询日期范围
      * @return 命中数据源的日快照列表，同一日期至多一个
      */
-    public List<ActivityDaySnapshot.FactionDay> loadFactionDays(long factionId, List<LocalDate> dates) {
-        if (dates.isEmpty()) {
-            return List.of();
-        }
-        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate = HashMap.newHashMap(dates.size());
+    public List<ActivityDaySnapshot.FactionDay> loadFactionDays(long factionId, ActivityQueryRange range) {
+        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate = new HashMap<>();
         for (TornActivityFactionDailyDO row : factionDailyDao.selectByFactionAndDateRange(
-                factionId, dates.getFirst(), dates.getLast())) {
-            byDate.putIfAbsent(row.getActivityDate(), new ActivityDaySnapshot.FactionDay(
-                    row.getActivityDate(), false, row.getObservedBitmap(),
-                    row.getActiveCounts(), row.getIdleCounts(), row.getMemberCounts()));
+                factionId, range.startDate(), range.endDate())) {
+            if (ActivitySnapshotValidator.isCompleteFactionDay(
+                    row.getObservedBitmap(), row.getActiveCounts(), row.getIdleCounts(), row.getMemberCounts())) {
+                byDate.putIfAbsent(row.getActivityDate(), new ActivityDaySnapshot.FactionDay(
+                        row.getActivityDate(), false, row.getObservedBitmap(),
+                        row.getActiveCounts(), row.getIdleCounts(), row.getMemberCounts()));
+            }
         }
 
-        List<LocalDate> missingV3 = datesNotLoaded(dates, byDate);
+        List<LocalDate> redisDates = range.redisWindowDates(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
+        List<LocalDate> missingV3 = datesNotLoaded(redisDates, byDate);
         if (!missingV3.isEmpty()) {
             List<Object> results = pipelineGet(buildFactionV3Keys(factionId, missingV3));
             for (int i = 0; i < missingV3.size(); i++) {
                 byte[] observed = asBytes(results, i * 4);
-                if (observed == null) {
+                byte[] activeCounts = asBytes(results, i * 4 + 1);
+                byte[] idleCounts = asBytes(results, i * 4 + 2);
+                byte[] memberCounts = asBytes(results, i * 4 + 3);
+                if (!ActivitySnapshotValidator.isCompleteFactionDay(
+                        observed, activeCounts, idleCounts, memberCounts)) {
                     continue;
                 }
                 LocalDate date = missingV3.get(i);
-                byDate.put(date, new ActivityDaySnapshot.FactionDay(date, false, observed,
-                        asBytes(results, i * 4 + 1), asBytes(results, i * 4 + 2), asBytes(results, i * 4 + 3)));
+                byDate.put(date, new ActivityDaySnapshot.FactionDay(
+                        date, false, observed, activeCounts, idleCounts, memberCounts));
             }
         }
 
-        List<LocalDate> missingV2 = datesNotLoaded(dates, byDate);
+        List<LocalDate> missingV2 = datesNotLoaded(redisDates, byDate);
         if (!missingV2.isEmpty()) {
             List<Object> results = pipelineGet(buildFactionV2Keys(factionId, missingV2));
             for (int i = 0; i < missingV2.size(); i++) {
@@ -132,7 +142,7 @@ public class ActivityHeatmapDataLoader {
                         date, true, observed, onlineCount, null, memberCount));
             }
         }
-        return collectInOrder(dates, byDate);
+        return collectInDateOrder(byDate);
     }
 
     /**
@@ -153,8 +163,10 @@ public class ActivityHeatmapDataLoader {
      * @param byDate 已命中快照的日期映射
      * @return 有序快照列表
      */
-    private static <T> List<T> collectInOrder(List<LocalDate> dates, Map<LocalDate, T> byDate) {
-        return dates.stream().map(byDate::get).filter(Objects::nonNull).toList();
+    private static <T extends ActivityDaySnapshot> List<T> collectInDateOrder(Map<LocalDate, T> byDate) {
+        return byDate.values().stream()
+                .sorted(java.util.Comparator.comparing(ActivityDaySnapshot::date))
+                .toList();
     }
 
     /**

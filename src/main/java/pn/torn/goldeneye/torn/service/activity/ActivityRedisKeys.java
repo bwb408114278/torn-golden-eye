@@ -31,6 +31,7 @@ import java.time.format.DateTimeFormatter;
  * <pre>
  * activity:v3:archive:users:{yyyy-MM-dd}     当日 observed 的 userId Set
  * activity:v3:archive:factions:{yyyy-MM-dd}  当日成功采集的 factionId Set
+ * activity:v3:archive:dates                  日期 ZSET（member=yyyy-MM-dd，score=epochDay，TTL 30天）
  * </pre>
  *
  * <p><strong>V2 legacy 个人维度（只读，TTL 自然过期后不得伪造）</strong></p>
@@ -51,6 +52,11 @@ import java.time.format.DateTimeFormatter;
  * <pre>
  * activity:v2:user:names     Hash&lt;userId, latestUserName&gt;
  * activity:v2:faction:names  Hash&lt;factionId, latestFactionName&gt;
+ * </pre>
+ *
+ * <p><strong>Gold+ 来源快照（TTL 7 天）</strong></p>
+ * <pre>
+ * activity:v3:tracked-factions:gold-plus
  * </pre>
  *
  * @author Bai
@@ -83,6 +89,8 @@ public final class ActivityRedisKeys {
      */
     private static final String V3_ARCHIVE_USERS = V3_PREFIX + "archive:users:";
     private static final String V3_ARCHIVE_FACTIONS = V3_PREFIX + "archive:factions:";
+    private static final String V3_ARCHIVE_DATES = V3_PREFIX + "archive:dates";
+    private static final String V3_TRACKED_GOLD_PLUS = V3_PREFIX + "tracked-factions:gold-plus";
 
     /**
      * V2 legacy 个人维度子前缀
@@ -209,6 +217,24 @@ public final class ActivityRedisKeys {
      */
     public static String v3ArchiveFactions(LocalDate date) {
         return V3_ARCHIVE_FACTIONS + date.format(DATE_FMT);
+    }
+
+    /**
+     * V3 归档候选日期 ZSET，member 为日期文本，score 为 epoch day，TTL 为 30 天。
+     *
+     * @return 归档候选日期 ZSET key
+     */
+    public static String v3ArchiveDates() {
+        return V3_ARCHIVE_DATES;
+    }
+
+    /**
+     * 最后一次成功 HoF 刷新的 Gold+ 帮派来源 Set，不包含配置帮派并使用 7 天 TTL。
+     *
+     * @return Gold+ 来源 Set key
+     */
+    public static String v3TrackedGoldPlus() {
+        return V3_TRACKED_GOLD_PLUS;
     }
 
     // ==================== V2 legacy 个人维度（只读） ====================

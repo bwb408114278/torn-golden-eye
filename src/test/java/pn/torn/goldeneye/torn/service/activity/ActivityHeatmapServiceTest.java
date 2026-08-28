@@ -62,6 +62,7 @@ class ActivityHeatmapServiceTest {
     private TornActivityFactionDailyDAO factionDailyDao;
 
     private ActivityHeatmapService service;
+    private final List<Integer> pipelineCommandCounts = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -70,6 +71,7 @@ class ActivityHeatmapServiceTest {
         ActivityHeatmapDataLoader dataLoader =
                 new ActivityHeatmapDataLoader(redisTemplate, userDailyDao, factionDailyDao);
         service = new ActivityHeatmapService(redisTemplate, dataLoader);
+        pipelineCommandCounts.clear();
     }
 
     @Test
@@ -112,6 +114,43 @@ class ActivityHeatmapServiceTest {
         assertEquals(0.0, vo.getIdleRatio()[dow][0], "V2 legacy 无法区分 Idle，idleRatio 固定为 0");
         assertTrue(vo.isLegacyDataIncluded());
         assertTrue(vo.getNoticeMessage().contains("部分历史采样未区分 Idle"));
+    }
+
+    @Test
+    @DisplayName("V3 companion key 缺失时应回退同日 V2，而不是展示 V3 零值")
+    void queryPersonalHeatmap_incompleteV3_fallsBackToV2() {
+        when(userDailyDao.selectByUserAndDateRange(USER_ID, RANGE_START, RANGE_END)).thenReturn(List.of());
+        List<byte[]> v3Stage = nulls(9 * 3);
+        int incompleteIndex = dayIndex(MIDDLE_DATE) * 3;
+        v3Stage.set(incompleteIndex, bitmap(0x80));
+        List<byte[]> v2Stage = nulls(9 * 3);
+        v2Stage.set(incompleteIndex, bitmap(0x80));
+        v2Stage.set(incompleteIndex + 1, bitmap(0x80));
+        v2Stage.set(incompleteIndex + 2, bitmap(0));
+        stubPipelineGet(v3Stage, v2Stage);
+
+        PersonalActivityHeatmapVO vo = service.queryPersonalHeatmap(USER_ID, range());
+
+        int dow = dowOf(MIDDLE_DATE);
+        assertEquals(1, vo.getObservedSamples()[dow][0]);
+        assertEquals(1.0, vo.getActiveRate()[dow][0], 1e-9);
+        assertTrue(vo.isLegacyDataIncluded());
+    }
+
+    @Test
+    @DisplayName("超长 FROM 范围的 Redis 请求仅覆盖最近 30 天")
+    void queryPersonalHeatmap_longRange_limitsRedisWindow() {
+        LocalDate oldDate = LocalDate.of(1970, 1, 1);
+        ActivityQueryRange longRange = new ActivityQueryRange(oldDate, RANGE_END, ActivityQueryRangeModeEnum.FROM);
+        when(userDailyDao.selectByUserAndDateRange(USER_ID, oldDate, RANGE_END)).thenReturn(List.of());
+        stubPipelineGet(nulls(30 * 3), nulls(30 * 3));
+
+        PersonalActivityHeatmapVO vo = service.queryPersonalHeatmap(USER_ID, longRange);
+
+        assertFalse(vo.isHasData());
+        verify(userDailyDao).selectByUserAndDateRange(USER_ID, oldDate, RANGE_END);
+        assertEquals(List.of(90, 90), pipelineCommandCounts,
+                "Redis V3/V2 各应只覆盖最近 30 天");
     }
 
     @Test
@@ -382,6 +421,7 @@ class ActivityHeatmapServiceTest {
                         return value;
                     });
                     callback.doInRedis(connection);
+                    pipelineCommandCounts.add(served.size());
                     return served;
                 });
     }

@@ -75,6 +75,7 @@ public class TornActivityCollectService {
     private static final int MEMBERS_TTL_DAYS = 7;
     private static final String REDIS_TRACKED_FACTIONS_KEY = "faction:tracked";
     private static final int TRACKED_FACTIONS_TTL_DAYS = 7;
+    private static final int ARCHIVE_DATES_TTL_DAYS = 30;
 
     /**
      * 最近一次成功 HoF 刷新的 Gold+ 帮派 ID 来源；刷新失败时保留
@@ -122,7 +123,7 @@ public class TornActivityCollectService {
             return;
         }
 
-        // 先从 Redis 恢复上次刷新的帮派列表，避免重启后数据丢失
+        // 先从 Redis 恢复上次刷新的来源与最终帮派列表，避免重启后数据丢失
         loadFactionListFromRedis();
 
         String lastRefreshStr = settingManager.getSettingValue(SettingConstants.KEY_ACTIVITY_FACTION_LOAD);
@@ -185,14 +186,26 @@ public class TornActivityCollectService {
     public void refreshFactionList() {
         log.info("开始刷新帮派列表...");
 
-        List<TornFactionHofVO.FactionHofEntry> entries = fetchGoldPlusEntries();
+        List<TornFactionHofVO.FactionHofEntry> entries;
+        try {
+            entries = fetchGoldPlusEntries();
+        } catch (Exception e) {
+            log.warn("帮派列表刷新失败，保持现有 Gold+ 来源", e);
+            entries = List.of();
+        }
         List<TornFactionHofVO.FactionHofEntry> hofNameEntries;
         if (entries.isEmpty()) {
             log.warn("帮派列表刷新失败，保持现有 Gold+ 来源");
             hofNameEntries = List.of();
         } else {
-            goldPlusFactionIds.set(entries.stream().map(TornFactionHofVO.FactionHofEntry::getId).toList());
+            List<Long> refreshedGoldPlusIds = entries.stream()
+                    .map(TornFactionHofVO.FactionHofEntry::getId)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            goldPlusFactionIds.set(refreshedGoldPlusIds);
             hofNameEntries = entries;
+            persistGoldPlusFactionIds(refreshedGoldPlusIds);
         }
 
         List<TornSettingFactionDO> settingFactions = settingFactionManager.getList();
@@ -238,6 +251,11 @@ public class TornActivityCollectService {
      * 从 Redis 加载已持久化的帮派列表到内存
      */
     private void loadFactionListFromRedis() {
+        Set<String> goldPlusMembers = redisTemplate.opsForSet().members(ActivityRedisKeys.v3TrackedGoldPlus());
+        if (goldPlusMembers != null && !goldPlusMembers.isEmpty()) {
+            List<Long> ids = goldPlusMembers.stream().map(Long::parseLong).sorted().toList();
+            goldPlusFactionIds.set(List.copyOf(ids));
+        }
         Set<String> members = redisTemplate.opsForSet().members(REDIS_TRACKED_FACTIONS_KEY);
         if (members != null && !members.isEmpty()) {
             List<Long> ids = members.stream().map(Long::parseLong).toList();
@@ -257,6 +275,30 @@ public class TornActivityCollectService {
         redisTemplate.opsForSet().add(REDIS_TRACKED_FACTIONS_KEY, ids);
         redisTemplate.expire(REDIS_TRACKED_FACTIONS_KEY, Duration.ofDays(TRACKED_FACTIONS_TTL_DAYS));
         log.debug("帮派列表已持久化到 Redis, 帮派数={}", factions.size());
+    }
+
+    /**
+     * 原子替换最后一次成功 HoF 的 Gold+ 来源。
+     *
+     * @param factions Gold+ 帮派 ID 列表
+     */
+    private void persistGoldPlusFactionIds(List<Long> factions) {
+        String temporaryKey = ActivityRedisKeys.v3TrackedGoldPlus() + ":tmp:" + UUID.randomUUID();
+        try {
+            String[] ids = factions.stream().map(String::valueOf).toArray(String[]::new);
+            redisTemplate.delete(temporaryKey);
+            redisTemplate.opsForSet().add(temporaryKey, ids);
+            redisTemplate.expire(temporaryKey, Duration.ofDays(TRACKED_FACTIONS_TTL_DAYS));
+            redisTemplate.rename(temporaryKey, ActivityRedisKeys.v3TrackedGoldPlus());
+            redisTemplate.expire(ActivityRedisKeys.v3TrackedGoldPlus(), Duration.ofDays(TRACKED_FACTIONS_TTL_DAYS));
+        } catch (Exception e) {
+            try {
+                redisTemplate.delete(temporaryKey);
+            } catch (Exception cleanupException) {
+                log.warn("清理 Gold+ 来源临时集合失败", cleanupException);
+            }
+            log.warn("Gold+ 来源持久化到 Redis 失败: {}", e.getMessage());
+        }
     }
 
     /**
@@ -665,6 +707,11 @@ public class TornActivityCollectService {
         conn.setCommands().sAdd(archiveFactionsKey,
                 String.valueOf(factionId).getBytes(StandardCharsets.UTF_8));
         conn.keyCommands().expire(archiveFactionsKey, ctx.bitmapTtl().toSeconds());
+
+        byte[] archiveDatesKey = ActivityRedisKeys.v3ArchiveDates().getBytes(StandardCharsets.UTF_8);
+        byte[] dateMember = ctx.today().toString().getBytes(StandardCharsets.UTF_8);
+        conn.zSetCommands().zAdd(archiveDatesKey, ctx.today().toEpochDay(), dateMember);
+        conn.keyCommands().expire(archiveDatesKey, Duration.ofDays(ARCHIVE_DATES_TTL_DAYS).toSeconds());
     }
 
     /**

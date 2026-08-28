@@ -1,13 +1,14 @@
 package pn.torn.goldeneye.torn.service.activity.archive;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.dao.activity.TornActivityArchiveDayDAO;
@@ -16,6 +17,7 @@ import pn.torn.goldeneye.repository.dao.activity.TornActivityUserDailyDAO;
 import pn.torn.goldeneye.repository.model.activity.TornActivityFactionDailyDO;
 import pn.torn.goldeneye.repository.model.activity.TornActivityUserDailyDO;
 import pn.torn.goldeneye.torn.service.activity.ActivityRedisKeys;
+import pn.torn.goldeneye.torn.service.activity.ActivitySnapshotValidator;
 import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
 
 import java.nio.charset.StandardCharsets;
@@ -24,17 +26,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 活跃度V3日终压缩归档服务
  * <p>
  * 每天 00:10 Asia/Shanghai 调度归档最近未归档自然日；{@code ApplicationReadyEvent} 后异步补偿
- * 最近 29 个已过去的自然日。两个入口通过 JVM {@code AtomicBoolean} 共享防重入（当前单实例部署）。
+ * 由日期 ZSET 索引发现最近 29 个已过去的自然日。两个入口通过 JVM {@code AtomicBoolean} 共享防重入
+ * （当前单实例部署）。
  * <p>
  * 归档读取与 Redis 批处理不在数据库事务中执行；只有短暂的 DAO 批量 UPSERT 与最终 marker 写入
- * 采用事务。只有用户日包和帮派日包都成功批量 UPSERT 后才写 marker；任一写入异常不写 marker，
+ * 采用事务。每个非空索引侧的日包都成功批量 UPSERT 后才写 marker；任一写入异常不写 marker，
  * 下次执行重试整天，日包 UPSERT 幂等。只处理 V3；只有 V2 数据的日期直接跳过。
  *
  * @author Bai
@@ -43,7 +46,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ActivityDailyArchiveService {
 
     /**
@@ -62,8 +64,30 @@ public class ActivityDailyArchiveService {
     private final TornActivityUserDailyDAO userDailyDao;
     private final TornActivityFactionDailyDAO factionDailyDao;
     private final TornActivityArchiveDayDAO archiveDayDao;
+    private final ThreadPoolTaskExecutor virtualThreadExecutor;
 
     private final AtomicBoolean archiving = new AtomicBoolean(false);
+
+    /**
+     * 创建日终归档服务。
+     *
+     * @param redisTemplate Redis 模板
+     * @param userDailyDao 用户日包 DAO
+     * @param factionDailyDao 帮派日包 DAO
+     * @param archiveDayDao 归档 marker DAO
+     * @param virtualThreadExecutor 项目既有虚拟线程执行器
+     */
+    public ActivityDailyArchiveService(StringRedisTemplate redisTemplate,
+                                       TornActivityUserDailyDAO userDailyDao,
+                                       TornActivityFactionDailyDAO factionDailyDao,
+                                       TornActivityArchiveDayDAO archiveDayDao,
+                                       @Qualifier("virtualThreadExecutor") ThreadPoolTaskExecutor virtualThreadExecutor) {
+        this.redisTemplate = redisTemplate;
+        this.userDailyDao = userDailyDao;
+        this.factionDailyDao = factionDailyDao;
+        this.archiveDayDao = archiveDayDao;
+        this.virtualThreadExecutor = virtualThreadExecutor;
+    }
 
     /**
      * 每天 00:10 Asia/Shanghai 归档未归档自然日
@@ -74,16 +98,20 @@ public class ActivityDailyArchiveService {
     }
 
     /**
-     * 启动后异步补偿最近 29 个已过去自然日，与定时入口共享同一防重入
+     * 启动后通过既有虚拟线程执行器异步补偿候选自然日，与定时入口共享同一防重入
      */
     @EventListener(ApplicationReadyEvent.class)
     public void compensateOnStartup() {
-        CompletableFuture.runAsync(this::archiveRecentUnarchivedDays);
+        try {
+            virtualThreadExecutor.execute(this::archiveRecentUnarchivedDays);
+        } catch (RejectedExecutionException e) {
+            log.warn("活跃度启动归档补偿任务提交被拒绝，不影响服务启动", e);
+        }
     }
 
     /**
-     * 归档入口：补偿最近{@value #COMPENSATION_DAYS}个已过去自然日中存在 V3 归档索引
-     * 且数据库 marker 缺失的日期；JVM 内防重入，异常在 finally 中释放。
+     * 归档入口：从最近{@value #COMPENSATION_DAYS}个已过去自然日的日期 ZSET 中发现候选，
+     * 过滤数据库 marker 后归档缺失日期；JVM 内防重入，异常在 finally 中释放。
      */
     public void archiveRecentUnarchivedDays() {
         if (!archiving.compareAndSet(false, true)) {
@@ -92,8 +120,23 @@ public class ActivityDailyArchiveService {
         }
         try {
             LocalDate today = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
-            for (int offset = COMPENSATION_DAYS; offset >= 1; offset--) {
-                archiveDaySafely(today.minusDays(offset));
+            LocalDate minDate = today.minusDays(COMPENSATION_DAYS);
+            LocalDate maxDate = today.minusDays(1);
+            Set<LocalDate> candidates;
+            try {
+                candidates = readArchiveDateIndex(minDate, maxDate);
+            } catch (Exception e) {
+                log.error("活跃度归档候选日期读取失败", e);
+                return;
+            }
+            if (candidates.isEmpty()) {
+                return;
+            }
+            Set<LocalDate> archivedDates = archiveDayDao.selectArchivedDates(minDate, maxDate);
+            for (LocalDate date : candidates) {
+                if (!archivedDates.contains(date)) {
+                    archiveDaySafely(date);
+                }
             }
         } finally {
             archiving.set(false);
@@ -114,7 +157,7 @@ public class ActivityDailyArchiveService {
     }
 
     /**
-     * 归档单个 V3 自然日：读取归档索引、分批校验并 UPSERT 日包，全部成功后写 marker
+     * 归档单个 V3 自然日：读取归档索引、分批校验并 UPSERT 日包，每个非空索引侧全部成功后写 marker
      *
      * @param date 目标归档日期
      */
@@ -133,9 +176,11 @@ public class ActivityDailyArchiveService {
         int userArchived = archiveUserPacks(date, userIds);
         int factionArchived = archiveFactionPacks(date, factionIds);
         int skippedIncomplete = (userIds.size() - userArchived) + (factionIds.size() - factionArchived);
-        if (userArchived == 0 && factionArchived == 0) {
-            log.warn("活跃度归档无有效日包不写 marker, date={}, userIndexed={}, factionIndexed={}",
-                    date, userIds.size(), factionIds.size());
+        if (!isArchiveSideComplete(userIds.size(), userArchived)
+                || !isArchiveSideComplete(factionIds.size(), factionArchived)) {
+            log.warn("活跃度归档存在不完整日包不写 marker, date={}, userIndexed={}, userArchived={}, "
+                            + "factionIndexed={}, factionArchived={}",
+                    date, userIds.size(), userArchived, factionIds.size(), factionArchived);
             return;
         }
 
@@ -163,8 +208,8 @@ public class ActivityDailyArchiveService {
                 byte[] observed = asBytes(results, j * 3);
                 byte[] active = asBytes(results, j * 3 + 1);
                 byte[] idle = asBytes(results, j * 3 + 2);
-                if (observed == null || active == null || idle == null) {
-                    log.warn("活跃度用户日包不完整跳过, date={}, userId={}", date, batch.get(j));
+                if (!ActivitySnapshotValidator.isCompleteUserDay(observed, active, idle)) {
+                    log.warn("活跃度用户日包不完整跳过, date={}", date);
                     continue;
                 }
                 packs.add(buildUserPack(batch.get(j), date, observed, active, idle));
@@ -195,8 +240,9 @@ public class ActivityDailyArchiveService {
                 byte[] activeCounts = asBytes(results, j * 4 + 1);
                 byte[] idleCounts = asBytes(results, j * 4 + 2);
                 byte[] memberCounts = asBytes(results, j * 4 + 3);
-                if (observed == null || activeCounts == null || idleCounts == null || memberCounts == null) {
-                    log.warn("活跃度帮派日包不完整跳过, date={}, factionId={}", date, batch.get(j));
+                if (!ActivitySnapshotValidator.isCompleteFactionDay(
+                        observed, activeCounts, idleCounts, memberCounts)) {
+                    log.warn("活跃度帮派日包不完整跳过, date={}", date);
                     continue;
                 }
                 packs.add(buildFactionPack(batch.get(j), date, observed, activeCounts, idleCounts, memberCounts));
@@ -225,6 +271,23 @@ public class ActivityDailyArchiveService {
             ids.add(Long.parseLong(member));
         }
         return List.copyOf(ids);
+    }
+
+    private Set<LocalDate> readArchiveDateIndex(LocalDate minDate, LocalDate maxDate) {
+        Set<String> members = redisTemplate.opsForZSet().rangeByScore(
+                ActivityRedisKeys.v3ArchiveDates(), minDate.toEpochDay(), maxDate.toEpochDay());
+        if (CollectionUtils.isEmpty(members)) {
+            return Set.of();
+        }
+        TreeSet<LocalDate> dates = new TreeSet<>();
+        for (String member : members) {
+            dates.add(LocalDate.parse(member));
+        }
+        return dates;
+    }
+
+    private static boolean isArchiveSideComplete(int indexedCount, int archivedCount) {
+        return indexedCount == 0 || indexedCount == archivedCount;
     }
 
     /**

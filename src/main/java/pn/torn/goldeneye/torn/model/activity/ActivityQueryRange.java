@@ -33,13 +33,21 @@ public record ActivityQueryRange(
     }
 
     /**
-     * 展开范围内的自然日列表（升序）。
+     * 计算查询范围与 Redis 最近 30 个自然日窗口的交集。
      *
-     * @return 升序自然日列表
+     * @param today 当前 Asia/Shanghai 自然日
+     * @return 交集日期，升序；无交集时为空
      */
-    public List<LocalDate> dates() {
-        List<LocalDate> dates = new ArrayList<>(totalDays());
-        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+    public List<LocalDate> redisWindowDates(LocalDate today) {
+        LocalDate windowStart = today.minusDays(29);
+        LocalDate intersectionStart = startDate.isAfter(windowStart) ? startDate : windowStart;
+        LocalDate intersectionEnd = endDate.isBefore(today) ? endDate : today;
+        if (intersectionStart.isAfter(intersectionEnd)) {
+            return List.of();
+        }
+        int days = (int) ChronoUnit.DAYS.between(intersectionStart, intersectionEnd) + 1;
+        List<LocalDate> dates = new ArrayList<>(days);
+        for (LocalDate date = intersectionStart; !date.isAfter(intersectionEnd); date = date.plusDays(1)) {
             dates.add(date);
         }
         return dates;

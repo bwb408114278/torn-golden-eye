@@ -13,7 +13,9 @@ import org.springframework.data.redis.connection.RedisStringCommands;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.serializer.RedisSerializer;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.repository.dao.activity.TornActivityArchiveDayDAO;
 import pn.torn.goldeneye.repository.dao.activity.TornActivityFactionDailyDAO;
@@ -26,6 +28,7 @@ import java.time.LocalDate;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,18 +59,22 @@ class ActivityDailyArchiveServiceTest {
     @Mock
     private SetOperations<String, String> setOperations;
     @Mock
+    private ZSetOperations<String, String> zSetOperations;
+    @Mock
     private TornActivityUserDailyDAO userDailyDao;
     @Mock
     private TornActivityFactionDailyDAO factionDailyDao;
     @Mock
     private TornActivityArchiveDayDAO archiveDayDao;
+    @Mock
+    private ThreadPoolTaskExecutor virtualThreadExecutor;
 
     private ActivityDailyArchiveService service;
 
     @BeforeEach
     void setUp() {
         service = new ActivityDailyArchiveService(
-                redisTemplate, userDailyDao, factionDailyDao, archiveDayDao);
+                redisTemplate, userDailyDao, factionDailyDao, archiveDayDao, virtualThreadExecutor);
     }
 
     @Test
@@ -147,6 +154,63 @@ class ActivityDailyArchiveServiceTest {
     }
 
     @Test
+    @DisplayName("用户完整但帮派索引不完整时不写 marker")
+    void archiveDay_incompleteFactionSide_neverWritesMarker() {
+        stubIndexSets(Set.of(String.valueOf(USER_ID)), Set.of(String.valueOf(FACTION_ID)));
+        stubMarkerMissing();
+        stubPipeline(bitmap((byte) 0x80), bitmap((byte) 0x40), bitmap((byte) 0x20),
+                bitmap((byte) 0x80), null, slotValue((byte) 4), slotValue((byte) 90));
+
+        service.archiveDay(ARCHIVE_DATE);
+
+        verify(userDailyDao).upsertBatch(any());
+        verify(factionDailyDao, never()).upsertBatch(any());
+        verify(archiveDayDao, never()).insertMarker(any());
+    }
+
+    @Test
+    @DisplayName("帮派完整但用户索引不完整时不写 marker")
+    void archiveDay_incompleteUserSide_neverWritesMarker() {
+        stubIndexSets(Set.of(String.valueOf(USER_ID)), Set.of(String.valueOf(FACTION_ID)));
+        stubMarkerMissing();
+        stubPipeline(bitmap((byte) 0x80), null, bitmap((byte) 0x20),
+                bitmap((byte) 0x80), slotValue((byte) 10), slotValue((byte) 4), slotValue((byte) 90));
+
+        service.archiveDay(ARCHIVE_DATE);
+
+        verify(userDailyDao, never()).upsertBatch(any());
+        verify(factionDailyDao).upsertBatch(any());
+        verify(archiveDayDao, never()).insertMarker(any());
+    }
+
+    @Test
+    @DisplayName("帮派 observed 槽指向截断计数数组时跳过且不写 marker")
+    void archiveDay_truncatedFactionCounts_neverWritesMarker() {
+        stubIndexSets(Set.of(), Set.of(String.valueOf(FACTION_ID)));
+        stubMarkerMissing();
+        byte[] observed = bitmap((byte) 0x80);
+        stubPipeline(observed, slotValue((byte) 10), new byte[0], slotValue((byte) 90));
+
+        service.archiveDay(ARCHIVE_DATE);
+
+        verify(factionDailyDao, never()).upsertBatch(any());
+        verify(archiveDayDao, never()).insertMarker(any());
+    }
+
+    @Test
+    @DisplayName("单侧索引为空且另一侧完整时允许写 marker")
+    void archiveDay_emptyFactionSide_allowsMarker() {
+        stubIndexSets(Set.of(String.valueOf(USER_ID)), Set.of());
+        stubMarkerMissing();
+        stubPipeline(bitmap((byte) 0x80), bitmap((byte) 0x40), bitmap((byte) 0x20));
+
+        service.archiveDay(ARCHIVE_DATE);
+
+        verify(userDailyDao).upsertBatch(any());
+        verify(archiveDayDao).insertMarker(ARCHIVE_DATE);
+    }
+
+    @Test
     @DisplayName("marker 已存在的日期直接跳过")
     void archiveDay_markerExists_skips() {
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
@@ -188,8 +252,9 @@ class ActivityDailyArchiveServiceTest {
     @Test
     @DisplayName("单日异常被捕获且 finally 释放防重入，入口可再次执行")
     void archiveRecentUnarchivedDays_dayFailureReleasesGuard() {
-        when(redisTemplate.opsForSet()).thenReturn(setOperations);
-        when(setOperations.members(anyString())).thenThrow(new IllegalStateException("redis down"));
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.rangeByScore(anyString(), anyDouble(), anyDouble()))
+                .thenThrow(new IllegalStateException("redis down"));
 
         assertDoesNotThrow(service::archiveRecentUnarchivedDays);
 
@@ -198,7 +263,51 @@ class ActivityDailyArchiveServiceTest {
         assertFalse(archiving.get(), "异常后防重入标记应在 finally 中释放");
 
         assertDoesNotThrow(service::archiveRecentUnarchivedDays, "标记释放后入口应可再次执行");
-        verify(setOperations, times(ActivityDailyArchiveService.COMPENSATION_DAYS * 2)).members(anyString());
+        verify(zSetOperations, times(2)).rangeByScore(anyString(), anyDouble(), anyDouble());
+    }
+
+    @Test
+    @DisplayName("无候选日期时只读取日期 ZSET，不读取对象索引或 marker")
+    void archiveRecentUnarchivedDays_noCandidates_returnsImmediately() {
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.rangeByScore(anyString(), anyDouble(), anyDouble())).thenReturn(Set.of());
+
+        service.archiveRecentUnarchivedDays();
+
+        verify(zSetOperations).rangeByScore(eq(ActivityRedisKeys.v3ArchiveDates()), anyDouble(), anyDouble());
+        verifyNoInteractions(setOperations, archiveDayDao, userDailyDao, factionDailyDao);
+    }
+
+    @Test
+    @DisplayName("候选日期一次查询 marker，并只处理未归档日期")
+    void archiveRecentUnarchivedDays_filtersArchivedCandidates() {
+        LocalDate today = LocalDate.now(pn.torn.goldeneye.torn.service.activity.TornActivityCollectService.HEATMAP_ZONE);
+        LocalDate archivedDate = today.minusDays(2);
+        LocalDate pendingDate = today.minusDays(1);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.rangeByScore(anyString(), anyDouble(), anyDouble()))
+                .thenReturn(Set.of(archivedDate.toString(), pendingDate.toString()));
+        when(archiveDayDao.selectArchivedDates(today.minusDays(ActivityDailyArchiveService.COMPENSATION_DAYS),
+                today.minusDays(1))).thenReturn(Set.of(archivedDate));
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(setOperations.members(anyString())).thenReturn(Set.of());
+
+        service.archiveRecentUnarchivedDays();
+
+        verify(archiveDayDao).selectArchivedDates(today.minusDays(ActivityDailyArchiveService.COMPENSATION_DAYS),
+                today.minusDays(1));
+        verify(setOperations, times(2)).members(anyString());
+    }
+
+    @Test
+    @DisplayName("启动补偿委派虚拟线程执行器，提交拒绝不阻塞启动")
+    void compensateOnStartup_executorReject_doesNotRunSynchronously() {
+        doThrow(new RejectedExecutionException("executor stopped"))
+                .when(virtualThreadExecutor).execute(any(Runnable.class));
+
+        assertDoesNotThrow(service::compensateOnStartup);
+        verify(virtualThreadExecutor).execute(any(Runnable.class));
+        verifyNoInteractions(redisTemplate, archiveDayDao, userDailyDao, factionDailyDao);
     }
 
     @SuppressWarnings("unchecked")
