@@ -1,6 +1,8 @@
 package pn.torn.goldeneye.torn.service.activity.query;
 
 import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * 活跃度查询日快照模型
@@ -47,6 +49,38 @@ public sealed interface ActivityDaySnapshot {
      */
     record UserDay(LocalDate date, boolean legacyV2, byte[] observedBitmap,
                    byte[] activeBitmap, byte[] idleBitmap) implements ActivityDaySnapshot {
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof UserDay that)) {
+                return false;
+            }
+            return legacyV2 == that.legacyV2
+                    && Objects.equals(date, that.date)
+                    && Arrays.equals(observedBitmap, that.observedBitmap)
+                    && Arrays.equals(activeBitmap, that.activeBitmap)
+                    && Arrays.equals(idleBitmap, that.idleBitmap);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(date, legacyV2);
+            result = 31 * result + Arrays.hashCode(observedBitmap);
+            result = 31 * result + Arrays.hashCode(activeBitmap);
+            result = 31 * result + Arrays.hashCode(idleBitmap);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "UserDay[date=" + date + ", legacyV2=" + legacyV2
+                    + ", observedBitmap=" + Arrays.toString(observedBitmap)
+                    + ", activeBitmap=" + Arrays.toString(activeBitmap)
+                    + ", idleBitmap=" + Arrays.toString(idleBitmap) + "]";
+        }
     }
 
     /**
@@ -61,5 +95,40 @@ public sealed interface ActivityDaySnapshot {
      */
     record FactionDay(LocalDate date, boolean legacyV2, byte[] observedBitmap,
                       byte[] activeCounts, byte[] idleCounts, byte[] memberCounts) implements ActivityDaySnapshot {
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof FactionDay that)) {
+                return false;
+            }
+            return legacyV2 == that.legacyV2
+                    && Objects.equals(date, that.date)
+                    && Arrays.equals(observedBitmap, that.observedBitmap)
+                    && Arrays.equals(activeCounts, that.activeCounts)
+                    && Arrays.equals(idleCounts, that.idleCounts)
+                    && Arrays.equals(memberCounts, that.memberCounts);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(date, legacyV2);
+            result = 31 * result + Arrays.hashCode(observedBitmap);
+            result = 31 * result + Arrays.hashCode(activeCounts);
+            result = 31 * result + Arrays.hashCode(idleCounts);
+            result = 31 * result + Arrays.hashCode(memberCounts);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "FactionDay[date=" + date + ", legacyV2=" + legacyV2
+                    + ", observedBitmap=" + Arrays.toString(observedBitmap)
+                    + ", activeCounts=" + Arrays.toString(activeCounts)
+                    + ", idleCounts=" + Arrays.toString(idleCounts)
+                    + ", memberCounts=" + Arrays.toString(memberCounts) + "]";
+        }
     }
 }

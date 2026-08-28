@@ -8,19 +8,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import pn.torn.goldeneye.repository.dao.activity.TornActivityFactionDailyDAO;
 import pn.torn.goldeneye.repository.dao.activity.TornActivityUserDailyDAO;
 import pn.torn.goldeneye.repository.model.activity.TornActivityFactionDailyDO;
 import pn.torn.goldeneye.repository.model.activity.TornActivityUserDailyDO;
-import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
-import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
-import pn.torn.goldeneye.torn.model.activity.ActivityQueryRangeModeEnum;
-import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
-import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.*;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityHeatmapAggregator;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityHeatmapDataLoader;
 
@@ -32,9 +28,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * 活跃度热力图服务测试
@@ -201,12 +195,11 @@ class ActivityHeatmapServiceTest {
     @Test
     @DisplayName("公共查询入口应拒绝非正数目标 ID")
     void shouldRejectInvalidQueryTargets() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.queryPersonalHeatmap(0, range()));
-        assertThrows(IllegalArgumentException.class,
-                () -> service.queryFactionHeatmap(-1, range()));
-        assertThrows(IllegalArgumentException.class,
-                () -> service.compareFactions(0, FACTION2_ID, range()));
+        ActivityQueryRange range = range();
+
+        assertThrows(IllegalArgumentException.class, () -> service.queryPersonalHeatmap(0, range));
+        assertThrows(IllegalArgumentException.class, () -> service.queryFactionHeatmap(-1, range));
+        assertThrows(IllegalArgumentException.class, () -> service.compareFactions(0, FACTION2_ID, range));
     }
 
     // ==================== Bitmap 位序工具（MSB-first） ====================

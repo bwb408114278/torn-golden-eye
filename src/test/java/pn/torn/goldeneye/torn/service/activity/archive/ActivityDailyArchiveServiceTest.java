@@ -31,7 +31,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -155,7 +154,7 @@ class ActivityDailyArchiveServiceTest {
                 .thenReturn(Set.of(String.valueOf(USER_ID)));
         when(setOperations.members(ActivityRedisKeys.v3ArchiveFactions(ARCHIVE_DATE))).thenReturn(Set.of());
         when(archiveDayDao.selectArchivedDates(ARCHIVE_DATE, ARCHIVE_DATE))
-                .thenReturn(java.util.Set.of(ARCHIVE_DATE));
+                .thenReturn(Set.of(ARCHIVE_DATE));
 
         service.archiveDay(ARCHIVE_DATE);
 
@@ -225,7 +224,7 @@ class ActivityDailyArchiveServiceTest {
      * 桩 marker 查询为空（未归档）
      */
     private void stubMarkerMissing() {
-        when(archiveDayDao.selectArchivedDates(eq(ARCHIVE_DATE), eq(ARCHIVE_DATE))).thenReturn(java.util.Set.of());
+        when(archiveDayDao.selectArchivedDates(ARCHIVE_DATE, ARCHIVE_DATE)).thenReturn(Set.of());
     }
 
     /**

@@ -5,6 +5,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,46 @@ public final class ActivityHeatmapAggregator {
             int totalObservedSlots,
             int actualDays,
             int observedDowCount) {
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof PersonalMatrix that)) {
+                return false;
+            }
+            return legacyIncluded == that.legacyIncluded
+                    && totalObservedSlots == that.totalObservedSlots
+                    && actualDays == that.actualDays
+                    && observedDowCount == that.observedDowCount
+                    && Arrays.deepEquals(activeRate, that.activeRate)
+                    && Arrays.deepEquals(observedSamples, that.observedSamples)
+                    && Arrays.deepEquals(idleRatio, that.idleRatio);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Boolean.hashCode(legacyIncluded);
+            result = 31 * result + totalObservedSlots;
+            result = 31 * result + actualDays;
+            result = 31 * result + observedDowCount;
+            result = 31 * result + Arrays.deepHashCode(activeRate);
+            result = 31 * result + Arrays.deepHashCode(observedSamples);
+            result = 31 * result + Arrays.deepHashCode(idleRatio);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "PersonalMatrix[activeRate=" + Arrays.deepToString(activeRate)
+                    + ", observedSamples=" + Arrays.deepToString(observedSamples)
+                    + ", idleRatio=" + Arrays.deepToString(idleRatio)
+                    + ", legacyIncluded=" + legacyIncluded
+                    + ", totalObservedSlots=" + totalObservedSlots
+                    + ", actualDays=" + actualDays
+                    + ", observedDowCount=" + observedDowCount + "]";
+        }
     }
 
     /**
@@ -67,6 +108,46 @@ public final class ActivityHeatmapAggregator {
             int totalObservedSlots,
             int actualDays,
             int observedDowCount) {
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof FactionMatrix that)) {
+                return false;
+            }
+            return legacyIncluded == that.legacyIncluded
+                    && totalObservedSlots == that.totalObservedSlots
+                    && actualDays == that.actualDays
+                    && observedDowCount == that.observedDowCount
+                    && Arrays.deepEquals(averageActiveCount, that.averageActiveCount)
+                    && Arrays.deepEquals(observedSamples, that.observedSamples)
+                    && Arrays.deepEquals(idleRatio, that.idleRatio);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Boolean.hashCode(legacyIncluded);
+            result = 31 * result + totalObservedSlots;
+            result = 31 * result + actualDays;
+            result = 31 * result + observedDowCount;
+            result = 31 * result + Arrays.deepHashCode(averageActiveCount);
+            result = 31 * result + Arrays.deepHashCode(observedSamples);
+            result = 31 * result + Arrays.deepHashCode(idleRatio);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "FactionMatrix[averageActiveCount=" + Arrays.deepToString(averageActiveCount)
+                    + ", observedSamples=" + Arrays.deepToString(observedSamples)
+                    + ", idleRatio=" + Arrays.deepToString(idleRatio)
+                    + ", legacyIncluded=" + legacyIncluded
+                    + ", totalObservedSlots=" + totalObservedSlots
+                    + ", actualDays=" + actualDays
+                    + ", observedDowCount=" + observedDowCount + "]";
+        }
     }
 
     /**
@@ -88,6 +169,46 @@ public final class ActivityHeatmapAggregator {
             int totalCommonObservedSlots,
             int actualDays,
             int observedDowCount) {
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof ComparisonMatrix that)) {
+                return false;
+            }
+            return legacyIncluded == that.legacyIncluded
+                    && totalCommonObservedSlots == that.totalCommonObservedSlots
+                    && actualDays == that.actualDays
+                    && observedDowCount == that.observedDowCount
+                    && Arrays.deepEquals(faction1Average, that.faction1Average)
+                    && Arrays.deepEquals(faction2Average, that.faction2Average)
+                    && Arrays.deepEquals(bothObserved, that.bothObserved);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Boolean.hashCode(legacyIncluded);
+            result = 31 * result + totalCommonObservedSlots;
+            result = 31 * result + actualDays;
+            result = 31 * result + observedDowCount;
+            result = 31 * result + Arrays.deepHashCode(faction1Average);
+            result = 31 * result + Arrays.deepHashCode(faction2Average);
+            result = 31 * result + Arrays.deepHashCode(bothObserved);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "ComparisonMatrix[faction1Average=" + Arrays.deepToString(faction1Average)
+                    + ", faction2Average=" + Arrays.deepToString(faction2Average)
+                    + ", bothObserved=" + Arrays.deepToString(bothObserved)
+                    + ", legacyIncluded=" + legacyIncluded
+                    + ", totalCommonObservedSlots=" + totalCommonObservedSlots
+                    + ", actualDays=" + actualDays
+                    + ", observedDowCount=" + observedDowCount + "]";
+        }
     }
 
     /**

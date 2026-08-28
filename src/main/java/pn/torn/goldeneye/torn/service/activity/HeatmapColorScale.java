@@ -141,9 +141,9 @@ public final class HeatmapColorScale {
     };
 
     /**
-     * 帮派图图例标签（与 5 档主色一一对应）
+     * 帮派图图例标签（与 5 档主色一一对应，仅包内渲染与测试使用，不对外暴露可变数组）
      */
-    public static final String[] FACTION_TIER_LABELS = {"0", "25", "50", "75", "100+"};
+    static final String[] FACTION_TIER_LABELS = {"0", "25", "50", "75", "100+"};
 
     /**
      * 计算帮派图人数档位索引：{@code floor(averageActiveCount / 25)} 并 clamp 到 [0, 4]。
@@ -193,7 +193,7 @@ public final class HeatmapColorScale {
      * @return 暗化后的颜色
      */
     public static Color darken(Color color, double idleRatio) {
-        double brightnessMultiplier = 1 - IDLE_MAX_DARKEN_FACTOR * Math.clamp(idleRatio, 0, 1);
+        double brightnessMultiplier = 1.0 - IDLE_MAX_DARKEN_FACTOR * Math.clamp(idleRatio, 0, 1);
         int r = (int) Math.round(color.getRed() * brightnessMultiplier);
         int g = (int) Math.round(color.getGreen() * brightnessMultiplier);
         int b = (int) Math.round(color.getBlue() * brightnessMultiplier);

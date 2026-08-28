@@ -13,11 +13,7 @@ import pn.torn.goldeneye.torn.service.activity.ActivityRedisKeys;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * 活跃度热力图三版本数据源加载器
@@ -50,7 +46,7 @@ public class ActivityHeatmapDataLoader {
         if (dates.isEmpty()) {
             return List.of();
         }
-        Map<LocalDate, ActivityDaySnapshot.UserDay> byDate = new HashMap<>(dates.size());
+        Map<LocalDate, ActivityDaySnapshot.UserDay> byDate = HashMap.newHashMap(dates.size());
         for (TornActivityUserDailyDO row : userDailyDao.selectByUserAndDateRange(
                 userId, dates.getFirst(), dates.getLast())) {
             byDate.putIfAbsent(row.getActivityDate(), new ActivityDaySnapshot.UserDay(
@@ -99,7 +95,7 @@ public class ActivityHeatmapDataLoader {
         if (dates.isEmpty()) {
             return List.of();
         }
-        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate = new HashMap<>(dates.size());
+        Map<LocalDate, ActivityDaySnapshot.FactionDay> byDate = HashMap.newHashMap(dates.size());
         for (TornActivityFactionDailyDO row : factionDailyDao.selectByFactionAndDateRange(
                 factionId, dates.getFirst(), dates.getLast())) {
             byDate.putIfAbsent(row.getActivityDate(), new ActivityDaySnapshot.FactionDay(
@@ -243,9 +239,9 @@ public class ActivityHeatmapDataLoader {
             }
             return null;
         }, RedisSerializer.byteArray());
-        if (results == null || results.size() != keys.size()) {
+        if (results.size() != keys.size()) {
             throw new IllegalStateException("活跃度查询 Pipeline 结果数量不一致，期望 "
-                    + keys.size() + "，实际 " + (results == null ? -1 : results.size()));
+                    + keys.size() + "，实际 " + results.size());
         }
         return results;
     }

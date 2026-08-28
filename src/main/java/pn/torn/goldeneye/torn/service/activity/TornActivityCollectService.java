@@ -504,9 +504,10 @@ public class TornActivityCollectService {
      * @param ctx       采集上下文（含日期、槽位、TTL、key 等全部信息）
      */
     private void executeRedisPipeline(long factionId, CollectionContext ctx) {
-        byte[] activeCountBytes = encodeSlotValue(ctx.activeUserIds().size());
-        byte[] idleCountBytes = encodeSlotValue(ctx.idleOnlyUserIds().size());
-        byte[] memberCountBytes = encodeSlotValue(ctx.allMemberIds().size());
+        FactionSlotCounts slotCounts = new FactionSlotCounts(
+                encodeSlotValue(ctx.activeUserIds().size()),
+                encodeSlotValue(ctx.idleOnlyUserIds().size()),
+                encodeSlotValue(ctx.allMemberIds().size()));
         String[] memberIdArray = ctx.allMemberIds().stream().map(String::valueOf).toArray(String[]::new);
 
         redisTemplate.executePipelined((RedisCallback<Object>) conn -> {
@@ -529,8 +530,7 @@ public class TornActivityCollectService {
                     ActivityRedisKeys::v3UserIdle);
 
             // 4. V3 帮派维度：active/idle/member 槽值与 observed Bitmap
-            writeFactionSlot(conn, factionId, ctx.today(), ctx.slot(), ctx.bitmapTtl(),
-                    activeCountBytes, idleCountBytes, memberCountBytes);
+            writeFactionSlot(conn, factionId, ctx.today(), ctx.slot(), ctx.bitmapTtl(), slotCounts);
 
             // 5. V3 日终归档索引：当日 observed 用户集与成功采集帮派集
             writeArchiveIndex(conn, factionId, ctx);
@@ -569,33 +569,44 @@ public class TornActivityCollectService {
     }
 
     /**
+     * 帮派维度单槽三类计数值（各为长度 1 的无符号字节数组）。
+     *
+     * @param activeCount 有效活跃人数槽值
+     * @param idleCount   idle-only 人数槽值
+     * @param memberCount 有效成员数槽值
+     */
+    private record FactionSlotCounts(
+            byte[] activeCount,
+            byte[] idleCount,
+            byte[] memberCount) {
+    }
+
+    /**
      * 写入 V3 帮派维度槽数据
      *
-     * @param conn             Redis 连接
-     * @param factionId        帮派 ID
-     * @param today            今天日期
-     * @param slot             槽位
-     * @param bitmapTtl        Bitmap TTL
-     * @param activeCountBytes 有效活跃人数字节数组
-     * @param idleCountBytes   idle-only 人数字节数组
-     * @param memberCountBytes 成员数字节数组
+     * @param conn       Redis 连接
+     * @param factionId  帮派 ID
+     * @param today      今天日期
+     * @param slot       槽位
+     * @param bitmapTtl  Bitmap TTL
+     * @param slotCounts 帮派单槽三类计数值
      */
     private void writeFactionSlot(org.springframework.data.redis.connection.RedisConnection conn,
                                   long factionId, LocalDate today, int slot, Duration bitmapTtl,
-                                  byte[] activeCountBytes, byte[] idleCountBytes, byte[] memberCountBytes) {
+                                  FactionSlotCounts slotCounts) {
         byte[] activeCountKey = ActivityRedisKeys.v3FactionActiveCount(factionId, today)
                 .getBytes(StandardCharsets.UTF_8);
-        conn.stringCommands().setRange(activeCountKey, activeCountBytes, slot);
+        conn.stringCommands().setRange(activeCountKey, slotCounts.activeCount(), slot);
         conn.keyCommands().expire(activeCountKey, bitmapTtl.toSeconds());
 
         byte[] idleCountKey = ActivityRedisKeys.v3FactionIdleCount(factionId, today)
                 .getBytes(StandardCharsets.UTF_8);
-        conn.stringCommands().setRange(idleCountKey, idleCountBytes, slot);
+        conn.stringCommands().setRange(idleCountKey, slotCounts.idleCount(), slot);
         conn.keyCommands().expire(idleCountKey, bitmapTtl.toSeconds());
 
         byte[] memberCountKey = ActivityRedisKeys.v3FactionMemberCount(factionId, today)
                 .getBytes(StandardCharsets.UTF_8);
-        conn.stringCommands().setRange(memberCountKey, memberCountBytes, slot);
+        conn.stringCommands().setRange(memberCountKey, slotCounts.memberCount(), slot);
         conn.keyCommands().expire(memberCountKey, bitmapTtl.toSeconds());
 
         byte[] observedKey = ActivityRedisKeys.v3FactionObserved(factionId, today)

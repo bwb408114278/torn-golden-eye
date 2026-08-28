@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.activity.archive;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -42,6 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ActivityDailyArchiveService {
 
     /**
@@ -62,24 +64,6 @@ public class ActivityDailyArchiveService {
     private final TornActivityArchiveDayDAO archiveDayDao;
 
     private final AtomicBoolean archiving = new AtomicBoolean(false);
-
-    /**
-     * 创建日终归档服务。
-     *
-     * @param redisTemplate  Redis 操作模板
-     * @param userDailyDao   用户日包 DAO
-     * @param factionDailyDao 帮派日包 DAO
-     * @param archiveDayDao  归档完成 marker DAO
-     */
-    public ActivityDailyArchiveService(StringRedisTemplate redisTemplate,
-                                       TornActivityUserDailyDAO userDailyDao,
-                                       TornActivityFactionDailyDAO factionDailyDao,
-                                       TornActivityArchiveDayDAO archiveDayDao) {
-        this.redisTemplate = redisTemplate;
-        this.userDailyDao = userDailyDao;
-        this.factionDailyDao = factionDailyDao;
-        this.archiveDayDao = archiveDayDao;
-    }
 
     /**
      * 每天 00:10 Asia/Shanghai 归档未归档自然日
@@ -291,9 +275,9 @@ public class ActivityDailyArchiveService {
             }
             return null;
         }, RedisSerializer.byteArray());
-        if (results == null || results.size() != keys.size()) {
+        if (results.size() != keys.size()) {
             throw new IllegalStateException("活跃度归档 Pipeline 结果数量不一致，期望 "
-                    + keys.size() + "，实际 " + (results == null ? -1 : results.size()));
+                    + keys.size() + "，实际 " + results.size());
         }
         return results;
     }
@@ -313,11 +297,11 @@ public class ActivityDailyArchiveService {
     /**
      * 构建用户日包 DO
      *
-     * @param userId    用户 ID
-     * @param date      归档日期
-     * @param observed  observed Bitmap
-     * @param active    有效活跃 Bitmap
-     * @param idle      idle-only Bitmap
+     * @param userId   用户 ID
+     * @param date     归档日期
+     * @param observed observed Bitmap
+     * @param active   有效活跃 Bitmap
+     * @param idle     idle-only Bitmap
      * @return 用户日包 DO
      */
     private static TornActivityUserDailyDO buildUserPack(long userId, LocalDate date,
