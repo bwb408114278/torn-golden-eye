@@ -1,0 +1,23 @@
+databaseChangeLog:
+  # V2宕机豁免冻结规则版本串(如 PERSONALITY_RULE_V2_OUTAGE_EXCLUSION,36字符)超出原varchar(32);
+  # 仅无损放宽既有两列长度,不新增表/列/索引,不改变任何既有行数据。
+  - changeSet:
+      id: widen_monthly_state_rule_version_columns
+      author: Bai
+      changes:
+        - modifyDataType:
+            tableName: torn_stock_monthly_state
+            columnName: personality_rule_version
+            newDataType: VARCHAR(64)
+        - modifyDataType:
+            tableName: torn_stock_monthly_state
+            columnName: risk_rule_version
+            newDataType: VARCHAR(64)
+        - setColumnRemarks:
+            tableName: torn_stock_monthly_state
+            columnName: personality_rule_version
+            remarks: "风格规则版本(冻结,如PERSONALITY_RULE_V2_OUTAGE_EXCLUSION)"
+        - setColumnRemarks:
+            tableName: torn_stock_monthly_state
+            columnName: risk_rule_version
+            remarks: "风险规则版本(冻结,如RISK_RULE_V2_OUTAGE_EXCLUSION)"

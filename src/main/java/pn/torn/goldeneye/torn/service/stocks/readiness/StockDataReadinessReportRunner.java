@@ -25,7 +25,7 @@ import java.util.*;
  * {@code READ ONLY + REPEATABLE READ} 快照内加载，生成真实 JSON/Markdown 审核报告。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @Slf4j
@@ -128,6 +128,8 @@ public class StockDataReadinessReportRunner {
 
         List<MonthlyStateCount> monthlyStateCounts =
                 queryDao.selectMonthlyStateCounts(startInclusive, endExclusive);
+        List<MonthlyEvidenceStatus> monthlyEvidenceStatuses =
+                queryDao.selectMonthlyEvidenceStatuses(startInclusive, endExclusive);
         Map<String, Long> monthlyIncompleteReasonCounts = toNameCountMap(
                 queryDao.selectMonthlyIncompleteReasonCounts(startInclusive, endExclusive));
         Map<String, Long> roundStatusCounts = toNameCountMap(
@@ -156,7 +158,7 @@ public class StockDataReadinessReportRunner {
                 theoreticalBucketCount, barCount, usableBarCount, unusableBarReasonCounts,
                 noMinuteFactBucketCount, featureCount, usableBarMissingFeatureCount,
                 featureOrphanCount, strategyReadyFeatureCount, notReadyFeatureReasonCounts,
-                monthlyStateCounts, monthlyIncompleteReasonCounts, roundStatusCounts,
+                monthlyStateCounts, monthlyEvidenceStatuses, monthlyIncompleteReasonCounts, roundStatusCounts,
                 roundVersionMismatchCount, auditSettings);
     }
 
@@ -223,6 +225,17 @@ public class StockDataReadinessReportRunner {
                                     .thenComparing(MonthlyStateCount::stateStatus)
                                     .thenComparing(MonthlyStateCount::manualOverride))
                             .toList()).append(',')
+                    .append(snapshot.monthlyEvidenceStatuses().stream()
+                            .sorted(Comparator.comparing(MonthlyEvidenceStatus::effectiveMonth)
+                                    .thenComparing(MonthlyEvidenceStatus::stocksId,
+                                            Comparator.nullsLast(Comparator.naturalOrder())))
+                            .map(s -> s.effectiveMonth() + ":" + s.stocksId() + ":" + s.stateStatus() + ":"
+                                    + s.personalityRuleVersion() + ":" + s.riskRuleVersion() + ":"
+                                    + s.rawUsableBarCoverage() + ":" + s.rawMaxMissingBucketGap() + ":"
+                                    + s.adjustedUsableBarCoverage() + ":" + s.adjustedMaxMissingBucketGap() + ":"
+                                    + s.excludedBucketCount() + ":" + s.excludedMinutes() + ":"
+                                    + s.appliedExclusionIdsJson() + ":" + s.incompleteReason())
+                            .toList()).append(',')
                     .append(snapshot.monthlyIncompleteReasonCounts()).append('\n');
             sb.append("rounds=").append(snapshot.roundStatusCounts()).append(',')
                     .append(snapshot.roundVersionMismatchCount()).append('\n');
@@ -240,6 +253,9 @@ public class StockDataReadinessReportRunner {
      * @param path   生成的 summary.json 路径
      * @param report 完整不可变报告
      */
-    public record ReportRunResult(Path path, StockDataReadinessReport report) {
+    public record ReportRunResult(
+            Path path,
+            StockDataReadinessReport report
+    ) {
     }
 }

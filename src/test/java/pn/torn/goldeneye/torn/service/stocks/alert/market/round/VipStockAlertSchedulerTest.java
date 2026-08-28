@@ -15,33 +15,28 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
+import pn.torn.goldeneye.torn.service.stocks.alert.observation.StockRejectedObservationService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockAlertRuntimeGate;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHistoryRebuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
-import pn.torn.goldeneye.torn.service.stocks.alert.observation.StockRejectedObservationService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
 
 /**
  * 股票提醒调度器测试,验证总开关关闭但存在活跃批次时仍继续构建存量轮次并透传allowNewEntry,
  * 以及历史PENDING通知独立于轮次总开关投递。
  *
  * @author Bai
- * @version 1.2.18
+ * @version 1.4.9
  * @since 2026.08.02
  */
 @DisplayName("股票提醒调度器测试")
@@ -568,6 +563,40 @@ class VipStockAlertSchedulerTest {
         verify(transactionService).executeRound(roundTimeCaptor.capture(), any(), anyBoolean(), any());
         assertEquals(currentEndedBucket, roundTimeCaptor.getValue(),
                 "正常READY轮次必须继续进入交易事务,防止隔离修复误伤生产主链");
+    }
+
+    @Test
+    @DisplayName("轮次事务抛出超长嵌套异常_持久化FAILED_RETRYABLE根因摘要且不超过1000字符")
+    void executeRound_transactionFailsWithLongNestedException_persistsBoundedRootCauseSummary() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 5, 10, 0);
+        LocalDateTime actualTime = LocalDateTime.of(2026, 8, 5, 10, 20);
+        TornStockMarketRoundDO round = roundWithStatus(1L, roundTime, StockRoundStatusEnum.READY.getCode());
+        String rootMessage = "duplicate key root cause "
+                + IntStream.range(0, 1200).mapToObj(index -> "x").collect(Collectors.joining());
+        Exception nestedFailure = new IllegalStateException(
+                "MyBatis SQL wrapper INSERT INTO torn_stock_virtual_batch ...",
+                new RuntimeException("Spring persistence wrapper with nested diagnostics",
+                        new IllegalStateException(rootMessage)));
+
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, true, false));
+        when(marketClock.currentEndedBucket()).thenReturn(roundTime);
+        when(marketClock.now()).thenReturn(actualTime);
+        when(roundDao.insertPendingRoundIgnoreConflict(any())).thenReturn(0);
+        when(roundDao.selectPendingRoundsUpTo(roundTime)).thenReturn(List.of(round));
+        when(roundLoader.loadRoundSnapshot(roundTime)).thenReturn(null);
+        doThrow(nestedFailure).when(transactionService)
+                .executeRound(eq(roundTime), any(), eq(true), eq(actualTime));
+
+        scheduler.executeRound();
+
+        assertEquals(StockRoundStatusEnum.FAILED_RETRYABLE.getCode(), round.getRoundStatus());
+        assertEquals(actualTime, round.getCompletedAt());
+        assertEquals(1000, round.getErrorMessage().length());
+        assertTrue(round.getErrorMessage().startsWith("duplicate key root cause"));
+        assertFalse(round.getErrorMessage().contains("MyBatis SQL wrapper"));
+        assertFalse(round.getErrorMessage().contains("Spring persistence wrapper"));
+        verify(roundDao).updateById(round);
     }
 
     /**

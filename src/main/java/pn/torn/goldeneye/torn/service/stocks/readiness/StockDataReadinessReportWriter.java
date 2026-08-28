@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyEvidenceStatus;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 
@@ -23,7 +24,7 @@ import java.util.Map;
  * 不写生产数据库。JSON 与 Markdown 必须来自同一个不可变 Report。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @Slf4j
@@ -108,6 +109,9 @@ public class StockDataReadinessReportWriter {
         map.put("monthlyStateCounts", snapshot.monthlyStateCounts().stream()
                 .map(this::monthlyStateToMap)
                 .toList());
+        map.put("monthlyEvidenceStatuses", snapshot.monthlyEvidenceStatuses().stream()
+                .map(this::monthlyEvidenceToMap)
+                .toList());
         map.put("roundStatusCounts", snapshot.roundStatusCounts());
         map.put("monthlyIncompleteReasonCounts", snapshot.monthlyIncompleteReasonCounts());
         map.put("roundVersionMismatchCount", snapshot.roundVersionMismatchCount());
@@ -148,6 +152,34 @@ public class StockDataReadinessReportWriter {
         map.put("stateStatus", count.stateStatus());
         map.put("manualOverride", count.manualOverride());
         map.put("count", count.count());
+        return map;
+    }
+
+    /**
+     * 将逐月逐股月度证据状态转换为可序列化 Map。
+     * <p>
+     * V1 快照没有新键时 raw/adjusted/exclusion 字段保持 {@code null},
+     * 不得 COALESCE 为 0 或误读为 V2 合格。
+     *
+     * @param status 月度证据状态
+     * @return 有序 Map
+     */
+    private Map<String, Object> monthlyEvidenceToMap(MonthlyEvidenceStatus status) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("stocksId", status.stocksId());
+        map.put("stocksShortname", status.stocksShortname());
+        map.put("effectiveMonth", status.effectiveMonth() == null ? null : status.effectiveMonth().toString());
+        map.put("stateStatus", status.stateStatus());
+        map.put("personalityRuleVersion", status.personalityRuleVersion());
+        map.put("riskRuleVersion", status.riskRuleVersion());
+        map.put("rawUsableBarCoverage", status.rawUsableBarCoverage());
+        map.put("rawMaxMissingBucketGap", status.rawMaxMissingBucketGap());
+        map.put("adjustedUsableBarCoverage", status.adjustedUsableBarCoverage());
+        map.put("adjustedMaxMissingBucketGap", status.adjustedMaxMissingBucketGap());
+        map.put("excludedBucketCount", status.excludedBucketCount());
+        map.put("excludedMinutes", status.excludedMinutes());
+        map.put("appliedExclusionIds", status.appliedExclusionIdsJson());
+        map.put("incompleteReason", status.incompleteReason());
         return map;
     }
 
@@ -229,6 +261,27 @@ public class StockDataReadinessReportWriter {
         md.append("\n## 月度状态\n\n");
         md.append("- DRAFT未完整原因: ").append(s.monthlyIncompleteReasonCounts()).append('\n');
         md.append("- 月度状态计数: ").append(s.monthlyStateCounts()).append('\n');
+        md.append("\n## 逐月逐股月度证据(raw/adjusted)\n\n");
+        md.append("|月份|股票ID|简称|状态|风格版本|风险版本|raw覆盖|raw最大间隔|adjusted覆盖|adjusted最大间隔|排除桶|排除分钟|排除ID|未完整原因|\n");
+        md.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+        for (MonthlyEvidenceStatus m : s.monthlyEvidenceStatuses()) {
+            md.append('|').append(m.effectiveMonth())
+                    .append('|').append(m.stocksId())
+                    .append('|').append(m.stocksShortname())
+                    .append('|').append(m.stateStatus())
+                    .append('|').append(m.personalityRuleVersion())
+                    .append('|').append(m.riskRuleVersion())
+                    .append('|').append(m.rawUsableBarCoverage())
+                    .append('|').append(m.rawMaxMissingBucketGap())
+                    .append('|').append(m.adjustedUsableBarCoverage())
+                    .append('|').append(m.adjustedMaxMissingBucketGap())
+                    .append('|').append(m.excludedBucketCount())
+                    .append('|').append(m.excludedMinutes())
+                    .append('|').append(m.appliedExclusionIdsJson())
+                    .append('|').append(m.incompleteReason())
+                    .append("|\n");
+        }
+        md.append("\n> V1快照无raw/adjusted新键时字段为null;null不是0,不得解释为V2合格。\n");
         md.append("\n## round\n\n");
         md.append("- 轮次状态计数: ").append(s.roundStatusCounts()).append('\n');
         md.append("- 版本不一致轮次数: ").append(s.roundVersionMismatchCount()).append('\n');

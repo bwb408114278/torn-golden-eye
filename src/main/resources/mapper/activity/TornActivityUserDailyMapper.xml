@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.activity.TornActivityUserDailyMapper">
+    <!-- 批量UPSERT用户日包: 主键由DAO以雪花ID补齐后显式写入, 冲突目标与uk_activity_user_daily_user_date唯一索引逐字一致,
+         冲突时覆盖为来自当前Redis的同一日完整V3包, 保证首次写入/重试/部分写入后重新执行的幂等性 -->
+    <insert id="upsertBatch">
+        INSERT INTO torn_activity_user_daily
+            (id, user_id, activity_date, observed_bitmap, active_bitmap, idle_bitmap,
+             data_version, deleted, create_time, update_time)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.id}, #{item.userId}, #{item.activityDate}, #{item.observedBitmap}, #{item.activeBitmap},
+             #{item.idleBitmap}, #{item.dataVersion}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (user_id, activity_date) DO UPDATE SET
+            observed_bitmap = EXCLUDED.observed_bitmap,
+            active_bitmap = EXCLUDED.active_bitmap,
+            idle_bitmap = EXCLUDED.idle_bitmap,
+            data_version = EXCLUDED.data_version,
+            update_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- 按用户与日期范围读取日包: 显式列清单, activity_date升序 -->
+    <select id="selectByUserAndDateRange" resultType="pn.torn.goldeneye.repository.model.activity.TornActivityUserDailyDO">
+        SELECT id, user_id, activity_date, observed_bitmap, active_bitmap, idle_bitmap, data_version
+        FROM torn_activity_user_daily
+        WHERE user_id = #{userId}
+          AND activity_date BETWEEN #{startDate} AND #{endDate}
+          AND deleted = 0
+        ORDER BY activity_date ASC
+    </select>
+</mapper>

@@ -10,14 +10,18 @@ import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlyStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksHistoryDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyEvidenceStatus;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverageSummary;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.backfill.StockHistoryDataSourceEnum;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -27,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 数据就绪只读查询 Mapper 真实 PostgreSQL 测试。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @SpringBootTest
@@ -45,9 +49,92 @@ class StockDataReadinessQueryMapperTest {
     private TornStocksDAO stocksDao;
     @Autowired
     private TornStockMarketBar15mDAO bar15mDao;
+    @Autowired
+    private TornStockMonthlyStateDAO monthlyStateDao;
 
     private static final LocalDateTime WIN_START = LocalDateTime.of(2099, 5, 1, 0, 0);
     private static final LocalDateTime WIN_END = WIN_START.plusDays(1);
+
+    @Test
+    @DisplayName("真实PG_月度证据查询_JSONB raw/adjusted正确映射且V1无新键返回null")
+    void monthlyEvidenceStatuses_jsonbRawAdjustedMapped_v1KeysNull() {
+        // 隔离未来月份2099-06: 插入一条V2 DRAFT(带raw/adjusted/exclusion键)与一条V1 DRAFT(无新键)
+        LocalDate v2Month = LocalDate.of(2099, 6, 1);
+        LocalDate v1Month = LocalDate.of(2099, 7, 1);
+        TornStockMonthlyStateDO v2State = monthlyState(990601, v2Month);
+        v2State.setPersonalityRuleVersion("PERSONALITY_RULE_V2_OUTAGE_EXCLUSION");
+        v2State.setRiskRuleVersion("RISK_RULE_V2_OUTAGE_EXCLUSION");
+        v2State.setStateStatus("DRAFT");
+        v2State.setMetricSnapshot("{\"rawPersonality\":null,\"rawUsableBarCoverage\":0.994351,"
+                + "\"rawMaxMissingBucketGap\":450,\"usableBarCoverage\":0.999468,"
+                + "\"maxMissingBucketGap\":45,\"excludedBucketCount\":29,\"excludedMinutes\":435,"
+                + "\"appliedExclusionIds\":[\"TORN_MARKET_OUTAGE_20260214_0801_1515\"],"
+                + "\"incompleteReason\":\"MONTHLY_EVIDENCE_INCOMPLETE\"}");
+        monthlyStateDao.save(v2State);
+        TornStockMonthlyStateDO v1State = monthlyState(990701, v1Month);
+        v1State.setPersonalityRuleVersion("PERSONALITY_RULE_V1");
+        v1State.setRiskRuleVersion("RISK_RULE_V1_SHADOW");
+        v1State.setStateStatus("CONFIRMED");
+        // CHECK约束: CONFIRMED行必须完整携带风格/风险/建议与确认审计字段
+        v1State.setStrategyFitPrior("STEADY");
+        v1State.setRiskLevel("NONE");
+        v1State.setSuggestedPersonality("STEADY");
+        v1State.setConfirmedAt(LocalDateTime.now());
+        v1State.setConfirmedBy("TEST");
+        v1State.setMetricSnapshot("{\"rawPersonality\":\"STEADY\",\"usableBarCoverage\":0.98,"
+                + "\"maxMissingBucketGap\":60}");
+        monthlyStateDao.save(v1State);
+
+        LocalDateTime start = v2Month.atStartOfDay();
+        LocalDateTime end = v1Month.plusMonths(1).atStartOfDay();
+        List<MonthlyEvidenceStatus> statuses = queryDao.selectMonthlyEvidenceStatuses(start, end);
+
+        MonthlyEvidenceStatus v2Row = statuses.stream()
+                .filter(s -> s.stocksId() == 990601).findFirst().orElseThrow();
+        assertEquals(v2Month, v2Row.effectiveMonth());
+        assertEquals("DRAFT", v2Row.stateStatus());
+        assertEquals("PERSONALITY_RULE_V2_OUTAGE_EXCLUSION", v2Row.personalityRuleVersion());
+        assertEquals("RISK_RULE_V2_OUTAGE_EXCLUSION", v2Row.riskRuleVersion());
+        assertEquals(Double.valueOf(0.994351), v2Row.rawUsableBarCoverage(), "JSONB raw覆盖率必须正确映射");
+        assertEquals(Long.valueOf(450L), v2Row.rawMaxMissingBucketGap(), "JSONB raw最大间隔必须正确映射");
+        assertEquals(Double.valueOf(0.999468), v2Row.adjustedUsableBarCoverage());
+        assertEquals(Long.valueOf(45L), v2Row.adjustedMaxMissingBucketGap());
+        assertEquals(Long.valueOf(29L), v2Row.excludedBucketCount());
+        assertEquals(Long.valueOf(435L), v2Row.excludedMinutes());
+        assertTrue(v2Row.appliedExclusionIdsJson().contains("TORN_MARKET_OUTAGE_20260214_0801_1515"),
+                "排除ID JSON必须保留");
+        assertEquals("MONTHLY_EVIDENCE_INCOMPLETE", v2Row.incompleteReason());
+
+        MonthlyEvidenceStatus v1Row = statuses.stream()
+                .filter(s -> s.stocksId() == 990701).findFirst().orElseThrow();
+        assertNull(v1Row.rawUsableBarCoverage(), "V1快照无raw新键时必须为null,不得解释为0");
+        assertNull(v1Row.rawMaxMissingBucketGap());
+        assertNull(v1Row.excludedBucketCount());
+        assertNull(v1Row.excludedMinutes());
+        assertNull(v1Row.appliedExclusionIdsJson());
+        assertNull(v1Row.incompleteReason(), "V1完整快照无incompleteReason时为null");
+        // V1快照本身含usableBarCoverage/maxMissingBucketGap(V1无排除,raw=adjusted),按真实值映射
+        assertEquals(Double.valueOf(0.98), v1Row.adjustedUsableBarCoverage());
+        assertEquals(Long.valueOf(60L), v1Row.adjustedMaxMissingBucketGap());
+
+        // 月度边界: 查询范围只含2099-06/07两个月,不得泄漏窗口外月份
+        assertEquals(2, statuses.size(), "范围批量查询必须只返回指定月份内的状态");
+        assertTrue(statuses.stream().allMatch(s -> !s.effectiveMonth().isBefore(v2Month)
+                && !s.effectiveMonth().isAfter(v1Month)));
+    }
+
+    private TornStockMonthlyStateDO monthlyState(int stocksId, LocalDate effectiveMonth) {
+        TornStockMonthlyStateDO state = new TornStockMonthlyStateDO();
+        state.setStocksId(stocksId);
+        state.setStocksShortname("M" + stocksId % 100);
+        state.setEffectiveMonth(effectiveMonth);
+        state.setMaturity("M4_MATURE");
+        state.setManualOverride(false);
+        state.setEvidenceStartTime(effectiveMonth.minusDays(30).atStartOfDay());
+        state.setEvidenceEndTime(effectiveMonth.atStartOfDay());
+        state.setCalculatedAt(LocalDateTime.now());
+        return state;
+    }
 
     @Test
     @DisplayName("真实PG_空范围覆盖统计返回全空缺口而非0")

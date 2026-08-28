@@ -301,4 +301,29 @@
           )
         ORDER BY setting_key
     </select>
+
+    <!-- 范围批量查询逐月逐股月度证据状态: metric_snapshot JSONB已存raw/adjusted键,
+         V1快照无新键时字段自然为null,不得COALESCE为0 -->
+    <select id="selectMonthlyEvidenceStatuses"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyEvidenceStatus">
+        SELECT ms.stocks_id                                    AS stocksId,
+               ms.stocks_shortname                             AS stocksShortname,
+               ms.effective_month                              AS effectiveMonth,
+               ms.state_status                                 AS stateStatus,
+               ms.personality_rule_version                     AS personalityRuleVersion,
+               ms.risk_rule_version                            AS riskRuleVersion,
+               (ms.metric_snapshot -&gt;&gt; 'rawUsableBarCoverage')::float8      AS rawUsableBarCoverage,
+               (ms.metric_snapshot -&gt;&gt; 'rawMaxMissingBucketGap')::bigint    AS rawMaxMissingBucketGap,
+               (ms.metric_snapshot -&gt;&gt; 'usableBarCoverage')::float8         AS adjustedUsableBarCoverage,
+               (ms.metric_snapshot -&gt;&gt; 'maxMissingBucketGap')::bigint       AS adjustedMaxMissingBucketGap,
+               (ms.metric_snapshot -&gt;&gt; 'excludedBucketCount')::bigint       AS excludedBucketCount,
+               (ms.metric_snapshot -&gt;&gt; 'excludedMinutes')::bigint           AS excludedMinutes,
+               ms.metric_snapshot -&gt; 'appliedExclusionIds'::text             AS appliedExclusionIdsJson,
+               ms.metric_snapshot -&gt;&gt; 'incompleteReason'                    AS incompleteReason
+        FROM torn_stock_monthly_state ms
+        WHERE ms.deleted = 0
+          AND ms.effective_month &gt;= DATE_TRUNC('month', #{startInclusive})::date
+          AND ms.effective_month &lt;= DATE_TRUNC('month', #{endExclusive} - INTERVAL '1 microsecond')::date
+        ORDER BY ms.effective_month ASC, ms.stocks_id ASC
+    </select>
 </mapper>

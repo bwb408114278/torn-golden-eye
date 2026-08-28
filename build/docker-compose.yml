@@ -25,7 +25,7 @@ services:
     volumes:
       - ${REDIS_DIR}/data:/data
       - ${REDIS_DIR}/log:/log
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "volatile-lru", "--requirepass", "${REDIS_PASSWORD}"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1024mb", "--maxmemory-policy", "volatile-lru", "--requirepass", "${REDIS_PASSWORD}", "--repl-timeout", "600"]
     restart: always
     networks:
       - golden-eye-net
@@ -90,7 +90,7 @@ services:
 
   golden-eye:
     container_name: golden-eye
-    image: golden-eye:1.4.7
+    image: golden-eye:1.5.0
     ports:
       - 10779:18180
     volumes:

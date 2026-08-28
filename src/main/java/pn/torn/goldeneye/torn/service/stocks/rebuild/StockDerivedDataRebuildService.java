@@ -24,7 +24,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
 
 /**
  * 全范围 VIP 股票派生数据重建服务。
@@ -39,7 +38,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransa
  * 失败时返回带失败分片的 {@link StockDerivedDataRebuildResult}，已完成部分保留，可同范围幂等重跑。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @Slf4j
@@ -90,6 +89,13 @@ public class StockDerivedDataRebuildService {
         RebuildProgress progress = new RebuildProgress(stocks.size(), 0, 0, 0);
 
         try {
+            // 先从分钟事实补齐 feature 所需的 30 日 warmup bar，不纳入目标范围统计。
+            RebuildStepOutcome warmupOutcome = rebuildWarmupBars(start);
+            if (!warmupOutcome.success()) {
+                return failureWithProgress(start, end, progress,
+                        warmupOutcome.failedStart(), warmupOutcome.failedEnd(), warmupOutcome.error(), startNanos);
+            }
+
             // 4.2 bar 批处理：按自然日分片
             RebuildStepOutcome barOutcome = rebuildAllDayBars(start, end, actualBuckets, barCountByBucket);
             if (!barOutcome.success()) {
@@ -125,6 +131,20 @@ public class StockDerivedDataRebuildService {
             return failureWithProgress(start, end, progress.withProcessed(actualBuckets.size()),
                     start, end, e.getMessage(), startNanos);
         }
+    }
+
+    /**
+     * 从分钟事实构建目标范围前的 warmup bar。
+     * <p>
+     * 使用独立的桶和计数容器，保证 warmup 只写 bar，不进入目标范围的 round、feature
+     * 和月度统计；写入数也不混入最终结果的目标 barWriteCount。
+     *
+     * @param start 目标范围起始桶（含）
+     * @return warmup 分片结果
+     */
+    private RebuildStepOutcome rebuildWarmupBars(LocalDateTime start) {
+        LocalDateTime warmupStart = start.minusDays(FEATURE_WARMUP_DAYS);
+        return rebuildAllDayBars(warmupStart, start, new TreeSet<>(), new HashMap<>());
     }
 
     /**
@@ -229,6 +249,11 @@ public class StockDerivedDataRebuildService {
 
     /**
      * 重建单支股票在目标范围内的 feature。
+     * <p>
+     * 先构建 {@code [start-30天, start)} 的 warmup bar 只推进滚动窗口:
+     * warmup 不标记 REPAIRED_DATA_ONLY round、不写 target feature、不单独触发
+     * 月度重算,也不创建信号、batch、槽位、通知或开关变化;只有
+     * {@code [start, end)} 内的可用 bar 才物化并写出 feature。
      *
      * @param stock                股票
      * @param start                起始桶（含）

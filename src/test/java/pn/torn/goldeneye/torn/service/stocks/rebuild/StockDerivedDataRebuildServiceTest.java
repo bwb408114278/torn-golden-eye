@@ -36,7 +36,7 @@ import static org.mockito.Mockito.*;
  * 全范围派生数据重建服务单元测试。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 @ExtendWith(MockitoExtension.class)
@@ -76,8 +76,11 @@ class StockDerivedDataRebuildServiceTest {
     @DisplayName("成功路径_按分钟事实构建bar、标记REPAIRED_DATA_ONLY并调用月度范围重建")
     void rebuildRange_success_buildsBarAndMarksRound() {
         when(stocksDao.list()).thenReturn(List.of(stock()));
-        when(stocksHistoryDao.selectHistoryPointsRange(START, END))
-                .thenReturn(List.of(
+        when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenAnswer(invocation -> {
+            LocalDateTime queryStart = invocation.getArgument(0);
+            LocalDateTime queryEnd = invocation.getArgument(1);
+            if (queryStart.equals(START) && queryEnd.equals(END)) {
+                return List.of(
                         point(START.plusMinutes(5)),
                         point(START.plusMinutes(6)),
                         point(START.plusMinutes(7)),
@@ -87,7 +90,10 @@ class StockDerivedDataRebuildServiceTest {
                         point(START.plusMinutes(11)),
                         point(START.plusMinutes(12)),
                         point(START.plusMinutes(13)),
-                        point(START.plusMinutes(14))));
+                        point(START.plusMinutes(14)));
+            }
+            return List.of();
+        });
         when(bar15mDao.selectByStockAndTimeRange(eq(1), any(), any(), any()))
                 .thenReturn(List.of());
         when(roundDao.upsertRepairedDataOnlyRounds(any())).thenReturn(1);
@@ -201,6 +207,78 @@ class StockDerivedDataRebuildServiceTest {
         verify(roundDao, never()).updateById(any());
     }
 
+    @Test
+    @DisplayName("范围重建_先真实构建warmup bar_只对target写feature、round和月度")
+    void rebuildRange_buildsWarmupBarsBeforeTargetAndKeepsSideEffectsInTargetRange() {
+        when(stocksDao.list()).thenReturn(List.of(stock()));
+        LocalDateTime warmupStart = START.minusDays(30);
+        when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenAnswer(invocation -> {
+            LocalDateTime queryStart = invocation.getArgument(0);
+            LocalDateTime queryEnd = invocation.getArgument(1);
+            if (queryStart.equals(warmupStart) && queryEnd.equals(warmupStart.plusDays(1))) {
+                return List.of(
+                        point(warmupStart.plusMinutes(5)), point(warmupStart.plusMinutes(6)),
+                        point(warmupStart.plusMinutes(7)), point(warmupStart.plusMinutes(8)),
+                        point(warmupStart.plusMinutes(9)), point(warmupStart.plusMinutes(10)),
+                        point(warmupStart.plusMinutes(11)), point(warmupStart.plusMinutes(12)),
+                        point(warmupStart.plusMinutes(13)), point(warmupStart.plusMinutes(14)));
+            }
+            if (queryStart.equals(START) && queryEnd.equals(END)) {
+                return List.of(
+                        point(START.plusMinutes(5)), point(START.plusMinutes(6)),
+                        point(START.plusMinutes(7)), point(START.plusMinutes(8)),
+                        point(START.plusMinutes(9)), point(START.plusMinutes(10)),
+                        point(START.plusMinutes(11)), point(START.plusMinutes(12)),
+                        point(START.plusMinutes(13)), point(START.plusMinutes(14)));
+            }
+            return List.of();
+        });
+        when(bar15mDao.selectByStockAndTimeRange(eq(1), any(), eq(END), any()))
+                .thenReturn(List.of(
+                        bar(1, "TST", warmupStart, true),
+                        bar(1, "TST", START, true)));
+        when(roundDao.upsertRepairedDataOnlyRounds(any())).thenReturn(1);
+
+        StockDerivedDataRebuildResult result = service.rebuildRange(START, END);
+
+        assertTrue(result.isSuccess());
+        assertEquals(1, result.processedBucketCount(), "warmup桶不得计入目标processedBucketCount");
+        assertEquals(1, result.barWriteCount(), "结果bar写入数只统计target范围");
+        assertEquals(1, result.featureWriteCount());
+        assertEquals(1, result.repairedDataOnlyRoundCount());
+
+        ArgumentCaptor<LocalDateTime> historyStartCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> historyEndCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(stocksHistoryDao, atLeastOnce()).selectHistoryPointsRange(
+                historyStartCaptor.capture(), historyEndCaptor.capture());
+        List<LocalDateTime> historyStarts = historyStartCaptor.getAllValues();
+        List<LocalDateTime> historyEnds = historyEndCaptor.getAllValues();
+        assertTrue(historyStarts.contains(warmupStart));
+        assertTrue(historyEnds.contains(warmupStart.plusDays(1)));
+        assertTrue(historyStarts.contains(START));
+        assertTrue(historyEnds.contains(END));
+
+        ArgumentCaptor<List<TornStockMarketBar15mDO>> barCaptor = ArgumentCaptor.forClass(List.class);
+        verify(bar15mDao, atLeastOnce()).upsertBars(barCaptor.capture());
+        List<TornStockMarketBar15mDO> writtenBars = barCaptor.getAllValues().stream()
+                .flatMap(List::stream)
+                .toList();
+        assertTrue(writtenBars.stream().anyMatch(bar -> bar.getBarStartTime().equals(warmupStart)));
+
+        ArgumentCaptor<List<TornStockStrategyFeature15mDO>> featureCaptor = ArgumentCaptor.forClass(List.class);
+        verify(feature15mDao).upsertFeatures(featureCaptor.capture());
+        assertTrue(featureCaptor.getValue().stream()
+                .allMatch(feature -> !feature.getBarStartTime().isBefore(START)
+                        && feature.getBarStartTime().isBefore(END)));
+
+        ArgumentCaptor<List<TornStockMarketRoundDO>> roundCaptor = ArgumentCaptor.forClass(List.class);
+        verify(roundDao).upsertRepairedDataOnlyRounds(roundCaptor.capture());
+        assertTrue(roundCaptor.getValue().stream()
+                .allMatch(round -> !round.getRoundTime().isBefore(START)
+                        && round.getRoundTime().isBefore(END)));
+        verify(monthlyStateRangeRebuildService).rebuild(START, END);
+    }
+
     private TornStocksDO stock(int id, String shortname) {
         TornStocksDO stock = new TornStocksDO();
         stock.setId(id);
@@ -238,12 +316,5 @@ class StockDerivedDataRebuildServiceTest {
 
     private StockPricePoint point(LocalDateTime time) {
         return new StockPricePoint(null, 1, "TST", new BigDecimal("100.00"), null, time);
-    }
-
-    private TornStockMarketRoundDO persistedRound() {
-        TornStockMarketRoundDO round = new StockMarketRoundFactory()
-                .createRound(START, "PENDING");
-        round.setId(1L);
-        return round;
     }
 }

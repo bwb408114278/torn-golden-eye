@@ -1,24 +1,27 @@
 package pn.torn.goldeneye.torn.model.activity;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
  * 帮派活跃度对比热力图数据
  * <p>
- * 格内显示 {@code A人数/B人数}，背景使用人数差值着色。
+ * 格内显示 {@code A人数/B人数}（双方平均有效活跃人数），背景使用人数差值着色；
+ * Idle 不参与比较和色差，副标题注明该口径。
  *
  * @author Bai
- * @version 1.2.11
- * @since 2026.07.21
+ * @version 1.5.0
+ * @since 2026.07.08
  */
 @Data
-public class ActivityComparisonHeatmapVO {
+@EqualsAndHashCode(callSuper = false)
+public class ActivityComparisonHeatmapVO extends BaseActivityHeatmapVO {
     /**
      * 标题，固定为"帮派活跃度对比"
      */
     private String title;
     /**
-     * 副标题，格式：{@code 帮派A [ID] / 帮派B [ID]}
+     * 副标题第一行：双方名称与"仅对比有效活跃人数"口径说明
      */
     private String subtitle;
     /**
@@ -38,33 +41,17 @@ public class ActivityComparisonHeatmapVO {
      */
     private String faction2Name;
     /**
-     * 7×24 帮派A 平均在线人数矩阵 [dayOfWeek][hour]
+     * 7×24 帮派A 平均有效活跃人数矩阵 [dayOfWeek][hour]
      */
     private double[][] faction1AverageOnline;
     /**
-     * 7×24 帮派B 平均在线人数矩阵 [dayOfWeek][hour]
+     * 7×24 帮派B 平均有效活跃人数矩阵 [dayOfWeek][hour]
      */
     private double[][] faction2AverageOnline;
     /**
      * 7×24 共同有效采样标记矩阵 [dayOfWeek][hour]，true 表示双方均有有效观测
      */
     private boolean[][] bothObserved;
-    /**
-     * 查询天数
-     */
-    private int totalDays;
-    /**
-     * 数据是否充足（≥7 天）
-     */
-    private boolean dataSufficient;
-    /**
-     * 数据不足时的提示信息
-     */
-    private String insufficientMessage;
-    /**
-     * 总体覆盖率
-     */
-    private double coverage;
 
     /**
      * 创建空对比热力图
@@ -75,18 +62,16 @@ public class ActivityComparisonHeatmapVO {
      * @param faction2Name 帮派B 名称
      */
     public static ActivityComparisonHeatmapVO empty(long faction1Id, String faction1Name,
-                                                     long faction2Id, String faction2Name) {
+                                                    long faction2Id, String faction2Name) {
         ActivityComparisonHeatmapVO vo = new ActivityComparisonHeatmapVO();
         vo.title = "帮派活跃度对比";
         vo.faction1Id = faction1Id;
         vo.faction1Name = faction1Name;
         vo.faction2Id = faction2Id;
         vo.faction2Name = faction2Name;
-        vo.subtitle = faction1Name + " / " + faction2Name;
         vo.faction1AverageOnline = new double[7][24];
         vo.faction2AverageOnline = new double[7][24];
         vo.bothObserved = new boolean[7][24];
-        vo.dataSufficient = false;
         return vo;
     }
 }

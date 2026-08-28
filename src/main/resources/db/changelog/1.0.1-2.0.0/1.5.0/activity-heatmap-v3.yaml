@@ -1,0 +1,203 @@
+databaseChangeLog:
+  # ========== 活跃度热力图V3日终压缩归档 ==========
+  # V3口径(Online/recentAction=有效活跃, Idle-only降级为独立暗化证据)的长期留存:
+  # 个人一天最多一行(96bit位图), 帮派一天最多一行(96字节槽值), 禁止"用户×15分钟槽"逐行明细。
+  # 唯一约束支撑归档任务中断重试的幂等UPSERT; torn_activity_archive_day仅表达自然日完整归档完成。
+  - changeSet:
+      id: create_torn_activity_user_daily
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_activity_user_daily
+            remarks: "活跃度V3用户日终压缩归档(一个用户一天最多一行)"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID(应用层雪花ID)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  remarks: "Torn用户ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: activity_date
+                  type: DATE
+                  remarks: "活动自然日(Asia/Shanghai时区)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: observed_bitmap
+                  type: BYTEA
+                  remarks: "96位observed采样Bitmap(MSB-first位序,每15分钟一槽)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: active_bitmap
+                  type: BYTEA
+                  remarks: "96位有效活跃Bitmap(Online或15分钟内recentAction)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: idle_bitmap
+                  type: BYTEA
+                  remarks: "96位idle-only Bitmap(Idle且无近期动作)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: data_version
+                  type: VARCHAR(16)
+                  remarks: "数据版本,固定V3"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            remarks: "用户日包业务唯一索引(归档UPSERT幂等冲突目标)"
+            sql: CREATE UNIQUE INDEX uk_activity_user_daily_user_date ON torn_activity_user_daily (user_id, activity_date)
+        - sql:
+            remarks: "用户日包唯一索引注释"
+            sql: COMMENT ON INDEX uk_activity_user_daily_user_date IS '用户日包业务唯一索引(归档UPSERT幂等冲突目标)'
+      rollback:
+        - sql:
+            sql: DROP TABLE IF EXISTS torn_activity_user_daily
+  - changeSet:
+      id: create_torn_activity_faction_daily
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_activity_faction_daily
+            remarks: "活跃度V3帮派日终压缩归档(一个帮派一天最多一行)"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID(应用层雪花ID)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  remarks: "Torn帮派ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: activity_date
+                  type: DATE
+                  remarks: "活动自然日(Asia/Shanghai时区)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: observed_bitmap
+                  type: BYTEA
+                  remarks: "96位成功采样标记Bitmap(MSB-first位序,每15分钟一槽)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: active_counts
+                  type: BYTEA
+                  remarks: "96字节有效活跃人数槽值(每槽无符号字节)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: idle_counts
+                  type: BYTEA
+                  remarks: "96字节idle-only人数槽值(每槽无符号字节)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: member_counts
+                  type: BYTEA
+                  remarks: "96字节有效成员数槽值(每槽无符号字节)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: data_version
+                  type: VARCHAR(16)
+                  remarks: "数据版本,固定V3"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: INTEGER
+                  defaultValueNumeric: "0"
+                  remarks: "逻辑删除标识"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  remarks: "创建时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  remarks: "更新时间"
+                  constraints:
+                    nullable: false
+        - sql:
+            remarks: "帮派日包业务唯一索引(归档UPSERT幂等冲突目标)"
+            sql: CREATE UNIQUE INDEX uk_activity_faction_daily_faction_date ON torn_activity_faction_daily (faction_id, activity_date)
+        - sql:
+            remarks: "帮派日包唯一索引注释"
+            sql: COMMENT ON INDEX uk_activity_faction_daily_faction_date IS '帮派日包业务唯一索引(归档UPSERT幂等冲突目标)'
+      rollback:
+        - sql:
+            sql: DROP TABLE IF EXISTS torn_activity_faction_daily"
+  - changeSet:
+      id: create_torn_activity_archive_day
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_activity_archive_day
+            remarks: 活跃度V3自然日完整归档完成标记
+            columns:
+              - column:
+                  name: activity_date
+                  type: DATE
+                  remarks: "已完成归档的Asia/Shanghai自然日"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: data_version
+                  type: VARCHAR(16)
+                  remarks: "数据版本,固定V3"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: archived_at
+                  type: TIMESTAMP
+                  remarks: "归档完成的本地审计时间"
+                  constraints:
+                    nullable: false
+      rollback:
+        - sql:
+            sql: DROP TABLE IF EXISTS torn_activity_archive_day

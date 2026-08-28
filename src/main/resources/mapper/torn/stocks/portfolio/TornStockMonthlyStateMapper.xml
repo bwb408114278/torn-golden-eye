@@ -48,7 +48,7 @@
         ON CONFLICT (stocks_id, effective_month) WHERE deleted = 0 DO NOTHING
     </insert>
 
-    <!-- 批量查询每支股票最近一个更早生效月份且已确认的月度状态 -->
+    <!-- 批量查询每支股票最近一个更早生效月份且已确认的月度状态(严格版本隔离:规则版本精确匹配) -->
     <select id="selectPreviousConfirmedByStocks" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO">
         SELECT s.*
         FROM (
@@ -64,6 +64,8 @@
             </foreach>
               AND ms.effective_month <![CDATA[<]]> #{targetMonth}
               AND ms.state_status = 'CONFIRMED'
+              AND ms.personality_rule_version = #{personalityRuleVersion}
+              AND ms.risk_rule_version = #{riskRuleVersion}
               AND ms.deleted = 0
         ) s
         WHERE row_num = 1
@@ -96,8 +98,8 @@
              CAST(#{state.suggestedPersonality} AS VARCHAR(32)),
              CAST(#{state.previousPersonality} AS VARCHAR(32)),
              CAST(#{state.metricSnapshot} AS JSONB),
-             CAST(#{state.personalityRuleVersion} AS VARCHAR(32)),
-             CAST(#{state.riskRuleVersion} AS VARCHAR(32)),
+             CAST(#{state.personalityRuleVersion} AS VARCHAR(64)),
+             CAST(#{state.riskRuleVersion} AS VARCHAR(64)),
              CAST(#{state.evidenceStartTime} AS TIMESTAMP),
              CAST(#{state.evidenceEndTime} AS TIMESTAMP),
              CAST(#{state.calculatedAt} AS TIMESTAMP))

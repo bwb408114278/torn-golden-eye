@@ -42,7 +42,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
  * 证据不完整的股票保持DRAFT且{@code strategyFitPrior/riskLevel}为空,禁止默认STEADY/NONE。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.07.25
  */
 @Slf4j
@@ -475,7 +475,10 @@ public class StockMonthlyStateInitService {
     }
 
     /**
-     * 批量加载每支股票最近更早CONFIRMED月度状态(迟滞参考)。
+     * 批量加载每支股票最近更早CONFIRMED月度状态(迟滞参考,严格版本隔离)。
+     * <p>
+     * 传入当前V2双规则版本做SQL精确过滤,2026-03首月无更早V2 CONFIRMED时
+     * previous=null;V1 CONFIRMED不作为V2迟滞输入,SQL侧不得回退任意旧版本。
      *
      * @param stockIds       股票ID列表
      * @param effectiveMonth 生效月份
@@ -484,7 +487,9 @@ public class StockMonthlyStateInitService {
     private Map<Integer, TornStockMonthlyStateDO> loadPreviousByStocks(List<Integer> stockIds,
                                                                        LocalDate effectiveMonth) {
         List<TornStockMonthlyStateDO> previous = monthlyStateDao.selectPreviousConfirmedByStocks(
-                stockIds, effectiveMonth);
+                stockIds, effectiveMonth,
+                StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION,
+                StockMonthlyStateCalculator.RISK_RULE_VERSION);
         if (CollectionUtils.isEmpty(previous)) {
             return Map.of();
         }

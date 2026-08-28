@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
 
+import java.util.List;
+
 /**
  * 月度状态证据指标 - 由可用15分钟bar按冻结公式计算得到的不可变指标集合。
  * <p>
@@ -20,8 +22,13 @@ package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
  * @param negativeMonthRatio     负月变化占比(无月变化时为空)
  * @param negativeMonthStreak    自最后一个完整自然月向前连续负变化月数
  * @param completeMonthCount     证据窗口内完整覆盖的自然月数
- * @param usableBarCoverage      可用bar数/期望15分钟桶数
- * @param maxMissingBucketGap    相邻可用bar最大间隔(分钟)
+ * @param usableBarCoverage      调整后可用bar覆盖率(扣除已审批排除桶,用于完整性判定)
+ * @param maxMissingBucketGap    调整后相邻可用bar最大间隔分钟数(扣除已审批排除重叠,用于完整性判定)
+ * @param rawUsableBarCoverage   原始可用bar覆盖率(不扣除排除窗口)
+ * @param rawMaxMissingBucketGap 原始相邻可用bar最大间隔分钟数(不扣除排除窗口)
+ * @param excludedBucketCount    证据区间内已审批排除窗口相交的完整15分钟桶数
+ * @param excludedMinutes        证据区间内已审批排除窗口相交分钟数
+ * @param appliedExclusionIds    实际相交的排除窗口ID(不可变、有序)
  * @param dailyCloseCount        有可用bar的自然日数(日级趋势样本数)
  * @param highVotes              HIGH风险票数(H1-H4命中数)
  * @param mediumVotes            MEDIUM风险票数(M1-M6命中数)
@@ -39,7 +46,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
  * @param complete               数据完整性是否满足月度确认最低要求
  * @param incompleteReason       不完整原因编码(完整时为空)
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.08.06
  */
 public record StockMonthlyEvidenceMetrics(
@@ -58,6 +65,11 @@ public record StockMonthlyEvidenceMetrics(
         int completeMonthCount,
         double usableBarCoverage,
         long maxMissingBucketGap,
+        double rawUsableBarCoverage,
+        long rawMaxMissingBucketGap,
+        long excludedBucketCount,
+        long excludedMinutes,
+        List<String> appliedExclusionIds,
         int dailyCloseCount,
         int highVotes,
         int mediumVotes,

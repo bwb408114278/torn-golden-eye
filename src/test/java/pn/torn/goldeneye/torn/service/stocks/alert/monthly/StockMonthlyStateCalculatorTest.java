@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 风险投票与迟滞、NARROW↔RANGING迟滞及系统确认语义。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.4.8
  * @since 2026.08.06
  */
 @DisplayName("月度状态纯计算器测试")
@@ -305,6 +305,57 @@ class StockMonthlyStateCalculatorTest {
         assertTrue(draft.metricSnapshot().contains("mediumVotes"));
         assertTrue(draft.metricSnapshot().contains("hysteresisReason"));
         assertTrue(draft.metricSnapshot().contains("usableBarCoverage"));
+        assertTrue(draft.metricSnapshot().contains("rawUsableBarCoverage"),
+                "V2完整快照必须包含raw覆盖率");
+        assertTrue(draft.metricSnapshot().contains("rawMaxMissingBucketGap"),
+                "V2完整快照必须包含raw最大间隔");
+        assertTrue(draft.metricSnapshot().contains("excludedBucketCount"),
+                "V2完整快照必须包含排除桶数");
+        assertTrue(draft.metricSnapshot().contains("excludedMinutes"),
+                "V2完整快照必须包含排除分钟数");
+        assertTrue(draft.metricSnapshot().contains("appliedExclusionIds"),
+                "V2完整快照必须包含排除ID");
+    }
+
+    @Test
+    @DisplayName("版本_ 完整草稿使用V2双规则版本")
+    void version_completeDraft_usesV2RuleVersions() {
+        LocalDateTime end = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime start = end.minusDays(365);
+        List<TornStockMarketBar15mDO> bars = buildBars(start, end, 1.0, 2.0);
+        StockMonthlyStateDraft draft = calculator.calculate(
+                STOCKS_ID, SHORTNAME, MONTH, start, end, bars, null);
+        assertEquals("PERSONALITY_RULE_V2_OUTAGE_EXCLUSION",
+                StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION);
+        assertEquals("RISK_RULE_V2_OUTAGE_EXCLUSION",
+                StockMonthlyStateCalculator.RISK_RULE_VERSION);
+        assertTrue(draft.complete(), "365天连续上涨证据应完整");
+    }
+
+    @Test
+    @DisplayName("豁免_ 非豁免135分钟gap仍DRAFT且风格风险为空")
+    void waiver_unrelatedGap_stillIncompleteDraft() {
+        // 135分钟真实gap(2026-05-10 10:00→12:15)不跨任何已审批窗口: 完整性必须仍不通过
+        List<TornStockMarketBar15mDO> bars = new ArrayList<>();
+        LocalDateTime cursor = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime gapStart = LocalDateTime.of(2026, 5, 10, 10, 0);
+        LocalDateTime gapEnd = LocalDateTime.of(2026, 5, 10, 12, 15);
+        while (!cursor.isAfter(gapStart)) {
+            bars.add(buildBar(cursor, 1.0));
+            cursor = cursor.plusMinutes(15);
+        }
+        cursor = gapEnd;
+        LocalDateTime end = LocalDateTime.of(2026, 7, 1, 0, 0);
+        while (!cursor.isAfter(end)) {
+            bars.add(buildBar(cursor, 1.0));
+            cursor = cursor.plusMinutes(15);
+        }
+        StockMonthlyStateDraft draft = calculator.calculate(
+                STOCKS_ID, SHORTNAME, MONTH,
+                LocalDateTime.of(2026, 1, 1, 0, 0), end, bars, null);
+        assertFalse(draft.complete(), "非豁免135分钟gap不得被V2豁免");
+        assertNull(draft.strategyFitPrior(), "非豁免缺口仍保持风格为空");
+        assertNull(draft.riskLevel(), "非豁免缺口仍保持风险为空");
     }
 
     // ==================== 辅助方法 ====================

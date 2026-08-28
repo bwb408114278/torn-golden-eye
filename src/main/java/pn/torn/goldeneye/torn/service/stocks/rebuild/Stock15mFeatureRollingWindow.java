@@ -22,7 +22,7 @@ import java.util.Deque;
  * scale=18、HALF_UP 语义。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.4.8
  * @since 2026.08.23
  */
 public final class Stock15mFeatureRollingWindow {
@@ -166,21 +166,27 @@ public final class Stock15mFeatureRollingWindow {
     }
 
     /**
-     * 最近 30 日窗口最低价（历史不足时取全部已有 bar）。
+     * 最近 30 日窗口最低价;预热不足 {@code BARS_30D} 条时 30 日条件字段必须为 {@code null}。
      *
-     * @return 最低价；窗口为空时返回 {@code null}
+     * @return 最低价;窗口为空或预热不足30日时返回 {@code null}
      */
     public BigDecimal low30d() {
+        if (size < Stock15mFeatureBuildService.BARS_30D) {
+            return null;
+        }
         TornStockMarketBar15mDO bar = lowDeque.peekFirst();
         return bar == null ? null : bar.getLastPrice();
     }
 
     /**
-     * 最近 30 日窗口最高价（历史不足时取全部已有 bar）。
+     * 最近 30 日窗口最高价;预热不足 {@code BARS_30D} 条时 30 日条件字段必须为 {@code null}。
      *
-     * @return 最高价；窗口为空时返回 {@code null}
+     * @return 最高价;窗口为空或预热不足30日时返回 {@code null}
      */
     public BigDecimal high30d() {
+        if (size < Stock15mFeatureBuildService.BARS_30D) {
+            return null;
+        }
         TornStockMarketBar15mDO bar = highDeque.peekFirst();
         return bar == null ? null : bar.getLastPrice();
     }
