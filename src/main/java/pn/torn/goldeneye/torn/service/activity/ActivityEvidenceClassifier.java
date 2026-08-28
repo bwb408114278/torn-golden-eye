@@ -6,17 +6,20 @@ import pn.torn.goldeneye.torn.model.activity.ActivityEvidence;
 import pn.torn.goldeneye.torn.model.user.TornUserLastActionVO;
 
 /**
- * 活跃度双证据 OR 判定纯函数
+ * 活跃度V3互斥证据判定纯函数
  * <p>
- * 不使用单一 status 或单一 timestamp，而是将两者作为 OR 证据：
+ * 以单个成员、单个15分钟采样槽为单位产出互斥分类：
  * <pre>
- * statusActive = status 为 Online 或 Idle
- * recentAction = 0 &lt;= collectedAt - lastAction.Timestamp &lt; 15分钟
- * estimatedActive = statusActive OR recentAction
+ * recentAction   = 0 &lt;= collectedAt - lastAction.timestamp &lt; 15分钟
+ * onlineActive   = last_action.status 为 Online（忽略大小写和首尾空白）
+ * effectiveActive = onlineActive OR recentAction
+ * idleOnly       = last_action.status 为 Idle AND !recentAction
  * </pre>
+ * {@code Idle + recentAction}归入有效活跃；{@code Offline + recentAction}保留对隐藏状态的兼容；
+ * {@code last_action}缺失、时间戳为0/负数/未来、未知状态均不构成active或idle，但成员仍是observed。
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.5.0
  * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -34,37 +37,44 @@ public final class ActivityEvidenceClassifier {
 
 
     /**
-     * 根据成员的 last_action 信息和采集时间，判定活跃状态证据
+     * 根据成员的 last_action 信息和采集时间，判定V3互斥活跃证据
      *
      * @param lastAction             成员的 last_action 信息，可为 null
      * @param collectedAtEpochSecond 采集时刻的 epoch 秒
-     * @return 活跃度证据判定结果
+     * @return V3互斥证据判定结果
      */
     public static ActivityEvidence classifyActivity(
             TornUserLastActionVO lastAction,
             long collectedAtEpochSecond) {
         if (lastAction == null) {
-            return new ActivityEvidence(false, false, false);
+            return new ActivityEvidence(false, false, false, false);
         }
 
-        boolean statusActive = isStatusActive(lastAction.getStatus());
         boolean recentAction = isRecentAction(lastAction.getTimestamp(), collectedAtEpochSecond);
-        boolean estimatedActive = statusActive || recentAction;
-        return new ActivityEvidence(statusActive, recentAction, estimatedActive);
+        boolean onlineActive = isOnlineStatus(lastAction.getStatus());
+        boolean idleOnly = isIdleStatus(lastAction.getStatus()) && !recentAction;
+        boolean effectiveActive = onlineActive || recentAction;
+        return new ActivityEvidence(onlineActive, recentAction, idleOnly, effectiveActive);
     }
 
     /**
-     * 判断 last_action.status 是否为活跃在线状态（Online 或 Idle）
+     * 判断 last_action.status 是否为 Online（忽略大小写和首尾空白）
      *
      * @param status last_action.status 原始值
-     * @return true 表示 Online 或 Idle
+     * @return true 表示 Online
      */
-    static boolean isStatusActive(String status) {
-        if (status == null || status.isBlank()) {
-            return false;
-        }
-        String trimmed = status.trim();
-        return "Online".equalsIgnoreCase(trimmed) || "Idle".equalsIgnoreCase(trimmed);
+    static boolean isOnlineStatus(String status) {
+        return equalsTrimmedIgnoreCase(status, "Online");
+    }
+
+    /**
+     * 判断 last_action.status 是否为 Idle（忽略大小写和首尾空白）
+     *
+     * @param status last_action.status 原始值
+     * @return true 表示 Idle
+     */
+    static boolean isIdleStatus(String status) {
+        return equalsTrimmedIgnoreCase(status, "Idle");
     }
 
     /**
@@ -73,7 +83,7 @@ public final class ActivityEvidenceClassifier {
      * 条件：{@code 0 <= collectedAt - timestamp < 15分钟}。
      * <ul>
      *   <li>timestamp 为 0 或负数 -> 不活跃</li>
-     *   <li>timestamp 轻微领先本机时间 -> 不活跃（禁止未来时间戳永久活跃）</li>
+     *   <li>timestamp 轻微领先本机时间 -> 不活跃（禁止未来时间戳永久活跃，fail-closed）</li>
      *   <li>timestamp 明显异常（远超当前时间）-> 不活跃</li>
      * </ul>
      *
@@ -87,5 +97,16 @@ public final class ActivityEvidenceClassifier {
         }
         long diff = collectedAtEpochSecond - timestamp;
         return diff >= 0 && diff < RECENT_ACTION_WINDOW_SECONDS;
+    }
+
+    /**
+     * 状态串忽略首尾空白和大小写比较
+     *
+     * @param status   last_action.status 原始值
+     * @param expected 期望状态字面量
+     * @return true 表示语义相等
+     */
+    private static boolean equalsTrimmedIgnoreCase(String status, String expected) {
+        return status != null && !status.isBlank() && expected.equalsIgnoreCase(status.trim());
     }
 }

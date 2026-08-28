@@ -17,7 +17,9 @@ import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.InitOrderConstants;
 import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.activity.ActivityEvidence;
 import pn.torn.goldeneye.torn.model.activity.TornFactionHofDTO;
 import pn.torn.goldeneye.torn.model.activity.TornFactionHofVO;
@@ -40,11 +42,13 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * 活跃度数据采集服务
  * <p>
- * 每日 6:00 通过动态定时任务刷新黄金+帮派列表并存储成员到 Redis，
- * 每 15 分钟轮询帮派成员 last_action 时间戳写入 Redis V2 Bitmap。
+ * 每日 6:00 通过动态定时任务刷新黄金+帮派列表，与{@code torn_setting_faction}有效配置帮派
+ * 按 ID 并集后发布采集名单并存储成员到 Redis；
+ * 每 15 分钟轮询帮派成员 last_action 时间戳写入 Redis V3 Bitmap（active/idle互斥三态），
+ * 并在同一 Pipeline 写入日终归档索引 Set。不再写 V2 新数据，V2 Key 仅保留查询端兼容读取。
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.5.0
  * @since 2026.07.07
  */
 @Slf4j
@@ -56,13 +60,14 @@ public class TornActivityCollectService {
     private final DynamicTaskService taskService;
     private final SysSettingManager settingManager;
     private final ProjectProperty projectProperty;
+    private final TornSettingFactionManager settingFactionManager;
     @Qualifier("activityCollectExecutor")
     private final SimpleAsyncTaskExecutor executor;
 
     /**
-     * 热力图产品时区
+     * 热力图产品时区（采集、归档与查询范围解析共用）
      */
-    static final ZoneId HEATMAP_ZONE = ZoneId.of("Asia/Shanghai");
+    public static final ZoneId HEATMAP_ZONE = ZoneId.of("Asia/Shanghai");
 
     private static final String REDIS_MEMBERS_PREFIX = "faction:members:";
     private static final int COLLECTION_BATCH_SIZE = 50;
@@ -71,30 +76,40 @@ public class TornActivityCollectService {
     private static final String REDIS_TRACKED_FACTIONS_KEY = "faction:tracked";
     private static final int TRACKED_FACTIONS_TTL_DAYS = 7;
 
+    /**
+     * 最近一次成功 HoF 刷新的 Gold+ 帮派 ID 来源；刷新失败时保留
+     */
+    private final AtomicReference<List<Long>> goldPlusFactionIds = new AtomicReference<>(List.of());
+    /**
+     * 发布的采集帮派并集名单（Gold+ ∪ 有效配置帮派），不可变
+     */
     private final AtomicReference<List<Long>> trackedFactionIds = new AtomicReference<>(List.of());
     private final AtomicBoolean collecting = new AtomicBoolean(false);
 
     /**
      * 创建活跃度采集服务。
      *
-     * @param tornApi         Torn API 客户端
-     * @param redisTemplate   Redis 操作模板
-     * @param taskService     动态任务服务
-     * @param settingManager  系统设置管理器
-     * @param projectProperty 项目配置
-     * @param executor        活跃度采集专用执行器
+     * @param tornApi              Torn API 客户端
+     * @param redisTemplate        Redis 操作模板
+     * @param taskService          动态任务服务
+     * @param settingManager       系统设置管理器
+     * @param projectProperty      项目配置
+     * @param settingFactionManager 帮派配置管理器（提供有效配置帮派来源）
+     * @param executor             活跃度采集专用执行器
      */
     public TornActivityCollectService(TornApi tornApi,
                                       StringRedisTemplate redisTemplate,
                                       DynamicTaskService taskService,
                                       SysSettingManager settingManager,
                                       ProjectProperty projectProperty,
+                                      TornSettingFactionManager settingFactionManager,
                                       @Qualifier("activityCollectExecutor") SimpleAsyncTaskExecutor executor) {
         this.tornApi = tornApi;
         this.redisTemplate = redisTemplate;
         this.taskService = taskService;
         this.settingManager = settingManager;
         this.projectProperty = projectProperty;
+        this.settingFactionManager = settingFactionManager;
         this.executor = executor;
     }
 
@@ -162,25 +177,32 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 刷新黄金+帮派列表（获取帮派ID列表 + 帮派名称缓存）
+     * 刷新帮派采集名单：更新 Gold+ 来源、合并有效配置帮派并集、刷新名称缓存
+     * <p>
+     * HoF 刷新失败或空响应时保留上次成功 Gold+ 来源，仍实时读取配置来源合并，
+     * 已配置低段位帮派不因 HoF 失败停止采集。
      */
     public void refreshFactionList() {
         log.info("开始刷新帮派列表...");
 
         List<TornFactionHofVO.FactionHofEntry> entries = fetchGoldPlusEntries();
+        List<TornFactionHofVO.FactionHofEntry> hofNameEntries;
         if (entries.isEmpty()) {
-            log.warn("帮派列表刷新失败，保持现有列表");
-            scheduleNextRefresh();
-            return;
+            log.warn("帮派列表刷新失败，保持现有 Gold+ 来源");
+            hofNameEntries = List.of();
+        } else {
+            goldPlusFactionIds.set(entries.stream().map(TornFactionHofVO.FactionHofEntry::getId).toList());
+            hofNameEntries = entries;
         }
 
-        List<Long> factions = entries.stream().map(TornFactionHofVO.FactionHofEntry::getId).toList();
-        trackedFactionIds.set(new ArrayList<>(factions));
+        List<TornSettingFactionDO> settingFactions = settingFactionManager.getList();
+        List<Long> merged = mergeTrackedFactionIds(goldPlusFactionIds.get(), settingFactions);
+        trackedFactionIds.set(merged);
 
         // 持久化帮派列表到 Redis，重启后可恢复（Redis 异常不影响核心流程）
         try {
-            persistFactionListToRedis(factions);
-            persistFactionNamesToRedis(entries);
+            persistFactionListToRedis(merged);
+            persistFactionNamesToRedis(hofNameEntries, settingFactions);
         } catch (Exception e) {
             log.warn("帮派列表持久化到 Redis 失败: {}", e.getMessage());
         }
@@ -238,20 +260,46 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 将帮派名称批量写入 V2 名称缓存 Hash
+     * 将帮派名称批量写入名称缓存 Hash：先写 HoF 名称，再以配置表名称补充；
+     * 配置表由运维维护视为更可靠来源，与 HoF 重叠时覆盖
      *
-     * @param entries 黄金+帮派条目列表
+     * @param hofEntries      本轮 HoF 黄金+帮派条目列表（失败时为空列表）
+     * @param settingFactions 当前有效配置帮派列表
      */
-    private void persistFactionNamesToRedis(List<TornFactionHofVO.FactionHofEntry> entries) {
-        Map<String, String> nameMap = HashMap.newHashMap(entries.size());
-        for (TornFactionHofVO.FactionHofEntry e : entries) {
+    private void persistFactionNamesToRedis(List<TornFactionHofVO.FactionHofEntry> hofEntries,
+                                            List<TornSettingFactionDO> settingFactions) {
+        Map<String, String> nameMap = HashMap.newHashMap(hofEntries.size() + settingFactions.size());
+        for (TornFactionHofVO.FactionHofEntry e : hofEntries) {
             if (e.getName() != null && !e.getName().isBlank()) {
                 nameMap.put(ActivityRedisKeys.factionNameField(e.getId()), e.getName());
+            }
+        }
+        for (TornSettingFactionDO setting : settingFactions) {
+            if (setting.getFactionName() != null && !setting.getFactionName().isBlank()) {
+                nameMap.put(ActivityRedisKeys.factionNameField(setting.getId()), setting.getFactionName());
             }
         }
         if (!nameMap.isEmpty()) {
             redisTemplate.opsForHash().putAll(ActivityRedisKeys.FACTION_NAME_CACHE_KEY, nameMap);
         }
+    }
+
+    /**
+     * 按帮派 ID 去重并排序，合并 Gold+ 来源与有效配置帮派来源
+     *
+     * @param goldPlusIds     最近一次成功 HoF 刷新的 Gold+ 帮派 ID 集合
+     * @param settingFactions 当前有效配置帮派列表
+     * @return 去重升序的不可变采集名单
+     */
+    static List<Long> mergeTrackedFactionIds(List<Long> goldPlusIds, List<TornSettingFactionDO> settingFactions) {
+        TreeSet<Long> mergedIds = new TreeSet<>(goldPlusIds);
+        if (!CollectionUtils.isEmpty(settingFactions)) {
+            settingFactions.stream()
+                    .map(TornSettingFactionDO::getId)
+                    .filter(Objects::nonNull)
+                    .forEach(mergedIds::add);
+        }
+        return List.copyOf(mergedIds);
     }
 
     /**
@@ -314,9 +362,11 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 采集单个帮派成员的活跃度，将双证据 V2 Bitmap 和帮派聚合快照写入 Redis，并同步更新成员列表缓存
+     * 采集单个帮派成员的活跃度，将 V3 三态 Bitmap、帮派聚合快照和日终归档索引写入 Redis，
+     * 并同步更新成员列表缓存
      * <p>
-     * 所有 Redis 写操作通过单个 Pipeline 批量提交，将 N 次网络往返压缩为 1 次。
+     * 所有 Redis 写操作通过单个 Pipeline 批量提交，将 N 次网络往返压缩为 1 次；
+     * API 失败时不写任何 observed、归档索引与成员快照。
      *
      * @param factionId 帮派 ID
      */
@@ -361,24 +411,22 @@ public class TornActivityCollectService {
     /**
      * 采集预计算上下文，避免在 Pipeline lambda 中重复流操作
      *
-     * @param allMemberIds         全部有效成员 ID
-     * @param statusActiveUserIds  status 为 Online/Idle 的成员 ID
-     * @param recentActionUserIds  最近 15 分钟有动作的成员 ID
-     * @param userNameMap          用户名称映射
-     * @param estimatedActiveCount 估算活跃人数（statusActive 与 recentAction 按用户 ID 并集去重）
-     * @param today                今天日期
-     * @param slot                 当前槽位
-     * @param bitmapTtl            Bitmap TTL
-     * @param membersTtl           成员集合 TTL
-     * @param temporaryMembersKey  临时成员集合 key
-     * @param membersKey           成员集合 key
+     * @param allMemberIds     全部有效成员 ID
+     * @param activeUserIds    有效活跃（Online 或 15 分钟内动作）的成员 ID
+     * @param idleOnlyUserIds  idle-only（Idle 且无近期动作）的成员 ID
+     * @param userNameMap      用户名称映射
+     * @param today            今天日期
+     * @param slot             当前槽位
+     * @param bitmapTtl        Bitmap TTL
+     * @param membersTtl       成员集合 TTL
+     * @param temporaryMembersKey 临时成员集合 key
+     * @param membersKey       成员集合 key
      */
     private record CollectionContext(
             List<Long> allMemberIds,
-            List<Long> statusActiveUserIds,
-            List<Long> recentActionUserIds,
+            List<Long> activeUserIds,
+            List<Long> idleOnlyUserIds,
             Map<String, String> userNameMap,
-            int estimatedActiveCount,
             LocalDate today,
             int slot,
             Duration bitmapTtl,
@@ -418,8 +466,8 @@ public class TornActivityCollectService {
     private CollectionContext prepareCollectionContext(
             TornFactionMemberListVO resp, CollectionMetadata metadata) {
         List<Long> allMemberIds = new ArrayList<>();
-        List<Long> statusActiveUserIds = new ArrayList<>();
-        List<Long> recentActionUserIds = new ArrayList<>();
+        List<Long> activeUserIds = new ArrayList<>();
+        List<Long> idleOnlyUserIds = new ArrayList<>();
         Map<String, String> userNameMap = HashMap.newHashMap(resp.getMembers().size());
 
         for (TornFactionMemberVO m : resp.getMembers()) {
@@ -435,58 +483,62 @@ public class TornActivityCollectService {
 
             ActivityEvidence evidence = ActivityEvidenceClassifier.classifyActivity(
                     m.getLastAction(), metadata.collectedAtEpochSecond());
-            if (evidence.statusActive()) {
-                statusActiveUserIds.add(userId);
+            if (evidence.effectiveActive()) {
+                activeUserIds.add(userId);
             }
-            if (evidence.recentAction()) {
-                recentActionUserIds.add(userId);
+            if (evidence.idleOnly()) {
+                idleOnlyUserIds.add(userId);
             }
         }
 
-        int estimatedActiveCount = countEstimatedActiveUsers(statusActiveUserIds, recentActionUserIds);
-        return new CollectionContext(allMemberIds, statusActiveUserIds, recentActionUserIds,
-                userNameMap, estimatedActiveCount, metadata.today(), metadata.slot(),
+        return new CollectionContext(allMemberIds, activeUserIds, idleOnlyUserIds,
+                userNameMap, metadata.today(), metadata.slot(),
                 metadata.bitmapTtl(), metadata.membersTtl(), metadata.temporaryMembersKey(),
                 metadata.membersKey());
     }
 
     /**
-     * 单个 Pipeline 批量提交所有 Redis 写命令
+     * 单个 Pipeline 批量提交所有 V3 Redis 写命令
      *
      * @param factionId 帮派 ID
      * @param ctx       采集上下文（含日期、槽位、TTL、key 等全部信息）
      */
     private void executeRedisPipeline(long factionId, CollectionContext ctx) {
-        byte[] onlineCountBytes = encodeSlotValue(ctx.estimatedActiveCount());
+        byte[] activeCountBytes = encodeSlotValue(ctx.activeUserIds().size());
+        byte[] idleCountBytes = encodeSlotValue(ctx.idleOnlyUserIds().size());
         byte[] memberCountBytes = encodeSlotValue(ctx.allMemberIds().size());
         String[] memberIdArray = ctx.allMemberIds().stream().map(String::valueOf).toArray(String[]::new);
 
         redisTemplate.executePipelined((RedisCallback<Object>) conn -> {
-            // 1. V2 个人维度：每个有效成员写 observed Bitmap
+            // 1. V3 个人维度：每个有效成员写 observed Bitmap
             for (Long userId : ctx.allMemberIds()) {
-                byte[] key = ActivityRedisKeys.userObserved(userId, ctx.today()).getBytes(StandardCharsets.UTF_8);
+                byte[] key = ActivityRedisKeys.v3UserObserved(userId, ctx.today())
+                        .getBytes(StandardCharsets.UTF_8);
                 conn.stringCommands().setBit(key, ctx.slot(), true);
                 conn.keyCommands().expire(key, ctx.bitmapTtl().toSeconds());
             }
 
-            // 2. V2 个人维度：status-active Bitmap
-            writeBitmapSlot(conn, ctx.allMemberIds(), ctx.statusActiveUserIds(),
+            // 2. V3 个人维度：有效活跃 Bitmap（显式布尔状态支持同槽重采清除旧 true 位）
+            writeBitmapSlot(conn, ctx.allMemberIds(), ctx.activeUserIds(),
                     ctx.today(), ctx.slot(), ctx.bitmapTtl(),
-                    ActivityRedisKeys::userStatusActive);
+                    ActivityRedisKeys::v3UserActive);
 
-            // 3. V2 个人维度：recent-action Bitmap
-            writeBitmapSlot(conn, ctx.allMemberIds(), ctx.recentActionUserIds(),
+            // 3. V3 个人维度：idle-only Bitmap
+            writeBitmapSlot(conn, ctx.allMemberIds(), ctx.idleOnlyUserIds(),
                     ctx.today(), ctx.slot(), ctx.bitmapTtl(),
-                    ActivityRedisKeys::userRecentAction);
+                    ActivityRedisKeys::v3UserIdle);
 
-            // 4. V2 帮派维度：online-count / member-count / observed
+            // 4. V3 帮派维度：active/idle/member 槽值与 observed Bitmap
             writeFactionSlot(conn, factionId, ctx.today(), ctx.slot(), ctx.bitmapTtl(),
-                    onlineCountBytes, memberCountBytes);
+                    activeCountBytes, idleCountBytes, memberCountBytes);
 
-            // 5. V2 名称缓存：用户名
+            // 5. V3 日终归档索引：当日 observed 用户集与成功采集帮派集
+            writeArchiveIndex(conn, factionId, ctx);
+
+            // 6. 名称缓存：用户名
             writeUserNameCache(conn, ctx.userNameMap());
 
-            // 6. 通过临时集合原子替换成员快照，避免查询端观察到空集合
+            // 7. 通过临时集合原子替换成员快照，避免查询端观察到空集合
             replaceMemberSnapshot(conn, memberIdArray, ctx.temporaryMembersKey(),
                     ctx.membersKey(), ctx.membersTtl());
             return null;
@@ -498,17 +550,17 @@ public class TornActivityCollectService {
      *
      * @param conn          Redis 连接
      * @param allMemberIds  全部有效成员 ID
-     * @param activeUserIds 当前证据成立的用户 ID
+     * @param evidenceUserIds 当前证据成立的用户 ID
      * @param today         今天日期
      * @param slot          槽位
      * @param bitmapTtl     Bitmap TTL
      * @param keyBuilder    key 构造函数
      */
     private void writeBitmapSlot(org.springframework.data.redis.connection.RedisConnection conn,
-                                 List<Long> allMemberIds, List<Long> activeUserIds,
+                                 List<Long> allMemberIds, List<Long> evidenceUserIds,
                                  LocalDate today, int slot, Duration bitmapTtl,
                                  java.util.function.BiFunction<Long, LocalDate, String> keyBuilder) {
-        for (Map.Entry<Long, Boolean> state : buildEvidenceStates(allMemberIds, activeUserIds).entrySet()) {
+        for (Map.Entry<Long, Boolean> state : buildEvidenceStates(allMemberIds, evidenceUserIds).entrySet()) {
             Long userId = state.getKey();
             byte[] key = keyBuilder.apply(userId, today).getBytes(StandardCharsets.UTF_8);
             conn.stringCommands().setBit(key, slot, state.getValue());
@@ -517,33 +569,63 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 写入帮派维度槽数据
+     * 写入 V3 帮派维度槽数据
      *
      * @param conn             Redis 连接
      * @param factionId        帮派 ID
      * @param today            今天日期
      * @param slot             槽位
      * @param bitmapTtl        Bitmap TTL
-     * @param onlineCountBytes 在线人数字节数组
+     * @param activeCountBytes 有效活跃人数字节数组
+     * @param idleCountBytes   idle-only 人数字节数组
      * @param memberCountBytes 成员数字节数组
      */
     private void writeFactionSlot(org.springframework.data.redis.connection.RedisConnection conn,
                                   long factionId, LocalDate today, int slot, Duration bitmapTtl,
-                                  byte[] onlineCountBytes, byte[] memberCountBytes) {
-        byte[] onlineCountKey = ActivityRedisKeys.factionOnlineCount(factionId, today)
+                                  byte[] activeCountBytes, byte[] idleCountBytes, byte[] memberCountBytes) {
+        byte[] activeCountKey = ActivityRedisKeys.v3FactionActiveCount(factionId, today)
                 .getBytes(StandardCharsets.UTF_8);
-        conn.stringCommands().setRange(onlineCountKey, onlineCountBytes, slot);
-        conn.keyCommands().expire(onlineCountKey, bitmapTtl.toSeconds());
+        conn.stringCommands().setRange(activeCountKey, activeCountBytes, slot);
+        conn.keyCommands().expire(activeCountKey, bitmapTtl.toSeconds());
 
-        byte[] memberCountKey = ActivityRedisKeys.factionMemberCount(factionId, today)
+        byte[] idleCountKey = ActivityRedisKeys.v3FactionIdleCount(factionId, today)
+                .getBytes(StandardCharsets.UTF_8);
+        conn.stringCommands().setRange(idleCountKey, idleCountBytes, slot);
+        conn.keyCommands().expire(idleCountKey, bitmapTtl.toSeconds());
+
+        byte[] memberCountKey = ActivityRedisKeys.v3FactionMemberCount(factionId, today)
                 .getBytes(StandardCharsets.UTF_8);
         conn.stringCommands().setRange(memberCountKey, memberCountBytes, slot);
         conn.keyCommands().expire(memberCountKey, bitmapTtl.toSeconds());
 
-        byte[] observedKey = ActivityRedisKeys.factionObserved(factionId, today)
+        byte[] observedKey = ActivityRedisKeys.v3FactionObserved(factionId, today)
                 .getBytes(StandardCharsets.UTF_8);
         conn.stringCommands().setBit(observedKey, slot, true);
         conn.keyCommands().expire(observedKey, bitmapTtl.toSeconds());
+    }
+
+    /**
+     * 写入 V3 日终归档索引：当日 observed 用户 Set 与成功采集帮派 Set
+     *
+     * @param conn      Redis 连接
+     * @param factionId 本轮成功采集的帮派 ID
+     * @param ctx       采集上下文
+     */
+    private void writeArchiveIndex(org.springframework.data.redis.connection.RedisConnection conn,
+                                   long factionId, CollectionContext ctx) {
+        byte[] archiveUsersKey = ActivityRedisKeys.v3ArchiveUsers(ctx.today())
+                .getBytes(StandardCharsets.UTF_8);
+        byte[][] userIdMembers = ctx.allMemberIds().stream()
+                .map(id -> String.valueOf(id).getBytes(StandardCharsets.UTF_8))
+                .toArray(byte[][]::new);
+        conn.setCommands().sAdd(archiveUsersKey, userIdMembers);
+        conn.keyCommands().expire(archiveUsersKey, ctx.bitmapTtl().toSeconds());
+
+        byte[] archiveFactionsKey = ActivityRedisKeys.v3ArchiveFactions(ctx.today())
+                .getBytes(StandardCharsets.UTF_8);
+        conn.setCommands().sAdd(archiveFactionsKey,
+                String.valueOf(factionId).getBytes(StandardCharsets.UTF_8));
+        conn.keyCommands().expire(archiveFactionsKey, ctx.bitmapTtl().toSeconds());
     }
 
     /**
@@ -604,30 +686,17 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 按用户 ID 并集统计双证据估算活跃人数。
-     *
-     * @param statusActiveUserIds status 为 Online/Idle 的用户
-     * @param recentActionUserIds 最近 15 分钟有动作的用户
-     * @return 去重后的估算活跃人数
-     */
-    static int countEstimatedActiveUsers(List<Long> statusActiveUserIds, List<Long> recentActionUserIds) {
-        Set<Long> activeUserIds = new HashSet<>(statusActiveUserIds);
-        activeUserIds.addAll(recentActionUserIds);
-        return activeUserIds.size();
-    }
-
-    /**
      * 为全部成员生成当前证据槽的显式布尔状态，支持同槽重采时清除旧的 true 位。
      *
      * @param allMemberIds  全部有效成员 ID
-     * @param activeUserIds 当前证据成立的成员 ID
+     * @param evidenceUserIds 当前证据成立的成员 ID
      * @return 用户 ID 到当前槽状态的映射
      */
-    static Map<Long, Boolean> buildEvidenceStates(List<Long> allMemberIds, List<Long> activeUserIds) {
-        Set<Long> activeUserIdSet = new HashSet<>(activeUserIds);
+    static Map<Long, Boolean> buildEvidenceStates(List<Long> allMemberIds, List<Long> evidenceUserIds) {
+        Set<Long> evidenceUserIdSet = new HashSet<>(evidenceUserIds);
         Map<Long, Boolean> states = HashMap.newHashMap(allMemberIds.size());
         for (Long userId : allMemberIds) {
-            states.put(userId, activeUserIdSet.contains(userId));
+            states.put(userId, evidenceUserIdSet.contains(userId));
         }
         return states;
     }

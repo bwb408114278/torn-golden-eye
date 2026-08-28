@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.activity.TornActivityArchiveDayMapper">
+    <!-- 查询日期范围内已完成归档的自然日 -->
+    <select id="selectArchivedDates" resultType="java.time.LocalDate">
+        SELECT activity_date
+        FROM torn_activity_archive_day
+        WHERE activity_date BETWEEN #{startDate} AND #{endDate}
+        ORDER BY activity_date ASC
+    </select>
+
+    <!-- 幂等写入归档完成marker: 主键activity_date冲突时忽略 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_activity_archive_day (activity_date, data_version, archived_at)
+        VALUES (#{activityDate}, 'V3', CURRENT_TIMESTAMP)
+        ON CONFLICT (activity_date) DO NOTHING
+    </insert>
+</mapper>

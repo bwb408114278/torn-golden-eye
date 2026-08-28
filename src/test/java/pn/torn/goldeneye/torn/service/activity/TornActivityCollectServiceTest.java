@@ -8,7 +8,9 @@ import pn.torn.goldeneye.base.torn.TornApi;
 import pn.torn.goldeneye.base.torn.TornReqParamV2;
 import pn.torn.goldeneye.configuration.DynamicTaskService;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,7 +28,7 @@ import static org.mockito.Mockito.*;
  * 活跃度采集服务测试
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.5.0
  * @since 2026.07.10
  */
 @DisplayName("活跃度采集服务测试")
@@ -60,12 +62,31 @@ class TornActivityCollectServiceTest {
     }
 
     @Test
-    @DisplayName("双证据重叠成员应按用户ID并集计数")
-    void shouldCountEstimatedActiveUsersWithoutDuplicates() {
-        int count = TornActivityCollectService.countEstimatedActiveUsers(
-                List.of(1L, 2L), List.of(2L, 3L));
+    @DisplayName("Gold+ 与配置帮派应按 ID 去重并升序合并")
+    void shouldMergeGoldPlusAndSettingFactionsById() {
+        TornSettingFactionDO setting = new TornSettingFactionDO();
+        setting.setId(3L);
 
-        assertEquals(3, count);
+        List<Long> merged = TornActivityCollectService.mergeTrackedFactionIds(
+                List.of(2L, 1L, 2L), List.of(setting, buildSettingFaction(1L)));
+
+        assertEquals(List.of(1L, 2L, 3L), merged);
+    }
+
+    @Test
+    @DisplayName("HoF 来源为空时配置低段位帮派仍应纳入合并结果")
+    void shouldKeepSettingFactionsWhenGoldPlusEmpty() {
+        List<Long> merged = TornActivityCollectService.mergeTrackedFactionIds(
+                List.of(), List.of(buildSettingFaction(88L), buildSettingFaction(null)));
+
+        assertEquals(List.of(88L), merged);
+    }
+
+    @Test
+    @DisplayName("配置来源为空时仅保留 Gold+ 来源")
+    void shouldKeepGoldPlusOnlyWhenSettingEmpty() {
+        assertEquals(List.of(4L, 9L),
+                TornActivityCollectService.mergeTrackedFactionIds(List.of(9L, 4L), List.of()));
     }
 
     @Test
@@ -98,6 +119,7 @@ class TornActivityCollectServiceTest {
                 mock(DynamicTaskService.class),
                 mock(SysSettingManager.class),
                 mock(ProjectProperty.class),
+                mock(TornSettingFactionManager.class),
                 executor);
 
         TornActivityCollectService.BatchResult result = service.processBatch(List.of(1L, 2L, 3L));
@@ -121,6 +143,7 @@ class TornActivityCollectServiceTest {
                 mock(DynamicTaskService.class),
                 mock(SysSettingManager.class),
                 mock(ProjectProperty.class),
+                mock(TornSettingFactionManager.class),
                 executor);
         AtomicReference<List<Long>> trackedFactionIds = new AtomicReference<>(List.of(1L));
         ReflectionTestUtils.setField(service, "trackedFactionIds", trackedFactionIds);
@@ -130,5 +153,11 @@ class TornActivityCollectServiceTest {
         AtomicBoolean collecting = (AtomicBoolean) ReflectionTestUtils.getField(service, "collecting");
         assertNotNull(collecting, "collecting 字段不应为 null");
         assertFalse(collecting.get(), "采集重入标记应已释放");
+    }
+
+    private static TornSettingFactionDO buildSettingFaction(Long factionId) {
+        TornSettingFactionDO setting = new TornSettingFactionDO();
+        setting.setId(factionId);
+        return setting;
     }
 }

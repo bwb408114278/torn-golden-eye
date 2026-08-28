@@ -6,13 +6,15 @@ import lombok.NoArgsConstructor;
 import java.awt.*;
 
 /**
- * 热力图固定 RGB 连续渐变色板
+ * 热力图固定 RGB 色板与暗化规则
  * <p>
- * 直接使用设计方案的固定 RGB 值，禁止在实施时重新选色。
- * 所有渐变使用相邻锚点线性插值，无数据格不进入渐变函数。
+ * 所有颜色映射、Idle 连续暗化和文字颜色选择的唯一来源；渲染器不得内嵌 RGB、暗化系数或人数档位。
+ * 个人图使用 8 锚点 Viridis 风格连续渐变并支持按 idleRatio 暗化；帮派单图使用固定 5 档人数主色
+ * 加 Idle 占比连续暗化；对比图使用 9 锚点蓝-灰-紫发散渐变。直接使用设计方案的固定 RGB 值，
+ * 禁止在实施时重新选色，无数据格不进入渐变函数。
  *
  * @author Bai
- * @version 1.2.11
+ * @version 1.5.0
  * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -109,6 +111,94 @@ public final class HeatmapColorScale {
      * 对比持平色
      */
     public static final Color COMPARISON_NEUTRAL_COLOR = new Color(242, 242, 242);
+
+    // ==================== 帮派图：固定 5 档人数主色 + Idle 连续暗化 ====================
+
+    /**
+     * 帮派图人数档位步长（每档 25 人）
+     */
+    static final int FACTION_TIER_STEP = 25;
+
+    /**
+     * 帮派图人数档位数量（0/25/50/75/100+）
+     */
+    static final int FACTION_TIER_COUNT = 5;
+
+    /**
+     * Idle 占比 100% 时的最大暗化系数（主色通道 × (1 - 0.45)）
+     */
+    static final double IDLE_MAX_DARKEN_FACTOR = 0.45;
+
+    /**
+     * 帮派图固定 5 档主色（Viridis 强对比锚点，按平均有效活跃人数选档）
+     */
+    static final Color[] FACTION_TIER_MAIN = {
+            new Color(68, 1, 84),
+            new Color(59, 82, 139),
+            new Color(33, 145, 140),
+            new Color(94, 201, 98),
+            new Color(253, 231, 37)
+    };
+
+    /**
+     * 帮派图图例标签（与 5 档主色一一对应）
+     */
+    public static final String[] FACTION_TIER_LABELS = {"0", "25", "50", "75", "100+"};
+
+    /**
+     * 计算帮派图人数档位索引：{@code floor(averageActiveCount / 25)} 并 clamp 到 [0, 4]。
+     * <p>
+     * 档位始终只由平均有效活跃人数决定，不按成员数、比例、查询区间或用户配置自适应调整。
+     *
+     * @param averageActiveCount 平均有效活跃人数 A（A &gt;= 0）
+     * @return 档位索引 [0, 4]
+     */
+    public static int factionTierIndex(double averageActiveCount) {
+        double clamped = Math.clamp(averageActiveCount, 0, Double.MAX_VALUE);
+        return (int) Math.min(FACTION_TIER_COUNT - 1, Math.floor(clamped / FACTION_TIER_STEP));
+    }
+
+    /**
+     * 帮派图单元格颜色：按平均有效活跃人数选 5 档主色，再按 idleRatio 连续暗化。
+     *
+     * @param averageActiveCount 平均有效活跃人数 A（决定档位，不受 I 影响）
+     * @param idleRatio          idle 占比 I/(A+I)，值域 [0,1]，会被 clamp
+     * @return 渲染色
+     */
+    public static Color factionColor(double averageActiveCount, double idleRatio) {
+        Color mainColor = FACTION_TIER_MAIN[factionTierIndex(averageActiveCount)];
+        return darken(mainColor, idleRatio);
+    }
+
+    /**
+     * 个人图单元格颜色：连续比例色板基础上按 idleRatio 连续暗化。
+     *
+     * @param ratio     有效活跃比例 [0,1]
+     * @param idleRatio idle 占比 [0,1]，会被 clamp
+     * @return 渲染色
+     */
+    public static Color darkenedActivityColor(double ratio, double idleRatio) {
+        return darken(activityColor(ratio), idleRatio);
+    }
+
+    /**
+     * 按 idle 占比对主色做连续暗化：
+     * {@code brightnessMultiplier = 1 - 0.45 × idleRatio}，
+     * {@code renderColor = round(mainColorChannel × brightnessMultiplier)}。
+     * <p>
+     * idleRatio = 0 返回完整主色；idleRatio = 1 返回主色各通道 × 0.55 四舍五入的最大暗化色。
+     *
+     * @param color     主色
+     * @param idleRatio idle 占比 [0,1]，会被 clamp
+     * @return 暗化后的颜色
+     */
+    public static Color darken(Color color, double idleRatio) {
+        double brightnessMultiplier = 1 - IDLE_MAX_DARKEN_FACTOR * Math.clamp(idleRatio, 0, 1);
+        int r = (int) Math.round(color.getRed() * brightnessMultiplier);
+        int g = (int) Math.round(color.getGreen() * brightnessMultiplier);
+        int b = (int) Math.round(color.getBlue() * brightnessMultiplier);
+        return new Color(r, g, b);
+    }
 
     // ==================== 渐变映射方法 ====================
 
