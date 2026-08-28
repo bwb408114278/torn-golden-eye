@@ -233,9 +233,9 @@ public final class ActivityHeatmapAggregator {
      * @return 个人聚合矩阵
      */
     public static PersonalMatrix aggregatePersonal(List<ActivityDaySnapshot.UserDay> days) {
-        int[][] observedSum = new int[DAYS_PER_WEEK][HOURS_PER_DAY];
-        double[][] activeSum = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
-        double[][] idleSum = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
+        int[][] observedSum = newIntMatrix();
+        double[][] activeSum = newDoubleMatrix();
+        double[][] idleSum = newDoubleMatrix();
         boolean[] observedDows = new boolean[DAYS_PER_WEEK];
         int totalObservedSlots = 0;
         int actualDays = 0;
@@ -274,9 +274,9 @@ public final class ActivityHeatmapAggregator {
      * @return 帮派聚合矩阵
      */
     public static FactionMatrix aggregateFaction(List<ActivityDaySnapshot.FactionDay> days) {
-        double[][] activeSum = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
-        double[][] idleSum = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
-        int[][] observedCount = new int[DAYS_PER_WEEK][HOURS_PER_DAY];
+        double[][] activeSum = newDoubleMatrix();
+        double[][] idleSum = newDoubleMatrix();
+        int[][] observedCount = newIntMatrix();
         boolean[] observedDows = new boolean[DAYS_PER_WEEK];
         int totalObservedSlots = 0;
         int actualDays = 0;
@@ -322,9 +322,9 @@ public final class ActivityHeatmapAggregator {
             faction2ByDate.put(day.date(), day);
         }
 
-        double[][] faction1Sum = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
-        double[][] faction2Sum = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
-        int[][] commonCount = new int[DAYS_PER_WEEK][HOURS_PER_DAY];
+        double[][] faction1Sum = newDoubleMatrix();
+        double[][] faction2Sum = newDoubleMatrix();
+        int[][] commonCount = newIntMatrix();
         boolean[] observedDows = new boolean[DAYS_PER_WEEK];
         int totalCommonObservedSlots = 0;
         int actualDays = 0;
@@ -381,7 +381,7 @@ public final class ActivityHeatmapAggregator {
      * @return 7×24 比例矩阵
      */
     private static double[][] buildRate(int[][] observedSum, double[][] activeSum) {
-        double[][] rate = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
+        double[][] rate = newDoubleMatrix();
         for (int dow = 0; dow < DAYS_PER_WEEK; dow++) {
             for (int hour = 0; hour < HOURS_PER_DAY; hour++) {
                 if (observedSum[dow][hour] > 0) {
@@ -399,7 +399,7 @@ public final class ActivityHeatmapAggregator {
      * @return 7×24 平均值矩阵
      */
     private static double[][] buildAverage(double[][] sum, int[][] count) {
-        double[][] average = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
+        double[][] average = newDoubleMatrix();
         for (int dow = 0; dow < DAYS_PER_WEEK; dow++) {
             for (int hour = 0; hour < HOURS_PER_DAY; hour++) {
                 if (count[dow][hour] > 0) {
@@ -416,7 +416,7 @@ public final class ActivityHeatmapAggregator {
      * @return 7×24 idle 占比矩阵
      */
     private static double[][] buildIdleRatio(double[][] activeSum, double[][] idleSum) {
-        double[][] idleRatio = new double[DAYS_PER_WEEK][HOURS_PER_DAY];
+        double[][] idleRatio = newDoubleMatrix();
         for (int dow = 0; dow < DAYS_PER_WEEK; dow++) {
             for (int hour = 0; hour < HOURS_PER_DAY; hour++) {
                 double denominator = activeSum[dow][hour] + idleSum[dow][hour];
@@ -441,6 +441,24 @@ public final class ActivityHeatmapAggregator {
             }
         }
         return bothObserved;
+    }
+
+    /**
+     * 新建 7×24 double 聚合工作矩阵（全 0）
+     *
+     * @return 空矩阵
+     */
+    private static double[][] newDoubleMatrix() {
+        return new double[DAYS_PER_WEEK][HOURS_PER_DAY];
+    }
+
+    /**
+     * 新建 7×24 int 聚合工作矩阵（全 0）
+     *
+     * @return 空矩阵
+     */
+    private static int[][] newIntMatrix() {
+        return new int[DAYS_PER_WEEK][HOURS_PER_DAY];
     }
 
     /**
@@ -503,14 +521,7 @@ public final class ActivityHeatmapAggregator {
      * @return 同时置位的槽数
      */
     public static int countActiveSamples(byte[] observed, byte[] evidence, int hour) {
-        int count = 0;
-        int firstSlot = hour * SAMPLES_PER_HOUR;
-        for (int slot = firstSlot; slot < firstSlot + SAMPLES_PER_HOUR; slot++) {
-            if (isBitSet(observed, slot) && isBitSet(evidence, slot)) {
-                count++;
-            }
-        }
-        return count;
+        return countBothSetSamples(observed, evidence, hour);
     }
 
     /**
@@ -522,10 +533,22 @@ public final class ActivityHeatmapAggregator {
      * @return 共同采样槽数
      */
     public static int countCommonSamples(byte[] faction1Observed, byte[] faction2Observed, int hour) {
+        return countBothSetSamples(faction1Observed, faction2Observed, hour);
+    }
+
+    /**
+     * 统计指定小时内两个 Bitmap 同时置位的槽数（MSB-first 位序）
+     *
+     * @param firstBitmap  第一个 Bitmap
+     * @param secondBitmap 第二个 Bitmap
+     * @param hour         小时 (0-23)
+     * @return 同时置位的槽数
+     */
+    private static int countBothSetSamples(byte[] firstBitmap, byte[] secondBitmap, int hour) {
         int count = 0;
         int firstSlot = hour * SAMPLES_PER_HOUR;
         for (int slot = firstSlot; slot < firstSlot + SAMPLES_PER_HOUR; slot++) {
-            if (isBitSet(faction1Observed, slot) && isBitSet(faction2Observed, slot)) {
+            if (isBitSet(firstBitmap, slot) && isBitSet(secondBitmap, slot)) {
                 count++;
             }
         }
