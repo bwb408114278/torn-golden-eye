@@ -103,7 +103,7 @@ class OcQueryStrategyImplTest {
     private void assertInvalidParam(String msg) {
         List<? extends QqMsgParam<?>> result = strategy.handle(0L, sender(), msg);
 
-        assertEquals("需要输入正确的OC级别, 例如g#OC查询#8,9",
+        assertEquals("需要输入正确的OC级别, 例如g#OC查询#7,8",
                 ((TextQqMsg) result.getFirst()).getData().text());
         verifyNoInteractions(ocDao, msgManager);
     }

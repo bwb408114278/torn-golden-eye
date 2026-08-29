@@ -3,7 +3,9 @@ package pn.torn.goldeneye.napcat.strategy.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornFactionRoleTypeEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
@@ -25,7 +27,7 @@ import java.util.Objects;
  * OC分配策略实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.5.1
  * @since 2025.11.21
  */
 @Component
@@ -35,6 +37,7 @@ public class OcAssignStrategyImpl extends BaseGroupMsgStrategy {
     private final TornOcAssignService ocAssignService;
     private final TornFactionOcMsgManager msgManager;
     private final TornSettingFactionManager settingFactionManager;
+    private final ProjectProperty projectProperty;
 
     @Override
     public String getCommand() {
@@ -54,7 +57,9 @@ public class OcAssignStrategyImpl extends BaseGroupMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornUserDO user = super.getTornUser(sender, "");
-        ocRefreshManager.refreshOc(1, user.getFactionId());
+        if (BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            ocRefreshManager.refreshOc(1, user.getFactionId());
+        }
 
         Map<TornUserDO, OcRecommendationVO> map = ocAssignService.assignUserList(user.getFactionId());
         if (CollectionUtils.isEmpty(map)) {

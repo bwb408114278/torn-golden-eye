@@ -43,7 +43,6 @@ class TornFactionOcMsgManagerTest {
     private static final Color FULL_GREEN = new Color(122, 167, 56);
     private static final Color RECOMMEND_TURQUOISE = new Color(64, 224, 205);
     private static final Color IDLE_GRAY = new Color(191, 191, 191);
-    private static final Color EMPTY_ORANGE = new Color(230, 119, 0);
 
     @Mock
     private TornUserDAO tableUserDao;
@@ -88,8 +87,8 @@ class TornFactionOcMsgManagerTest {
     }
 
     @Test
-    @DisplayName("推荐表格：同一OC的另一个推荐岗位不置灰，保持空闲橙色")
-    void buildRecommendTableData_shouldKeepOtherRecommendedSlotOrange() {
+    @DisplayName("推荐表格：同一OC的其他推荐岗位在本块置灰，仅本块推荐岗位高亮")
+    void buildRecommendTableData_shouldGrayOtherRecommendedSlotOfSameOc() {
         TornFactionOcDO oc = buildOc();
         TornFactionOcSlotDO firstRecommend = buildSlot(oc.getId(), null, "Kidnap");
         TornFactionOcSlotDO secondRecommend = buildSlot(oc.getId(), null, "Muscle");
@@ -107,11 +106,11 @@ class TornFactionOcMsgManagerTest {
         assertEquals(RECOMMEND_TURQUOISE, config.getCellStyle(3, 1).getBgColor());
         assertEquals(RECOMMEND_TURQUOISE, config.getCellStyle(5, 2).getBgColor());
         assertEquals(RECOMMEND_TURQUOISE, config.getCellStyle(6, 2).getBgColor());
-        // 另一推荐岗位在本块未被高亮，但属于本轮推荐，保持橙色不置灰
-        assertEquals(EMPTY_ORANGE, config.getCellStyle(2, 2).getBgColor());
-        assertEquals(EMPTY_ORANGE, config.getCellStyle(3, 2).getBgColor());
-        assertEquals(EMPTY_ORANGE, config.getCellStyle(5, 1).getBgColor());
-        assertEquals(EMPTY_ORANGE, config.getCellStyle(6, 1).getBgColor());
+        // 另一推荐岗位属于其他块，在本块不是推荐结果，同样置灰
+        assertEquals(IDLE_GRAY, config.getCellStyle(2, 2).getBgColor());
+        assertEquals(IDLE_GRAY, config.getCellStyle(3, 2).getBgColor());
+        assertEquals(IDLE_GRAY, config.getCellStyle(5, 1).getBgColor());
+        assertEquals(IDLE_GRAY, config.getCellStyle(6, 1).getBgColor());
     }
 
     private OcRecommendTableBO buildEntry(TornFactionOcDO oc, TornFactionOcSlotDO slot) {
