@@ -3,17 +3,26 @@ package pn.torn.goldeneye.torn.service.stocks.alert.portfolio;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,7 +42,7 @@ import static org.mockito.Mockito.*;
  * 通过 Mockito mock {@link TornStockPortfolioSlotDAO},使用 ArgumentCaptor 验证冲突安全批量插入的槽位字段。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.5.1
  * @since 2026.07.25
  */
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +51,8 @@ class StockPortfolioInitServiceTest {
 
     @Mock
     private TornStockPortfolioSlotDAO portfolioSlotDao;
+    @Mock
+    private TornStockVirtualBatchDAO virtualBatchDao;
 
     @InjectMocks
     private StockPortfolioInitService portfolioInitService;
@@ -66,6 +77,118 @@ class StockPortfolioInitServiceTest {
 
         assertTrue(result, "两个组合槽位完整且金额正确时应返回true");
         verify(portfolioSlotDao, never()).insertSlotsIgnoreConflict(any());
+    }
+
+    @ParameterizedTest(name = "平仓{0}后的复利资金应允许通过启动校验")
+    @MethodSource("compoundedAvailableCashValues")
+    @DisplayName("验证并初始化槽位_ 平仓盈亏后的空闲槽位可用资金偏离初始资金时返回true")
+    void verifyAndInitSlots_availableSlotWithCompoundedBalance_returnsTrue(String settlementResult,
+                                                                           BigDecimal availableCash) {
+        List<TornStockPortfolioSlotDO> candidateSlots = new java.util.ArrayList<>(
+                IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildCandidateSlot)
+                        .toList());
+        TornStockPortfolioSlotDO compoundedSlot = candidateSlots.getFirst();
+        compoundedSlot.setAvailableCash(availableCash);
+
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(candidateSlots);
+
+        boolean result = portfolioInitService.verifyAndInitSlots();
+
+        assertTrue(result, "槽内复利后的AVAILABLE槽位不应再以initialCash作为动态现金基准: " + settlementResult);
+        verifyNoInteractions(virtualBatchDao);
+    }
+
+    @Test
+    @DisplayName("验证并初始化槽位_ 复利资金预留且绑定待入场候选影子批次时返回true")
+    void verifyAndInitSlots_reservedSlotMatchesEntryPendingBatch_returnsTrue() {
+        List<TornStockPortfolioSlotDO> candidateSlots = new java.util.ArrayList<>(
+                IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildCandidateSlot)
+                        .toList());
+        TornStockPortfolioSlotDO reservedSlot = candidateSlots.getFirst();
+        reservedSlot.setAvailableCash(BigDecimal.ZERO);
+        reservedSlot.setReservedCash(new BigDecimal("2000000000.02"));
+        reservedSlot.setCurrentBatchId(1002L);
+        reservedSlot.setSlotStatus(StockSlotStatusEnum.RESERVED.getCode());
+
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(candidateSlots);
+        when(virtualBatchDao.listByIds(List.of(1002L)))
+                .thenReturn(List.of(buildCandidateEntryPendingBatch(reservedSlot)));
+
+        boolean result = portfolioInitService.verifyAndInitSlots();
+
+        assertTrue(result, "复利后的RESERVED槽位应按ENTRY_PENDING批次关联校验，不应回退到initialCash比较");
+        verify(virtualBatchDao).listByIds(List.of(1002L));
+    }
+
+    @ParameterizedTest(name = "预留槽位异常[{0}]应拒绝启动期新入场")
+    @MethodSource("invalidReservedSlotCases")
+    @DisplayName("验证并初始化槽位_ 预留槽位的批次关联或资金异常时返回false")
+    void verifyAndInitSlots_reservedSlotInvalid_returnsFalse(String scenario,
+                                                             Consumer<TornStockPortfolioSlotDO> slotMutator,
+                                                             Consumer<TornStockVirtualBatchDO> batchMutator,
+                                                             boolean batchExists) {
+        List<TornStockPortfolioSlotDO> candidateSlots = new java.util.ArrayList<>(
+                IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildCandidateSlot)
+                        .toList());
+        TornStockPortfolioSlotDO reservedSlot = candidateSlots.getFirst();
+        reservedSlot.setAvailableCash(BigDecimal.ZERO);
+        reservedSlot.setReservedCash(new BigDecimal("2000000000.02"));
+        reservedSlot.setCurrentBatchId(1003L);
+        reservedSlot.setSlotStatus(StockSlotStatusEnum.RESERVED.getCode());
+        TornStockVirtualBatchDO batch = buildCandidateEntryPendingBatch(reservedSlot);
+        slotMutator.accept(reservedSlot);
+        batchMutator.accept(batch);
+
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(candidateSlots);
+        when(virtualBatchDao.listByIds(List.of(1003L)))
+                .thenReturn(batchExists ? List.of(batch) : List.of());
+
+        boolean result = portfolioInitService.verifyAndInitSlots();
+
+        assertFalse(result, "预留槽位异常应拒绝启动期新入场: " + scenario);
+    }
+
+    @Test
+    @DisplayName("验证并初始化槽位_ 候选影子已持仓且余款与批次一致时返回true")
+    void verifyAndInitSlots_candidateOccupiedSlotMatchesBatch_returnsTrue() {
+        TornStockPortfolioSlotDO occupiedCandidateSlot = buildCandidateSlot(1);
+        occupiedCandidateSlot.setAvailableCash(new BigDecimal("667.37"));
+        occupiedCandidateSlot.setCurrentBatchId(1001L);
+        occupiedCandidateSlot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
+        List<TornStockPortfolioSlotDO> candidateSlots = new java.util.ArrayList<>(
+                IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildCandidateSlot)
+                        .toList());
+        candidateSlots.set(0, occupiedCandidateSlot);
+
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(candidateSlots);
+        when(virtualBatchDao.listByIds(List.of(1001L)))
+                .thenReturn(List.of(buildCandidateOpenBatch(occupiedCandidateSlot)));
+
+        boolean result = portfolioInitService.verifyAndInitSlots();
+
+        assertTrue(result, "已持仓候选影子槽位应按批次余款校验，不应误报现金不足");
+        verify(portfolioSlotDao, never()).insertSlotsIgnoreConflict(any());
+        verify(virtualBatchDao).listByIds(List.of(1001L));
     }
 
     @Test
@@ -233,6 +356,94 @@ class StockPortfolioInitServiceTest {
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
         slot.setLockVersion(0L);
         return slot;
+    }
+
+    /**
+     * 构建与已占用候选影子槽位绑定的开放批次。
+     *
+     * @param slot 已占用候选影子槽位
+     * @return 槽位账本一致的开放候选影子批次
+     */
+    private TornStockVirtualBatchDO buildCandidateOpenBatch(TornStockPortfolioSlotDO slot) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(slot.getCurrentBatchId());
+        batch.setDeleted(0);
+        batch.setLedgerType(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode());
+        batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
+        batch.setSlotId(slot.getId());
+        batch.setSlotNo(slot.getSlotNo());
+        batch.setRemainingCash(slot.getAvailableCash());
+        return batch;
+    }
+
+    /**
+     * 构建与已预留候选影子槽位绑定的待入场批次。
+     *
+     * @param slot 已预留候选影子槽位
+     * @return 槽位账本一致的待入场候选影子批次
+     */
+    private TornStockVirtualBatchDO buildCandidateEntryPendingBatch(TornStockPortfolioSlotDO slot) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(slot.getCurrentBatchId());
+        batch.setDeleted(0);
+        batch.setLedgerType(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode());
+        batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
+        batch.setSlotId(slot.getId());
+        batch.setSlotNo(slot.getSlotNo());
+        return batch;
+    }
+
+    /**
+     * 提供预留槽位启动校验应拒绝的最小异常场景。
+     *
+     * @return 场景名、槽位变更、批次变更及批次是否存在组成的参数流
+     */
+    private static Stream<Arguments> invalidReservedSlotCases() {
+        return Stream.of(
+                Arguments.of("关联批次缺失",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> {
+                        },
+                        (Consumer<TornStockVirtualBatchDO>) batch -> {
+                        }, false),
+                Arguments.of("账本类型不匹配",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> {
+                        },
+                        (Consumer<TornStockVirtualBatchDO>) batch ->
+                                batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode()), true),
+                Arguments.of("批次不是待入场状态",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> {
+                        },
+                        (Consumer<TornStockVirtualBatchDO>) batch ->
+                                batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode()), true),
+                Arguments.of("槽位编号不匹配",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> {
+                        },
+                        (Consumer<TornStockVirtualBatchDO>) batch -> batch.setSlotNo(2), true),
+                Arguments.of("槽位ID不匹配",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> {
+                        },
+                        (Consumer<TornStockVirtualBatchDO>) batch -> batch.setSlotId(2L), true),
+                Arguments.of("批次已逻辑删除",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> {
+                        },
+                        (Consumer<TornStockVirtualBatchDO>) batch -> batch.setDeleted(1), true),
+                Arguments.of("预留资金为零",
+                        (Consumer<TornStockPortfolioSlotDO>) slot -> slot.setReservedCash(BigDecimal.ZERO),
+                        (Consumer<TornStockVirtualBatchDO>) batch -> {
+                        }, true)
+        );
+    }
+
+    /**
+     * 提供槽内复利后可合法偏离初始资金的空闲槽位余额。
+     *
+     * @return 平仓结果和可用资金组成的参数流
+     */
+    private static Stream<Arguments> compoundedAvailableCashValues() {
+        return Stream.of(
+                Arguments.of("盈利", new BigDecimal("2000000000.02")),
+                Arguments.of("亏损", new BigDecimal("1999999999.98"))
+        );
     }
 
     /**
