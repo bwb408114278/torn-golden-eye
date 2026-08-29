@@ -604,6 +604,20 @@ newAvailableCash = remainingCash + sellProceeds
 - 数据陈旧状态继续占槽；
 - 取消待买候选时释放完整预留资金和槽位。
 
+#### 7.4.1 启动期槽位账本校验
+
+`initialCash` 仅表示槽位创建时的初始资金和配置基线，启动期必须继续验证其为20亿，但它**不是**运行中的动态权益或现金守恒基准。卖出后，槽位可用资金按`remainingCash + sellProceeds`累积；因此盈利或亏损后的空闲槽位`availableCash`可以分别大于或小于20亿，禁止将其自动改回初始资金，也不得因此关闭启动补偿的新入场。
+
+`VipStockAlertScheduler.onStartup()`调用`StockPortfolioInitService.verifyAndInitSlots()`时，按组合批量查询槽位、一次批量加载所有非空`currentBatchId`的批次，禁止逐槽查询。槽位状态化校验固定如下：
+
+| 槽位状态 | 启动校验契约 |
+|---|---|
+| `AVAILABLE` | `currentBatchId=null`、`reservedCash=0`、`availableCash>=0`；允许可用资金与`initialCash`不同。 |
+| `RESERVED` | 关联未逻辑删除、同组合账本的`ENTRY_PENDING`批次；槽位ID/编号一致；`availableCash>=0`且`reservedCash>0`。预留金额以批次成交前的唯一资金事实为准，不要求与`initialCash`或未落库的批次金额字段相等。 |
+| `OCCUPIED` / `STALE` | 关联未逻辑删除、同组合账本的`OPEN/DATA_STALE/EXIT_PENDING/DATA_STALE_EXIT`批次；槽位ID/编号一致；`reservedCash=0`且`availableCash=batch.remainingCash`。 |
+
+组合—账本映射固定为：`VIP_FORMAL → FORMAL`、`VIP_SHADOW_CANDIDATE → SHADOW_FORMAL_CANDIDATE`。`UNLIMITED_SHADOW`与`REJECTED_OBSERVATION`不得绑定槽位。关联批次缺失、逻辑删除、账本/状态错误、槽位绑定错误、状态对应资金非法、持仓余款不一致或未知槽位状态时，启动校验必须记录无敏感信息WARN并返回`false`，仅关闭本次启动的新入场；不得自动修改槽位现金、批次或`initialCash`。
+
 组合权益：
 
 ```text
@@ -1080,7 +1094,7 @@ PENDING
 唯一：(portfolio_code, slot_no) WHERE deleted=0
 检查：slot_no BETWEEN 1 AND 5
 检查：initial_cash/available_cash/reserved_cash >= 0
-检查：available_cash + reserved_cash不超过按账本可解释的槽位资产；由服务和对账任务验证
+数据库检查：initial_cash/available_cash/reserved_cash均不得为负。启动期仍校验`initial_cash`为创建标准基线；但`initial_cash`不是动态权益上限或运行中现金相等约束，状态化批次关联校验见7.4.1
 索引：(portfolio_code, slot_status, slot_no)
 ```
 

@@ -20,7 +20,7 @@ import java.util.List;
  * 不调用 Torn API。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.1
  * @since 2026.07.07
  */
 @Slf4j
@@ -70,7 +70,7 @@ public class ActivityHeatmapService {
     // ==================== 帮派热力图 ====================
 
     /**
-     * 查询帮派活跃度热力图（格内为平均有效活跃人数，颜色为人数 5 档 + Idle 占比暗化）
+     * 查询帮派活跃度热力图（格内为平均有效活跃人数，颜色为人数锚点渐变 + Idle 占比暗化）
      *
      * @param factionId 帮派 ID
      * @param range     查询日期范围
@@ -86,7 +86,7 @@ public class ActivityHeatmapService {
         vo.setAverageOnlineCount(matrix.averageActiveCount());
         vo.setObservedSamples(matrix.observedSamples());
         vo.setIdleRatio(matrix.idleRatio());
-        vo.setSubtitle("格内：平均有效活跃人数｜颜色：有效活跃人数档位，Idle 越多越暗｜有效采样覆盖率: "
+        vo.setSubtitle("格内：平均有效活跃人数｜颜色：有效活跃人数渐变，Idle 越多越暗｜有效采样覆盖率: "
                 + formatPercent(calculateCoverage(matrix.totalObservedSlots(), range)));
         fillCommonMetadata(vo, matrix.totalObservedSlots(), matrix.actualDays(),
                 matrix.observedDowCount(), matrix.legacyIncluded(), range);

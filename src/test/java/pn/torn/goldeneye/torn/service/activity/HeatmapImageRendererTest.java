@@ -17,11 +17,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * 热力图颜色渐变、暗化与渲染测试
  * <p>
- * 固定帮派 0/25/50/75/100+ 五档主色与 Idle 比例 0/50%/100% 连续暗化 RGB，
- * 保留对比图色板回归；额外生成三张固定夹具 PNG 到测试 target/ 供人工视觉复核。
+ * 固定帮派 0/25/50/75/100+ 五个渐变锚点主色、锚点间连续插值与 Idle 比例 0/50%/100%
+ * 连续暗化 RGB，保留对比图色板回归；额外生成三张固定夹具 PNG 到测试 target/ 供人工视觉复核。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.1
  * @since 2026.07.21
  */
 @DisplayName("热力图颜色渐变、暗化与渲染测试")
@@ -101,11 +101,11 @@ class HeatmapImageRendererTest {
         }
     }
 
-    // ==================== 帮派图固定 5 档主色 ====================
+    // ==================== 帮派图 5 锚点渐变主色 ====================
 
     @Test
-    @DisplayName("帮派 5 档主色应为冻结 Viridis 锚点 RGB")
-    void shouldReturnFrozenFactionTierMainColors() {
+    @DisplayName("帮派 5 个渐变锚点主色应为冻结 Viridis 锚点 RGB")
+    void shouldReturnFrozenFactionAnchorColors() {
         assertEquals(new Color(68, 1, 84), HeatmapColorScale.factionColor(0, 0));
         assertEquals(new Color(59, 82, 139), HeatmapColorScale.factionColor(25, 0));
         assertEquals(new Color(33, 145, 140), HeatmapColorScale.factionColor(50, 0));
@@ -114,32 +114,49 @@ class HeatmapImageRendererTest {
     }
 
     @Test
-    @DisplayName("帮派档位边界按 floor(A/25) 计算并 clamp 到 [0,4]")
-    void shouldCalculateTierIndexByFloorAndClamp() {
-        assertEquals(0, HeatmapColorScale.factionTierIndex(0));
-        assertEquals(0, HeatmapColorScale.factionTierIndex(24.99));
-        assertEquals(1, HeatmapColorScale.factionTierIndex(25));
-        assertEquals(1, HeatmapColorScale.factionTierIndex(49.99));
-        assertEquals(2, HeatmapColorScale.factionTierIndex(50));
-        assertEquals(3, HeatmapColorScale.factionTierIndex(99.99));
-        assertEquals(4, HeatmapColorScale.factionTierIndex(100));
-        assertEquals(4, HeatmapColorScale.factionTierIndex(150));
+    @DisplayName("帮派主色在锚点间连续插值：A=12.5/37.5 为相邻锚点中点，越界 clamp 到首尾锚点")
+    void shouldInterpolateFactionMainColorBetweenAnchors() {
+        assertEquals(new Color(64, 42, 112), HeatmapColorScale.factionColor(12.5, 0));
+        assertEquals(new Color(46, 114, 140), HeatmapColorScale.factionColor(37.5, 0));
+        assertEquals(new Color(68, 1, 84), HeatmapColorScale.factionColor(-1, 0));
+        assertEquals(new Color(253, 231, 37), HeatmapColorScale.factionColor(150, 0));
+        assertEquals(new Color(253, 231, 37), HeatmapColorScale.factionMainColor(100));
     }
 
     @Test
-    @DisplayName("所有帮派档位主色及最大暗化色文字可读性验证")
-    void shouldAllFactionTierColorsHaveReadableText() {
-        for (Color c : HeatmapColorScale.FACTION_TIER_MAIN) {
-            assertReadableText(c, "帮派主色");
+    @DisplayName("插值主色同样参与 Idle 暗化：A=12.5、idle=1 为 (64,42,112)×0.55")
+    void shouldDarkenInterpolatedFactionColor() {
+        assertEquals(new Color(35, 23, 62), HeatmapColorScale.factionColor(12.5, 1));
+    }
+
+    @Test
+    @DisplayName("帮派图例位置映射：[0,1] 对应人数锚点范围，两端为首尾锚点色")
+    void shouldMapLegendPositionToAnchorRange() {
+        assertEquals(HeatmapColorScale.factionMainColor(0), HeatmapColorScale.factionLegendColor(0));
+        assertEquals(HeatmapColorScale.factionMainColor(50), HeatmapColorScale.factionLegendColor(0.5));
+        assertEquals(HeatmapColorScale.factionMainColor(100), HeatmapColorScale.factionLegendColor(1));
+        assertEquals(HeatmapColorScale.factionMainColor(100), HeatmapColorScale.factionLegendColor(1.5));
+    }
+
+    @Test
+    @DisplayName("所有帮派锚点与锚点中点主色及最大暗化色文字可读性验证")
+    void shouldAllFactionAnchorAndMidColorsHaveReadableText() {
+        for (Color c : HeatmapColorScale.FACTION_GRADIENT) {
+            assertReadableText(c, "帮派锚点主色");
             assertReadableText(HeatmapColorScale.darken(c, 1), "帮派最大暗化色");
+        }
+        for (int i = 0; i < HeatmapColorScale.FACTION_GRADIENT.length - 1; i++) {
+            Color mid = HeatmapColorScale.lerpColor(HeatmapColorScale.FACTION_GRADIENT[i],
+                    HeatmapColorScale.FACTION_GRADIENT[i + 1], 0.5);
+            assertReadableText(mid, "帮派锚点中点色");
         }
     }
 
     // ==================== Idle 连续暗化 ====================
 
     @Test
-    @DisplayName("idleRatio=100% 时五档均暗化到冻结最大暗化色（主色 × 0.55 四舍五入）")
-    void shouldDarkenAllTiersToMaxDarkenedColorsAtFullIdle() {
+    @DisplayName("idleRatio=100% 时各锚点均暗化到冻结最大暗化色（主色 × 0.55 四舍五入）")
+    void shouldDarkenAllAnchorsToMaxDarkenedColorsAtFullIdle() {
         assertEquals(new Color(37, 1, 46), HeatmapColorScale.factionColor(0, 1));
         assertEquals(new Color(32, 45, 76), HeatmapColorScale.factionColor(25, 1));
         assertEquals(new Color(18, 80, 77), HeatmapColorScale.factionColor(50, 1));
@@ -152,7 +169,7 @@ class HeatmapImageRendererTest {
     void shouldDarkenContinuouslyAtHalfIdle() {
         assertEquals(new Color(53, 1, 65), HeatmapColorScale.factionColor(0, 0.5));
 
-        for (Color main : HeatmapColorScale.FACTION_TIER_MAIN) {
+        for (Color main : HeatmapColorScale.FACTION_GRADIENT) {
             Color darkened = HeatmapColorScale.darken(main, 0.5);
             assertEquals((int) Math.round(main.getRed() * 0.775), darkened.getRed());
             assertEquals((int) Math.round(main.getGreen() * 0.775), darkened.getGreen());
@@ -163,12 +180,12 @@ class HeatmapImageRendererTest {
     @Test
     @DisplayName("idleRatio=0 使用完整主色；超出 [0,1] 被 clamp")
     void shouldKeepMainColorAtZeroIdleAndClampOverflow() {
-        assertEquals(HeatmapColorScale.FACTION_TIER_MAIN[0], HeatmapColorScale.darken(
-                HeatmapColorScale.FACTION_TIER_MAIN[0], 0));
-        assertEquals(HeatmapColorScale.darken(HeatmapColorScale.FACTION_TIER_MAIN[1], 1),
-                HeatmapColorScale.darken(HeatmapColorScale.FACTION_TIER_MAIN[1], 1.5));
-        assertEquals(HeatmapColorScale.darken(HeatmapColorScale.FACTION_TIER_MAIN[2], 0),
-                HeatmapColorScale.darken(HeatmapColorScale.FACTION_TIER_MAIN[2], -0.5));
+        assertEquals(HeatmapColorScale.FACTION_GRADIENT[0], HeatmapColorScale.darken(
+                HeatmapColorScale.FACTION_GRADIENT[0], 0));
+        assertEquals(HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[1], 1),
+                HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[1], 1.5));
+        assertEquals(HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[2], 0),
+                HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[2], -0.5));
     }
 
     @Test
@@ -180,9 +197,9 @@ class HeatmapImageRendererTest {
     }
 
     @Test
-    @DisplayName("无数据深灰格必须与档位 0 主色区分")
-    void shouldKeepEmptyColorDistinctFromTierZero() {
-        assertNotEquals(HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.FACTION_TIER_MAIN[0]);
+    @DisplayName("无数据深灰格必须与首锚点主色区分")
+    void shouldKeepEmptyColorDistinctFromFirstAnchor() {
+        assertNotEquals(HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.FACTION_GRADIENT[0]);
         assertNotEquals(HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.factionColor(0, 1));
     }
 
@@ -235,17 +252,17 @@ class HeatmapImageRendererTest {
     }
 
     /**
-     * 帮派主色/暗色夹具：一行覆盖 0/25/50/75/100+ 五档与 0~1 连续暗化，含无数据格
+     * 帮派渐变/暗色夹具：一行覆盖 0~100+ 锚点渐变区间（含 12.5/37.5 插值点）与 0~1 连续暗化，含无数据格
      *
      * @param notice 副标题第二行提示，null 表示无提示
      */
     private static FactionActivityHeatmapVO buildFactionFixture(String notice) {
         FactionActivityHeatmapVO vo = FactionActivityHeatmapVO.empty("测试帮派 [20465] 活跃度热力图");
-        vo.setSubtitle("格内：平均有效活跃人数｜颜色：有效活跃人数档位，Idle 越多越暗｜有效采样覆盖率: 71%");
+        vo.setSubtitle("格内：平均有效活跃人数｜颜色：有效活跃人数渐变，Idle 越多越暗｜有效采样覆盖率: 71%");
         vo.setNoticeMessage(notice);
         vo.setHasData(true);
         vo.setTotalDays(28);
-        double[] averages = {0, 12, 25, 38, 50, 66, 75, 88, 100, 130, 45, 55,
+        double[] averages = {0, 12.5, 25, 37.5, 50, 66, 75, 88, 100, 130, 45, 55,
                 30, 70, 95, 110, 20, 60, 80, 120, 5, 35, 85, 105};
         for (int h = 0; h < 24; h++) {
             vo.getObservedSamples()[2][h] = 4;

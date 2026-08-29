@@ -16,7 +16,7 @@ import java.util.List;
  * 表格图片转换工具类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.5.1
  * @since 2025.07.24
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -115,6 +115,10 @@ public class TableImageUtils {
         public TableConfig setCellStyle(int row, int col, CellStyle style) {
             styleMap.put(new Point(col, row), style);
             return this;
+        }
+
+        public CellStyle getCellStyle(int row, int col) {
+            return styleMap.get(new Point(col, row));
         }
 
         public TableConfig setDefaultCellHeight(int height) {

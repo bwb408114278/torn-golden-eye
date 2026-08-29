@@ -4,7 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.base.exception.BizException;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotCommands;
+import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
@@ -29,7 +31,7 @@ import java.util.List;
  * OC推荐策略实现类
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.5.1
  * @since 2025.11.07
  */
 @Component
@@ -40,6 +42,7 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
     private final TornFactionOcMsgManager msgManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
+    private final ProjectProperty projectProperty;
 
     @Override
     public String getCommand() {
@@ -59,7 +62,9 @@ public class OcRecommendStrategyImpl extends SmthMsgStrategy {
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         TornUserDO user = super.getTornUser(sender, msg);
-        ocRefreshManager.refreshOc(1, user.getFactionId());
+        if (BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
+            ocRefreshManager.refreshOc(1, user.getFactionId());
+        }
 
         OcSlotDictBO joinedOc = getJoinedOc(user);
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);

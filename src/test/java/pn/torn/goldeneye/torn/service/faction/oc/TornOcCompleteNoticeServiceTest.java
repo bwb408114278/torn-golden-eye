@@ -22,6 +22,7 @@ import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.user.TornUserStatusEnum;
 import pn.torn.goldeneye.napcat.send.msg.GroupMsgReqParam;
 import pn.torn.goldeneye.napcat.send.msg.param.AtQqMsg;
+import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -37,6 +38,7 @@ import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
@@ -44,6 +46,7 @@ import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +62,7 @@ import static org.mockito.Mockito.*;
  * Torn OC完成通知服务测试
  *
  * @author Bai
- * @version 1.4.6
+ * @version 1.5.1
  * @since 2026.07.20
  */
 @ExtendWith(MockitoExtension.class)
@@ -195,6 +198,37 @@ class TornOcCompleteNoticeServiceTest {
                 && text.contains("#7 Window of Opportunity：计划20:31完成，实际20:42完成，延误约11分钟")));
         assertEquals(1L, sentAtQqIds().stream().filter(qq -> qq.equals(3001L)).count());
         verify(bot, times(1)).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("消息组装：延误提醒展示在推荐表格图片下方")
+    void shouldAppendDelayNoticeBelowRecommendTableImage() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO oc = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20),
+                LocalDateTime.of(2026, 8, 1, 20, 30));
+        Map<TornUserDO, OcRecommendationVO> recommendMap = Map.of(user,
+                new OcRecommendationVO(oc, buildSlot(oc.getId(), user.getId()), BigDecimal.ONE, "测试"));
+        when(msgManager.buildRecommendTable(anyString(), anyLong(), anyMap())).thenReturn("order-test-image");
+
+        sendCompleteNotice(faction, List.of(oc), List.of(user), recommendMap);
+
+        List<QqMsgParam<?>> messages = completionMessages();
+        int imageIndex = -1;
+        int delayIndex = -1;
+        for (int i = 0; i < messages.size(); i++) {
+            QqMsgParam<?> msg = messages.get(i);
+            if (msg instanceof ImageQqMsg) {
+                imageIndex = i;
+            }
+            if (msg instanceof TextQqMsg text
+                    && text.getData().text().contains("以下OC完成时存在明显延误")) {
+                delayIndex = i;
+            }
+        }
+        assertTrue(imageIndex >= 0);
+        assertTrue(delayIndex > imageIndex);
     }
 
     @Test
@@ -441,7 +475,7 @@ class TornOcCompleteNoticeServiceTest {
         ocDaoListRef.set(List.of(completedOc));
         enableOcDaoInQuery();
         mockCompletedSlots(List.of(buildSlot(completedOc.getId(), user.getId())));
-        mockCompleteNoticeData(faction, List.of(user));
+        mockCompleteNoticeData(List.of(user));
 
         ArgumentCaptor<Runnable> secondTaskCaptor = ArgumentCaptor.forClass(Runnable.class);
         verify(taskService, atLeast(2)).updateTask(
@@ -502,7 +536,7 @@ class TornOcCompleteNoticeServiceTest {
             mockCompletedSlots(completedSlots);
         }
         if (!completedUsers.isEmpty()) {
-            mockCompleteNoticeData(faction, completedUsers);
+            mockCompleteNoticeData(completedUsers);
         }
         ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
         verify(taskService, atLeastOnce()).updateTask(
@@ -526,8 +560,22 @@ class TornOcCompleteNoticeServiceTest {
      */
     private void sendCompleteNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
                                     List<TornUserDO> users) {
+        sendCompleteNotice(faction, ocList, users, Map.of());
+    }
+
+    /**
+     * 直接调用私有发送OC完成通知方法并指定推荐结果，仅用于少量消息组装单元测试，不经过完成检测入口。
+     *
+     * @param faction      帮派配置
+     * @param ocList       已完成的OC列表
+     * @param users        参与成员
+     * @param recommendMap 推荐结果，非空时完成通知携带推荐表格图片
+     */
+    private void sendCompleteNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
+                                    List<TornUserDO> users, Map<TornUserDO, OcRecommendationVO> recommendMap) {
         List<Long> userIdList = users.stream().map(TornUserDO::getId).toList();
-        mockCompleteNoticeData(faction, users);
+        mockCompleteNoticeData(users);
+        when(assignService.assignUserList(eq(faction.getId()), any())).thenReturn(recommendMap);
         try {
             Method method = TornOcCompleteNoticeService.class.getDeclaredMethod(
                     "sendOcCompleteNotice", TornSettingFactionDO.class, List.class, List.class);
@@ -588,13 +636,15 @@ class TornOcCompleteNoticeServiceTest {
 
     /**
      * 模拟完成通知所需的成员、推荐和Bot发送依赖。
+     *
+     * <p>推荐结果默认不桩定：mock默认返回null，生产代码按“暂未适合加入的OC”分支处理；
+     * 需要推荐表格时由 {@link #sendCompleteNotice(TornSettingFactionDO, List, List, Map)} 显式桩定。</p>
      */
-    private void mockCompleteNoticeData(TornSettingFactionDO faction, List<TornUserDO> users) {
+    private void mockCompleteNoticeData(List<TornUserDO> users) {
         List<Long> userIdList = users.stream().map(TornUserDO::getId).toList();
         when(userDao.queryUserMap(userIdList)).thenReturn(users.stream()
                 .collect(Collectors.toMap(TornUserDO::getId, user -> user)));
         when(ocUserDao.queryByUserId(userIdList)).thenReturn(List.of());
-        when(assignService.assignUserList(eq(faction.getId()), any())).thenReturn(Map.of());
     }
 
     /**

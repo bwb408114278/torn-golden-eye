@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
@@ -54,6 +55,8 @@ class OcRecommendStrategyImplTest {
     @Mock
     private TornFactionOcSlotDAO slotDao;
     @Mock
+    private ProjectProperty projectProperty;
+    @Mock
     private TornUserManager userManager;
 
     private OcRecommendStrategyImpl strategy;
@@ -63,7 +66,8 @@ class OcRecommendStrategyImplTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new OcRecommendStrategyImpl(ocRefreshManager, recommendService, msgManager, ocDao, slotDao);
+        strategy = new OcRecommendStrategyImpl(ocRefreshManager, recommendService, msgManager, ocDao, slotDao,
+                projectProperty);
         ReflectionTestUtils.setField(strategy, "userManager", userManager);
         user = new TornUserDO();
         user.setId(USER_ID);
