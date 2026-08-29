@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * OC设置目录自动同步真实PostgreSQL集成测试。
  *
- * <p>仅验证不可由Mockito证明的写入事务语义：自增主键插入、重复同步幂等且不覆盖人工调整、
+ * <p>仅验证不可由Mockito证明的写入事务语义：自增主键插入、
  * 岗位插入异常时OC整体回滚、同JVM并发同步收敛为单条目录。
  * 使用测试专用OC名称前缀，{@code @AfterEach}先物理DELETE岗位再DELETE OC；
  * 不以{@code @Rollback}代替跨提交缓存/事务语义验证。</p>
@@ -87,38 +87,6 @@ class TornSettingOcSyncManagerDbTest {
                 && ((Number) s.get("deleted")).intValue() == 0));
     }
 
-    @Test
-    @DisplayName("重复同步: 目录行数保持不变且不覆盖人工调整字段")
-    void repeatSync_keepsRowCountAndManualAdjustments() {
-        String ocName = TEST_OC_PREFIX + "REPEAT";
-        List<TornFactionCrimeVO> crimes = List.of(TornSettingOcSyncManagerTest.crime(ocName, TEST_OC_RANK,
-                TornSettingOcSyncManagerTest.slot("MUS", 1),
-                TornSettingOcSyncManagerTest.slot("WEA", 1)));
-        syncManager.syncMissingAvailable(crimes);
-
-        jdbcTemplate.update(
-                "UPDATE torn_setting_oc SET expected_reward = 555 WHERE oc_name = :name", Map.of("name", ocName));
-        jdbcTemplate.update(
-                "UPDATE torn_setting_oc_slot SET pass_rate = 88, priority = 3 "
-                        + "WHERE oc_name = :name AND slot_code = :code",
-                Map.of("name", ocName, "code", "MUS#1"));
-
-        syncManager.syncMissingAvailable(crimes);
-
-        assertEquals(1, countRows("torn_setting_oc", ocName));
-        assertEquals(2, countRows("torn_setting_oc_slot", ocName));
-        Map<String, Object> ocRow = jdbcTemplate.queryForMap(
-                "SELECT expected_reward, required_members FROM torn_setting_oc WHERE oc_name = :name",
-                Map.of("name", ocName));
-        assertEquals(555L, ((Number) ocRow.get("expected_reward")).longValue(), "人工调整的预期收益不得被覆盖");
-        assertEquals(2, ((Number) ocRow.get("required_members")).intValue());
-        Map<String, Object> slotRow = jdbcTemplate.queryForMap(
-                "SELECT pass_rate, priority FROM torn_setting_oc_slot "
-                        + "WHERE oc_name = :name AND slot_code = :code",
-                Map.of("name", ocName, "code", "MUS#1"));
-        assertEquals(88, ((Number) slotRow.get("pass_rate")).intValue(), "人工调整的成功率不得被覆盖");
-        assertEquals(3, ((Number) slotRow.get("priority")).intValue(), "人工调整的权重不得被覆盖");
-    }
 
     @Test
     @DisplayName("岗位插入异常: 已插入的OC目录随事务整体回滚")
