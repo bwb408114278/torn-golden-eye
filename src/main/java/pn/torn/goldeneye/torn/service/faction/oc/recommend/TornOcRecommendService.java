@@ -21,12 +21,14 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.5.1
  * @since 2025.11.01
  */
 @Slf4j
@@ -39,7 +41,7 @@ public class TornOcRecommendService {
     private final TornFactionOcUserDAO ocUserDao;
 
     /**
-     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率
+     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率；评分相同时缺人少的OC优先，更快凑齐开动释放人力
      *
      * @param user     用户
      * @param topN     返回Top N个推荐
@@ -76,9 +78,15 @@ public class TornOcRecommendService {
             collectSlotsScore(oc, emptySlotList, user.getFactionId(), userOcData, isReassign, recommendations);
         }
 
-        // 5. 按推荐度排序
+        // 5. 按推荐度排序，评分相同时缺人少的OC优先（缺人数决定OC何时能凑齐开动释放人力）
+        Map<Long, Integer> emptyCountMap = emptySlotList.stream()
+                .collect(Collectors.toMap(TornFactionOcSlotDO::getOcId, s -> 1, Integer::sum));
+        Comparator<OcRecommendationVO> recommendComparator = Comparator
+                .comparing(OcRecommendationVO::getRecommendScore)
+                .reversed()
+                .thenComparing(r -> emptyCountMap.getOrDefault(r.getOcId(), 0));
         List<OcRecommendationVO> sorted = recommendations.stream()
-                .sorted(Comparator.comparing(OcRecommendationVO::getRecommendScore).reversed())
+                .sorted(recommendComparator)
                 .toList();
 
         // 6. 以当前队评分为基线过滤，返回Top N

@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.4.6
+ * @version 1.5.1
  * @since 2025.11.26
  */
 @Slf4j
@@ -421,9 +421,6 @@ public class TornOcCompleteNoticeService {
 
         msgList.add(new TextQqMsg(ocDesc.toString()));
 
-        // 明显延误提醒：合并到当前完成通知，不单独发送消息
-        msgList.addAll(buildDelayNotice(faction, ocList));
-
         // 推荐表格（仅对本次完成的OC成员做推荐）
         List<TornFactionOcUserDO> allUsers = ocUserDao.queryByUserId(userIdList);
         Map<Long, List<TornFactionOcUserDO>> completeUserMap = allUsers.stream()
@@ -442,6 +439,9 @@ public class TornOcCompleteNoticeService {
             String title = faction.getFactionShortName() + " OC队伍分配建议";
             msgList.add(ImageQqMsg.fromBase64(msgManager.buildRecommendTable(title, faction.getId(), recommendMap)));
         }
+
+        // 明显延误提醒：合并到当前完成通知，不单独发送消息，展示在推荐表格图片下方
+        msgList.addAll(buildDelayNotice(faction, ocList));
 
         // 发送
         BotHttpReqParam param = new GroupMsgHttpBuilder()

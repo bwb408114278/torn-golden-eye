@@ -16,12 +16,15 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * 获取Oc策略实现类
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.5.1
  * @since 2025.07.24
  */
 @Component
@@ -38,22 +41,22 @@ public class OcQueryStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "查询执行中的OC，格式g#" + BotCommands.OC_QUERY + "#OC级别";
+        return "查询执行中的OC，格式g#" + BotCommands.OC_QUERY + "#级别1,级别2";
     }
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        String[] msgArray = msg.split("#");
-        if (msgArray.length < 1 || !NumberUtils.isInt(msgArray[0])) {
-            return super.buildTextMsg("需要输入正确的OC级别, 例如g#" + BotCommands.OC_QUERY + "#8");
+        Set<Integer> rankSet = parseRankSet(msg);
+        if (rankSet.isEmpty()) {
+            return super.buildTextMsg("需要输入正确的OC级别, 例如g#" + BotCommands.OC_QUERY + "#7,8");
         }
 
-        int rank = Integer.parseInt(msgArray[0]);
         long factionId = super.getTornFactionIdBySender(sender);
         List<TornFactionOcDO> ocList = ocDao.lambdaQuery()
-                .eq(TornFactionOcDO::getRank, rank)
+                .in(TornFactionOcDO::getRank, rankSet)
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.RECRUITING.getCode(), TornOcStatusEnum.PLANNING.getCode())
+                .orderByAsc(TornFactionOcDO::getRank)
                 .orderByAsc(TornFactionOcDO::getName)
                 .orderByAsc(TornFactionOcDO::getStatus)
                 .orderByDesc(TornFactionOcDO::getReadyTime)
@@ -63,7 +66,27 @@ public class OcQueryStrategyImpl extends SmthMsgStrategy {
         }
 
         TornSettingFactionDO faction = settingFactionManager.getIdMap().get(factionId);
+        String ranks = rankSet.stream().map(String::valueOf).collect(Collectors.joining("、"));
         return super.buildImageMsg(msgManager.buildOcTable(faction.getFactionShortName() + "  "
-                + rank + "级执行中OC", ocList));
+                + ranks + "级执行中OC", ocList));
+    }
+
+    /**
+     * 解析OC级别参数，中英文逗号均为分隔符，级别去重升序。
+     *
+     * @param msg 级别参数串
+     * @return 有效级别集合；任一段不是整数时返回空集合
+     */
+    private Set<Integer> parseRankSet(String msg) {
+        String[] rankArray = msg.replace("，", ",").split(",");
+        Set<Integer> rankSet = new TreeSet<>();
+        for (String rankText : rankArray) {
+            String rank = rankText.trim();
+            if (!NumberUtils.isInt(rank)) {
+                return Set.of();
+            }
+            rankSet.add(Integer.parseInt(rank));
+        }
+        return rankSet;
     }
 }

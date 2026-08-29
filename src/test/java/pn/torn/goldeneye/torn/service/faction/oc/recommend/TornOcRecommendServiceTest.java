@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
  * OC推荐服务单元测试 —— 验证大锅饭模式下当前队的豁免逻辑
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.5.1
  * @since 2026.06.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -217,6 +217,61 @@ class TornOcRecommendServiceTest {
         // Then: 只有轮转OC
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getOcName()).isEqualTo(OC_BREAK_BANK);
+    }
+
+    // ========================================================
+    // 同分排序：缺人少的OC优先
+    // ========================================================
+
+    @Test
+    @DisplayName("评分相同的OC → 缺人少的排在缺人多的前面")
+    void sameScore_shouldPreferOcWithFewerEmptySlots() {
+        // Given: 缺人多的Break Bank（缺3人）按停转时间升序排在候选列表前面
+        when(ocDao.queryRecrutList(FACTION_HP))
+                .thenReturn(new java.util.ArrayList<>(List.of(breakBankOc, aceOc)));
+        TornFactionOcSlotDO breakBankSlot2 = new TornFactionOcSlotDO();
+        breakBankSlot2.setOcId(breakBankOc.getId());
+        breakBankSlot2.setUserId(null);
+        breakBankSlot2.setPosition("Engineer#2");
+        TornFactionOcSlotDO breakBankSlot3 = new TornFactionOcSlotDO();
+        breakBankSlot3.setOcId(breakBankOc.getId());
+        breakBankSlot3.setUserId(null);
+        breakBankSlot3.setPosition("Engineer#3");
+        TornFactionOcSlotDO aceIdleSlot = new TornFactionOcSlotDO();
+        aceIdleSlot.setOcId(aceOc.getId());
+        aceIdleSlot.setUserId(null);
+        aceIdleSlot.setPosition("Engineer#2");
+        when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new java.util.ArrayList<>(
+                List.of(breakBankSlot, breakBankSlot2, breakBankSlot3, aceIdleSlot)));
+
+        TornFactionOcUserDO passRate = new TornFactionOcUserDO();
+        passRate.setOcName(OC_BREAK_BANK);
+        passRate.setPosition("Engineer#1");
+        passRate.setPassRate(75);
+        when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(passRate));
+        // 未入队且非大锅饭，避免轮转过滤
+        when(ocRecommendManager.checkIsReassignRecommended(eq(user), anyList())).thenReturn(false);
+
+        TornSettingOcSlotDO slotSetting = new TornSettingOcSlotDO();
+        slotSetting.setSlotShortCode("Engineer#1");
+        slotSetting.setPassRate(60);
+        slotSetting.setPriority(15);
+        when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(slotSetting);
+
+        TornFactionOcUserDO matched = new TornFactionOcUserDO();
+        matched.setPassRate(70);
+        when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(matched);
+        // 两队评分相同，只有缺人数不同：Break Bank缺3人，Ace缺1人
+        when(ocRecommendManager.calcRecommendScore(anyBoolean(), any(), any(), any()))
+                .thenReturn(BigDecimal.valueOf(85));
+        when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
+
+        // When: joinedOc = null
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
+
+        // Then: 缺1人的Ace排在缺3人的Break Bank前面
+        assertThat(result).extracting(OcRecommendationVO::getOcId)
+                .containsExactly(aceOc.getId(), breakBankOc.getId(), breakBankOc.getId());
     }
 
     // ========================================================
