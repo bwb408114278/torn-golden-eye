@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.recommend;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.torn.TornConstants;
@@ -18,6 +19,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -41,7 +43,8 @@ public class TornOcRecommendService {
     private final TornFactionOcUserDAO ocUserDao;
 
     /**
-     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率；评分相同时缺人少的OC优先，更快凑齐开动释放人力
+     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率；评分相同时缺人少的OC优先，更快凑齐开动释放人力。
+     * 已加入用户同分时候选仅在其OC缺人数少于当前队时推荐，避免同分岗位之间来回切换。
      *
      * @param user     用户
      * @param topN     返回Top N个推荐
@@ -89,10 +92,12 @@ public class TornOcRecommendService {
                 .sorted(recommendComparator)
                 .toList();
 
-        // 6. 以当前队评分为基线过滤，返回Top N
+        // 6. 以当前队（评分, 缺人数）为基线过滤，返回Top N
         // 当前OC已被禁用时，当前OC不是合法加入目标，其评分不能作为正常候选的过滤基线。
         BigDecimal baseline = currentStatus.disabled() ? null : currentStatus.currentScore();
-        sorted = filterBelowBaseline(sorted, baseline);
+        int baselineEmptyCount = baseline == null || joinedOc == null
+                ? 0 : emptyCountMap.getOrDefault(joinedOc.getOc().getId(), 0);
+        sorted = filterBelowBaseline(sorted, baseline, baselineEmptyCount, emptyCountMap);
         return sorted.stream().limit(topN).toList();
     }
 
@@ -129,18 +134,22 @@ public class TornOcRecommendService {
         Integer requiredPassRate = requirement == null ? null : requirement.getPassRate();
         boolean passRateInsufficient = actualPassRate != null && requiredPassRate != null
                 && actualPassRate < requiredPassRate;
-        BigDecimal currentScore = calculateCurrentScore(isReassign, oc, requirement, passRateData);
+        BigDecimal currentScore = calculateCurrentScore(isReassign, joinedOc, requirement, passRateData);
         return new CurrentOcStatus(true, disabled, passRateInsufficient,
                 actualPassRate, requiredPassRate, currentScore);
     }
 
-    private BigDecimal calculateCurrentScore(boolean isReassign, TornFactionOcDO oc,
+    private BigDecimal calculateCurrentScore(boolean isReassign, OcSlotDictBO joinedOc,
                                              TornSettingOcSlotDO requirement,
                                              TornFactionOcUserDO passRateData) {
         if (requirement == null || passRateData == null
                 || passRateData.getPassRate() < requirement.getPassRate()) {
             return null;
         }
+        // 空转基线与候选同口径按停转时间减一天计算，避免同队等价岗位以假性高分被反复推荐
+        TornFactionOcDO oc = hasProgress(joinedOc)
+                ? joinedOc.getOc()
+                : copyWithReadyTime(joinedOc.getOc(), joinedOc.getOc().getReadyTime().minusDays(1));
         return ocRecommendManager.calcRecommendScore(isReassign, oc, requirement, passRateData);
     }
 
@@ -179,20 +188,41 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 已加入队伍时，过滤掉评分低于当前队的推荐。
+     * 已加入队伍时，过滤掉不优于当前队的推荐。
      *
-     * @param sorted       已按评分排序的推荐列表
-     * @param currentScore 当前岗位评分基线
-     * @return 不低于当前岗位评分的推荐列表
+     * <p>基线按（评分降序, 缺人数升序）字典序比较：评分更低的候选被过滤；
+     * 评分相同的候选仅当所属OC缺人数严格少于当前队时保留，帮助缺人少的OC更快凑齐开动，且避免同分岗位来回切换。</p>
+     *
+     * @param sorted             已按评分排序的推荐列表
+     * @param baselineScore      当前岗位评分基线，null表示不过滤
+     * @param baselineEmptyCount 当前队缺人数基线
+     * @param emptyCountMap      OC缺人数统计
+     * @return 按字典序优于当前队的推荐列表
      */
     private List<OcRecommendationVO> filterBelowBaseline(List<OcRecommendationVO> sorted,
-                                                         BigDecimal currentScore) {
-        if (currentScore == null) {
+                                                         BigDecimal baselineScore,
+                                                         int baselineEmptyCount,
+                                                         Map<Long, Integer> emptyCountMap) {
+        if (baselineScore == null) {
             return sorted;
         }
         return sorted.stream()
-                .filter(r -> r.getRecommendScore().compareTo(currentScore) >= 0)
+                .filter(r -> isBetterThanBaseline(r, baselineScore, baselineEmptyCount, emptyCountMap))
                 .toList();
+    }
+
+    /**
+     * 判断候选是否按（评分降序, 缺人数升序）字典序严格优于当前岗位基线。
+     */
+    private boolean isBetterThanBaseline(OcRecommendationVO recommendation,
+                                         BigDecimal baselineScore,
+                                         int baselineEmptyCount,
+                                         Map<Long, Integer> emptyCountMap) {
+        int byScore = recommendation.getRecommendScore().compareTo(baselineScore);
+        if (byScore != 0) {
+            return byScore > 0;
+        }
+        return emptyCountMap.getOrDefault(recommendation.getOcId(), 0) < baselineEmptyCount;
     }
 
     /**
@@ -210,7 +240,7 @@ public class TornOcRecommendService {
             return ocDao.queryRecrutList(factionId);
         }
         // 跑了进度的, 只能判断当前队, 可以换位置
-        if (joinedOcSlot != null && BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0) {
+        if (joinedOcSlot != null && hasProgress(joinedOcSlot)) {
             return List.of(joinedOcSlot.getOc());
         }
 
@@ -227,8 +257,8 @@ public class TornOcRecommendService {
         if (calcOc != null) {
             calcOc.setReadyTime(calcOc.getReadyTime().minusDays(1));
         } else {
-            joinedOc.setReadyTime(joinedOc.getReadyTime().minusDays(1));
-            recruitOcList.add(joinedOc);
+            // 共享的当前队对象不得直接扣减口径，复制后减一天，避免上层状态查询二次扣减
+            recruitOcList.add(copyWithReadyTime(joinedOc, joinedOc.getReadyTime().minusDays(1)));
         }
         return recruitOcList;
     }
@@ -242,8 +272,25 @@ public class TornOcRecommendService {
      */
     private boolean shouldRecommendNormalOcForDisabledCurrentOc(long factionId, OcSlotDictBO joinedOcSlot) {
         return joinedOcSlot != null
-                && BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0
+                && hasProgress(joinedOcSlot)
                 && ocRecommendManager.isOcDisabled(factionId, joinedOcSlot.getOc());
+    }
+
+    /**
+     * 判断当前岗位是否已有进度。
+     */
+    private boolean hasProgress(OcSlotDictBO joinedOcSlot) {
+        return BigDecimal.ZERO.compareTo(joinedOcSlot.getSlot().getProgress()) < 0;
+    }
+
+    /**
+     * 复制OC并替换停转时间，用于按减一天口径评分时避免改动共享DO。
+     */
+    private TornFactionOcDO copyWithReadyTime(TornFactionOcDO oc, LocalDateTime readyTime) {
+        TornFactionOcDO copy = new TornFactionOcDO();
+        BeanUtils.copyProperties(oc, copy);
+        copy.setReadyTime(readyTime);
+        return copy;
     }
 
     /**
