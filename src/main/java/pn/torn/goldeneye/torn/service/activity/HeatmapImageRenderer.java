@@ -24,10 +24,10 @@ import java.util.List;
  * 负责个人活跃度热力图、帮派活跃度热力图和帮派活跃度对比图的 PNG 渲染。
  * 普通图与对比图共用统一布局；副标题支持两行绘制（第一行指标/覆盖率说明，
  * 第二行数据不完整与 legacy 提示），存在第二行时布局高度相应增加，禁止文本重叠或截断。
- * 颜色、暗化与人数档位全部来自{@link HeatmapColorScale}。
+ * 颜色、暗化与人数渐变锚点全部来自{@link HeatmapColorScale}。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.1
  * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -570,8 +570,8 @@ public class HeatmapImageRenderer {
     /**
      * 绘制帮派图 7×24 网格
      * <p>
-     * 格内显示平均有效活跃人数（单一数字）；颜色为人数 5 档主色按 idleRatio 连续暗化，
-     * I 不改变格内数字与人数档位；已观测且有效活跃为 0 时仍使用档位 0 主色（含暗化），
+     * 格内显示平均有效活跃人数（单一数字）；颜色为人数锚点渐变主色按 idleRatio 连续暗化，
+     * I 不改变格内数字与渐变位置；已观测且有效活跃为 0 时仍使用首锚点主色（含暗化），
      * 与无数据深灰格区分。
      *
      * @param g      图形上下文
@@ -709,6 +709,42 @@ public class HeatmapImageRenderer {
     // ==================== 图例 ====================
 
     /**
+     * 图例标签绘制上下文：渐变条位置与标签布局度量，个人/帮派/对比图例共用
+     *
+     * @param barX     渐变条左上角 x
+     * @param barWidth 渐变条宽度
+     * @param labelY   标签基线 y
+     * @param fm       标签字体度量
+     */
+    private record LegendLabelContext(
+            int barX,
+            int barWidth,
+            int labelY,
+            FontMetrics fm) {
+    }
+
+    /**
+     * 绘制图例渐变条并准备标签上下文（个人/帮派/对比图例共用前导）
+     *
+     * @param g             图形上下文
+     * @param layout        动态布局
+     * @param colorFunction 渐变条取色函数，输入 [0,1] 归一化位置
+     * @return 标签绘制上下文
+     */
+    private static LegendLabelContext drawLegendBar(Graphics2D g, HeatmapLayout layout,
+                                                    java.util.function.DoubleFunction<Color> colorFunction) {
+        int barX = GRID_X;
+        int barWidth = GRID_WIDTH;
+        int barY = layout.legendY() + 6;
+        drawGradientBar(g, barX, barY, barWidth, colorFunction);
+
+        g.setFont(LABEL_FONT);
+        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
+        FontMetrics fm = g.getFontMetrics();
+        return new LegendLabelContext(barX, barWidth, barY + 12 + fm.getAscent() + 2, fm);
+    }
+
+    /**
      * 绘制个人图连续渐变图例
      * <p>
      * 水平渐变条，每个像素调用 {@link HeatmapColorScale#activityColor} 生成；
@@ -718,17 +754,10 @@ public class HeatmapImageRenderer {
      * @param layout 动态布局
      */
     private static void drawActivityLegend(Graphics2D g, HeatmapLayout layout) {
-        int barX = GRID_X;
-        int barWidth = GRID_WIDTH;
-        int barY = layout.legendY() + 6;
-        drawGradientBar(g, barX, barY, barWidth, HeatmapColorScale::activityColor);
-
-        g.setFont(LABEL_FONT);
-        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
-        FontMetrics fm = g.getFontMetrics();
-        int labelY = barY + 12 + fm.getAscent() + 2;
+        LegendLabelContext ctx = drawLegendBar(g, layout, HeatmapColorScale::activityColor);
+        FontMetrics fm = ctx.fm();
         for (int tick : LEGEND_TICKS) {
-            int tickX = barX + (int) Math.round(tick / 100.0 * barWidth);
+            int tickX = ctx.barX() + (int) Math.round(tick / 100.0 * ctx.barWidth());
             String label = tick + PERCENT;
             int labelWidth = fm.stringWidth(label);
             int lx = switch (tick) {
@@ -736,39 +765,36 @@ public class HeatmapImageRenderer {
                 case 100 -> tickX - labelWidth;
                 default -> tickX - labelWidth / 2;
             };
-            g.drawString(label, lx, labelY);
+            g.drawString(label, lx, ctx.labelY());
         }
     }
 
     /**
-     * 绘制帮派图 5 档离散图例
+     * 绘制帮派图连续渐变图例
      * <p>
-     * 5 个等宽色块使用档位主色，标签为 0/25/50/75/100+。
+     * 水平渐变条，每个像素调用 {@link HeatmapColorScale#factionLegendColor} 生成；
+     * 刻度按锚点下标等距标注 0/25/50/75/100+，首尾标签对齐条两端。
      *
      * @param g      图形上下文
      * @param layout 动态布局
      */
     private static void drawFactionLegend(Graphics2D g, HeatmapLayout layout) {
-        int barX = GRID_X;
-        int barWidth = GRID_WIDTH;
-        int barY = layout.legendY() + 6;
-        int blockWidth = barWidth / HeatmapColorScale.FACTION_TIER_MAIN.length;
-
-        for (int tier = 0; tier < HeatmapColorScale.FACTION_TIER_MAIN.length; tier++) {
-            g.setColor(HeatmapColorScale.FACTION_TIER_MAIN[tier]);
-            g.fillRect(barX + tier * blockWidth, barY, blockWidth, 12);
-        }
-        g.setColor(HeatmapColorScale.GRID_COLOR);
-        g.drawRect(barX, barY, barWidth, 12);
-
-        g.setFont(LABEL_FONT);
-        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
-        FontMetrics fm = g.getFontMetrics();
-        int labelY = barY + 12 + fm.getAscent() + 2;
-        for (int tier = 0; tier < HeatmapColorScale.FACTION_TIER_LABELS.length; tier++) {
-            String label = HeatmapColorScale.FACTION_TIER_LABELS[tier];
-            int centerX = barX + tier * blockWidth + blockWidth / 2;
-            g.drawString(label, centerX - fm.stringWidth(label) / 2, labelY);
+        LegendLabelContext ctx = drawLegendBar(g, layout, HeatmapColorScale::factionLegendColor);
+        FontMetrics fm = ctx.fm();
+        String[] labels = HeatmapColorScale.FACTION_ANCHOR_LABELS;
+        for (int i = 0; i < labels.length; i++) {
+            int tickX = ctx.barX() + (int) Math.round(i / (labels.length - 1.0) * ctx.barWidth());
+            String label = labels[i];
+            int labelWidth = fm.stringWidth(label);
+            int lx;
+            if (i == 0) {
+                lx = tickX;
+            } else if (i == labels.length - 1) {
+                lx = tickX - labelWidth;
+            } else {
+                lx = tickX - labelWidth / 2;
+            }
+            g.drawString(label, lx, ctx.labelY());
         }
     }
 
@@ -783,23 +809,17 @@ public class HeatmapImageRenderer {
      * @param layout 动态布局
      */
     private static void drawComparisonLegend(Graphics2D g, HeatmapLayout layout) {
-        int barX = GRID_X;
-        int barWidth = GRID_WIDTH;
-        int barY = layout.legendY() + 6;
-        drawGradientBar(g, barX, barY, barWidth, i -> HeatmapColorScale.comparisonColor(-1.0 + 2.0 * i));
-
-        g.setFont(LABEL_FONT);
-        g.setColor(HeatmapColorScale.SUB_TEXT_COLOR);
-        FontMetrics fm = g.getFontMetrics();
-        int labelY = barY + 12 + fm.getAscent() + 2;
+        LegendLabelContext ctx = drawLegendBar(g, layout, i -> HeatmapColorScale.comparisonColor(-1.0 + 2.0 * i));
+        FontMetrics fm = ctx.fm();
+        int labelY = ctx.labelY();
 
         String leftLabel = "B优势";
         String midLabel = "持平";
         String rightLabel = "A优势";
-        g.drawString(leftLabel, barX, labelY);
-        int midX = barX + barWidth / 2 - fm.stringWidth(midLabel) / 2;
+        g.drawString(leftLabel, ctx.barX(), labelY);
+        int midX = ctx.barX() + ctx.barWidth() / 2 - fm.stringWidth(midLabel) / 2;
         g.drawString(midLabel, midX, labelY);
-        int rightX = barX + barWidth - fm.stringWidth(rightLabel);
+        int rightX = ctx.barX() + ctx.barWidth() - fm.stringWidth(rightLabel);
         g.drawString(rightLabel, rightX, labelY);
     }
 

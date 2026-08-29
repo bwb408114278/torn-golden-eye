@@ -8,13 +8,13 @@ import java.awt.*;
 /**
  * 热力图固定 RGB 色板与暗化规则
  * <p>
- * 所有颜色映射、Idle 连续暗化和文字颜色选择的唯一来源；渲染器不得内嵌 RGB、暗化系数或人数档位。
- * 个人图使用 8 锚点 Viridis 风格连续渐变并支持按 idleRatio 暗化；帮派单图使用固定 5 档人数主色
- * 加 Idle 占比连续暗化；对比图使用 9 锚点蓝-灰-紫发散渐变。直接使用设计方案的固定 RGB 值，
+ * 所有颜色映射、Idle 连续暗化和文字颜色选择的唯一来源；渲染器不得内嵌 RGB、暗化系数或人数锚点。
+ * 个人图使用 8 锚点 Viridis 风格连续渐变并支持按 idleRatio 暗化；帮派单图在 5 个人数锚点色之间
+ * 连续插值并按 Idle 占比连续暗化；对比图使用 9 锚点蓝-灰-紫发散渐变。直接使用设计方案的固定 RGB 值，
  * 禁止在实施时重新选色，无数据格不进入渐变函数。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.1
  * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -112,17 +112,12 @@ public final class HeatmapColorScale {
      */
     public static final Color COMPARISON_NEUTRAL_COLOR = new Color(242, 242, 242);
 
-    // ==================== 帮派图：固定 5 档人数主色 + Idle 连续暗化 ====================
+    // ==================== 帮派图：5 锚点人数渐变主色 + Idle 连续暗化 ====================
 
     /**
-     * 帮派图人数档位步长（每档 25 人）
+     * 帮派图人数渐变锚点（平均有效活跃人数，单位：人）
      */
-    static final int FACTION_TIER_STEP = 25;
-
-    /**
-     * 帮派图人数档位数量（0/25/50/75/100+）
-     */
-    static final int FACTION_TIER_COUNT = 5;
+    static final double[] FACTION_ANCHORS = {0, 25, 50, 75, 100};
 
     /**
      * Idle 占比 100% 时的最大暗化系数（主色通道 × (1 - 0.45)）
@@ -130,9 +125,10 @@ public final class HeatmapColorScale {
     static final double IDLE_MAX_DARKEN_FACTOR = 0.45;
 
     /**
-     * 帮派图固定 5 档主色（Viridis 强对比锚点，按平均有效活跃人数选档）
+     * 帮派图渐变锚点主色（Viridis 强对比锚点，与 {@link #FACTION_ANCHORS} 一一对应），
+     * 平均有效活跃人数在相邻锚点间线性插值
      */
-    static final Color[] FACTION_TIER_MAIN = {
+    static final Color[] FACTION_GRADIENT = {
             new Color(68, 1, 84),
             new Color(59, 82, 139),
             new Color(33, 145, 140),
@@ -141,33 +137,43 @@ public final class HeatmapColorScale {
     };
 
     /**
-     * 帮派图图例标签（与 5 档主色一一对应，仅包内渲染与测试使用，不对外暴露可变数组）
+     * 帮派图图例标签（与渐变锚点一一对应，仅包内渲染与测试使用，不对外暴露可变数组）
      */
-    static final String[] FACTION_TIER_LABELS = {"0", "25", "50", "75", "100+"};
+    static final String[] FACTION_ANCHOR_LABELS = {"0", "25", "50", "75", "100+"};
 
     /**
-     * 计算帮派图人数档位索引：{@code floor(averageActiveCount / 25)} 并 clamp 到 [0, 4]。
+     * 帮派图渐变主色：平均有效活跃人数在 5 个固定锚点色之间线性插值，
+     * A &lt;= 0 取首锚点色，A &gt;= 100 取最右锚点色。
      * <p>
-     * 档位始终只由平均有效活跃人数决定，不按成员数、比例、查询区间或用户配置自适应调整。
+     * 渐变位置始终只由平均有效活跃人数决定，不按成员数、比例、查询区间或用户配置自适应调整。
      *
      * @param averageActiveCount 平均有效活跃人数 A（A &gt;= 0）
-     * @return 档位索引 [0, 4]
+     * @return 渐变主色
      */
-    public static int factionTierIndex(double averageActiveCount) {
-        double clamped = Math.clamp(averageActiveCount, 0, Double.MAX_VALUE);
-        return (int) Math.min(FACTION_TIER_COUNT - 1.0, Math.floor(clamped / FACTION_TIER_STEP));
+    public static Color factionMainColor(double averageActiveCount) {
+        return interpolateLinear(averageActiveCount, FACTION_ANCHORS, FACTION_GRADIENT);
     }
 
     /**
-     * 帮派图单元格颜色：按平均有效活跃人数选 5 档主色，再按 idleRatio 连续暗化。
+     * 帮派图图例渐变条取色：图例归一化位置 [0,1] 线性映射到人数锚点范围 [0,100]。
      *
-     * @param averageActiveCount 平均有效活跃人数 A（决定档位，不受 I 影响）
+     * @param legendPosition 图例条归一化位置，会被 clamp 到 [0,1]
+     * @return 渐变主色
+     */
+    public static Color factionLegendColor(double legendPosition) {
+        double max = FACTION_ANCHORS[FACTION_ANCHORS.length - 1];
+        return factionMainColor(Math.clamp(legendPosition, 0, 1) * max);
+    }
+
+    /**
+     * 帮派图单元格颜色：按平均有效活跃人数在锚点间连续渐变主色，再按 idleRatio 连续暗化。
+     *
+     * @param averageActiveCount 平均有效活跃人数 A（决定渐变位置，不受 I 影响）
      * @param idleRatio          idle 占比 I/(A+I)，值域 [0,1]，会被 clamp
      * @return 渲染色
      */
     public static Color factionColor(double averageActiveCount, double idleRatio) {
-        Color mainColor = FACTION_TIER_MAIN[factionTierIndex(averageActiveCount)];
-        return darken(mainColor, idleRatio);
+        return darken(factionMainColor(averageActiveCount), idleRatio);
     }
 
     /**
