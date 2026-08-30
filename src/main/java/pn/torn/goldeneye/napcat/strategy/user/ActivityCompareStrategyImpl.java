@@ -2,30 +2,22 @@ package pn.torn.goldeneye.napcat.strategy.user;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
-import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
-import pn.torn.goldeneye.torn.service.activity.query.ActivityQueryRangeParser;
 import pn.torn.goldeneye.utils.NumberUtils;
 
-import java.time.LocalDate;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * 活跃度对比指令
  * <p>
  * 帮派 A 为第一个目标帮派，仅给出单个帮派时为发送人绑定 Torn 用户所在帮派，帮派 B 为
- * 其后帮派；支持无日期参数与单个截止日期尾部参数，日期尾部参数统一由
- * {@link ActivityQueryRangeParser}解析。
+ * 其后帮派；参数空判、分段数上限与截止日期尾部参数解析由{@link BaseActivityQueryStrategy}统一处理。
  *
  * @author Bai
  * @version 1.5.2
@@ -33,12 +25,7 @@ import java.util.Optional;
  */
 @Component
 @RequiredArgsConstructor
-public class ActivityCompareStrategyImpl extends SmthMsgStrategy {
-    /**
-     * 发送人未加入帮派时的稳定提示文案
-     */
-    private static final String NOT_IN_FACTION_MSG = "你还没有加入帮派哦";
-
+public class ActivityCompareStrategyImpl extends BaseActivityQueryStrategy {
     /**
      * 对比目标与自己帮派相同时的稳定提示文案
      */
@@ -56,33 +43,29 @@ public class ActivityCompareStrategyImpl extends SmthMsgStrategy {
         return "对比两个帮派（默认为所在帮派）的活跃度，支持截止日期参数";
     }
 
+    /**
+     * 第二段为纯数字帮派 ID 时业务段为两个帮派，否则仅目标帮派一段
+     *
+     * @param msgArray 指令分段数组
+     * @return 截止日期尾部参数起始下标
+     */
     @Override
-    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        if (!StringUtils.hasText(msg)) {
-            return super.buildTextMsg(buildFormatIntroMsg());
-        }
+    protected int dateTailStartIndex(String[] msgArray) {
+        return hasTwoFactions(msgArray) ? 2 : 1;
+    }
 
-        String[] msgArray = msg.split("#");
-        // 合法形态：[目标帮派ID]、[目标帮派ID, 截止日期]、[帮派AID, 帮派BID]、[帮派AID, 帮派BID, 截止日期]
-        if (msgArray.length < 1 || msgArray.length > 3) {
-            return super.buildTextMsg(buildFormatIntroMsg());
-        }
+    @Override
+    protected List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
+                                                        ActivityQueryRange range) {
         String firstText = msgArray[0].trim();
         if (!NumberUtils.isLong(firstText)) {
-            return super.buildTextMsg(buildFormatIntroMsg());
-        }
-
-        boolean hasFactionA = msgArray.length >= 2 && NumberUtils.isLong(msgArray[1].trim());
-        Optional<ActivityQueryRange> range = ActivityQueryRangeParser.parse(
-                tailSegments(msgArray, hasFactionA), LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
-        if (range.isEmpty()) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
         long firstId = Long.parseLong(firstText);
         long factionAId;
         long factionBId;
-        if (hasFactionA) {
+        if (hasTwoFactions(msgArray)) {
             factionAId = firstId;
             factionBId = Long.parseLong(msgArray[1].trim());
         } else {
@@ -97,7 +80,7 @@ public class ActivityCompareStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg(SELF_COMPARE_MSG);
         }
 
-        ActivityComparisonHeatmapVO heatmap = heatmapService.compareFactions(factionAId, factionBId, range.get());
+        ActivityComparisonHeatmapVO heatmap = heatmapService.compareFactions(factionAId, factionBId, range);
         if (heatmap.isHasData()) {
             return super.buildImageMsg(HeatmapImageRenderer.renderComparisonAsBase64(heatmap));
         }
@@ -105,24 +88,22 @@ public class ActivityCompareStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 提取帮派段（如存在双帮派段）之后的日期尾部参数段
+     * 判断是否存在第二个帮派段：第二段为纯数字 ID 时为双帮派形态，否则第二段属于截止日期尾部参数
      *
-     * @param msgArray    指令分段数组
-     * @param hasFactionA 是否存在第二个帮派段
-     * @return 尾部参数段列表，无截止日期时为空列表
+     * @param msgArray 指令分段数组
+     * @return 存在第二个帮派段时返回 true
      */
-    private static List<String> tailSegments(String[] msgArray, boolean hasFactionA) {
-        int fromIndex = hasFactionA ? 2 : 1;
-        if (msgArray.length <= fromIndex) {
-            return List.of();
-        }
-        return Arrays.asList(msgArray).subList(fromIndex, msgArray.length);
+    private static boolean hasTwoFactions(String[] msgArray) {
+        return msgArray.length >= 2 && NumberUtils.isLong(msgArray[1].trim());
     }
 
     /**
      * 构建格式介绍消息
+     *
+     * @return 格式介绍消息
      */
-    private static String buildFormatIntroMsg() {
+    @Override
+    protected String buildFormatIntroMsg() {
         return "查询格式举例如下: " +
                 "\ng#" + BotCommands.ACTIVITY_COMPARE + "#12345, 对比所在帮派与12345帮派最近28天的活跃度" +
                 "\ng#" + BotCommands.ACTIVITY_COMPARE + "#111#222, 对比111与222帮派最近28天的活跃度" +

@@ -2,32 +2,26 @@ package pn.torn.goldeneye.napcat.strategy.user;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
-import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
-import pn.torn.goldeneye.torn.service.activity.query.ActivityQueryRangeParser;
 import pn.torn.goldeneye.utils.NumberUtils;
 
-import java.time.LocalDate;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * 活跃度热力图指令
  * <p>
- * 支持无日期参数（等价最近 28 天）与单个截止日期尾部参数；目标缺省时“用户”模式查询
- * 发送人绑定用户自己、“帮派”模式查询其所属帮派。日期尾部参数统一由
- * {@link ActivityQueryRangeParser}解析，本类不复制 split 之外的日期逻辑。
+ * 合法形态：{@code [类型]}、{@code [类型, 目标|截止日期]}、{@code [类型, 目标, 截止日期]}；
+ * 目标缺省时“用户”模式查询发送人绑定用户自己、“帮派”模式查询其所属帮派。
+ * 参数空判、分段数上限与截止日期解析由{@link BaseActivityQueryStrategy}统一处理，
+ * 本类只保留目标段解析与查询分发。
  *
  * @author Bai
  * @version 1.5.2
@@ -35,12 +29,7 @@ import java.util.Optional;
  */
 @Component
 @RequiredArgsConstructor
-public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
-    /**
-     * 发送人未加入帮派时的稳定提示文案
-     */
-    private static final String NOT_IN_FACTION_MSG = "你还没有加入帮派哦";
-
+public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
     private final ActivityHeatmapService heatmapService;
 
     @Override
@@ -64,34 +53,31 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
         return true;
     }
 
+    /**
+     * 第二段为纯数字 ID 或 at 标记时业务段为类型与目标两段，否则仅类型一段
+     *
+     * @param msgArray 指令分段数组
+     * @return 截止日期尾部参数起始下标
+     */
     @Override
-    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        if (!StringUtils.hasText(msg)) {
-            return super.buildTextMsg(buildFormatIntroMsg());
-        }
+    protected int dateTailStartIndex(String[] msgArray) {
+        return resolveTargetText(msgArray) != null ? 2 : 1;
+    }
 
-        String[] msgArray = msg.split("#");
-        // 合法形态：[类型]、[类型, 目标|截止日期]、[类型, 目标, 截止日期]
-        if (msgArray.length < 1 || msgArray.length > 3) {
-            return super.buildTextMsg(buildFormatIntroMsg());
-        }
+    @Override
+    protected List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
+                                                        ActivityQueryRange range) {
         String type = msgArray[0].trim();
         if (!"帮派".equals(type) && !"用户".equals(type)) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
         String targetText = resolveTargetText(msgArray);
-        Optional<ActivityQueryRange> range = ActivityQueryRangeParser.parse(
-                tailSegments(msgArray, targetText != null), LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
-        if (range.isEmpty()) {
-            return super.buildTextMsg(buildFormatIntroMsg());
-        }
-
         if (targetText == null) {
-            return handleNoTarget(sender, type, range.get());
+            return handleNoTarget(sender, type, range);
         }
         if (super.hasAtMarker(targetText)) {
-            return handleAtTarget(sender, type, targetText, range.get());
+            return handleAtTarget(sender, type, targetText, range);
         }
         if (!isValidTargetId(targetText)) {
             return super.buildTextMsg(buildFormatIntroMsg());
@@ -99,9 +85,9 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
 
         long id = Long.parseLong(targetText.trim());
         if ("帮派".equals(type)) {
-            return buildFactionHeatmapReply(id, range.get());
+            return buildFactionHeatmapReply(id, range);
         }
-        return buildPersonalHeatmapReply(id, range.get());
+        return buildPersonalHeatmapReply(id, range);
     }
 
     /**
@@ -143,21 +129,6 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
             return super.buildTextMsg(NOT_IN_FACTION_MSG);
         }
         return buildFactionHeatmapReply(factionId, range);
-    }
-
-    /**
-     * 提取目标段（如存在）之后的日期尾部参数段
-     *
-     * @param msgArray  指令分段数组
-     * @param hasTarget 是否存在目标段
-     * @return 尾部参数段列表，无截止日期时为空列表
-     */
-    private static List<String> tailSegments(String[] msgArray, boolean hasTarget) {
-        int fromIndex = hasTarget ? 2 : 1;
-        if (msgArray.length <= fromIndex) {
-            return List.of();
-        }
-        return Arrays.asList(msgArray).subList(fromIndex, msgArray.length);
     }
 
     /**
@@ -223,8 +194,11 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
 
     /**
      * 构建格式介绍消息
+     *
+     * @return 格式介绍消息
      */
-    private static String buildFormatIntroMsg() {
+    @Override
+    protected String buildFormatIntroMsg() {
         return "查询格式举例如下: " +
                 "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户, 查询自己最近28天的热力图" +
                 "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派, 查询自己帮派最近28天的热力图" +
