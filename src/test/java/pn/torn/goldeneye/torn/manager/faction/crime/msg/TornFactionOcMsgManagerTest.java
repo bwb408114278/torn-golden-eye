@@ -16,16 +16,19 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
+import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageStatusResolver;
+import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
@@ -33,7 +36,7 @@ import static org.mockito.Mockito.when;
  * OC推荐表格构建测试 —— 验证推荐高亮与空闲非推荐岗位置灰
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.5.2
  * @since 2026.08.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -58,7 +61,8 @@ class TornFactionOcMsgManagerTest {
     @BeforeEach
     void setUp() {
         msgManager = new TornFactionOcMsgManager(
-                new TornFactionOcMsgTableManager(tableUserDao), ocDao, slotDao, settingDao);
+                new TornFactionOcMsgTableManager(tableUserDao), ocDao, slotDao, settingDao,
+                new OcImageStatusResolver(), new OcImageTitleFormatter());
     }
 
     @Test
@@ -111,6 +115,88 @@ class TornFactionOcMsgManagerTest {
         assertEquals(IDLE_GRAY, config.getCellStyle(3, 2).getBgColor());
         assertEquals(IDLE_GRAY, config.getCellStyle(5, 1).getBgColor());
         assertEquals(IDLE_GRAY, config.getCellStyle(6, 1).getBgColor());
+    }
+
+    @Test
+    @DisplayName("公共接入：标题只有一种时间文案，已加入成员恰好一个状态Emoji，空槽无Emoji")
+    void enrichCurrentOcTable_shouldAddOneTimeTextAndOneEmojiPerMember() {
+        TornFactionOcDO oc = buildOc();
+        oc.setReadyTime(LocalDateTime.now().plusHours(2).plusMinutes(30));
+        TornFactionOcSlotDO idle = buildSlot(oc.getId(), 10L, "Idle");
+        idle.setProgress(BigDecimal.ZERO);
+        TornFactionOcSlotDO preparing = buildSlot(oc.getId(), 11L, "Preparing");
+        preparing.setProgress(BigDecimal.valueOf(50));
+        TornFactionOcSlotDO ready = buildSlot(oc.getId(), 12L, "Ready");
+        ready.setProgress(BigDecimal.valueOf(100));
+        TornFactionOcSlotDO missing = buildSlot(oc.getId(), 13L, "Missing");
+        missing.setProgress(BigDecimal.valueOf(50));
+        missing.setRequiredItemAvailable(false);
+        TornFactionOcSlotDO empty = buildSlot(oc.getId(), null, "Empty");
+        empty.setProgress(BigDecimal.ZERO);
+        when(ocDao.queryListByIdList(eq(FACTION_ID), anyList())).thenReturn(List.of(oc));
+        when(slotDao.queryListByOc(anyCollection()))
+                .thenReturn(new ArrayList<>(List.of(idle, preparing, ready, missing, empty)));
+        when(tableUserDao.queryUserMap(anyCollection())).thenReturn(Map.of(
+                10L, user(10L), 11L, user(11L), 12L, user(12L), 13L, user(13L)));
+
+        TableDataBO tableData = msgManager.buildRecommendTableData("测试标题", FACTION_ID,
+                List.of(buildEntry(oc, idle)));
+
+        String ocTitle = tableData.getTableData().get(1).getFirst();
+        assertTrue(ocTitle.contains("后停转"));
+        assertFalse(ocTitle.contains("还需空转"));
+        assertFalse(ocTitle.contains("预计"));
+        assertFalse(ocTitle.contains("已停转"));
+
+        List<String> memberRow = tableData.getTableData().get(3);
+        long occupiedCellEmojiCount = memberRow.subList(1, memberRow.size()).stream()
+                .filter(cell -> !cell.equals("空缺"))
+                .filter(cell -> cell.contains("💤") || cell.contains("⏳")
+                        || cell.contains("✅") || cell.contains("⚠️"))
+                .count();
+        assertEquals(4, occupiedCellEmojiCount);
+        assertFalse(memberRow.stream().anyMatch(cell -> cell.equals("空缺") &&
+                (cell.contains("💤") || cell.contains("⏳") || cell.contains("✅") || cell.contains("⚠️"))));
+    }
+
+    @Test
+    @DisplayName("真实BufferedImage渲染包含四类Emoji且图片非空")
+    void renderTable_shouldProduceNonBlankImageWithEmoji() {
+        List<List<String>> tableData = List.of(
+                List.of("OC表格图片状态展示"),
+                List.of("成员", "💤", "⏳", "✅", "⚠️"));
+        TableImageUtils.TableConfig config = new TableImageUtils.TableConfig();
+        config.addMerge(0, 0, 1, 5)
+                .setCellStyle(0, 0, new TableImageUtils.CellStyle()
+                        .setPadding(25)
+                        .setFont(new Font("微软雅黑", Font.BOLD, 30)));
+
+        BufferedImage image = TableImageUtils.renderTableToImage(tableData, config);
+        assertTrue(image.getWidth() > 0);
+        assertTrue(image.getHeight() > 0);
+        assertTrue(hasNonWhitePixel(image));
+    }
+
+    private boolean hasNonWhitePixel(BufferedImage image) {
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int rgb = image.getRGB(x, y);
+                int red = (rgb >> 16) & 0xFF;
+                int green = (rgb >> 8) & 0xFF;
+                int blue = rgb & 0xFF;
+                if (red < 245 || green < 245 || blue < 245) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private TornUserDO user(long id) {
+        TornUserDO user = new TornUserDO();
+        user.setId(id);
+        user.setNickname("用户" + id);
+        return user;
     }
 
     private OcRecommendTableBO buildEntry(TornFactionOcDO oc, TornFactionOcSlotDO slot) {

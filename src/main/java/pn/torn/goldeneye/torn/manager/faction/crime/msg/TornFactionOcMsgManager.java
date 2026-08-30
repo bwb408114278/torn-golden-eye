@@ -14,9 +14,12 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
+import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageStatusResolver;
+import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
 
@@ -24,7 +27,7 @@ import java.util.List;
  * OC消息公共逻辑
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.5.2
  * @since 2025.08.06
  */
 @Component
@@ -34,6 +37,8 @@ public class TornFactionOcMsgManager {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
     private final SysSettingDAO settingDao;
+    private final OcImageStatusResolver imageStatusResolver;
+    private final OcImageTitleFormatter imageTitleFormatter;
     private static final Color RECOMMEND_COLOR = new Color(64, 224, 205);
     private static final Color IDLE_NOT_RECOMMEND_COLOR = new Color(242, 242, 242);
 
@@ -59,6 +64,7 @@ public class TornFactionOcMsgManager {
             splitLine.add(entry.getKey().getName());
         }
         TableDataBO table = msgTableManager.buildOcTable(title, multiMap, splitLine);
+        enrichCurrentOcTable(table, multiMap);
 
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
@@ -127,8 +133,47 @@ public class TornFactionOcMsgManager {
 
         // 每块内本块推荐位高亮，其余空闲岗位置灰
         TableDataBO tableData = msgTableManager.buildOcTable(title, ocMap, reasonList);
+        enrichCurrentOcTable(tableData, ocMap);
         highlightOrGraySlots(tableData, ocMap, blockPositionList);
         return tableData;
+    }
+
+    /**
+     * 为当前 OC 槽位表格补充统一时间文案和成员状态 Emoji。
+     * <p>
+     * 不改动表格结构，只在 OC 分隔行追加时间文案，并在成员行已加入成员单元格追加唯一 Emoji；
+     * 空槽和未知状态不追加 Emoji。
+     *
+     * @param tableData 已由 {@link TornFactionOcMsgTableManager} 生成的表格数据
+     * @param ocMap     OC 与槽位列表映射，槽位列表顺序与表格列序一致
+     */
+    private void enrichCurrentOcTable(TableDataBO tableData,
+                                      Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
+        LocalDateTime now = LocalDateTime.now();
+        int blockIndex = 0;
+        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entries()) {
+            List<TornFactionOcSlotDO> slotList = entry.getValue();
+            TornFactionOcDO oc = entry.getKey();
+            int splitRowIndex = 1 + blockIndex * 3;
+            int memberRowIndex = splitRowIndex + 2;
+
+            String timeText = imageTitleFormatter.format(oc.getStatus(), oc.getReadyTime(), now);
+            if (!timeText.isEmpty()) {
+                List<String> splitLine = tableData.getTableData().get(splitRowIndex);
+                splitLine.set(0, splitLine.getFirst() + " " + timeText);
+            }
+
+            List<String> memberRow = tableData.getTableData().get(memberRowIndex);
+            for (int i = 0; i < slotList.size() && i + 1 < memberRow.size(); i++) {
+                TornFactionOcSlotDO slot = slotList.get(i);
+                String emoji = imageStatusResolver.resolve(slot.getUserId(), slot.getProgress(),
+                        slot.getRequiredItemAvailable()).getEmoji();
+                if (!emoji.isEmpty()) {
+                    memberRow.set(i + 1, memberRow.get(i + 1).trim() + " " + emoji);
+                }
+            }
+            blockIndex++;
+        }
     }
 
     /**
@@ -137,8 +182,8 @@ public class TornFactionOcMsgManager {
      * <p>列定位使用排序后槽位列表下标（列=下标+1），与绘表时的列序一致，
      * 不依赖岗位单元格文本匹配。</p>
      *
-     * @param tableData        表格数据
-     * @param ocMap            OC与槽位列表映射，槽位列表顺序与表格列序一致
+     * @param tableData         表格数据
+     * @param ocMap             OC与槽位列表映射，槽位列表顺序与表格列序一致
      * @param blockPositionList 与ocMap块序一致的本块推荐岗位名列表（去空格）
      */
     private void highlightOrGraySlots(TableDataBO tableData,

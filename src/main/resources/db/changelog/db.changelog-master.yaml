@@ -92,3 +92,5 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.4.8/monthly-state-rule-version-widen.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.5.0/activity-heatmap-v3.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.5.2/oc-table-image-status.yaml
