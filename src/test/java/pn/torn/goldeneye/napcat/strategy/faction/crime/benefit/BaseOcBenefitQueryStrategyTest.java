@@ -67,11 +67,6 @@ class BaseOcBenefitQueryStrategyTest {
         OcMonthParam param = BaseOcBenefitQueryStrategy.parseMonthParam("123456#2026-07", CURRENT);
         assertEquals("123456", param.targetText());
         assertEquals(YearMonth.of(2026, 7), param.month());
-
-        String atMarker = QqCommandMessage.buildAtMarker(10001L);
-        param = BaseOcBenefitQueryStrategy.parseMonthParam(atMarker + "#2026-07", CURRENT);
-        assertEquals(atMarker, param.targetText());
-        assertEquals(YearMonth.of(2026, 7), param.month());
     }
 
     @Test
@@ -100,6 +95,37 @@ class BaseOcBenefitQueryStrategyTest {
     @DisplayName("段数超过上限拒绝")
     void parseMonthParam_tooManySegments_rejected() {
         assertNull(BaseOcBenefitQueryStrategy.parseMonthParam("123456#2026-07#8", CURRENT));
+    }
+
+    @Test
+    @DisplayName("at标记可搭配月份尾段：分发层把at标记追加在参数末尾")
+    void parseMonthParam_atMarkerWithMonth_parsesBoth() {
+        String atMarker = QqCommandMessage.buildAtMarker(10001L);
+
+        // at + 当月：参数仅为at标记
+        OcMonthParam param = BaseOcBenefitQueryStrategy.parseMonthParam(atMarker, CURRENT);
+        assertEquals(atMarker, param.targetText());
+        assertEquals(CURRENT, param.month());
+
+        // at + 历史月：月份在at标记之前
+        param = BaseOcBenefitQueryStrategy.parseMonthParam("2026-07" + atMarker, CURRENT);
+        assertEquals(atMarker, param.targetText());
+        assertEquals(YearMonth.of(2026, 7), param.month());
+
+        // at + 未来月拒绝
+        assertNull(BaseOcBenefitQueryStrategy.parseMonthParam("2026-09" + atMarker, CURRENT));
+
+        // at与ID目标段混用拒绝
+        assertNull(BaseOcBenefitQueryStrategy.parseMonthParam("123456#2026-07" + atMarker, CURRENT));
+
+        // at + 非月份文本拒绝
+        assertNull(BaseOcBenefitQueryStrategy.parseMonthParam("abc" + atMarker, CURRENT));
+
+        // 非法at标记原样透传给目标解析统一报参数有误
+        param = BaseOcBenefitQueryStrategy.parseMonthParam(
+                "2026-07" + QqCommandMessage.INVALID_AT_MARKER, CURRENT);
+        assertEquals(QqCommandMessage.INVALID_AT_MARKER, param.targetText());
+        assertEquals(YearMonth.of(2026, 7), param.month());
     }
 
     @Test
