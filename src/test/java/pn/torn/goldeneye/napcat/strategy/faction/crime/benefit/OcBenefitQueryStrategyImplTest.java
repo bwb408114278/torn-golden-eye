@@ -10,11 +10,16 @@ import org.springframework.test.annotation.Rollback;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
+import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
+import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.FactionOcExclusion;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcIncomeService;
@@ -23,11 +28,12 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 /**
  * OC收益查询策略编排测试。
@@ -38,7 +44,7 @@ import static org.mockito.Mockito.verify;
  * 不能替代真实Mapper数据库测试，日期边界与排除结论以{@code TornFactionOcBenefitMapperTest}为准。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.5.2
  * @since 2026.08.04
  */
 @SpringBootTest
@@ -53,6 +59,8 @@ class OcBenefitQueryStrategyImplTest {
     private TornOcIncomeService incomeService;
     @Autowired
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    @Autowired
+    private TornSettingFactionManager settingFactionManager;
 
     @Test
     @DisplayName("个人普通收益明细构造跨帮派排除规则查询并调用生产DAO")
@@ -146,6 +154,110 @@ class OcBenefitQueryStrategyImplTest {
         Object summary = result.getClass().getMethod("getIncomeSummary").invoke(result);
         assertFalse(incomeList.isEmpty());
         assertNotNull(summary);
+    }
+
+    @Test
+    @DisplayName("未来月份参数回复格式介绍，不触发用户解析与查询")
+    void handle_futureMonth_returnsFormatIntro() {
+        List<? extends QqMsgParam<?>> result = strategy.handle(0L, new QqRecMsgSender(), "8809001#2099-01");
+
+        assertEquals(1, result.size());
+        assertInstanceOf(TextQqMsg.class, result.getFirst());
+        assertEquals("参数有误，正确格式：g#OC收益(#用户ID)(#yyyy-MM)，月份不得晚于当月",
+                ((TextQqMsg) result.getFirst()).getData().text());
+        verify(benefitDao, never()).queryPersonalBenefitList(any());
+    }
+
+    @Test
+    @DisplayName("历史月构建整月查询范围：月初零点到月末23:59:59")
+    void buildDateRange_historyMonth_coversWholeMonth() throws Exception {
+        Object dateRange = invokeBuildDateRange(YearMonth.of(2026, 7));
+
+        assertEquals(LocalDateTime.of(2026, 7, 1, 0, 0, 0), readRangeField(dateRange, "fromDate"));
+        assertEquals(LocalDateTime.of(2026, 7, 31, 23, 59, 59), readRangeField(dateRange, "toDate"));
+    }
+
+    @Test
+    @DisplayName("排名按查询月份构造并展示年月文案：归属帮派不同于当前帮派时展示帮派简称")
+    void buildUserRankingMsg_historyMonthFactionMismatch_showsRecordFaction() {
+        TornUserDO user = new TornUserDO();
+        user.setId(8809005L);
+        user.setNickname("测试用户");
+        user.setFactionId(9999L);
+        TornFactionOcBenefitUserRankDO ranking = buildRanking(TornConstants.FACTION_PN_ID);
+        doReturn(ranking).when(benefitDao).queryBenefitUserRanking(any());
+
+        String msg = strategy.buildUserRankingMsg(user, YearMonth.of(2026, 7));
+
+        String factionShortName = settingFactionManager.getIdMap()
+                .get(TornConstants.FACTION_PN_ID).getFactionShortName();
+        assertTrue(msg.contains("2026年7月"));
+        assertTrue(msg.contains("在" + factionShortName + "中排名第3"));
+        assertFalse(msg.contains("本帮"));
+
+        ArgumentCaptor<OcBenefitRankingQuery> queryCaptor = ArgumentCaptor.forClass(OcBenefitRankingQuery.class);
+        verify(benefitDao).queryBenefitUserRanking(queryCaptor.capture());
+        assertEquals(LocalDateTime.of(2026, 7, 1, 0, 0, 0), queryCaptor.getValue().getFromDate());
+    }
+
+    @Test
+    @DisplayName("归属帮派与当前帮派一致时保持本帮文案")
+    void buildUserRankingMsg_factionMatch_keepsOwnFactionCopy() {
+        TornUserDO user = new TornUserDO();
+        user.setId(8809006L);
+        user.setNickname("测试用户");
+        user.setFactionId(TornConstants.FACTION_PN_ID);
+        doReturn(buildRanking(TornConstants.FACTION_PN_ID)).when(benefitDao).queryBenefitUserRanking(any());
+
+        String msg = strategy.buildUserRankingMsg(user, YearMonth.now());
+
+        assertTrue(msg.contains("在本帮中排名第3"));
+        assertTrue(msg.contains(YearMonth.now().getMonthValue() + "月的OC中赚了"));
+    }
+
+    /**
+     * 通过反射调用私有方法{@code buildDateRange(YearMonth)}。
+     *
+     * @param month 查询年月
+     * @return 策略内部私有{@code DateRange}
+     * @throws Exception 反射异常
+     */
+    private Object invokeBuildDateRange(YearMonth month) throws Exception {
+        Method method = strategy.getClass().getDeclaredMethod("buildDateRange", YearMonth.class);
+        method.setAccessible(true);
+        return method.invoke(strategy, month);
+    }
+
+    /**
+     * 通过反射读取私有record{@code DateRange}的时间字段。
+     *
+     * @param dateRange 月份范围对象
+     * @param fieldName record组件名
+     * @return 字段值
+     * @throws Exception 反射异常
+     */
+    private LocalDateTime readRangeField(Object dateRange, String fieldName) throws Exception {
+        Method accessor = dateRange.getClass().getDeclaredMethod(fieldName);
+        accessor.setAccessible(true);
+        return (LocalDateTime) accessor.invoke(dateRange);
+    }
+
+    /**
+     * 构造一条测试用排名结果。
+     *
+     * @param factionId 收益归属帮派ID
+     * @return 排名结果
+     */
+    private TornFactionOcBenefitUserRankDO buildRanking(Long factionId) {
+        TornFactionOcBenefitUserRankDO ranking = new TornFactionOcBenefitUserRankDO();
+        ranking.setFactionId(factionId);
+        ranking.setBenefit(1000L);
+        ranking.setItemCost(100L);
+        ranking.setFactionRank(3L);
+        ranking.setCohortRank(5L);
+        ranking.setCohortUsers(45L);
+        ranking.setOverallRank(8L);
+        return ranking;
     }
 
     /**
