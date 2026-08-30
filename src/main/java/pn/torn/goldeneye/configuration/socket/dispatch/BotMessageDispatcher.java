@@ -17,7 +17,7 @@ import pn.torn.goldeneye.utils.JsonUtils;
  * 机器人消息调度器
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.5.2
  * @since 2026.05.20
  */
 @Component
@@ -58,6 +58,9 @@ public class BotMessageDispatcher {
         if (msgArray.length < 2) {
             return;
         }
+        // QQ客户端会在at卡片后自动补一个空格，at后跟参数时该空格落在命令段内部，
+        // 解析层的整体trim无法去除，此处对命令段单独trim
+        msgArray[1] = msgArray[1].trim();
 
         if (isGroupMessage) {
             groupMessageHandler.handle(msg, msgArray, commandMessage.atMarker(), faction);

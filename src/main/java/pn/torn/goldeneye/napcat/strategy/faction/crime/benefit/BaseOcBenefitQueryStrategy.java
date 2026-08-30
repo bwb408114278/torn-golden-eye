@@ -24,6 +24,17 @@ import java.util.List;
  * @since 2026.08.30
  */
 public abstract class BaseOcBenefitQueryStrategy extends SmthMsgStrategy {
+
+    /**
+     * OC收益查询支持通过 at 指定收益查询目标用户。
+     *
+     * @return true 表示支持 at 用户目标
+     */
+    @Override
+    public boolean supportsAtUserTarget() {
+        return true;
+    }
+
     /**
      * 合法指令的最大分段数（目标段 + 月份尾段）
      */
@@ -119,8 +130,9 @@ public abstract class BaseOcBenefitQueryStrategy extends SmthMsgStrategy {
     /**
      * 解析at目标与可选月份。
      *
-     * <p>at标记必须独占目标语义：剥离标记后余下参数为空表示当月，为单个合法年月表示历史月，
-     * 其余形态（ID目标段、多段、非法年月、未来月）一律拒绝。</p>
+     * <p>at标记必须独占目标语义：剥离标记后余下参数为空表示当月，为单个合法年月表示历史月；
+     * 兼容QQ客户端在at前后保留指令分隔符的形态（例如{@code " #2026-07"}）。其余形态
+     * （ID目标段、多段、非法年月、未来月）一律拒绝。</p>
      *
      * @param remainder    剥离at标记后的余下参数
      * @param atMarker     内部at标记
@@ -128,14 +140,18 @@ public abstract class BaseOcBenefitQueryStrategy extends SmthMsgStrategy {
      * @return 解析结果；非法时返回{@code null}
      */
     private static OcMonthParam parseAtTargetParam(String remainder, String atMarker, YearMonth currentMonth) {
-        if (remainder.isEmpty()) {
+        String normalizedRemainder = remainder.trim();
+        if (normalizedRemainder.startsWith("#")) {
+            normalizedRemainder = normalizedRemainder.substring(1).trim();
+        }
+        if (normalizedRemainder.isEmpty()) {
             return new OcMonthParam(atMarker, currentMonth);
         }
-        String[] msgArray = remainder.split("#");
+        String[] msgArray = normalizedRemainder.split("#");
         if (msgArray.length > MAX_SEGMENT_COUNT - 1) {
             return null;
         }
-        YearMonth month = parseStrictMonth(remainder);
+        YearMonth month = parseStrictMonth(normalizedRemainder);
         if (month == null || month.isAfter(currentMonth)) {
             return null;
         }
