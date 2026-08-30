@@ -10,14 +10,15 @@ import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeSummaryDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
+import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcIncomeService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -29,8 +30,8 @@ import pn.torn.goldeneye.utils.image.TextImageUtils;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -39,15 +40,16 @@ import java.util.Objects;
  * OC收益查询实现类
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.5.2
  * @since 2025.08.20
  */
 @Component
 @RequiredArgsConstructor
-public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
+public class OcBenefitQueryStrategyImpl extends BaseOcBenefitQueryStrategy {
     private final TornOcIncomeService incomeService;
     private final TornFactionOcBenefitDAO benefitDao;
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    private final TornSettingFactionManager settingFactionManager;
 
     @Override
     public String getCommand() {
@@ -56,7 +58,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "获取当月OC收益，例g#" + BotCommands.OC_BENEFIT + "(#用户ID)";
+        return "查询OC收益，例g#" + BotCommands.OC_BENEFIT + "(#用户ID)(#yyyy-MM)";
     }
 
     @Override
@@ -65,18 +67,18 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     @Override
-    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
-        TornUserDO user = super.getTornUser(sender, msg);
-        DateRange monthRange = getCurrentMonthRange();
+    protected List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String targetText, YearMonth month) {
+        TornUserDO user = super.getTornUser(sender, targetText);
+        DateRange monthRange = buildDateRange(month);
         OcDataResult dataResult = queryOcData(user, monthRange);
 
         if (dataResult.isEmpty()) {
-            return super.buildTextMsg("暂未查询到" + LocalDate.now().getMonthValue() + "月完成的OC");
+            return super.buildTextMsg("暂未查询到" + monthLabel(month) + "完成的OC");
         }
 
         // 构建并返回图片消息
-        BufferedImage imageTable = buildDetailMsg(user, dataResult);
-        String rankingMsg = buildUserRankingMsg(user, monthRange.fromDate().toLocalDate());
+        BufferedImage imageTable = buildDetailMsg(user, dataResult, month);
+        String rankingMsg = buildUserRankingMsg(user, month);
 
         int tableWidth = imageTable.getWidth();
         BufferedImage imgMsg = TextImageUtils.renderTextToImage(rankingMsg,
@@ -85,13 +87,21 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
         return super.buildImageMsg(base64);
     }
 
+    @Override
+    protected String buildFormatIntroMsg() {
+        return "参数有误，正确格式：g#" + BotCommands.OC_BENEFIT + "(#用户ID)(#yyyy-MM)，月份不得晚于当月";
+    }
+
     /**
-     * 获取当前月份的时间范围
+     * 构建指定月份的查询时间范围：当月截止到现在，历史月截止到月末。
+     *
+     * @param month 查询年月
+     * @return 月份时间范围
      */
-    private DateRange getCurrentMonthRange() {
-        LocalDate today = LocalDate.now();
-        LocalDateTime fromDate = today.withDayOfMonth(1).atStartOfDay();
-        LocalDateTime toDate = LocalDateTime.now();
+    private DateRange buildDateRange(YearMonth month) {
+        LocalDateTime fromDate = month.atDay(1).atStartOfDay();
+        LocalDateTime toDate = YearMonth.now().equals(month) ?
+                LocalDateTime.now() : month.atEndOfMonth().atTime(23, 59, 59);
         return new DateRange(fromDate, toDate);
     }
 
@@ -192,20 +202,23 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
 
     /**
      * 构建用户排名信息
+     *
+     * <p>排名口径：帮派内排名按查询月份收益归属帮派（记录自身帮派）计算，不使用用户当前帮派；
+     * 历史月或换帮场景下收益归属帮派与当前帮派不一致时，文案展示归属帮派简称。</p>
      */
-    public String buildUserRankingMsg(TornUserDO user, LocalDate date) {
-        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), date);
+    public String buildUserRankingMsg(TornUserDO user, YearMonth month) {
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), month.atDay(1));
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
         if (ranking == null) {
-            return user.getNickname() + "在" + date.getMonthValue() + "月还没有OC收益";
+            return user.getNickname() + "在" + monthLabel(month) + "还没有OC收益";
         }
 
         TornUserDO prevUser = ranking.getPrevUserId() == null ?
                 null : userManager.getUserMap().get(ranking.getPrevUserId());
-        return user.getNickname() + "在" + date.getMonthValue() + "月的OC中赚了" +
+        return user.getNickname() + "在" + monthLabel(month) + "的OC中赚了" +
                 NumberUtils.addDelimiters(ranking.getBenefit() + ranking.getItemCost()) +
                 "(含" + NumberUtils.addDelimiters(ranking.getItemCost()) + "道具成本)" +
-                "\n在本帮中排名第" + ranking.getFactionRank() +
+                "\n" + buildFactionRankMsg(ranking, user) +
                 ", 在同期" + ranking.getCohortUsers() + "人中排名第" + ranking.getCohortRank() +
                 ", 在SMTH中排名第" + ranking.getOverallRank() +
                 (prevUser == null ?
@@ -215,9 +228,24 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
+     * 构建帮派内排名文案：收益归属帮派与当前帮派一致时保持"本帮"，不一致时展示归属帮派简称。
+     *
+     * @param ranking 排名查询结果
+     * @param user    查询目标用户
+     * @return 帮派内排名文案
+     */
+    private String buildFactionRankMsg(TornFactionOcBenefitUserRankDO ranking, TornUserDO user) {
+        TornSettingFactionDO recordFaction = settingFactionManager.getIdMap().get(ranking.getFactionId());
+        if (recordFaction == null || Objects.equals(ranking.getFactionId(), user.getFactionId())) {
+            return "在本帮中排名第" + ranking.getFactionRank();
+        }
+        return "在" + recordFaction.getFactionShortName() + "中排名第" + ranking.getFactionRank();
+    }
+
+    /**
      * 构建OC收益表格
      */
-    private BufferedImage buildDetailMsg(TornUserDO user, OcDataResult dataResult) {
+    private BufferedImage buildDetailMsg(TornUserDO user, OcDataResult dataResult, YearMonth month) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
 
@@ -226,7 +254,7 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
         int totalColumns = displayConfig.getTotalColumns();
 
         // 添加标题行
-        addTitleRow(tableData, tableConfig, user.getNickname(), totalColumns);
+        addTitleRow(tableData, tableConfig, user.getNickname(), totalColumns, month);
 
         // 添加大锅饭表格
         int currentRow = 1;
@@ -255,9 +283,8 @@ public class OcBenefitQueryStrategyImpl extends SmthMsgStrategy {
      * 添加标题行
      */
     private void addTitleRow(List<List<String>> tableData, TableImageUtils.TableConfig tableConfig,
-                             String nickname, int totalColumns) {
-        int month = LocalDate.now().getMonthValue();
-        String title = nickname + "  " + month + "月OC收益";
+                             String nickname, int totalColumns, YearMonth month) {
+        String title = nickname + "  " + monthLabel(month) + "OC收益";
 
         List<String> titleRow = new ArrayList<>();
         titleRow.add(title);

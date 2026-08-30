@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 按帮派+OC名称+生效时间的大锅饭排除规则，日期边界结论一致。</p>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.5.2
  * @since 2026.08.03
  */
 @SpringBootTest
@@ -137,12 +137,13 @@ class TornFactionOcBenefitMapperTest {
     }
 
     @Test
-    @DisplayName("用户个人排名与帮派榜使用同一排除结论")
+    @DisplayName("用户个人排名与帮派榜使用同一排除结论，且返回收益归属帮派")
     void userRanking_consistentWithFactionRanking() {
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(
                 new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 7, 1)));
         assertNotNull(ranking);
         assertEquals(500L, ranking.getBenefit());
+        assertEquals(TornConstants.FACTION_PN_ID, ranking.getFactionId());
     }
 
     @Test

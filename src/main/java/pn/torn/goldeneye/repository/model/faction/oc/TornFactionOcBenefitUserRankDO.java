@@ -6,7 +6,7 @@ import lombok.Data;
  * OC用户收益榜查询结果
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.5.2
  * @since 2025.09.10
  */
 @Data
@@ -19,6 +19,10 @@ public class TornFactionOcBenefitUserRankDO {
      * 物品成本
      */
     private Long itemCost;
+    /**
+     * 收益归属帮派ID，即该月收益记录自身的帮派
+     */
+    private Long factionId;
     /**
      * 同期标识
      */
@@ -47,18 +51,4 @@ public class TornFactionOcBenefitUserRankDO {
      * 同期总人数
      */
     private Long cohortUsers;
-
-    /**
-     * 是否有上一名
-     */
-    public boolean hasPrev() {
-        return prevUserId != null;
-    }
-
-    /**
-     * 与上一名的差距
-     */
-    public Long gapWithPrev() {
-        return hasPrev() ? prevBenefit - benefit : null;
-    }
 }

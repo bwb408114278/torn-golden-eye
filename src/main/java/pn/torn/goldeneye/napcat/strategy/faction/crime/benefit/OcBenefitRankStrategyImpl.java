@@ -4,10 +4,10 @@ import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
@@ -18,7 +18,7 @@ import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
-import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,12 +26,12 @@ import java.util.List;
  * OC收益榜策略实现类
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.5.2
  * @since 2025.09.10
  */
 @Component
 @RequiredArgsConstructor
-public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
+public class OcBenefitRankStrategyImpl extends BaseOcBenefitQueryStrategy {
     private final TornSettingFactionManager settingFactionManager;
     private final TornFactionOcBenefitDAO benefitDao;
     @Lazy
@@ -45,17 +45,17 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "让我看看谁的OC赔钱了";
+        return "让我看看谁的OC赔钱了，例g#" + BotCommands.OC_BENEFIT_RANK + "(#帮派ID|同期)(#yyyy-MM)";
     }
 
     @Override
-    public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
+    protected List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String targetText, YearMonth month) {
         TornUserDO user = null;
         long factionId = 0L;
-        if ("同期".equals(msg)) {
+        if ("同期".equals(targetText)) {
             user = super.getTornUser(sender, "");
-        } else {
-            factionId = super.getTornFactionId(msg);
+        } else if (StringUtils.hasText(targetText)) {
+            factionId = super.getTornFactionId(targetText);
         }
 
         if (user == null && factionId != 0L) {
@@ -65,24 +65,28 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
             }
         }
 
-        LocalDate baseMonth = LocalDate.now();
         List<TornFactionOcBenefitRankDO> rankList;
         String title;
         if (user != null) {
-            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), baseMonth);
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), month.atDay(1));
             rankList = benefitDao.queryCohortBenefitRanking(query);
             String cohort = String.format("%07d", user.getId()).substring(0, 3);
-            title = cohort + "同期" + baseMonth.getMonthValue() + "月OC收益排行榜";
+            title = cohort + "同期" + monthLabel(month) + "OC收益排行榜";
         } else {
-            OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, baseMonth);
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, month.atDay(1));
             rankList = benefitDao.queryBenefitRanking(query);
             String factionName = factionId == 0L ?
                     "SMTH" : settingFactionManager.getIdMap().get(factionId).getFactionShortName();
-            title = factionName + "  " + baseMonth.getMonthValue() + "月OC收益排行榜";
+            title = factionName + "  " + monthLabel(month) + "OC收益排行榜";
 
         }
 
         return super.buildImageMsg(ocBenefitRankStrategy.buildRankTable(rankList, title));
+    }
+
+    @Override
+    protected String buildFormatIntroMsg() {
+        return "参数有误，正确格式：g#" + BotCommands.OC_BENEFIT_RANK + "(#帮派ID|同期)(#yyyy-MM)，月份不得晚于当月";
     }
 
     /**
@@ -91,16 +95,8 @@ public class OcBenefitRankStrategyImpl extends SmthMsgStrategy {
     public String buildRankTable(List<TornFactionOcBenefitRankDO> rankingList, String title) {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-
-        tableData.add(List.of(title, "", "", "", ""));
-        tableConfig.addMerge(0, 0, 1, 5);
-        tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
-                .setBgColor(Color.WHITE)
-                .setPadding(25)
-                .setFont(new Font("微软雅黑", Font.BOLD, 30)));
-
-        tableData.add(List.of("Rank", "ID ", "Name", "帮派", "收益"));
-        tableConfig.setSubTitle(1, 5);
+        TableImageUtils.initTitleTable(tableData, tableConfig, title,
+                List.of("Rank", "ID ", "Name", "帮派", "收益"));
 
         for (int i = 0; i < rankingList.size(); i++) {
             TornFactionOcBenefitRankDO ranking = rankingList.get(i);

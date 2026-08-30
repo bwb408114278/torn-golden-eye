@@ -42,7 +42,7 @@ class TornFactionOcMsgManagerTest {
     private static final long FACTION_ID = 2095L;
     private static final Color FULL_GREEN = new Color(122, 167, 56);
     private static final Color RECOMMEND_TURQUOISE = new Color(64, 224, 205);
-    private static final Color IDLE_GRAY = new Color(191, 191, 191);
+    private static final Color IDLE_GRAY = new Color(242, 242, 242);
 
     @Mock
     private TornUserDAO tableUserDao;

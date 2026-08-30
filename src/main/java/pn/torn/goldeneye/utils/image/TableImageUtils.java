@@ -16,7 +16,7 @@ import java.util.List;
  * 表格图片转换工具类
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.5.2
  * @since 2025.07.24
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -162,6 +162,35 @@ public class TableImageUtils {
      */
     public static String renderTableToBase64(List<List<String>> tableData) {
         return renderTableToBase64(tableData, new TableConfig());
+    }
+
+    /**
+     * 初始化带标题行与表头行的表格脚手架。
+     *
+     * <p>首行为跨全列合并的标题行（白底、加大内边距、加粗大号字体），次行为表头副标题行；
+     * 供各类榜单表格共用，调用方继续追加数据行后渲染。</p>
+     *
+     * @param tableData 表格数据行集合，由本方法写入标题行与表头行
+     * @param config    表格配置，由本方法写入标题行合并与样式
+     * @param title     标题文本
+     * @param headers   表头列名，列数决定标题行合并宽度
+     */
+    public static void initTitleTable(List<List<String>> tableData, TableConfig config,
+                                      String title, List<String> headers) {
+        int columnSize = headers.size();
+        List<String> titleRow = new ArrayList<>(columnSize);
+        titleRow.add(title);
+        for (int i = 1; i < columnSize; i++) {
+            titleRow.add("");
+        }
+        tableData.add(titleRow);
+        config.addMerge(0, 0, 1, columnSize);
+        config.setCellStyle(0, 0, new CellStyle()
+                .setBgColor(Color.WHITE)
+                .setPadding(25)
+                .setFont(new Font("微软雅黑", Font.BOLD, 30)));
+        tableData.add(headers);
+        config.setSubTitle(1, columnSize);
     }
 
     /**

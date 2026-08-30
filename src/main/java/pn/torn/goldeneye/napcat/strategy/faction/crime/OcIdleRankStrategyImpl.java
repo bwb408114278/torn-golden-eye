@@ -16,7 +16,6 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
-import java.awt.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -31,7 +30,7 @@ import java.util.stream.Collectors;
  * OC空转榜策略实现类
  *
  * @author Bai
- * @version 1.2.2
+ * @version 1.5.2
  * @since 2026.06.12
  */
 @Component
@@ -86,16 +85,8 @@ public class OcIdleRankStrategyImpl extends SmthMsgStrategy {
 
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-
-        tableData.add(List.of(title, "", "", "", ""));
-        tableConfig.addMerge(0, 0, 1, 5);
-        tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
-                .setBgColor(Color.WHITE)
-                .setPadding(25)
-                .setFont(new Font("微软雅黑", Font.BOLD, 30)));
-
-        tableData.add(List.of("Rank", "ID ", "Name", "空转时长", "OC次数"));
-        tableConfig.setSubTitle(1, 5);
+        TableImageUtils.initTitleTable(tableData, tableConfig, title,
+                List.of("Rank", "ID ", "Name", "空转时长", "OC次数"));
 
         for (int i = 0; i < rankingList.size(); i++) {
             TornFactionOcIdleRankDO ranking = rankingList.get(i);
