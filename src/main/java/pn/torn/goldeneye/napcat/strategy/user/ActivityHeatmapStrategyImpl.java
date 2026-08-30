@@ -1,7 +1,6 @@
 package pn.torn.goldeneye.napcat.strategy.user;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
@@ -26,17 +25,22 @@ import java.util.Optional;
 /**
  * 活跃度热力图指令
  * <p>
- * 支持无日期参数（等价最近 28 天）与{@code 从#yyyy-MM-dd}/{@code 截至#yyyy-MM-dd}日期参数；
- * 日期尾部参数统一由{@link ActivityQueryRangeParser}解析，本类不复制 split 之外的日期逻辑。
+ * 支持无日期参数（等价最近 28 天）与单个截止日期尾部参数；目标缺省时“用户”模式查询
+ * 发送人绑定用户自己、“帮派”模式查询其所属帮派。日期尾部参数统一由
+ * {@link ActivityQueryRangeParser}解析，本类不复制 split 之外的日期逻辑。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.2
  * @since 2026.07.07
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
+    /**
+     * 发送人未加入帮派时的稳定提示文案
+     */
+    private static final String NOT_IN_FACTION_MSG = "你还没有加入帮派哦";
+
     private final ActivityHeatmapService heatmapService;
 
     @Override
@@ -46,7 +50,7 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "查询活跃度热力图，支持帮派/用户和从/截至日期参数";
+        return "查询活跃度热力图，支持帮派/用户（缺省查自己/所属帮派）和截止日期参数";
     }
 
     /**
@@ -67,30 +71,33 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
         }
 
         String[] msgArray = msg.split("#");
-        // 合法形态：[类型, 目标] 或 [类型, 目标, 范围关键字, 日期]
-        if (msgArray.length != 2 && msgArray.length != 4) {
+        // 合法形态：[类型]、[类型, 目标|截止日期]、[类型, 目标, 截止日期]
+        if (msgArray.length < 1 || msgArray.length > 3) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
         String type = msgArray[0].trim();
-        // at 标记以 \u0000 为边界，trim 会破坏标记结构，必须基于原始目标片段探测
-        String targetText = msgArray[1];
+        if (!"帮派".equals(type) && !"用户".equals(type)) {
+            return super.buildTextMsg(buildFormatIntroMsg());
+        }
 
+        String targetText = resolveTargetText(msgArray);
         Optional<ActivityQueryRange> range = ActivityQueryRangeParser.parse(
-                tailSegments(msgArray), LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
+                tailSegments(msgArray, targetText != null), LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
         if (range.isEmpty()) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
+        if (targetText == null) {
+            return handleNoTarget(sender, type, range.get());
+        }
         if (super.hasAtMarker(targetText)) {
             return handleAtTarget(sender, type, targetText, range.get());
         }
-
-        String idText = targetText.trim();
-        if (!isValidQuery(type, idText)) {
+        if (!isValidTargetId(targetText)) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
-        long id = Long.parseLong(idText);
+        long id = Long.parseLong(targetText.trim());
         if ("帮派".equals(type)) {
             return buildFactionHeatmapReply(id, range.get());
         }
@@ -98,16 +105,59 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 提取目标段之后的日期尾部参数段
+     * 解析目标段：第二段为纯数字 ID 或 at 标记时视为目标；否则视为截止日期段，目标缺省
      *
      * @param msgArray 指令分段数组
-     * @return 尾部参数段列表，无日期参数时为空列表
+     * @return 目标段文本；目标缺省时返回 null
      */
-    private static List<String> tailSegments(String[] msgArray) {
-        if (msgArray.length <= 2) {
+    private String resolveTargetText(String[] msgArray) {
+        if (msgArray.length < 2) {
+            return null;
+        }
+        // at 标记以 \u0000 为边界，trim 会破坏标记结构，必须基于原始片段探测
+        String segment = msgArray[1];
+        if (super.hasAtMarker(segment)) {
+            return segment;
+        }
+        String trimmed = segment.trim();
+        return NumberUtils.isLong(trimmed) ? trimmed : null;
+    }
+
+    /**
+     * 处理目标缺省查询：“用户”模式查询发送人绑定用户自己，“帮派”模式查询其所属帮派
+     *
+     * @param sender 消息发送人
+     * @param type   查询类型
+     * @param range  已解析的查询日期范围
+     * @return 回复消息
+     */
+    private List<? extends QqMsgParam<?>> handleNoTarget(QqRecMsgSender sender, String type,
+                                                         ActivityQueryRange range) {
+        if ("用户".equals(type)) {
+            TornUserDO user = super.getTornUser(sender, "");
+            return buildPersonalHeatmapReply(user.getId(), range);
+        }
+
+        long factionId = super.getTornFactionIdBySender(sender);
+        if (factionId <= 0) {
+            return super.buildTextMsg(NOT_IN_FACTION_MSG);
+        }
+        return buildFactionHeatmapReply(factionId, range);
+    }
+
+    /**
+     * 提取目标段（如存在）之后的日期尾部参数段
+     *
+     * @param msgArray  指令分段数组
+     * @param hasTarget 是否存在目标段
+     * @return 尾部参数段列表，无截止日期时为空列表
+     */
+    private static List<String> tailSegments(String[] msgArray, boolean hasTarget) {
+        int fromIndex = hasTarget ? 2 : 1;
+        if (msgArray.length <= fromIndex) {
             return List.of();
         }
-        return Arrays.asList(msgArray).subList(2, msgArray.length);
+        return Arrays.asList(msgArray).subList(fromIndex, msgArray.length);
     }
 
     /**
@@ -161,23 +211,14 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
     }
 
     /**
-     * 校验热力图查询类型和目标 ID。
+     * 校验目标 ID 为正整数
      *
-     * @param type   查询类型
      * @param idText 目标 ID 文本
      * @return 参数有效时返回 true
      */
-    static boolean isValidQuery(String type, String idText) {
-        boolean isCommand = "帮派".equals(type) || "用户".equals(type);
-        if (!isCommand || !NumberUtils.isLong(idText)) {
-            return false;
-        }
-        try {
-            return Long.parseLong(idText) > 0;
-        } catch (NumberFormatException e) {
-            log.debug("活跃度热力图目标 ID 超出 long 范围: {}", idText);
-            return false;
-        }
+    static boolean isValidTargetId(String idText) {
+        String trimmed = idText.trim();
+        return NumberUtils.isLong(trimmed) && Long.parseLong(trimmed) > 0;
     }
 
     /**
@@ -185,9 +226,10 @@ public class ActivityHeatmapStrategyImpl extends SmthMsgStrategy {
      */
     private static String buildFormatIntroMsg() {
         return "查询格式举例如下: " +
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户, 查询自己最近28天的热力图" +
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派, 查询自己帮派最近28天的热力图" +
                 "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派#12345, 查询12345帮派最近28天的热力图" +
                 "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户#54321, 查询54321玩家最近28天的热力图" +
-                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派#12345#从#2026-01-01, 查询2026-01-01至今的热力图" +
-                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户#54321#截至#2026-01-01, 查询截至2026-01-01的最近28天热力图";
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派#12345#2026-01-01, 查询截至2026-01-01的最近28天热力图";
     }
 }

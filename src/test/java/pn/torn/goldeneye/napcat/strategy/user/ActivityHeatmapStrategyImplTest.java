@@ -34,11 +34,11 @@ import static org.mockito.Mockito.*;
  * 活跃度热力图指令测试。
  *
  * <p>覆盖“用户”模式 at 目标到绑定用户 Torn userId 的转换、“帮派”模式对 at 目标的拒绝、
- * 数字目标、at 未绑定、at 与数字混用、非法标记的参数边界，以及从/截至日期参数的
- * 范围传递与非法日期拒绝。</p>
+ * 数字目标、目标缺省查自己/所属帮派、at 未绑定、at 与数字混用、非法标记的参数边界，
+ * 以及截止日期参数的范围传递与非法日期拒绝。</p>
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.2
  * @since 2026.07.21
  */
 @ExtendWith(MockitoExtension.class)
@@ -46,8 +46,10 @@ import static org.mockito.Mockito.*;
 class ActivityHeatmapStrategyImplTest {
 
     private static final long GROUP_ID = 111L;
+    private static final long SENDER_QQ = 999L;
     private static final long AT_TARGET_QQ = 12345L;
     private static final long BOUND_TORN_USER_ID = 54321L;
+    private static final long BOUND_FACTION_ID = 20465L;
 
     @Mock
     private TornUserManager userManager;
@@ -63,20 +65,14 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     @Test
-    @DisplayName("合法类型和正数ID应通过校验")
-    void shouldAcceptValidTypeAndPositiveId() {
-        assertTrue(ActivityHeatmapStrategyImpl.isValidQuery("帮派", "20465"));
-        assertTrue(ActivityHeatmapStrategyImpl.isValidQuery("用户", "12345"));
-    }
-
-    @Test
-    @DisplayName("无效类型及非正数ID应拒绝")
-    void shouldRejectInvalidTypeAndNonPositiveId() {
-        assertFalse(ActivityHeatmapStrategyImpl.isValidQuery("其他", "20465"));
-        assertFalse(ActivityHeatmapStrategyImpl.isValidQuery("帮派", "0"));
-        assertFalse(ActivityHeatmapStrategyImpl.isValidQuery("用户", "-1"));
-        assertFalse(ActivityHeatmapStrategyImpl.isValidQuery(
-                "用户", "999999999999999999999999999"));
+    @DisplayName("正数ID应通过校验，非正数或溢出ID应拒绝")
+    void shouldValidateTargetId() {
+        assertTrue(ActivityHeatmapStrategyImpl.isValidTargetId("20465"));
+        assertTrue(ActivityHeatmapStrategyImpl.isValidTargetId(" 54321 "));
+        assertFalse(ActivityHeatmapStrategyImpl.isValidTargetId("0"));
+        assertFalse(ActivityHeatmapStrategyImpl.isValidTargetId("-1"));
+        assertFalse(ActivityHeatmapStrategyImpl.isValidTargetId("abc"));
+        assertFalse(ActivityHeatmapStrategyImpl.isValidTargetId("999999999999999999999999999"));
     }
 
     @Test
@@ -95,43 +91,95 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     @Test
-    @DisplayName("从#日期 参数应以 [startDate, 今天] 范围传递给查询服务")
-    void handle_fromDateParam_passesAnchoredRange() {
-        when(heatmapService.queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class)))
-                .thenReturn(noDataPersonalHeatmap());
-
-        strategy.handle(GROUP_ID, sender(), "用户#" + BOUND_TORN_USER_ID + "#从#2026-08-01");
-
-        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
-        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.FROM, captor.getValue().mode());
-        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().startDate());
-        assertEquals(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE), captor.getValue().endDate());
-    }
-
-    @Test
-    @DisplayName("截至#日期 参数应以 [endDate-27, endDate] 范围传递给查询服务")
+    @DisplayName("截止日期参数应以 [endDate-27, endDate] 范围传递给查询服务")
     void handle_untilDateParam_passesAnchoredRange() {
-        when(heatmapService.queryFactionHeatmap(eq(20465L), any(ActivityQueryRange.class)))
+        when(heatmapService.queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class)))
                 .thenReturn(noDataFactionHeatmap());
 
-        strategy.handle(GROUP_ID, sender(), "帮派#20465#截至#2026-08-01");
+        strategy.handle(GROUP_ID, sender(), "帮派#" + BOUND_FACTION_ID + "#2026-08-01");
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
-        verify(heatmapService).queryFactionHeatmap(eq(20465L), captor.capture());
+        verify(heatmapService).queryFactionHeatmap(eq(BOUND_FACTION_ID), captor.capture());
         assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
         assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
         assertEquals(LocalDate.of(2026, 7, 5), captor.getValue().startDate());
     }
 
     @Test
-    @DisplayName("非法日期格式/未来日期/错误关键字的日期参数应返回格式说明")
+    @DisplayName("目标缺省的用户模式按发送人绑定用户查询个人热力图")
+    void handle_noTargetUserMode_queriesSenderBoundUser() {
+        when(userManager.getUserByQq(SENDER_QQ)).thenReturn(senderBoundUser(BOUND_FACTION_ID));
+        when(heatmapService.queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class)))
+                .thenReturn(noDataPersonalHeatmap());
+
+        List<? extends QqMsgParam<?>> result = strategy.handle(GROUP_ID, sender(), "用户");
+
+        assertEquals(ActivityHeatmapService.NO_DATA_MESSAGE, replyText(result));
+        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class));
+        verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
+    }
+
+    @Test
+    @DisplayName("目标缺省的帮派模式按发送人所属帮派查询帮派热力图")
+    void handle_noTargetFactionMode_queriesSenderFaction() {
+        when(userManager.getUserByQq(SENDER_QQ)).thenReturn(senderBoundUser(BOUND_FACTION_ID));
+        when(heatmapService.queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class)))
+                .thenReturn(noDataFactionHeatmap());
+
+        List<? extends QqMsgParam<?>> result = strategy.handle(GROUP_ID, sender(), "帮派");
+
+        assertEquals(ActivityHeatmapService.NO_DATA_MESSAGE, replyText(result));
+        verify(heatmapService).queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class));
+        verify(heatmapService, never()).queryPersonalHeatmap(anyLong(), any(ActivityQueryRange.class));
+    }
+
+    @Test
+    @DisplayName("目标缺省的帮派模式在发送人未加入帮派时返回提示且不查询")
+    void handle_noTargetFactionModeNotInFaction_returnsTipWithoutQuery() {
+        when(userManager.getUserByQq(SENDER_QQ)).thenReturn(senderBoundUser(null));
+
+        List<? extends QqMsgParam<?>> result = strategy.handle(GROUP_ID, sender(), "帮派");
+
+        assertEquals("你还没有加入帮派哦", replyText(result));
+        verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
+        verify(heatmapService, never()).queryPersonalHeatmap(anyLong(), any(ActivityQueryRange.class));
+    }
+
+    @Test
+    @DisplayName("目标缺省与截止日期组合时按缺省目标加截至范围查询")
+    void handle_noTargetWithUntilDate_queriesSenderTargetWithRange() {
+        when(userManager.getUserByQq(SENDER_QQ)).thenReturn(senderBoundUser(BOUND_FACTION_ID));
+        when(heatmapService.queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class)))
+                .thenReturn(noDataFactionHeatmap());
+
+        strategy.handle(GROUP_ID, sender(), "帮派#2026-08-01");
+
+        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
+        verify(heatmapService).queryFactionHeatmap(eq(BOUND_FACTION_ID), captor.capture());
+        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
+    }
+
+    @Test
+    @DisplayName("非法日期格式/未来日期/旧关键字参数应返回格式说明")
     void handle_invalidDateParams_returnsFormatIntro() {
-        assertFormatIntro("用户#" + BOUND_TORN_USER_ID + "#从#2026/08/01");
-        assertFormatIntro("用户#" + BOUND_TORN_USER_ID + "#从#2999-01-01");
-        assertFormatIntro("帮派#20465#自从#2026-08-01");
-        assertFormatIntro("帮派#20465#从#2026-08-01#截至#2026-08-02");
-        assertFormatIntro("帮派#20465#从");
+        assertFormatIntro("用户#" + BOUND_TORN_USER_ID + "#2026/08/01");
+        assertFormatIntro("用户#" + BOUND_TORN_USER_ID + "#2999-01-01");
+        assertFormatIntro("帮派#" + BOUND_FACTION_ID + "#从#2026-08-01");
+        assertFormatIntro("帮派#" + BOUND_FACTION_ID + "#截至#2026-08-01");
+        assertFormatIntro("帮派#" + BOUND_FACTION_ID + "#从");
+
+        verify(heatmapService, never()).queryPersonalHeatmap(anyLong(), any(ActivityQueryRange.class));
+        verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
+    }
+
+    @Test
+    @DisplayName("非法类型与非数字目标应返回格式说明")
+    void handle_invalidTypeOrTarget_returnsFormatIntro() {
+        assertFormatIntro("其他#" + BOUND_TORN_USER_ID);
+        assertFormatIntro("帮派#abc");
+        assertFormatIntro("帮派#" + BOUND_FACTION_ID + "#额外#2026-08-01");
+        assertFormatIntro("");
 
         verify(heatmapService, never()).queryPersonalHeatmap(anyLong(), any(ActivityQueryRange.class));
         verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
@@ -155,8 +203,8 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     @Test
-    @DisplayName("用户模式 at 目标携带从#日期 参数时范围仍正确传递")
-    void handle_userModeAtTargetWithFromDate_passesRange() {
+    @DisplayName("用户模式 at 目标携带截止日期参数时范围仍正确传递")
+    void handle_userModeAtTargetWithUntilDate_passesRange() {
         TornUserDO boundUser = new TornUserDO();
         boundUser.setId(BOUND_TORN_USER_ID);
         when(userManager.getUserByQq(AT_TARGET_QQ)).thenReturn(boundUser);
@@ -164,11 +212,11 @@ class ActivityHeatmapStrategyImplTest {
                 .thenReturn(noDataPersonalHeatmap());
 
         strategy.handle(GROUP_ID, sender(),
-                "用户#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ) + "#从#2026-08-01");
+                "用户#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ) + "#2026-08-01");
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.FROM, captor.getValue().mode());
+        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
     }
 
     @Test
@@ -232,8 +280,15 @@ class ActivityHeatmapStrategyImplTest {
 
     private QqRecMsgSender sender() {
         QqRecMsgSender sender = new QqRecMsgSender();
-        sender.setUserId(999L);
+        sender.setUserId(SENDER_QQ);
         return sender;
+    }
+
+    private TornUserDO senderBoundUser(Long factionId) {
+        TornUserDO user = new TornUserDO();
+        user.setId(BOUND_TORN_USER_ID);
+        user.setFactionId(factionId);
+        return user;
     }
 
     private PersonalActivityHeatmapVO noDataPersonalHeatmap() {
