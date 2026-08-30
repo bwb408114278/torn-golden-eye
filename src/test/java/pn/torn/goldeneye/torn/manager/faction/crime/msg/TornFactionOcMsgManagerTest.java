@@ -160,6 +160,54 @@ class TornFactionOcMsgManagerTest {
     }
 
     @Test
+    @DisplayName("普通OC查询路径：标题写入时间文案，成员单元格逐个追加唯一状态Emoji")
+    void buildOcTable_shouldEnrichTitleTimeTextAndMemberEmojiCells() {
+        TornFactionOcDO recruitingIdleOc = buildOc(1L, "RecruitingOc", "Recruiting",
+                LocalDateTime.now().plusHours(30));
+        TornFactionOcDO planningSoonOc = buildOc(2L, "PlanningSoonOc", "Planning",
+                LocalDateTime.now().plusHours(2));
+        TornFactionOcDO planningFarOc = buildOc(3L, "PlanningFarOc", "Planning",
+                LocalDateTime.now().plusHours(48));
+
+        TornFactionOcSlotDO idle = slotWithProgress(buildSlot(1L, 10L, "A"), BigDecimal.ZERO);
+        TornFactionOcSlotDO preparing = slotWithProgress(buildSlot(1L, 11L, "B"), BigDecimal.valueOf(50));
+        TornFactionOcSlotDO ready = slotWithProgress(buildSlot(1L, 12L, "C"), BigDecimal.valueOf(100));
+        TornFactionOcSlotDO missing = slotWithProgress(buildSlot(1L, 13L, "D"), BigDecimal.valueOf(50));
+        missing.setRequiredItemAvailable(false);
+        TornFactionOcSlotDO idleAndMissing = slotWithProgress(buildSlot(1L, 14L, "E"), BigDecimal.ZERO);
+        idleAndMissing.setRequiredItemAvailable(false);
+        TornFactionOcSlotDO empty = slotWithProgress(buildSlot(1L, null, "F"), BigDecimal.ZERO);
+        TornFactionOcSlotDO planningMember = slotWithProgress(buildSlot(2L, 20L, "A"), BigDecimal.valueOf(30));
+        TornFactionOcSlotDO planningIdleMember = slotWithProgress(buildSlot(3L, 30L, "A"), BigDecimal.ZERO);
+        when(slotDao.queryListByOc(anyCollection())).thenReturn(new ArrayList<>(
+                List.of(idle, preparing, ready, missing, idleAndMissing, empty, planningMember, planningIdleMember)));
+        when(tableUserDao.queryUserMap(anyCollection())).thenReturn(Map.of(
+                10L, user(10L), 11L, user(11L), 12L, user(12L), 13L, user(13L),
+                14L, user(14L), 20L, user(20L), 30L, user(30L)));
+
+        TableDataBO tableData = msgManager.buildOcTableData("测试标题",
+                List.of(recruitingIdleOc, planningSoonOc, planningFarOc));
+
+        // 三个OC块的标题行：Recruiting空转、Planning预计执行、Planning空转，每个标题只有一种时间文案
+        List<List<String>> rows = tableData.getTableData();
+        assertTrue(rows.get(1).getFirst().matches("RecruitingOc 还需空转\\d+小时\\d{2}分钟"),
+                "Recruiting剩余超24小时应显示空转: " + rows.get(1).getFirst());
+        assertTrue(rows.get(4).getFirst().matches("PlanningSoonOc 预计\\d{2}:\\d{2}开始执行"),
+                "Planning剩余不足24小时应显示预计执行: " + rows.get(4).getFirst());
+        assertTrue(rows.get(7).getFirst().matches("PlanningFarOc 还需空转\\d+小时\\d{2}分钟"),
+                "Planning剩余超24小时应显示空转: " + rows.get(7).getFirst());
+
+        // OC1成员行（列序=排序后槽位下标+1）：每个已加入成员恰好一个对应Emoji，空槽无Emoji
+        List<String> memberRow = rows.get(3);
+        assertEquals("用户10[10] 💤", memberRow.get(1));
+        assertEquals("用户11[11] ⏳", memberRow.get(2));
+        assertEquals("用户12[12] ✅", memberRow.get(3));
+        assertEquals("用户13[13] ⚠️", memberRow.get(4));
+        assertEquals("用户14[14] 💤", memberRow.get(5));
+        assertEquals("空缺", memberRow.get(6));
+    }
+
+    @Test
     @DisplayName("真实BufferedImage渲染包含四类Emoji且图片非空")
     void renderTable_shouldProduceNonBlankImageWithEmoji() {
         List<List<String>> tableData = List.of(
@@ -215,6 +263,22 @@ class TornFactionOcMsgManagerTest {
         oc.setStatus("Recruiting");
         oc.setReadyTime(LocalDateTime.now().plusDays(1));
         return oc;
+    }
+
+    private TornFactionOcDO buildOc(long id, String name, String status, LocalDateTime readyTime) {
+        TornFactionOcDO oc = new TornFactionOcDO();
+        oc.setId(id);
+        oc.setFactionId(FACTION_ID);
+        oc.setName(name);
+        oc.setRank(8);
+        oc.setStatus(status);
+        oc.setReadyTime(readyTime);
+        return oc;
+    }
+
+    private TornFactionOcSlotDO slotWithProgress(TornFactionOcSlotDO slot, BigDecimal progress) {
+        slot.setProgress(progress);
+        return slot;
     }
 
     private TornFactionOcSlotDO buildSlot(Long ocId, Long userId, String position) {

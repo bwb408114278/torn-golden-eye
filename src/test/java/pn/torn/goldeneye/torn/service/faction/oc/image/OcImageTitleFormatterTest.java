@@ -76,6 +76,25 @@ class OcImageTitleFormatterTest {
     }
 
     @Test
+    @DisplayName("Planning已过readyTime仍显示预计执行，不得返回空文案")
+    void planningReadyTimePast_shouldShowPlannedExecution() {
+        LocalDateTime readyTime = NOW.minusMinutes(5);
+        assertEquals("预计11:56开始执行", formatter.format("Planning", readyTime, NOW));
+        assertEquals(OcImageTimeStatusEnum.PLANNED,
+                formatter.resolve("Planning", readyTime, NOW));
+    }
+
+    @Test
+    @DisplayName("剩余24小时00分01秒按完整时间精度属于空转")
+    void delta24hPlusOneSecond_shouldShowIdle() {
+        LocalDateTime readyTime = NOW.plusHours(24).plusSeconds(1);
+        assertEquals("还需空转24小时00分钟", formatter.format("Recruiting", readyTime, NOW));
+        assertEquals("还需空转24小时00分钟", formatter.format("Planning", readyTime, NOW));
+        assertEquals(OcImageTimeStatusEnum.IDLE, formatter.resolve("Recruiting", readyTime, NOW));
+        assertEquals(OcImageTimeStatusEnum.IDLE, formatter.resolve("Planning", readyTime, NOW));
+    }
+
+    @Test
     @DisplayName("Planning剩余恰好24小时仍显示预计执行而非空转")
     void planningDeltaExactly24h_shouldShowPlanned() {
         LocalDateTime readyTime = NOW.plusHours(24);
