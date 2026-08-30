@@ -38,7 +38,7 @@ import static org.mockito.Mockito.*;
  * Redis Pipeline 通过顺序队列桩表达"缺失 Key 保留 null 占位"。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.5.2
  * @since 2026.07.10
  */
 @ExtendWith(MockitoExtension.class)
@@ -138,17 +138,19 @@ class ActivityHeatmapServiceTest {
     }
 
     @Test
-    @DisplayName("超长 FROM 范围的 Redis 请求仅覆盖最近 30 天")
+    @DisplayName("超长截至范围的 Redis 请求仅覆盖最近 30 天")
     void queryPersonalHeatmap_longRange_limitsRedisWindow() {
+        // 结束日锚定真实今天，保证 30 天 Redis 窗口完整交集，不受用例运行日期影响
+        LocalDate rangeEnd = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
         LocalDate oldDate = LocalDate.of(1970, 1, 1);
-        ActivityQueryRange longRange = new ActivityQueryRange(oldDate, RANGE_END, ActivityQueryRangeModeEnum.FROM);
-        when(userDailyDao.selectByUserAndDateRange(USER_ID, oldDate, RANGE_END)).thenReturn(List.of());
+        ActivityQueryRange longRange = new ActivityQueryRange(oldDate, rangeEnd, ActivityQueryRangeModeEnum.UNTIL);
+        when(userDailyDao.selectByUserAndDateRange(USER_ID, oldDate, rangeEnd)).thenReturn(List.of());
         stubPipelineGet(nulls(30 * 3), nulls(30 * 3));
 
         PersonalActivityHeatmapVO vo = service.queryPersonalHeatmap(USER_ID, longRange);
 
         assertFalse(vo.isHasData());
-        verify(userDailyDao).selectByUserAndDateRange(USER_ID, oldDate, RANGE_END);
+        verify(userDailyDao).selectByUserAndDateRange(USER_ID, oldDate, rangeEnd);
         assertEquals(List.of(90, 90), pipelineCommandCounts,
                 "Redis V3/V2 各应只覆盖最近 30 天");
     }
@@ -362,7 +364,7 @@ class ActivityHeatmapServiceTest {
     // ==================== 测试工具 ====================
 
     private static ActivityQueryRange range() {
-        return new ActivityQueryRange(RANGE_START, RANGE_END, ActivityQueryRangeModeEnum.FROM);
+        return new ActivityQueryRange(RANGE_START, RANGE_END, ActivityQueryRangeModeEnum.UNTIL);
     }
 
     /**

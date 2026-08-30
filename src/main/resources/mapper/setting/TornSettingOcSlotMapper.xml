@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.setting.TornSettingOcSlotMapper">
+    <!-- 自动补齐缺失OC岗位目录: 仅INSERT, 不写id由数据库自增主键生成, 不使用ON CONFLICT;
+         人工字段(pass_rate/priority/best_success)仅在首次创建时由Manager填默认值, 并发重复写入由JVM共享锁收敛 -->
+    <insert id="insertMissingBatch">
+        INSERT INTO torn_setting_oc_slot
+            (oc_name, "rank", slot_code, slot_short_code, pass_rate, priority, best_success)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.ocName}, #{item.rank}, #{item.slotCode}, #{item.slotShortCode}, #{item.passRate},
+             #{item.priority}, #{item.bestSuccess})
+        </foreach>
+    </insert>
+</mapper>

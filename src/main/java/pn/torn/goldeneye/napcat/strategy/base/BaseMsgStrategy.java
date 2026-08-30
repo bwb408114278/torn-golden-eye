@@ -18,7 +18,7 @@ import java.util.List;
  * 基础消息策略
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.5.2
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
@@ -208,10 +208,11 @@ public abstract class BaseMsgStrategy {
     }
 
     /**
-     * 根据发送人获取帮派ID
+     * 根据发送人获取帮派ID；未绑定帮派时返回 0
      */
     protected long getTornFactionIdBySender(QqRecMsgSender sender) {
         TornUserDO user = getTornUser(sender, "");
-        return user == null ? 0L : user.getFactionId();
+        Long factionId = user == null ? null : user.getFactionId();
+        return factionId == null ? 0L : factionId;
     }
 }

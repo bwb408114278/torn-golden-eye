@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.manager.faction.crime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.torn.TornApi;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSyncManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcDTO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionOcVO;
 
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
  * OC刷新公共逻辑层
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.5.1
  * @since 2025.11.26
  */
 @Component
@@ -20,6 +21,7 @@ import java.time.LocalDateTime;
 public class TornFactionOcRefreshManager {
     private final TornApi tornApi;
     private final TornFactionOcManager ocManager;
+    private final TornSettingOcSyncManager settingOcSyncManager;
 
     /**
      * 刷新OC
@@ -37,6 +39,7 @@ public class TornFactionOcRefreshManager {
 
                 if (availableOc != null && completeOc != null) {
                     ocManager.updateOc(factionId, execTime, availableOc.getCrimes(), completeOc.getCrimes());
+                    settingOcSyncManager.syncMissingAvailable(availableOc.getCrimes());
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
