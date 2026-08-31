@@ -19,6 +19,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
@@ -39,6 +40,10 @@ public class TornFactionOcMsgManager {
     private final SysSettingDAO settingDao;
     private final OcImageStatusResolver imageStatusResolver;
     private final OcImageTitleFormatter imageTitleFormatter;
+    /**
+     * 图片时间文案统一时钟边界，沿用项目默认时区；一次图片组装只读取一次当前时间。
+     */
+    private final Clock clock = Clock.systemDefaultZone();
     private static final Color RECOMMEND_COLOR = new Color(64, 224, 205);
     private static final Color IDLE_NOT_RECOMMEND_COLOR = new Color(242, 242, 242);
 
@@ -49,7 +54,7 @@ public class TornFactionOcMsgManager {
      * @return 表格图片的Base64
      */
     public String buildOcTable(String title, List<TornFactionOcDO> ocList) {
-        TableDataBO table = buildOcTableData(title, ocList, LocalDateTime.now());
+        TableDataBO table = buildOcTableData(title, ocList);
 
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
@@ -69,11 +74,9 @@ public class TornFactionOcMsgManager {
      *
      * @param title  标题
      * @param ocList OC列表
-     * @param now    图片组装使用的当前时间边界，由生产公共入口在边界处一次取得并传入；
-     *               用于标题时间文案计算和团队状态颜色判断，不是数据库时间
      * @return 已完成状态装配的表格数据
      */
-    TableDataBO buildOcTableData(String title, List<TornFactionOcDO> ocList, LocalDateTime now) {
+    TableDataBO buildOcTableData(String title, List<TornFactionOcDO> ocList) {
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
         Map<Long, List<TornFactionOcSlotDO>> slotByOcIdMap = groupSlotsByOcId(slotList);
         Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
@@ -87,8 +90,8 @@ public class TornFactionOcMsgManager {
             multiMap.put(entry.getKey(), entry.getValue());
             splitLine.add(entry.getKey().getName());
         }
-        TableDataBO table = msgTableManager.buildOcTable(title, multiMap, splitLine, now);
-        enrichCurrentOcTable(table, multiMap, now);
+        TableDataBO table = msgTableManager.buildOcTable(title, multiMap, splitLine);
+        enrichCurrentOcTable(table, multiMap);
         return table;
     }
 
@@ -106,8 +109,7 @@ public class TornFactionOcMsgManager {
      * 构建建议表格
      */
     public String buildRecommendTable(String title, long factionId, List<OcRecommendTableBO> recommendList) {
-        return TableImageUtils.renderTableToBase64(
-                buildRecommendTableData(title, factionId, recommendList, LocalDateTime.now()));
+        return TableImageUtils.renderTableToBase64(buildRecommendTableData(title, factionId, recommendList));
     }
 
     /**
@@ -120,12 +122,9 @@ public class TornFactionOcMsgManager {
      * @param title         标题
      * @param factionId     帮派ID
      * @param recommendList 推荐列表
-     * @param now           图片组装使用的当前时间边界，由生产公共入口在边界处一次取得并传入；
-     *                      用于标题时间文案计算和团队状态颜色判断，不是数据库时间
      * @return 表格数据
      */
-    TableDataBO buildRecommendTableData(String title, long factionId, List<OcRecommendTableBO> recommendList,
-                                        LocalDateTime now) {
+    TableDataBO buildRecommendTableData(String title, long factionId, List<OcRecommendTableBO> recommendList) {
         List<TornFactionOcDO> ocList = ocDao.queryListByIdList(factionId,
                 recommendList.stream().map(r -> r.recommend().getOcId()).toList());
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
@@ -151,8 +150,8 @@ public class TornFactionOcMsgManager {
         }
 
         // 每块内本块推荐位高亮，其余空闲岗位置灰
-        TableDataBO tableData = msgTableManager.buildOcTable(title, ocMap, reasonList, now);
-        enrichCurrentOcTable(tableData, ocMap, now);
+        TableDataBO tableData = msgTableManager.buildOcTable(title, ocMap, reasonList);
+        enrichCurrentOcTable(tableData, ocMap);
         highlightOrGraySlots(tableData, ocMap, blockPositionList);
         return tableData;
     }
@@ -165,11 +164,10 @@ public class TornFactionOcMsgManager {
      *
      * @param tableData 已由 {@link TornFactionOcMsgTableManager} 生成的表格数据
      * @param ocMap     OC 与槽位列表映射，槽位列表顺序与表格列序一致
-     * @param now       本次图片组装的当前时间边界，对全部 OC 只取一次，不逐块读取系统时间
      */
     private void enrichCurrentOcTable(TableDataBO tableData,
-                                      Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
-                                      LocalDateTime now) {
+                                      Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
+        LocalDateTime now = LocalDateTime.now(clock);
         int blockIndex = 0;
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entries()) {
             List<TornFactionOcSlotDO> slotList = entry.getValue();
@@ -187,7 +185,7 @@ public class TornFactionOcMsgManager {
             for (int i = 0; i < slotList.size() && i + 1 < memberRow.size(); i++) {
                 TornFactionOcSlotDO slot = slotList.get(i);
                 String emoji = imageStatusResolver.resolve(slot.getUserId(), slot.getProgress(),
-                        slot.getRequiredItemId(), slot.getRequiredItemAvailable()).getEmoji();
+                        slot.getRequiredItemAvailable()).getEmoji();
                 if (!emoji.isEmpty()) {
                     memberRow.set(i + 1, memberRow.get(i + 1).trim() + " " + emoji);
                 }

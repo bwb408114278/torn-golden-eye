@@ -34,6 +34,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.time.LocalDateTime;
@@ -451,14 +452,13 @@ public class TornOcCompleteNoticeService {
 
     /**
      * 计算OC计划完成时间。
-     * Torn在准备时间所在分钟的下一分钟统一执行，公式统一由
-     * {@link OcPreparationTimeCalculator} 提供，图片标题Formatter共用同一实现。
+     * Torn在准备时间所在分钟的下一分钟统一执行。
      *
      * @param readyTime OC准备时间
      * @return 计划完成时间
      */
     private LocalDateTime calculatePlannedTime(LocalDateTime readyTime) {
-        return OcPreparationTimeCalculator.calculatePlannedTime(readyTime);
+        return OcImageTitleFormatter.calculatePlannedTime(readyTime);
     }
 
     /**

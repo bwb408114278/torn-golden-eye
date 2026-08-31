@@ -22,7 +22,7 @@ import java.util.Queue;
  * OC表格消息公共逻辑
  *
  * @author Bai
- * @version 1.5.2
+ * @version 0.3.0
  * @since 2025.08.15
  */
 @Component
@@ -35,14 +35,10 @@ public class TornFactionOcMsgTableManager {
     /**
      * 绘制OC表格
      *
-     * @param title          标题
-     * @param ocMap          OC与槽位列表映射
-     * @param splitLineQueue OC分隔行文本队列
-     * @param now            本次图片组装的当前时间边界，与标题时间文案使用同一时刻，本类不自行读取系统时间
      * @return 表格数据，第一层为行，第二层为单元格
      */
     public TableDataBO buildOcTable(String title, Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
-                                    Queue<String> splitLineQueue, LocalDateTime now) {
+                                    Queue<String> splitLineQueue) {
         List<Long> userIdList = new ArrayList<>();
         ocMap.values().forEach(v -> userIdList.addAll(v != null ?
                 v.stream().map(TornFactionOcSlotDO::getUserId).filter(Objects::nonNull).toList() : List.of()));
@@ -89,7 +85,7 @@ public class TornFactionOcMsgTableManager {
                 }
             });
 
-            tableData.add(buildPositionRow(oc, slotList, rowIndex + 1, columnCount, tableConfig, now));
+            tableData.add(buildPositionRow(oc, slotList, rowIndex + 1, columnCount, tableConfig));
             tableData.add(buildMemberRow(slotList, userMap, rowIndex + 1, columnCount, tableConfig));
 
             rowIndex += 3;
@@ -111,17 +107,12 @@ public class TornFactionOcMsgTableManager {
     /**
      * 构建岗位行
      *
-     * @param oc          OC数据
-     * @param slotList    槽位列表
      * @param rowIndex    当前行数
      * @param columnCount 最大列数
-     * @param tableConfig 表格配置
-     * @param now         本次图片组装的当前时间边界，团队状态颜色基于该时刻判断，不读取系统时间
-     * @return 岗位行数据
      */
     public List<String> buildPositionRow(TornFactionOcDO oc, List<TornFactionOcSlotDO> slotList,
                                          int rowIndex, int columnCount,
-                                         TableImageUtils.TableConfig tableConfig, LocalDateTime now) {
+                                         TableImageUtils.TableConfig tableConfig) {
         List<String> resultList = new ArrayList<>();
         resultList.add(oc.getStatus() +
                 (oc.getReadyTime() == null ? "" : "\n" + DateTimeUtils.convertToString(oc.getReadyTime())));
@@ -129,7 +120,7 @@ public class TornFactionOcMsgTableManager {
 
         TableImageUtils.CellStyle teamStyle = new TableImageUtils.CellStyle()
                 .setFont(new Font("微软雅黑", Font.BOLD, 14));
-        if (oc.getReadyTime() == null || now.isAfter(oc.getReadyTime())) {
+        if (oc.getReadyTime() == null || LocalDateTime.now().isAfter(oc.getReadyTime())) {
             teamStyle.setBgColor(Color.YELLOW);
         } else {
             teamStyle.setBgColor(new Color(14, 133, 49)).setTextColor(Color.WHITE);

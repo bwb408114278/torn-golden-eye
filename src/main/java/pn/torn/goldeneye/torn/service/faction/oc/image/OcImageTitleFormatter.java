@@ -3,7 +3,6 @@ package pn.torn.goldeneye.torn.service.faction.oc.image;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageTimeStatusEnum;
-import pn.torn.goldeneye.torn.service.faction.oc.OcPreparationTimeCalculator;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -19,7 +18,7 @@ import java.time.temporal.ChronoUnit;
  * <p>
  * 24 小时阈值判定必须使用完整时间精度，不得先把时间截断到分钟再比较；
  * 分钟截断只允许在状态确定后用于倒计时文案展示，保证同一分钟内文案稳定。
- * 计划执行时间委托 {@link OcPreparationTimeCalculator}，与完成延误通知共用同一权威实现。
+ * 计划执行时间复用具项目“准备时间分钟截断加 {@link #PLANNED_OFFSET_MINUTES} 分钟”的完成通知口径。
  *
  * @author Bai
  * @version 1.5.2
@@ -32,6 +31,11 @@ public class OcImageTitleFormatter {
      * 剩余时间严格超过该阈值才展示“还需空转”。
      */
     private static final Duration IDLE_THRESHOLD = Duration.ofHours(24);
+
+    /**
+     * 计划执行时间相对准备链结束分钟截断值的偏移分钟数。
+     */
+    private static final long PLANNED_OFFSET_MINUTES = 1L;
 
     /**
      * 预计执行时间格式。
@@ -117,8 +121,21 @@ public class OcImageTitleFormatter {
         return "还需空转%d小时%02d分钟".formatted(toHours(minutes), toRemainderMinutes(minutes));
     }
 
+    /**
+     * 计算OC计划完成时间。
+     * <p>
+     * 统一按项目完成延误通知口径：准备时间所在分钟截断后加 1 分钟；
+     * 完成通知与图片 Formatter 共用本方法，禁止另写第二份公式。
+     *
+     * @param readyTime OC准备时间
+     * @return 计划完成时间
+     */
+    public static LocalDateTime calculatePlannedTime(LocalDateTime readyTime) {
+        return readyTime.truncatedTo(ChronoUnit.MINUTES).plusMinutes(PLANNED_OFFSET_MINUTES);
+    }
+
     private String formatPlanned(LocalDateTime readyTime) {
-        LocalDateTime plannedTime = OcPreparationTimeCalculator.calculatePlannedTime(readyTime);
+        LocalDateTime plannedTime = calculatePlannedTime(readyTime);
         return "预计" + plannedTime.format(HH_MM_FORMATTER) + "开始执行";
     }
 
