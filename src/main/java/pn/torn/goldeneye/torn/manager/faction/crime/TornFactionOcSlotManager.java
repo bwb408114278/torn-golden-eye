@@ -37,15 +37,8 @@ public class TornFactionOcSlotManager {
                         .filter(old -> old.getOcId().equals(oc.getId()) && old.getPosition().equals(position))
                         .findAny().orElse(null);
                 BigDecimal progress = slot.getUser() == null ? BigDecimal.ZERO : slot.getUser().getProgress();
-                if (oldSlot == null) {
-                    continue;
-                }
-                boolean itemSnapshotChanged = !Objects.equals(oldSlot.getRequiredItemId(), resolveRequiredItemId(slot))
-                        || !Objects.equals(oldSlot.getRequiredItemAvailable(), resolveRequiredItemAvailable(slot));
-                boolean userAndProgressChanged =
-                        !Objects.equals(oldSlot.getUserId(), slot.getUserId())
-                                || !Objects.equals(oldSlot.getProgress(), progress);
-                if (!userAndProgressChanged && !itemSnapshotChanged) {
+                if (oldSlot == null ||
+                        (Objects.equals(oldSlot.getUserId(), slot.getUserId()) && oldSlot.getProgress().equals(progress))) {
                     continue;
                 }
 
@@ -64,8 +57,6 @@ public class TornFactionOcSlotManager {
                     .set(TornFactionOcSlotDO::getJoinTime, DateTimeUtils.convertToDateTime(slot.getUser().getJoinedAt()))
                     .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
                     .set(TornFactionOcSlotDO::getProgress, progress)
-                    .set(TornFactionOcSlotDO::getRequiredItemId, resolveRequiredItemId(slot))
-                    .set(TornFactionOcSlotDO::getRequiredItemAvailable, resolveRequiredItemAvailable(slot))
                     .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
                     .update();
         } else {
@@ -74,24 +65,8 @@ public class TornFactionOcSlotManager {
                     .set(TornFactionOcSlotDO::getJoinTime, null)
                     .set(TornFactionOcSlotDO::getPassRate, null)
                     .set(TornFactionOcSlotDO::getProgress, BigDecimal.ZERO)
-                    .set(TornFactionOcSlotDO::getRequiredItemId, null)
-                    .set(TornFactionOcSlotDO::getRequiredItemAvailable, null)
                     .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
                     .update();
         }
-    }
-
-    private Integer resolveRequiredItemId(TornFactionCrimeSlotVO slot) {
-        if (slot.getUser() == null || slot.getItemRequirement() == null) {
-            return null;
-        }
-        return slot.getItemRequirement().getId();
-    }
-
-    private Boolean resolveRequiredItemAvailable(TornFactionCrimeSlotVO slot) {
-        if (slot.getUser() == null || slot.getItemRequirement() == null) {
-            return null;
-        }
-        return slot.getItemRequirement().getIsAvailable();
     }
 }
