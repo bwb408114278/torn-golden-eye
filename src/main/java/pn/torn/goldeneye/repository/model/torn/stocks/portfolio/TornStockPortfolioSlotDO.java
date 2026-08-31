@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.repository.model.torn.stocks.portfolio;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -14,7 +16,7 @@ import java.math.BigDecimal;
  * 预留资金与当前持仓批次,实现资金隔离与并发安全的仓位分配。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.5.3
  * @since 2026.07.24
  */
 @Data
@@ -48,6 +50,7 @@ public class TornStockPortfolioSlotDO extends BaseDO {
     /**
      * 当前持仓批次ID(仓位正在持有的虚拟批次ID,空仓时为空)
      */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long currentBatchId;
     /**
      * 仓位状态(AVAILABLE空闲/RESERVED预留/OCCUPIED持仓/STALE数据陈旧)
