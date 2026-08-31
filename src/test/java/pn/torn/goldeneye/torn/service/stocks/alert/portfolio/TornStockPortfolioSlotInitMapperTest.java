@@ -20,8 +20,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.stream.IntStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 股票组合槽位冲突安全插入真实PostgreSQL集成测试。
@@ -39,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code verifyAndInitSlots()} 不触碰真实组合编码,故服务级修复收敛场景在此不重复执行。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.5.3
  * @since 2026.08.09
  */
 @SpringBootTest
@@ -114,6 +113,28 @@ class TornStockPortfolioSlotInitMapperTest {
         assertTrue(failures.isEmpty(), () -> "并发修复不应泄漏任何异常: " + failures);
         assertEquals(5, countSlots(TEST_CONCURRENT), "并发双线程修复后必须恰好5行,不得重复");
         assertStandardFields(TEST_CONCURRENT);
+    }
+
+    @Test
+    @DisplayName("真实PG_槽位解除批次绑定_updateById必须将currentBatchId持久化为null")
+    void updateById_clearsCurrentBatchId_persistsNull() {
+        slotDao.insertSlotsIgnoreConflict(slotsFor(TEST_FORMAL, 1, 1));
+        namedJdbcTemplate.update(
+                "UPDATE torn_stock_portfolio_slot SET current_batch_id = :batchId, slot_status = :status "
+                        + "WHERE portfolio_code = :code AND slot_no = :slotNo AND deleted = 0",
+                Map.of("batchId", 9_999_991L, "status", StockSlotStatusEnum.OCCUPIED.getCode(),
+                        "code", TEST_FORMAL, "slotNo", 1));
+        TornStockPortfolioSlotDO slot = slotDao.selectAllByPortfolioCode(TEST_FORMAL).getFirst();
+        slot.setCurrentBatchId(null);
+        slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
+
+        assertTrue(slotDao.updateById(slot), "生产DAO更新应成功");
+
+        Long currentBatchId = namedJdbcTemplate.queryForObject(
+                "SELECT current_batch_id FROM torn_stock_portfolio_slot "
+                        + "WHERE portfolio_code = :code AND slot_no = :slotNo AND deleted = 0",
+                Map.of("code", TEST_FORMAL, "slotNo", 1), Long.class);
+        assertNull(currentBatchId, "平仓或取消预留后的currentBatchId必须持久化清空");
     }
 
     /**
