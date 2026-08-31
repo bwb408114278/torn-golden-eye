@@ -4,7 +4,6 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageTimeStatusEnum;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -12,13 +11,8 @@ import java.time.temporal.ChronoUnit;
 /**
  * OC 表格图片标题时间解析服务。
  * <p>
- * 统一封装 {@code readyTime} 的时间文案，按照“停转 &gt; 空转 &gt; 执行”互斥输出。
- * {@code readyTime} 是串行准备链的结束时间而不是实际执行时间：Planning 不代表立即执行，
- * 只有剩余时间严格超过 {@link #IDLE_THRESHOLD} 才表示准备链上还存在后续空转阶段。
- * <p>
- * 24 小时阈值判定必须使用完整时间精度，不得先把时间截断到分钟再比较；
- * 分钟截断只允许在状态确定后用于倒计时文案展示，保证同一分钟内文案稳定。
- * 计划执行时间复用具项目“准备时间分钟截断加 {@link #PLANNED_OFFSET_MINUTES} 分钟”的完成通知口径。
+ * 统一封装 {@code readyTime} 的时间文案，按照“停转 > 空转 > 执行”互斥输出，
+ * 并复用具项目“准备时间分钟截断加 1 分钟”的执行时间口径。
  *
  * @author Bai
  * @version 1.5.2
@@ -28,14 +22,9 @@ import java.time.temporal.ChronoUnit;
 public class OcImageTitleFormatter {
 
     /**
-     * 剩余时间严格超过该阈值才展示“还需空转”。
+     * 单条准备链超过该分钟数才展示“还需空转”。
      */
-    private static final Duration IDLE_THRESHOLD = Duration.ofHours(24);
-
-    /**
-     * 计划执行时间相对准备链结束分钟截断值的偏移分钟数。
-     */
-    private static final long PLANNED_OFFSET_MINUTES = 1L;
+    private static final long IDLE_THRESHOLD_MINUTES = 24 * 60L;
 
     /**
      * 预计执行时间格式。
@@ -44,10 +33,6 @@ public class OcImageTitleFormatter {
 
     /**
      * 解析 OC 标题时间状态。
-     * <p>
-     * 规则顺序：Recruiting 已过 {@code readyTime} 优先返回已停转；随后按完整时间精度判断剩余时间
-     * 是否严格超过 24 小时（空转）；Recruiting 未超期归入停转倒计时；Planning 只要剩余不超过
-     * 24 小时一律归入预计执行，即使已过 {@code readyTime} 也不返回空文案。
      *
      * @param status    OC 状态
      * @param readyTime OC 准备链结束时间；为 null 时无时间文案
@@ -59,16 +44,23 @@ public class OcImageTitleFormatter {
             return OcImageTimeStatusEnum.NONE;
         }
 
-        if (isRecruiting(status) && now.isAfter(readyTime)) {
+        if (TornOcStatusEnum.RECRUITING.getCode().equals(status) && now.isAfter(readyTime)) {
             return OcImageTimeStatusEnum.STOPPED;
         }
 
-        if (isOverIdleThreshold(readyTime, now)) {
-            return OcImageTimeStatusEnum.IDLE;
+        if (TornOcStatusEnum.PLANNING.getCode().equals(status) && now.isAfter(readyTime)) {
+            return OcImageTimeStatusEnum.NONE;
         }
 
-        return isRecruiting(status)
-                ? OcImageTimeStatusEnum.STOP_COUNTDOWN
+        long deltaMinutes = deltaMinutes(readyTime, now);
+        if (TornOcStatusEnum.RECRUITING.getCode().equals(status)) {
+            return deltaMinutes <= IDLE_THRESHOLD_MINUTES
+                    ? OcImageTimeStatusEnum.STOP_COUNTDOWN
+                    : OcImageTimeStatusEnum.IDLE;
+        }
+
+        return deltaMinutes > IDLE_THRESHOLD_MINUTES
+                ? OcImageTimeStatusEnum.IDLE
                 : OcImageTimeStatusEnum.PLANNED;
     }
 
@@ -92,18 +84,7 @@ public class OcImageTitleFormatter {
     }
 
     /**
-     * 使用完整时间精度判断剩余准备链时间是否严格超过空转阈值。
-     *
-     * @param readyTime OC 准备链结束时间
-     * @param now       当前时间
-     * @return true 表示剩余时间严格大于 24 小时
-     */
-    private boolean isOverIdleThreshold(LocalDateTime readyTime, LocalDateTime now) {
-        return Duration.between(now, readyTime).compareTo(IDLE_THRESHOLD) > 0;
-    }
-
-    /**
-     * 按分钟截断计算倒计时分钟数，只在状态确定后用于文案展示，避免秒数导致同一分钟内文案抖动。
+     * 按分钟截断计算倒计时分钟数，避免秒数导致同一分钟内文案抖动。
      */
     private long deltaMinutes(LocalDateTime readyTime, LocalDateTime now) {
         return ChronoUnit.MINUTES.between(
@@ -124,14 +105,13 @@ public class OcImageTitleFormatter {
     /**
      * 计算OC计划完成时间。
      * <p>
-     * 统一按项目完成延误通知口径：准备时间所在分钟截断后加 1 分钟；
-     * 完成通知与图片 Formatter 共用本方法，禁止另写第二份公式。
+     * 统一按项目完成延误通知口径：准备时间所在分钟截断后加 1 分钟。
      *
      * @param readyTime OC准备时间
      * @return 计划完成时间
      */
     public static LocalDateTime calculatePlannedTime(LocalDateTime readyTime) {
-        return readyTime.truncatedTo(ChronoUnit.MINUTES).plusMinutes(PLANNED_OFFSET_MINUTES);
+        return readyTime.truncatedTo(ChronoUnit.MINUTES).plusMinutes(1);
     }
 
     private String formatPlanned(LocalDateTime readyTime) {
@@ -147,11 +127,8 @@ public class OcImageTitleFormatter {
         return minutes % 60;
     }
 
-    private boolean isRecruiting(String status) {
-        return TornOcStatusEnum.RECRUITING.getCode().equals(status);
-    }
-
     private boolean isSupportedStatus(String status) {
-        return isRecruiting(status) || TornOcStatusEnum.PLANNING.getCode().equals(status);
+        return TornOcStatusEnum.RECRUITING.getCode().equals(status)
+                || TornOcStatusEnum.PLANNING.getCode().equals(status);
     }
 }

@@ -19,7 +19,6 @@ import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
 
 import java.awt.*;
-import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.List;
@@ -40,10 +39,6 @@ public class TornFactionOcMsgManager {
     private final SysSettingDAO settingDao;
     private final OcImageStatusResolver imageStatusResolver;
     private final OcImageTitleFormatter imageTitleFormatter;
-    /**
-     * 图片时间文案统一时钟边界，沿用项目默认时区；一次图片组装只读取一次当前时间。
-     */
-    private final Clock clock = Clock.systemDefaultZone();
     private static final Color RECOMMEND_COLOR = new Color(64, 224, 205);
     private static final Color IDLE_NOT_RECOMMEND_COLOR = new Color(242, 242, 242);
 
@@ -54,7 +49,22 @@ public class TornFactionOcMsgManager {
      * @return 表格图片的Base64
      */
     public String buildOcTable(String title, List<TornFactionOcDO> ocList) {
-        TableDataBO table = buildOcTableData(title, ocList);
+        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
+        Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
+        for (TornFactionOcDO oc : ocList) {
+            List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
+                    .filter(s -> s.getOcId().equals(oc.getId())).toList());
+            ocMap.put(oc, currentSlotList);
+        }
+
+        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> multiMap = LinkedListMultimap.create();
+        LinkedList<String> splitLine = new LinkedList<>();
+        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
+            multiMap.put(entry.getKey(), entry.getValue());
+            splitLine.add(entry.getKey().getName());
+        }
+        TableDataBO table = msgTableManager.buildOcTable(title, multiMap, splitLine);
+        enrichCurrentOcTable(table, multiMap);
 
         String lastRefreshTime = settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD);
         table.getTableData().add(List.of("上次更新时间: " + lastRefreshTime,
@@ -66,33 +76,6 @@ public class TornFactionOcMsgManager {
                         .setFont(new Font("微软雅黑", Font.BOLD, 14))
                         .setAlignment(TableImageUtils.TextAlignment.LEFT));
         return TableImageUtils.renderTableToBase64(table);
-    }
-
-    /**
-     * 构建普通OC查询表格数据：槽位按OC预分组后交给公共表格绘制，并完成统一状态装配
-     * （OC标题时间文案与成员状态Emoji），与推荐表格路径共用同一装配方法。
-     *
-     * @param title  标题
-     * @param ocList OC列表
-     * @return 已完成状态装配的表格数据
-     */
-    TableDataBO buildOcTableData(String title, List<TornFactionOcDO> ocList) {
-        List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        Map<Long, List<TornFactionOcSlotDO>> slotByOcIdMap = groupSlotsByOcId(slotList);
-        Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedHashMap.newLinkedHashMap(ocList.size());
-        for (TornFactionOcDO oc : ocList) {
-            ocMap.put(oc, new ArrayList<>(slotByOcIdMap.getOrDefault(oc.getId(), List.of())));
-        }
-
-        Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> multiMap = LinkedListMultimap.create();
-        LinkedList<String> splitLine = new LinkedList<>();
-        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
-            multiMap.put(entry.getKey(), entry.getValue());
-            splitLine.add(entry.getKey().getName());
-        }
-        TableDataBO table = msgTableManager.buildOcTable(title, multiMap, splitLine);
-        enrichCurrentOcTable(table, multiMap);
-        return table;
     }
 
     /**
@@ -128,23 +111,22 @@ public class TornFactionOcMsgManager {
         List<TornFactionOcDO> ocList = ocDao.queryListByIdList(factionId,
                 recommendList.stream().map(r -> r.recommend().getOcId()).toList());
         List<TornFactionOcSlotDO> slotList = slotDao.queryListByOc(ocList);
-        Map<Long, TornFactionOcDO> ocByIdMap = new HashMap<>();
-        for (TornFactionOcDO oc : ocList) {
-            ocByIdMap.put(oc.getId(), oc);
-        }
-        Map<Long, List<TornFactionOcSlotDO>> slotByOcIdMap = groupSlotsByOcId(slotList);
         Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap = LinkedListMultimap.create();
         LinkedList<String> reasonList = new LinkedList<>();
         List<String> blockPositionList = new ArrayList<>();
 
         for (OcRecommendTableBO entry : recommendList) {
             OcRecommendationVO recommend = entry.recommend();
-            TornFactionOcDO oc = ocByIdMap.get(recommend.getOcId());
+            TornFactionOcDO oc = ocList.stream()
+                    .filter(o -> o.getId().equals(recommend.getOcId()))
+                    .findAny().orElse(null);
             if (oc == null) {
                 continue;
             }
 
-            ocMap.put(oc, new ArrayList<>(slotByOcIdMap.getOrDefault(oc.getId(), List.of())));
+            List<TornFactionOcSlotDO> currentSlotList = new ArrayList<>(slotList.stream()
+                    .filter(s -> s.getOcId().equals(oc.getId())).toList());
+            ocMap.put(oc, currentSlotList);
             reasonList.offer(entry.buildReasonText());
             blockPositionList.add(recommend.getRecommendedPosition().replace(" ", ""));
         }
@@ -167,7 +149,7 @@ public class TornFactionOcMsgManager {
      */
     private void enrichCurrentOcTable(TableDataBO tableData,
                                       Multimap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap) {
-        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime now = LocalDateTime.now();
         int blockIndex = 0;
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entries()) {
             List<TornFactionOcSlotDO> slotList = entry.getValue();
@@ -192,21 +174,6 @@ public class TornFactionOcMsgManager {
             }
             blockIndex++;
         }
-    }
-
-    /**
-     * 按OC ID对槽位列表预分组，保持查询返回的槽位相对顺序，供各OC块一次取回自己的槽位，
-     * 避免每个OC或每个推荐项对全量槽位列表重复过滤。
-     *
-     * @param slotList 全量槽位列表
-     * @return OC ID到槽位列表的映射
-     */
-    private Map<Long, List<TornFactionOcSlotDO>> groupSlotsByOcId(List<TornFactionOcSlotDO> slotList) {
-        Map<Long, List<TornFactionOcSlotDO>> slotByOcIdMap = new LinkedHashMap<>();
-        for (TornFactionOcSlotDO slot : slotList) {
-            slotByOcIdMap.computeIfAbsent(slot.getOcId(), key -> new ArrayList<>()).add(slot);
-        }
-        return slotByOcIdMap;
     }
 
     /**
