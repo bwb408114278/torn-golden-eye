@@ -12,7 +12,6 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * OC岗位公共逻辑层
@@ -33,33 +32,26 @@ public class TornFactionOcSlotManager {
         List<TornFactionOcSlotDO> oldSlotList = slotDao.queryListByOc(oldDataList);
         for (TornFactionCrimeVO oc : ocList) {
             for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
-                TornFactionOcSlotDO oldSlot = findOldSlot(oldSlotList, oc, slot);
-                if (oldSlot != null && shouldUpdateSlot(oldSlot, slot)) {
-                    updateSlotData(slot, resolveProgress(slot), oldSlot);
+                String position = slot.getPosition() + "#" + slot.getPositionInfo().getNumber();
+                TornFactionOcSlotDO oldSlot = oldSlotList.stream()
+                        .filter(old -> old.getOcId().equals(oc.getId()) && old.getPosition().equals(position))
+                        .findAny().orElse(null);
+                BigDecimal progress = slot.getUser() == null ? BigDecimal.ZERO : slot.getUser().getProgress();
+                if (oldSlot == null) {
+                    continue;
                 }
+                boolean itemSnapshotChanged = !Objects.equals(oldSlot.getRequiredItemId(), resolveRequiredItemId(slot))
+                        || !Objects.equals(oldSlot.getRequiredItemAvailable(), resolveRequiredItemAvailable(slot));
+                boolean userAndProgressChanged =
+                        !Objects.equals(oldSlot.getUserId(), slot.getUserId())
+                                || !Objects.equals(oldSlot.getProgress(), progress);
+                if (!userAndProgressChanged && !itemSnapshotChanged) {
+                    continue;
+                }
+
+                updateSlotData(slot, progress, oldSlot);
             }
         }
-    }
-
-    private TornFactionOcSlotDO findOldSlot(List<TornFactionOcSlotDO> oldSlotList,
-                                            TornFactionCrimeVO oc,
-                                            TornFactionCrimeSlotVO slot) {
-        String position = slot.getPosition() + "#" + slot.getPositionInfo().getNumber();
-        return oldSlotList.stream()
-                .filter(old -> old.getOcId().equals(oc.getId()) && old.getPosition().equals(position))
-                .findAny().orElse(null);
-    }
-
-    private boolean shouldUpdateSlot(TornFactionOcSlotDO oldSlot, TornFactionCrimeSlotVO slot) {
-        boolean itemSnapshotChanged = !Objects.equals(oldSlot.getRequiredItemId(), resolveRequiredItemId(slot))
-                || !Objects.equals(oldSlot.getRequiredItemAvailable(), resolveRequiredItemAvailable(slot).orElse(null));
-        boolean userAndProgressChanged = !Objects.equals(oldSlot.getUserId(), slot.getUserId())
-                || !Objects.equals(oldSlot.getProgress(), resolveProgress(slot));
-        return userAndProgressChanged || itemSnapshotChanged;
-    }
-
-    private BigDecimal resolveProgress(TornFactionCrimeSlotVO slot) {
-        return slot.getUser() == null ? BigDecimal.ZERO : slot.getUser().getProgress();
     }
 
     /**
@@ -73,7 +65,7 @@ public class TornFactionOcSlotManager {
                     .set(TornFactionOcSlotDO::getPassRate, slot.getCheckpointPassRate())
                     .set(TornFactionOcSlotDO::getProgress, progress)
                     .set(TornFactionOcSlotDO::getRequiredItemId, resolveRequiredItemId(slot))
-                    .set(TornFactionOcSlotDO::getRequiredItemAvailable, resolveRequiredItemAvailable(slot).orElse(null))
+                    .set(TornFactionOcSlotDO::getRequiredItemAvailable, resolveRequiredItemAvailable(slot))
                     .eq(TornFactionOcSlotDO::getId, oldSlot.getId())
                     .update();
         } else {
@@ -96,10 +88,10 @@ public class TornFactionOcSlotManager {
         return slot.getItemRequirement().getId();
     }
 
-    private Optional<Boolean> resolveRequiredItemAvailable(TornFactionCrimeSlotVO slot) {
+    private Boolean resolveRequiredItemAvailable(TornFactionCrimeSlotVO slot) {
         if (slot.getUser() == null || slot.getItemRequirement() == null) {
-            return Optional.empty();
+            return null;
         }
-        return Optional.ofNullable(slot.getItemRequirement().getIsAvailable());
+        return slot.getItemRequirement().getIsAvailable();
     }
 }
