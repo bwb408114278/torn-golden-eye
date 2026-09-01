@@ -46,11 +46,11 @@ public class OcHistoryTableDocumentAssembler {
             TornUserDO user = userMap.get(ocUser.getUserId());
             rows.add(row(List.of(
                     String.valueOf(i + 1),
-                    ocUser.getUserId().toString(),
-                    user == null ? "未知" : user.getNickname(),
-                    ocUser.getOcName(),
-                    ocUser.getPosition(),
-                    ocUser.getPassRate().toString()), TableCellStyleEnum.MEMBER_FILLED));
+                    safeText(ocUser.getUserId() == null ? null : ocUser.getUserId().toString()),
+                    user == null ? "未知" : safeText(user.getNickname()),
+                    safeText(ocUser.getOcName()),
+                    safeText(ocUser.getPosition()),
+                    safeText(ocUser.getPassRate() == null ? null : ocUser.getPassRate().toString())), TableCellStyleEnum.MEMBER_FILLED));
         }
         return new TableDocument("可加入OC成员", rows, DOCUMENT_WIDTH, DOCUMENT_TYPE);
     }
@@ -68,22 +68,22 @@ public class OcHistoryTableDocumentAssembler {
                                                List<TornSettingOcSlotDO> allSlotList,
                                                List<TornFactionOcUserDO> ocUserList) {
         Map<String, List<TornFactionOcUserDO>> usersByOcName = ocUserList.stream()
-                .collect(Collectors.groupingBy(TornFactionOcUserDO::getOcName));
+                .collect(Collectors.groupingBy(ocUser -> safeText(ocUser.getOcName())));
         Map<String, List<TornSettingOcSlotDO>> slotsByOcName = allSlotList.stream()
-                .collect(Collectors.groupingBy(TornSettingOcSlotDO::getOcName));
+                .collect(Collectors.groupingBy(slot -> safeText(slot.getOcName())));
         int columnCount = findMaxColumnCount(ocList, usersByOcName, slotsByOcName);
 
         List<TableRow> rows = new ArrayList<>();
         rows.add(mergedRow(user.getNickname() + "的OC成功率", columnCount + 1, TableCellStyleEnum.TITLE));
         for (TornSettingOcDO oc : ocList) {
-            List<TornFactionOcUserDO> userList = usersByOcName.get(oc.getOcName());
+            List<TornFactionOcUserDO> userList = usersByOcName.get(safeText(oc.getOcName()));
             if (userList == null || userList.isEmpty()) {
                 continue;
             }
             List<TornSettingOcSlotDO> slotList = new ArrayList<>(
-                    slotsByOcName.getOrDefault(oc.getOcName(), List.of()));
+                    slotsByOcName.getOrDefault(safeText(oc.getOcName()), List.of()));
             slotList.sort(Comparator.comparing(TornSettingOcSlotDO::getSlotCode));
-            rows.add(sectionRow(oc.getOcName(), columnCount + 1));
+            rows.add(sectionRow(safeText(oc.getOcName()), columnCount + 1));
             rows.add(positionRow(oc.getRank(), slotList, columnCount));
             rows.add(passRateRow(slotList, userList, columnCount));
         }
@@ -105,8 +105,8 @@ public class OcHistoryTableDocumentAssembler {
                                    Map<String, List<TornFactionOcUserDO>> usersByOcName,
                                    Map<String, List<TornSettingOcSlotDO>> slotsByOcName) {
         return ocList.stream()
-                .filter(oc -> usersByOcName.containsKey(oc.getOcName()))
-                .mapToInt(oc -> slotsByOcName.getOrDefault(oc.getOcName(), List.of()).size())
+                .filter(oc -> usersByOcName.containsKey(safeText(oc.getOcName())))
+                .mapToInt(oc -> slotsByOcName.getOrDefault(safeText(oc.getOcName()), List.of()).size())
                 .max()
                 .orElse(0);
     }
@@ -145,9 +145,9 @@ public class OcHistoryTableDocumentAssembler {
     private TableRow positionRow(int rank, List<TornSettingOcSlotDO> slotList, int columnCount) {
         List<TableCell> cells = new ArrayList<>();
         cells.add(cell(rank + "级", TableCellStyleEnum.SECTION, 2, 1));
-        cells.addAll(slotList.stream()
-                .map(slot -> cell(slot.getSlotCode(), TableCellStyleEnum.SECTION))
-                .toList());
+        for (TornSettingOcSlotDO slot : slotList) {
+            cells.add(cell(safeText(slot.getSlotCode()), TableCellStyleEnum.SECTION));
+        }
         addEmptyCells(cells, slotList.size(), columnCount, TableCellStyleEnum.SLOT_EMPTY);
         return new TableRow(cells);
     }
@@ -168,7 +168,7 @@ public class OcHistoryTableDocumentAssembler {
         cells.add(cell("", TableCellStyleEnum.SLOT_EMPTY));
         for (TornSettingOcSlotDO slot : slotList) {
             TornFactionOcUserDO ocUser = userByPosition.get(slot.getSlotShortCode());
-            cells.add(cell(ocUser == null ? "暂无" : ocUser.getPassRate().toString(),
+            cells.add(cell(ocUser == null || ocUser.getPassRate() == null ? "暂无" : ocUser.getPassRate().toString(),
                     ocUser == null ? TableCellStyleEnum.SLOT_EMPTY : TableCellStyleEnum.SLOT_FILLED));
         }
         addEmptyCells(cells, slotList.size(), columnCount, TableCellStyleEnum.SLOT_EMPTY);
@@ -199,6 +199,10 @@ public class OcHistoryTableDocumentAssembler {
      */
     private TableRow row(List<String> texts, TableCellStyleEnum style) {
         return new TableRow(texts.stream().map(text -> cell(text, style)).toList());
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text;
     }
 
     /**

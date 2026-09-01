@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.configuration.property.TableImageRenderProperty;
 
-import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -120,7 +119,7 @@ public class PlaywrightBrowserManager implements AutoCloseable {
      * @param html              待渲染的HTML
      * @param viewportWidth     视口宽度
      * @param deviceScaleFactor 设备像素比
-     * @param deadline           本次渲染的纳秒级截止时间
+     * @param deadline          本次渲染的纳秒级截止时间
      * @return PNG二进制内容
      */
     private byte[] renderOnce(String html, int viewportWidth, double deviceScaleFactor, long deadline) {
@@ -215,8 +214,7 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         try {
             playwright.set(Playwright.create());
             browser.set(playwright.get().chromium().launch(new BrowserType.LaunchOptions()
-                    .setHeadless(true)
-                    .setArgs(List.of("--no-sandbox"))));
+                    .setHeadless(true)));
         } catch (RuntimeException e) {
             closeResources();
             throw new IllegalStateException("表格图片Chromium启动失败", e);
@@ -247,7 +245,7 @@ public class PlaywrightBrowserManager implements AutoCloseable {
      * 将渲染异常记录日志并转换为业务异常。
      *
      * @param documentType 文档类型
-     * @param cause         原始异常
+     * @param cause        原始异常
      * @return 转换后的业务异常
      */
     private BizException renderingFailure(String documentType, Throwable cause) {

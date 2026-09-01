@@ -83,5 +83,10 @@ ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # 暴露端口，暂时没有端口可以不用暴露
 # EXPOSE 8080
+RUN groupadd --gid 10001 golden-eye \
+    && useradd --uid 10001 --gid 10001 --shell /sbin/nologin --no-create-home golden-eye \
+    && chown -R golden-eye:golden-eye /app/golden-eye /ms-playwright \
+    && chmod 1777 /tmp
 # 启动应用
+USER golden-eye
 ENTRYPOINT ["java", "-jar", "app.jar"]
