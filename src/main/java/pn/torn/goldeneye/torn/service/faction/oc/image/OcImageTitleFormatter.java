@@ -63,25 +63,58 @@ public class OcImageTitleFormatter {
         return isRecruiting(status) ? OcImageTimeStatusEnum.STOP_COUNTDOWN : OcImageTimeStatusEnum.PLANNED;
     }
 
+    /**
+     * 格式化空转状态的剩余时间。
+     *
+     * @param readyTime OC准备链结束时间
+     * @param now       图片构建时的当前时间
+     * @return 空转剩余时间文案
+     */
     private String formatIdle(LocalDateTime readyTime, LocalDateTime now) {
         long minutes = countdownMinutes(readyTime, now);
         return "还需空转%d小时%02d分钟".formatted(minutes / 60, minutes % 60);
     }
 
+    /**
+     * 格式化停转倒计时。
+     *
+     * @param readyTime OC准备链结束时间
+     * @param now       图片构建时的当前时间
+     * @return 停转倒计时文案
+     */
     private String countdownText(LocalDateTime readyTime, LocalDateTime now) {
         long minutes = countdownMinutes(readyTime, now);
         return "%d小时%02d分".formatted(minutes / 60, minutes % 60);
     }
 
+    /**
+     * 计算当前时间到准备链结束时间之间的分钟数。
+     *
+     * @param readyTime OC准备链结束时间
+     * @param now       图片构建时的当前时间
+     * @return 不小于0的分钟数
+     */
     private long countdownMinutes(LocalDateTime readyTime, LocalDateTime now) {
         return Math.max(0, ChronoUnit.MINUTES.between(
                 now.truncatedTo(ChronoUnit.MINUTES), readyTime.truncatedTo(ChronoUnit.MINUTES)));
     }
 
+    /**
+     * 判断OC是否处于招募状态。
+     *
+     * @param status OC状态编码
+     * @return 状态为招募时返回true
+     */
     private boolean isRecruiting(String status) {
         return TornOcStatusEnum.RECRUITING.getCode().equals(status);
     }
 
+    /**
+     * 判断OC状态是否为标题支持的状态。
+     *
+     * @param status OC状态编码
+     * @return 状态受支持时返回true
+     */
     private boolean isSupportedStatus(String status) {
         return isRecruiting(status) || TornOcStatusEnum.PLANNING.getCode().equals(status);
     }

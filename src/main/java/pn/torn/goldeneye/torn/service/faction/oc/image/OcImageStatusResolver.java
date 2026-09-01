@@ -46,6 +46,12 @@ public class OcImageStatusResolver {
         return OcImageSlotStatusEnum.PREPARING;
     }
 
+    /**
+     * 校验成员准备进度是否处于有效范围。
+     *
+     * @param progress 成员准备进度
+     * @return 进度不为空且位于0到100之间时返回true
+     */
     private boolean isValidProgress(BigDecimal progress) {
         return progress != null
                 && progress.compareTo(BigDecimal.ZERO) >= 0

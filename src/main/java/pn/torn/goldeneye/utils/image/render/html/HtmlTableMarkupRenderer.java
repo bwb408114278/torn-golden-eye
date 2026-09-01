@@ -57,6 +57,12 @@ public class HtmlTableMarkupRenderer {
         return html.append("</tbody></table></article></body></html>").toString();
     }
 
+    /**
+     * 将单元格追加到HTML表格中。
+     *
+     * @param html HTML文档构建器
+     * @param cell 待追加的表格单元格
+     */
     private void appendCell(StringBuilder html, TableCell cell) {
         html.append("<td class=\"")
                 .append(styleClass(cell.style()))
@@ -72,6 +78,12 @@ public class HtmlTableMarkupRenderer {
         html.append('>').append(escape(cell.text())).append("</td>");
     }
 
+    /**
+     * 将单元格样式映射为固定CSS类名。
+     *
+     * @param style 受控单元格样式
+     * @return CSS类名
+     */
     private String styleClass(TableCellStyleEnum style) {
         return switch (style) {
             case TITLE -> "cell-title";
@@ -88,6 +100,12 @@ public class HtmlTableMarkupRenderer {
         };
     }
 
+    /**
+     * 将文本溢出策略映射为固定CSS类名。
+     *
+     * @param overflow 受控文本溢出策略
+     * @return CSS类名
+     */
     private String overflowClass(TableTextOverflowEnum overflow) {
         return switch (overflow) {
             case WRAP -> "overflow-wrap";
@@ -96,6 +114,12 @@ public class HtmlTableMarkupRenderer {
         };
     }
 
+    /**
+     * 转义HTML文本中的特殊字符。
+     *
+     * @param text 待转义文本
+     * @return HTML安全文本
+     */
     private String escape(String text) {
         return text.replace("&", "&amp;")
                 .replace("<", "&lt;")
@@ -104,6 +128,12 @@ public class HtmlTableMarkupRenderer {
                 .replace("'", "&#39;");
     }
 
+    /**
+     * 从classpath加载固定表格主题CSS。
+     *
+     * @return CSS文本
+     * @throws IllegalStateException CSS资源不存在或读取失败时抛出
+     */
     private String loadCss() {
         try (InputStream inputStream = HtmlTableMarkupRenderer.class.getResourceAsStream(CSS_RESOURCE)) {
             if (inputStream == null) {

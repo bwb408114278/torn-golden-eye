@@ -22,15 +22,16 @@ class TableDocumentTest {
     @DisplayName("文档和行集合应防御性复制")
     void shouldDefensivelyCopyRows() {
         List<TableRow> rows = new ArrayList<>(List.of(new TableRow(List.of(
-                new TableCell("中文", TableCellStyleEnum.TITLE, 1, 1, TableTextOverflowEnum.WRAP))
-        )));
+                new TableCell("中文", TableCellStyleEnum.TITLE, 1, 1, TableTextOverflowEnum.WRAP)))));
         TableDocument document = new TableDocument("标题", rows, 1600, "test");
 
         rows.clear();
 
         assertEquals(1, document.rows().size());
-        assertThrows(UnsupportedOperationException.class, () -> document.rows().clear());
-        assertThrows(UnsupportedOperationException.class, () -> document.rows().get(0).cells().clear());
+        List<TableRow> documentRows = document.rows();
+        List<TableCell> documentCells = documentRows.getFirst().cells();
+        assertThrows(UnsupportedOperationException.class, documentRows::clear);
+        assertThrows(UnsupportedOperationException.class, documentCells::clear);
     }
 
     @Test
@@ -38,9 +39,11 @@ class TableDocumentTest {
     void shouldRejectInvalidDocumentValues() {
         TableRow row = new TableRow(List.of(
                 new TableCell("内容", TableCellStyleEnum.SECTION, 1, 1, TableTextOverflowEnum.CLIP)));
+        List<TableRow> emptyRows = List.of();
+        List<TableRow> validRows = List.of(row);
 
-        assertThrows(IllegalArgumentException.class, () -> new TableDocument(" ", List.of(row), 100, "test"));
-        assertThrows(IllegalArgumentException.class, () -> new TableDocument("标题", List.of(), 100, "test"));
+        assertThrows(IllegalArgumentException.class, () -> new TableDocument(" ", validRows, 100, "test"));
+        assertThrows(IllegalArgumentException.class, () -> new TableDocument("标题", emptyRows, 100, "test"));
         assertThrows(IllegalArgumentException.class,
                 () -> new TableCell("内容", TableCellStyleEnum.SECTION, 0, 1, TableTextOverflowEnum.CLIP));
         assertThrows(IllegalArgumentException.class,

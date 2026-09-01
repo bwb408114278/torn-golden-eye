@@ -83,6 +83,15 @@ public class OcTableDocumentAssembler {
         return new TableDocument(title, rows, DOCUMENT_WIDTH, DOCUMENT_TYPE);
     }
 
+    /**
+     * 组装单个OC块的表格行。
+     *
+     * @param block       OC表格块
+     * @param userMap     按用户ID索引的用户
+     * @param now         图片构建时的固定当前时间
+     * @param columnCount 表格列数
+     * @return OC块对应的表格行
+     */
     private List<TableRow> buildBlockRows(Block block, Map<Long, TornUserDO> userMap,
                                           LocalDateTime now, int columnCount) {
         TornFactionOcDO oc = block.oc();
@@ -113,14 +122,33 @@ public class OcTableDocumentAssembler {
         return List.of(new TableRow(List.of(section)), new TableRow(positionCells), new TableRow(memberCells));
     }
 
+    /**
+     * 生成团队状态和准备时间文本。
+     *
+     * @param oc OC数据
+     * @return 团队状态文本
+     */
     private String teamText(TornFactionOcDO oc) {
         return oc.getStatus() + (oc.getReadyTime() == null ? "" : "\n" + DateTimeUtils.convertToString(oc.getReadyTime()));
     }
 
+    /**
+     * 生成岗位名称和成功率文本。
+     *
+     * @param slot OC岗位槽位
+     * @return 岗位文本
+     */
     private String positionText(TornFactionOcSlotDO slot) {
         return normalize(slot.getPosition()) + (slot.getPassRate() == null ? "" : " " + slot.getPassRate());
     }
 
+    /**
+     * 生成成员展示文本和状态Emoji。
+     *
+     * @param slot    OC岗位槽位
+     * @param userMap 按用户ID索引的用户
+     * @return 成员展示文本
+     */
     private String memberText(TornFactionOcSlotDO slot, Map<Long, TornUserDO> userMap) {
         if (slot.getUserId() == null) {
             return "空缺";
@@ -133,11 +161,25 @@ public class OcTableDocumentAssembler {
         return name + "[" + slot.getUserId() + "]" + (emoji.isEmpty() ? "" : " " + emoji);
     }
 
+    /**
+     * 根据OC是否已到准备时间选择团队单元格样式。
+     *
+     * @param oc  OC数据
+     * @param now 图片构建时的固定当前时间
+     * @return 团队单元格样式
+     */
     private TableCellStyleEnum teamStyle(TornFactionOcDO oc, LocalDateTime now) {
         return oc.getReadyTime() != null && !now.isAfter(oc.getReadyTime())
                 ? TableCellStyleEnum.TEAM_READY : TableCellStyleEnum.TEAM_WARNING;
     }
 
+    /**
+     * 根据岗位是否有人和是否为推荐岗位选择样式。
+     *
+     * @param occupied    岗位是否有人
+     * @param recommended 岗位是否为推荐岗位
+     * @return 岗位单元格样式
+     */
     private TableCellStyleEnum positionStyle(boolean occupied, boolean recommended) {
         if (occupied) {
             return TableCellStyleEnum.SLOT_FILLED;
@@ -145,20 +187,48 @@ public class OcTableDocumentAssembler {
         return recommended ? TableCellStyleEnum.SLOT_RECOMMENDED : TableCellStyleEnum.SLOT_IDLE;
     }
 
+    /**
+     * 使用默认空槽样式补齐单元格。
+     *
+     * @param cells        当前单元格列表
+     * @param expectedSize 目标单元格数量
+     */
     private void fillCells(List<TableCell> cells, int expectedSize) {
         fillCells(cells, expectedSize, TableCellStyleEnum.SLOT_EMPTY);
     }
 
+    /**
+     * 使用指定样式补齐单元格。
+     *
+     * @param cells        当前单元格列表
+     * @param expectedSize 目标单元格数量
+     * @param style        补齐单元格样式
+     */
     private void fillCells(List<TableCell> cells, int expectedSize, TableCellStyleEnum style) {
         while (cells.size() < expectedSize) {
             cells.add(cell("", style, 1, 1));
         }
     }
 
+    /**
+     * 移除岗位名称中的空格以便比较和展示。
+     *
+     * @param position 岗位名称
+     * @return 规范化后的岗位名称
+     */
     private String normalize(String position) {
         return position == null ? "" : position.replace(" ", "");
     }
 
+    /**
+     * 创建指定跨度和换行策略的表格单元格。
+     *
+     * @param text    单元格文本
+     * @param style   单元格样式
+     * @param rowSpan 行跨度
+     * @param colSpan 列跨度
+     * @return 表格单元格
+     */
     private TableCell cell(String text, TableCellStyleEnum style, int rowSpan, int colSpan) {
         return new TableCell(text == null ? "" : text, style, rowSpan, colSpan, TableTextOverflowEnum.WRAP);
     }
@@ -171,7 +241,10 @@ public class OcTableDocumentAssembler {
      * @param sectionText         分隔行文本
      * @param recommendedPosition 本块推荐岗位，可为空
      */
-    public record Block(TornFactionOcDO oc, List<TornFactionOcSlotDO> slots,
-                        String sectionText, String recommendedPosition) {
+    public record Block(
+            TornFactionOcDO oc,
+            List<TornFactionOcSlotDO> slots,
+            String sectionText,
+            String recommendedPosition) {
     }
 }

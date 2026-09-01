@@ -14,6 +14,7 @@ import pn.torn.goldeneye.configuration.property.TableImageRenderProperty;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 管理表格图片渲染所需的单个Playwright Browser生命周期。
@@ -32,8 +33,8 @@ public class PlaywrightBrowserManager implements AutoCloseable {
     private final TableImageRenderProperty property;
     private final Semaphore renderPermit = new Semaphore(1, true);
     private final Object browserLock = new Object();
-    private volatile Playwright playwright;
-    private volatile Browser browser;
+    private final AtomicReference<Playwright> playwright = new AtomicReference<>();
+    private final AtomicReference<Browser> browser = new AtomicReference<>();
     private volatile boolean closed;
 
     /**
@@ -54,7 +55,7 @@ public class PlaywrightBrowserManager implements AutoCloseable {
             if (closed) {
                 throw new IllegalStateException("表格图片浏览器管理器已关闭");
             }
-            if (browser != null && browser.isConnected()) {
+            if (browser.get() != null && browser.get().isConnected()) {
                 return;
             }
             closeResources();
@@ -83,6 +84,16 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         }
     }
 
+    /**
+     * 在一次浏览器重建机会内完成渲染。
+     *
+     * @param html              待渲染的HTML
+     * @param viewportWidth     视口宽度
+     * @param deviceScaleFactor 设备像素比
+     * @param timeoutSeconds    渲染超时时间，单位为秒
+     * @param documentType      文档类型
+     * @return PNG二进制内容
+     */
     private byte[] renderWithSingleRecovery(String html, int viewportWidth, double deviceScaleFactor,
                                             int timeoutSeconds, String documentType) {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
@@ -103,16 +114,23 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         }
     }
 
+    /**
+     * 使用独立浏览器上下文和页面完成一次HTML截图。
+     *
+     * @param html              待渲染的HTML
+     * @param viewportWidth     视口宽度
+     * @param deviceScaleFactor 设备像素比
+     * @param deadline           本次渲染的纳秒级截止时间
+     * @return PNG二进制内容
+     */
     private byte[] renderOnce(String html, int viewportWidth, double deviceScaleFactor, long deadline) {
         Browser currentBrowser = requireBrowser();
-        BrowserContext context = null;
-        try {
-            context = currentBrowser.newContext(new Browser.NewContextOptions()
-                    .setViewportSize(viewportWidth, 720)
-                    .setDeviceScaleFactor(deviceScaleFactor)
-                    .setJavaScriptEnabled(false)
-                    .setServiceWorkers(ServiceWorkerPolicy.BLOCK));
-            Page page = context.newPage();
+        try (BrowserContext context = currentBrowser.newContext(new Browser.NewContextOptions()
+                .setViewportSize(viewportWidth, 720)
+                .setDeviceScaleFactor(deviceScaleFactor)
+                .setJavaScriptEnabled(false)
+                .setServiceWorkers(ServiceWorkerPolicy.BLOCK));
+             Page page = context.newPage()) {
             page.setDefaultTimeout(remainingTimeoutMillis(deadline));
             page.route("**/*", this::abortExternalRequest);
             page.setContent(html, new Page.SetContentOptions()
@@ -123,17 +141,21 @@ public class PlaywrightBrowserManager implements AutoCloseable {
             return page.locator(ROOT_SELECTOR).screenshot(new com.microsoft.playwright.Locator.ScreenshotOptions()
                     .setType(ScreenshotType.PNG)
                     .setTimeout(remainingTimeoutMillis(deadline)));
-        } finally {
-            if (context != null) {
-                context.close();
-            }
         }
     }
 
+    /**
+     * 拒绝页面发起的外部资源请求。
+     *
+     * @param route 待处理的网络路由
+     */
     private void abortExternalRequest(Route route) {
         route.abort();
     }
 
+    /**
+     * 获取渲染许可，超时或中断时抛出业务异常。
+     */
     private void acquirePermit() {
         try {
             if (!renderPermit.tryAcquire(property.getAcquireTimeoutSeconds(), TimeUnit.SECONDS)) {
@@ -145,19 +167,37 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         }
     }
 
+    /**
+     * 获取当前可用的浏览器实例。
+     *
+     * @return 已连接的浏览器实例
+     * @throws BizException 浏览器不可用时抛出
+     */
     private Browser requireBrowser() {
-        Browser currentBrowser = browser;
+        Browser currentBrowser = browser.get();
         if (closed || currentBrowser == null || !currentBrowser.isConnected()) {
             throw new BizException("表格图片浏览器不可用");
         }
         return currentBrowser;
     }
 
+    /**
+     * 判断当前浏览器是否已断开连接。
+     *
+     * @return 浏览器不存在或连接已断开时返回true
+     */
     private boolean isBrowserDisconnected() {
-        Browser currentBrowser = browser;
+        Browser currentBrowser = browser.get();
         return currentBrowser == null || !currentBrowser.isConnected();
     }
 
+    /**
+     * 计算本次渲染剩余的超时毫秒数。
+     *
+     * @param deadline 纳秒级截止时间
+     * @return 剩余超时毫秒数
+     * @throws BizException 渲染已超时时抛出
+     */
     private long remainingTimeoutMillis(long deadline) {
         long remainingNanos = deadline - System.nanoTime();
         if (remainingNanos <= 0) {
@@ -166,18 +206,29 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         return Math.max(1, remainingNanos / 1_000_000L);
     }
 
+    /**
+     * 创建并启动Chromium浏览器。
+     *
+     * @throws IllegalStateException Chromium启动失败时抛出
+     */
     private void launchBrowser() {
         try {
-            playwright = Playwright.create();
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+            playwright.set(Playwright.create());
+            browser.set(playwright.get().chromium().launch(new BrowserType.LaunchOptions()
                     .setHeadless(true)
-                    .setArgs(List.of("--no-sandbox")));
+                    .setArgs(List.of("--no-sandbox"))));
         } catch (RuntimeException e) {
             closeResources();
             throw new IllegalStateException("表格图片Chromium启动失败", e);
         }
     }
 
+    /**
+     * 关闭当前资源并重新创建浏览器。
+     *
+     * @param documentType 文档类型，用于异常定位
+     * @throws BizException 管理器已关闭或浏览器重建失败时抛出
+     */
     private void rebuildBrowser(String documentType) {
         synchronized (browserLock) {
             if (closed) {
@@ -192,6 +243,13 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         }
     }
 
+    /**
+     * 将渲染异常记录日志并转换为业务异常。
+     *
+     * @param documentType 文档类型
+     * @param cause         原始异常
+     * @return 转换后的业务异常
+     */
     private BizException renderingFailure(String documentType, Throwable cause) {
         log.error("表格图片渲染失败，documentType={}, exceptionType={}",
                 documentType, cause.getClass().getSimpleName(), cause);
@@ -201,18 +259,14 @@ public class PlaywrightBrowserManager implements AutoCloseable {
         return new BizException("表格图片渲染失败", cause);
     }
 
+    /**
+     * 关闭并清空当前浏览器及Playwright资源。
+     */
     private void closeResources() {
-        Browser currentBrowser = browser;
-        browser = null;
-        Playwright currentPlaywright = playwright;
-        playwright = null;
-        try {
+        Browser currentBrowser = browser.getAndSet(null);
+        try (Playwright ignored = playwright.getAndSet(null)) {
             if (currentBrowser != null) {
                 currentBrowser.close();
-            }
-        } finally {
-            if (currentPlaywright != null) {
-                currentPlaywright.close();
             }
         }
     }

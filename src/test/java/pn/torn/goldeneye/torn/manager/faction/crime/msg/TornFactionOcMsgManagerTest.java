@@ -33,7 +33,6 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -85,23 +84,23 @@ class TornFactionOcMsgManagerTest {
                 new ArrayList<>(List.of(empty, missing, ready, preparing, idle)));
         when(userDao.queryUserMap(anyCollection())).thenReturn(Map.of(
                 10L, buildUser(10L), 11L, buildUser(11L), 12L, buildUser(12L), 13L, buildUser(13L)));
-        when(settingDao.querySettingValue(eq(SettingConstants.KEY_OC_LOAD))).thenReturn("2026-08-31 11:00:00");
+        when(settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD)).thenReturn("2026-08-31 11:00:00");
 
         TableDocument document = msgManager.buildOcTableData("OC查询", List.of(oc), NOW);
 
         assertEquals("OC查询", document.title());
         assertEquals(5, document.rows().size());
-        assertEquals(6, document.rows().get(0).cells().get(0).colSpan());
-        assertEquals(TableCellStyleEnum.SECTION, document.rows().get(1).cells().get(0).style());
-        assertTrue(document.rows().get(1).cells().get(0).text().contains("1小时")
-                && document.rows().get(1).cells().get(0).text().contains("后停转"));
-        assertEquals(TableCellStyleEnum.TEAM_READY, document.rows().get(2).cells().get(0).style());
-        assertEquals("测试用户[12] ✅", document.rows().get(3).cells().get(0).text());
+        assertEquals(6, document.rows().getFirst().cells().getFirst().colSpan());
+        assertEquals(TableCellStyleEnum.SECTION, document.rows().get(1).cells().getFirst().style());
+        assertTrue(document.rows().get(1).cells().getFirst().text().contains("1小时")
+                && document.rows().get(1).cells().getFirst().text().contains("后停转"));
+        assertEquals(TableCellStyleEnum.TEAM_READY, document.rows().get(2).cells().getFirst().style());
+        assertEquals("测试用户[12] ✅", document.rows().get(3).cells().getFirst().text());
         assertEquals("测试用户[13] ⚠️", document.rows().get(3).cells().get(1).text());
         assertEquals("测试用户[10] 💤", document.rows().get(3).cells().get(2).text());
         assertEquals("测试用户[11] ⏳", document.rows().get(3).cells().get(3).text());
         assertEquals("空缺", document.rows().get(3).cells().get(4).text());
-        assertEquals(TableCellStyleEnum.FOOTER, document.rows().get(4).cells().get(0).style());
+        assertEquals(TableCellStyleEnum.FOOTER, document.rows().get(4).cells().getFirst().style());
     }
 
     @Test
@@ -134,7 +133,7 @@ class TornFactionOcMsgManagerTest {
         TornFactionOcSlotDO slot = buildSlot(oc.getId(), 10L, "Kidnap", BigDecimal.valueOf(50));
         when(slotDao.queryListByOc(List.of(oc))).thenReturn(List.of(slot));
         when(userDao.queryUserMap(anyCollection())).thenReturn(Map.of(10L, buildUser(10L)));
-        when(settingDao.querySettingValue(eq(SettingConstants.KEY_OC_LOAD))).thenReturn("刷新时间");
+        when(settingDao.querySettingValue(SettingConstants.KEY_OC_LOAD)).thenReturn("刷新时间");
 
         TableDocument document = msgManager.buildOcTableData("OC查询", List.of(oc), NOW.plusSeconds(2));
 
