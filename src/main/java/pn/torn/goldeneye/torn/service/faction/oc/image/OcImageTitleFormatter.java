@@ -1,0 +1,88 @@
+package pn.torn.goldeneye.torn.service.faction.oc.image;
+
+import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
+import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageTimeStatusEnum;
+import pn.torn.goldeneye.torn.service.faction.oc.OcPreparationTimeCalculator;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+
+/**
+ * OC图片标题时间文案格式化器。
+ *
+ * @author Bai
+ * @version 1.6.0
+ * @since 2026.08.31
+ */
+@Component
+public class OcImageTitleFormatter {
+    private static final Duration IDLE_THRESHOLD = Duration.ofHours(24);
+    private static final DateTimeFormatter HH_MM_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
+    /**
+     * 根据OC状态和固定当前时间生成唯一时间文案。
+     *
+     * @param status    OC状态
+     * @param readyTime OC准备链结束时间
+     * @param now       图片构建时的当前时间
+     * @return 时间文案；没有文案时返回空字符串
+     */
+    public String format(String status, LocalDateTime readyTime, LocalDateTime now) {
+        OcImageTimeStatusEnum timeStatus = resolve(status, readyTime, now);
+        return switch (timeStatus) {
+            case STOPPED -> "已停转";
+            case STOP_COUNTDOWN -> countdownText(readyTime, now) + "后停转";
+            case IDLE -> formatIdle(readyTime, now);
+            case PLANNED -> "预计" + OcPreparationTimeCalculator.calculatePlannedTime(readyTime)
+                    .format(HH_MM_FORMATTER) + "开始执行";
+            case NONE -> "";
+        };
+    }
+
+    /**
+     * 解析标题时间状态，不读取系统时钟。
+     *
+     * @param status    OC状态
+     * @param readyTime OC准备链结束时间
+     * @param now       图片构建时的当前时间
+     * @return 时间状态
+     */
+    public OcImageTimeStatusEnum resolve(String status, LocalDateTime readyTime, LocalDateTime now) {
+        if (readyTime == null || now == null || !isSupportedStatus(status)) {
+            return OcImageTimeStatusEnum.NONE;
+        }
+        if (isRecruiting(status) && now.isAfter(readyTime)) {
+            return OcImageTimeStatusEnum.STOPPED;
+        }
+        if (Duration.between(now, readyTime).compareTo(IDLE_THRESHOLD) > 0) {
+            return OcImageTimeStatusEnum.IDLE;
+        }
+        return isRecruiting(status) ? OcImageTimeStatusEnum.STOP_COUNTDOWN : OcImageTimeStatusEnum.PLANNED;
+    }
+
+    private String formatIdle(LocalDateTime readyTime, LocalDateTime now) {
+        long minutes = countdownMinutes(readyTime, now);
+        return "还需空转%d小时%02d分钟".formatted(minutes / 60, minutes % 60);
+    }
+
+    private String countdownText(LocalDateTime readyTime, LocalDateTime now) {
+        long minutes = countdownMinutes(readyTime, now);
+        return "%d小时%02d分".formatted(minutes / 60, minutes % 60);
+    }
+
+    private long countdownMinutes(LocalDateTime readyTime, LocalDateTime now) {
+        return Math.max(0, ChronoUnit.MINUTES.between(
+                now.truncatedTo(ChronoUnit.MINUTES), readyTime.truncatedTo(ChronoUnit.MINUTES)));
+    }
+
+    private boolean isRecruiting(String status) {
+        return TornOcStatusEnum.RECRUITING.getCode().equals(status);
+    }
+
+    private boolean isSupportedStatus(String status) {
+        return isRecruiting(status) || TornOcStatusEnum.PLANNING.getCode().equals(status);
+    }
+}

@@ -1,0 +1,106 @@
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+
+body {
+    font-family: "Microsoft YaHei", "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+    color: #1f2937;
+}
+
+.table-image {
+    display: inline-block;
+    max-width: 100%;
+    padding: 16px;
+    background: #ffffff;
+}
+
+table {
+    border-collapse: collapse;
+    table-layout: auto;
+    max-width: 100%;
+    font-size: 18px;
+}
+
+caption {
+    padding: 0 0 12px;
+    font-size: 26px;
+    font-weight: 700;
+    text-align: left;
+    color: #111827;
+}
+
+td {
+    min-width: 90px;
+    max-width: 520px;
+    padding: 9px 12px;
+    border: 1px solid #d1d5db;
+    vertical-align: middle;
+    line-height: 1.35;
+}
+
+.overflow-wrap {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.overflow-ellipsis,
+.overflow-clip {
+    max-width: 520px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.overflow-ellipsis {
+    text-overflow: ellipsis;
+}
+
+.cell-title {
+    background: #eef2ff;
+    color: #1e1b4b;
+    font-weight: 700;
+}
+
+.cell-section {
+    background: #e5e7eb;
+    color: #111827;
+    font-weight: 700;
+}
+
+.cell-team-ready,
+.cell-slot-filled,
+.cell-member-filled {
+    background: #dcfce7;
+    color: #14532d;
+}
+
+.cell-team-warning {
+    background: #fef3c7;
+    color: #78350f;
+    font-weight: 700;
+}
+
+.cell-slot-empty,
+.cell-slot-idle,
+.cell-member-empty {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.cell-slot-recommended {
+    background: #ccfbf1;
+    color: #134e4a;
+    font-weight: 700;
+}
+
+.cell-footer {
+    background: #f9fafb;
+    color: #4b5563;
+    font-size: 14px;
+}

@@ -1,6 +1,12 @@
 server:
   port: 18180
 
+table-image-render:
+  render-timeout-seconds: 10
+  acquire-timeout-seconds: 3
+  viewport-width: 1600
+  device-scale-factor: 1
+
 spring:
   application:
     name: golden-eye

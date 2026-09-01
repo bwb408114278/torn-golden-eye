@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.6.0
  * @since 2025.11.26
  */
 @Slf4j
@@ -67,8 +67,6 @@ public class TornOcCompleteNoticeService {
     private final TornUserDAO userDao;
     // 时间窗口: 3分钟内完成的OC合并通知
     private static final int TIME_WINDOW_MINUTES = 3;
-    // Torn OC在准备时间所在分钟的下一分钟统一执行
-    private static final int OC_PLANNED_START_OFFSET_MINUTES = 1;
     // OC可接受延误阈值，超过该分钟数才提醒指挥官
     private static final int OC_ACCEPTABLE_DELAY_MINUTES = 5;
     // 延误提醒中只展示到分钟的时间格式
@@ -218,7 +216,8 @@ public class TornOcCompleteNoticeService {
         for (Map.Entry<Long, TornFactionCrimeSlotVO> entry : slotMap.entrySet()) {
             Long userId = entry.getKey();
             TornFactionCrimeRequireItemVO itemReq = entry.getValue().getItemRequirement();
-            if (itemReq == null || Boolean.TRUE.equals(itemReq.getIsAvailable())) {
+            if (itemReq == null || itemReq.getId() == null
+                    || !Boolean.FALSE.equals(itemReq.getIsAvailable())) {
                 continue;
             }
             TornUserDO user = userMap.get(userId);
@@ -459,8 +458,7 @@ public class TornOcCompleteNoticeService {
      * @return 计划完成时间
      */
     private LocalDateTime calculatePlannedTime(LocalDateTime readyTime) {
-        return readyTime.truncatedTo(ChronoUnit.MINUTES)
-                .plusMinutes(OC_PLANNED_START_OFFSET_MINUTES);
+        return OcPreparationTimeCalculator.calculatePlannedTime(readyTime);
     }
 
     /**

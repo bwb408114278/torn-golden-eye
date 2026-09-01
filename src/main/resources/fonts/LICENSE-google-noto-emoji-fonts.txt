@@ -1,0 +1,10 @@
+Font: Google Noto Emoji
+Package: google-noto-emoji-fonts-20200916-2.el8
+Distribution: Oracle Linux 8 AppStream
+License: SIL Open Font License 1.1
+
+The font is installed from the Oracle Linux 8 AppStream package during the
+container build. The package license is copied to
+/usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts in the image.
+The package metadata and license remain the authoritative redistribution
+record for the installed font.

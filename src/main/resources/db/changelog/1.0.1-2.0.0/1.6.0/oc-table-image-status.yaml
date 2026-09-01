@@ -1,0 +1,27 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_oc_table_image_status_slot_item_snapshot
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_slot
+            columns:
+              - column:
+                  name: required_item_id
+                  type: INT
+                  remarks: "当前同步快照中的道具需求ID；无需求或无法确认时为NULL"
+                  constraints:
+                    nullable: true
+              - column:
+                  name: required_item_available
+                  type: BOOLEAN
+                  remarks: "当前同步快照中的道具是否可用；NULL表示本次同步无法确认"
+                  constraints:
+                    nullable: true
+      rollback:
+        - dropColumn:
+            tableName: torn_faction_oc_slot
+            columnName: required_item_id
+        - dropColumn:
+            tableName: torn_faction_oc_slot
+            columnName: required_item_available

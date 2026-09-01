@@ -15,7 +15,7 @@ import java.util.Map;
  * Torn OC Slot详情响应参数
  *
  * @author Bai
- * @version 1.2.7
+ * @version 1.6.0
  * @since 2025.07.29
  */
 @Data
@@ -44,6 +44,12 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
     @JsonProperty("item_requirement")
     private TornFactionCrimeRequireItemVO itemRequirement;
 
+    /**
+     * 将API槽位转换为本地槽位，并保存本次同步的需求快照。
+     *
+     * @param ocId 所属OC ID
+     * @return 本地槽位数据
+     */
     public TornFactionOcSlotDO convert2SlotDO(long ocId) {
         TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
         slot.setOcId(ocId);
@@ -53,14 +59,28 @@ public class TornFactionCrimeSlotVO implements TornFactionOcSlot {
             slot.setPassRate(this.checkpointPassRate);
             slot.setJoinTime(DateTimeUtils.convertToDateTime(this.user.getJoinedAt()));
             slot.setProgress(this.user.getProgress());
+            setRequiredItemSnapshot(slot);
         } else {
             slot.setUserId(null);
             slot.setPassRate(null);
             slot.setJoinTime(null);
             slot.setProgress(BigDecimal.ZERO);
+            slot.setRequiredItemId(null);
+            slot.setRequiredItemAvailable(null);
         }
 
         return slot;
+    }
+
+    private void setRequiredItemSnapshot(TornFactionOcSlotDO slot) {
+        if (this.itemRequirement == null || this.itemRequirement.getId() == null) {
+            slot.setRequiredItemId(null);
+            slot.setRequiredItemAvailable(null);
+            return;
+        }
+
+        slot.setRequiredItemId(this.itemRequirement.getId());
+        slot.setRequiredItemAvailable(this.itemRequirement.getIsAvailable());
     }
 
     public TornFactionOcUserDO convert2UserDO(long userId, long factionId, int rank, String name) {
