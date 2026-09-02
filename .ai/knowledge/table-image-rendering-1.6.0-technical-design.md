@@ -2,11 +2,11 @@
 
 ## 1. 文档定位
 
-本文是 `feat/table-rendering-1.6.0` 分支上“富表格渲染平台第一轮建设 + **全部 OC 图片表格迁移**”的开发、Review 与验收契约。
+本文是 `feat/table-rendering-1.6.0` 分支上“富表格渲染平台第一轮建设 + **当前 OC 状态表格图片迁移**”的开发、Review 与验收契约。
 
 - **目标版本：** `1.6.0`
-- **当前代码基线：** `4a94534`（当前 `pom.xml` 与 `build/docker-compose.yml` 均为 `1.5.3`）
-- **版本标识约定：** 用户将在实施前直接把 `pom.xml` 与 `build/docker-compose.yml` 改为 `1.6.0`，以标记当前开发版本。该变更可能单独提交，也可能与后续提交记录相邻；Review 按文件最终值与本方案判定，不以提交作者/归属判定责任。开发人员不得覆盖、回退或再次修改这两个版本标识，除非用户另行授权。
+- **当前实现基线：** `6ef625e`（首轮渲染平台、Docker 非 root Chromium、当前 OC 查询/推荐/分配/完成通知迁移已通过架构 Review）
+- **版本标识约定：** `pom.xml` 与 `build/docker-compose.yml` 已是 `1.6.0`；后续 Review 按文件最终值与本方案判定，不以提交作者/归属判定责任。开发人员不得覆盖、回退或再次修改这两个版本标识，除非用户另行授权。
 - **风险等级：** L3
 - **原因：** 本轮新增浏览器运行时、Docker 镜像依赖、公共图片渲染能力，并重新引入 OC 只读展示所需的道具快照字段和 Liquibase 迁移；虽不改变 OC 分配/收益业务规则，但涉及生产镜像和持久化兼容。
 - **适用对象：** 开发人员、代码 Review 人员、发布验收人员。
@@ -39,7 +39,7 @@ PNG Base64
 
 不采用 Java 调用 Python，不创建 Python 微服务，也不继续扩展 Java2D 的 Emoji 字体补丁。
 
-### 2.2 当前代码事实
+### 2.2 历史实现背景（仅用于追溯，不作为当前开发指令）
 
 1. `src/main/java/pn/torn/goldeneye/utils/image/TableImageUtils.java` 是 Java2D 手工绘制表格实现；存量调用方直接构造二维字符串、行列坐标、合并信息和 `CellStyle`。
 2. `src/main/java/pn/torn/goldeneye/base/model/TableDataBO.java` 直接依赖 `TableImageUtils.TableConfig`，不能作为新平台的通用文档模型复用。
@@ -50,7 +50,7 @@ PNG Base64
 4. 当前 `TornFactionOcMsgManager` / `TornFactionOcMsgTableManager` 中仍存在以二维数组、坐标与 `java.awt.Color` 处理推荐高亮和空位灰化的实现。
 5. 当前 `TornFactionOcSlotDO` 没有 `item_requirement` 的本地快照字段；OC 查询图片若要展示缺道具状态，必须由既有 OC 同步链写入快照，**禁止**在图片请求时请求 Torn API。
 6. 当前 Dockerfile 仅复制微软雅黑字体；这正是 Java2D 不能稳定画出彩色 Emoji 的技术边界。
-7. 当前 `main` 已合并 1.5.3 的股票修复；`pom.xml:14` 当前值为 `1.5.3`。本架构分支虽然从该基线创建，但首个 1.6.0 架构提交必须把项目版本统一升为 `1.6.0`。
+7. `main` 当时的 `pom.xml:14` 仍为 `1.5.3`，这是分支建立前的历史记录；当前目标分支已经统一到 `1.6.0`，以第 1 章和第 12 章为准。
 
 ### 2.3 本次需要恢复的 OC 展示业务契约
 
@@ -137,18 +137,16 @@ delta = readyTime - now
 4. 在 Docker 镜像中固定 Playwright、Chromium 依赖、中文字体、Emoji 字体及许可证文件。
 5. 新建受控的单 Browser 生命周期管理：单实例、单并发、超时、资源关闭和一次重建。
 6. 恢复 OC 标题时间和成员 Emoji 状态解析，以及 item requirement 本地快照同步。
-7. 迁移当前分支全部由 OC 业务产生、最终以图片表格发送的入口；首次实现共覆盖五类：
+7. 迁移当前执行中 OC 状态表格的全部图片入口：
    - 当前执行中 OC 查询和 OC 即将结束通知共用的 `buildOcTable`；
    - OC 推荐图片；
-   - OC 分配建议图片；
-   - 可加入 OC 成员图片；
-   - 用户 OC 成功率图片。
-8. 上述入口中，当前 OC 查询、OC 推荐、OC 分配和完成通知复用同一 OC 状态/槽位展示能力；可加入成员、成功率表属于独立的历史/候选数据表，只迁移渲染模型与视觉能力，不伪造当前 OC 状态 Emoji 或 item snapshot。
+   - OC 分配建议图片。
+8. 上述入口复用同一 OC 状态/槽位展示能力；`OcMemberStrategyImpl`（可加入成员）和 `OcRateQueryStrategyImpl`（用户 OC 成功率）属于 OC 相关数据展示，不在本轮当前 OC 表格迁移范围，继续保持既有 Java2D 路径。
 9. 保持既有图片消息 Base64 协议、策略命令、数据库查询入口和发送入口不变。
 
 ### 4.2 明确不做
 
-1. 不迁移 RW、股票、用户非 OC 业务、拍卖、OC 收益榜/历史收益榜、OC 空转/成功率排行榜、文本图片等其他存量图片。
+1. 不迁移 RW、股票、用户非 OC 业务、拍卖、OC 收益榜/历史收益榜、OC 空转/成功率排行榜、`OcMemberStrategyImpl` 可加入成员表、`OcRateQueryStrategyImpl` 用户成功率表、文本图片等其他存量图片。
 2. 不修改或删除 `TableImageUtils`、`TextImageUtils`、`TableDataBO`；它们继续服务未迁移调用方。
 3. 不把 Java2D 渲染器包一层强行适配到 `TableImageRenderer`，避免为了形式制造兼容层。
 4. 不创建 Python 服务、HTTP RPC、消息队列、数据库表、缓存或分布式锁。
@@ -185,7 +183,7 @@ pn.torn.goldeneye.utils.image.render.html
 - 只描述图片表格结构与语义：标题、行、单元格、跨行/列、文字内容、样式枚举、溢出策略和输出宽度。
 - `TableDocument`、`TableRow`、`TableCell` 采用不可变对象；优先 Java 21 `record`，但只有其字段完全属于稳定值对象时才使用 record。
 - 对集合执行防御性复制；不向外暴露可修改列表。
-- `TableCellStyleEnum` 仅提供有限的语义样式：`TITLE`、`SECTION`、`TEAM_READY`、`TEAM_WARNING`、`SLOT_FILLED`、`SLOT_EMPTY`、`SLOT_RECOMMENDED`、`SLOT_IDLE`、`MEMBER_FILLED`、`MEMBER_EMPTY`、`FOOTER`。
+- `TableCellStyleEnum` 仅提供有限的语义样式：`TITLE`、`SECTION`、`TEAM_READY`、`TEAM_WARNING`、`SLOT_FILLED`、`SLOT_EMPTY`、`SLOT_RECOMMENDED`、`SLOT_IDLE`、`MEMBER_FILLED`、`MEMBER_EMPTY`、`FOOTER`；当前 OC 查询的真实空缺若需要与推荐/分配普通候选空缺区分，可追加有限的当前查询空缺样式，禁止由业务层传递颜色或 CSS。
 - `TableTextOverflowEnum` 仅提供当前所需的 `WRAP`、`ELLIPSIS`、`CLIP`，不接受调用方直接给 CSS。
 - 单元格 `rowSpan` / `colSpan` 必须大于 0；构造时 fail-fast。第一阶段不实现复杂自动表格布局算法。
 - 不依赖 Spring、Playwright、`java.awt`、`TableImageUtils`、OC 类或 HTML 字符串。
@@ -370,7 +368,7 @@ src/main/resources/fonts/LICENSE-<emoji-font>.txt
 - 第一阶段只提供一个静态亮色主题；不要建立 ThemeFactory、主题注册表或多套 CSS。
 - Emoji 字体和许可证使用最终 Spike 验证版本。若字体许可证要求 attribution/ShareAlike，必须按许可在仓库与镜像中归档；“非盈利”不是跳过许可证义务的理由。
 
-### 6.3 全部 OC 表格的文档组装与入口迁移
+### 6.3 当前 OC 状态表格的文档组装与入口迁移
 
 #### 修改 `repository/model/faction/oc/TornFactionOcSlotDO.java`
 
@@ -448,33 +446,18 @@ src/main/resources/db/changelog/db.changelog-master.yaml
 #### 新增 `torn/service/faction/oc/image/OcTableDocumentAssembler.java`
 
 - 只接收已批量查询并已完成排序的 OC/槽位/用户/推荐信息和固定 `now`。
-- 负责生成：标题行、OC 分隔行、团队状态单元格、岗位行、成员行、页脚行。
-- 将推荐高亮、非推荐空位灰化转换为 `TableCellStyleEnum`，不携带 `Color`、行列下标或 HTML。
-- 组装时成员文本为 `昵称[id] + 空格 + Emoji`，Emoji 原字符串保持不变，由 Chromium/字体渲染。
-- 当前 OC、推荐、分配三种表格共用“OC 块生成”私有方法，通过参数对象/策略函数表达该块的推荐岗位，不复制三行表格拼装代码。
+- 负责生成：标题行、居中的“OC名称 + 时间状态胶囊”分隔行、团队状态单元格、岗位行、成员行、带 Emoji 图例的页脚行。
+- 当前 OC 查询/完成通知的真实空缺岗位使用低饱和暖橙；推荐/分配的普通候选空缺保留现有柔和中性配色，推荐目标岗位保留现有青绿色。所有差异转换为有限 `TableCellStyleEnum`，不携带 `Color`、行列下标或 HTML。
+- 岗位行使用受控的“左状态 Emoji / 中岗位名 / 右成功率”内容模型；成员行仅居中展示 `昵称[id]` 或 `空缺`，不再把 Emoji 拼在成员文本尾部。
+- 标题、第一列状态与完整时间必须居中；第一列时间不得在日期与时分秒之间换行；人员长昵称单行省略而不换行。
+- 当前 OC、推荐、分配三种表格共用“OC 块生成”私有方法，通过参数对象/策略函数表达当前/推荐展示模式和推荐岗位，不复制三行表格拼装代码。
 - 不调用 DAO、Torn API、浏览器或 `TableImageUtils`。
 
-#### 新增 `torn/service/faction/oc/image/OcHistoryTableDocumentAssembler.java`
+#### 不新增 `torn/service/faction/oc/image/OcHistoryTableDocumentAssembler.java`
 
-- 负责组装不含“当前执行 OC”语义的两类 OC 图片：可加入成员表、用户 OC 成功率表。
-- 复用 `TableDocument`、`TableRow`、`TableCell` 和有限 `TableCellStyleEnum`；不得复制 HTML、浏览器、字体或 CSS 逻辑。
-- 可加入成员表沿用现有六列：Rank、ID、Name、OC名称、岗位、成功率。
-- 成功率表沿用现有标题、按 OC 分组的跨列行、等级/岗位/成功率内容与既有筛选结果；不得因为迁移渲染器改变用户的等级范围、帮派岗位门槛或成功率计算。
-- 这两类表不显示当前 OC 状态 Emoji、`readyTime`、道具警告或 item snapshot；它们没有对应的当前槽位事实。
-- 对当前 `OcRateQueryStrategyImpl` 中反复按 OC 名过滤用户/配置列表的行为，可在组装前以 `ocName -> List` 的本地 Map 一次性索引消除重复扫描；不改变结果排序或 DAO 查询。
-
-#### 修改 `napcat/strategy/faction/crime/OcMemberStrategyImpl.java`
-
-- 删除本类对 `TableImageUtils`、`java.awt`、二维字符串表的直接依赖。
-- 注入 `OcHistoryTableDocumentAssembler` 与 `TableImageRenderer`，以既有已查询、已排序的空闲成员和用户 Map 生成文档并渲染。
-- 保持命令解析、空结果文案、DAO 查询、排序和 `buildImageMsg(...)` 调用不变。
-
-#### 修改 `napcat/strategy/faction/crime/OcRateQueryStrategyImpl.java`
-
-- 删除对 `TornFactionOcMsgTableManager`、`TableImageUtils`、`java.awt.Color` 和旧行列拼装方法的依赖。
-- 保留当前查询、按 7 级资格筛选、帮派覆盖成功率、排序和空结果文案；将最终已准备数据交给 `OcHistoryTableDocumentAssembler + TableImageRenderer`。
-- 将仅服务 Java2D 坐标/样式的 `TITLE_STYLE`、`CONTENT_STYLE`、`buildPositionRow`、`buildPassRateRow`、`calcMaxColumnSize` 删除；不得保留死代码。
-- 组装器只接收当前策略已获得的数据，不额外访问 DAO/Manager。
+- 可加入 OC 成员表和用户 OC 成功率表属于 OC 相关数据展示，不属于本轮当前 OC 状态表格迁移；
+- `OcMemberStrategyImpl`、`OcRateQueryStrategyImpl` 保持既有 Java2D 结构和业务测试；
+- 禁止为这两条未迁移路径预建没有生产调用方的 HTML 文档组装器，避免死代码与测试膨胀。
 
 #### 修改 `torn/manager/faction/crime/msg/TornFactionOcMsgManager.java`
 
@@ -570,9 +553,8 @@ Spring 关闭
 
 1. 实现 `OcTableDocumentAssembler`。
 2. 将 `TornFactionOcMsgManager` 两类图片入口切至新 renderer。
-3. 保持策略与 NapCat 发送 API 不变。
-4. 迁移 `OcMemberStrategyImpl` 和 `OcRateQueryStrategyImpl` 的直接 Java2D 表格路径；当前 OC、推荐、分配、完成通知均通过公共 Manager 自动切换。
-5. 生成当前 OC、推荐/分配、可加入成员、用户成功率四类代表性图片，进行人工视觉验收。
+3. 保持策略与 NapCat 发送 API 不变；`OcMemberStrategyImpl`、`OcRateQueryStrategyImpl` 保持既有 Java2D 数据展示，不参与本阶段迁移。
+4. 生成当前 OC 与推荐/分配两类代表性图片，进行人工视觉验收。
 
 ### 阶段 D：发布准备
 
@@ -591,12 +573,11 @@ Spring 关闭
 | OC 标题时间状态机 | `OcImageTitleFormatterTest` | null、Recruiting 停转/24h、Planning 执行/空转/过期 |
 | 槽位 Emoji 优先级 | `OcImageStatusResolverTest` | 空槽、空转、缺道具、完成、准备中、非法进度 |
 | 快照同步 | `TornFactionOcSlotManagerTest` | 写入缺道具、恢复可用、无需求/无人清理、未知不误写 false |
-| 当前 OC 状态表组装 | `OcTableDocumentAssemblerTest` | 一个普通块 + 一个推荐块，验证单元格顺序、样式、唯一 Emoji、跨列；分配复用推荐入口，不重复建矩阵 |
-| OC 历史/候选表组装 | `OcHistoryTableDocumentAssemblerTest` | 可加入成员六列、成功率按 OC 跨列分组和既有排序/筛选输入 |
-| HTML 安全映射 | `HtmlTableMarkupRendererTest` | `<>&"'` escape、固定 class/span、无外链属性 |
-| 浏览器真实运行 | `HtmlTableImageRendererIntegrationTest` | Docker 内中文/Emoji、连续 100 次、网络拦截、一次重建 |
-| OC 公共接线 | `TornFactionOcMsgManagerTest` | 当前、推荐/分配路径均委托新 renderer；固定 now、批量 DAO 边界 |
-| OC 直接策略接线 | `OcMemberStrategyImplTest`、`OcRateQueryStrategyImplTest` | 各保留一条图像消息接线和已有筛选/空结果主路径；不复制渲染细节 |
+| 当前 OC 状态表组装 | `OcTableDocumentAssemblerTest` | 一个当前块 + 一个推荐块，验证单元格顺序、当前/推荐空缺样式、唯一 Emoji、跨列、标题/副标题/人员布局语义；分配复用推荐入口，不重复建矩阵 |
+| HTML 安全映射 | `HtmlTableMarkupRendererTest` | `<>&"'` escape、固定 class/span、无外链属性、受控标题胶囊与岗位三段布局 |
+| 浏览器真实运行 | `HtmlTableImageRendererIntegrationTest` | Docker 内中文/Emoji、完整时间、长昵称、标题/副标题、当前暖橙空缺与推荐中性空缺、连续 100 次、网络拦截、一次重建 |
+| OC 公共接线 | `TornFactionOcMsgManagerTest` | 当前、推荐/分配路径均委托新 renderer；固定 now、批量 DAO 边界、图例页脚 |
+| 未迁移 OC 数据展示 | 既有 `OcMemberStrategyImplTest`、`OcRateQueryStrategyImplTest` | 维持既有业务筛选/空结果覆盖；本轮不改动、不追加 HTML 或浏览器接线测试 |
 
 ### 9.2 测试文件
 
@@ -609,7 +590,6 @@ src/test/java/pn/torn/goldeneye/utils/image/render/html/HtmlTableImageRendererIn
 src/test/java/pn/torn/goldeneye/torn/service/faction/oc/image/OcImageStatusResolverTest.java
 src/test/java/pn/torn/goldeneye/torn/service/faction/oc/image/OcImageTitleFormatterTest.java
 src/test/java/pn/torn/goldeneye/torn/service/faction/oc/image/OcTableDocumentAssemblerTest.java
-src/test/java/pn/torn/goldeneye/torn/service/faction/oc/image/OcHistoryTableDocumentAssemblerTest.java
 src/test/java/pn/torn/goldeneye/torn/service/faction/oc/OcPreparationTimeCalculatorTest.java
 ```
 
@@ -619,14 +599,12 @@ src/test/java/pn/torn/goldeneye/torn/service/faction/oc/OcPreparationTimeCalcula
 src/test/java/pn/torn/goldeneye/torn/manager/faction/crime/TornFactionOcSlotManagerTest.java
 src/test/java/pn/torn/goldeneye/torn/manager/faction/crime/msg/TornFactionOcMsgManagerTest.java
 src/test/java/pn/torn/goldeneye/torn/service/faction/oc/TornOcCompleteNoticeServiceTest.java
-src/test/java/pn/torn/goldeneye/napcat/strategy/faction/crime/OcMemberStrategyImplTest.java
-src/test/java/pn/torn/goldeneye/napcat/strategy/faction/crime/OcRateQueryStrategyImplTest.java
 ```
 
 ### 9.3 禁止的测试膨胀
 
 - 不为 `OcQueryStrategyImpl`、`OcRecommendStrategyImpl`、`OcAssignStrategyImpl`、`TornOcCompleteNoticeService` 分别复制 Emoji/标题状态机矩阵；分配复用推荐公共入口，只保留已有策略接线回归。
-- `OcMemberStrategyImpl`、`OcRateQueryStrategyImpl` 不复制文档模型或 CSS/浏览器测试，只保留各自既有业务筛选的接线验证。
+- `OcMemberStrategyImpl`、`OcRateQueryStrategyImpl` 已明确为未迁移的 OC 数据展示，本轮不得修改其生产或测试代码，也不得为其追加文档模型、CSS、浏览器或接线测试。
 - 不用 OCR 或逐像素全图快照断言业务文案。
 - 不建立真实 PostgreSQL 大型并发矩阵；本轮唯一真实数据库必要性是 Liquibase/DO/同步链字段兼容，按项目共享库约定精确清理。
 - 不为所有 23 个旧 `TableImageUtils` 调用方增加回归测试或强制迁移。
@@ -638,7 +616,7 @@ src/test/java/pn/torn/goldeneye/napcat/strategy/faction/crime/OcRateQueryStrateg
 
 ```bash
 JAVA_HOME="C:\Program Files\Java\jdk-21" mvn.cmd -q -DskipTests compile
-JAVA_HOME="C:\Program Files\Java\jdk-21" mvn.cmd -q -Dtest=TableDocumentTest,HtmlTableMarkupRendererTest,OcImageStatusResolverTest,OcImageTitleFormatterTest,OcTableDocumentAssemblerTest,OcHistoryTableDocumentAssemblerTest,OcPreparationTimeCalculatorTest,TornFactionOcSlotManagerTest,TornFactionOcMsgManagerTest,TornOcCompleteNoticeServiceTest,OcMemberStrategyImplTest,OcRateQueryStrategyImplTest test
+JAVA_HOME="C:\Program Files\Java\jdk-21" mvn.cmd -q -Dtest=TableDocumentTest,HtmlTableMarkupRendererTest,OcImageStatusResolverTest,OcImageTitleFormatterTest,OcTableDocumentAssemblerTest,OcPreparationTimeCalculatorTest,TornFactionOcSlotManagerTest,TornFactionOcMsgManagerTest,TornOcCompleteNoticeServiceTest test
 git diff --check
 docker build -f build/Dockerfile -t golden-eye:1.6.0 .
 ```
@@ -684,17 +662,69 @@ docker build -f build/Dockerfile -t golden-eye:1.6.0 .
 开发完成后必须提供：
 
 1. 当前提交范围及逐文件职责说明。
-2. `pom.xml` 中 Playwright 精确版本、Chromium 精确版本/安装路径、Emoji 字体名称/版本/许可证说明。
-3. Docker 镜像构建日志、镜像 digest/大小、容器 JDK、字体目录和浏览器可执行性验证。
-4. 四类代表性 PNG 原图：当前 OC、推荐/分配、可加入成员、用户成功率；当前 OC 状态类图片必须显示中文及 `💤 / ⏳ / ✅ / ⚠️`，供人工视觉验收。
-5. 常驻 Browser 连续 100 次渲染的成功数、P50/P95、启动后/执行后内存实测，及一次 Browser 重建结果。
-6. 网络拦截测试证明没有模板外部请求。
+2. `pom.xml` 中 Playwright 精确版本、Chromium 精确版本/安装路径、Emoji 字体名称/版本/许可证说明（沿用已验证镜像时可引用现有证据，不因本次视觉优化重做无关依赖升级）。
+3. Docker 镜像构建日志、镜像 digest/大小、容器 JDK、字体目录和浏览器可执行性验证（沿用已验证镜像时只需证明本轮未改 Dockerfile）。
+4. 两类代表性 PNG 原图：当前 OC、推荐/分配；当前 OC 状态类图片必须显示中文及 `💤 / ⏳ / ✅ / ⚠️`，供人工视觉验收。
+5. 常驻 Browser 连续 100 次渲染的成功数、P50/P95、启动后/执行后内存实测，及一次 Browser 重建结果（本次若 Browser/Docker 代码未改，沿用上一轮已验证基线并补充视觉 PNG 即可）。
+6. 网络拦截测试证明没有模板外部请求（本次若浏览器代码未改，沿用上一轮已验证基线）。
 7. OC 状态机、快照清理、文档组装、HTML escape、公共接线的聚焦测试结果；明确 testCompile 与 Surefire 实际执行数。
 8. Liquibase changeSet ID、新增列的实际结构与 remarks 验证；若执行真实共享库测试，说明精确物理清理结果。
 9. Maven compile、聚焦测试、`git diff --check` 的真实命令与退出结果。
-10. 明确列出未迁移的非 OC Java2D 图片调用方与理由；不能将任何 OC 表格图片遗漏为未迁移项。
-11. 证明 `OcQueryStrategyImpl`、`OcRecommendStrategyImpl`、`OcAssignStrategyImpl`、`OcMemberStrategyImpl`、`OcRateQueryStrategyImpl`、`TornOcCompleteNoticeService` 的消息格式/发送协议保持不变。
+10. 明确列出未迁移的 Java2D 图片调用方与理由；`OcMemberStrategyImpl`、`OcRateQueryStrategyImpl` 已按本方案明确排除，不能误报为遗漏。
+11. 证明 `OcQueryStrategyImpl`、`OcRecommendStrategyImpl`、`OcAssignStrategyImpl`、`TornOcCompleteNoticeService` 的消息格式/发送协议保持不变；同时证明本轮未改动 `OcMemberStrategyImpl`、`OcRateQueryStrategyImpl`。
 12. 证明 `pom.xml` 与 `build/docker-compose.yml` 均标识 `1.6.0`，Docker 本地构建标签为 `golden-eye:1.6.0`。
 13. 不存在本章 P0/P1 阻断项。
 
-满足以上条件后停止第一轮。后续图片迁移、主题、多媒体与图表能力必须以独立技术方案授权，禁止随本轮继续扩张。
+满足以上条件后停止当前 OC 状态表格第一阶段。后续其他图片迁移、主题、多媒体与图表能力必须以独立技术方案授权，禁止随本轮继续扩张。
+
+---
+
+## 12. 第二阶段视觉基线修订（2026-09-01）
+
+### 12.1 覆盖关系与范围修正
+
+本章是当前长期基线，覆盖本文中与“全部 OC 图片表格迁移”“成员文本尾部拼 Emoji”“统一空位灰化”“标题/分隔行基础样式”相冲突的历史表述。第二阶段的逐文件实施与验收细节见：
+
+```text
+.ai/knowledge/table-image-rendering-1.6.0-visual-refinement-technical-design.md
+```
+
+长期范围固定为：
+
+```text
+HTML/Chromium 当前 OC 状态表格：
+- OC 查询
+- OC 即将结束通知
+- OC 推荐
+- OC 分配
+
+保持 Java2D 的 OC 相关数据展示：
+- OcMemberStrategyImpl（可加入 OC 成员）
+- OcRateQueryStrategyImpl（用户 OC 成功率）
+```
+
+后两项不是漏迁移，不得为“全部 OC”解释而新建未接通的 `OcHistoryTableDocumentAssembler`，也不得改动其既有策略、发送协议或测试。
+
+### 12.2 当前 OC 图片的最终视觉契约
+
+1. 主标题跨全表居中、30px 至 32px、加粗，沿用亮色主题。
+2. 每个 OC 分隔行采用居中的“OC 名称 + 时间状态胶囊”；时间状态仍完全由 `OcImageTitleFormatter` 判定，胶囊色调只映射 `PLANNED / IDLE / STOP_COUNTDOWN / STOPPED`，不在 CSS 或组装器重写时间状态机。
+3. 第一列的状态和完整 `yyyy-MM-dd HH:mm:ss` 时间均居中、上下两行显示；时间不得在日期与时分秒之间换行。
+4. 已有人岗位上行使用受控的“左唯一状态 Emoji / 中岗位名 / 右成功率”，下行仅居中展示 `昵称[id]`；昵称单行省略，不换行，不重复显示 Emoji。
+5. Emoji 的判定、优先级和 Unicode 原字符串不变：`💤`、`⏳`、`✅`、`⚠️`。空槽、未知或非法进度不显示 Emoji。
+6. 当前 OC 查询和即将结束通知中的真实空缺岗位使用低饱和暖橙；推荐/分配中的普通候选空缺保留现有柔和中性配色；推荐目标岗位保留青绿色；纯布局补齐格仍是浅灰空白。
+7. 所有显示成员状态 Emoji 的当前 OC 表格包含固定图例：`💤 空转 ｜ ⏳ 准备中 ｜ ✅ 准备完成 ｜ ⚠️ 缺少道具`。当前查询图例与既有更新时间合并；推荐/分配不为更新时间新增 DAO 查询。
+
+### 12.3 文档模型和安全边界
+
+为稳定表达标题胶囊和岗位三段布局，`utils.image.document` 可增加有限、渲染中立的受控内容模型：纯文本、标题胶囊文本、三段文本及通用胶囊色调。该模型不得退化为富文本、属性 Map、任意 class、HTML、CSS、URL 或嵌套 DSL。
+
+`HtmlTableMarkupRenderer` 仍是唯一生成固定 HTML 标签的地方，必须分别 escape 每个动态文本片段；`OcTableDocumentAssembler` 只构造语义对象，禁止拼标签、内联样式或对齐空格。Browser/Docker/网络隔离、单 Browser、单并发、Context/Page 关闭和非 root Chromium 边界不因本次视觉优化改变。
+
+### 12.4 测试、性能与停止条件
+
+视觉逻辑仅在 `TableDocumentTest`、`HtmlTableMarkupRendererTest`、`OcImageTitleFormatterTest`、`OcTableDocumentAssemblerTest`、`TornFactionOcMsgManagerTest` 中以各自唯一职责验证；不复制到四个策略，也不新增 Torn API、Spring 集成、真实 PostgreSQL 或并发测试。
+
+开发人员执行聚焦编译、上述相关 Surefire、`git diff --check` 和最终 Docker 两类 PNG 视觉验收；全量 Maven 仍只由架构 Review 在必要时串行执行一次。若本轮未修改 Browser/Docker 实现，可复用其上一轮已经验证的生命周期、网络隔离和 100 次性能证据，只补充新布局的最终 Linux PNG 视觉证据。
+
+本章与独立视觉实施方案全部满足后，停止第二阶段；深色主题、职业图片资源库、其他 Java2D 图片迁移和通用富文本能力均需独立授权。

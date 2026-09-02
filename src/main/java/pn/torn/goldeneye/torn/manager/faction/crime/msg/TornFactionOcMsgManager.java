@@ -125,7 +125,7 @@ public class TornFactionOcMsgManager {
                         entry.buildReasonText(), recommendation.getRecommendedPosition()));
             }
         }
-        return documentAssembler.assemble(title, blocks, userMap, null, now);
+        return documentAssembler.assemble(title, blocks, userMap, now);
     }
 
     private Map<Long, TornUserDO> queryUserMap(Collection<TornFactionOcSlotDO> slotList) {

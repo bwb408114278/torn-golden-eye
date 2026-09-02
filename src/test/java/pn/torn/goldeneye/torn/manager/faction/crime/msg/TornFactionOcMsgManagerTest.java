@@ -20,6 +20,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageStatusResolver;
 import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
 import pn.torn.goldeneye.torn.service.faction.oc.image.OcTableDocumentAssembler;
 import pn.torn.goldeneye.utils.image.document.TableCell;
+import pn.torn.goldeneye.utils.image.document.TableCellContent;
 import pn.torn.goldeneye.utils.image.document.TableCellStyleEnum;
 import pn.torn.goldeneye.utils.image.document.TableDocument;
 import pn.torn.goldeneye.utils.image.render.TableImageRenderer;
@@ -32,9 +33,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * OC消息公共入口测试，验证文档委托和固定当前时间传递。
@@ -70,8 +71,8 @@ class TornFactionOcMsgManagerTest {
     }
 
     @Test
-    @DisplayName("当前OC表格：标题和团队状态使用固定now，成员只显示唯一Emoji")
-    void buildOcTableData_shouldUseFixedNowAndUniqueMemberEmoji() {
+    @DisplayName("当前OC表格：标题和团队状态使用固定now，状态Emoji位于岗位行，页脚含图例")
+    void buildOcTableData_shouldUseFixedNowAndPositionRowEmoji() {
         TornFactionOcDO oc = buildOc("Recruiting", NOW.plusHours(1));
         TornFactionOcSlotDO idle = buildSlot(oc.getId(), 10L, "Kidnap", BigDecimal.ZERO);
         TornFactionOcSlotDO preparing = buildSlot(oc.getId(), 11L, "Muscle", BigDecimal.valueOf(50));
@@ -95,12 +96,25 @@ class TornFactionOcMsgManagerTest {
         assertTrue(document.rows().get(1).cells().getFirst().text().contains("1小时")
                 && document.rows().get(1).cells().getFirst().text().contains("后停转"));
         assertEquals(TableCellStyleEnum.TEAM_READY, document.rows().get(2).cells().getFirst().style());
-        assertEquals("测试用户[12] ✅", document.rows().get(3).cells().getFirst().text());
-        assertEquals("测试用户[13] ⚠️", document.rows().get(3).cells().get(1).text());
-        assertEquals("测试用户[10] 💤", document.rows().get(3).cells().get(2).text());
-        assertEquals("测试用户[11] ⏳", document.rows().get(3).cells().get(3).text());
+        assertEquals(new TableCellContent.ThreePartText("✅", "Blast", ""),
+                document.rows().get(2).cells().get(1).content());
+        assertEquals(new TableCellContent.ThreePartText("⚠️", "Hacker", ""),
+                document.rows().get(2).cells().get(2).content());
+        assertEquals(new TableCellContent.ThreePartText("💤", "Kidnap", ""),
+                document.rows().get(2).cells().get(3).content());
+        assertEquals(new TableCellContent.ThreePartText("⏳", "Muscle", ""),
+                document.rows().get(2).cells().get(4).content());
+        assertEquals(TableCellStyleEnum.CURRENT_SLOT_EMPTY, document.rows().get(2).cells().get(5).style());
+        assertEquals("测试用户[12]", document.rows().get(3).cells().getFirst().text());
+        assertEquals("测试用户[13]", document.rows().get(3).cells().get(1).text());
+        assertEquals("测试用户[10]", document.rows().get(3).cells().get(2).text());
+        assertEquals("测试用户[11]", document.rows().get(3).cells().get(3).text());
         assertEquals("空缺", document.rows().get(3).cells().get(4).text());
+        assertEquals(TableCellStyleEnum.CURRENT_MEMBER_EMPTY, document.rows().get(3).cells().get(4).style());
         assertEquals(TableCellStyleEnum.FOOTER, document.rows().get(4).cells().getFirst().style());
+        assertTrue(document.rows().get(4).cells().getFirst().text().startsWith("状态说明：💤 空转"));
+        assertTrue(document.rows().get(4).cells().getFirst().text()
+                .endsWith("｜ 上次更新时间: 2026-08-31 11:00:00"));
     }
 
     @Test
@@ -123,7 +137,9 @@ class TornFactionOcMsgManagerTest {
         assertEquals(TableCellStyleEnum.SLOT_RECOMMENDED, positions.get(2).style());
         assertEquals(TableCellStyleEnum.SLOT_IDLE, positions.get(3).style());
         assertEquals(TableCellStyleEnum.SLOT_FILLED, positions.get(1).style());
+        assertTrue(document.rows().get(4).cells().getFirst().text().startsWith("状态说明：💤 空转"));
         verify(ocDao).queryListByIdList(FACTION_ID, List.of(oc.getId()));
+        verify(settingDao, never()).querySettingValue(any());
     }
 
     @Test

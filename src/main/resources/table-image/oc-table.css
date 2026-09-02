@@ -15,8 +15,8 @@ body {
 }
 
 .table-image {
-    display: inline-block;
-    max-width: 100%;
+    display: block;
+    width: 100%;
     padding: 16px;
     background: #ffffff;
 }
@@ -24,7 +24,7 @@ body {
 table {
     border-collapse: collapse;
     table-layout: auto;
-    max-width: 100%;
+    width: 100%;
     font-size: 18px;
 }
 
@@ -65,12 +65,58 @@ td {
     background: #eef2ff;
     color: #1e1b4b;
     font-weight: 700;
+    text-align: center;
+    font-size: 32px;
+    padding: 18px 12px;
 }
 
 .cell-section {
     background: #e5e7eb;
     color: #111827;
     font-weight: 700;
+    text-align: center;
+}
+
+.cell-section-head {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    max-width: 100%;
+}
+
+.cell-section-name {
+    font-weight: 700;
+}
+
+.cell-badge {
+    display: inline-block;
+    border-radius: 9999px;
+    padding: 2px 12px;
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.badge-success {
+    background: #dcfce7;
+    color: #14532d;
+}
+
+.badge-info {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.badge-warning {
+    background: #fef3c7;
+    color: #78350f;
+}
+
+.badge-danger {
+    background: #fee2e2;
+    color: #991b1b;
 }
 
 .cell-team-ready,
@@ -80,10 +126,50 @@ td {
     color: #14532d;
 }
 
+.cell-team-ready,
+.cell-team-warning {
+    text-align: center;
+    min-width: 208px;
+    white-space: pre;
+    overflow: hidden;
+}
+
 .cell-team-warning {
     background: #fef3c7;
     color: #78350f;
     font-weight: 700;
+}
+
+.slot-parts {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    width: 100%;
+}
+
+.slot-part-leading {
+    flex: 0 0 32px;
+    text-align: left;
+}
+
+.slot-part-center {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.slot-part-trailing {
+    flex: 0 0 44px;
+    text-align: right;
+}
+
+.cell-member-filled,
+.cell-member-empty,
+.cell-current-member-empty {
+    text-align: center;
 }
 
 .cell-slot-empty,
@@ -91,6 +177,13 @@ td {
 .cell-member-empty {
     background: #f3f4f6;
     color: #6b7280;
+}
+
+.cell-current-slot-empty,
+.cell-current-member-empty {
+    background: #ffedd5;
+    color: #9a3412;
+    font-weight: 700;
 }
 
 .cell-slot-recommended {
@@ -103,4 +196,6 @@ td {
     background: #f9fafb;
     color: #4b5563;
     font-size: 14px;
+    text-align: center;
+    word-break: keep-all;
 }

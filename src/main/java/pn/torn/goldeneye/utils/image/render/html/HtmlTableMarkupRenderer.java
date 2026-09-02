@@ -75,7 +75,90 @@ public class HtmlTableMarkupRenderer {
         if (cell.colSpan() > 1) {
             html.append(" colspan=\"").append(cell.colSpan()).append('"');
         }
-        html.append('>').append(escape(cell.text())).append("</td>");
+        html.append('>');
+        appendContent(html, cell.content());
+        html.append("</td>");
+    }
+
+    /**
+     * 通过对内容模型的穷尽分派输出固定标签结构。
+     *
+     * @param html    HTML文档构建器
+     * @param content 单元格受控内容
+     */
+    private void appendContent(StringBuilder html, TableCellContent content) {
+        switch (content) {
+            case TableCellContent.PlainText plainText -> appendPlainTextContent(html, plainText);
+            case TableCellContent.BadgeText badgeText -> appendBadgeTextContent(html, badgeText);
+            case TableCellContent.ThreePartText threePartText -> appendThreePartTextContent(html, threePartText);
+        }
+    }
+
+    /**
+     * 输出纯文本内容。
+     *
+     * @param html      HTML文档构建器
+     * @param plainText 纯文本内容
+     */
+    private void appendPlainTextContent(StringBuilder html, TableCellContent.PlainText plainText) {
+        appendEscapedText(html, plainText.text());
+    }
+
+    /**
+     * 输出固定居中容器内的名称与状态徽章。
+     *
+     * @param html      HTML文档构建器
+     * @param badgeText 徽章内容
+     */
+    private void appendBadgeTextContent(StringBuilder html, TableCellContent.BadgeText badgeText) {
+        html.append("<span class=\"cell-section-head\"><span class=\"cell-section-name\">");
+        appendEscapedText(html, badgeText.primaryText());
+        html.append("</span><span class=\"cell-badge ")
+                .append(badgeToneClass(badgeText.badgeTone()))
+                .append("\">");
+        appendEscapedText(html, badgeText.badgeText());
+        html.append("</span></span>");
+    }
+
+    /**
+     * 输出固定岗位容器内的左、中、右三段。
+     *
+     * @param html          HTML文档构建器
+     * @param threePartText 三段式内容
+     */
+    private void appendThreePartTextContent(StringBuilder html, TableCellContent.ThreePartText threePartText) {
+        html.append("<span class=\"slot-parts\"><span class=\"slot-part-leading\">");
+        appendEscapedText(html, threePartText.leadingText());
+        html.append("</span><span class=\"slot-part-center\">");
+        appendEscapedText(html, threePartText.centerText());
+        html.append("</span><span class=\"slot-part-trailing\">");
+        appendEscapedText(html, threePartText.trailingText());
+        html.append("</span></span>");
+    }
+
+    /**
+     * 追加转义后的动态文本片段。
+     *
+     * @param html HTML文档构建器
+     * @param text 待转义文本
+     */
+    private void appendEscapedText(StringBuilder html, String text) {
+        html.append(escape(text));
+    }
+
+    /**
+     * 将徽章色调映射为固定CSS类名。
+     *
+     * @param tone 受控徽章色调
+     * @return CSS类名
+     */
+    private String badgeToneClass(TableCellBadgeToneEnum tone) {
+        return switch (tone) {
+            case SUCCESS -> "badge-success";
+            case INFO -> "badge-info";
+            case WARNING -> "badge-warning";
+            case DANGER -> "badge-danger";
+        };
     }
 
     /**
@@ -94,6 +177,8 @@ public class HtmlTableMarkupRenderer {
             case SLOT_EMPTY -> "cell-slot-empty";
             case SLOT_RECOMMENDED -> "cell-slot-recommended";
             case SLOT_IDLE -> "cell-slot-idle";
+            case CURRENT_SLOT_EMPTY -> "cell-current-slot-empty";
+            case CURRENT_MEMBER_EMPTY -> "cell-current-member-empty";
             case MEMBER_FILLED -> "cell-member-filled";
             case MEMBER_EMPTY -> "cell-member-empty";
             case FOOTER -> "cell-footer";

@@ -43,6 +43,21 @@ public class OcImageTitleFormatter {
     }
 
     /**
+     * 查询受控的标题时间描述，供组装层一次性获取副标题文案与徽章色调映射依据。
+     * <p>
+     * 只复用现有{@link #resolve(String, LocalDateTime, LocalDateTime)}和{@link #format(String, LocalDateTime, LocalDateTime)}
+     * 逻辑，不复制时间状态机判定。
+     *
+     * @param status    OC状态
+     * @param readyTime OC准备链结束时间
+     * @param now       图片构建时的当前时间
+     * @return 文字与时间状态的受控描述
+     */
+    public Description describe(String status, LocalDateTime readyTime, LocalDateTime now) {
+        return new Description(format(status, readyTime, now), resolve(status, readyTime, now));
+    }
+
+    /**
      * 解析标题时间状态，不读取系统时钟。
      *
      * @param status    OC状态
@@ -117,5 +132,16 @@ public class OcImageTitleFormatter {
      */
     private boolean isSupportedStatus(String status) {
         return isRecruiting(status) || TornOcStatusEnum.PLANNING.getCode().equals(status);
+    }
+
+    /**
+     * 标题时间受控描述。
+     *
+     * @param text       时间文案，没有文案时为空字符串
+     * @param timeStatus 时间状态
+     */
+    public record Description(
+            String text,
+            OcImageTimeStatusEnum timeStatus) {
     }
 }

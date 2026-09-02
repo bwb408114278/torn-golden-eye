@@ -6,6 +6,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageSlotStatusEnum;
+import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageTimeStatusEnum;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.image.document.*;
 
@@ -18,7 +19,7 @@ import java.util.Map;
 /**
  * 将当前OC及推荐/分配数据组装为声明式表格文档。
  * <p>
- * 该组件只处理已经批量查询好的数据，不访问DAO、Torn API或渲染器。
+ * 该组件只处理已经批量查询好的数据，不访问DAO、Torn API或渲染器，也不拼接HTML或布局空格。
  *
  * @author Bai
  * @version 1.6.0
@@ -29,6 +30,8 @@ import java.util.Map;
 public class OcTableDocumentAssembler {
     private static final int DOCUMENT_WIDTH = 1600;
     private static final String DOCUMENT_TYPE = "oc-table";
+    private static final String STATUS_LEGEND = "状态说明：💤 空转 ｜ ⏳ 准备中 ｜ ✅ 准备完成 ｜ ⚠️ 缺少道具";
+    private static final String FOOTER_SEPARATOR = " ｜ ";
     private final OcImageStatusResolver statusResolver;
     private final OcImageTitleFormatter titleFormatter;
 
@@ -39,7 +42,7 @@ public class OcTableDocumentAssembler {
      * @param ocList     已按业务顺序排列的OC
      * @param slotByOcId 按OC ID分组的槽位
      * @param userMap    按用户ID索引的用户
-     * @param footer     页脚文本，可为空
+     * @param footer     既有更新时间页脚原料，可为空
      * @param now        图片构建时的固定当前时间
      * @return 表格文档
      */
@@ -51,7 +54,7 @@ public class OcTableDocumentAssembler {
                 .map(oc -> new Block(oc, slotByOcId.getOrDefault(oc.getId(), List.of()),
                         oc.getName(), null))
                 .toList();
-        return assemble(title, blocks, userMap, footer, now);
+        return assembleDocument(title, blocks, userMap, footer, now, DisplayMode.CURRENT);
     }
 
     /**
@@ -60,26 +63,41 @@ public class OcTableDocumentAssembler {
      * @param title   图片标题
      * @param blocks  已按推荐/分配顺序排列的OC块
      * @param userMap 按用户ID索引的用户
-     * @param footer  页脚文本，可为空
      * @param now     图片构建时的固定当前时间
      * @return 表格文档
      */
     public TableDocument assemble(String title, List<Block> blocks,
-                                  Map<Long, TornUserDO> userMap, String footer,
-                                  LocalDateTime now) {
+                                  Map<Long, TornUserDO> userMap, LocalDateTime now) {
+        return assembleDocument(title, blocks, userMap, null, now, DisplayMode.RECOMMENDATION);
+    }
+
+    /**
+     * 按展示模式统一组装表格文档。
+     *
+     * @param title            图片标题
+     * @param blocks           OC表格块
+     * @param userMap          按用户ID索引的用户
+     * @param updateTimeFooter 当前OC查询的既有更新时间页脚原料，推荐/分配不适用
+     * @param now              图片构建时的固定当前时间
+     * @param mode             展示模式
+     * @return 表格文档
+     */
+    private TableDocument assembleDocument(String title, List<Block> blocks, Map<Long, TornUserDO> userMap,
+                                           String updateTimeFooter, LocalDateTime now, DisplayMode mode) {
         int maxSlotCount = blocks.stream().mapToInt(block -> block.slots().size()).max().orElse(0);
         int columnCount = maxSlotCount + 1;
         List<TableRow> rows = new ArrayList<>();
-        rows.add(new TableRow(List.of(cell(title, TableCellStyleEnum.TITLE, 1, columnCount))));
+        rows.add(new TableRow(List.of(TableCell.plainText(title, TableCellStyleEnum.TITLE, 1, columnCount,
+                TableTextOverflowEnum.WRAP))));
         for (Block block : blocks) {
-            rows.addAll(buildBlockRows(block, userMap, now, columnCount));
+            rows.addAll(buildBlockRows(block, userMap, now, columnCount, mode));
         }
         if (rows.size() == 1) {
-            rows.add(new TableRow(List.of(cell("暂无记录", TableCellStyleEnum.FOOTER, 1, columnCount))));
+            rows.add(new TableRow(List.of(TableCell.plainText("暂无记录", TableCellStyleEnum.FOOTER,
+                    1, columnCount, TableTextOverflowEnum.WRAP))));
         }
-        if (footer != null && !footer.isBlank()) {
-            rows.add(new TableRow(List.of(cell(footer, TableCellStyleEnum.FOOTER, 1, columnCount))));
-        }
+        rows.add(new TableRow(List.of(TableCell.plainText(buildFooter(mode, updateTimeFooter),
+                TableCellStyleEnum.FOOTER, 1, columnCount, TableTextOverflowEnum.WRAP))));
         return new TableDocument(title, rows, DOCUMENT_WIDTH, DOCUMENT_TYPE);
     }
 
@@ -90,36 +108,151 @@ public class OcTableDocumentAssembler {
      * @param userMap     按用户ID索引的用户
      * @param now         图片构建时的固定当前时间
      * @param columnCount 表格列数
+     * @param mode        展示模式
      * @return OC块对应的表格行
      */
     private List<TableRow> buildBlockRows(Block block, Map<Long, TornUserDO> userMap,
-                                          LocalDateTime now, int columnCount) {
+                                          LocalDateTime now, int columnCount, DisplayMode mode) {
         TornFactionOcDO oc = block.oc();
         List<TornFactionOcSlotDO> slots = block.slots().stream()
                 .sorted(Comparator.comparing((TornFactionOcSlotDO slot) -> slot.getUserId() == null ? 1 : 0)
                         .thenComparing(TornFactionOcSlotDO::getPosition, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
-        String timeText = titleFormatter.format(oc.getStatus(), oc.getReadyTime(), now);
-        String sectionText = block.sectionText() + (timeText.isEmpty() ? "" : " " + timeText);
-        TableCell section = cell(sectionText, TableCellStyleEnum.SECTION, 1, columnCount);
-
         List<TableCell> positionCells = new ArrayList<>();
-        positionCells.add(cell(teamText(oc), teamStyle(oc, now), 2, 1));
+        positionCells.add(TableCell.plainText(teamText(oc), teamStyle(oc, now), 2, 1,
+                TableTextOverflowEnum.CLIP));
         List<TableCell> memberCells = new ArrayList<>();
         for (TornFactionOcSlotDO slot : slots) {
-            boolean occupied = slot.getUserId() != null;
-            boolean recommended = !occupied && block.recommendedPosition() != null
-                    && normalize(block.recommendedPosition()).equals(normalize(slot.getPosition()));
-            positionCells.add(cell(positionText(slot), positionStyle(occupied, recommended), 1, 1));
-            memberCells.add(cell(memberText(slot, userMap), occupied
-                    ? TableCellStyleEnum.MEMBER_FILLED : TableCellStyleEnum.MEMBER_EMPTY, 1, 1));
+            boolean recommended = slot.getUserId() == null && isRecommendedPosition(block, slot);
+            positionCells.add(positionCell(slot, recommended, mode));
+            memberCells.add(memberCell(slot, userMap, mode));
         }
         fillCells(positionCells, columnCount);
         fillCells(memberCells, Math.max(0, columnCount - 1), TableCellStyleEnum.MEMBER_EMPTY);
         if (memberCells.isEmpty()) {
-            memberCells.add(cell("", TableCellStyleEnum.MEMBER_EMPTY, 1, 1));
+            memberCells.add(TableCell.plainText("", TableCellStyleEnum.MEMBER_EMPTY, 1, 1,
+                    TableTextOverflowEnum.WRAP));
         }
-        return List.of(new TableRow(List.of(section)), new TableRow(positionCells), new TableRow(memberCells));
+        return List.of(new TableRow(List.of(sectionCell(block, oc, now, columnCount))),
+                new TableRow(positionCells), new TableRow(memberCells));
+    }
+
+    /**
+     * 组装OC块副标题单元格：OC名称为主文本，非空时间文案渲染为状态徽章。
+     *
+     * @param block       OC表格块
+     * @param oc          OC数据
+     * @param now         图片构建时的固定当前时间
+     * @param columnCount 表格列数
+     * @return 副标题单元格
+     */
+    private TableCell sectionCell(Block block, TornFactionOcDO oc, LocalDateTime now, int columnCount) {
+        OcImageTitleFormatter.Description description = titleFormatter.describe(
+                oc.getStatus(), oc.getReadyTime(), now);
+        if (description.text().isEmpty()) {
+            return TableCell.plainText(block.sectionText(), TableCellStyleEnum.SECTION,
+                    1, columnCount, TableTextOverflowEnum.WRAP);
+        }
+        return TableCell.badgeText(block.sectionText(), description.text(),
+                badgeTone(description.timeStatus()), TableCellStyleEnum.SECTION,
+                1, columnCount, TableTextOverflowEnum.WRAP);
+    }
+
+    /**
+     * 将标题时间状态映射为受控徽章色调。
+     *
+     * @param timeStatus 标题时间状态
+     * @return 徽章色调
+     */
+    private TableCellBadgeToneEnum badgeTone(OcImageTimeStatusEnum timeStatus) {
+        return switch (timeStatus) {
+            case PLANNED -> TableCellBadgeToneEnum.SUCCESS;
+            case IDLE -> TableCellBadgeToneEnum.INFO;
+            case STOP_COUNTDOWN -> TableCellBadgeToneEnum.WARNING;
+            case STOPPED -> TableCellBadgeToneEnum.DANGER;
+            case NONE -> throw new IllegalStateException("无时间状态不渲染徽章");
+        };
+    }
+
+    /**
+     * 组装岗位行单元格：成员状态Emoji居左、岗位名居中、成功率居右。
+     *
+     * @param slot        OC岗位槽位
+     * @param recommended 是否推荐目标岗位
+     * @param mode        展示模式
+     * @return 岗位行单元格
+     */
+    private TableCell positionCell(TornFactionOcSlotDO slot, boolean recommended, DisplayMode mode) {
+        boolean occupied = slot.getUserId() != null;
+        OcImageSlotStatusEnum status = statusResolver.resolve(slot.getUserId(), slot.getProgress(),
+                slot.getRequiredItemId(), slot.getRequiredItemAvailable());
+        String passRate = occupied && slot.getPassRate() != null ? slot.getPassRate().toString() : "";
+        return TableCell.threePartText(status.getEmoji(), normalize(slot.getPosition()), passRate,
+                positionStyle(occupied, recommended, mode), 1, 1, TableTextOverflowEnum.CLIP);
+    }
+
+    /**
+     * 组装人员行单元格：仅展示昵称[ID]或空缺，状态Emoji不在人员行重复展示。
+     *
+     * @param slot    OC岗位槽位
+     * @param userMap 按用户ID索引的用户
+     * @param mode    展示模式
+     * @return 人员行单元格
+     */
+    private TableCell memberCell(TornFactionOcSlotDO slot, Map<Long, TornUserDO> userMap, DisplayMode mode) {
+        if (slot.getUserId() == null) {
+            TableCellStyleEnum style = mode == DisplayMode.CURRENT
+                    ? TableCellStyleEnum.CURRENT_MEMBER_EMPTY : TableCellStyleEnum.MEMBER_EMPTY;
+            return TableCell.plainText("空缺", style, 1, 1, TableTextOverflowEnum.ELLIPSIS);
+        }
+        TornUserDO user = userMap.get(slot.getUserId());
+        String name = user == null ? String.valueOf(slot.getUserId()) : user.getNickname();
+        return TableCell.plainText(name + "[" + slot.getUserId() + "]",
+                TableCellStyleEnum.MEMBER_FILLED, 1, 1, TableTextOverflowEnum.ELLIPSIS);
+    }
+
+    /**
+     * 判断空槽是否为本块推荐目标岗位。
+     *
+     * @param block OC表格块
+     * @param slot  OC岗位槽位
+     * @return 是推荐目标岗位时返回true
+     */
+    private boolean isRecommendedPosition(Block block, TornFactionOcSlotDO slot) {
+        return block.recommendedPosition() != null
+                && normalize(block.recommendedPosition()).equals(normalize(slot.getPosition()));
+    }
+
+    /**
+     * 根据岗位是否有人、是否推荐岗位和展示模式选择样式。
+     *
+     * @param occupied    岗位是否有人
+     * @param recommended 是否推荐目标岗位
+     * @param mode        展示模式
+     * @return 岗位单元格样式
+     */
+    private TableCellStyleEnum positionStyle(boolean occupied, boolean recommended, DisplayMode mode) {
+        if (occupied) {
+            return TableCellStyleEnum.SLOT_FILLED;
+        }
+        if (mode == DisplayMode.CURRENT) {
+            return TableCellStyleEnum.CURRENT_SLOT_EMPTY;
+        }
+        return recommended ? TableCellStyleEnum.SLOT_RECOMMENDED : TableCellStyleEnum.SLOT_IDLE;
+    }
+
+    /**
+     * 统一生成图例页脚：当前表为图例加既有更新时间，推荐/分配仅图例。
+     *
+     * @param mode             展示模式
+     * @param updateTimeFooter 既有更新时间页脚原料
+     * @return 页脚文本
+     */
+    private String buildFooter(DisplayMode mode, String updateTimeFooter) {
+        if (mode == DisplayMode.RECOMMENDATION || updateTimeFooter == null || updateTimeFooter.isBlank()) {
+            return STATUS_LEGEND;
+        }
+        return STATUS_LEGEND + FOOTER_SEPARATOR + updateTimeFooter;
     }
 
     /**
@@ -133,35 +266,6 @@ public class OcTableDocumentAssembler {
     }
 
     /**
-     * 生成岗位名称和成功率文本。
-     *
-     * @param slot OC岗位槽位
-     * @return 岗位文本
-     */
-    private String positionText(TornFactionOcSlotDO slot) {
-        return normalize(slot.getPosition()) + (slot.getPassRate() == null ? "" : " " + slot.getPassRate());
-    }
-
-    /**
-     * 生成成员展示文本和状态Emoji。
-     *
-     * @param slot    OC岗位槽位
-     * @param userMap 按用户ID索引的用户
-     * @return 成员展示文本
-     */
-    private String memberText(TornFactionOcSlotDO slot, Map<Long, TornUserDO> userMap) {
-        if (slot.getUserId() == null) {
-            return "空缺";
-        }
-        TornUserDO user = userMap.get(slot.getUserId());
-        String name = user == null ? String.valueOf(slot.getUserId()) : user.getNickname();
-        OcImageSlotStatusEnum status = statusResolver.resolve(slot.getUserId(), slot.getProgress(),
-                slot.getRequiredItemId(), slot.getRequiredItemAvailable());
-        String emoji = status.getEmoji();
-        return name + "[" + slot.getUserId() + "]" + (emoji.isEmpty() ? "" : " " + emoji);
-    }
-
-    /**
      * 根据OC是否已到准备时间选择团队单元格样式。
      *
      * @param oc  OC数据
@@ -171,20 +275,6 @@ public class OcTableDocumentAssembler {
     private TableCellStyleEnum teamStyle(TornFactionOcDO oc, LocalDateTime now) {
         return oc.getReadyTime() != null && !now.isAfter(oc.getReadyTime())
                 ? TableCellStyleEnum.TEAM_READY : TableCellStyleEnum.TEAM_WARNING;
-    }
-
-    /**
-     * 根据岗位是否有人和是否为推荐岗位选择样式。
-     *
-     * @param occupied    岗位是否有人
-     * @param recommended 岗位是否为推荐岗位
-     * @return 岗位单元格样式
-     */
-    private TableCellStyleEnum positionStyle(boolean occupied, boolean recommended) {
-        if (occupied) {
-            return TableCellStyleEnum.SLOT_FILLED;
-        }
-        return recommended ? TableCellStyleEnum.SLOT_RECOMMENDED : TableCellStyleEnum.SLOT_IDLE;
     }
 
     /**
@@ -206,7 +296,7 @@ public class OcTableDocumentAssembler {
      */
     private void fillCells(List<TableCell> cells, int expectedSize, TableCellStyleEnum style) {
         while (cells.size() < expectedSize) {
-            cells.add(cell("", style, 1, 1));
+            cells.add(TableCell.plainText("", style, 1, 1, TableTextOverflowEnum.WRAP));
         }
     }
 
@@ -221,16 +311,17 @@ public class OcTableDocumentAssembler {
     }
 
     /**
-     * 创建指定跨度和换行策略的表格单元格。
-     *
-     * @param text    单元格文本
-     * @param style   单元格样式
-     * @param rowSpan 行跨度
-     * @param colSpan 列跨度
-     * @return 表格单元格
+     * 表格展示模式，只表达视觉上下文，不暴露到Strategy、DAO、VO或持久化层。
      */
-    private TableCell cell(String text, TableCellStyleEnum style, int rowSpan, int colSpan) {
-        return new TableCell(text == null ? "" : text, style, rowSpan, colSpan, TableTextOverflowEnum.WRAP);
+    private enum DisplayMode {
+        /**
+         * 当前OC查询。
+         */
+        CURRENT,
+        /**
+         * 推荐或分配。
+         */
+        RECOMMENDATION
     }
 
     /**

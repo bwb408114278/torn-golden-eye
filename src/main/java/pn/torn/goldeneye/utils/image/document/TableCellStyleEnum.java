@@ -41,6 +41,14 @@ public enum TableCellStyleEnum {
      */
     SLOT_IDLE,
     /**
+     * 当前OC查询中真实空缺岗位的上行。
+     */
+    CURRENT_SLOT_EMPTY,
+    /**
+     * 当前OC查询中真实空缺岗位的下行空缺成员位。
+     */
+    CURRENT_MEMBER_EMPTY,
+    /**
      * 已填充成员。
      */
     MEMBER_FILLED,

@@ -2,11 +2,7 @@ package pn.torn.goldeneye.utils.image.render.html;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.utils.image.document.TableCell;
-import pn.torn.goldeneye.utils.image.document.TableCellStyleEnum;
-import pn.torn.goldeneye.utils.image.document.TableDocument;
-import pn.torn.goldeneye.utils.image.document.TableRow;
-import pn.torn.goldeneye.utils.image.document.TableTextOverflowEnum;
+import pn.torn.goldeneye.utils.image.document.*;
 
 import java.util.List;
 
@@ -55,6 +51,8 @@ class HtmlTableMarkupRendererTest {
                 new TableCell("空位", TableCellStyleEnum.SLOT_EMPTY, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("推荐", TableCellStyleEnum.SLOT_RECOMMENDED, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("空转", TableCellStyleEnum.SLOT_IDLE, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("当前空岗", TableCellStyleEnum.CURRENT_SLOT_EMPTY, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("当前空成员", TableCellStyleEnum.CURRENT_MEMBER_EMPTY, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("成员", TableCellStyleEnum.MEMBER_FILLED, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("空成员", TableCellStyleEnum.MEMBER_EMPTY, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("页脚", TableCellStyleEnum.FOOTER, 1, 1, TableTextOverflowEnum.CLIP)
@@ -69,8 +67,34 @@ class HtmlTableMarkupRendererTest {
         assertTrue(html.contains("cell-slot-empty"));
         assertTrue(html.contains("cell-slot-recommended"));
         assertTrue(html.contains("cell-slot-idle"));
+        assertTrue(html.contains("cell-current-slot-empty"));
+        assertTrue(html.contains("cell-current-member-empty"));
         assertTrue(html.contains("cell-member-filled"));
         assertTrue(html.contains("cell-member-empty"));
         assertTrue(html.contains("cell-footer overflow-clip"));
+    }
+
+    @Test
+    @DisplayName("徽章和三段内容应输出固定span结构且每段独立转义")
+    void shouldRenderControlledSpansForStructuredContent() {
+        TableDocument document = new TableDocument("内容模型", List.of(new TableRow(List.of(
+                TableCell.badgeText("临床精确 <1>", "23小时47分后停转 <2>",
+                        TableCellBadgeToneEnum.WARNING, TableCellStyleEnum.SECTION, 1, 1,
+                        TableTextOverflowEnum.WRAP),
+                TableCell.threePartText("⚠️ <3>", "Assassin#1 <4>", "76 <5>",
+                        TableCellStyleEnum.SLOT_FILLED, 1, 1, TableTextOverflowEnum.CLIP)))),
+                1600, "test");
+
+        String html = renderer.render(document);
+
+        assertTrue(html.contains("<span class=\"cell-section-head\"><span class=\"cell-section-name\">"
+                + "临床精确 &lt;1&gt;</span>"));
+        assertTrue(html.contains("<span class=\"cell-badge badge-warning\">23小时47分后停转 &lt;2&gt;</span>"));
+        assertTrue(html.contains("<span class=\"slot-parts\"><span class=\"slot-part-leading\">⚠️ &lt;3&gt;</span>"));
+        assertTrue(html.contains("<span class=\"slot-part-center\">Assassin#1 &lt;4&gt;</span>"));
+        assertTrue(html.contains("<span class=\"slot-part-trailing\">76 &lt;5&gt;</span>"));
+        assertFalse(html.contains("<script"));
+        assertFalse(html.contains("href="));
+        assertFalse(html.contains("style="));
     }
 }

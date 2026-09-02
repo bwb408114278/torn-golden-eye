@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.image;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageTimeStatusEnum;
 
 import java.time.LocalDateTime;
 
@@ -79,5 +80,15 @@ class OcImageTitleFormatterTest {
     @DisplayName("不支持的OC状态不追加时间文案")
     void unsupportedStatus_shouldReturnEmptyText() {
         assertEquals("", formatter.format("Successful", NOW.plusHours(1), NOW));
+    }
+
+    @Test
+    @DisplayName("受控查询的文案与时间状态应保持一致")
+    void describe_shouldAlignTextWithTimeStatus() {
+        OcImageTitleFormatter.Description description =
+                formatter.describe("Recruiting", NOW.plusHours(1).plusMinutes(30), NOW);
+
+        assertEquals("1小时30分后停转", description.text());
+        assertEquals(OcImageTimeStatusEnum.STOP_COUNTDOWN, description.timeStatus());
     }
 }
