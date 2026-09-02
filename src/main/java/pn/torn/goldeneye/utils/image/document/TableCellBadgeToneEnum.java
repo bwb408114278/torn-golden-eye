@@ -26,5 +26,9 @@ public enum TableCellBadgeToneEnum {
     /**
      * 危险色调。
      */
-    DANGER
+    DANGER,
+    /**
+     * 中性色调。
+     */
+    NEUTRAL
 }

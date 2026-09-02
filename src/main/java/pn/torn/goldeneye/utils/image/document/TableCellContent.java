@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.utils.image.document;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -24,12 +25,14 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
      */
     default String readableText() {
         return switch (this) {
-            case PlainText plainText -> plainText.text();
-            case BadgeText badgeText -> badgeText.primaryText() + " " + badgeText.badgeText();
-            case ThreePartText threePartText -> Stream.of(threePartText.leadingText(), threePartText.centerText(),
-                    threePartText.trailingText())
-                    .filter(text -> !text.isEmpty())
+            case PlainText(String text) -> text;
+            case BadgeText(String primaryText, List<Badge> badges) -> primaryText + " " + badges.stream()
+                    .map(Badge::text)
                     .collect(Collectors.joining(" "));
+            case ThreePartText(String leadingText, String centerText, String trailingText) ->
+                    Stream.of(leadingText, centerText, trailingText)
+                            .filter(text -> !text.isEmpty())
+                            .collect(Collectors.joining(" "));
         };
     }
 
@@ -49,24 +52,42 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
     }
 
     /**
-     * 主文本加状态徽章的内容。
+     * 主文本加一个或多个状态徽章的内容。
      *
      * @param primaryText 主文本，不能为null
-     * @param badgeText   徽章文本，不能为null且不能为空白；无徽章时应使用{@link PlainText}
-     * @param badgeTone   徽章受控色调，不能为null
+     * @param badges     状态徽章，不能为null且至少一个；无徽章时应使用{@link PlainText}
      */
-    record BadgeText(String primaryText, String badgeText, TableCellBadgeToneEnum badgeTone)
-            implements TableCellContent {
+    record BadgeText(String primaryText, List<Badge> badges) implements TableCellContent {
 
         /**
          * 创建并校验徽章内容。
          */
         public BadgeText {
             Objects.requireNonNull(primaryText, "primaryText不能为null");
-            Objects.requireNonNull(badgeText, "badgeText不能为null");
+            Objects.requireNonNull(badges, "badges不能为null");
+            if (badges.isEmpty()) {
+                throw new IllegalArgumentException("badges不能为空");
+            }
+            badges = List.copyOf(badges);
+        }
+    }
+
+    /**
+     * 状态徽章的文本与受控色调。
+     *
+     * @param text     徽章文本，不能为null且不能为空白
+     * @param badgeTone 徽章受控色调，不能为null
+     */
+    record Badge(String text, TableCellBadgeToneEnum badgeTone) {
+
+        /**
+         * 创建并校验徽章。
+         */
+        public Badge {
+            Objects.requireNonNull(text, "text不能为null");
             Objects.requireNonNull(badgeTone, "badgeTone不能为null");
-            if (badgeText.isBlank()) {
-                throw new IllegalArgumentException("badgeText不能为空白");
+            if (text.isBlank()) {
+                throw new IllegalArgumentException("text不能为空白");
             }
         }
     }

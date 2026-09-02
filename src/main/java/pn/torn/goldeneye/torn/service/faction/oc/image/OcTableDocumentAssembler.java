@@ -10,6 +10,7 @@ import pn.torn.goldeneye.torn.model.faction.oc.image.OcImageTimeStatusEnum;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 import pn.torn.goldeneye.utils.image.document.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -34,6 +35,7 @@ public class OcTableDocumentAssembler {
     private static final String FOOTER_SEPARATOR = " ｜ ";
     private final OcImageStatusResolver statusResolver;
     private final OcImageTitleFormatter titleFormatter;
+    private final OcRecommendBadgeResolver recommendBadgeResolver;
 
     /**
      * 组装普通当前OC表格。
@@ -52,7 +54,7 @@ public class OcTableDocumentAssembler {
                                   LocalDateTime now) {
         List<Block> blocks = ocList.stream()
                 .map(oc -> new Block(oc, slotByOcId.getOrDefault(oc.getId(), List.of()),
-                        oc.getName(), null))
+                        oc.getName(), null, null, null))
                 .toList();
         return assembleDocument(title, blocks, userMap, footer, now, DisplayMode.CURRENT);
     }
@@ -125,7 +127,7 @@ public class OcTableDocumentAssembler {
         for (TornFactionOcSlotDO slot : slots) {
             boolean recommended = slot.getUserId() == null && isRecommendedPosition(block, slot);
             positionCells.add(positionCell(slot, recommended, mode));
-            memberCells.add(memberCell(slot, userMap, mode));
+            memberCells.add(memberCell(slot, recommended, userMap, mode));
         }
         fillCells(positionCells, columnCount);
         fillCells(memberCells, Math.max(0, columnCount - 1), TableCellStyleEnum.MEMBER_EMPTY);
@@ -133,12 +135,30 @@ public class OcTableDocumentAssembler {
             memberCells.add(TableCell.plainText("", TableCellStyleEnum.MEMBER_EMPTY, 1, 1,
                     TableTextOverflowEnum.WRAP));
         }
-        return List.of(new TableRow(List.of(sectionCell(block, oc, now, columnCount))),
+        return List.of(new TableRow(List.of(sectionCell(block, oc, now, columnCount, mode))),
                 new TableRow(positionCells), new TableRow(memberCells));
     }
 
     /**
-     * 组装OC块副标题单元格：OC名称为主文本，非空时间文案渲染为状态徽章。
+     * 按展示模式组装OC块副标题单元格。
+     *
+     * @param block       OC表格块
+     * @param oc          OC数据
+     * @param now         图片构建时的固定当前时间
+     * @param columnCount 表格列数
+     * @param mode        展示模式
+     * @return 副标题单元格
+     */
+    private TableCell sectionCell(Block block, TornFactionOcDO oc, LocalDateTime now,
+                                  int columnCount, DisplayMode mode) {
+        if (mode == DisplayMode.RECOMMENDATION) {
+            return recommendSectionCell(block, columnCount);
+        }
+        return currentSectionCell(block, oc, now, columnCount);
+    }
+
+    /**
+     * 组装当前OC副标题：OC名称为主文本，非空时间文案渲染为状态徽章。
      *
      * @param block       OC表格块
      * @param oc          OC数据
@@ -146,7 +166,7 @@ public class OcTableDocumentAssembler {
      * @param columnCount 表格列数
      * @return 副标题单元格
      */
-    private TableCell sectionCell(Block block, TornFactionOcDO oc, LocalDateTime now, int columnCount) {
+    private TableCell currentSectionCell(Block block, TornFactionOcDO oc, LocalDateTime now, int columnCount) {
         OcImageTitleFormatter.Description description = titleFormatter.describe(
                 oc.getStatus(), oc.getReadyTime(), now);
         if (description.text().isEmpty()) {
@@ -155,6 +175,24 @@ public class OcTableDocumentAssembler {
         }
         return TableCell.badgeText(block.sectionText(), description.text(),
                 badgeTone(description.timeStatus()), TableCellStyleEnum.SECTION,
+                1, columnCount, TableTextOverflowEnum.WRAP);
+    }
+
+    /**
+     * 组装推荐/分配副标题：不使用OC查询时间胶囊，评分与理由经解析器生成推荐自己的徽章。
+     *
+     * @param block       OC表格块
+     * @param columnCount 表格列数
+     * @return 副标题单元格
+     */
+    private TableCell recommendSectionCell(Block block, int columnCount) {
+        List<TableCellContent.Badge> badges = recommendBadgeResolver.buildBadges(
+                block.recommendScore(), block.reason());
+        if (badges.isEmpty()) {
+            return TableCell.plainText(block.sectionText(), TableCellStyleEnum.SECTION,
+                    1, columnCount, TableTextOverflowEnum.WRAP);
+        }
+        return TableCell.badgeText(block.sectionText(), badges, TableCellStyleEnum.SECTION,
                 1, columnCount, TableTextOverflowEnum.WRAP);
     }
 
@@ -194,21 +232,36 @@ public class OcTableDocumentAssembler {
     /**
      * 组装人员行单元格：仅展示昵称[ID]或空缺，状态Emoji不在人员行重复展示。
      *
-     * @param slot    OC岗位槽位
-     * @param userMap 按用户ID索引的用户
-     * @param mode    展示模式
+     * @param slot        OC岗位槽位
+     * @param recommended 是否推荐目标岗位
+     * @param userMap     按用户ID索引的用户
+     * @param mode        展示模式
      * @return 人员行单元格
      */
-    private TableCell memberCell(TornFactionOcSlotDO slot, Map<Long, TornUserDO> userMap, DisplayMode mode) {
+    private TableCell memberCell(TornFactionOcSlotDO slot, boolean recommended,
+                                 Map<Long, TornUserDO> userMap, DisplayMode mode) {
         if (slot.getUserId() == null) {
-            TableCellStyleEnum style = mode == DisplayMode.CURRENT
-                    ? TableCellStyleEnum.CURRENT_MEMBER_EMPTY : TableCellStyleEnum.MEMBER_EMPTY;
-            return TableCell.plainText("空缺", style, 1, 1, TableTextOverflowEnum.ELLIPSIS);
+            return TableCell.plainText("空缺", emptyMemberStyle(recommended, mode),
+                    1, 1, TableTextOverflowEnum.ELLIPSIS);
         }
         TornUserDO user = userMap.get(slot.getUserId());
         String name = user == null ? String.valueOf(slot.getUserId()) : user.getNickname();
         return TableCell.plainText(name + "[" + slot.getUserId() + "]",
                 TableCellStyleEnum.MEMBER_FILLED, 1, 1, TableTextOverflowEnum.ELLIPSIS);
+    }
+
+    /**
+     * 选择空缺人员格样式：当前表为暖橙告警；推荐表推荐目标列与岗位格同为青绿，普通空缺保持中性灰。
+     *
+     * @param recommended 是否推荐目标岗位
+     * @param mode        展示模式
+     * @return 空缺人员格样式
+     */
+    private TableCellStyleEnum emptyMemberStyle(boolean recommended, DisplayMode mode) {
+        if (mode == DisplayMode.CURRENT) {
+            return TableCellStyleEnum.CURRENT_MEMBER_EMPTY;
+        }
+        return recommended ? TableCellStyleEnum.SLOT_RECOMMENDED : TableCellStyleEnum.MEMBER_EMPTY;
     }
 
     /**
@@ -331,11 +384,15 @@ public class OcTableDocumentAssembler {
      * @param slots               当前OC槽位
      * @param sectionText         分隔行文本
      * @param recommendedPosition 本块推荐岗位，可为空
+     * @param recommendScore      推荐度评分，仅推荐/分配使用，可为空
+     * @param reason              推荐理由原文，仅推荐/分配使用，可为空
      */
     public record Block(
             TornFactionOcDO oc,
             List<TornFactionOcSlotDO> slots,
             String sectionText,
-            String recommendedPosition) {
+            String recommendedPosition,
+            BigDecimal recommendScore,
+            String reason) {
     }
 }

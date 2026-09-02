@@ -105,7 +105,7 @@ public class HtmlTableMarkupRenderer {
     }
 
     /**
-     * 输出固定居中容器内的名称与状态徽章。
+     * 输出固定居中容器内的名称与一个或多个状态徽章。
      *
      * @param html      HTML文档构建器
      * @param badgeText 徽章内容
@@ -113,11 +113,15 @@ public class HtmlTableMarkupRenderer {
     private void appendBadgeTextContent(StringBuilder html, TableCellContent.BadgeText badgeText) {
         html.append("<span class=\"cell-section-head\"><span class=\"cell-section-name\">");
         appendEscapedText(html, badgeText.primaryText());
-        html.append("</span><span class=\"cell-badge ")
-                .append(badgeToneClass(badgeText.badgeTone()))
-                .append("\">");
-        appendEscapedText(html, badgeText.badgeText());
-        html.append("</span></span>");
+        html.append("</span>");
+        for (TableCellContent.Badge badge : badgeText.badges()) {
+            html.append("<span class=\"cell-badge ")
+                    .append(badgeToneClass(badge.badgeTone()))
+                    .append("\">");
+            appendEscapedText(html, badge.text());
+            html.append("</span>");
+        }
+        html.append("</span>");
     }
 
     /**
@@ -158,6 +162,7 @@ public class HtmlTableMarkupRenderer {
             case INFO -> "badge-info";
             case WARNING -> "badge-warning";
             case DANGER -> "badge-danger";
+            case NEUTRAL -> "badge-neutral";
         };
     }
 

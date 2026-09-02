@@ -122,7 +122,8 @@ public class TornFactionOcMsgManager {
             if (oc != null) {
                 blocks.add(new OcTableDocumentAssembler.Block(oc,
                         slotByOcId.getOrDefault(oc.getId(), List.of()),
-                        entry.buildReasonText(), recommendation.getRecommendedPosition()));
+                        entry.buildSummaryText(), recommendation.getRecommendedPosition(),
+                        recommendation.getRecommendScore(), recommendation.getReason()));
             }
         }
         return documentAssembler.assemble(title, blocks, userMap, now);

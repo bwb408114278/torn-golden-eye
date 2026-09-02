@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.utils.image.document;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -75,7 +76,7 @@ public record TableCell(
     }
 
     /**
-     * 创建主文本加状态徽章单元格。
+     * 创建主文本加单个状态徽章单元格。
      *
      * @param primaryText 主文本，不能为null
      * @param badgeText   徽章文本，不能为null且不能为空白
@@ -89,7 +90,25 @@ public record TableCell(
     public static TableCell badgeText(String primaryText, String badgeText, TableCellBadgeToneEnum badgeTone,
                                       TableCellStyleEnum style, int rowSpan, int colSpan,
                                       TableTextOverflowEnum overflow) {
-        return new TableCell(new TableCellContent.BadgeText(primaryText, badgeText, badgeTone),
+        return badgeText(primaryText, List.of(new TableCellContent.Badge(badgeText, badgeTone)),
+                style, rowSpan, colSpan, overflow);
+    }
+
+    /**
+     * 创建主文本加多个状态徽章单元格。
+     *
+     * @param primaryText 主文本，不能为null
+     * @param badges      状态徽章，不能为null且至少一个
+     * @param style       单元格语义样式
+     * @param rowSpan     跨行数量，必须大于0
+     * @param colSpan     跨列数量，必须大于0
+     * @param overflow    文字溢出策略
+     * @return 徽章单元格
+     */
+    public static TableCell badgeText(String primaryText, List<TableCellContent.Badge> badges,
+                                      TableCellStyleEnum style, int rowSpan, int colSpan,
+                                      TableTextOverflowEnum overflow) {
+        return new TableCell(new TableCellContent.BadgeText(primaryText, badges),
                 style, rowSpan, colSpan, overflow);
     }
 

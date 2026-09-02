@@ -119,11 +119,21 @@ td {
     color: #991b1b;
 }
 
-.cell-team-ready,
+.badge-neutral {
+    background: #f9fafb;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+}
+
 .cell-slot-filled,
 .cell-member-filled {
     background: #dcfce7;
     color: #14532d;
+}
+
+.cell-team-ready {
+    background: #e0e7ff;
+    color: #3730a3;
 }
 
 .cell-team-ready,
@@ -190,6 +200,7 @@ td {
     background: #ccfbf1;
     color: #134e4a;
     font-weight: 700;
+    text-align: center;
 }
 
 .cell-footer {

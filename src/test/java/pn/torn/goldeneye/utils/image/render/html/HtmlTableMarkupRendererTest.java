@@ -81,7 +81,11 @@ class HtmlTableMarkupRendererTest {
                 TableCell.badgeText("临床精确 <1>", "23小时47分后停转 <2>",
                         TableCellBadgeToneEnum.WARNING, TableCellStyleEnum.SECTION, 1, 1,
                         TableTextOverflowEnum.WRAP),
-                TableCell.threePartText("⚠️ <3>", "Assassin#1 <4>", "76 <5>",
+                TableCell.badgeText("推荐 <1>", List.of(
+                                new TableCellContent.Badge("评分 88.6 <2>", TableCellBadgeToneEnum.SUCCESS),
+                                new TableCellContent.Badge("成功率达标 <3>", TableCellBadgeToneEnum.NEUTRAL)),
+                        TableCellStyleEnum.SECTION, 1, 1, TableTextOverflowEnum.WRAP),
+                TableCell.threePartText("⚠️ <4>", "Assassin#1 <5>", "76 <6>",
                         TableCellStyleEnum.SLOT_FILLED, 1, 1, TableTextOverflowEnum.CLIP)))),
                 1600, "test");
 
@@ -90,9 +94,12 @@ class HtmlTableMarkupRendererTest {
         assertTrue(html.contains("<span class=\"cell-section-head\"><span class=\"cell-section-name\">"
                 + "临床精确 &lt;1&gt;</span>"));
         assertTrue(html.contains("<span class=\"cell-badge badge-warning\">23小时47分后停转 &lt;2&gt;</span>"));
-        assertTrue(html.contains("<span class=\"slot-parts\"><span class=\"slot-part-leading\">⚠️ &lt;3&gt;</span>"));
-        assertTrue(html.contains("<span class=\"slot-part-center\">Assassin#1 &lt;4&gt;</span>"));
-        assertTrue(html.contains("<span class=\"slot-part-trailing\">76 &lt;5&gt;</span>"));
+        assertTrue(html.contains("推荐 &lt;1&gt;</span>"
+                + "<span class=\"cell-badge badge-success\">评分 88.6 &lt;2&gt;</span>"
+                + "<span class=\"cell-badge badge-neutral\">成功率达标 &lt;3&gt;</span></span>"));
+        assertTrue(html.contains("<span class=\"slot-parts\"><span class=\"slot-part-leading\">⚠️ &lt;4&gt;</span>"));
+        assertTrue(html.contains("<span class=\"slot-part-center\">Assassin#1 &lt;5&gt;</span>"));
+        assertTrue(html.contains("<span class=\"slot-part-trailing\">76 &lt;6&gt;</span>"));
         assertFalse(html.contains("<script"));
         assertFalse(html.contains("href="));
         assertFalse(html.contains("style="));

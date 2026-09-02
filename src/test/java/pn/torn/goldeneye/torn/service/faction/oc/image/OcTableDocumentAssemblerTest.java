@@ -27,10 +27,9 @@ class OcTableDocumentAssemblerTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 31, 12, 0);
 
     @Test
-    @DisplayName("当前OC：副标题徽章、三段岗位、暖橙真实空缺、图例加更新时间页脚")
+    @DisplayName("当前OC：副标题时间徽章、三段岗位、暖橙真实空缺、图例加更新时间页脚")
     void assemble_shouldBuildCurrentOcDocument() {
-        OcTableDocumentAssembler assembler = new OcTableDocumentAssembler(
-                new OcImageStatusResolver(), new OcImageTitleFormatter());
+        OcTableDocumentAssembler assembler = buildAssembler();
         TornFactionOcDO oc = buildOc();
         TornFactionOcSlotDO filled = buildSlot(10L, "Kidnap", BigDecimal.ZERO, 76);
         TornFactionOcSlotDO empty = buildSlot(null, "Muscle", BigDecimal.ZERO, 88);
@@ -43,8 +42,9 @@ class OcTableDocumentAssemblerTest {
 
         assertEquals(5, document.rows().size());
         assertEquals(3, document.rows().getFirst().cells().getFirst().colSpan());
-        assertEquals(new TableCellContent.BadgeText("Clinical Precision", "1小时00分后停转",
-                TableCellBadgeToneEnum.WARNING), document.rows().get(1).cells().getFirst().content());
+        assertEquals(new TableCellContent.BadgeText("Clinical Precision",
+                        List.of(new TableCellContent.Badge("1小时00分后停转", TableCellBadgeToneEnum.WARNING))),
+                document.rows().get(1).cells().getFirst().content());
         assertEquals(3, document.rows().get(1).cells().getFirst().colSpan());
         assertEquals(TableCellStyleEnum.TEAM_READY, document.rows().get(2).cells().getFirst().style());
         assertEquals(TableTextOverflowEnum.CLIP, document.rows().get(2).cells().getFirst().overflow());
@@ -65,23 +65,34 @@ class OcTableDocumentAssemblerTest {
     }
 
     @Test
-    @DisplayName("推荐块：目标岗位青绿、普通空缺中性灰、成员空缺柔性和图例页脚")
+    @DisplayName("推荐块：评分理由徽章副标题、目标列岗位与空缺同为青绿、普通空缺中性灰")
     void assemble_shouldApplyRecommendationSemantics() {
-        OcTableDocumentAssembler assembler = new OcTableDocumentAssembler(
-                new OcImageStatusResolver(), new OcImageTitleFormatter());
+        OcTableDocumentAssembler assembler = buildAssembler();
         TornFactionOcDO oc = buildOc();
         TornFactionOcSlotDO recommended = buildSlot(null, "Kidnap", BigDecimal.ZERO, 1);
         TornFactionOcSlotDO idle = buildSlot(null, "Muscle", BigDecimal.ZERO, 1);
 
         TableDocument document = assembler.assemble("推荐", List.of(new OcTableDocumentAssembler.Block(
-                oc, List.of(idle, recommended), "理由", "Kidnap")), Map.of(), NOW);
+                oc, List.of(idle, recommended), "推荐用户 [4]   8级   Clinical Precision   岗位: Kidnap",
+                "Kidnap", new BigDecimal("88.60"), "12小时内停转、超高成功率")), Map.of(), NOW);
 
+        assertEquals(new TableCellContent.BadgeText("推荐用户 [4]   8级   Clinical Precision   岗位: Kidnap",
+                        List.of(new TableCellContent.Badge("评分 88.6", TableCellBadgeToneEnum.SUCCESS),
+                                new TableCellContent.Badge("12小时内停转", TableCellBadgeToneEnum.WARNING),
+                                new TableCellContent.Badge("超高成功率", TableCellBadgeToneEnum.SUCCESS))),
+                document.rows().get(1).cells().getFirst().content());
         assertEquals(TableCellStyleEnum.SLOT_RECOMMENDED, document.rows().get(2).cells().get(1).style());
         assertEquals(TableCellStyleEnum.SLOT_IDLE, document.rows().get(2).cells().get(2).style());
         assertEquals("空缺", document.rows().get(3).cells().getFirst().text());
-        assertEquals(TableCellStyleEnum.MEMBER_EMPTY, document.rows().get(3).cells().getFirst().style());
+        assertEquals(TableCellStyleEnum.SLOT_RECOMMENDED, document.rows().get(3).cells().getFirst().style());
+        assertEquals(TableCellStyleEnum.MEMBER_EMPTY, document.rows().get(3).cells().get(1).style());
         assertEquals("状态说明：💤 空转 ｜ ⏳ 准备中 ｜ ✅ 准备完成 ｜ ⚠️ 缺少道具",
                 document.rows().get(4).cells().getFirst().text());
+    }
+
+    private OcTableDocumentAssembler buildAssembler() {
+        return new OcTableDocumentAssembler(new OcImageStatusResolver(),
+                new OcImageTitleFormatter(), new OcRecommendBadgeResolver());
     }
 
     private TornFactionOcDO buildOc() {

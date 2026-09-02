@@ -728,3 +728,42 @@ HTML/Chromium 当前 OC 状态表格：
 开发人员执行聚焦编译、上述相关 Surefire、`git diff --check` 和最终 Docker 两类 PNG 视觉验收；全量 Maven 仍只由架构 Review 在必要时串行执行一次。若本轮未修改 Browser/Docker 实现，可复用其上一轮已经验证的生命周期、网络隔离和 100 次性能证据，只补充新布局的最终 Linux PNG 视觉证据。
 
 本章与独立视觉实施方案全部满足后，停止第二阶段；深色主题、职业图片资源库、其他 Java2D 图片迁移和通用富文本能力均需独立授权。
+
+---
+
+## 13. 第三阶段推荐/分配副标题与配色基线修订（2026-09-02）
+
+### 13.1 覆盖关系
+
+本章是当前长期基线，在第二阶段验收通过后经用户确认追加，覆盖第 12 章中与下列事实冲突的表述：
+
+1. 第 12.2 节第 2 条的“OC 名称 + 时间状态胶囊”分隔行仅适用于**当前 OC 查询与即将结束通知**；推荐/分配分隔行不再使用 `OcImageTitleFormatter` 时间状态胶囊，改用推荐自己的徽章（13.2）。
+2. 第 12.2 节第 6 条的“推荐目标岗位保留青绿色”延伸为：推荐目标岗位的岗位格与下行“空缺”人员格**整列同用青绿**，空缺文字水平居中；普通候选空缺仍为中性灰。
+3. 第一列团队状态配色从与已填充格共享绿色改为独立配色（13.2 第 1 条）。
+
+本章不改变第 12.1 节迁移范围、第 12.3 节渲染安全边界（仅扩展受控内容模型形态，见 13.3）与第 12.4 节测试收敛原则；`OcHistoryTableDocumentAssembler` 维持删除结论，`OcMemberStrategyImpl`、`OcRateQueryStrategyImpl` 维持 Java2D 排除范围。
+
+### 13.2 最终视觉契约增补
+
+1. **第一列（团队状态列）**：`TEAM_READY` 使用浅靛蓝底深靛蓝字（`#e0e7ff` / `#3730a3`），与已填充岗位/人员格的绿色明确区分；`TEAM_WARNING` 保持琥珀（`#fef3c7` / `#78350f`）。状态与完整时间仍两行居中，时间不得折行。
+2. **当前 OC 查询/即将结束通知分隔行**：维持“OC 名称 + 时间状态胶囊”，时间状态仍完全由 `OcImageTitleFormatter` 判定，色调映射 `PLANNED→SUCCESS / IDLE→INFO / STOP_COUNTDOWN→WARNING / STOPPED→DANGER`。
+3. **推荐/分配分隔行**：主文本为 `昵称 [ID]   级别   OC名称   岗位: 岗位名`（`OcRecommendTableBO.buildSummaryText`，评分与理由不再混入正文）；右侧依次为评分徽章与逐段理由徽章，整体居中。
+4. **评分徽章**：文本 `评分 <score>`（去尾零，如 `评分 88.6`）；分档配色 ≥80 绿 `SUCCESS`、60–79 琥珀 `WARNING`、<60 灰 `NEUTRAL`。
+5. **理由徽章**：按「、」拆分 `buildRecommendReason` 固定词表精确映射——`已停转，急需加入`→`DANGER`、`N小时内停转`→`WARNING`、`新队`/`高成功率`→`INFO`、`超高成功率`→`SUCCESS`、`成功率达标`及未知文案→`NEUTRAL` 兜底（不丢信息）。评分或理由缺失时不渲染对应徽章；两者皆空时分隔行为纯文本。理由判定与评分计算仍由 `TornOcRecommendManager` 唯一持有，图片层只做词表展示映射，不复制推荐算法。
+6. **推荐目标岗位列**：岗位格与“空缺”人员格整列青绿（`SLOT_RECOMMENDED`，含 `text-align:center`）；普通候选空缺仍为中性灰（`SLOT_IDLE`/`MEMBER_EMPTY`）；当前 OC 查询真实空缺仍为暖橙；纯布局补齐格仍为浅灰空白。
+
+### 13.3 文档模型与组件
+
+1. `TableCellContent.BadgeText` 为多徽章形态 `(primaryText, List<Badge(text, tone)>)`，`Badge` 为嵌套不可变值对象；徽章列表至少一个、逐个非空白，空徽章场景使用 `PlainText`。`readableText()` 仅用于兼容断言/日志，渲染必须读取结构化内容。
+2. `TableCellBadgeToneEnum` 为 `SUCCESS / INFO / WARNING / DANGER / NEUTRAL` 五种通用视觉色调；`NEUTRAL` 为浅灰底带描边。枚举不承载 OC 业务状态。
+3. 新增 `OcRecommendBadgeResolver`（`torn.service.faction.oc.image`）：唯一负责评分分档与理由词表到徽章的展示映射；不查询 DAO、不读取时钟、不依赖浏览器。
+4. `OcTableDocumentAssembler.Block` 携带 `recommendScore` 与 `reason` 原料（推荐/分配专用，当前查询为 null）；`TornFactionOcMsgManager` 推荐路径仅传递原料，不在 Manager 或 Strategy 拼徽章文本。
+5. `HtmlTableMarkupRenderer` 循环输出固定 badge span，每个动态片段独立 escape；不接受调用方传入 class、HTML、CSS 或 URL 的安全边界不变。
+
+### 13.4 测试与证据
+
+- 聚焦测试在 12.4 基础上新增 `OcRecommendBadgeResolverTest`（评分分档边界、理由词表映射、未知兜底、缺失不渲染）；其余测试收敛原则沿用 12.4。
+- 第三阶段验证证据（2026-09-02）：聚焦 6 类 26/26 通过（含 `testCompile`/Surefire 实际执行）；`git diff --check` 通过；最终镜像 `golden-eye:1.6.0` 内渲染 `current-oc.png`（SHA-256 `e8c6e9a0df47401fd6cc0911b278d98628805f11b9b85f68fdd510aca6b797de`）与 `recommend.png`（SHA-256 `2a35c5c1a626f54e8fbdf1d8ada4b82572db842e1d85b853a8f056de358ebb7b`）；像素证据确认第一列靛蓝、推荐列整列青绿、琥珀/绿色徽章与彩色 Emoji 无方块，已经用户视觉验收通过。
+- Browser/Docker/网络隔离与 100 次性能证据沿用第一阶段已验证基线（本轮未修改浏览器与 Dockerfile）。
+
+本章满足后，第三阶段停止；后续配色调整、深色主题、其他图片迁移与通用富文本能力均需独立授权。

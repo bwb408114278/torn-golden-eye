@@ -54,10 +54,11 @@ class TableDocumentTest {
     @DisplayName("受控单元格内容应拒绝null和空白非法值")
     void shouldRejectInvalidTableCellContentValues() {
         assertThrows(NullPointerException.class, () -> new TableCellContent.PlainText(null));
-        assertThrows(NullPointerException.class,
-                () -> new TableCellContent.BadgeText(null, "已停转", TableCellBadgeToneEnum.DANGER));
-        assertThrows(IllegalArgumentException.class,
-                () -> new TableCellContent.BadgeText("临床精确", " ", TableCellBadgeToneEnum.INFO));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.BadgeText(null,
+                List.of(new TableCellContent.Badge("已停转", TableCellBadgeToneEnum.DANGER))));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.BadgeText("临床精确", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.Badge(" ", TableCellBadgeToneEnum.INFO));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.Badge("已停转", null));
         assertThrows(NullPointerException.class,
                 () -> new TableCellContent.ThreePartText("✅", "岗位", null));
         assertThrows(IllegalArgumentException.class,
@@ -78,12 +79,17 @@ class TableDocumentTest {
     void shouldComposeReadableTextForStructuredContent() {
         TableCell badge = TableCell.badgeText("临床精确", "23小时47分后停转",
                 TableCellBadgeToneEnum.WARNING, TableCellStyleEnum.SECTION, 1, 2, TableTextOverflowEnum.WRAP);
+        TableCell multiBadge = TableCell.badgeText("推荐用户 [4]",
+                List.of(new TableCellContent.Badge("评分 88.6", TableCellBadgeToneEnum.SUCCESS),
+                        new TableCellContent.Badge("已停转，急需加入", TableCellBadgeToneEnum.DANGER)),
+                TableCellStyleEnum.SECTION, 1, 2, TableTextOverflowEnum.WRAP);
         TableCell threePart = TableCell.threePartText("✅", "Assassin#1", "76",
                 TableCellStyleEnum.SLOT_FILLED, 1, 1, TableTextOverflowEnum.CLIP);
         TableCell emptyParts = TableCell.threePartText("", "CatBurglar#1", "",
                 TableCellStyleEnum.SLOT_FILLED, 1, 1, TableTextOverflowEnum.CLIP);
 
         assertEquals("临床精确 23小时47分后停转", badge.text());
+        assertEquals("推荐用户 [4] 评分 88.6 已停转，急需加入", multiBadge.text());
         assertEquals("✅ Assassin#1 76", threePart.text());
         assertEquals("CatBurglar#1", emptyParts.text());
     }

@@ -18,11 +18,9 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendTableBO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageStatusResolver;
 import pn.torn.goldeneye.torn.service.faction.oc.image.OcImageTitleFormatter;
+import pn.torn.goldeneye.torn.service.faction.oc.image.OcRecommendBadgeResolver;
 import pn.torn.goldeneye.torn.service.faction.oc.image.OcTableDocumentAssembler;
-import pn.torn.goldeneye.utils.image.document.TableCell;
-import pn.torn.goldeneye.utils.image.document.TableCellContent;
-import pn.torn.goldeneye.utils.image.document.TableCellStyleEnum;
-import pn.torn.goldeneye.utils.image.document.TableDocument;
+import pn.torn.goldeneye.utils.image.document.*;
 import pn.torn.goldeneye.utils.image.render.TableImageRenderer;
 
 import java.math.BigDecimal;
@@ -66,7 +64,8 @@ class TornFactionOcMsgManagerTest {
 
     @BeforeEach
     void setUp() {
-        assembler = new OcTableDocumentAssembler(new OcImageStatusResolver(), new OcImageTitleFormatter());
+        assembler = new OcTableDocumentAssembler(new OcImageStatusResolver(),
+                new OcImageTitleFormatter(), new OcRecommendBadgeResolver());
         msgManager = new TornFactionOcMsgManager(ocDao, slotDao, userDao, settingDao, assembler, imageRenderer);
     }
 
@@ -118,7 +117,7 @@ class TornFactionOcMsgManagerTest {
     }
 
     @Test
-    @DisplayName("推荐表格：推荐空槽高亮，非推荐空槽置灰，已有人保持填充样式")
+    @DisplayName("推荐表格：副标题为评分理由徽章，推荐空槽高亮，非推荐空槽置灰")
     void buildRecommendTableData_shouldAssembleRecommendationStyles() {
         TornFactionOcDO oc = buildOc("Planning", NOW.plusHours(1));
         TornFactionOcSlotDO recommended = buildSlot(oc.getId(), null, "Kidnap", BigDecimal.ZERO);
@@ -133,10 +132,16 @@ class TornFactionOcMsgManagerTest {
 
         TableDocument document = msgManager.buildRecommendTableData("推荐", FACTION_ID, List.of(entry), NOW);
 
+        assertEquals(new TableCellContent.BadgeText(
+                        "测试用户 [20]   8级   Clinical Precision   岗位: Kidnap",
+                        List.of(new TableCellContent.Badge("评分 1", TableCellBadgeToneEnum.NEUTRAL),
+                                new TableCellContent.Badge("测试", TableCellBadgeToneEnum.NEUTRAL))),
+                document.rows().get(1).cells().getFirst().content());
         List<TableCell> positions = document.rows().get(2).cells();
         assertEquals(TableCellStyleEnum.SLOT_RECOMMENDED, positions.get(2).style());
         assertEquals(TableCellStyleEnum.SLOT_IDLE, positions.get(3).style());
         assertEquals(TableCellStyleEnum.SLOT_FILLED, positions.get(1).style());
+        assertEquals(TableCellStyleEnum.SLOT_RECOMMENDED, document.rows().get(3).cells().get(1).style());
         assertTrue(document.rows().get(4).cells().getFirst().text().startsWith("状态说明：💤 空转"));
         verify(ocDao).queryListByIdList(FACTION_ID, List.of(oc.getId()));
         verify(settingDao, never()).querySettingValue(any());
