@@ -31,7 +31,7 @@ import java.util.Map;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.6.0
  * @since 2025.08.08
  */
 @Component
@@ -282,7 +282,9 @@ public class TornFactionOcManager {
             for (TornFactionCrimeSlotVO slot : oc.getSlots()) {
                 String position = slot.getPosition() + "#" + slot.getPositionInfo().getNumber();
                 if (position.equals(errorSlot.getPosition())) {
-                    slotManager.updateSlotData(slot, slot.getUser().getProgress(), errorSlot);
+                    BigDecimal progress = slot.getUser() == null
+                            ? BigDecimal.ZERO : slot.getUser().getProgress();
+                    slotManager.updateSlotData(slot, progress, errorSlot);
                 }
             }
         }

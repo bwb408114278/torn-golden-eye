@@ -11,7 +11,7 @@
 
     <groupId>pn.torn</groupId>
     <artifactId>golden-eye</artifactId>
-    <version>1.5.3</version>
+    <version>1.6.0</version>
     <name>golden-eye</name>
     <description>金蝶独家官方认证</description>
 
@@ -23,6 +23,7 @@
         <mybais.version>3.0.3</mybais.version>
         <mp.version>3.5.12</mp.version>
         <feishu.version>2.4.23</feishu.version>
+        <playwright.version>1.55.0</playwright.version>
     </properties>
 
     <dependencies>
@@ -140,6 +141,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Playwright Chromium渲染 -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${playwright.version}</version>
         </dependency>
     </dependencies>
 

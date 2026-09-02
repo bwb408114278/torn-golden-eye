@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * Torn OC Slot表
  *
  * @author Bai
- * @version 1.2.7
+ * @version 1.6.0
  * @since 2025.07.29
  */
 @Data
@@ -60,4 +60,12 @@ public class TornFactionOcSlotDO extends BaseDO implements TornFactionOcSlot {
      * 消耗品价格
      */
     private Long outcomeItemValue;
+    /**
+     * 当前同步快照中的道具需求ID；无需求或无法确认时为null。
+     */
+    private Integer requiredItemId;
+    /**
+     * 当前同步快照中的道具可用性；null表示本次同步无法确认，不等价于不可用。
+     */
+    private Boolean requiredItemAvailable;
 }

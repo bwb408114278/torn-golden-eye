@@ -1,0 +1,29 @@
+databaseChangeLog:
+  # OC 表格图片统一状态展示：槽位本地道具快照
+  # 只记录当前采集快照，不伪造历史数据；没有可确认快照时保持 NULL。
+  - changeSet:
+      id: add_oc_table_image_status_slot_item_snapshot
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc_slot
+            columns:
+              - column:
+                  name: required_item_id
+                  type: INT
+                  remarks: "当前采集快照中的道具ID；无需求或未采集到可确认快照时为NULL"
+                  constraints:
+                    nullable: true
+              - column:
+                  name: required_item_available
+                  type: BOOLEAN
+                  remarks: "当前采集快照中道具是否可用；NULL表示本次未确认，不得解释为不可用"
+                  constraints:
+                    nullable: true
+      rollback:
+        - dropColumn:
+            tableName: torn_faction_oc_slot
+            columnName: required_item_id
+        - dropColumn:
+            tableName: torn_faction_oc_slot
+            columnName: required_item_available
