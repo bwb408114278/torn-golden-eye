@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票通知类型枚举 - 组合事件通知的分类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Getter
@@ -23,6 +23,10 @@ public enum StockNoticeTypeEnum {
      * 卖出通知 - 批次卖出时触发
      */
     SELL("SELL", "卖出通知"),
+    /**
+     * Alpha原子换仓通知 - 原仓卖出与新仓买入
+     */
+    ALPHA_REBALANCE("ALPHA_REBALANCE", "Alpha换仓通知"),
     /**
      * 每日摘要 - 每日组合汇总
      */

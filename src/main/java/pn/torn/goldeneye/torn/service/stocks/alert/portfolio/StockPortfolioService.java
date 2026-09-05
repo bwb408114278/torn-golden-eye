@@ -216,7 +216,32 @@ public class StockPortfolioService {
     public BigDecimal settleFormalSlot(TornStockVirtualBatchDO batch,
                                        TornStockPortfolioSlotDO slot,
                                        BigDecimal exitReferencePrice) {
+        return settleSlotBacked(batch, slot, exitReferencePrice, batch == null ? null : batch.getPortfolioCode());
+    }
+
+    /**
+     * 对指定槽位账本执行安全卖出结算。
+     * <p>
+     * 通过显式账本类型与组合编码绑定结算入口，保证 Alpha 独立10B槽位不会误用其他组合资金。
+     * 结算后 {@code slot.availableCash = batch.remainingCash + sellProceeds}，并解除原批次绑定。
+     *
+     * @param batch              槽位账本批次
+     * @param slot               锁后槽位
+     * @param exitReferencePrice 卖出参考价(>0)
+     * @param portfolioCode      期望组合编码
+     * @return 扣费后卖出所得
+     * @throws IllegalStateException 槽位账本一致性或组合绑定校验失败时抛出
+     */
+    public BigDecimal settleSlotBacked(TornStockVirtualBatchDO batch,
+                                       TornStockPortfolioSlotDO slot,
+                                       BigDecimal exitReferencePrice,
+                                       String portfolioCode) {
         validateFormalSettlement(batch, slot, exitReferencePrice);
+        if (!Objects.equals(portfolioCode, batch.getPortfolioCode())
+                || !Objects.equals(portfolioCode, slot.getPortfolioCode())) {
+            throw new IllegalStateException("槽位批次组合绑定不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", portfolioCode=" + portfolioCode);
+        }
 
         BigDecimal sellProceeds = exitReferencePrice
                 .multiply(BigDecimal.valueOf(batch.getQuantity()))
@@ -226,7 +251,7 @@ public class StockPortfolioService {
         slot.setReservedCash(BigDecimal.ZERO);
         slot.setCurrentBatchId(null);
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
-        log.info("槽位账本批次结算: batchNo={}, ledgerType={}, slotNo={}, sellProceeds={}, availableCash={}",
+        log.info("槽位账本批次结算: batchNo={}, ledgerType={}, slotNo={}, sellProceeds={}, availableCash={} ",
                 batch.getBatchNo(), batch.getLedgerType(), slot.getSlotNo(), sellProceeds, slot.getAvailableCash());
         return sellProceeds;
     }

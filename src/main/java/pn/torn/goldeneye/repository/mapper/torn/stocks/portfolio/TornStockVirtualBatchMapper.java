@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票虚拟交易批次数据库访问层
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Mapper
@@ -45,15 +45,37 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
                                                                                 @Param("buyRuleVersion") String buyRuleVersion);
 
     /**
+     * 按批次编号锁定批次。
+     *
+     * @param batchNo 批次编号
+     * @return 已存在批次；不存在时返回null
+     */
+    TornStockVirtualBatchDO selectByBatchNoForUpdate(@Param("batchNo") String batchNo);
+
+    /**
      * 按批次编号冲突安全插入批次。
      *
      * @param batch 待插入批次
-     * @return 实际插入行数;冲突时返回0
+     * @return 实际插入行数；冲突时返回0
      */
     int insertIgnoreConflict(@Param("batch") TornStockVirtualBatchDO batch);
 
     /**
-     * 查询全部正式活跃批次
+     * 查询全部VIP Alpha活跃批次。
+     *
+     * @return VIP Alpha活跃批次列表
+     */
+    List<TornStockVirtualBatchDO> selectActiveAlphaBatches();
+
+    /**
+     * 查询全部VIP Alpha活跃批次并加事务行锁。
+     *
+     * @return 已锁定的VIP Alpha活跃批次列表
+     */
+    List<TornStockVirtualBatchDO> selectActiveAlphaBatchesForUpdate();
+
+    /**
+     * 查询全部正式活跃批次。
      *
      * @return 正式活跃批次列表
      */

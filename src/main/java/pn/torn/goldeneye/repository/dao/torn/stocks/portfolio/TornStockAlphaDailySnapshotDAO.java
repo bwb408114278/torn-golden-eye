@@ -41,6 +41,16 @@ public class TornStockAlphaDailySnapshotDAO extends ServiceImpl<TornStockAlphaDa
         return baseMapper.insertIgnoreConflict(snapshot);
     }
 
+    /**
+     * 查询共同有效日期。
+     *
+     * @param stockUniverseVersion 股票池版本
+     * @param alphaRuleVersion     α规则版本
+     * @param memberCount          股票池成员数量
+     * @param startDate            起始日期
+     * @param endDate              结束日期
+     * @return 共同有效日期
+     */
     public List<LocalDate> selectCommonValidDates(String stockUniverseVersion, String alphaRuleVersion,
                                                   int memberCount, LocalDate startDate, LocalDate endDate) {
         return baseMapper.selectCommonValidDates(stockUniverseVersion, alphaRuleVersion, memberCount, startDate, endDate);

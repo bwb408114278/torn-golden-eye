@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockAlphaDailySnapshotMapper">
+    <!-- 按稳定业务键锁定日线快照 -->
     <select id="selectByBusinessKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO">
         SELECT * FROM torn_stock_alpha_daily_snapshot
         WHERE stocks_id = #{stocksId}
@@ -11,6 +12,7 @@
         FOR UPDATE
     </select>
 
+    <!-- 查询共同有效日期 -->
     <select id="selectCommonValidDates" resultType="java.time.LocalDate">
         SELECT business_date
         FROM torn_stock_alpha_daily_snapshot
@@ -23,6 +25,8 @@
         HAVING COUNT(DISTINCT stocks_id) = #{memberCount}
         ORDER BY business_date
     </select>
+
+    <!-- 按业务键冲突时更新来源与排名字段 -->
     <insert id="insertIgnoreConflict">
         INSERT INTO torn_stock_alpha_daily_snapshot
             (stocks_id, business_date, close_price, source_bar_id, source_bar_start_time,
@@ -35,6 +39,19 @@
              #{snapshot.r20}, #{snapshot.r1}, #{snapshot.r20Rank}, #{snapshot.r1Rank},
              #{snapshot.r20Normalized}, #{snapshot.r1Normalized}, #{snapshot.alphaScore},
              #{snapshot.rankPosition}, #{snapshot.commonValid}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON CONFLICT (stocks_id, business_date, stock_universe_version, alpha_rule_version) WHERE deleted = 0 DO NOTHING
+        ON CONFLICT (stocks_id, business_date, stock_universe_version, alpha_rule_version) WHERE deleted = 0
+        DO UPDATE SET close_price = EXCLUDED.close_price,
+                      source_bar_id = EXCLUDED.source_bar_id,
+                      source_bar_start_time = EXCLUDED.source_bar_start_time,
+                      r20 = EXCLUDED.r20,
+                      r1 = EXCLUDED.r1,
+                      r20_rank = EXCLUDED.r20_rank,
+                      r1_rank = EXCLUDED.r1_rank,
+                      r20_normalized = EXCLUDED.r20_normalized,
+                      r1_normalized = EXCLUDED.r1_normalized,
+                      alpha_score = EXCLUDED.alpha_score,
+                      rank_position = EXCLUDED.rank_position,
+                      common_valid = EXCLUDED.common_valid,
+                      update_time = CURRENT_TIMESTAMP
     </insert>
 </mapper>

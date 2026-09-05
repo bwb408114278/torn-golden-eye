@@ -4,9 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
@@ -19,6 +17,10 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketR
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaEntryService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaRebalanceService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
@@ -50,7 +52,7 @@ import static org.mockito.Mockito.*;
  * 股票轮次事务编排测试，验证本轮正式平仓股票不会重新进入正式候选接纳。
  *
  * @author Bai
- * @version 1.4.9
+ * @version 1.6.1
  * @since 2026.07.17
  */
 @ExtendWith(MockitoExtension.class)
@@ -65,8 +67,16 @@ class StockRoundTransactionServiceTest {
     private TornStockPortfolioSlotDAO portfolioSlotDao;
     @Mock
     private TornStockBatchMarkDAO batchMarkDao;
+    @Spy
+    private StockEntrySettlementService entrySettlementService = new StockEntrySettlementService(new StockPortfolioService());
     @Mock
     private StockBatchPathService batchPathService;
+    @Mock
+    private StockAlphaEntryService alphaEntryService;
+    @Mock
+    private StockAlphaDecisionService alphaDecisionService;
+    @Mock
+    private StockAlphaRebalanceService alphaRebalanceService;
     @Mock
     private StockBuySignalEvaluator buySignalEvaluator;
     @Mock
@@ -88,9 +98,13 @@ class StockRoundTransactionServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of());
+        lenient().when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of());
         transactionService = new StockRoundTransactionService(
                 marketRoundDao, virtualBatchDao, portfolioSlotDao, batchMarkDao,
-                new StockEntrySettlementService(new StockPortfolioService()), batchPathService, buySignalEvaluator,
+                entrySettlementService, alphaEntryService, alphaDecisionService,
+                alphaRebalanceService, batchPathService, buySignalEvaluator,
                 new StockCandidateRankingPolicy(), shadowRecordWriter, shadowTrackRecorder,
                 candidateTrackAllocationService, signalStateUpdater, sysSettingManager,
                 new StockMarketRoundFactory(), new StockMarketClock());
@@ -102,10 +116,12 @@ class StockRoundTransactionServiceTest {
         LocalDateTime roundTime = LocalDateTime.of(2026, 7, 31, 10, 0);
         TornStockVirtualBatchDO formalExitPendingBatch = exitPendingBatch(
                 11L, 1001, StockLedgerTypeEnum.FORMAL.getCode(), 1L, roundTime);
+        formalExitPendingBatch.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         TornStockVirtualBatchDO shadowExitPendingBatch = exitPendingBatch(
                 12L, 1002, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode(), null, roundTime);
         TornStockVirtualBatchDO externalSnapshotBatch = exitPendingBatch(
                 99L, 9999, StockLedgerTypeEnum.FORMAL.getCode(), 1L, roundTime);
+        externalSnapshotBatch.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(formalExitPendingBatch);
         // 事务外快照: 合法5槽形状(slotNo 1~5),槽1被陈旧外部批次占用,
         // 事务内会被锁后数据替换,证明编排不信任事务外快照。
@@ -119,12 +135,12 @@ class StockRoundTransactionServiceTest {
 
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
-         verify(candidateTrackAllocationService).acceptCandidates(
-                 candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime),
-                 eq(CandidateAcceptanceTarget.candidateShadow()));
-         verify(candidateTrackAllocationService, never()).acceptCandidates(
-                 any(), any(), any(), any(), any(), eq(roundTime), eq(CandidateAcceptanceTarget.formal()));
-         assertFalse(candidatesCaptor.getValue().stream()
+        verify(candidateTrackAllocationService).acceptCandidates(
+                candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime),
+                eq(CandidateAcceptanceTarget.candidateShadow()));
+        verify(candidateTrackAllocationService, never()).acceptCandidates(
+                any(), any(), any(), any(), any(), eq(roundTime), eq(CandidateAcceptanceTarget.formal()));
+        assertFalse(candidatesCaptor.getValue().stream()
                 .map(CandidateInfo::stocksId)
                 .toList()
                 .contains(1001));
@@ -196,6 +212,7 @@ class StockRoundTransactionServiceTest {
     void executeRound_dataStaleExitFormalBatch_disasterClosesWithAuditAndNotice() {
         LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
         TornStockVirtualBatchDO staleExitBatch = staleExitBatch(31L, 3001, roundTime);
+        staleExitBatch.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(staleExitBatch);
         List<TornStockPortfolioSlotDO> externalSlots = buildFiveFormalSlots(staleExitBatch);
         RoundSnapshot snapshot = new RoundSnapshot(
@@ -207,7 +224,11 @@ class StockRoundTransactionServiceTest {
         when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
                 .thenReturn(lockedSlots);
         when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of(staleExitBatch));
-        when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of());
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(List.of());
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of());
         when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime))).thenReturn(List.of());
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
                 .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
@@ -310,10 +331,59 @@ class StockRoundTransactionServiceTest {
         verify(shadowRecordWriter, never()).writeNoticeAudits(any(), any(), eq(roundTime));
     }
 
+    @Test
+    @DisplayName("无Alpha持仓且允许新入场_先生成初始决策再消费且不走旧正式BUY")
+    void executeRound_withoutAlphaPosition_decidesBeforeCreatingInitialEntry() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        TornStockVirtualBatchDO initialAlphaBatch = alphaEntryPendingBatch(51L, 5001, roundTime);
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(), lockedSlots, List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate())
+                .thenReturn(List.of(), List.of(initialAlphaBatch));
+        when(alphaDecisionService.decide(roundTime.toLocalDate().minusDays(1), roundTime))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        roundTime.toLocalDate().minusDays(1), true, 60, null, 1001,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY, 0, roundTime));
+        doReturn(new StockEntrySettlementService.EntrySettlementResult(List.of(), List.of()))
+                .when(entrySettlementService).processEntryPending(any(), any(), eq(roundTime), eq(roundTime));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        InOrder inOrder = inOrder(alphaDecisionService, alphaEntryService, entrySettlementService,
+                batchPathService, alphaRebalanceService);
+        inOrder.verify(alphaDecisionService).decide(roundTime.toLocalDate().minusDays(1), roundTime);
+        inOrder.verify(alphaEntryService).createInitialEntry(
+                eq(roundTime), any(), eq(roundTime.toLocalDate().minusDays(1)), eq(0));
+        inOrder.verify(entrySettlementService).processEntryPending(snapshotCaptor.capture(), any(),
+                eq(roundTime), eq(roundTime));
+        inOrder.verify(batchPathService).updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime));
+        inOrder.verifyNoMoreInteractions();
+        assertTrue(snapshotCaptor.getValue().activeBatches().contains(initialAlphaBatch),
+                "初始Alpha批次必须在EntrySettlement前进入事务内快照");
+        verify(alphaRebalanceService, never()).rebalance(any(), anyInt(), any(), any(), any());
+        verify(candidateTrackAllocationService).acceptCandidates(
+                any(), any(), any(), any(), any(), eq(roundTime), eq(CandidateAcceptanceTarget.candidateShadow()));
+        verify(candidateTrackAllocationService, never()).acceptCandidates(
+                any(), any(), any(), any(), any(), eq(roundTime), eq(CandidateAcceptanceTarget.formal()));
+    }
+
+    @Test
+    @DisplayName("无Alpha持仓且关闭新入场_不生成或消费初始决策")
+    void executeRound_withoutAlphaPositionAndNewEntryDisabled_skipsAlphaEntry() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        transactionService.executeRound(roundTime, snapshot, false, roundTime);
+
+        verifyNoInteractions(alphaDecisionService, alphaEntryService, alphaRebalanceService);
+    }
+
     /**
      * 创建待买入批次。
      *
-     * @param id           批次ID
      * @param stocksId     股票ID
      * @param signalTime   信号时间
      * @param entryStaleAt 入场过期时间
@@ -334,6 +404,25 @@ class StockRoundTransactionServiceTest {
         batch.setExpectedEntryBarTime(expectedEntryBarTime());
         batch.setEntryStaleAt(entryStaleAt);
         batch.setResetObserved(false);
+        return batch;
+    }
+
+    /**
+     * 创建Alpha待买入批次,用于验证事务内快照刷新。
+     *
+     * @param id        批次ID
+     * @param stocksId  股票ID
+     * @param roundTime 本轮时间
+     * @return Alpha待买入批次
+     */
+    private TornStockVirtualBatchDO alphaEntryPendingBatch(Long id, int stocksId, LocalDateTime roundTime) {
+        TornStockVirtualBatchDO batch = entryPendingBatch(id, stocksId,
+                roundTime.minusMinutes(15), roundTime.plusMinutes(20));
+        batch.setLedgerType(StockLedgerTypeEnum.VIP_ALPHA.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setSlotId(101L);
+        batch.setSlotNo(1);
+        batch.setAlphaDecisionId(201L);
         return batch;
     }
 

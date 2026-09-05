@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 
 import java.math.BigDecimal;
@@ -15,9 +17,8 @@ import java.util.Map;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class StockAlphaRankingCalculator {
-    private StockAlphaRankingCalculator() {
-    }
 
     /**
      * 按共同有效收盘序列计算α排名。
@@ -49,6 +50,12 @@ public final class StockAlphaRankingCalculator {
                 }).toList();
     }
 
+    /**
+     * 校验股票池和收盘数据完整性。
+     *
+     * @param closes 股票收盘序列
+     * @throws IllegalArgumentException 数据不完整时抛出
+     */
     private static void validate(Map<Integer, List<BigDecimal>> closes) {
         if (closes == null || closes.size() != StockAlphaRuleDefinition.MEMBER_COUNT
                 || closes.values().stream().anyMatch(values -> values == null || values.size() < 21
@@ -57,6 +64,12 @@ public final class StockAlphaRankingCalculator {
         }
     }
 
+    /**
+     * 计算单只股票的20日和1日收益因子。
+     *
+     * @param closes 按时间升序排列的收盘价
+     * @return 收益因子
+     */
     private static Factors calculateFactors(List<BigDecimal> closes) {
         int last = closes.size() - 1;
         BigDecimal current = closes.get(last);
@@ -66,6 +79,13 @@ public final class StockAlphaRankingCalculator {
                         RoundingMode.HALF_UP).subtract(BigDecimal.ONE).setScale(StockAlphaRuleDefinition.CALC_SCALE, RoundingMode.HALF_UP));
     }
 
+    /**
+     * 计算指定收益因子的归一化排名。
+     *
+     * @param factors 股票收益因子
+     * @param r20     是否计算20日收益排名
+     * @return 股票ID到归一化排名的映射
+     */
     private static Map<Integer, BigDecimal> normalizedRanks(Map<Integer, Factors> factors, boolean r20) {
         List<Map.Entry<Integer, Factors>> sorted = factors.entrySet().stream()
                 .sorted(Comparator.comparing(entry -> r20 ? entry.getValue().r20().negate() : entry.getValue().r1(),
@@ -87,6 +107,12 @@ public final class StockAlphaRankingCalculator {
         return result;
     }
 
+    /**
+     * 单只股票的收益因子。
+     *
+     * @param r20 20日收益
+     * @param r1  1日收益
+     */
     private record Factors(BigDecimal r20, BigDecimal r1) {
     }
 }

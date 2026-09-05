@@ -39,6 +39,16 @@ public interface TornStockAlphaDailySnapshotMapper extends BaseMapper<TornStockA
      */
     int insertIgnoreConflict(@Param("snapshot") TornStockAlphaDailySnapshotDO snapshot);
 
+    /**
+     * 查询共同有效日期。
+     *
+     * @param stockUniverseVersion 股票池版本
+     * @param alphaRuleVersion     α规则版本
+     * @param memberCount          股票池成员数量
+     * @param startDate            起始日期
+     * @param endDate              结束日期
+     * @return 共同有效日期
+     */
     List<LocalDate> selectCommonValidDates(@Param("stockUniverseVersion") String stockUniverseVersion,
                                            @Param("alphaRuleVersion") String alphaRuleVersion,
                                            @Param("memberCount") int memberCount,

@@ -221,11 +221,41 @@ databaseChangeLog:
             sql: "CREATE INDEX idx_stock_alpha_decision_status ON torn_stock_alpha_decision (execution_status, decision_business_date)"
 
   - changeSet:
-      id: init_stock_portfolio_vip_alpha_slot
+      id: add_portfolio_code_to_stock_virtual_batch
       author: Bai
-      remarks: "初始化VIP_ALPHA组合单槽位及100亿初始资金"
       changes:
+        - addColumn:
+            tableName: torn_stock_virtual_batch
+            columns:
+              - column:
+                  name: portfolio_code
+                  type: VARCHAR(64)
+                  remarks: "批次所属逻辑组合编码"
         - sql:
             dbms: postgresql
-            sql: "INSERT INTO torn_stock_portfolio_slot (portfolio_code, slot_no, initial_cash, available_cash, reserved_cash, slot_status, lock_version) VALUES ('VIP_ALPHA', 1, 10000000000.00, 10000000000.00, 0.00, 'AVAILABLE', 0) ON CONFLICT (portfolio_code, slot_no) WHERE deleted = 0 DO NOTHING"
-
+            sql: "UPDATE torn_stock_virtual_batch SET portfolio_code = CASE WHEN ledger_type = 'FORMAL' THEN 'VIP_FORMAL' WHEN ledger_type = 'VIP_ALPHA' THEN 'VIP_ALPHA' WHEN ledger_type = 'SHADOW_FORMAL_CANDIDATE' THEN 'VIP_SHADOW_CANDIDATE' ELSE ledger_type END WHERE portfolio_code IS NULL"
+        - addNotNullConstraint:
+            tableName: torn_stock_virtual_batch
+            columnName: portfolio_code
+            columnDataType: VARCHAR(64)
+        - sql:
+            dbms: postgresql
+            sql: "CREATE INDEX idx_stock_virtual_batch_portfolio_status ON torn_stock_virtual_batch (portfolio_code, batch_status, stocks_id)"
+  - changeSet:
+      id: add_alpha_decision_id_and_nullable_signal_event
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_virtual_batch
+            columns:
+              - column:
+                  name: alpha_decision_id
+                  type: BIGINT
+                  remarks: "α策略来源决策ID"
+        - dropNotNullConstraint:
+            tableName: torn_stock_virtual_batch
+            columnName: signal_event_id
+            columnDataType: BIGINT
+        - sql:
+            dbms: postgresql
+            sql: "CREATE INDEX idx_stock_virtual_batch_alpha_decision ON torn_stock_virtual_batch (alpha_decision_id) WHERE alpha_decision_id IS NOT NULL AND deleted = 0"

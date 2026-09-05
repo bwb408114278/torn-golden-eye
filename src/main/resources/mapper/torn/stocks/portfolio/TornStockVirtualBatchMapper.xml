@@ -26,11 +26,17 @@
         FOR UPDATE
     </select>
 
-    <!-- 批次编号冲突安全插入,重试时由数据库收敛 -->
+    <select id="selectByBatchNoForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE batch_no = #{batchNo}
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
     <insert id="insertIgnoreConflict">
         INSERT INTO torn_stock_virtual_batch
-            (batch_no, ledger_type, stocks_id, stocks_shortname, primary_strategy,
-             matched_strategies, quality_score, batch_status, signal_event_id,
+            (batch_no, ledger_type, portfolio_code, stocks_id, stocks_shortname, primary_strategy,
+             matched_strategies, quality_score, batch_status, signal_event_id, alpha_decision_id,
              slot_id, slot_no, signal_time, signal_reference_price,
              expected_entry_bar_time, entry_stale_at, entry_time, entry_reference_price,
              quantity, invested_cash, remaining_cash, style_prior, style_maturity,
@@ -43,10 +49,11 @@
              recovery_bar_end_time, stale_exit_duration_seconds, net_return, sell_proceeds,
              cooldown_until, reset_observed, cancel_reason, deleted, create_time, update_time)
         VALUES
-            (#{batch.batchNo}, #{batch.ledgerType}, #{batch.stocksId}, #{batch.stocksShortname}, #{batch.primaryStrategy},
+             (#{batch.batchNo}, #{batch.ledgerType}, #{batch.portfolioCode}, #{batch.stocksId}, #{batch.stocksShortname}, #{batch.primaryStrategy},
+
              #{batch.matchedStrategies, typeHandler=pn.torn.goldeneye.configuration.db.JsonbTypeHandler},
-             #{batch.qualityScore}, #{batch.batchStatus}, #{batch.signalEventId},
-             #{batch.slotId}, #{batch.slotNo}, #{batch.signalTime}, #{batch.signalReferencePrice},
+              #{batch.qualityScore}, #{batch.batchStatus}, #{batch.signalEventId}, #{batch.alphaDecisionId},
+              #{batch.slotId}, #{batch.slotNo}, #{batch.signalTime}, #{batch.signalReferencePrice},
              #{batch.expectedEntryBarTime}, #{batch.entryStaleAt}, #{batch.entryTime}, #{batch.entryReferencePrice},
              #{batch.quantity}, #{batch.investedCash}, #{batch.remainingCash}, #{batch.stylePrior}, #{batch.styleMaturity},
              #{batch.riskLevel}, #{batch.styleEffectiveMonth}, #{batch.buyRuleVersion}, #{batch.sellRuleVersion},
@@ -59,6 +66,27 @@
              #{batch.cooldownUntil}, #{batch.resetObserved}, #{batch.cancelReason}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (batch_no) WHERE deleted = 0 DO NOTHING
     </insert>
+
+    <!-- 查询全部VIP Alpha活跃批次 -->
+    <select id="selectActiveAlphaBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'VIP_ALPHA'
+          AND portfolio_code = 'VIP_ALPHA'
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+        ORDER BY id ASC
+    </select>
+
+    <!-- 查询全部VIP Alpha活跃批次并加事务行锁 -->
+    <select id="selectActiveAlphaBatchesForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
+        SELECT * FROM torn_stock_virtual_batch
+        WHERE ledger_type = 'VIP_ALPHA'
+          AND portfolio_code = 'VIP_ALPHA'
+          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
+          AND deleted = 0
+        ORDER BY id ASC
+        FOR UPDATE
+    </select>
 
     <!-- 查询全部正式活跃批次 -->
     <select id="selectActiveFormalBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
@@ -151,7 +179,7 @@
     <select id="existsActiveBatches" resultType="boolean">
         SELECT EXISTS (
             SELECT 1 FROM torn_stock_virtual_batch
-            WHERE ledger_type IN ('FORMAL', 'SHADOW_FORMAL_CANDIDATE', 'UNLIMITED_SHADOW')
+            WHERE ledger_type IN ('FORMAL', 'VIP_ALPHA', 'SHADOW_FORMAL_CANDIDATE', 'UNLIMITED_SHADOW')
               AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
               AND deleted = 0
         )

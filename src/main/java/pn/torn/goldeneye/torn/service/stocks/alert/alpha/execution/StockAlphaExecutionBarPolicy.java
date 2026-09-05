@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 
 import java.time.LocalDateTime;
@@ -11,9 +13,8 @@ import java.time.LocalDateTime;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class StockAlphaExecutionBarPolicy {
-    private StockAlphaExecutionBarPolicy() {
-    }
 
     /**
      * 计算决策时点对应的唯一下一根15分钟bar起点。
@@ -63,7 +64,10 @@ public final class StockAlphaExecutionBarPolicy {
      * @param usable   是否可用
      * @param price    参考价
      */
-    public record ExecutionBar(LocalDateTime barStart, LocalDateTime barEnd, boolean usable,
-                               java.math.BigDecimal price) {
+    public record ExecutionBar(
+            LocalDateTime barStart,
+            LocalDateTime barEnd,
+            boolean usable,
+            java.math.BigDecimal price) {
     }
 }

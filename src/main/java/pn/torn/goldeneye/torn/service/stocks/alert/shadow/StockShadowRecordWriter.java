@@ -8,6 +8,8 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
 import pn.torn.goldeneye.utils.JsonUtils;
 
@@ -17,8 +19,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 
 /**
  * 股票通知审计写入器 - 步骤9:为已成交的买入/卖出批次写入PENDING状态的通知审计记录。
@@ -28,7 +28,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
  * {@link StockCandidateTrackAllocationService}。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @Slf4j
@@ -71,11 +71,26 @@ public class StockShadowRecordWriter {
     public void writeNoticeAudits(List<TornStockVirtualBatchDO> entryFilledBatches,
                                   List<TornStockVirtualBatchDO> exitFilledBatches,
                                   LocalDateTime roundTime) {
-        List<TornStockVirtualBatchDO> formalEntryBatches = filterFormalBatches(entryFilledBatches);
-        List<TornStockVirtualBatchDO> formalExitBatches = filterFormalBatches(exitFilledBatches);
+        writeNoticeAudits(entryFilledBatches, exitFilledBatches, roundTime, false);
+    }
+
+    /**
+     * 为已成交的买入/卖出写入指定通知审计类型。
+     *
+     * @param entryFilledBatches 已成交买入批次
+     * @param exitFilledBatches  已成交卖出批次
+     * @param roundTime          本轮时间
+     * @param alphaRebalance     是否为Alpha原子换仓
+     */
+    public void writeNoticeAudits(List<TornStockVirtualBatchDO> entryFilledBatches,
+                                  List<TornStockVirtualBatchDO> exitFilledBatches,
+                                  LocalDateTime roundTime,
+                                  boolean alphaRebalance) {
+        List<TornStockVirtualBatchDO> formalEntryBatches = filterNoticeBatches(entryFilledBatches);
+        List<TornStockVirtualBatchDO> formalExitBatches = filterNoticeBatches(exitFilledBatches);
         List<TornStockNoticeAuditDO> notices = new ArrayList<>();
-        collectBuyNotices(formalEntryBatches, roundTime, notices);
-        collectSellNotices(formalExitBatches, roundTime, notices);
+        collectBuyNotices(formalEntryBatches, roundTime, alphaRebalance, notices);
+        collectSellNotices(formalExitBatches, roundTime, alphaRebalance, notices);
 
         if (!notices.isEmpty()) {
             noticeAuditDao.saveBatch(notices);
@@ -90,12 +105,13 @@ public class StockShadowRecordWriter {
      * @param batches 待过滤批次
      * @return 正式账本批次;空值返回空列表
      */
-    private List<TornStockVirtualBatchDO> filterFormalBatches(List<TornStockVirtualBatchDO> batches) {
+    private List<TornStockVirtualBatchDO> filterNoticeBatches(List<TornStockVirtualBatchDO> batches) {
         if (batches == null || batches.isEmpty()) {
             return List.of();
         }
         return batches.stream()
-                .filter(batch -> StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType()))
+                .filter(batch -> StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                        || StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType()))
                 .toList();
     }
 
@@ -108,9 +124,11 @@ public class StockShadowRecordWriter {
      */
     private void collectBuyNotices(List<TornStockVirtualBatchDO> batches,
                                    LocalDateTime roundTime,
+                                   boolean alphaRebalance,
                                    List<TornStockNoticeAuditDO> notices) {
         for (TornStockVirtualBatchDO batch : batches) {
-            notices.add(buildNoticeAudit(batch, StockNoticeTypeEnum.BUY, roundTime));
+            notices.add(buildNoticeAudit(batch,
+                    resolveNoticeType(StockNoticeTypeEnum.BUY, alphaRebalance), roundTime));
         }
     }
 
@@ -123,9 +141,11 @@ public class StockShadowRecordWriter {
      */
     private void collectSellNotices(List<TornStockVirtualBatchDO> batches,
                                     LocalDateTime roundTime,
+                                    boolean alphaRebalance,
                                     List<TornStockNoticeAuditDO> notices) {
         for (TornStockVirtualBatchDO batch : batches) {
-            notices.add(buildNoticeAudit(batch, StockNoticeTypeEnum.SELL, roundTime));
+            notices.add(buildNoticeAudit(batch,
+                    resolveNoticeType(StockNoticeTypeEnum.SELL, alphaRebalance), roundTime));
         }
     }
 
@@ -153,6 +173,16 @@ public class StockShadowRecordWriter {
         notice.setPayloadSnapshot(payloadSnapshot);
         notice.setPayloadHash(generatePayloadHash(payloadSnapshot));
         return notice;
+    }
+
+    /**
+     * Alpha初始入场和普通组合沿用BUY/SELL通知类型；仅原子换仓调用方显式传入true时使用ALPHA_REBALANCE。
+     *
+     * @param noticeType 默认通知类型
+     * @return 实际通知类型
+     */
+    private StockNoticeTypeEnum resolveNoticeType(StockNoticeTypeEnum noticeType, boolean alphaRebalance) {
+        return alphaRebalance ? StockNoticeTypeEnum.ALPHA_REBALANCE : noticeType;
     }
 
     /**
@@ -205,8 +235,12 @@ public class StockShadowRecordWriter {
         payload.put("batchNo", batch.getBatchNo());
         payload.put("stocksId", batch.getStocksId());
         payload.put("stocksShortname", batch.getStocksShortname());
+        payload.put("ledgerType", batch.getLedgerType());
+        payload.put("portfolioCode", resolvePortfolioCode(batch));
         payload.put("primaryStrategy", batch.getPrimaryStrategy());
-        if (StockNoticeTypeEnum.BUY == noticeType) {
+        if (StockNoticeTypeEnum.BUY == noticeType
+                || (StockNoticeTypeEnum.ALPHA_REBALANCE == noticeType
+                && StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))) {
             payload.put("entryReferencePrice", batch.getEntryReferencePrice());
             payload.put("quantity", batch.getQuantity());
             payload.put("investedCash", batch.getInvestedCash());
@@ -239,11 +273,18 @@ public class StockShadowRecordWriter {
         return StockNoticePayloadCanonicalizer.canonicalize(JsonUtils.objToJson(payload));
     }
 
+    private String resolvePortfolioCode(TornStockVirtualBatchDO batch) {
+        if (StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType())) {
+            return "VIP_ALPHA";
+        }
+        if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
+            return "VIP_FORMAL";
+        }
+        return batch.getLedgerType();
+    }
+
     /**
      * 将原策略退出类型映射为正式卖出原因编码。
-     * <p>
-     * 普通策略卖出(非数据/管理关闭)使用稳定正式原因码;未知编码回退为原退出类型本身,
-     * 不在此处抛异常,避免通知审计写入被未知编码阻塞。
      *
      * @param exitReason 原策略退出类型编码
      * @return 正式卖出原因编码

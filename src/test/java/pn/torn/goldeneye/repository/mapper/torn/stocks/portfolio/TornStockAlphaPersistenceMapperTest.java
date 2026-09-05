@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@Tag("shared-db")
 @SpringBootTest
 @Transactional
 @Rollback
@@ -51,9 +53,14 @@ class TornStockAlphaPersistenceMapperTest {
         snapshot.setCommonValid(true);
 
         assertEquals(1, snapshotDao.insertIgnoreConflict(snapshot));
-        assertEquals(0, snapshotDao.insertIgnoreConflict(snapshot));
-        assertNotNull(snapshotDao.selectByBusinessKeyForUpdate(STOCKS_ID, BUSINESS_DATE,
-                "ALPHA-35-V1", "ALPHA-0.04-V1"));
+        snapshot.setAlphaScore(new BigDecimal("0.9700000000"));
+        snapshot.setR20(new BigDecimal("0.1200000000"));
+        assertEquals(1, snapshotDao.insertIgnoreConflict(snapshot));
+        TornStockAlphaDailySnapshotDO savedSnapshot = snapshotDao.selectByBusinessKeyForUpdate(STOCKS_ID, BUSINESS_DATE,
+                "ALPHA-35-V1", "ALPHA-0.04-V1");
+        assertNotNull(savedSnapshot);
+        assertEquals(new BigDecimal("0.9700000000"), savedSnapshot.getAlphaScore());
+        assertEquals(new BigDecimal("0.1200000000"), savedSnapshot.getR20());
 
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
         decision.setDecisionBusinessDate(BUSINESS_DATE);
@@ -64,7 +71,12 @@ class TornStockAlphaPersistenceMapperTest {
         decision.setExecutionStatus("PENDING");
 
         assertEquals(1, decisionDao.insertIgnoreConflict(decision));
-        assertEquals(0, decisionDao.insertIgnoreConflict(decision));
-        assertNotNull(decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 0));
+        decision.setSelectedStocksId(STOCKS_ID);
+        decision.setSourceSnapshotDigest("digest-updated");
+        assertEquals(1, decisionDao.insertIgnoreConflict(decision));
+        TornStockAlphaDecisionDO savedDecision = decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 0);
+        assertNotNull(savedDecision);
+        assertEquals(STOCKS_ID, savedDecision.getSelectedStocksId());
+        assertEquals("digest-updated", savedDecision.getSourceSnapshotDigest());
     }
 }

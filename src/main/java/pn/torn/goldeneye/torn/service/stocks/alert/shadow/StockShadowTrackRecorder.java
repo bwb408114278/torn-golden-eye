@@ -13,8 +13,11 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthly
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchSignalFields;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockEligibilityService.EligibilityResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.BuyContext;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockEligibilityService.EligibilityResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalEventContext;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.strategy.StockBuyStrategy;
 import pn.torn.goldeneye.utils.JsonUtils;
 
@@ -22,10 +25,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockEligibilityService;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalEventContext;
 
 /**
  * 股票影子轨道记录器 - 信号事件、无限资金影子批次与拒绝观察批次的唯一写入入口。
@@ -42,7 +41,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalEventContex
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.08.09
  */
 @Slf4j
@@ -198,6 +197,7 @@ public class StockShadowTrackRecorder {
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
         batch.setBatchNo(generateBatchNo(SHADOW_BATCH_NO_PREFIX, event.getId()));
         batch.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        batch.setPortfolioCode(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
 
         virtualBatchDao.insertIgnoreConflict(batch);
@@ -236,6 +236,7 @@ public class StockShadowTrackRecorder {
         TornStockVirtualBatchDO batch = buildBaseBatch(event);
         batch.setBatchNo(generateBatchNo(REJECTED_BATCH_NO_PREFIX, event.getId()));
         batch.setLedgerType(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
+        batch.setPortfolioCode(StockLedgerTypeEnum.REJECTED_OBSERVATION.getCode());
         batch.setBatchStatus(StockBatchStatusEnum.CANCELLED.getCode());
         batch.setCancelReason(rejectReason);
 

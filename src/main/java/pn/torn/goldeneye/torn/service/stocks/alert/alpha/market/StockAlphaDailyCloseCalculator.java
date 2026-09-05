@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.market;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 
@@ -16,9 +18,8 @@ import java.util.List;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class StockAlphaDailyCloseCalculator {
-    private StockAlphaDailyCloseCalculator() {
-    }
 
     /**
      * 取指定自然日最后一根可用且价格合法的15分钟bar。
@@ -38,6 +39,13 @@ public final class StockAlphaDailyCloseCalculator {
                 .orElse(null);
     }
 
+    /**
+     * 判断bar是否属于指定自然日。
+     *
+     * @param bar  15分钟bar
+     * @param date 自然日
+     * @return 是否属于指定日期
+     */
     private static boolean isOnDate(TornStockMarketBar15mDO bar, LocalDate date) {
         return bar != null && date != null && bar.getBarStartTime() != null
                 && date.equals(bar.getBarStartTime().toLocalDate());

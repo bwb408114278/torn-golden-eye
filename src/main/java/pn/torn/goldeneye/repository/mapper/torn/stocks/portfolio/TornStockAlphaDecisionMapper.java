@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * α策略决策数据库访问层。
@@ -25,6 +26,19 @@ public interface TornStockAlphaDecisionMapper extends BaseMapper<TornStockAlphaD
      */
     TornStockAlphaDecisionDO selectByBusinessKeyForUpdate(@Param("decisionBusinessDate") LocalDate decisionBusinessDate,
                                                           @Param("phase") Integer phase);
+
+    /**
+     * 按决策日期、phase和执行桶锁定待消费的初始入场决策。
+     *
+     * @param decisionBusinessDate  决策自然日
+     * @param phase                 phase编号
+     * @param executionBarStartTime 执行bar起点
+     * @return 待消费初始决策
+     */
+    TornStockAlphaDecisionDO selectPendingInitialEntryForUpdate(
+            @Param("decisionBusinessDate") LocalDate decisionBusinessDate,
+            @Param("phase") Integer phase,
+            @Param("executionBarStartTime") LocalDateTime executionBarStartTime);
 
     /**
      * 按决策业务键冲突安全插入记录。

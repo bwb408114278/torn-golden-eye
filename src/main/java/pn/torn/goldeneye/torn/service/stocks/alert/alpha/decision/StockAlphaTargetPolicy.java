@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
 
@@ -12,9 +14,8 @@ import java.util.List;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class StockAlphaTargetPolicy {
-    private StockAlphaTargetPolicy() {
-    }
 
     /**
      * 根据共同有效日序号和排名决定目标事件。
@@ -36,9 +37,13 @@ public final class StockAlphaTargetPolicy {
         if (currentStocksId == null) return new TargetResult(TargetEvent.ALPHA_INITIAL_ENTRY, top1);
         boolean inTop3 = rankings.stream().limit(StockAlphaRuleDefinition.HYSTERESIS_TOP)
                 .anyMatch(result -> currentStocksId.equals(result.stocksId()));
-        if (inTop3 || currentStocksId.equals(top1))
+        if (inTop3 || currentStocksId.equals(top1)) {
             return new TargetResult(TargetEvent.ALPHA_TARGET_HELD, currentStocksId);
-        return new TargetResult(TargetEvent.ALPHA_TARGET_CHANGED, top1);
+        }
+        if (!currentStocksId.equals(top1)) {
+            return new TargetResult(TargetEvent.ALPHA_TARGET_CHANGED, top1);
+        }
+        return new TargetResult(TargetEvent.DATA_INSUFFICIENT, null);
     }
 
     /**
@@ -52,6 +57,8 @@ public final class StockAlphaTargetPolicy {
      * @param event          事件
      * @param targetStocksId 目标股票ID
      */
-    public record TargetResult(TargetEvent event, Integer targetStocksId) {
+    public record TargetResult(
+            TargetEvent event,
+            Integer targetStocksId) {
     }
 }

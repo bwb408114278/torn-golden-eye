@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockAlphaDecisionMapper">
+    <!-- 按决策自然日和phase锁定决策记录 -->
     <select id="selectByBusinessKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO">
         SELECT * FROM torn_stock_alpha_decision
         WHERE decision_business_date = #{decisionBusinessDate}
@@ -9,6 +10,19 @@
         FOR UPDATE
     </select>
 
+    <!-- 按决策日期、phase和执行桶锁定待消费的初始入场决策 -->
+    <select id="selectPendingInitialEntryForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO">
+        SELECT * FROM torn_stock_alpha_decision
+        WHERE decision_business_date = #{decisionBusinessDate}
+          AND phase = #{phase}
+          AND execution_bar_start_time = #{executionBarStartTime}
+          AND decision_type = 'ALPHA_INITIAL_ENTRY'
+          AND execution_status = 'PENDING'
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
+    <!-- 按决策业务键冲突时更新尚未消费的决策内容 -->
     <insert id="insertIgnoreConflict">
         INSERT INTO torn_stock_alpha_decision
             (decision_business_date, common_day_index, phase, decision_type, current_batch_id,
@@ -19,6 +33,14 @@
              #{decision.currentBatchId}, #{decision.selectedStocksId}, #{decision.sourceSnapshotDigest},
              #{decision.executionBarStartTime}, #{decision.executionStatus}, #{decision.failureReason},
              #{decision.rebalanceBatchId}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON CONFLICT (decision_business_date, phase) WHERE deleted = 0 DO NOTHING
+        ON CONFLICT (decision_business_date, phase) WHERE deleted = 0
+        DO UPDATE SET common_day_index = EXCLUDED.common_day_index,
+                      decision_type = EXCLUDED.decision_type,
+                      current_batch_id = EXCLUDED.current_batch_id,
+                      selected_stocks_id = EXCLUDED.selected_stocks_id,
+                       source_snapshot_digest = EXCLUDED.source_snapshot_digest,
+                       execution_bar_start_time = EXCLUDED.execution_bar_start_time,
+                       update_time = CURRENT_TIMESTAMP
+        WHERE torn_stock_alpha_decision.execution_status = 'PENDING'
     </insert>
 </mapper>

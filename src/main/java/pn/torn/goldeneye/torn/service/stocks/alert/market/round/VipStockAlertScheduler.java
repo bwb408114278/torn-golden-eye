@@ -13,7 +13,6 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusE
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
@@ -99,7 +98,6 @@ public class VipStockAlertScheduler {
     private final ProjectProperty projectProperty;
     private final StockAlertRuntimeGate runtimeGate;
     private final StockMarketRoundFactory roundFactory;
-    private final StockAlphaDecisionService alphaDecisionService;
 
     /**
      * JVM内防重入标记,同一时刻仅允许一个轮次处理流程
@@ -156,7 +154,6 @@ public class VipStockAlertScheduler {
                 LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
                 ensurePendingRound(currentEndedBucket);
                 processPendingRounds(decision.allowNewEntry(), currentEndedBucket);
-                alphaDecisionService.decide(currentEndedBucket.toLocalDate().minusDays(1));
             }
             if (decision.manageResearchObligations()) {
                 rejectedObservationService.resolveAllDueObservations(marketClock.now());

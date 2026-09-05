@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  * 单条通知发送异常不会中断后续通知投递,异常信息写入errorMessage字段。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @Slf4j
@@ -475,7 +475,9 @@ public class StockNoticeSendService {
         }
     }
 
-    private record SendResult(boolean success, String failureReason) {
+    private record SendResult(
+            boolean success,
+            String failureReason) {
         private static SendResult successful() {
             return new SendResult(true, null);
         }

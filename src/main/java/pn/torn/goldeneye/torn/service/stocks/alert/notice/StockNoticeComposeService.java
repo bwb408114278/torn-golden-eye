@@ -12,7 +12,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 /**
  * 股票通知组合服务 - 将内部英文编码转换为正式中文消息,执行同轮合并与优先级排序
@@ -32,7 +31,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioServi
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @Slf4j
@@ -393,10 +392,26 @@ public class StockNoticeComposeService {
      */
     private String composeSingleNotice(NoticeWithBatch item) {
         StockNoticeTypeEnum noticeType = StockNoticeTypeEnum.fromCode(item.notice().getNoticeType());
+        if (noticeType == StockNoticeTypeEnum.ALPHA_REBALANCE) {
+            return composeAlphaRebalanceMessage(item.batch());
+        }
         if (noticeType == StockNoticeTypeEnum.BUY) {
             return composeBuyMessage(item.batch(), SLOT_TOTAL);
         }
         return composeSellMessage(item.batch());
+    }
+
+    /**
+     * 组合Alpha原子换仓消息,明确该动作不属于普通正式组合买卖。
+     *
+     * @param batch Alpha换仓批次
+     * @return Alpha换仓中文消息
+     */
+    private String composeAlphaRebalanceMessage(TornStockVirtualBatchDO batch) {
+        if (StockBatchStatusEnum.CLOSED_ROTATION.getCode().equals(batch.getBatchStatus())) {
+            return "【VIP Alpha换仓｜原仓卖出】" + "\n" + composeSellMessage(batch);
+        }
+        return "【VIP Alpha换仓｜新仓买入】" + "\n" + composeBuyMessage(batch, 1);
     }
 
     /**
@@ -486,6 +501,9 @@ public class StockNoticeComposeService {
         if (code == null || code.isEmpty()) {
             return "未知原因";
         }
+        if ("ALPHA_REBALANCE".equals(code)) {
+            return "Alpha原子换仓";
+        }
         return StockCloseTypeEnum.fromCode(code).getChineseDisplay();
     }
 
@@ -573,7 +591,9 @@ public class StockNoticeComposeService {
      * @param noticeIds 本条消息对应的通知ID列表
      * @param text      组合后的中文消息文本
      */
-    public record ComposedMessage(List<Long> noticeIds, String text) {
+    public record ComposedMessage(
+            List<Long> noticeIds,
+            String text) {
     }
 
     /**
@@ -583,8 +603,9 @@ public class StockNoticeComposeService {
      * @param batch    关联批次DO
      * @param priority 优先级权重(数值越小优先级越高)
      */
-    private record NoticeWithBatch(TornStockNoticeAuditDO notice,
-                                   TornStockVirtualBatchDO batch,
-                                   int priority) {
+    private record NoticeWithBatch(
+            TornStockNoticeAuditDO notice,
+            TornStockVirtualBatchDO batch,
+            int priority) {
     }
 }

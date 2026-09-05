@@ -81,7 +81,7 @@ class VipStockAlertSchedulerTest {
                 barBuildService, featureBuildService, roundDao, historyRebuildService,
                 portfolioInitService, monthlyStateInitService, noticeSendService,
                 rejectedObservationService, roundLoader, transactionService, marketClock,
-                projectProperty, runtimeGate, new StockMarketRoundFactory(), alphaDecisionService);
+                projectProperty, runtimeGate, new StockMarketRoundFactory());
     }
 
     @Test

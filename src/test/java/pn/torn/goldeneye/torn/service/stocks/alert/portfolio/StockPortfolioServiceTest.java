@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -222,6 +223,35 @@ class StockPortfolioServiceTest {
         assertEquals(0, expectedAvailable.compareTo(slot.getAvailableCash()),
                 "可用现金应增加卖出所得,期望: " + expectedAvailable + ",实际: " + slot.getAvailableCash());
         assertNull(slot.getCurrentBatchId(), "批次ID应解绑");
+    }
+
+    @Test
+    @DisplayName("槽位账本结算_ VIP_ALPHA卖出所得与余款回到独立槽位并保持守恒")
+    void settleSlotBacked_vipAlpha_preservesRemainingCashAndSellProceeds() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(7L);
+        batch.setBatchNo("ALPHA-7");
+        batch.setLedgerType("VIP_ALPHA");
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setStocksId(1001);
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setQuantity(5L);
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setExpectedExitBarTime(LocalDateTime.of(2026, 9, 5, 0, 15));
+        batch.setRemainingCash(new BigDecimal("500.00"));
+        TornStockPortfolioSlotDO slot = buildOccupiedSlot(1, new BigDecimal("500.00"));
+        slot.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        slot.setCurrentBatchId(7L);
+
+        BigDecimal proceeds = portfolioService.settleSlotBacked(batch, slot, new BigDecimal("110.00"),
+                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+
+        assertEquals(0, new BigDecimal("549.45").compareTo(proceeds));
+        assertEquals(0, new BigDecimal("1049.45").compareTo(slot.getAvailableCash()));
+        assertEquals(0, slot.getAvailableCash().compareTo(batch.getRemainingCash().add(proceeds)));
+        assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus());
+        assertNull(slot.getCurrentBatchId());
     }
 
     @Test
