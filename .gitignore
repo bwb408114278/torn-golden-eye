@@ -54,3 +54,6 @@ logs/
 
 ### VS Code ###
 .vscode/
+
+### AI ###
+.hermes/

@@ -34,7 +34,7 @@ import java.util.Objects;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Slf4j
@@ -50,13 +50,25 @@ public class StockPortfolioService {
      */
     public static final String SHADOW_CANDIDATE_PORTFOLIO_CODE = "VIP_SHADOW_CANDIDATE";
     /**
+     * 组合编码 - VIP Alpha组合
+     */
+    public static final String VIP_ALPHA_PORTFOLIO_CODE = "VIP_ALPHA";
+    /**
      * 槽位数量
      */
     public static final int SLOT_COUNT = 5;
     /**
+     * VIP Alpha组合槽位数量
+     */
+    public static final int VIP_ALPHA_SLOT_COUNT = 1;
+    /**
      * 每槽初始资金(20亿)
      */
     public static final BigDecimal INITIAL_CASH = new BigDecimal("2000000000.00");
+    /**
+     * VIP Alpha组合每槽初始资金(100亿)
+     */
+    public static final BigDecimal VIP_ALPHA_INITIAL_CASH = new BigDecimal("10000000000.00");
     /**
      * 初始资金明文(仅用于Javadoc展示)
      */
@@ -195,7 +207,7 @@ public class StockPortfolioService {
      * 解绑批次ID。本方法不负责写批次终态与冷却,由调用方按各自入口状态(DATA_STALE_EXIT
      * 灾难关闭或 EXIT_PENDING 正常卖出)完成。
      *
-     * @param batch              槽位账本批次(ledgerType为FORMAL或SHADOW_FORMAL_CANDIDATE)
+     * @param batch              槽位账本批次(ledgerType为FORMAL、VIP_ALPHA或SHADOW_FORMAL_CANDIDATE)
      * @param slot               锁后槽位
      * @param exitReferencePrice 卖出参考价(>0)
      * @return 扣费后卖出所得(sellProceeds)
@@ -270,7 +282,7 @@ public class StockPortfolioService {
     }
 
     /**
-     * 校验槽位账本类型必须为支持槽位组合的账本(FORMAL或SHADOW_FORMAL_CANDIDATE),
+     * 校验槽位账本类型必须为支持槽位组合的账本(FORMAL、VIP_ALPHA或SHADOW_FORMAL_CANDIDATE),
      * 禁止"非Shadow即正式"宽松判断,未知/无限资金/拒绝观察不得走槽位结算。
      *
      * @param batch 槽位账本批次
@@ -284,13 +296,14 @@ public class StockPortfolioService {
     }
 
     /**
-     * 判断账本类型是否为有槽位组合账本(正式或候选影子)。
+     * 判断账本类型是否为有槽位组合账本(正式、VIP Alpha或候选影子)。
      *
      * @param ledgerType 账本类型编码
      * @return 支持槽位组合返回true
      */
     public boolean isSlotBackedLedger(String ledgerType) {
         return StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)
+                || StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(ledgerType)
                 || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(ledgerType);
     }
 

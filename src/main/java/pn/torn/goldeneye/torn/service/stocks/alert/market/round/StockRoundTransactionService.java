@@ -179,58 +179,44 @@ public class StockRoundTransactionService {
         List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
                 mergedSnapshot, barByStock, featureByStock, roundTime);
 
-        // 步骤6-8: 规则模式与新买入开关共同决定买入研究、候选接纳与边沿推进是否执行。
-        // allowNewEntry=false 或规则模式OFF时,跳过买入信号评估、事件/影子创建、
-        // 候选接纳与买入边沿推进,但存量批次退出/灾难关闭/冷却/通知审计不受影响。
-        StockRuleModeEnum ruleMode = resolveRuleMode();
-        boolean newEntryAllowed = allowNewEntry && ruleMode != StockRuleModeEnum.OFF;
-        if (!newEntryAllowed) {
-            log.info("新买入关闭或规则模式[{}]不推进买入研究,跳过候选编排: allowNewEntry={}",
-                    ruleMode.getCode(), allowNewEntry);
-        } else {
-            BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
-                    mergedSnapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
-            List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
-            rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
-            Map<Integer, SignalEvaluation> evaluationByStockId = signalResult.allEvaluations().stream()
-                    .filter(Objects::nonNull)
-                    .filter(evaluation -> evaluation.stocksId() != null)
-                    .collect(Collectors.toMap(SignalEvaluation::stocksId,
-                            evaluation -> evaluation, (left, right) -> left));
-            StockCandidateAllocationResult allocationResult = StockCandidateAllocationResult.empty();
-            switch (ruleMode) {
-                case StockRuleModeEnum.PROVISIONAL, StockRuleModeEnum.FORMAL ->
-                        allocationResult = candidateTrackAllocationService.acceptCandidates(
-                                rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                                evaluationByStockId, roundTime,
-                                CandidateAcceptanceTarget.formal());
-                case StockRuleModeEnum.SHADOW ->
-                    // SHADOW模式: 同一排序结果喂给独立5槽候选影子账本,第6名及之后记录NO_AVAILABLE_SLOT
-                        allocationResult = candidateTrackAllocationService.acceptCandidates(
-                                rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                                evaluationByStockId, roundTime,
-                                CandidateAcceptanceTarget.candidateShadow());
-                default -> log.info("规则模式[{}]不推进候选接纳,跳过: candidateCount={}",
-                        ruleMode.getCode(), rankedCandidates.size());
-            }
+         // 步骤6-8: 规则模式与新买入开关共同决定买入研究、候选影子接纳与边沿推进是否执行。
+         // allowNewEntry=false 或规则模式OFF时,跳过买入信号评估、事件/影子创建、
+         // 候选接纳与买入边沿推进,但存量批次退出/灾难关闭/冷却/通知审计不受影响。
+         StockRuleModeEnum ruleMode = resolveRuleMode();
+         boolean newEntryAllowed = allowNewEntry && ruleMode != StockRuleModeEnum.OFF;
+         if (!newEntryAllowed) {
+             log.info("新买入关闭或规则模式[{}]不推进买入研究,跳过候选编排: allowNewEntry={}",
+                     ruleMode.getCode(), allowNewEntry);
+         } else {
+             BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
+                     mergedSnapshot, barByStock, monthlyStateByStock, signalStateByKey, roundTime);
+             List<CandidateInfo> rankedCandidates = candidateRankingPolicy.rank(signalResult.formalCandidates());
+             rankedCandidates = StockRoundExitGuard.excludeFormalExitStocks(rankedCandidates, exitFilledBatches);
+             Map<Integer, SignalEvaluation> evaluationByStockId = signalResult.allEvaluations().stream()
+                     .filter(Objects::nonNull)
+                     .filter(evaluation -> evaluation.stocksId() != null)
+                     .collect(Collectors.toMap(SignalEvaluation::stocksId,
+                             evaluation -> evaluation, (left, right) -> left));
+             StockCandidateAllocationResult allocationResult = candidateTrackAllocationService.acceptCandidates(
+                     rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                     evaluationByStockId, roundTime,
+                     CandidateAcceptanceTarget.candidateShadow());
 
-            // 构建候选排名映射(stocksId -> rank),供事件回写
-            Map<Integer, Integer> candidateRankByStockId = buildCandidateRankByStockId(rankedCandidates);
+             // 构建候选排名映射(stocksId -> rank),供事件回写
+             Map<Integer, Integer> candidateRankByStockId = buildCandidateRankByStockId(rankedCandidates);
 
-            // 写入原始信号事件、候选影子/无限资金影子与拒绝观察批次。
-            // 正式模式: 新建批次均为正式,无候选影子; SHADOW模式: 新建批次均为候选影子,无正式。
-            List<TornStockVirtualBatchDO> allocatedBatches = ruleMode == StockRuleModeEnum.SHADOW
-                    ? List.of() : allocationResult.allocatedBatches();
-            List<TornStockVirtualBatchDO> candidateShadowBatches = ruleMode == StockRuleModeEnum.SHADOW
-                    ? allocationResult.allocatedBatches() : List.of();
-            shadowTrackRecorder.writeShadowRecords(signalResult.allEvaluations(),
-                    allocatedBatches, candidateShadowBatches,
-                    candidateRankByStockId, allocationResult.resultByStockId(), roundTime);
+             // 写入原始信号事件、候选影子/无限资金影子与拒绝观察批次。
+             // 现有生产轮次只保留研究与候选影子语义,不通过旧正式候选路径创建FORMAL批次。
+             List<TornStockVirtualBatchDO> allocatedBatches = List.of();
+             List<TornStockVirtualBatchDO> candidateShadowBatches = allocationResult.allocatedBatches();
+             shadowTrackRecorder.writeShadowRecords(signalResult.allEvaluations(),
+                     allocatedBatches, candidateShadowBatches,
+                     candidateRankByStockId, allocationResult.resultByStockId(), roundTime);
 
-            // 推进买入信号边沿状态(仅在新买入开启时)
-            signalStateUpdater.updateStates(
-                    signalResult.allEvaluations(), signalStateByKey, roundTime);
-        }
+             // 推进买入信号边沿状态(仅在新买入开启时)
+             signalStateUpdater.updateStates(
+                     signalResult.allEvaluations(), signalStateByKey, roundTime);
+         }
 
         // 步骤9: 为已成交的买入/卖出写入PENDING通知审计(不受新买入开关影响)
         shadowRecordWriter.writeNoticeAudits(

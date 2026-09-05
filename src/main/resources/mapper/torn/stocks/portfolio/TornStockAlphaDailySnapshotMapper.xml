@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockAlphaDailySnapshotMapper">
+    <select id="selectByBusinessKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO">
+        SELECT * FROM torn_stock_alpha_daily_snapshot
+        WHERE stocks_id = #{stocksId}
+          AND business_date = #{businessDate}
+          AND stock_universe_version = #{stockUniverseVersion}
+          AND alpha_rule_version = #{alphaRuleVersion}
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
+    <select id="selectCommonValidDates" resultType="java.time.LocalDate">
+        SELECT business_date
+        FROM torn_stock_alpha_daily_snapshot
+        WHERE stock_universe_version = #{stockUniverseVersion}
+          AND alpha_rule_version = #{alphaRuleVersion}
+          AND common_valid = true
+          AND deleted = 0
+          AND business_date BETWEEN #{startDate} AND #{endDate}
+        GROUP BY business_date
+        HAVING COUNT(DISTINCT stocks_id) = #{memberCount}
+        ORDER BY business_date
+    </select>
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_stock_alpha_daily_snapshot
+            (stocks_id, business_date, close_price, source_bar_id, source_bar_start_time,
+             stock_universe_version, alpha_rule_version, r20, r1, r20_rank, r1_rank,
+             r20_normalized, r1_normalized, alpha_score, rank_position, common_valid,
+             deleted, create_time, update_time)
+        VALUES
+            (#{snapshot.stocksId}, #{snapshot.businessDate}, #{snapshot.closePrice}, #{snapshot.sourceBarId},
+             #{snapshot.sourceBarStartTime}, #{snapshot.stockUniverseVersion}, #{snapshot.alphaRuleVersion},
+             #{snapshot.r20}, #{snapshot.r1}, #{snapshot.r20Rank}, #{snapshot.r1Rank},
+             #{snapshot.r20Normalized}, #{snapshot.r1Normalized}, #{snapshot.alphaScore},
+             #{snapshot.rankPosition}, #{snapshot.commonValid}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (stocks_id, business_date, stock_universe_version, alpha_rule_version) WHERE deleted = 0 DO NOTHING
+    </insert>
+</mapper>

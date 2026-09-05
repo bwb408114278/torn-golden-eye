@@ -16,19 +16,22 @@ import java.util.*;
 import java.util.stream.IntStream;
 
 /**
- * 股票组合初始化服务 - 验证并补救正式与候选影子两个VIP组合的5个20亿槽位
+ * 股票组合初始化服务 - 验证并补救正式、候选影子与VIP Alpha组合的槽位
  * <p>
  * 正式组合({@link StockPortfolioService#PORTFOLIO_CODE})与候选影子组合
- * ({@link StockPortfolioService#SHADOW_CANDIDATE_PORTFOLIO_CODE})各自由
+ * ({@link StockPortfolioService#SHADOW_CANDIDATE_PORTFOLIO_CODE})各由
  * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#SLOT_COUNT} 个
- * 独立槽位组成,每槽初始资金 {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#INITIAL_CASH_PLAIN} 。
- * 本服务在应用启动或运维校验场景下,检查两个组合槽位的完整性与金额正确性:
+ * 独立槽位组成; VIP Alpha组合({@link StockPortfolioService#VIP_ALPHA_PORTFOLIO_CODE})由
+ * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_SLOT_COUNT} 个
+ * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_INITIAL_CASH} 初始资金槽位组成。
+ * 本服务在应用启动或运维校验场景下,检查三个组合槽位的完整性与金额正确性:
  * 槽位缺失时按标准参数补建,初始资金或账本口径异常时记录警告但不擅自修改业务数据。
  *
  * <h3>核心规则</h3>
  * <ul>
- *   <li>槽位数量不足 {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#SLOT_COUNT} 时补建缺失槽位</li>
- *   <li>槽位全部缺失时一次性创建5个标准初始槽位</li>
+ *   <li>槽位数量不足时按组合标准槽位数补建缺失槽位</li>
+ *   <li>槽位全部缺失时一次性创建该组合的全部标准初始槽位</li>
+ *
  *   <li>补建使用 {@code INSERT ... ON CONFLICT (portfolio_code, slot_no) WHERE deleted = 0 DO NOTHING}
  *       与Liquibase迁移并发收敛: 与迁移已插入槽位冲突的行被静默忽略,不抛重复键异常(fail-closed)</li>
  *   <li>补建后重新查询并校验槽位序号1~5全部存在,任一仍缺失则返回false,不宣称修复成功</li>
@@ -63,7 +66,8 @@ public class StockPortfolioInitService {
      */
     private static final List<String> PORTFOLIO_CODES = List.of(
             StockPortfolioService.PORTFOLIO_CODE,
-            StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
+            StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE,
+            StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
 
     private final TornStockPortfolioSlotDAO portfolioSlotDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
@@ -71,13 +75,13 @@ public class StockPortfolioInitService {
     // ==================== 槽位验证与初始化 ====================
 
     /**
-     * 验证并初始化正式与候选影子两个组合的5个20亿槽位
+     * 验证并初始化正式、候选影子与VIP Alpha组合的标准槽位。
      * <p>
      * 对每个组合编码查询全部槽位,按以下顺序处理:
      * <ol>
      *   <li>槽位全部缺失:一次性创建5个标准初始槽位</li>
      *   <li>槽位数量不足:补建缺失序号的槽位</li>
-     *   <li>逐个验证已存在槽位的initialCash与状态对应的资金账本口径,异常时记录警告</li>
+     * <li>逐个验证已存在槽位的initialCash与状态对应的资金账本口径,异常时记录警告</li>
      * </ol>
      * 已存在且状态正确的槽位不会被修改。返回true表示全部组合槽位完整且金额校验全部通过
      * (含本次补建后通过),返回false表示存在修复或校验告警,需运维关注。
@@ -93,7 +97,7 @@ public class StockPortfolioInitService {
     }
 
     /**
-     * 验证并初始化单个组合编码的5个20亿槽位。
+     * 验证并初始化单个组合编码的标准槽位。
      * <p>
      * 槽位全部缺失或数量不足时先补建,补建后重新查询并校验1~5槽位齐全
      * (fail-closed: 补建后仍缺失则返回false,不宣称修复成功)。
@@ -112,7 +116,7 @@ public class StockPortfolioInitService {
                     portfolioCode, missingSlotNos.size());
             if (!verifyCompleteAfterRepair(portfolioCode)) {
                 log.error("组合[{}]修复后槽位仍不完整(slot_no 1~{}必须全部存在),拒绝判定成功",
-                        portfolioCode, StockPortfolioService.SLOT_COUNT);
+                        portfolioCode, getExpectedSlotCount(portfolioCode));
                 return false;
             }
             return false;
@@ -134,16 +138,13 @@ public class StockPortfolioInitService {
                                                 String portfolioCode) {
         if (slots == null || slots.isEmpty()) {
             log.warn("组合[{}]槽位全部缺失,创建{}个标准初始槽位",
-                    portfolioCode, StockPortfolioService.SLOT_COUNT);
-            createSlots(portfolioCode, 1, StockPortfolioService.SLOT_COUNT);
-            return IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
-                    .boxed()
-                    .toList();
+                    portfolioCode, getExpectedSlotCount(portfolioCode));
+            createSlots(portfolioCode, 1, getExpectedSlotCount(portfolioCode));
+            return expectedSlotNos(portfolioCode);
         }
         Set<Integer> existingSlotNos = collectExistingSlotNos(slots);
-        List<Integer> missingSlotNos = IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+        List<Integer> missingSlotNos = expectedSlotNos(portfolioCode).stream()
                 .filter(no -> !existingSlotNos.contains(no))
-                .boxed()
                 .toList();
         if (!missingSlotNos.isEmpty()) {
             log.warn("组合[{}]缺失槽位序号{},开始补建", portfolioCode, missingSlotNos);
@@ -193,6 +194,20 @@ public class StockPortfolioInitService {
         return getSlotCount(StockPortfolioService.PORTFOLIO_CODE);
     }
 
+    private int getExpectedSlotCount(String portfolioCode) {
+        return StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)
+                ? StockPortfolioService.VIP_ALPHA_SLOT_COUNT : StockPortfolioService.SLOT_COUNT;
+    }
+
+    private BigDecimal getExpectedInitialCash(String portfolioCode) {
+        return StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)
+                ? StockPortfolioService.VIP_ALPHA_INITIAL_CASH : StockPortfolioService.INITIAL_CASH;
+    }
+
+    private List<Integer> expectedSlotNos(String portfolioCode) {
+        return IntStream.rangeClosed(1, getExpectedSlotCount(portfolioCode)).boxed().toList();
+    }
+
     // ==================== 私有方法 ====================
 
     /**
@@ -215,7 +230,7 @@ public class StockPortfolioInitService {
         int inserted = portfolioSlotDAO.insertSlotsIgnoreConflict(newSlots);
         log.info("组合[{}]创建槽位序号{}~{}共{}个,本次实际插入{}个,每个初始资金{}",
                 portfolioCode, fromNo, toNo, newSlots.size(), inserted,
-                StockPortfolioService.INITIAL_CASH);
+                getExpectedInitialCash(portfolioCode));
     }
 
     /**
@@ -225,7 +240,7 @@ public class StockPortfolioInitService {
      * 必须重新查询数据库确认每个槽位序号均存在。
      *
      * @param portfolioCode 组合编码
-     * @return true表示该组合当前存在全部5个有效槽位
+     * @return true表示该组合当前存在全部标准有效槽位
      */
     private boolean verifyCompleteAfterRepair(String portfolioCode) {
         List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(portfolioCode);
@@ -233,8 +248,7 @@ public class StockPortfolioInitService {
             return false;
         }
         Set<Integer> existingSlotNos = collectExistingSlotNos(slots);
-        return IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
-                .allMatch(existingSlotNos::contains);
+        return expectedSlotNos(portfolioCode).stream().allMatch(existingSlotNos::contains);
     }
 
     /**
@@ -245,11 +259,12 @@ public class StockPortfolioInitService {
      * @return 初始化完成的槽位DO(尚未持久化)
      */
     private TornStockPortfolioSlotDO buildStandardSlot(String portfolioCode, int slotNo) {
+        BigDecimal initialCash = getExpectedInitialCash(portfolioCode);
         TornStockPortfolioSlotDO slot = new TornStockPortfolioSlotDO();
         slot.setPortfolioCode(portfolioCode);
         slot.setSlotNo(slotNo);
-        slot.setInitialCash(StockPortfolioService.INITIAL_CASH);
-        slot.setAvailableCash(StockPortfolioService.INITIAL_CASH);
+        slot.setInitialCash(initialCash);
+        slot.setAvailableCash(initialCash);
         slot.setReservedCash(ZERO_RESERVED);
         slot.setCurrentBatchId(null);
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
@@ -262,7 +277,7 @@ public class StockPortfolioInitService {
      * <p>
      * 逐个槽位检查:
      * <ul>
-     *   <li>initialCash 是否等于 {@link StockPortfolioService#INITIAL_CASH} (容差 {@link #CASH_TOLERANCE} )</li>
+     *   <li>initialCash 是否等于该组合标准初始资金 (容差 {@link #CASH_TOLERANCE} )</li>
      *   <li>AVAILABLE: 无预留、无绑定批次且可用资金非负,允许与initialCash不同</li>
      *   <li>RESERVED: 关联同组合ENTRY_PENDING批次、槽位绑定与预留金额有效性</li>
      *   <li>OCCUPIED/STALE: 关联批次、组合账本、槽位绑定、reservedCash与remainingCash是否一致</li>
@@ -321,13 +336,14 @@ public class StockPortfolioInitService {
      */
     private boolean validateInitialCash(TornStockPortfolioSlotDO slot) {
         BigDecimal initialCash = slot.getInitialCash();
+        BigDecimal expectedInitialCash = getExpectedInitialCash(slot.getPortfolioCode());
         if (initialCash != null
-                && initialCash.subtract(StockPortfolioService.INITIAL_CASH).abs()
+                && initialCash.subtract(expectedInitialCash).abs()
                 .compareTo(CASH_TOLERANCE) <= 0) {
             return true;
         }
         log.warn("槽位[{}]initialCash={}与标准值{}不匹配,请人工核查",
-                slot.getSlotNo(), initialCash, StockPortfolioService.INITIAL_CASH);
+                slot.getSlotNo(), initialCash, expectedInitialCash);
         return false;
     }
 
@@ -469,6 +485,9 @@ public class StockPortfolioInitService {
         }
         if (StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE.equals(portfolioCode)) {
             return StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode();
+        }
+        if (StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)) {
+            return StockLedgerTypeEnum.VIP_ALPHA.getCode();
         }
         return "";
     }

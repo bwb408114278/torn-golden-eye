@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.portfolio;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,7 +43,7 @@ import static org.mockito.Mockito.*;
  * 通过 Mockito mock {@link TornStockPortfolioSlotDAO},使用 ArgumentCaptor 验证冲突安全批量插入的槽位字段。
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @ExtendWith(MockitoExtension.class)
@@ -56,6 +57,12 @@ class StockPortfolioInitServiceTest {
 
     @InjectMocks
     private StockPortfolioInitService portfolioInitService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(buildVipAlphaSlot(1)));
+    }
 
     // ==================== verifyAndInitSlots ====================
 
@@ -274,7 +281,29 @@ class StockPortfolioInitServiceTest {
         verify(portfolioSlotDao).insertSlotsIgnoreConflict(any());
     }
 
-    // ==================== getSlotCount ====================
+    @Test
+    @DisplayName("验证并初始化槽位_ VIP_ALPHA缺失时创建1个100亿槽位")
+    void verifyAndInitSlots_vipAlphaMissing_createsOneSlotWith10Billion() {
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildFormalSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.SLOT_COUNT)
+                        .mapToObj(this::buildCandidateSlot).toList());
+        when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(), List.of(buildVipAlphaSlot(1)));
+        when(portfolioSlotDao.insertSlotsIgnoreConflict(any())).thenReturn(1);
+
+        assertFalse(portfolioInitService.verifyAndInitSlots());
+        ArgumentCaptor<List<TornStockPortfolioSlotDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(portfolioSlotDao, times(1)).insertSlotsIgnoreConflict(captor.capture());
+        TornStockPortfolioSlotDO slot = captor.getValue().getFirst();
+        assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, slot.getPortfolioCode());
+        assertEquals(1, slot.getSlotNo());
+        assertEquals(0, StockPortfolioService.VIP_ALPHA_INITIAL_CASH.compareTo(slot.getInitialCash()));
+        assertEquals(0, StockPortfolioService.VIP_ALPHA_INITIAL_CASH.compareTo(slot.getAvailableCash()));
+    }
+
 
     @Test
     @DisplayName("获取槽位数量_ 正常查询5个槽位,返回正确数量")
@@ -337,8 +366,15 @@ class StockPortfolioInitServiceTest {
         return buildStandardSlot(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE, slotNo);
     }
 
+    private TornStockPortfolioSlotDO buildVipAlphaSlot(int slotNo) {
+        TornStockPortfolioSlotDO slot = buildStandardSlot(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, slotNo);
+        slot.setInitialCash(StockPortfolioService.VIP_ALPHA_INITIAL_CASH);
+        slot.setAvailableCash(StockPortfolioService.VIP_ALPHA_INITIAL_CASH);
+        return slot;
+    }
+
     /**
-     * 构建指定组合的标准初始槽位(initialCash=20亿,availableCash=20亿,reserved=0,状态AVAILABLE)
+     * 构建指定组合的标准初始槽位。
      *
      * @param portfolioCode 组合编码
      * @param slotNo        槽位序号

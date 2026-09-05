@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票账本类型枚举 - 区分正式组合、影子组合与观察记录
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Getter
@@ -19,6 +19,10 @@ public enum StockLedgerTypeEnum {
      * 正式组合 - 真实资金交易
      */
     FORMAL("FORMAL", "正式组合"),
+    /**
+     * VIP Alpha组合 - 独立单槽10B正式账本
+     */
+    VIP_ALPHA("VIP_ALPHA", "VIP Alpha组合"),
     /**
      * 候选影子组合 - 独立5槽×20亿的候选影子账本,与正式组合共享规则但完全隔离
      */

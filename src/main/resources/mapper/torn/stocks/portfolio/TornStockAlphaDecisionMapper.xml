@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockAlphaDecisionMapper">
+    <select id="selectByBusinessKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO">
+        SELECT * FROM torn_stock_alpha_decision
+        WHERE decision_business_date = #{decisionBusinessDate}
+          AND phase = #{phase}
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_stock_alpha_decision
+            (decision_business_date, common_day_index, phase, decision_type, current_batch_id,
+             selected_stocks_id, source_snapshot_digest, execution_bar_start_time, execution_status,
+             failure_reason, rebalance_batch_id, deleted, create_time, update_time)
+        VALUES
+            (#{decision.decisionBusinessDate}, #{decision.commonDayIndex}, #{decision.phase}, #{decision.decisionType},
+             #{decision.currentBatchId}, #{decision.selectedStocksId}, #{decision.sourceSnapshotDigest},
+             #{decision.executionBarStartTime}, #{decision.executionStatus}, #{decision.failureReason},
+             #{decision.rebalanceBatchId}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (decision_business_date, phase) WHERE deleted = 0 DO NOTHING
+    </insert>
+</mapper>

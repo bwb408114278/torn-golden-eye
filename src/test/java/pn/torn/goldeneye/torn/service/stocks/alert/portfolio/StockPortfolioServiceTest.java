@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 入场过期时间计算以及组合权益计算。静态方法直接调用,实例方法通过 Mockito mock DAO 构造服务实例。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @ExtendWith(MockitoExtension.class)
@@ -45,10 +45,26 @@ class StockPortfolioServiceTest {
         portfolioService = new StockPortfolioService();
     }
 
-    // ==================== 纯计算方法(静态) ====================
+    @Test
+    @DisplayName("组合参数_ VIP_ALPHA为1槽且每槽初始资金100亿")
+    void vipAlphaPortfolioParameters_areCompatible() {
+        assertEquals("VIP_ALPHA", StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        assertEquals(1, StockPortfolioService.VIP_ALPHA_SLOT_COUNT);
+        assertEquals(0, new BigDecimal("10000000000.00").compareTo(StockPortfolioService.VIP_ALPHA_INITIAL_CASH));
+        assertEquals(5, StockPortfolioService.SLOT_COUNT);
+        assertEquals(0, new BigDecimal("2000000000.00").compareTo(StockPortfolioService.INITIAL_CASH));
+    }
+
 
     @Test
-    @DisplayName("计算股数_20亿除以100元入场价,返回2000万股")
+    @DisplayName("账本校验_ VIP_ALPHA允许槽位结算且旧组合账本仍兼容")
+    void isSlotBackedLedger_vipAlphaAndLegacyLedgers_areSupported() {
+        assertTrue(portfolioService.isSlotBackedLedger("VIP_ALPHA"));
+        assertTrue(portfolioService.isSlotBackedLedger("FORMAL"));
+        assertTrue(portfolioService.isSlotBackedLedger("SHADOW_FORMAL_CANDIDATE"));
+        assertFalse(portfolioService.isSlotBackedLedger("UNLIMITED_SHADOW"));
+    }
+
     void calculateQuantity_2BillionDividedBy100_returns20MillionShares() {
         BigDecimal availableCash = new BigDecimal("2000000000.00");
         BigDecimal entryReferencePrice = new BigDecimal("100.00");

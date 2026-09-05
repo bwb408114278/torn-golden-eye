@@ -15,6 +15,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.*;
  * 以及历史PENDING通知独立于轮次总开关投递。
  *
  * @author Bai
- * @version 1.4.9
+ * @version 1.6.1
  * @since 2026.08.02
  */
 @DisplayName("股票提醒调度器测试")
@@ -69,6 +70,8 @@ class VipStockAlertSchedulerTest {
     private ProjectProperty projectProperty;
     @Mock
     private StockAlertRuntimeGate runtimeGate;
+    @Mock
+    private StockAlphaDecisionService alphaDecisionService;
 
     private VipStockAlertScheduler scheduler;
 
@@ -78,7 +81,7 @@ class VipStockAlertSchedulerTest {
                 barBuildService, featureBuildService, roundDao, historyRebuildService,
                 portfolioInitService, monthlyStateInitService, noticeSendService,
                 rejectedObservationService, roundLoader, transactionService, marketClock,
-                projectProperty, runtimeGate, new StockMarketRoundFactory());
+                projectProperty, runtimeGate, new StockMarketRoundFactory(), alphaDecisionService);
     }
 
     @Test

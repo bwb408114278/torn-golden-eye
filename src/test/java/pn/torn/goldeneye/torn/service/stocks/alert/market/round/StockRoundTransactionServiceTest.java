@@ -119,10 +119,12 @@ class StockRoundTransactionServiceTest {
 
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
-        verify(candidateTrackAllocationService).acceptCandidates(
-                candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime),
-                eq(CandidateAcceptanceTarget.formal()));
-        assertFalse(candidatesCaptor.getValue().stream()
+         verify(candidateTrackAllocationService).acceptCandidates(
+                 candidatesCaptor.capture(), snapshotCaptor.capture(), any(), any(), any(), eq(roundTime),
+                 eq(CandidateAcceptanceTarget.candidateShadow()));
+         verify(candidateTrackAllocationService, never()).acceptCandidates(
+                 any(), any(), any(), any(), any(), eq(roundTime), eq(CandidateAcceptanceTarget.formal()));
+         assertFalse(candidatesCaptor.getValue().stream()
                 .map(CandidateInfo::stocksId)
                 .toList()
                 .contains(1001));
@@ -173,7 +175,7 @@ class StockRoundTransactionServiceTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
                 .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
         when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
-                eq(CandidateAcceptanceTarget.formal())))
+                eq(CandidateAcceptanceTarget.candidateShadow())))
                 .thenReturn(StockCandidateAllocationResult.empty());
 
         transactionService.executeRound(roundTime, externalSnapshot, true, roundTime);
@@ -183,7 +185,7 @@ class StockRoundTransactionServiceTest {
         assertTrue(evaluationSnapshot.activeBatches().contains(lockedShadowBatch));
         verify(candidateTrackAllocationService).acceptCandidates(
                 candidatesCaptor.capture(), eq(evaluationSnapshot), any(), any(), any(), eq(roundTime),
-                eq(CandidateAcceptanceTarget.formal()));
+                eq(CandidateAcceptanceTarget.candidateShadow()));
         assertEquals(List.of(2702), candidatesCaptor.getValue().stream()
                 .map(CandidateInfo::stocksId)
                 .toList());
@@ -370,7 +372,7 @@ class StockRoundTransactionServiceTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
                 .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
         when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
-                eq(CandidateAcceptanceTarget.formal())))
+                eq(CandidateAcceptanceTarget.candidateShadow())))
                 .thenReturn(StockCandidateAllocationResult.empty());
     }
 
