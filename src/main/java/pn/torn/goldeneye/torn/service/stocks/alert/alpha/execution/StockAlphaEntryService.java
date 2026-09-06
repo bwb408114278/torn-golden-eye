@@ -39,6 +39,7 @@ public class StockAlphaEntryService {
     private static final String PENDING_STATUS = "PENDING";
     private static final String EXECUTED_STATUS = "EXECUTED";
     private static final String ALPHA_PRIMARY_STRATEGY = "ALPHA";
+    private static final String NOT_APPLICABLE = "NOT_APPLICABLE";
 
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
@@ -70,8 +71,6 @@ public class StockAlphaEntryService {
             return null;
         }
         validateExecutionBar(decision, decisionDate, phase, roundTime, snapshot);
-
-
         if (activeBatch != null) {
             validateBatchAssociation(activeBatch, decision);
             markExecuted(decision, activeBatch);
@@ -126,15 +125,14 @@ public class StockAlphaEntryService {
         if (decision.getId() == null || decision.getDecisionBusinessDate() == null
                 || !decisionDate.equals(decision.getDecisionBusinessDate())
                 || decision.getPhase() == null || !Integer.valueOf(phase).equals(decision.getPhase())
-                || decision.getSelectedStocksId() == null
-
-                || bar == null || bar.getBarStartTime() == null || bar.getBarEndTime() == null
-                || bar.getStocksShortname() == null || bar.getStocksShortname().isBlank()) {
+                || decision.getSelectedStocksId() == null || bar == null || bar.getBarStartTime() == null
+                || bar.getBarEndTime() == null || bar.getStocksShortname() == null
+                || bar.getStocksShortname().isBlank()) {
             throw new IllegalStateException("Alpha初始入场决策或执行bar关键字段缺失");
         }
         if (!roundTime.equals(expected) || !expected.equals(bar.getBarStartTime())
-                || !StockAlphaExecutionBarPolicy.isExecutable(
-                roundTime.minusMinutes(15), toExecutionBar(bar), roundTime.plusMinutes(15))) {
+                || !StockAlphaExecutionBarPolicy.isExecutable(roundTime.minusMinutes(15), toExecutionBar(bar),
+                roundTime.plusMinutes(15))) {
             throw new IllegalStateException("Alpha初始入场bar不是严格下一根可执行bar: roundTime=" + roundTime);
         }
     }
@@ -158,7 +156,6 @@ public class StockAlphaEntryService {
      * @return 可用槽位
      */
     private TornStockPortfolioSlotDO findAvailableAlphaSlot(List<TornStockPortfolioSlotDO> slots) {
-
         List<TornStockPortfolioSlotDO> available = slots.stream()
                 .filter(slot -> StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(slot.getPortfolioCode()))
                 .filter(slot -> Integer.valueOf(1).equals(slot.getSlotNo()))
@@ -213,7 +210,8 @@ public class StockAlphaEntryService {
      * @param decision α决策
      */
     private void validateBatchAssociation(TornStockVirtualBatchDO batch, TornStockAlphaDecisionDO decision) {
-        if (batch.getId() == null || !decision.getId().equals(batch.getAlphaDecisionId())
+        if (batch == null || batch.getId() == null || decision == null || decision.getId() == null
+                || !decision.getId().equals(batch.getAlphaDecisionId())
                 || !decision.getSelectedStocksId().equals(batch.getStocksId())) {
             throw new IllegalStateException("Alpha活跃批次与决策关联不一致");
         }
@@ -228,7 +226,6 @@ public class StockAlphaEntryService {
      * @return 执行bar；不存在时返回null
      */
     private TornStockMarketBar15mDO findBar(RoundSnapshot snapshot, Integer stocksId, LocalDateTime roundTime) {
-
         return snapshot.bars().stream()
                 .filter(bar -> Objects.equals(stocksId, bar.getStocksId())
                         && Objects.equals(roundTime, bar.getBarStartTime()))
@@ -280,9 +277,9 @@ public class StockAlphaEntryService {
         batch.setQualityScore(BigDecimal.ZERO);
         batch.setSignalEventId(null);
         batch.setAlphaDecisionId(decision.getId());
-        batch.setStylePrior("NOT_APPLICABLE");
-        batch.setStyleMaturity("NOT_APPLICABLE");
-        batch.setRiskLevel("NOT_APPLICABLE");
+        batch.setStylePrior(NOT_APPLICABLE);
+        batch.setStyleMaturity(NOT_APPLICABLE);
+        batch.setRiskLevel(NOT_APPLICABLE);
         batch.setStyleEffectiveMonth(decision.getDecisionBusinessDate().withDayOfMonth(1));
         batch.setStyleRuleVersion("ALPHA_NOT_APPLICABLE");
         batch.setRiskRuleVersion("ALPHA_NOT_APPLICABLE");

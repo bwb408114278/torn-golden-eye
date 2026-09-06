@@ -8,7 +8,6 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -38,10 +37,6 @@ public class StockAlphaDailyCloseService {
      * α日线快照数据访问对象。
      */
     private final TornStockAlphaDailySnapshotDAO snapshotDao;
-    /**
-     * 行情时钟。
-     */
-    private final StockMarketClock marketClock;
 
     /**
      * 加载指定结束日期前的日线收盘数据并持久化快照。
@@ -86,10 +81,25 @@ public class StockAlphaDailyCloseService {
         rankings.forEach(ranking -> persistRanking(latestDate, latest.get(ranking.stocksId()), ranking));
     }
 
+    /**
+     * 持久化单个日线快照。
+     *
+     * @param close 收盘结果
+     */
     private void persistSnapshot(StockAlphaDailyCloseCalculator.CloseResult close) {
         if (close == null) {
             return;
         }
+        snapshotDao.insertIgnoreConflict(buildSnapshot(close));
+    }
+
+    /**
+     * 构建日线快照。
+     *
+     * @param close 收盘结果
+     * @return 日线快照
+     */
+    private TornStockAlphaDailySnapshotDO buildSnapshot(StockAlphaDailyCloseCalculator.CloseResult close) {
         TornStockAlphaDailySnapshotDO snapshot = new TornStockAlphaDailySnapshotDO();
         snapshot.setStocksId(close.stocksId());
         snapshot.setBusinessDate(close.businessDate());
@@ -99,23 +109,23 @@ public class StockAlphaDailyCloseService {
         snapshot.setStockUniverseVersion(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION);
         snapshot.setAlphaRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
         snapshot.setCommonValid(true);
-        snapshotDao.insertIgnoreConflict(snapshot);
+        return snapshot;
     }
 
+    /**
+     * 持久化指定股票的排名快照。
+     *
+     * @param rankingDate 排名日期
+     * @param close       收盘结果
+     * @param ranking     排名结果
+     */
     private void persistRanking(LocalDate rankingDate,
                                 StockAlphaDailyCloseCalculator.CloseResult close,
                                 StockAlphaRankingResult ranking) {
         if (close == null || ranking == null || !rankingDate.equals(close.businessDate())) {
             return;
         }
-        TornStockAlphaDailySnapshotDO snapshot = new TornStockAlphaDailySnapshotDO();
-        snapshot.setStocksId(close.stocksId());
-        snapshot.setBusinessDate(close.businessDate());
-        snapshot.setClosePrice(close.closePrice());
-        snapshot.setSourceBarId(close.sourceBarId());
-        snapshot.setSourceBarStartTime(close.sourceBarStartTime());
-        snapshot.setStockUniverseVersion(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION);
-        snapshot.setAlphaRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
+        TornStockAlphaDailySnapshotDO snapshot = buildSnapshot(close);
         snapshot.setR20(ranking.r20());
         snapshot.setR1(ranking.r1());
         snapshot.setR20Rank(ranking.r20Rank());
@@ -126,26 +136,5 @@ public class StockAlphaDailyCloseService {
         snapshot.setRankPosition(ranking.rankPosition());
         snapshot.setCommonValid(true);
         snapshotDao.insertIgnoreConflict(snapshot);
-    }
-
-    /**
-     * 查询共同有效日期。
-     *
-     * @param endDate 结束日期
-     * @return 共同有效日期
-     */
-    public List<LocalDate> loadCommonValidDates(LocalDate endDate) {
-        LocalDate startDate = endDate.minusDays(StockAlphaRuleDefinition.WARMUP_COMMON_DAYS + 20L);
-        return snapshotDao.selectCommonValidDates(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
-                StockAlphaRuleDefinition.RULE_VERSION, StockAlphaRuleDefinition.MEMBER_COUNT, startDate, endDate);
-    }
-
-    /**
-     * 获取最近结束的行情日期。
-     *
-     * @return 最近结束日期
-     */
-    public LocalDate latestEndedDate() {
-        return marketClock.currentEndedBucket().toLocalDate();
     }
 }

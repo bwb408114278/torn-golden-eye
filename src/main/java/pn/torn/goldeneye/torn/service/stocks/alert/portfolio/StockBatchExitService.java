@@ -18,7 +18,7 @@ import java.util.Objects;
  * 股票批次退出评估服务 - 对正式开放批次计算目标、风险、区间和时间退出
  * <p>
  * 针对 {@link TornStockVirtualBatchDO} 的 OPEN 状态批次,按固定优先级顺序评估四种退出规则,
- * 返回首个命中的退出类型与原因。所有净收益计算统一扣除 {@value #SELL_FEE_RATE_TEXT} 卖出手续费。
+ * 返回首个命中的退出类型与原因。所有净收益计算统一扣除0.1%卖出手续费。
  *
  * <h3>退出判断顺序</h3>
  * <ol>
@@ -59,10 +59,6 @@ public class StockBatchExitService {
      * 卖出费率(0.1%手续费,实得99.9%)
      */
     public static final BigDecimal SELL_FEE_RATE = new BigDecimal("0.999");
-    /**
-     * 卖出费率明文(仅用于Javadoc展示)
-     */
-    static final String SELL_FEE_RATE_TEXT = "0.1%";
     /**
      * 区间下沿买入策略标识
      */

@@ -37,13 +37,10 @@ public final class StockAlphaTargetPolicy {
         if (currentStocksId == null) return new TargetResult(TargetEvent.ALPHA_INITIAL_ENTRY, top1);
         boolean inTop3 = rankings.stream().limit(StockAlphaRuleDefinition.HYSTERESIS_TOP)
                 .anyMatch(result -> currentStocksId.equals(result.stocksId()));
-        if (inTop3 || currentStocksId.equals(top1)) {
+        if (inTop3) {
             return new TargetResult(TargetEvent.ALPHA_TARGET_HELD, currentStocksId);
         }
-        if (!currentStocksId.equals(top1)) {
-            return new TargetResult(TargetEvent.ALPHA_TARGET_CHANGED, top1);
-        }
-        return new TargetResult(TargetEvent.DATA_INSUFFICIENT, null);
+        return new TargetResult(TargetEvent.ALPHA_TARGET_CHANGED, top1);
     }
 
     /**

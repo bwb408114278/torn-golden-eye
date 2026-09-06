@@ -92,19 +92,32 @@ public final class StockAlphaRankingCalculator {
                         Comparator.reverseOrder()))
                 .toList();
         Map<Integer, BigDecimal> result = new java.util.HashMap<>();
-        for (int index = 0; index < sorted.size(); ) {
-            int end = index + 1;
-            BigDecimal value = r20 ? sorted.get(index).getValue().r20() : sorted.get(index).getValue().r1();
-            while (end < sorted.size() && value.compareTo(r20 ? sorted.get(end).getValue().r20() : sorted.get(end).getValue().r1()) == 0) {
-                end++;
-            }
+        for (int index = 0; index < sorted.size(); index = findGroupEnd(sorted, index, r20)) {
+            int end = findGroupEnd(sorted, index, r20);
             BigDecimal midRank = BigDecimal.valueOf(index + 1L + end).divide(BigDecimal.valueOf(2), 18, RoundingMode.HALF_UP);
             BigDecimal normalized = sorted.size() == 1 ? BigDecimal.ONE : BigDecimal.valueOf(sorted.size()).subtract(midRank)
                     .divide(BigDecimal.valueOf(sorted.size() - 1L), 18, RoundingMode.HALF_UP);
             for (int i = index; i < end; i++) result.put(sorted.get(i).getKey(), normalized);
-            index = end;
         }
         return result;
+    }
+
+    /**
+     * 查找相同因子分组的结束位置。
+     *
+     * @param sorted 已排序因子
+     * @param start  分组起点
+     * @param r20    是否使用20日收益
+     * @return 分组结束位置（不含）
+     */
+    private static int findGroupEnd(List<Map.Entry<Integer, Factors>> sorted, int start, boolean r20) {
+        int end = start + 1;
+        BigDecimal value = r20 ? sorted.get(start).getValue().r20() : sorted.get(start).getValue().r1();
+        while (end < sorted.size() && value.compareTo(r20 ? sorted.get(end).getValue().r20()
+                : sorted.get(end).getValue().r1()) == 0) {
+            end++;
+        }
+        return end;
     }
 
     /**

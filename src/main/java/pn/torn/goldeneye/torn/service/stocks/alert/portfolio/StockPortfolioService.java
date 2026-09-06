@@ -19,7 +19,7 @@ import java.util.Objects;
 /**
  * 股票组合管理服务 - 维护5槽正式组合的整数股数、余款现金与槽内复利
  * <p>
- * 正式组合由 {@value #SLOT_COUNT} 个独立槽位组成,每槽初始资金 {@value #INITIAL_CASH_PLAIN} ,
+ * 正式组合由 {@value #SLOT_COUNT} 个独立槽位组成,每槽初始资金 2,000,000,000.00 ,
  * 槽位之间资金不自动调拨。本服务封装槽位分配、预留、建仓占用、取消释放、卖出结算
  * 与组合权益计算等纯领域能力,所有金额运算使用 {@link BigDecimal}(精度18位,HALF_UP),
  * 股数一律取整数({@link Long})。卖出统一扣除0.1%手续费。
@@ -69,10 +69,6 @@ public class StockPortfolioService {
      * VIP Alpha组合每槽初始资金(100亿)
      */
     public static final BigDecimal VIP_ALPHA_INITIAL_CASH = new BigDecimal("10000000000.00");
-    /**
-     * 初始资金明文(仅用于Javadoc展示)
-     */
-    static final String INITIAL_CASH_PLAIN = "2,000,000,000.00";
     /**
      * 卖出费率(0.1%手续费,实得99.9%)
      */

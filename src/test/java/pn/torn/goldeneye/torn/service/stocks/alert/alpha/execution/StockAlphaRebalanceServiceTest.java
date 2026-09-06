@@ -79,7 +79,7 @@ class StockAlphaRebalanceServiceTest {
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter);
         StockAlphaRebalanceService.RebalanceResult result = service.rebalance(
-                LocalDate.of(2026, 9, 5), DECISION_TIME, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot());
+                LocalDate.of(2026, 9, 5), 0, DECISION_TIME, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot());
 
         assertEquals(99L, result.boughtBatchId());
         assertEquals(99L, slot.getCurrentBatchId());
@@ -104,8 +104,11 @@ class StockAlphaRebalanceServiceTest {
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter);
 
+        RoundSnapshot snapshot = snapshot();
+        LocalDate decisionDate = LocalDate.of(2026, 9, 5);
+        LocalDateTime processingTime = LocalDateTime.of(2026, 9, 5, 0, 31);
         assertThrows(IllegalStateException.class, () -> service.rebalance(
-                LocalDate.of(2026, 9, 5), DECISION_TIME, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot()));
+                decisionDate, 0, DECISION_TIME, processingTime, snapshot));
     }
 
     private TornStockAlphaDecisionDO decision(Long id) {

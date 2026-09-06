@@ -479,12 +479,10 @@ public class StockDerivedDataRebuildService {
 
     private record BucketKey(
             Integer stocksId,
-            LocalDateTime bucketStart
-    ) {
+            LocalDateTime bucketStart) {
     }
 
     private record DayBarResult(
-            int barWrites
-    ) {
+            int barWrites) {
     }
 }

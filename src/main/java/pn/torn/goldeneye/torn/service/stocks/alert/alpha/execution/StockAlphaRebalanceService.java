@@ -34,13 +34,13 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class StockAlphaRebalanceService {
-    private static final int INITIAL_PHASE = 0;
     private static final String PENDING_STATUS = "PENDING";
     private static final String EXECUTED_STATUS = "EXECUTED";
     private static final String ALPHA_REBALANCE = "ALPHA_REBALANCE";
     private static final String ALPHA_REBALANCE_RULE_VERSION = "ALPHA_REBALANCE_ONLY";
     private static final String ALPHA_BUY_RULE_VERSION = "ALPHA_0.04_V1";
     private static final String ALPHA_PRIMARY_STRATEGY = "ALPHA";
+    private static final String NOT_APPLICABLE = "NOT_APPLICABLE";
 
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockPortfolioSlotDAO slotDAO;
@@ -52,21 +52,6 @@ public class StockAlphaRebalanceService {
      * 在同一事务内完成α原仓SELL与新仓BUY。
      *
      * @param decisionDate 决策日期
-     * @param decisionTime 决策时点
-     * @param now          当前校验时点
-     * @param snapshot     当前轮次行情快照
-     * @return 换仓结果
-     */
-    public RebalanceResult rebalance(LocalDate decisionDate, LocalDateTime decisionTime,
-                                     LocalDateTime now, RoundSnapshot snapshot) {
-        return rebalance(decisionDate, INITIAL_PHASE, decisionTime, now, snapshot);
-    }
-
-    /**
-     * 在同一事务内按指定phase完成α原仓SELL与新仓BUY。
-     *
-     * @param decisionDate 决策日期
-     * @param phase        决策phase
      * @param decisionTime 决策时点
      * @param now          当前校验时点
      * @param snapshot     当前轮次行情快照
@@ -84,8 +69,12 @@ public class StockAlphaRebalanceService {
 
         TornStockMarketBar15mDO sellBar = findBar(snapshot, current.getStocksId(), executionBarStart);
         TornStockMarketBar15mDO buyBar = findBar(snapshot, decision.getSelectedStocksId(), executionBarStart);
+        if (sellBar == null || buyBar == null) {
+            throw new IllegalStateException("α换仓执行bar缺失");
+        }
         validateBars(decisionTime, now, sellBar, buyBar);
-        prepareCurrentForSettlement(current, sellBar, executionBarStart);
+        current.setExitSignalTime(executionBarStart);
+        current.setExpectedExitBarTime(sellBar.getBarStartTime());
         TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart, decisionTime);
         TornStockVirtualBatchDO persistedReplacement = persistReplacement(replacement);
         bindCompletedRebalance(decision, slot, persistedReplacement, executionBarStart);
@@ -140,40 +129,26 @@ public class StockAlphaRebalanceService {
      * @param buyBar       新仓bar
      */
     private void validateBars(LocalDateTime decisionTime, LocalDateTime now,
-
                               TornStockMarketBar15mDO sellBar, TornStockMarketBar15mDO buyBar) {
+        if (sellBar == null || buyBar == null) {
+            throw new IllegalStateException("α换仓执行bar缺失");
+        }
         if (!StockAlphaExecutionBarPolicy.isAtomicRebalance(decisionTime,
-
                 toExecutionBar(sellBar), toExecutionBar(buyBar), now)) {
             throw new IllegalStateException("α换仓两腿不存在同一严格下一可用15m执行桶");
         }
     }
 
     /**
-     * 补齐原仓结算所需的退出事实。
-     *
-     * @param current       原仓批次
-     * @param sellBar       原仓执行bar
-     * @param executionTime 执行时间
-     */
-    private void prepareCurrentForSettlement(TornStockVirtualBatchDO current,
-
-                                             TornStockMarketBar15mDO sellBar,
-
-                                             LocalDateTime executionTime) {
-        current.setExitSignalTime(executionTime);
-        current.setExpectedExitBarTime(sellBar.getBarStartTime());
-    }
-
-    /**
      * 执行原仓结算并构造新仓成交事实。
      *
-     * @param current       原仓批次
-     * @param decision      决策记录
-     * @param slot          α槽位
-     * @param sellBar       原仓bar
-     * @param buyBar        新仓bar
-     * @param executionTime 执行时间
+     * @param current           原仓批次
+     * @param decision          决策记录
+     * @param slot              α槽位
+     * @param sellBar           原仓bar
+     * @param buyBar            新仓bar
+     * @param executionBarStart 执行bar起点
+     * @param executionTime     执行时间
      * @return 新仓批次
      */
     private TornStockVirtualBatchDO replace(TornStockVirtualBatchDO current, TornStockAlphaDecisionDO decision,
@@ -217,9 +192,9 @@ public class StockAlphaRebalanceService {
         replacement.setQuantity(quantity);
         replacement.setInvestedCash(buyBar.getLastPrice().multiply(BigDecimal.valueOf(quantity)));
         replacement.setRemainingCash(cash.subtract(replacement.getInvestedCash()));
-        replacement.setStylePrior("NOT_APPLICABLE");
-        replacement.setStyleMaturity("NOT_APPLICABLE");
-        replacement.setRiskLevel("NOT_APPLICABLE");
+        replacement.setStylePrior(NOT_APPLICABLE);
+        replacement.setStyleMaturity(NOT_APPLICABLE);
+        replacement.setRiskLevel(NOT_APPLICABLE);
         replacement.setStyleEffectiveMonth(executionTime.toLocalDate().withDayOfMonth(1));
         replacement.setBuyRuleVersion(ALPHA_BUY_RULE_VERSION);
         replacement.setSellRuleVersion(ALPHA_REBALANCE_RULE_VERSION);
