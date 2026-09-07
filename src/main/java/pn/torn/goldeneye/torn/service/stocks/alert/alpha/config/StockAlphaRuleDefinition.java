@@ -52,10 +52,14 @@ public final class StockAlphaRuleDefinition {
      * 收益和排名计算精度。
      */
     public static final int CALC_SCALE = 18;
-
-
+    /**
+     * 股票池成员摘要。
+     */
     public static final String STOCK_UNIVERSE_DIGEST =
             "0620dc9876a92272bf8358b21731a40ad31b3556aeb41a7e6f798c8a2f4c041a";
+    /**
+     * 股票池生效时间。
+     */
     public static final LocalDateTime STOCK_UNIVERSE_EFFECTIVE_AT =
             LocalDateTime.of(2026, 9, 5, 0, 0);
     private static final List<Integer> STOCK_UNIVERSE = List.of(

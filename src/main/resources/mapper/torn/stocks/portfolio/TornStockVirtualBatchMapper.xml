@@ -26,6 +26,7 @@
         FOR UPDATE
     </select>
 
+    <!-- 按批次号锁定未删除批次,用于重试时复用同一批次 -->
     <select id="selectByBatchNoForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
         WHERE batch_no = #{batchNo}
@@ -33,6 +34,7 @@
         FOR UPDATE
     </select>
 
+    <!-- 按批次号冲突安全插入虚拟批次,避免重复创建未删除批次 -->
     <insert id="insertIgnoreConflict">
         INSERT INTO torn_stock_virtual_batch
             (batch_no, ledger_type, portfolio_code, stocks_id, stocks_shortname, primary_strategy,

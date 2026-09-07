@@ -6,6 +6,8 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDailySnapshotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHashUtils;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.time.LocalDate;
 import java.util.HashSet;
@@ -26,6 +28,7 @@ public class StockAlphaReadinessGate {
 
     private final TornStocksDAO stocksDAO;
     private final TornStockAlphaDailySnapshotDAO snapshotDAO;
+    private final StockMarketClock marketClock;
 
     /**
      * 判断固定股票池和历史日线预填是否满足正式新入场条件。
@@ -36,7 +39,15 @@ public class StockAlphaReadinessGate {
         return hasValidStockUniverse() && hasWarmupSnapshots();
     }
 
+    /**
+     * 判断固定股票池的定义元数据和数据库成员是否有效。
+     *
+     * @return 股票池摘要匹配、生效时间已到且数据库成员完整有效时返回true
+     */
     private boolean hasValidStockUniverse() {
+        if (!isStockUniverseMetadataValid()) {
+            return false;
+        }
         List<TornStocksDO> stocks = stocksDAO.listByIds(StockAlphaRuleDefinition.stockUniverse());
         if (stocks == null || stocks.size() != StockAlphaRuleDefinition.MEMBER_COUNT) {
             return false;
@@ -53,13 +64,31 @@ public class StockAlphaReadinessGate {
         return actualIds.size() == StockAlphaRuleDefinition.MEMBER_COUNT;
     }
 
+    /**
+     * 校验股票池摘要和生效时间，确保运行时使用已发布的固定成员定义。
+     *
+     * @return 股票池元数据有效时返回true
+     */
+    private boolean isStockUniverseMetadataValid() {
+        String canonicalUniverse = String.join(",", StockAlphaRuleDefinition.stockUniverse().stream()
+                .map(String::valueOf)
+                .toList());
+        return StockAlphaRuleDefinition.STOCK_UNIVERSE_DIGEST.equals(StockHashUtils.sha256(canonicalUniverse))
+                && !marketClock.now().isBefore(StockAlphaRuleDefinition.STOCK_UNIVERSE_EFFECTIVE_AT);
+    }
+
+    /**
+     * 判断是否存在满足预热要求的共同有效日线快照。
+     *
+     * @return 共同有效自然日数量达到预热要求时返回true
+     */
     private boolean hasWarmupSnapshots() {
         List<LocalDate> commonDates = snapshotDAO.selectCommonValidDates(
                 StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
                 StockAlphaRuleDefinition.RULE_VERSION,
                 StockAlphaRuleDefinition.MEMBER_COUNT,
                 MIN_DATE,
-                LocalDate.now());
+                marketClock.today());
         return commonDates != null && commonDates.size() >= StockAlphaRuleDefinition.WARMUP_COMMON_DAYS;
     }
 }

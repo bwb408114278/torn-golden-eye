@@ -16,6 +16,7 @@
         FOR UPDATE
     </select>
 
+    <!-- 按股票、日期、股票池版本和规则版本查询日线快照 -->
     <select id="selectByDateRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO">
         SELECT id, stocks_id, business_date, close_price, source_bar_id, source_bar_start_time,
                stock_universe_version, alpha_rule_version, r20, r1, r20_rank, r1_rank,
@@ -29,6 +30,7 @@
         ORDER BY business_date, stocks_id
     </select>
 
+    <!-- 查询满足全部股票成员数量的共同有效自然日 -->
     <select id="selectCommonValidDates" resultType="java.time.LocalDate">
         SELECT business_date
         FROM torn_stock_alpha_daily_snapshot

@@ -59,6 +59,13 @@ public class StockAlphaDailyCloseService {
         return buildAndPersistDailyCloses(endDate, startDate);
     }
 
+    /**
+     * 从15分钟bar构建并持久化指定日期范围内的日线收盘结果。
+     *
+     * @param endDate   结束日期
+     * @param startDate 起始日期
+     * @return 按日期和股票ID分组的收盘结果
+     */
     private Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> buildAndPersistDailyCloses(
             LocalDate endDate, LocalDate startDate) {
         LocalDateTime start = startDate.atStartOfDay();
@@ -76,6 +83,14 @@ public class StockAlphaDailyCloseService {
         return result;
     }
 
+    /**
+     * 判断已持久化的日线快照是否完整覆盖指定日期范围和全部股票成员。
+     *
+     * @param snapshots 已持久化的日线快照
+     * @param startDate 起始日期
+     * @param endDate   结束日期
+     * @return 快照完整覆盖范围且每天包含全部股票成员时返回true
+     */
     private boolean hasCompleteStoredRange(List<TornStockAlphaDailySnapshotDO> snapshots,
                                            LocalDate startDate, LocalDate endDate) {
         if (snapshots == null || snapshots.isEmpty()) {
@@ -90,6 +105,12 @@ public class StockAlphaDailyCloseService {
                 .allMatch(day -> day.size() == StockAlphaRuleDefinition.MEMBER_COUNT);
     }
 
+    /**
+     * 将日线快照转换为按日期和股票ID索引的收盘结果。
+     *
+     * @param snapshots 日线快照
+     * @return 按日期和股票ID分组的收盘结果
+     */
     private Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> toCloseResults(
             List<TornStockAlphaDailySnapshotDO> snapshots) {
         return snapshots.stream().collect(Collectors.groupingBy(TornStockAlphaDailySnapshotDO::getBusinessDate,

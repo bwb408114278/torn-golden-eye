@@ -275,6 +275,12 @@ public class StockShadowRecordWriter {
         return StockNoticePayloadCanonicalizer.canonicalize(JsonUtils.objToJson(payload));
     }
 
+    /**
+     * 解析批次所属的组合编码。
+     *
+     * @param batch 股票虚拟批次
+     * @return 批次所属组合编码
+     */
     private String resolvePortfolioCode(TornStockVirtualBatchDO batch) {
         return batch.getPortfolioCode();
     }
