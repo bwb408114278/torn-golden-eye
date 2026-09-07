@@ -42,6 +42,22 @@ public class TornStockAlphaDailySnapshotDAO extends ServiceImpl<TornStockAlphaDa
     }
 
     /**
+     * 查询指定版本日期范围内的日线快照。
+     *
+     * @param stockUniverseVersion 股票池版本
+     * @param alphaRuleVersion     α规则版本
+     * @param startDate            起始日期
+     * @param endDate              结束日期
+     * @return 日线快照
+     */
+    public List<TornStockAlphaDailySnapshotDO> selectByDateRange(String stockUniverseVersion,
+                                                                 String alphaRuleVersion,
+                                                                 LocalDate startDate,
+                                                                 LocalDate endDate) {
+        return baseMapper.selectByDateRange(stockUniverseVersion, alphaRuleVersion, startDate, endDate);
+    }
+
+    /**
      * 查询共同有效日期。
      *
      * @param stockUniverseVersion 股票池版本

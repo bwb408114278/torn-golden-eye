@@ -91,8 +91,28 @@ public class StockPortfolioService {
      */
     private static final String SLOT_NULL_MSG = "槽位不能为空";
 
+    /**
+     * 判断批次是否属于α正式组合。
+     *
+     * @param batch 待判断批次
+     * @return 账本为FORMAL且组合为VIP_ALPHA时返回true
+     */
+    public static boolean isAlphaBatch(TornStockVirtualBatchDO batch) {
+        return batch != null && StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                && VIP_ALPHA_PORTFOLIO_CODE.equals(batch.getPortfolioCode());
+    }
 
-    // ==================== 槽位生命周期 ====================
+    /**
+     * 判断批次是否属于旧版正式组合。
+     *
+     * @param batch 待判断批次
+     * @return 账本为FORMAL且组合为VIP_FORMAL时返回true
+     */
+    public static boolean isFormalBatch(TornStockVirtualBatchDO batch) {
+        return batch != null && StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                && PORTFOLIO_CODE.equals(batch.getPortfolioCode());
+    }
+
 
     /**
      * 预留槽位和预算(ENTRY_PENDING阶段)
@@ -324,7 +344,6 @@ public class StockPortfolioService {
      */
     public boolean isSlotBackedLedger(String ledgerType) {
         return StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)
-                || StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(ledgerType)
                 || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(ledgerType);
     }
 

@@ -8,6 +8,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
@@ -58,12 +59,23 @@ class StockPortfolioServiceTest {
 
 
     @Test
-    @DisplayName("账本校验_ VIP_ALPHA允许槽位结算且旧组合账本仍兼容")
-    void isSlotBackedLedger_vipAlphaAndLegacyLedgers_areSupported() {
-        assertTrue(portfolioService.isSlotBackedLedger("VIP_ALPHA"));
-        assertTrue(portfolioService.isSlotBackedLedger("FORMAL"));
-        assertTrue(portfolioService.isSlotBackedLedger("SHADOW_FORMAL_CANDIDATE"));
-        assertFalse(portfolioService.isSlotBackedLedger("UNLIMITED_SHADOW"));
+    @DisplayName("账本校验_ FORMAL账本由组合编码区分旧版与Alpha")
+    void isAlphaBatch_formalLedgerAndAlphaPortfolio_returnsTrue() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+
+        assertTrue(StockPortfolioService.isAlphaBatch(batch));
+        assertFalse(StockPortfolioService.isFormalBatch(batch));
+        assertTrue(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.FORMAL.getCode()));
+        assertTrue(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode()));
+        assertFalse(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode()));
+    }
+
+    @Test
+    @DisplayName("账本校验_旧VIP_ALPHA账本类型不再作为槽位账本")
+    void isSlotBackedLedger_legacyAlphaLedgerType_isRejected() {
+        assertFalse(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.VIP_ALPHA.getCode()));
     }
 
     void calculateQuantity_2BillionDividedBy100_returns20MillionShares() {
@@ -231,7 +243,7 @@ class StockPortfolioServiceTest {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setId(7L);
         batch.setBatchNo("ALPHA-7");
-        batch.setLedgerType("VIP_ALPHA");
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         batch.setStocksId(1001);
         batch.setSlotId(1L);

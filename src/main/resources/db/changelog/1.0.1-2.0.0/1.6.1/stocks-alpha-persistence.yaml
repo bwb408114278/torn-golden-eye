@@ -259,3 +259,27 @@ databaseChangeLog:
         - sql:
             dbms: postgresql
             sql: "CREATE INDEX idx_stock_virtual_batch_alpha_decision ON torn_stock_virtual_batch (alpha_decision_id) WHERE alpha_decision_id IS NOT NULL AND deleted = 0"
+
+  - changeSet:
+      id: normalize_alpha_formal_ledger_and_scope_formal_unique_indexes
+      author: Bai
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: "UPDATE torn_stock_virtual_batch SET ledger_type = 'FORMAL' WHERE ledger_type = 'VIP_ALPHA' AND portfolio_code = 'VIP_ALPHA'"
+        - sql:
+            dbms: postgresql
+            sql: "DROP INDEX IF EXISTS uk_stock_virtual_batch_formal_stock"
+        - sql:
+            dbms: postgresql
+            sql: "DROP INDEX IF EXISTS uk_stock_virtual_batch_formal_slot"
+        - sql:
+            dbms: postgresql
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_portfolio_stock ON torn_stock_virtual_batch (portfolio_code, stocks_id) WHERE ledger_type = 'FORMAL' AND portfolio_code IN ('VIP_FORMAL', 'VIP_ALPHA') AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
+        - sql:
+            dbms: postgresql
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_portfolio_slot ON torn_stock_virtual_batch (portfolio_code, slot_id) WHERE ledger_type = 'FORMAL' AND portfolio_code IN ('VIP_FORMAL', 'VIP_ALPHA') AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
+        - sql:
+            dbms: postgresql
+             sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_stock_virtual_batch_formal_portfolio_code CHECK (ledger_type <> 'FORMAL' OR portfolio_code IN ('VIP_FORMAL', 'VIP_ALPHA'))"
+

@@ -248,7 +248,7 @@ public class StockPortfolioInitService {
             return false;
         }
         Set<Integer> existingSlotNos = collectExistingSlotNos(slots);
-        return expectedSlotNos(portfolioCode).stream().allMatch(existingSlotNos::contains);
+        return existingSlotNos.containsAll(expectedSlotNos(portfolioCode));
     }
 
     /**
@@ -487,7 +487,7 @@ public class StockPortfolioInitService {
             return StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode();
         }
         if (StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)) {
-            return StockLedgerTypeEnum.VIP_ALPHA.getCode();
+            return StockLedgerTypeEnum.FORMAL.getCode();
         }
         return "";
     }

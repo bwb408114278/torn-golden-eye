@@ -57,7 +57,7 @@ class StockAlphaEntryServiceTest {
         when(virtualBatchDAO.selectByBatchNoForUpdate(any())).thenReturn(persisted);
 
         StockAlphaEntryService service = new StockAlphaEntryService(
-                decisionDAO, virtualBatchDAO, new StockPortfolioService(), noticeWriter);
+                decisionDAO, virtualBatchDAO, new StockPortfolioService());
         TornStockVirtualBatchDO result = service.createInitialEntry(
                 ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase());
 
@@ -73,7 +73,6 @@ class StockAlphaEntryServiceTest {
         assertEquals("EXECUTED", decision.getExecutionStatus());
         assertEquals(persisted.getId(), decision.getCurrentBatchId());
         verify(decisionDAO).updateById(decision);
-        verify(noticeWriter).writeNoticeAudits(List.of(persisted), List.of(), ROUND_TIME);
     }
 
     private TornStockAlphaDecisionDO decision() {

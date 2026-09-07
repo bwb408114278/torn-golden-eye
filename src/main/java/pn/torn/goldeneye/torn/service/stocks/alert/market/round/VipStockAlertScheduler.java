@@ -540,7 +540,8 @@ public class VipStockAlertScheduler {
      * @param roundTime     轮次锚定的bar时间
      * @param allowNewEntry 是否允许创建新的正式/候选影子批次,透传给轮次事务
      */
-    private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime, boolean allowNewEntry) {
+    private void processSingleRound(TornStockMarketRoundDO round, LocalDateTime roundTime,
+                                    boolean allowNewEntry) {
         log.debug("VIP股票策略调度-开始处理轮次, roundTime={}, 当前状态={}", roundTime, round.getRoundStatus());
 
         // 防御式第二道防线:查询层白名单(selectPendingRoundsUpTo)已过滤数据修复终态,

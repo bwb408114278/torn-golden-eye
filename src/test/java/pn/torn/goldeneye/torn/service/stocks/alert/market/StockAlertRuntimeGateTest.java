@@ -12,8 +12,10 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadinessGate;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -21,7 +23,7 @@ import static org.mockito.Mockito.when;
  * 新买入开关缺失按false处理,以及历史PENDING通知独立投递。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.08.02
  */
 @DisplayName("股票提醒运行时门禁测试")
@@ -36,12 +38,16 @@ class StockAlertRuntimeGateTest {
     private TornStockNoticeAuditDAO noticeAuditDao;
     @Mock
     private TornStockSignalEventDAO signalEventDao;
+    @Mock
+    private StockAlphaReadinessGate alphaReadinessGate;
 
     private StockAlertRuntimeGate runtimeGate;
 
     @BeforeEach
     void setUp() {
-        runtimeGate = new StockAlertRuntimeGate(sysSettingManager, virtualBatchDao, noticeAuditDao, signalEventDao);
+        runtimeGate = new StockAlertRuntimeGate(sysSettingManager, virtualBatchDao, noticeAuditDao, signalEventDao,
+                alphaReadinessGate);
+        lenient().when(alphaReadinessGate.isReady()).thenReturn(true);
     }
 
     @Test

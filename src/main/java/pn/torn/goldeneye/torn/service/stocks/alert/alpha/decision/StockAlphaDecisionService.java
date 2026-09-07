@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseCalculator;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingCalculator;
@@ -36,26 +37,26 @@ public class StockAlphaDecisionService {
     /**
      * 根据指定日期和执行桶生成或读取唯一α决策。
      *
-     * @param decisionDate          决策日期
-     * @param executionBarStartTime 固定执行bar起点
+     * @param decisionDate 决策日期
+     * @param decisionTime 决策时点
      * @return 已持久化决策
      */
-    public DecisionResult decide(LocalDate decisionDate, LocalDateTime executionBarStartTime) {
-        return decideInternal(decisionDate, null, null, executionBarStartTime);
+    public DecisionResult decide(LocalDate decisionDate, LocalDateTime decisionTime) {
+        return decideInternal(decisionDate, null, null, decisionTime);
     }
 
     /**
      * 根据日期、持仓上下文和固定执行桶生成或读取唯一α决策。
      *
-     * @param decisionDate          决策日期
-     * @param currentStocksId       当前持仓股票ID
-     * @param currentBatchId        当前持仓批次ID
-     * @param executionBarStartTime 固定执行bar起点
+     * @param decisionDate    决策日期
+     * @param currentStocksId 当前持仓股票ID
+     * @param currentBatchId  当前持仓批次ID
+     * @param decisionTime    决策时点
      * @return 已持久化决策
      */
     public DecisionResult decide(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                 LocalDateTime executionBarStartTime) {
-        return decideInternal(decisionDate, currentStocksId, currentBatchId, executionBarStartTime);
+                                 LocalDateTime decisionTime) {
+        return decideInternal(decisionDate, currentStocksId, currentBatchId, decisionTime);
     }
 
     /**
@@ -63,12 +64,15 @@ public class StockAlphaDecisionService {
      *
      * @param decisionDate    计算截止日期
      * @param currentStocksId 当前持仓股票ID
-     * @return 决策结果
+     * @param currentBatchId  当前持仓批次ID
+     * @param decisionTime    决策时点
+     * @return 已持久化决策
      */
     private DecisionResult decideInternal(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                          LocalDateTime executionBarStartTime) {
+                                          LocalDateTime decisionTime) {
         Objects.requireNonNull(decisionDate, "决策日期不能为空");
-        Objects.requireNonNull(executionBarStartTime, "执行bar不能为空");
+        Objects.requireNonNull(decisionTime, "决策时点不能为空");
+        LocalDateTime executionBarStartTime = StockAlphaExecutionBarPolicy.expectedExecutionBarStart(decisionTime);
         DecisionResult result = calculate(decisionDate, currentStocksId, executionBarStartTime);
         if (!result.ready()) {
             return result;

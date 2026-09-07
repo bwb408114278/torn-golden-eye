@@ -342,7 +342,7 @@ class StockRoundTransactionServiceTest {
         stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(), lockedSlots, List.of());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate())
                 .thenReturn(List.of(), List.of(initialAlphaBatch));
-        when(alphaDecisionService.decide(roundTime.toLocalDate().minusDays(1), roundTime))
+        when(alphaDecisionService.decide(roundTime.toLocalDate().minusDays(1), roundTime.minusMinutes(15)))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
                         roundTime.toLocalDate().minusDays(1), true, 60, null, 1001,
                         StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY, 0, roundTime));
@@ -353,7 +353,7 @@ class StockRoundTransactionServiceTest {
 
         InOrder inOrder = inOrder(alphaDecisionService, alphaEntryService, entrySettlementService,
                 batchPathService, alphaRebalanceService);
-        inOrder.verify(alphaDecisionService).decide(roundTime.toLocalDate().minusDays(1), roundTime);
+        inOrder.verify(alphaDecisionService).decide(roundTime.toLocalDate().minusDays(1), roundTime.minusMinutes(15));
         inOrder.verify(alphaEntryService).createInitialEntry(
                 eq(roundTime), any(), eq(roundTime.toLocalDate().minusDays(1)), eq(0));
         inOrder.verify(entrySettlementService).processEntryPending(snapshotCaptor.capture(), any(),
@@ -362,7 +362,7 @@ class StockRoundTransactionServiceTest {
         inOrder.verifyNoMoreInteractions();
         assertTrue(snapshotCaptor.getValue().activeBatches().contains(initialAlphaBatch),
                 "初始Alpha批次必须在EntrySettlement前进入事务内快照");
-        verify(alphaRebalanceService, never()).rebalance(any(), anyInt(), any(), any(), any());
+        verify(alphaRebalanceService, never()).rebalance(any(), anyInt(), any(), any());
         verify(candidateTrackAllocationService).acceptCandidates(
                 any(), any(), any(), any(), any(), eq(roundTime), eq(CandidateAcceptanceTarget.candidateShadow()));
         verify(candidateTrackAllocationService, never()).acceptCandidates(

@@ -9,6 +9,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadinessGate;
 
 /**
  * 股票提醒运行时门禁 - 统一计算轮次构建、存量管理、研究义务、新买入与通知投递判定
@@ -26,7 +27,7 @@ import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.08.02
  */
 @Slf4j
@@ -43,6 +44,7 @@ public class StockAlertRuntimeGate {
     private final TornStockVirtualBatchDAO virtualBatchDao;
     private final TornStockNoticeAuditDAO noticeAuditDao;
     private final TornStockSignalEventDAO signalEventDao;
+    private final StockAlphaReadinessGate alphaReadinessGate;
 
     /**
      * 计算当前运行时判定结果。
@@ -63,7 +65,8 @@ public class StockAlertRuntimeGate {
                 signalEventDao.existsPendingRejectedObservationEvents();
 
         boolean shouldBuildRounds = alertEnabled || existsActiveBatches || existsPendingRejectedObservationEvents;
-        boolean allowNewEntry = alertEnabled && newEntryEnabled && ruleMode != StockRuleModeEnum.OFF;
+        boolean allowNewEntry = alertEnabled && newEntryEnabled && ruleMode != StockRuleModeEnum.OFF
+                && alphaReadinessGate.isReady();
         boolean shouldSendPendingNotices = formalNoticeEnabled && existsPendingNotices;
 
         RuntimeDecision decision = new RuntimeDecision(

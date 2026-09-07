@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockFormalReasonEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
@@ -92,7 +91,7 @@ public class StockBatchExitService {
         Objects.requireNonNull(currentPrice, "当前价格不能为空");
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
 
-        if (StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType())) {
+        if (StockPortfolioService.isAlphaBatch(batch)) {
             return hold("VIP Alpha仅允许ALPHA_REBALANCE目标变化退出");
         }
 

@@ -16,7 +16,6 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaEntryService;
-import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaRebalanceService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
@@ -203,8 +202,7 @@ public class StockRoundTransactionService {
         List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
                 mergedSnapshot, barByStock, featureByStock, roundTime);
 
-        if (hasExistingAlphaBatch && allowNewEntry) {
-            // Alpha存量持仓必须在存量ENTRY/EXIT及路径评估完成后处理。
+        if (hasExistingAlphaBatch) {
             processAlphaRebalance(roundTime, actualProcessingTime, mergedSnapshot);
         }
 
@@ -273,8 +271,7 @@ public class StockRoundTransactionService {
      */
     private boolean hasAlphaBatch(RoundSnapshot snapshot) {
         return snapshot.activeBatches().stream()
-                .anyMatch(batch -> batch != null
-                        && StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType()));
+                .anyMatch(StockPortfolioService::isAlphaBatch);
     }
 
     /**
@@ -287,23 +284,18 @@ public class StockRoundTransactionService {
     private void processAlphaRebalance(LocalDateTime roundTime, LocalDateTime now,
                                        RoundSnapshot snapshot) {
         List<TornStockVirtualBatchDO> alphaBatches = snapshot.activeBatches().stream()
-                .filter(batch -> batch != null
-                        && StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType()))
+                .filter(StockPortfolioService::isAlphaBatch)
                 .toList();
         TornStockVirtualBatchDO current = findOpenAlphaBatch(alphaBatches);
         if (current == null) {
             return;
         }
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime);
+                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime.minusMinutes(15));
         if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
             return;
         }
-        LocalDateTime decisionTime = roundTime.minusMinutes(15);
-        if (!roundTime.equals(StockAlphaExecutionBarPolicy.expectedExecutionBarStart(decisionTime))) {
-            return;
-        }
-        alphaRebalanceService.rebalance(decision.decisionDate(), decision.phase(), decisionTime, now, snapshot);
+        alphaRebalanceService.rebalance(decision.decisionDate(), decision.phase(), now, snapshot);
     }
 
     /**
@@ -330,7 +322,7 @@ public class StockRoundTransactionService {
      */
     private void createInitialAlphaEntry(LocalDateTime roundTime, RoundSnapshot snapshot) {
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), roundTime);
+                roundTime.toLocalDate().minusDays(1), roundTime.minusMinutes(15));
         if (decision != null && decision.ready()
                 && decision.event() == StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY) {
             alphaEntryService.createInitialEntry(roundTime, snapshot, decision.decisionDate(), decision.phase());

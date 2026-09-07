@@ -40,7 +40,6 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class StockAlphaRebalanceServiceTest {
-    private static final LocalDateTime DECISION_TIME = LocalDateTime.of(2026, 9, 5, 0, 10);
     private static final LocalDateTime EXECUTION_TIME = LocalDateTime.of(2026, 9, 5, 0, 15);
 
     @Mock
@@ -63,12 +62,21 @@ class StockAlphaRebalanceServiceTest {
         persisted.setId(99L);
         persisted.setBatchNo("AR-2026-09-05-0-11");
         persisted.setExpectedExitBarTime(EXECUTION_TIME.plusMinutes(15));
+        persisted.setEntryReferencePrice(new BigDecimal("10"));
+        persisted.setQuantity(1L);
+        persisted.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
+        persisted.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        persisted.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         when(decisionDAO.selectByBusinessKeyForUpdate(LocalDate.of(2026, 9, 5), 0)).thenReturn(decision);
         when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenReturn(List.of(slot));
         when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(current));
         when(batchDAO.insertIgnoreConflict(any())).thenReturn(1);
-        when(batchDAO.selectByBatchNoForUpdate(persisted.getBatchNo())).thenReturn(null, persisted);
+        when(batchDAO.selectByBatchNoForUpdate(persisted.getBatchNo())).thenAnswer(invocation -> {
+            persisted.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+            persisted.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+            return null;
+        }).thenReturn(persisted);
         when(portfolioService.settleSlotBacked(current, slot, new BigDecimal("110"),
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenAnswer(invocation -> {
@@ -79,9 +87,17 @@ class StockAlphaRebalanceServiceTest {
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter);
         StockAlphaRebalanceService.RebalanceResult result = service.rebalance(
-                LocalDate.of(2026, 9, 5), 0, DECISION_TIME, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot());
+                LocalDate.of(2026, 9, 5), 0, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot());
 
         assertEquals(99L, result.boughtBatchId());
+        verify(batchDAO).insertIgnoreConflict(any());
+        ArgumentCaptor<TornStockVirtualBatchDO> replacementCaptor = ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
+        verify(batchDAO).insertIgnoreConflict(replacementCaptor.capture());
+        TornStockVirtualBatchDO replacement = replacementCaptor.getValue();
+        assertEquals(StockLedgerTypeEnum.FORMAL.getCode(), replacement.getLedgerType());
+        assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, replacement.getPortfolioCode());
+        assertNotNull(replacement.getFollowUntil());
+        assertNotNull(replacement.getFollowMaxPrice());
         assertEquals(99L, slot.getCurrentBatchId());
         assertEquals(99L, decision.getCurrentBatchId());
         ArgumentCaptor<List<TornStockVirtualBatchDO>> entries = ArgumentCaptor.forClass(List.class);
@@ -108,7 +124,7 @@ class StockAlphaRebalanceServiceTest {
         LocalDate decisionDate = LocalDate.of(2026, 9, 5);
         LocalDateTime processingTime = LocalDateTime.of(2026, 9, 5, 0, 31);
         assertThrows(IllegalStateException.class, () -> service.rebalance(
-                decisionDate, 0, DECISION_TIME, processingTime, snapshot));
+                decisionDate, 0, processingTime, snapshot));
     }
 
     private TornStockAlphaDecisionDO decision(Long id) {
@@ -128,7 +144,7 @@ class StockAlphaRebalanceServiceTest {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setId(7L);
         batch.setBatchNo("A-OLD");
-        batch.setLedgerType(StockLedgerTypeEnum.VIP_ALPHA.getCode());
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         batch.setStocksId(1001);
         batch.setSlotId(1L);

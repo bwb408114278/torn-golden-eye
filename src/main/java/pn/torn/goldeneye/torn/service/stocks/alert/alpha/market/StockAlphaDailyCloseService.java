@@ -8,6 +8,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,7 +29,7 @@ public class StockAlphaDailyCloseService {
     /**
      * 收盘bar构建版本。
      */
-    private static final String BAR_BUILD_VERSION = "1.2.0";
+    private static final String BAR_BUILD_VERSION = Stock15mBarBuildService.BUILD_VERSION;
     /**
      * 15分钟bar数据访问对象。
      */
@@ -47,6 +48,19 @@ public class StockAlphaDailyCloseService {
     public Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loadDailyCloses(
             LocalDate endDate) {
         LocalDate startDate = endDate.minusDays(StockAlphaRuleDefinition.WARMUP_COMMON_DAYS + 20L);
+        List<TornStockAlphaDailySnapshotDO> storedSnapshots = snapshotDao.selectByDateRange(
+                StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
+                StockAlphaRuleDefinition.RULE_VERSION,
+                startDate,
+                endDate);
+        if (hasCompleteStoredRange(storedSnapshots, startDate, endDate)) {
+            return toCloseResults(storedSnapshots);
+        }
+        return buildAndPersistDailyCloses(endDate, startDate);
+    }
+
+    private Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> buildAndPersistDailyCloses(
+            LocalDate endDate, LocalDate startDate) {
         LocalDateTime start = startDate.atStartOfDay();
         LocalDateTime end = endDate.plusDays(1).atStartOfDay();
         List<TornStockMarketBar15mDO> bars = barDao.selectByStocksAndTimeRange(
@@ -60,6 +74,30 @@ public class StockAlphaDailyCloseService {
                                                 values.getFirst().getBarStartTime().toLocalDate(), values)))));
         result.values().forEach(daily -> daily.values().forEach(this::persistSnapshot));
         return result;
+    }
+
+    private boolean hasCompleteStoredRange(List<TornStockAlphaDailySnapshotDO> snapshots,
+                                           LocalDate startDate, LocalDate endDate) {
+        if (snapshots == null || snapshots.isEmpty()) {
+            return false;
+        }
+        return snapshots.stream()
+                .filter(snapshot -> snapshot.getBusinessDate() != null
+                        && !snapshot.getBusinessDate().isBefore(startDate)
+                        && !snapshot.getBusinessDate().isAfter(endDate))
+                .collect(Collectors.groupingBy(TornStockAlphaDailySnapshotDO::getBusinessDate))
+                .values().stream()
+                .allMatch(day -> day.size() == StockAlphaRuleDefinition.MEMBER_COUNT);
+    }
+
+    private Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> toCloseResults(
+            List<TornStockAlphaDailySnapshotDO> snapshots) {
+        return snapshots.stream().collect(Collectors.groupingBy(TornStockAlphaDailySnapshotDO::getBusinessDate,
+                Collectors.toMap(TornStockAlphaDailySnapshotDO::getStocksId,
+                        snapshot -> new StockAlphaDailyCloseCalculator.CloseResult(
+                                snapshot.getStocksId(), snapshot.getBusinessDate(), snapshot.getClosePrice(),
+                                snapshot.getSourceBarId(), snapshot.getSourceBarStartTime()),
+                        (left, right) -> left)));
     }
 
     /**

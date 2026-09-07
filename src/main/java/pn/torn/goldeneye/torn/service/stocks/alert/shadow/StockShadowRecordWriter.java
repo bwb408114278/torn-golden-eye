@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDateTime;
@@ -111,7 +112,8 @@ public class StockShadowRecordWriter {
         }
         return batches.stream()
                 .filter(batch -> StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
-                        || StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType()))
+                        && (StockPortfolioService.PORTFOLIO_CODE.equals(batch.getPortfolioCode())
+                        || StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(batch.getPortfolioCode())))
                 .toList();
     }
 
@@ -274,13 +276,7 @@ public class StockShadowRecordWriter {
     }
 
     private String resolvePortfolioCode(TornStockVirtualBatchDO batch) {
-        if (StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType())) {
-            return "VIP_ALPHA";
-        }
-        if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
-            return "VIP_FORMAL";
-        }
-        return batch.getLedgerType();
+        return batch.getPortfolioCode();
     }
 
     /**

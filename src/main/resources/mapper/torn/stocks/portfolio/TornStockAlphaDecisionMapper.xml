@@ -29,18 +29,17 @@
              selected_stocks_id, source_snapshot_digest, execution_bar_start_time, execution_status,
              failure_reason, rebalance_batch_id, deleted, create_time, update_time)
         VALUES
-            (#{decision.decisionBusinessDate}, #{decision.commonDayIndex}, #{decision.phase}, #{decision.decisionType},
-             #{decision.currentBatchId}, #{decision.selectedStocksId}, #{decision.sourceSnapshotDigest},
-             #{decision.executionBarStartTime}, #{decision.executionStatus}, #{decision.failureReason},
-             #{decision.rebalanceBatchId}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             (#{decision.decisionBusinessDate}, #{decision.commonDayIndex}, #{decision.phase}, #{decision.decisionType},
+              #{decision.currentBatchId}, #{decision.selectedStocksId}, #{decision.sourceSnapshotDigest},
+              #{decision.executionBarStartTime}, #{decision.executionStatus}, #{decision.failureReason},
+              #{decision.rebalanceBatchId}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (decision_business_date, phase) WHERE deleted = 0
         DO UPDATE SET common_day_index = EXCLUDED.common_day_index,
                       decision_type = EXCLUDED.decision_type,
                       current_batch_id = EXCLUDED.current_batch_id,
                       selected_stocks_id = EXCLUDED.selected_stocks_id,
-                       source_snapshot_digest = EXCLUDED.source_snapshot_digest,
-                       execution_bar_start_time = EXCLUDED.execution_bar_start_time,
-                       update_time = CURRENT_TIMESTAMP
+                      source_snapshot_digest = EXCLUDED.source_snapshot_digest,
+                      update_time = CURRENT_TIMESTAMP
         WHERE torn_stock_alpha_decision.execution_status = 'PENDING'
     </insert>
 </mapper>

@@ -16,7 +16,6 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -44,7 +43,6 @@ public class StockAlphaEntryService {
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
     private final StockPortfolioService portfolioService;
-    private final StockShadowRecordWriter noticeWriter;
 
     /**
      * 消费当前执行轮次对应的初始α决策。
@@ -89,7 +87,6 @@ public class StockAlphaEntryService {
         markExecuted(decision, persisted);
         log.info("Alpha初始批次创建: decisionDate={}, stocksId={}, batchNo={}, slotNo={}",
                 decisionDate, persisted.getStocksId(), persisted.getBatchNo(), slot.getSlotNo());
-        noticeWriter.writeNoticeAudits(List.of(persisted), List.of(), roundTime);
         return persisted;
     }
 
@@ -131,7 +128,7 @@ public class StockAlphaEntryService {
             throw new IllegalStateException("Alpha初始入场决策或执行bar关键字段缺失");
         }
         if (!roundTime.equals(expected) || !expected.equals(bar.getBarStartTime())
-                || !StockAlphaExecutionBarPolicy.isExecutable(roundTime.minusMinutes(15), toExecutionBar(bar),
+                || !StockAlphaExecutionBarPolicy.isExecutable(expected.minusMinutes(15), toExecutionBar(bar),
                 roundTime.plusMinutes(15))) {
             throw new IllegalStateException("Alpha初始入场bar不是严格下一根可执行bar: roundTime=" + roundTime);
         }
@@ -145,7 +142,7 @@ public class StockAlphaEntryService {
      */
     private TornStockVirtualBatchDO findActiveAlphaBatch(RoundSnapshot snapshot) {
         return snapshot.activeBatches().stream()
-                .filter(batch -> StockLedgerTypeEnum.VIP_ALPHA.getCode().equals(batch.getLedgerType()))
+                .filter(StockPortfolioService::isAlphaBatch)
                 .findFirst().orElse(null);
     }
 
@@ -261,7 +258,7 @@ public class StockAlphaEntryService {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
         batch.setBatchNo("A" + decision.getDecisionBusinessDate().format(DateTimeFormatter.BASIC_ISO_DATE)
                 + "-" + decision.getPhase());
-        batch.setLedgerType(StockLedgerTypeEnum.VIP_ALPHA.getCode());
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
         batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         batch.setStocksId(decision.getSelectedStocksId());
         batch.setStocksShortname(bar.getStocksShortname());
