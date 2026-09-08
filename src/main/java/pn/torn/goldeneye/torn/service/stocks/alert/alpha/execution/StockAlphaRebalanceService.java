@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
@@ -29,6 +30,7 @@ import java.util.Objects;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class StockAlphaRebalanceService {
@@ -48,16 +50,27 @@ public class StockAlphaRebalanceService {
 
     /**
      * 在同一事务内完成α原仓SELL与新仓BUY。
+     * <p>
+     * 决策锁定键固定为"决策业务日 + phase + 当前轮次执行桶":持久化执行桶与当前轮次不一致时
+     * 读不到决策,直接fail-closed跳过,不换仓、不写批次、不发送通知,也不跨桶追补,
+     * 更不抛出异常把轮次钉死在可重试失败状态。
      *
      * @param decisionDate 决策日期
+     * @param phase        决策阶段
      * @param now          当前校验时点
      * @param snapshot     当前轮次行情快照
-     * @return 换仓结果
+     * @return 换仓结果;未消费到同执行桶决策时三个分量均为null
      */
     @Transactional(rollbackFor = Exception.class)
     public RebalanceResult rebalance(LocalDate decisionDate, int phase, LocalDateTime now,
                                      RoundSnapshot snapshot) {
-        TornStockAlphaDecisionDO decision = decisionDAO.selectByBusinessKeyForUpdate(decisionDate, phase);
+        LocalDateTime roundTime = snapshot.roundTime();
+        TornStockAlphaDecisionDO decision = decisionDAO.selectByExecutionKeyForUpdate(decisionDate, phase, roundTime);
+        if (decision == null) {
+            log.warn("α换仓未读到同执行桶的持久化决策,本次跳过换仓: decisionDate={}, phase={}, roundTime={}",
+                    decisionDate, phase, roundTime);
+            return new RebalanceResult(null, null, null);
+        }
         if (isExecutedRebalance(decision)) {
             return new RebalanceResult(null, decision.getRebalanceBatchId(), decision.getExecutionBarStartTime());
         }
@@ -67,9 +80,6 @@ public class StockAlphaRebalanceService {
         validateDecision(decision, decisionDate, phase, current, slot);
         LocalDateTime executionBarStart =
                 StockAlphaExecutionBarPolicy.requireExecutionBar(decision.getExecutionBarStartTime());
-        if (!Objects.equals(executionBarStart, snapshot.roundTime())) {
-            throw new IllegalStateException("α换仓执行桶与当前轮次不一致");
-        }
 
         TornStockMarketBar15mDO sellBar = findBar(snapshot, current.getStocksId(), executionBarStart);
         TornStockMarketBar15mDO buyBar = findBar(snapshot, decision.getSelectedStocksId(), executionBarStart);

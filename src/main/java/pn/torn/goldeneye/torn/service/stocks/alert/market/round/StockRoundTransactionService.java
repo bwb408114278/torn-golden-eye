@@ -279,6 +279,7 @@ public class StockRoundTransactionService {
      * <p>
      * 决策读取以本轮执行桶{@code roundTime}为唯一显式事实,执行阶段只消费决策表中已持久化的
      * {@code execution_bar_start_time};延迟补偿只通过{@code now}判断过期,不改写历史执行桶。
+     * 持久化执行桶与本轮不一致时只跳过换仓并告警,不跨桶追补,也不抛异常把轮次钉死在可重试失败状态。
      *
      * @param roundTime 轮次时间(执行桶)
      * @param now       当前校验时间
@@ -296,6 +297,12 @@ public class StockRoundTransactionService {
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
                 roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime);
         if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
+            return;
+        }
+        if (!roundTime.equals(decision.executionBarStartTime())) {
+            log.warn("α换仓决策执行桶与当前轮次不一致,本次不换仓且不跨桶追补: decisionDate={}, phase={}, "
+                            + "decisionExecutionBar={}, roundTime={}",
+                    decision.decisionDate(), decision.phase(), decision.executionBarStartTime(), roundTime);
             return;
         }
         alphaRebalanceService.rebalance(decision.decisionDate(), decision.phase(), now, snapshot);

@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -34,6 +35,7 @@ import static org.mockito.Mockito.*;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@DisplayName("α策略初始入场服务测试")
 @ExtendWith(MockitoExtension.class)
 class StockAlphaEntryServiceTest {
     private static final LocalDateTime ROUND_TIME = LocalDateTime.of(2026, 9, 5, 10, 0);
@@ -46,6 +48,7 @@ class StockAlphaEntryServiceTest {
     private StockShadowRecordWriter noticeWriter;
 
     @Test
+    @DisplayName("初始入场_持久化待入场批次并预留资金且标记决策已执行")
     void createInitialEntry_shouldPersistAlphaBatchReserveSlotAndExecuteDecision() {
         TornStockAlphaDecisionDO decision = decision();
         TornStockPortfolioSlotDO slot = slot();
@@ -77,6 +80,7 @@ class StockAlphaEntryServiceTest {
     }
 
     @Test
+    @DisplayName("初始入场_轮次不是持久化执行桶时拒绝且不写批次")
     void createInitialEntry_rejectsRoundTimeOtherThanPersistedExecutionBar() {
         TornStockAlphaDecisionDO decision = decision();
         TornStockPortfolioSlotDO slot = slot();

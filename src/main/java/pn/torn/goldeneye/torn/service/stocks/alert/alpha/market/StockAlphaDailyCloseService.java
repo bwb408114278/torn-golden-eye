@@ -23,7 +23,8 @@ import java.util.stream.Collectors;
  * 本服务区分三类动作,避免历史日线写入进入轮次资金事务:
  * <ol>
  *   <li>{@link #loadDailyCloses(LocalDate)}: 正式决策读取,只读且完整性不满足时fail-closed返回空结果。</li>
- *   <li>{@link #buildDailyClosesForEndedDay(LocalDateTime)}: 自然日最后一个15分钟桶结束后的快照构建。</li>
+ *   <li>{@link #buildDailyClosesForEndedDay(LocalDateTime)}: 最近已结束自然日的快照构建,
+ *       首次触发点为自然日最后一个15分钟桶(23:45),未完整时后续轮次继续重试。</li>
  *   <li>{@link #buildDailyCloses(LocalDate)}: 预填与缺口修复,只对缺失或不完整日期批量写入。</li>
  * </ol>
  *
@@ -86,16 +87,70 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 在自然日最后一个15分钟桶结束后构建当日及历史缺口的日线收盘快照。
+     * 在自然日结束后构建该自然日及历史缺口的日线收盘快照。
+     * <p>
+     * 生产触发语义固定如下,不得再收窄为单一桶:
+     * <ol>
+     *   <li>自然日最后一个15分钟桶(23:45)所在轮次是该自然日的第一次构建触发点,并按决策窗口补齐历史缺口;</li>
+     *   <li>该自然日快照仍未完整时,后续每个已结束轮次继续以同一"最近已结束自然日"为界重试,
+     *       直到补齐或自然日推进;</li>
+     *   <li>已结束自然日快照完整时,非最后桶不读取bar、不写入;</li>
+     *   <li>只有已结束自然日参与构建,绝不构建尚未结束的当前自然日。</li>
+     * </ol>
+     * 长期无法自然补齐的已结束自然日仍由超管预填入口修复;构建失败不进入轮次资金事务,
+     * 缺失日期不会被判定为完整,下一次触发仍会重新补齐。
      *
      * @param roundTime 已结束的轮次bar起点
      * @return 本次写入的快照条数
      */
     public int buildDailyClosesForEndedDay(LocalDateTime roundTime) {
-        if (roundTime == null || !LAST_DAY_BUCKET_START.equals(roundTime.toLocalTime())) {
+        LocalDate endedDay = lastEndedNaturalDay(roundTime);
+        if (endedDay == null) {
             return 0;
         }
-        return buildDailyCloses(roundTime.toLocalDate());
+        if (!isLastBucketOfNaturalDay(roundTime) && isDayComplete(endedDay)) {
+            return 0;
+        }
+        return buildDailyCloses(endedDay);
+    }
+
+    /**
+     * 判断轮次是否为自然日最后一个15分钟桶。
+     *
+     * @param roundTime 已结束的轮次bar起点
+     * @return 是自然日最后一个15分钟桶时返回true
+     */
+    private boolean isLastBucketOfNaturalDay(LocalDateTime roundTime) {
+        return LAST_DAY_BUCKET_START.equals(roundTime.toLocalTime());
+    }
+
+    /**
+     * 返回轮次对应的最近已结束自然日。
+     * <p>
+     * 23:45桶是自然日的最后一个15分钟桶,其所属自然日即为已结束自然日;
+     * 其余桶所在自然日尚未结束,最近已结束自然日为其前一自然日。
+     *
+     * @param roundTime 已结束的轮次bar起点
+     * @return 最近已结束自然日;轮次为空时返回null
+     */
+    private LocalDate lastEndedNaturalDay(LocalDateTime roundTime) {
+        if (roundTime == null) {
+            return null;
+        }
+        return isLastBucketOfNaturalDay(roundTime)
+                ? roundTime.toLocalDate()
+                : roundTime.toLocalDate().minusDays(1);
+    }
+
+    /**
+     * 判断指定自然日的快照是否已完整覆盖固定股票池。
+     *
+     * @param date 已结束自然日
+     * @return 该日35支成员快照均合法时返回true
+     */
+    private boolean isDayComplete(LocalDate date) {
+        DateRange range = DateRange.singleDay(date);
+        return missingDates(selectSnapshots(range), range).isEmpty();
     }
 
     /**
@@ -365,6 +420,19 @@ public class StockAlphaDailyCloseService {
             }
             long windowDays = StockAlphaRuleDefinition.WARMUP_COMMON_DAYS + (long) HISTORY_BUFFER_DAYS;
             return new DateRange(endDate.minusDays(windowDays), endDate);
+        }
+
+        /**
+         * 构建只包含指定自然日的闭区间日期范围。
+         *
+         * @param date 自然日
+         * @return 日期范围
+         */
+        private static DateRange singleDay(LocalDate date) {
+            if (date == null) {
+                throw new IllegalArgumentException("α日线自然日不能为空");
+            }
+            return new DateRange(date, date);
         }
 
         /**

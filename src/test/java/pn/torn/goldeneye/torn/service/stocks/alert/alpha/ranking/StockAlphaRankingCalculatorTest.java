@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -18,14 +19,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@DisplayName("α策略排名计算器测试")
 class StockAlphaRankingCalculatorTest {
     @Test
+    @DisplayName("排名_股票池不完整时拒绝计算")
     void incompleteUniverseIsRejected() {
         Map<Integer, List<BigDecimal>> closes = new HashMap<>();
         assertThrows(IllegalArgumentException.class, () -> StockAlphaRankingCalculator.calculate(closes));
     }
 
     @Test
+    @DisplayName("排名_稳定排序_同分平均名次且精度为18位")
     void usesStableOrderAverageRankAndScale18() {
         Map<Integer, List<BigDecimal>> closes = new HashMap<>();
         for (int stockId = 1; stockId <= 35; stockId++) {
@@ -39,7 +43,8 @@ class StockAlphaRankingCalculatorTest {
         assertEquals(1, result.getFirst().rankPosition());
         assertEquals(18, result.get(17).rankPosition());
         assertEquals(18, result.get(17).alphaScore().scale());
-        assertEquals(result.stream().filter(item -> item.r20().compareTo(result.getFirst().r20()) == 0)
-                .map(StockAlphaRankingResult::r20Rank).distinct().count(), 1);
+        assertEquals(1, result.stream()
+                .filter(item -> item.r20().compareTo(result.getFirst().r20()) == 0)
+                .map(StockAlphaRankingResult::r20Rank).distinct().count());
     }
 }

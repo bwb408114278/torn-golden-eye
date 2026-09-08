@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -36,6 +37,7 @@ import static org.mockito.Mockito.*;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@DisplayName("α策略原子换仓服务编排契约测试")
 @ExtendWith(MockitoExtension.class)
 class StockAlphaRebalanceServiceTest {
     private static final LocalDateTime EXECUTION_TIME = LocalDateTime.of(2026, 9, 5, 0, 15);
@@ -52,6 +54,7 @@ class StockAlphaRebalanceServiceTest {
     private StockShadowRecordWriter noticeWriter;
 
     @Test
+    @DisplayName("原子换仓_持久化新仓并绑定数据库批次ID")
     void rebalance_persistsAndBindsDatabaseReplacementId() {
         TornStockAlphaDecisionDO decision = decision(11L);
         TornStockVirtualBatchDO current = currentBatch();
@@ -65,7 +68,8 @@ class StockAlphaRebalanceServiceTest {
         persisted.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
         persisted.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         persisted.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
-        when(decisionDAO.selectByBusinessKeyForUpdate(LocalDate.of(2026, 9, 5), 0)).thenReturn(decision);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                .thenReturn(decision);
         when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenReturn(List.of(slot));
         when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(current));
@@ -106,10 +110,12 @@ class StockAlphaRebalanceServiceTest {
     }
 
     @Test
+    @DisplayName("原子换仓_换仓批次编号已存在时拒绝")
     void rebalance_rejectsExistingReplacementBatchNo() {
         TornStockAlphaDecisionDO decision = decision(11L);
         TornStockVirtualBatchDO current = currentBatch();
-        when(decisionDAO.selectByBusinessKeyForUpdate(LocalDate.of(2026, 9, 5), 0)).thenReturn(decision);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                .thenReturn(decision);
         when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenReturn(List.of(slot()));
         when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(current));
@@ -126,11 +132,13 @@ class StockAlphaRebalanceServiceTest {
     }
 
     @Test
+    @DisplayName("原子换仓_已执行决策重试不重复写入事实与通知")
     void rebalance_alreadyExecuted_retryWritesNoDuplicateNoticeOrFact() {
         TornStockAlphaDecisionDO decision = decision(11L);
         decision.setExecutionStatus("EXECUTED");
         decision.setRebalanceBatchId(99L);
-        when(decisionDAO.selectByBusinessKeyForUpdate(LocalDate.of(2026, 9, 5), 0)).thenReturn(decision);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                .thenReturn(decision);
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter);
@@ -150,11 +158,13 @@ class StockAlphaRebalanceServiceTest {
     }
 
     @Test
+    @DisplayName("原子换仓_新仓插入失败不产生单腿事实")
     void rebalance_insertFailure_persistsNoSingleLegFact() {
         TornStockAlphaDecisionDO decision = decision(11L);
         TornStockVirtualBatchDO current = currentBatch();
         TornStockPortfolioSlotDO slot = slot();
-        when(decisionDAO.selectByBusinessKeyForUpdate(LocalDate.of(2026, 9, 5), 0)).thenReturn(decision);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                .thenReturn(decision);
         when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenReturn(List.of(slot));
         when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(current));
@@ -176,6 +186,30 @@ class StockAlphaRebalanceServiceTest {
         verify(decisionDAO, never()).updateById(decision);
         verify(slotDAO, never()).updateById(slot);
         verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("原子换仓_持久化执行桶与当前轮次不一致时不读取决策且不写入任何事实")
+    void rebalance_otherExecutionBar_writesNoFact() {
+        LocalDateTime laterExecutionBar = EXECUTION_TIME.plusMinutes(15);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, laterExecutionBar))
+                .thenReturn(null);
+
+        StockAlphaRebalanceService service = new StockAlphaRebalanceService(
+                decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter);
+        RoundSnapshot snapshot = new RoundSnapshot(List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), laterExecutionBar);
+
+        StockAlphaRebalanceService.RebalanceResult result = service.rebalance(
+                LocalDate.of(2026, 9, 5), 0, LocalDateTime.of(2026, 9, 5, 0, 46), snapshot);
+
+        assertNull(result.soldBatchId(), "跨执行桶不得卖出原仓");
+        assertNull(result.boughtBatchId(), "跨执行桶不得买入新仓");
+        assertNull(result.executionBarStartTime());
+        verify(decisionDAO).selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, laterExecutionBar);
+        verifyNoInteractions(slotDAO, batchDAO);
+        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
+        verify(decisionDAO, never()).updateById(any(TornStockAlphaDecisionDO.class));
     }
 
     private TornStockAlphaDecisionDO decision(Long id) {

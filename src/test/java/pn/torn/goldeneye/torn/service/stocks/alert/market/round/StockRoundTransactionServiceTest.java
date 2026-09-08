@@ -456,6 +456,29 @@ class StockRoundTransactionServiceTest {
         verify(buySignalEvaluator, never()).evaluateSignals(any(), any(), any(), any(), any());
     }
 
+    @Test
+    @DisplayName("已有Alpha持仓且决策执行桶与本轮不一致_跳过换仓且不跨桶追补")
+    void executeRound_decisionExecutionBarMismatch_skipsRebalance() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(),
+                lockedSlots, List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
+        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 65, null, 5002,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED, 1,
+                        roundTime.minusMinutes(15)));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaRebalanceService, never()).rebalance(any(), anyInt(), any(), any());
+    }
+
     /**
      * 创建Alpha待买入批次,用于验证事务内快照刷新。
      *

@@ -145,6 +145,42 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
+    @DisplayName("日线构建_自然日最后桶首次构建且后续轮次对仍缺失的已结束日重试")
+    void buildDailyClosesForEndedDay_buildsAtLastBucketAndRetriesOnLaterRound() {
+        when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
+                eq(StockAlphaRuleDefinition.RULE_VERSION), any(), any()))
+                .thenReturn(completeWindow(END_DATE.minusDays(1)));
+        when(barDao.selectByStocksAndTimeRange(eq(StockAlphaRuleDefinition.stockUniverse()), any(), any(), any()))
+                .thenReturn(completeDayBars(END_DATE));
+        when(snapshotDao.batchInsertIgnoreConflict(any())).thenReturn(StockAlphaRuleDefinition.MEMBER_COUNT);
+
+        StockAlphaDailyCloseService service =
+                new StockAlphaDailyCloseService(barDao, snapshotDao);
+
+        assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT,
+                service.buildDailyClosesForEndedDay(END_DATE.atTime(23, 45)), "自然日最后桶必须触发构建");
+        assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT,
+                service.buildDailyClosesForEndedDay(END_DATE.plusDays(1).atTime(0, 15)),
+                "已结束自然日仍未完整时后续轮次必须重试");
+    }
+
+    @Test
+    @DisplayName("日线构建_已结束自然日已完整时不扫描bar且不写入")
+    void buildDailyClosesForEndedDay_skipsScanWhenEndedDayComplete() {
+        when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
+                eq(StockAlphaRuleDefinition.RULE_VERSION), any(), any()))
+                .thenReturn(completeWindow(END_DATE));
+
+        StockAlphaDailyCloseService service =
+                new StockAlphaDailyCloseService(barDao, snapshotDao);
+
+        assertEquals(0, service.buildDailyClosesForEndedDay(END_DATE.atTime(23, 45)));
+        assertEquals(0, service.buildDailyClosesForEndedDay(END_DATE.plusDays(1).atTime(0, 15)));
+        verifyNoInteractions(barDao);
+        verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
+    }
+
+    @Test
     @DisplayName("日线读取_窗口完整时返回按日期索引的收盘结果")
     void loadDailyCloses_returnsIndexedResultsWhenEveryDateComplete() {
         List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>();

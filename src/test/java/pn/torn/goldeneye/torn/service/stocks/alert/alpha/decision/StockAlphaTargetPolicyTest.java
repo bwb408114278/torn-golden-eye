@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
 
@@ -15,8 +16,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@DisplayName("α策略目标迟滞策略测试")
 class StockAlphaTargetPolicyTest {
     @Test
+    @DisplayName("决策日_第60个共同有效日决策且之后每5个共同有效日决策")
     void decidesAt60AndEveryFiveDays() {
         var rankings = rankings();
         assertEquals(StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, StockAlphaTargetPolicy.decide(59, rankings, null).event());
@@ -26,6 +29,7 @@ class StockAlphaTargetPolicyTest {
     }
 
     @Test
+    @DisplayName("迟滞_持仓在Top3内保持且跌出Top3才换仓")
     void holdsTop3AndChangesOnlyWhenOutsideTop3() {
         var rankings = rankings();
         assertEquals(StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_HELD, StockAlphaTargetPolicy.decide(60, rankings, 3).event());

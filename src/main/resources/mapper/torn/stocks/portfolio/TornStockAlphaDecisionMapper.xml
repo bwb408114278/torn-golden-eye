@@ -10,6 +10,16 @@
         FOR UPDATE
     </select>
 
+    <!-- 按决策日期、phase和执行桶锁定决策记录,执行阶段禁止跨桶消费 -->
+    <select id="selectByExecutionKeyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO">
+        SELECT * FROM torn_stock_alpha_decision
+        WHERE decision_business_date = #{decisionBusinessDate}
+          AND phase = #{phase}
+          AND execution_bar_start_time = #{executionBarStartTime}
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
     <!-- 按决策日期、phase和执行桶锁定待消费的初始入场决策 -->
     <select id="selectPendingInitialEntryForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO">
         SELECT * FROM torn_stock_alpha_decision

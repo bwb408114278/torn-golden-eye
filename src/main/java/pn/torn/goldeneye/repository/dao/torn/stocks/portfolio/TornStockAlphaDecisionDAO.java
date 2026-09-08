@@ -29,6 +29,21 @@ public class TornStockAlphaDecisionDAO extends ServiceImpl<TornStockAlphaDecisio
     }
 
     /**
+     * 按决策日期、phase和执行桶锁定决策记录。
+     * <p>
+     * 执行阶段以"决策业务键+持久化执行桶"锁定,执行桶不一致时返回null,由调用方fail-closed跳过。
+     *
+     * @param decisionBusinessDate  决策自然日
+     * @param phase                 phase编号
+     * @param executionBarStartTime 持久化执行bar起点
+     * @return 决策记录;执行桶不一致时返回null
+     */
+    public TornStockAlphaDecisionDO selectByExecutionKeyForUpdate(LocalDate decisionBusinessDate, Integer phase,
+                                                                  LocalDateTime executionBarStartTime) {
+        return baseMapper.selectByExecutionKeyForUpdate(decisionBusinessDate, phase, executionBarStartTime);
+    }
+
+    /**
      * 按决策日期、phase和执行桶锁定待消费的初始入场决策。
      *
      * @param decisionBusinessDate  决策自然日

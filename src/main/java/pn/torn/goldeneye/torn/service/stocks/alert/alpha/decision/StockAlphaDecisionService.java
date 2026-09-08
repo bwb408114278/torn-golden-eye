@@ -80,31 +80,92 @@ public class StockAlphaDecisionService {
         LocalDateTime executionBar = StockAlphaExecutionBarPolicy.requireExecutionBar(executionBarStart);
         Calculation calculation = calculate(decisionDate, currentStocksId);
         if (!calculation.ready()) {
-            return new DecisionResult(decisionDate, false, calculation.commonDayCount(), null, null,
-                    StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, executionBar);
+            return notReady(calculation, executionBar);
         }
         int phase = phaseOf(calculation.commonDayCount());
-        DecisionResult ready = new DecisionResult(calculation.decisionDate(), true, calculation.commonDayCount(),
+        DecisionResult candidate = new DecisionResult(calculation.decisionDate(), true, calculation.commonDayCount(),
                 calculation.rankings(), calculation.targetStocksId(), calculation.event(), phase, executionBar);
         TornStockAlphaDecisionDO existing = decisionDAO.selectByBusinessKeyForUpdate(calculation.decisionDate(), phase);
         if (existing != null) {
-            return toDecisionResult(existing, calculation.rankings());
+            return resolveExistingDecision(existing, calculation, candidate, phase, executionBar);
         }
-        TornStockAlphaDecisionDO decision = toDecisionDO(ready, phase, currentBatchId, executionBar);
+        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, phase, currentBatchId, executionBar);
         if (decisionDAO.insertIgnoreConflict(decision) != 1) {
             TornStockAlphaDecisionDO concurrent =
                     decisionDAO.selectByBusinessKeyForUpdate(calculation.decisionDate(), phase);
             if (concurrent != null) {
-                return toDecisionResult(concurrent, calculation.rankings());
+                return resolveExistingDecision(concurrent, calculation, candidate, phase, executionBar);
             }
             log.warn("α决策插入未生效且未读到并发决策,本次不消费phase: decisionDate={}, phase={}",
                     calculation.decisionDate(), phase);
-            return new DecisionResult(decisionDate, false, calculation.commonDayCount(), null, null,
-                    StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, executionBar);
+            return notReady(calculation, executionBar);
         }
         dailyCloseService.persistRankings(calculation.decisionDate(), calculation.latestCloses(),
                 calculation.rankings());
         return toDecisionResult(decision, calculation.rankings());
+    }
+
+    /**
+     * 构造不消费phase的未就绪决策结果。
+     *
+     * @param calculation  本次计算结果
+     * @param executionBar 本轮执行bar起点
+     * @return ready=false且不携带目标与phase的决策结果
+     */
+    private DecisionResult notReady(Calculation calculation, LocalDateTime executionBar) {
+        return new DecisionResult(calculation.decisionDate(), false, calculation.commonDayCount(), null, null,
+                calculation.event(), null, executionBar);
+    }
+
+    /**
+     * 复用或拒绝已持久化决策。
+     * <p>
+     * 已持久化决策是唯一事实:必须与本次计算的决策日、phase、决策类型和来源摘要完全一致;
+     * 待消费(PENDING)决策只能由持久化执行桶所在的轮次消费。任一校验失败一律fail-closed返回未就绪,
+     * 不创建、不覆盖任何决策,保证同一phase重试始终复用原决策和原执行桶。
+     * 已完成决策只进入幂等短路:返回持久化决策日、phase、目标和执行桶,不回写本次计算结果,
+     * 也不使用本次新算排名覆盖已成交事实。
+     *
+     * @param existing     已持久化决策
+     * @param calculation  本次计算结果
+     * @param candidate    本次计算的候选决策结果
+     * @param phase        消费阶段
+     * @param executionBar 本轮执行bar起点
+     * @return 决策结果
+     */
+    private DecisionResult resolveExistingDecision(TornStockAlphaDecisionDO existing, Calculation calculation,
+                                                   DecisionResult candidate, int phase,
+                                                   LocalDateTime executionBar) {
+        if (!isSameDecisionFact(existing, candidate, phase)) {
+            log.warn("α已持久化决策与本次计算事实不一致,本次不消费: decisionId={}, decisionDate={}, phase={}, "
+                            + "persistedType={}, persistedExecutionBar={}, roundExecutionBar={}",
+                    existing.getId(), candidate.decisionDate(), phase, existing.getDecisionType(),
+                    existing.getExecutionBarStartTime(), executionBar);
+            return notReady(calculation, executionBar);
+        }
+        boolean sameExecutionBar = executionBar.equals(existing.getExecutionBarStartTime());
+        if (PENDING_STATUS.equals(existing.getExecutionStatus()) && !sameExecutionBar) {
+            log.warn("α待消费决策执行桶与当前轮次不一致,本次不消费: decisionId={}, persistedExecutionBar={}, "
+                            + "roundExecutionBar={}", existing.getId(), existing.getExecutionBarStartTime(),
+                    executionBar);
+            return notReady(calculation, executionBar);
+        }
+        return toDecisionResult(existing, sameExecutionBar ? candidate.rankings() : List.of());
+    }
+
+    /**
+     * 判断已持久化决策与本次计算是否属于同一决策事实。
+     *
+     * @param existing  已持久化决策
+     * @param candidate 本次计算的候选决策结果
+     * @param phase     消费阶段
+     * @return 决策日、phase、决策类型和来源摘要全部一致时返回true
+     */
+    private boolean isSameDecisionFact(TornStockAlphaDecisionDO existing, DecisionResult candidate, int phase) {
+        return candidate.decisionDate().equals(existing.getDecisionBusinessDate())
+                && Integer.valueOf(phase).equals(existing.getPhase())
+                && candidate.event().name().equals(existing.getDecisionType())
+                && buildSourceSnapshotDigest(candidate).equals(existing.getSourceSnapshotDigest());
     }
 
     /**
@@ -121,7 +182,10 @@ public class StockAlphaDecisionService {
     /**
      * 将决策结果转换为持久化对象。
      *
-     * @param phase 消费阶段
+     * @param result                待持久化的决策结果
+     * @param phase                 消费阶段
+     * @param currentBatchId        当前持仓批次ID;初始入场时为空
+     * @param executionBarStartTime 固定执行bar起点
      * @return 决策持久化对象
      */
     private TornStockAlphaDecisionDO toDecisionDO(DecisionResult result, int phase, Long currentBatchId,
@@ -150,8 +214,12 @@ public class StockAlphaDecisionService {
 
     /**
      * 将持久化决策转换为领域结果。
+     * <p>
+     * 日期、phase、目标、事件和执行桶全部取自持久化决策,不混入本次新算结果;
+     * 只有来源摘要校验通过且执行桶一致时,排名才允许使用本次计算结果,避免两套事实混用。
      *
      * @param decision 决策持久化对象
+     * @param rankings 本次计算排名;与持久化事实不对应时必须传空列表
      * @return 决策结果
      */
     private DecisionResult toDecisionResult(TornStockAlphaDecisionDO decision,

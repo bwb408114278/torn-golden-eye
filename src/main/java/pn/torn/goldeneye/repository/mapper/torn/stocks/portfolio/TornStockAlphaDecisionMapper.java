@@ -28,6 +28,20 @@ public interface TornStockAlphaDecisionMapper extends BaseMapper<TornStockAlphaD
                                                           @Param("phase") Integer phase);
 
     /**
+     * 按决策日期、phase和执行桶锁定决策记录。
+     * <p>
+     * 执行阶段必须以"决策业务键+持久化执行桶"锁定,防止跨执行桶消费同一决策。
+     *
+     * @param decisionBusinessDate  决策自然日
+     * @param phase                 phase编号
+     * @param executionBarStartTime 执行bar起点
+     * @return 决策记录;执行桶不一致时返回null
+     */
+    TornStockAlphaDecisionDO selectByExecutionKeyForUpdate(@Param("decisionBusinessDate") LocalDate decisionBusinessDate,
+                                                           @Param("phase") Integer phase,
+                                                           @Param("executionBarStartTime") LocalDateTime executionBarStartTime);
+
+    /**
      * 按决策日期、phase和执行桶锁定待消费的初始入场决策。
      *
      * @param decisionBusinessDate  决策自然日
@@ -35,10 +49,9 @@ public interface TornStockAlphaDecisionMapper extends BaseMapper<TornStockAlphaD
      * @param executionBarStartTime 执行bar起点
      * @return 待消费初始决策
      */
-    TornStockAlphaDecisionDO selectPendingInitialEntryForUpdate(
-            @Param("decisionBusinessDate") LocalDate decisionBusinessDate,
-            @Param("phase") Integer phase,
-            @Param("executionBarStartTime") LocalDateTime executionBarStartTime);
+    TornStockAlphaDecisionDO selectPendingInitialEntryForUpdate(@Param("decisionBusinessDate") LocalDate decisionBusinessDate,
+                                                                @Param("phase") Integer phase,
+                                                                @Param("executionBarStartTime") LocalDateTime executionBarStartTime);
 
     /**
      * 按决策业务键冲突安全插入记录。
