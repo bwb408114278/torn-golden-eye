@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDe
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -37,6 +38,44 @@ class TornStockAlphaPersistenceMapperTest {
     private TornStockAlphaDailySnapshotDAO snapshotDao;
     @Autowired
     private TornStockAlphaDecisionDAO decisionDao;
+
+    @Test
+    void batchInsertIgnoreConflict_shouldUpsertWholeBatchIdempotently() {
+        TornStockAlphaDailySnapshotDO first = snapshot(STOCKS_ID, new BigDecimal("10.00"));
+        TornStockAlphaDailySnapshotDO second = snapshot(STOCKS_ID + 1, new BigDecimal("20.00"));
+
+        assertEquals(2, snapshotDao.batchInsertIgnoreConflict(List.of(first, second)));
+        first.setClosePrice(new BigDecimal("11.00"));
+        second.setClosePrice(new BigDecimal("21.00"));
+        assertEquals(2, snapshotDao.batchInsertIgnoreConflict(List.of(first, second)));
+
+        assertEquals(0, new BigDecimal("11.00").compareTo(
+                snapshotDao.selectByBusinessKeyForUpdate(STOCKS_ID, BUSINESS_DATE,
+                        "ALPHA-35-V1", "ALPHA-0.04-V1").getClosePrice()));
+        assertEquals(0, new BigDecimal("21.00").compareTo(
+                snapshotDao.selectByBusinessKeyForUpdate(STOCKS_ID + 1, BUSINESS_DATE,
+                        "ALPHA-35-V1", "ALPHA-0.04-V1").getClosePrice()));
+    }
+
+    /**
+     * 构造指定股票和收盘价的日线快照。
+     *
+     * @param stocksId   股票ID
+     * @param closePrice 收盘价
+     * @return 日线快照
+     */
+    private TornStockAlphaDailySnapshotDO snapshot(Integer stocksId, BigDecimal closePrice) {
+        TornStockAlphaDailySnapshotDO snapshot = new TornStockAlphaDailySnapshotDO();
+        snapshot.setStocksId(stocksId);
+        snapshot.setBusinessDate(BUSINESS_DATE);
+        snapshot.setClosePrice(closePrice);
+        snapshot.setSourceBarId(99700001L + stocksId);
+        snapshot.setSourceBarStartTime(LocalDateTime.of(2099, 10, 1, 23, 45));
+        snapshot.setStockUniverseVersion("ALPHA-35-V1");
+        snapshot.setAlphaRuleVersion("ALPHA-0.04-V1");
+        snapshot.setCommonValid(true);
+        return snapshot;
+    }
 
     @Test
     void insertIgnoreConflict_shouldKeepDailySnapshotAndDecisionIdempotent() {

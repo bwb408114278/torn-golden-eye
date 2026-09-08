@@ -40,6 +40,16 @@ public interface TornStockAlphaDailySnapshotMapper extends BaseMapper<TornStockA
     int insertIgnoreConflict(@Param("snapshot") TornStockAlphaDailySnapshotDO snapshot);
 
     /**
+     * 按业务键冲突安全批量插入日线快照。
+     * <p>
+     * 调用方必须把单批条数控制在合理范围(建议500条以内),避免单次SQL参数过多。
+     *
+     * @param snapshots 待插入日线快照
+     * @return 实际生效行数
+     */
+    int batchInsertIgnoreConflict(@Param("snapshots") List<TornStockAlphaDailySnapshotDO> snapshots);
+
+    /**
      * 查询指定版本日期范围内的日线快照。
      *
      * @param stockUniverseVersion 股票池版本

@@ -185,7 +185,7 @@ public class StockRoundTransactionService {
 
         boolean hasExistingAlphaBatch = hasAlphaBatch(mergedSnapshot);
         if (!hasExistingAlphaBatch && allowNewEntry) {
-            createInitialAlphaEntry(roundTime, mergedSnapshot);
+            createInitialAlphaEntry(roundTime, actualProcessingTime, mergedSnapshot);
             mergedSnapshot = refreshAlphaBatches(mergedSnapshot);
         }
 
@@ -275,9 +275,12 @@ public class StockRoundTransactionService {
     }
 
     /**
-     * 在轮次事务内生成并处理Alpha换仓决策。
+     * 在轮次事务内消费已持久化的Alpha换仓决策。
+     * <p>
+     * 决策读取以本轮执行桶{@code roundTime}为唯一显式事实,执行阶段只消费决策表中已持久化的
+     * {@code execution_bar_start_time};延迟补偿只通过{@code now}判断过期,不改写历史执行桶。
      *
-     * @param roundTime 轮次时间
+     * @param roundTime 轮次时间(执行桶)
      * @param now       当前校验时间
      * @param snapshot  当前轮次快照
      */
@@ -291,7 +294,7 @@ public class StockRoundTransactionService {
             return;
         }
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime.minusMinutes(15));
+                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime);
         if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
             return;
         }
@@ -317,15 +320,18 @@ public class StockRoundTransactionService {
     /**
      * 生成并消费当前轮次对应的Alpha初始决策。
      *
-     * @param roundTime 轮次时间
-     * @param snapshot  当前轮次快照
+     * @param roundTime            轮次时间(执行桶)
+     * @param actualProcessingTime 本次实际处理时刻
+     * @param snapshot             当前轮次快照
      */
-    private void createInitialAlphaEntry(LocalDateTime roundTime, RoundSnapshot snapshot) {
+    private void createInitialAlphaEntry(LocalDateTime roundTime, LocalDateTime actualProcessingTime,
+                                         RoundSnapshot snapshot) {
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), roundTime.minusMinutes(15));
+                roundTime.toLocalDate().minusDays(1), roundTime);
         if (decision != null && decision.ready()
                 && decision.event() == StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY) {
-            alphaEntryService.createInitialEntry(roundTime, snapshot, decision.decisionDate(), decision.phase());
+            alphaEntryService.createInitialEntry(roundTime, snapshot, decision.decisionDate(), decision.phase(),
+                    actualProcessingTime);
         }
     }
 

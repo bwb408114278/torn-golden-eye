@@ -13,6 +13,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusE
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRoundDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
@@ -97,6 +98,7 @@ public class VipStockAlertScheduler {
     private final StockMarketClock marketClock;
     private final ProjectProperty projectProperty;
     private final StockAlertRuntimeGate runtimeGate;
+    private final StockAlphaDailyCloseService alphaDailyCloseService;
     private final StockMarketRoundFactory roundFactory;
 
     /**
@@ -529,7 +531,7 @@ public class VipStockAlertScheduler {
     }
 
     /**
-     * 处理单个轮次: 构建bar -> 构建特征 -> 标记READY -> 加载快照 -> 执行事务
+     * 处理单个轮次: 构建bar -> 构建特征 -> 标记READY -> 事务外构建α日线快照 -> 加载快照 -> 执行事务
      * <p>
      * bar构建结果为空时(无采样数据)将轮次标记为WAITING_DATA并返回,不继续构建特征。
      * 特征构建完成后标记READY,然后事务外加载RoundSnapshot并调用TransactionService执行组合事务。
@@ -561,11 +563,35 @@ public class VipStockAlertScheduler {
             log.debug("VIP股票策略调度-轮次已是READY,跳过数据构建, roundTime={}", roundTime);
         }
 
+        // α日线快照构建必须位于轮次资金事务之外,且必须在bar构建之后:
+        // 自然日最后一个15分钟桶结束后补齐当日与历史缺口快照,历史扫描与批量写入不进入资金锁事务。
+        buildAlphaDailyClosesSafely(roundTime);
+
         StockMarketRoundLoader.RoundSnapshot snapshot = roundLoader.loadRoundSnapshot(roundTime);
         LocalDateTime actualProcessingTime = marketClock.now();
         transactionService.executeRound(roundTime, snapshot, allowNewEntry, actualProcessingTime);
 
         log.info("VIP股票策略调度-轮次事务完成, roundTime={}, actualProcessingTime={}", roundTime, actualProcessingTime);
+    }
+
+    /**
+     * 在轮次事务外构建α日线收盘快照。
+     * <p>
+     * 仅在自然日最后一个15分钟桶结束后触发;预填与缺口修复由超管指令显式触发。
+     * 构建失败只记录日志,不影响本轮资金事务与存量退出管理;
+     * 未写入完整的日期不会被判定为完整,下一次构建仍会重新补齐。
+     *
+     * @param roundTime 轮次bar起点
+     */
+    private void buildAlphaDailyClosesSafely(LocalDateTime roundTime) {
+        try {
+            int built = alphaDailyCloseService.buildDailyClosesForEndedDay(roundTime);
+            if (built > 0) {
+                log.info("VIP股票策略调度-α日线收盘快照构建完成, roundTime={}, built={}", roundTime, built);
+            }
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-α日线收盘快照构建失败, roundTime={}, 本轮继续处理", roundTime, e);
+        }
     }
 
     /**

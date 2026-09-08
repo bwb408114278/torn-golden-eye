@@ -267,6 +267,62 @@ class StockPortfolioServiceTest {
     }
 
     @Test
+    @DisplayName("同股不同组合_FORMAL+VIP_ALPHA与VIP_FORMAL槽位互不配对且资金不混用")
+    void settleSlotBacked_sameStockCrossPortfolio_rejectsPairingInBothDirections() {
+        TornStockVirtualBatchDO alphaBatch = alphaSettlementBatch(7L, "ALPHA-7");
+        TornStockPortfolioSlotDO formalSlot = buildOccupiedSlot(1, new BigDecimal("500.00"));
+        formalSlot.setCurrentBatchId(7L);
+        BigDecimal formalAvailableBefore = formalSlot.getAvailableCash();
+
+        assertThrows(IllegalStateException.class, () -> portfolioService.settleSlotBacked(
+                alphaBatch, formalSlot, new BigDecimal("110.00"),
+                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE));
+
+        assertEquals(0, formalAvailableBefore.compareTo(formalSlot.getAvailableCash()),
+                "α批次不得回笼正式组合槽位资金");
+        assertEquals(StockSlotStatusEnum.OCCUPIED.getCode(), formalSlot.getSlotStatus());
+        assertEquals(7L, formalSlot.getCurrentBatchId());
+
+        TornStockVirtualBatchDO formalBatch = alphaSettlementBatch(8L, "FORMAL-8");
+        formalBatch.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+        TornStockPortfolioSlotDO alphaSlot = buildOccupiedSlot(1, new BigDecimal("500.00"));
+        alphaSlot.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        alphaSlot.setCurrentBatchId(8L);
+        BigDecimal alphaAvailableBefore = alphaSlot.getAvailableCash();
+
+        assertThrows(IllegalStateException.class, () -> portfolioService.settleSlotBacked(
+                formalBatch, alphaSlot, new BigDecimal("110.00"),
+                StockPortfolioService.PORTFOLIO_CODE));
+
+        assertEquals(0, alphaAvailableBefore.compareTo(alphaSlot.getAvailableCash()),
+                "正式批次不得回笼α独立槽位资金");
+        assertEquals(7L, formalSlot.getCurrentBatchId());
+    }
+
+    /**
+     * 构建同股(1001)、同槽位形状、指定组合编码的待结算批次。
+     *
+     * @param id       批次ID
+     * @param batchNo  批次编号
+     * @return 待结算批次
+     */
+    private TornStockVirtualBatchDO alphaSettlementBatch(Long id, String batchNo) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo(batchNo);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setStocksId(1001);
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setQuantity(5L);
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setExpectedExitBarTime(LocalDateTime.of(2026, 9, 5, 0, 15));
+        batch.setRemainingCash(new BigDecimal("500.00"));
+        return batch;
+    }
+
+    @Test
     @DisplayName("组合权益计算_3槽可用2槽占用,权益=现金合计+仓位市值合计")
     void calculateEquity_3SlotsAvailable2Occupied_equityCorrect() {
         TornStockPortfolioSlotDO slot1 = buildAvailableSlot(1); // available=20亿,reserved=0

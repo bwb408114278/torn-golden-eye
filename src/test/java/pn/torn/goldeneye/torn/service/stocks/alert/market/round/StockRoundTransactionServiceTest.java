@@ -40,6 +40,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.StockCandidateRankingPolicy;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -342,7 +343,7 @@ class StockRoundTransactionServiceTest {
         stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(), lockedSlots, List.of());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate())
                 .thenReturn(List.of(), List.of(initialAlphaBatch));
-        when(alphaDecisionService.decide(roundTime.toLocalDate().minusDays(1), roundTime.minusMinutes(15)))
+        when(alphaDecisionService.decide(roundTime.toLocalDate().minusDays(1), roundTime))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
                         roundTime.toLocalDate().minusDays(1), true, 60, null, 1001,
                         StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY, 0, roundTime));
@@ -353,9 +354,9 @@ class StockRoundTransactionServiceTest {
 
         InOrder inOrder = inOrder(alphaDecisionService, alphaEntryService, entrySettlementService,
                 batchPathService, alphaRebalanceService);
-        inOrder.verify(alphaDecisionService).decide(roundTime.toLocalDate().minusDays(1), roundTime.minusMinutes(15));
+        inOrder.verify(alphaDecisionService).decide(roundTime.toLocalDate().minusDays(1), roundTime);
         inOrder.verify(alphaEntryService).createInitialEntry(
-                eq(roundTime), any(), eq(roundTime.toLocalDate().minusDays(1)), eq(0));
+                eq(roundTime), any(), eq(roundTime.toLocalDate().minusDays(1)), eq(0), eq(roundTime));
         inOrder.verify(entrySettlementService).processEntryPending(snapshotCaptor.capture(), any(),
                 eq(roundTime), eq(roundTime));
         inOrder.verify(batchPathService).updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime));
@@ -407,6 +408,54 @@ class StockRoundTransactionServiceTest {
         return batch;
     }
 
+    @Test
+    @DisplayName("已有Alpha持仓_换仓按轮次执行桶决策且不按轮次时间反推执行bar")
+    void executeRound_existingAlphaPosition_consumesRoundTimeAsExecutionBar() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(),
+                lockedSlots, List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
+        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 65, null, 5002,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED, 1, roundTime));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaDecisionService).decide(decisionDate, 5001, 61L, roundTime);
+        verify(alphaDecisionService, never()).decide(any(), any(), any(), eq(roundTime.minusMinutes(15)));
+        verify(alphaRebalanceService).rebalance(eq(decisionDate), eq(1), eq(roundTime), any());
+        verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("已有Alpha持仓且关闭新入场_仍继续管理已有Alpha批次且不推进旧版买入研究")
+    void executeRound_existingAlphaPositionAndNewEntryDisabled_stillManagesAlphaBatch() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(new TornStockMarketRoundDO());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
+        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 65, null, 5002,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED, 1, roundTime));
+
+        transactionService.executeRound(roundTime, snapshot, false, roundTime);
+
+        verify(alphaRebalanceService).rebalance(eq(decisionDate), eq(1), eq(roundTime), any());
+        verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), anyInt(), any());
+        verify(buySignalEvaluator, never()).evaluateSignals(any(), any(), any(), any(), any());
+    }
+
     /**
      * 创建Alpha待买入批次,用于验证事务内快照刷新。
      *
@@ -423,6 +472,32 @@ class StockRoundTransactionServiceTest {
         batch.setSlotId(101L);
         batch.setSlotNo(1);
         batch.setAlphaDecisionId(201L);
+        return batch;
+    }
+
+    /**
+     * 创建Alpha开放持仓批次,用于验证已有持仓的换仓编排。
+     *
+     * @param id        批次ID
+     * @param stocksId  股票ID
+     * @param roundTime 本轮时间
+     * @return Alpha开放批次
+     */
+    private TornStockVirtualBatchDO alphaOpenBatch(Long id, int stocksId, LocalDateTime roundTime) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo("A" + id);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setStocksId(stocksId);
+        batch.setStocksShortname("T" + stocksId);
+        batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
+        batch.setSlotId(101L);
+        batch.setSlotNo(1);
+        batch.setAlphaDecisionId(201L);
+        batch.setEntryTime(roundTime.minusDays(1));
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setQuantity(1L);
         return batch;
     }
 

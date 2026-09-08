@@ -16,6 +16,37 @@
         FOR UPDATE
     </select>
 
+    <!-- 按业务键冲突时批量更新来源与排名字段,空列表由调用方短路 -->
+    <insert id="batchInsertIgnoreConflict">
+        INSERT INTO torn_stock_alpha_daily_snapshot
+            (stocks_id, business_date, close_price, source_bar_id, source_bar_start_time,
+             stock_universe_version, alpha_rule_version, r20, r1, r20_rank, r1_rank,
+             r20_normalized, r1_normalized, alpha_score, rank_position, common_valid,
+             deleted, create_time, update_time)
+        VALUES
+        <foreach collection="snapshots" item="snapshot" separator=",">
+            (#{snapshot.stocksId}, #{snapshot.businessDate}, #{snapshot.closePrice}, #{snapshot.sourceBarId},
+             #{snapshot.sourceBarStartTime}, #{snapshot.stockUniverseVersion}, #{snapshot.alphaRuleVersion},
+             #{snapshot.r20}, #{snapshot.r1}, #{snapshot.r20Rank}, #{snapshot.r1Rank},
+             #{snapshot.r20Normalized}, #{snapshot.r1Normalized}, #{snapshot.alphaScore},
+             #{snapshot.rankPosition}, #{snapshot.commonValid}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (stocks_id, business_date, stock_universe_version, alpha_rule_version) WHERE deleted = 0
+        DO UPDATE SET close_price = EXCLUDED.close_price,
+                      source_bar_id = EXCLUDED.source_bar_id,
+                      source_bar_start_time = EXCLUDED.source_bar_start_time,
+                      r20 = EXCLUDED.r20,
+                      r1 = EXCLUDED.r1,
+                      r20_rank = EXCLUDED.r20_rank,
+                      r1_rank = EXCLUDED.r1_rank,
+                      r20_normalized = EXCLUDED.r20_normalized,
+                      r1_normalized = EXCLUDED.r1_normalized,
+                      alpha_score = EXCLUDED.alpha_score,
+                      rank_position = EXCLUDED.rank_position,
+                      common_valid = EXCLUDED.common_valid,
+                      update_time = CURRENT_TIMESTAMP
+    </insert>
+
     <!-- 按股票、日期、股票池版本和规则版本查询日线快照 -->
     <select id="selectByDateRange" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO">
         SELECT id, stocks_id, business_date, close_price, source_bar_id, source_bar_start_time,

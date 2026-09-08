@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.6.1
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -191,6 +191,10 @@ public class BotCommands {
      * 重建股票派生数据
      */
     public static final String DERIVED_STOCK_DATA_REBUILD = "重建股票派生数据";
+    /**
+     * 预填股票α日线
+     */
+    public static final String ALPHA_STOCK_DAILY_PREFILL = "预填股票α日线";
     /**
      * 绑Key
      */

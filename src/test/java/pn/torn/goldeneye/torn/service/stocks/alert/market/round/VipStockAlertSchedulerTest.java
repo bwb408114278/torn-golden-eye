@@ -16,6 +16,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRou
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
@@ -72,6 +73,8 @@ class VipStockAlertSchedulerTest {
     private StockAlertRuntimeGate runtimeGate;
     @Mock
     private StockAlphaDecisionService alphaDecisionService;
+    @Mock
+    private StockAlphaDailyCloseService alphaDailyCloseService;
 
     private VipStockAlertScheduler scheduler;
 
@@ -81,7 +84,7 @@ class VipStockAlertSchedulerTest {
                 barBuildService, featureBuildService, roundDao, historyRebuildService,
                 portfolioInitService, monthlyStateInitService, noticeSendService,
                 rejectedObservationService, roundLoader, transactionService, marketClock,
-                projectProperty, runtimeGate, new StockMarketRoundFactory());
+                projectProperty, runtimeGate, alphaDailyCloseService, new StockMarketRoundFactory());
     }
 
     @Test

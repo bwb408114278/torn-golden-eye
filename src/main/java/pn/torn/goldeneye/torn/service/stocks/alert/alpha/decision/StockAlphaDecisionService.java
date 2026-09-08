@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
@@ -26,6 +27,7 @@ import java.util.*;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class StockAlphaDecisionService {
@@ -37,57 +39,72 @@ public class StockAlphaDecisionService {
     /**
      * 根据指定日期和执行桶生成或读取唯一α决策。
      *
-     * @param decisionDate 决策日期
-     * @param decisionTime 决策时点
+     * @param decisionDate      决策日期
+     * @param executionBarStart 固定执行bar起点
      * @return 已持久化决策
      */
-    public DecisionResult decide(LocalDate decisionDate, LocalDateTime decisionTime) {
-        return decideInternal(decisionDate, null, null, decisionTime);
+    public DecisionResult decide(LocalDate decisionDate, LocalDateTime executionBarStart) {
+        return decideInternal(decisionDate, null, null, executionBarStart);
     }
 
     /**
      * 根据日期、持仓上下文和固定执行桶生成或读取唯一α决策。
      *
-     * @param decisionDate    决策日期
-     * @param currentStocksId 当前持仓股票ID
-     * @param currentBatchId  当前持仓批次ID
-     * @param decisionTime    决策时点
+     * @param decisionDate      决策日期
+     * @param currentStocksId   当前持仓股票ID
+     * @param currentBatchId    当前持仓批次ID
+     * @param executionBarStart 固定执行bar起点
      * @return 已持久化决策
      */
     public DecisionResult decide(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                 LocalDateTime decisionTime) {
-        return decideInternal(decisionDate, currentStocksId, currentBatchId, decisionTime);
+                                 LocalDateTime executionBarStart) {
+        return decideInternal(decisionDate, currentStocksId, currentBatchId, executionBarStart);
     }
 
     /**
      * 按共同有效日和持仓上下文生成或读取唯一决策。
+     * <p>
+     * 执行bar起点由调用方以轮次执行桶显式传入并经{@link StockAlphaExecutionBarPolicy}校验后持久化,
+     * 执行阶段只消费该持久化值,不得再由轮次时间反推。
      *
-     * @param decisionDate    计算截止日期
-     * @param currentStocksId 当前持仓股票ID
-     * @param currentBatchId  当前持仓批次ID
-     * @param decisionTime    决策时点
+     * @param decisionDate      决策日期
+     * @param currentStocksId   当前持仓股票ID
+     * @param currentBatchId    当前持仓批次ID
+     * @param executionBarStart 固定执行bar起点
      * @return 已持久化决策
      */
     private DecisionResult decideInternal(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                          LocalDateTime decisionTime) {
+                                          LocalDateTime executionBarStart) {
         Objects.requireNonNull(decisionDate, "决策日期不能为空");
-        Objects.requireNonNull(decisionTime, "决策时点不能为空");
-        LocalDateTime executionBarStartTime = StockAlphaExecutionBarPolicy.expectedExecutionBarStart(decisionTime);
-        DecisionResult result = calculate(decisionDate, currentStocksId, executionBarStartTime);
-        if (!result.ready()) {
-            return result;
+        Objects.requireNonNull(executionBarStart, "执行bar起点不能为空");
+        LocalDateTime executionBar = StockAlphaExecutionBarPolicy.requireExecutionBar(executionBarStart);
+        Calculation calculation = calculate(decisionDate, currentStocksId, executionBar);
+        if (!calculation.ready()) {
+            return new DecisionResult(decisionDate, false, calculation.commonDayCount(), null, null,
+                    StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, executionBar);
         }
-        int phase = phaseOf(result.commonDayCount());
-        TornStockAlphaDecisionDO existing = decisionDAO.selectByBusinessKeyForUpdate(result.decisionDate(), phase);
+        int phase = phaseOf(calculation.commonDayCount());
+        DecisionResult ready = new DecisionResult(calculation.decisionDate(), true, calculation.commonDayCount(),
+                calculation.rankings(), calculation.targetStocksId(), calculation.event(), phase, executionBar);
+        TornStockAlphaDecisionDO existing = decisionDAO.selectByBusinessKeyForUpdate(calculation.decisionDate(), phase);
         if (existing != null) {
-            return toDecisionResult(existing, result.rankings());
+            return toDecisionResult(existing, calculation.rankings());
         }
-        TornStockAlphaDecisionDO decision = toDecisionDO(result, phase, currentBatchId, executionBarStartTime);
+        TornStockAlphaDecisionDO decision = toDecisionDO(ready, phase, currentBatchId, executionBar);
         if (decisionDAO.insertIgnoreConflict(decision) != 1) {
-            TornStockAlphaDecisionDO concurrent = decisionDAO.selectByBusinessKeyForUpdate(result.decisionDate(), phase);
-            return concurrent == null ? result : toDecisionResult(concurrent, result.rankings());
+            TornStockAlphaDecisionDO concurrent =
+                    decisionDAO.selectByBusinessKeyForUpdate(calculation.decisionDate(), phase);
+            if (concurrent != null) {
+                return toDecisionResult(concurrent, calculation.rankings());
+            }
+            log.warn("α决策插入未生效且未读到并发决策,本次不消费phase: decisionDate={}, phase={}",
+                    calculation.decisionDate(), phase);
+            return new DecisionResult(decisionDate, false, calculation.commonDayCount(), null, null,
+                    StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, executionBar);
         }
-        return toDecisionResult(decision, result.rankings());
+        dailyCloseService.persistRankings(calculation.decisionDate(), calculation.latestCloses(),
+                calculation.rankings());
+        return toDecisionResult(decision, calculation.rankings());
     }
 
     /**
@@ -147,12 +164,16 @@ public class StockAlphaDecisionService {
 
     /**
      * 计算指定日期的α决策。
+     * <p>
+     * 只读取已完整持久化的日线快照并执行纯内存排名,不重写历史快照。
      *
-     * @param decisionDate 决策日期
+     * @param decisionDate      决策日期
+     * @param currentStocksId   当前持仓股票ID
+     * @param executionBarStart 固定执行bar起点
      * @return 计算结果
      */
-    private DecisionResult calculate(LocalDate decisionDate, Integer currentStocksId,
-                                     LocalDateTime executionBarStartTime) {
+    private Calculation calculate(LocalDate decisionDate, Integer currentStocksId,
+                                  LocalDateTime executionBarStart) {
         Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily =
                 dailyCloseService.loadDailyCloses(decisionDate);
         List<LocalDate> commonDates = daily.entrySet().stream()
@@ -162,16 +183,14 @@ public class StockAlphaDecisionService {
         int commonDayCount = commonDates.size();
         if (commonDayCount < StockAlphaRuleDefinition.WARMUP_COMMON_DAYS
                 || !isDecisionDay(commonDayCount)) {
-            return new DecisionResult(decisionDate, false, commonDayCount, null, null,
-                    StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, executionBarStartTime);
+            return new Calculation(decisionDate, false, commonDayCount, daily, List.of(), null,
+                    StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT);
         }
         Map<Integer, List<BigDecimal>> closes = buildCloseSeries(commonDates, daily);
         List<StockAlphaRankingResult> rankings = StockAlphaRankingCalculator.calculate(closes);
-        dailyCloseService.persistRankings(daily, rankings);
         StockAlphaTargetPolicy.TargetResult target = StockAlphaTargetPolicy.decide(commonDayCount, rankings, currentStocksId);
-        return new DecisionResult(commonDates.getLast(), true, commonDayCount, rankings,
-                target.targetStocksId(), target.event(),
-                phaseOf(commonDayCount), executionBarStartTime);
+        return new Calculation(commonDates.getLast(), true, commonDayCount, daily, rankings,
+                target.targetStocksId(), target.event());
     }
 
     /**
@@ -225,5 +244,34 @@ public class StockAlphaDecisionService {
             StockAlphaTargetPolicy.TargetEvent event,
             Integer phase,
             LocalDateTime executionBarStartTime) {
+    }
+
+    /**
+     * 单次决策的纯计算结果。
+     *
+     * @param decisionDate   决策日期(最后共同有效日)
+     * @param ready          是否满足决策前置条件
+     * @param commonDayCount 共同有效日数量
+     * @param daily          已读取的日线收盘数据
+     * @param rankings       排名结果
+     * @param targetStocksId 目标股票ID
+     * @param event          目标事件
+     */
+    private record Calculation(
+            LocalDate decisionDate,
+            boolean ready,
+            int commonDayCount,
+            Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily,
+            List<StockAlphaRankingResult> rankings,
+            Integer targetStocksId,
+            StockAlphaTargetPolicy.TargetEvent event) {
+        /**
+         * 返回决策日期当天的收盘结果,供排名持久化使用。
+         *
+         * @return 决策日期收盘结果;不存在时为空
+         */
+        private Map<Integer, StockAlphaDailyCloseCalculator.CloseResult> latestCloses() {
+            return daily == null ? Map.of() : daily.getOrDefault(decisionDate, Map.of());
+        }
     }
 }

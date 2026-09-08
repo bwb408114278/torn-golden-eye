@@ -11,8 +11,9 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService.EntrySettlementResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService.EntrySettlementResult;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -22,14 +23,12 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
 
 /**
  * 股票批次成交结算服务测试，覆盖待买入批次成交/取消/过期和待卖出批次成交的核心逻辑。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.26
  */
 @DisplayName("股票批次成交结算服务测试")
@@ -256,6 +255,39 @@ class StockEntrySettlementServiceTest {
             assertEquals(ROUND_TIME, filled.getEntryTime());
             assertEquals(1000L, filled.getQuantity());
         }
+    }
+
+    @Test
+    @DisplayName("预留资金成交_使用槽位预留资金而非可用现金并保持余款连续")
+    void processEntryPending_reservedSlot_fillsFromReservedCashAndKeepsRemainder() {
+        TornStockVirtualBatchDO batch = buildEntryPendingBatch();
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        TornStockMarketBar15mDO bar = buildBar(true);
+        bar.setLastPrice(new BigDecimal("100.10"));
+        TornStockPortfolioSlotDO slot = buildSlot(1L, 1);
+        slot.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+        slot.setAvailableCash(BigDecimal.ZERO);
+        slot.setReservedCash(new BigDecimal("10000.00"));
+        slot.setCurrentBatchId(batch.getId());
+        slot.setSlotStatus(StockSlotStatusEnum.RESERVED.getCode());
+
+        RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+        EntrySettlementResult result = entrySettlementService.processEntryPending(
+                snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME, ROUND_TIME);
+
+        assertEquals(1, result.filledBatches().size(), "可用现金为0但预留资金充足时必须按预留资金成交");
+        assertEquals(0, result.cancelledBatches().size());
+        TornStockVirtualBatchDO filled = result.filledBatches().getFirst();
+        assertEquals(StockBatchStatusEnum.OPEN.getCode(), filled.getBatchStatus());
+        assertEquals(99L, filled.getQuantity(), "10000/100.10向下取整为99股");
+        assertEquals(0, new BigDecimal("9909.90").compareTo(filled.getInvestedCash()));
+        assertEquals(0, new BigDecimal("90.10").compareTo(filled.getRemainingCash()));
+        assertEquals(StockSlotStatusEnum.OCCUPIED.getCode(), slot.getSlotStatus());
+        assertEquals(0, BigDecimal.ZERO.compareTo(slot.getReservedCash()), "成交后预留资金必须清零");
+        assertEquals(0, filled.getRemainingCash().compareTo(slot.getAvailableCash()),
+                "槽位可用现金必须等于批次余款,余款保留在槽内复利");
+        assertEquals(batch.getId(), slot.getCurrentBatchId());
     }
 
     @Test
@@ -811,6 +843,7 @@ class StockEntrySettlementServiceTest {
     private TornStockPortfolioSlotDO buildSlot(Long id, int slotNo) {
         TornStockPortfolioSlotDO slot = new TornStockPortfolioSlotDO();
         slot.setId(id);
+        slot.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         slot.setSlotNo(slotNo);
         slot.setAvailableCash(new BigDecimal("2000000000.00"));
         slot.setReservedCash(BigDecimal.ZERO);
@@ -821,6 +854,7 @@ class StockEntrySettlementServiceTest {
     private TornStockPortfolioSlotDO buildOccupiedFormalSlot(Long id, int slotNo, Long currentBatchId) {
         TornStockPortfolioSlotDO slot = new TornStockPortfolioSlotDO();
         slot.setId(id);
+        slot.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         slot.setSlotNo(slotNo);
         slot.setAvailableCash(new BigDecimal("1999990000.00"));
         slot.setReservedCash(BigDecimal.ZERO);

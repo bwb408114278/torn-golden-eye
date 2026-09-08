@@ -9,11 +9,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEn
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchEntryFields;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
@@ -69,7 +65,8 @@ public class StockAlphaRebalanceService {
         List<TornStockVirtualBatchDO> batches = batchDAO.selectActiveAlphaBatchesForUpdate();
         TornStockVirtualBatchDO current = findOpenBatch(batches);
         validateDecision(decision, decisionDate, phase, current, slot);
-        LocalDateTime executionBarStart = decision.getExecutionBarStartTime();
+        LocalDateTime executionBarStart =
+                StockAlphaExecutionBarPolicy.requireExecutionBar(decision.getExecutionBarStartTime());
         if (!Objects.equals(executionBarStart, snapshot.roundTime())) {
             throw new IllegalStateException("α换仓执行桶与当前轮次不一致");
         }
@@ -79,7 +76,7 @@ public class StockAlphaRebalanceService {
         if (sellBar == null || buyBar == null) {
             throw new IllegalStateException("α换仓执行bar缺失");
         }
-        validateBars(executionBarStart.minusMinutes(15), now, sellBar, buyBar);
+        validateBars(executionBarStart, now, sellBar, buyBar);
         current.setExitSignalTime(executionBarStart);
         current.setExpectedExitBarTime(sellBar.getBarStartTime());
         TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart, executionBarStart);
@@ -134,21 +131,21 @@ public class StockAlphaRebalanceService {
     }
 
     /**
-     * 校验两腿必须使用同一严格下一执行桶。
+     * 校验两腿必须使用同一持久化执行桶。
      *
-     * @param decisionTime 决策时点
-     * @param now          当前校验时点
-     * @param sellBar      原仓bar
-     * @param buyBar       新仓bar
+     * @param executionBarStart 持久化执行bar起点
+     * @param now               当前校验时点
+     * @param sellBar           原仓bar
+     * @param buyBar            新仓bar
      */
-    private void validateBars(LocalDateTime decisionTime, LocalDateTime now,
+    private void validateBars(LocalDateTime executionBarStart, LocalDateTime now,
                               TornStockMarketBar15mDO sellBar, TornStockMarketBar15mDO buyBar) {
         if (sellBar == null || buyBar == null) {
             throw new IllegalStateException("α换仓执行bar缺失");
         }
-        if (!StockAlphaExecutionBarPolicy.isAtomicRebalance(decisionTime,
+        if (!StockAlphaExecutionBarPolicy.isAtomicRebalance(executionBarStart,
                 toExecutionBar(sellBar), toExecutionBar(buyBar), now)) {
-            throw new IllegalStateException("α换仓两腿不存在同一严格下一可用15m执行桶");
+            throw new IllegalStateException("α换仓两腿不存在同一持久化可用15m执行桶");
         }
     }
 
@@ -165,9 +162,9 @@ public class StockAlphaRebalanceService {
      * @return 新仓批次
      */
     private TornStockVirtualBatchDO replace(TornStockVirtualBatchDO current, TornStockAlphaDecisionDO decision,
-                                             TornStockPortfolioSlotDO slot, TornStockMarketBar15mDO sellBar,
-                                             TornStockMarketBar15mDO buyBar, LocalDateTime executionBarStart,
-                                             LocalDateTime executionTime) {
+                                            TornStockPortfolioSlotDO slot, TornStockMarketBar15mDO sellBar,
+                                            TornStockMarketBar15mDO buyBar, LocalDateTime executionBarStart,
+                                            LocalDateTime executionTime) {
         BigDecimal sellProceeds = portfolioService.settleSlotBacked(current, slot, sellBar.getLastPrice(),
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         current.setSellProceeds(sellProceeds);
@@ -235,6 +232,7 @@ public class StockAlphaRebalanceService {
         slot.setAvailableCash(replacement.getRemainingCash());
         slot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
     }
+
     /**
      * 生成决策唯一的换仓批次编号。
      *

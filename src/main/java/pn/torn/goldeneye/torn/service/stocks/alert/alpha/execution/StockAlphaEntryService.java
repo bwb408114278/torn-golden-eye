@@ -46,18 +46,24 @@ public class StockAlphaEntryService {
 
     /**
      * 消费当前执行轮次对应的初始α决策。
+     * <p>
+     * 执行bar只来自已持久化的{@code execution_bar_start_time}:本方法先按决策业务键与执行桶读取决策,
+     * 再校验当前轮次与持久化执行桶严格一致,不根据轮次时间反推任何决策事实。
      *
-     * @param roundTime    当前执行桶
-     * @param snapshot     当前轮次快照
-     * @param decisionDate 决策日期
-     * @param phase        决策阶段
+     * @param roundTime            当前执行桶
+     * @param snapshot             当前轮次快照
+     * @param decisionDate         决策日期
+     * @param phase                决策阶段
+     * @param actualProcessingTime 本次实际处理时刻,仅用于执行bar已结束校验
      * @return 初始入场批次；没有待消费决策时返回null
      */
     @Transactional(rollbackFor = Exception.class)
     public TornStockVirtualBatchDO createInitialEntry(LocalDateTime roundTime, RoundSnapshot snapshot,
-                                                      LocalDate decisionDate, int phase) {
+                                                      LocalDate decisionDate, int phase,
+                                                      LocalDateTime actualProcessingTime) {
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         Objects.requireNonNull(snapshot, "轮次快照不能为空");
+        Objects.requireNonNull(actualProcessingTime, "实际处理时刻不能为空");
         TornStockAlphaDecisionDO decision = decisionDAO.selectPendingInitialEntryForUpdate(
                 decisionDate, phase, roundTime);
         TornStockVirtualBatchDO activeBatch = findActiveAlphaBatch(snapshot);
@@ -68,7 +74,7 @@ public class StockAlphaEntryService {
         if (!isPendingInitialDecision(decision)) {
             return null;
         }
-        validateExecutionBar(decision, decisionDate, phase, roundTime, snapshot);
+        validateExecutionBar(decision, decisionDate, phase, roundTime, snapshot, actualProcessingTime);
         if (activeBatch != null) {
             validateBatchAssociation(activeBatch, decision);
             markExecuted(decision, activeBatch);
@@ -109,15 +115,19 @@ public class StockAlphaEntryService {
     }
 
     /**
-     * 校验决策只能在严格下一执行bar消费。
+     * 校验决策只能在持久化执行桶消费。
+     * <p>
+     * 执行bar起点、当前轮次和行情bar起点三者必须严格相等,且持久化执行桶已结束、可用、价格合法。
      *
-     * @param decision  决策记录
-     * @param roundTime 当前轮次时间
-     * @param snapshot  当前轮次快照
+     * @param decision             决策记录
+     * @param roundTime            当前轮次时间
+     * @param snapshot             当前轮次快照
+     * @param actualProcessingTime 本次实际处理时刻
      */
     private void validateExecutionBar(TornStockAlphaDecisionDO decision, LocalDate decisionDate, int phase,
-                                      LocalDateTime roundTime, RoundSnapshot snapshot) {
-        LocalDateTime expected = decision.getExecutionBarStartTime();
+                                      LocalDateTime roundTime, RoundSnapshot snapshot,
+                                      LocalDateTime actualProcessingTime) {
+        LocalDateTime expected = StockAlphaExecutionBarPolicy.requireExecutionBar(decision.getExecutionBarStartTime());
         TornStockMarketBar15mDO bar = findBar(snapshot, decision.getSelectedStocksId(), expected);
         if (decision.getId() == null || decision.getDecisionBusinessDate() == null
                 || !decisionDate.equals(decision.getDecisionBusinessDate())
@@ -128,9 +138,10 @@ public class StockAlphaEntryService {
             throw new IllegalStateException("Alpha初始入场决策或执行bar关键字段缺失");
         }
         if (!roundTime.equals(expected) || !expected.equals(bar.getBarStartTime())
-                || !StockAlphaExecutionBarPolicy.isExecutable(expected.minusMinutes(15), toExecutionBar(bar),
-                roundTime.plusMinutes(15))) {
-            throw new IllegalStateException("Alpha初始入场bar不是严格下一根可执行bar: roundTime=" + roundTime);
+                || !StockAlphaExecutionBarPolicy.isExecutable(expected, toExecutionBar(bar),
+                actualProcessingTime)) {
+            throw new IllegalStateException("Alpha初始入场bar不是持久化执行桶: roundTime=" + roundTime
+                    + ", executionBarStartTime=" + expected);
         }
     }
 
@@ -266,7 +277,7 @@ public class StockAlphaEntryService {
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
         batch.setSlotId(slot.getId());
         batch.setSlotNo(slot.getSlotNo());
-        batch.setSignalTime(roundTime.minusMinutes(15));
+        batch.setSignalTime(StockAlphaExecutionBarPolicy.previousBucket(roundTime));
         batch.setSignalReferencePrice(bar.getLastPrice());
         batch.setExpectedEntryBarTime(roundTime);
         batch.setEntryStaleAt(roundTime.plusMinutes(20));

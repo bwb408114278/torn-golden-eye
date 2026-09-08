@@ -18,14 +18,14 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioServi
 import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.*;
 
 /**
  * α策略初始入场服务测试。
@@ -59,7 +59,8 @@ class StockAlphaEntryServiceTest {
         StockAlphaEntryService service = new StockAlphaEntryService(
                 decisionDAO, virtualBatchDAO, new StockPortfolioService());
         TornStockVirtualBatchDO result = service.createInitialEntry(
-                ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase());
+                ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
+                ROUND_TIME.plusMinutes(16));
 
         assertNotNull(result);
         ArgumentCaptor<TornStockVirtualBatchDO> insertedBatch = ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
@@ -73,6 +74,27 @@ class StockAlphaEntryServiceTest {
         assertEquals("EXECUTED", decision.getExecutionStatus());
         assertEquals(persisted.getId(), decision.getCurrentBatchId());
         verify(decisionDAO).updateById(decision);
+    }
+
+    @Test
+    void createInitialEntry_rejectsRoundTimeOtherThanPersistedExecutionBar() {
+        TornStockAlphaDecisionDO decision = decision();
+        TornStockPortfolioSlotDO slot = slot();
+        TornStockMarketBar15mDO bar = bar();
+        when(decisionDAO.selectPendingInitialEntryForUpdate(any(), anyInt(), any())).thenReturn(decision);
+
+        StockAlphaEntryService service = new StockAlphaEntryService(
+                decisionDAO, virtualBatchDAO, new StockPortfolioService());
+        RoundSnapshot snapshot = snapshot(slot, bar);
+        LocalDate decisionDate = decision.getDecisionBusinessDate();
+        int phase = decision.getPhase();
+        LocalDateTime laterRoundTime = ROUND_TIME.plusMinutes(15);
+        LocalDateTime actualProcessingTime = ROUND_TIME.plusMinutes(31);
+
+        assertThrows(IllegalStateException.class, () -> service.createInitialEntry(
+                laterRoundTime, snapshot, decisionDate, phase, actualProcessingTime));
+        verify(virtualBatchDAO, never()).insertIgnoreConflict(any(TornStockVirtualBatchDO.class));
+        verify(decisionDAO, never()).updateById(decision);
     }
 
     private TornStockAlphaDecisionDO decision() {

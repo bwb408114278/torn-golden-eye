@@ -42,6 +42,18 @@ public class TornStockAlphaDailySnapshotDAO extends ServiceImpl<TornStockAlphaDa
     }
 
     /**
+     * 冲突安全批量插入日线快照。
+     * <p>
+     * 日线预填与缺口修复的唯一写入入口,调用方负责分批并核对生效行数。
+     *
+     * @param snapshots 待插入日线快照
+     * @return 实际生效行数
+     */
+    public int batchInsertIgnoreConflict(List<TornStockAlphaDailySnapshotDO> snapshots) {
+        return baseMapper.batchInsertIgnoreConflict(snapshots);
+    }
+
+    /**
      * 查询指定版本日期范围内的日线快照。
      *
      * @param stockUniverseVersion 股票池版本
