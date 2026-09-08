@@ -36,9 +36,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("股票组合管理服务测试")
 class StockPortfolioServiceTest {
+    /**
+     * 跨组合结算用例使用的结算价格。
+     */
+    private static final BigDecimal SETTLEMENT_PRICE = new BigDecimal("110.00");
 
     @Mock
-    private TornStockPortfolioSlotDAO portfolioSlotDAO;
+    private TornStockPortfolioSlotDAO portfolioSlotDao;
 
     private StockPortfolioService portfolioService;
 
@@ -275,7 +279,7 @@ class StockPortfolioServiceTest {
         BigDecimal formalAvailableBefore = formalSlot.getAvailableCash();
 
         assertThrows(IllegalStateException.class, () -> portfolioService.settleSlotBacked(
-                alphaBatch, formalSlot, new BigDecimal("110.00"),
+                alphaBatch, formalSlot, SETTLEMENT_PRICE,
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE));
 
         assertEquals(0, formalAvailableBefore.compareTo(formalSlot.getAvailableCash()),
@@ -291,7 +295,7 @@ class StockPortfolioServiceTest {
         BigDecimal alphaAvailableBefore = alphaSlot.getAvailableCash();
 
         assertThrows(IllegalStateException.class, () -> portfolioService.settleSlotBacked(
-                formalBatch, alphaSlot, new BigDecimal("110.00"),
+                formalBatch, alphaSlot, SETTLEMENT_PRICE,
                 StockPortfolioService.PORTFOLIO_CODE));
 
         assertEquals(0, alphaAvailableBefore.compareTo(alphaSlot.getAvailableCash()),

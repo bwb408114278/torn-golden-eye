@@ -14,21 +14,17 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildServic
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 伪绛栫暐鏃ョ嚎鏀剁洏鏈嶅姟銆? * <p>
- * 鏈湇鍔″尯鍒嗕笁绫诲姩浣?閬垮厤鍘嗗彶鏃ョ嚎鍐欏叆杩涘叆杞璧勯噾浜嬪姟:
+ * 股票α日线收盘服务。
+ * <p>
+ * 本服务区分三类动作,避免历史日线写入进入轮次资金事务:
  * <ol>
- *   <li>{@link #loadDailyCloses(LocalDate)}: 姝ｅ紡鍐崇瓥璇诲彇,鍙涓斿畬鏁存€т笉婊¤冻鏃秄ail-closed杩斿洖绌虹粨鏋?</li>
- *   <li>{@link #buildDailyClosesForEndedDay(LocalDateTime)}: 鑷劧鏃ユ渶鍚庝竴涓?5鍒嗛挓妗剁粨鏉熷悗鐨勫揩鐓ф瀯寤?</li>
- *   <li>{@link #buildDailyCloses(LocalDate)}: 棰勫～涓庣己鍙ｄ慨澶?鍙缂哄け鎴栦笉瀹屾暣鏃ユ湡鎵归噺鍐欏叆銆?/li>
+ *   <li>{@link #loadDailyCloses(LocalDate)}: 正式决策读取,只读且完整性不满足时fail-closed返回空结果。</li>
+ *   <li>{@link #buildDailyClosesForEndedDay(LocalDateTime)}: 自然日最后一个15分钟桶结束后的快照构建。</li>
+ *   <li>{@link #buildDailyCloses(LocalDate)}: 预填与缺口修复,只对缺失或不完整日期批量写入。</li>
  * </ol>
  *
  * @author Bai
@@ -40,50 +36,61 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class StockAlphaDailyCloseService {
     /**
-     * 鏀剁洏bar鏋勫缓鐗堟湰銆?     */
+     * 收盘bar构建版本。
+     */
     private static final String BAR_BUILD_VERSION = Stock15mBarBuildService.BUILD_VERSION;
     /**
-     * 鍐崇瓥绐楀彛鍦ㄩ鐑叡鍚屾湁鏁堟棩涔嬪棰濆鍥炵湅鐨勮嚜鐒舵棩鏁伴噺銆?     */
+     * 决策窗口在预热共同有效日之外额外回看的自然日数量。
+     */
     private static final int HISTORY_BUFFER_DAYS = 20;
     /**
-     * 鍗曟壒鍐欏叆鏉℃暟涓婇檺,涓庨」鐩棦鏈夋壒閲廢PSERT绾﹀畾涓€鑷淬€?     */
+     * 单批写入条数上限,与项目既有批量UPSERT约定一致。
+     */
     private static final int BATCH_SIZE = 500;
     /**
-     * 鑷劧鏃ユ渶鍚庝竴涓?5鍒嗛挓妗惰捣鐐广€?     */
+     * 自然日最后一个15分钟桶起点。
+     */
     private static final LocalTime LAST_DAY_BUCKET_START = LocalTime.of(23, 45);
     /**
-     * 鍥哄畾鑲＄エ姹犳垚鍛橀泦鍚堛€?     */
+     * 固定股票池成员集合。
+     */
     private static final Set<Integer> MEMBER_IDS = Set.copyOf(StockAlphaRuleDefinition.stockUniverse());
 
     /**
-     * 15鍒嗛挓bar鏁版嵁璁块棶瀵硅薄銆?     */
+     * 15分钟bar数据访问对象。
+     */
     private final TornStockMarketBar15mDAO barDao;
     /**
-     * 伪鏃ョ嚎蹇収鏁版嵁璁块棶瀵硅薄銆?     */
+     * α日线快照数据访问对象。
+     */
     private final TornStockAlphaDailySnapshotDAO snapshotDao;
 
     /**
-     * 璇诲彇鎸囧畾缁撴潫鏃ユ湡鍓嶇殑瀹屾暣鏃ョ嚎鏀剁洏鏁版嵁銆?     * <p>
-     * 鍙秷璐瑰凡鎸佷箙鍖栫殑瀹屾暣蹇収:浠讳竴鏃ョ己澶便€佹垚鍛橀泦鍚堜笉涓€鑷存垨蹇収瀛楁闈炴硶鏃惰繑鍥炵┖缁撴灉,
-     * 涓嶈Е鍙戝巻鍙查噸绠?涓嶄骇鐢熶换浣曞啓鍏?渚涜疆娆′簨鍔″唴瀹夊叏璋冪敤銆?     *
-     * @param endDate 缁撴潫鏃ユ湡(闂尯闂翠笂鐣?
-     * @return 鎸夋棩鏈熷拰鑲＄エID鍒嗙粍鐨勬敹鐩樼粨鏋?鏁版嵁涓嶅畬鏁存椂涓虹┖
+     * 读取指定结束日期前的完整日线收盘数据。
+     * <p>
+     * 只消费已持久化的完整快照:任一日期缺失、成员集合不一致或快照字段非法时返回空结果,
+     * 不触发历史重算,不产生任何写入,供轮次事务内安全调用。
+     *
+     * @param endDate 结束日期(闭区间上界)
+     * @return 按日期和股票ID分组的收盘结果,数据不完整时为空
      */
     public Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loadDailyCloses(
             LocalDate endDate) {
         DateRange range = DateRange.endingAt(endDate);
         List<TornStockAlphaDailySnapshotDO> storedSnapshots = selectSnapshots(range);
         if (!isRangeComplete(storedSnapshots, range)) {
-            log.warn("伪鏃ョ嚎蹇収涓嶅畬鏁?鏈疆涓嶅弬涓庡喅绛? endDate={}, startDate={}", range.end(), range.start());
+            log.warn("α日线快照不完整,本轮不参与决策: endDate={}, startDate={}", range.end(), range.start());
             return Map.of();
         }
         return toCloseResults(storedSnapshots);
     }
 
     /**
-     * 鍦ㄨ嚜鐒舵棩鏈€鍚庝竴涓?5鍒嗛挓妗剁粨鏉熷悗鏋勫缓褰撴棩鍙婂巻鍙茬己鍙ｇ殑鏃ョ嚎鏀剁洏蹇収銆?     *
-     * @param roundTime 宸茬粨鏉熺殑杞bar璧风偣
-     * @return 鏈鍐欏叆鐨勫揩鐓ф潯鏁?     */
+     * 在自然日最后一个15分钟桶结束后构建当日及历史缺口的日线收盘快照。
+     *
+     * @param roundTime 已结束的轮次bar起点
+     * @return 本次写入的快照条数
+     */
     public int buildDailyClosesForEndedDay(LocalDateTime roundTime) {
         if (roundTime == null || !LAST_DAY_BUCKET_START.equals(roundTime.toLocalTime())) {
             return 0;
@@ -92,10 +99,14 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鏋勫缓鎴栦慨澶嶆寚瀹氱粨鏉熸棩鏈熷墠鐨勬棩绾挎敹鐩樺揩鐓с€?     * <p>
-     * 鍙缂哄け鎴栦笉瀹屾暣鐨勮嚜鐒舵棩鎵弿bar骞舵壒閲廢PSERT;鍏ㄩ儴鏃ユ湡宸插畬鏁存椂涓嶈鍙朾ar銆佷笉鍐欏叆銆?     * 閮ㄥ垎鍐欏叆涓嶄細鎶婅鏃ユ湡鏍囪涓哄畬鏁?涓嬩竴娆℃瀯寤轰粛浼氶噸鏂拌ˉ榻愩€?     *
-     * @param endDate 缁撴潫鏃ユ湡(闂尯闂翠笂鐣?
-     * @return 鏈鍐欏叆鐨勫揩鐓ф潯鏁?     */
+     * 构建或修复指定结束日期前的日线收盘快照。
+     * <p>
+     * 只对缺失或不完整的自然日扫描bar并批量UPSERT;全部日期已完整时不读取bar、不写入。
+     * 部分写入不会把该日期标记为完整,下一次构建仍会重新补齐。
+     *
+     * @param endDate 结束日期(闭区间上界)
+     * @return 本次写入的快照条数
+     */
     public int buildDailyCloses(LocalDate endDate) {
         DateRange range = DateRange.endingAt(endDate);
         List<LocalDate> missingDates = missingDates(selectSnapshots(range), range);
@@ -114,19 +125,21 @@ public class StockAlphaDailyCloseService {
             if (daily != null && isCompleteMemberSet(daily.keySet())) {
                 daily.values().forEach(close -> pending.add(buildSnapshot(close)));
             } else {
-                log.warn("伪鏃ョ嚎鏀剁洏璁＄畻鏈鐩栧畬鏁磋偂绁ㄦ睜,鏈涓嶅啓鍏? businessDate={}", date);
+                log.warn("α日线收盘计算未覆盖完整股票池,本次不写入: businessDate={}", date);
             }
         }
         int written = batchInsert(pending);
-        log.info("伪鏃ョ嚎蹇収鏋勫缓瀹屾垚: endDate={}, 缂哄け鏃ユ湡鏁?{}, 鍐欏叆鏉℃暟={}", range.end(), missingDates.size(), written);
+        log.info("α日线快照构建完成: endDate={}, 缺失日期数={}, 写入条数={}",
+                range.end(), missingDates.size(), written);
         return written;
     }
 
     /**
-     * 鎵归噺鍐欏叆鎸囧畾鎺掑悕鏃ユ湡鐨勬帓鍚嶇粨鏋溿€?     *
-     * @param rankingDate 鎺掑悕鏃ユ湡
-     * @param closes      璇ユ棩鏈熺殑鏀剁洏缁撴灉
-     * @param rankings    鎺掑悕缁撴灉
+     * 批量写入指定排名日期的排名结果。
+     *
+     * @param rankingDate 排名日期
+     * @param closes      该日期的收盘结果
+     * @param rankings    排名结果
      */
     public void persistRankings(LocalDate rankingDate,
                                 Map<Integer, StockAlphaDailyCloseCalculator.CloseResult> closes,
@@ -138,7 +151,7 @@ public class StockAlphaDailyCloseService {
         for (StockAlphaRankingResult ranking : rankings) {
             StockAlphaDailyCloseCalculator.CloseResult close = closes.get(ranking.stocksId());
             if (close == null || !rankingDate.equals(close.businessDate())) {
-                log.warn("伪鎺掑悕缂哄皯瀵瑰簲鏀剁洏蹇収,璺宠繃璇ヨ偂绁ㄦ帓鍚嶅啓鍏? rankingDate={}, stocksId={}",
+                log.warn("α排名缺少对应收盘快照,跳过该股票排名写入: rankingDate={}, stocksId={}",
                         rankingDate, ranking.stocksId());
                 continue;
             }
@@ -148,9 +161,10 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鎸夋棩鏈熻寖鍥存煡璇㈠綋鍓嶇増鏈殑鏃ョ嚎蹇収銆?     *
-     * @param range 鏃ユ湡鑼冨洿
-     * @return 鏃ョ嚎蹇収
+     * 按日期范围查询当前版本的日线快照。
+     *
+     * @param range 日期范围
+     * @return 日线快照
      */
     private List<TornStockAlphaDailySnapshotDO> selectSnapshots(DateRange range) {
         return snapshotDao.selectByDateRange(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
@@ -158,20 +172,25 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鍒ゆ柇宸叉寔涔呭寲蹇収鏄惁瀹屾暣瑕嗙洊鏃ユ湡鑼冨洿鍐呯殑姣忎竴澶╁拰鍏ㄩ儴鑲＄エ鎴愬憳銆?     * <p>
-     * 鏍￠獙鑼冨洿鏄惧紡鍖呭惈{@code startDate}鍒皗@code endDate}鐨勬瘡涓嚜鐒舵棩,鑰屼笉鏄彧瀵瑰凡鍑虹幇鐨勬棩鏈熷垽鏂?
-     * 姣忎竴澶╃殑鎴愬憳闆嗗悎蹇呴』涓庡浐瀹氳偂绁ㄦ睜瀹屽叏鐩哥瓑,浠庤€屽悓鏃舵嫆缁濈己澶辨垚鍛樸€侀敊璇垚鍛樺拰閲嶅鎴愬憳銆?     *
-     * @param snapshots 宸叉寔涔呭寲鐨勬棩绾垮揩鐓?     * @param range     鏃ユ湡鑼冨洿
-     * @return 姣忎竴澶╅兘瀹屾暣涓斿悎娉曟椂杩斿洖true
+     * 判断已持久化快照是否完整覆盖日期范围内的每一天和全部股票成员。
+     * <p>
+     * 校验范围显式包含{@code startDate}到{@code endDate}的每个自然日,而不是只对已出现的日期判断;
+     * 每一天的成员集合必须与固定股票池完全相等,从而同时拒绝缺失成员、错误成员和重复成员。
+     *
+     * @param snapshots 已持久化的日线快照
+     * @param range     日期范围
+     * @return 每一天都完整且合法时返回true
      */
     private boolean isRangeComplete(List<TornStockAlphaDailySnapshotDO> snapshots, DateRange range) {
         return missingDates(snapshots, range).isEmpty();
     }
 
     /**
-     * 璁＄畻鏃ユ湡鑼冨洿鍐呯己澶辨垨涓嶅畬鏁寸殑鑷劧鏃ャ€?     *
-     * @param snapshots 宸叉寔涔呭寲鐨勬棩绾垮揩鐓?     * @param range     鏃ユ湡鑼冨洿
-     * @return 缂哄け鎴栦笉瀹屾暣鐨勮嚜鐒舵棩
+     * 计算日期范围内缺失或不完整的自然日。
+     *
+     * @param snapshots 已持久化的日线快照
+     * @param range     日期范围
+     * @return 缺失或不完整的自然日
      */
     private List<LocalDate> missingDates(List<TornStockAlphaDailySnapshotDO> snapshots, DateRange range) {
         Map<LocalDate, Set<Integer>> validMembersByDate = snapshots == null
@@ -191,18 +210,20 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鍒ゆ柇鎴愬憳闆嗗悎鏄惁涓庡浐瀹氳偂绁ㄦ睜瀹屽叏鐩哥瓑銆?     *
-     * @param stocksIds 鎴愬憳闆嗗悎
-     * @return 瀹屽叏鐩哥瓑鏃惰繑鍥瀟rue
+     * 判断成员集合是否与固定股票池完全相等。
+     *
+     * @param stocksIds 成员集合
+     * @return 完全相等时返回true
      */
     private boolean isCompleteMemberSet(Set<Integer> stocksIds) {
         return stocksIds != null && stocksIds.equals(MEMBER_IDS);
     }
 
     /**
-     * 鍒ゆ柇蹇収鏄惁鍙綔涓哄叡鍚屾湁鏁堟棩绾挎暟鎹€?     *
-     * @param snapshot 鏃ョ嚎蹇収
-     * @return 鐗堟湰銆佹湁鏁堟€с€佷环鏍煎拰鏉ユ簮bar瀛楁鍧囧悎娉曟椂杩斿洖true
+     * 判断快照是否可作为共同有效日线数据。
+     *
+     * @param snapshot 日线快照
+     * @return 版本、有效性、价格和来源bar字段均合法时返回true
      */
     private static boolean isUsableSnapshot(TornStockAlphaDailySnapshotDO snapshot) {
         return snapshot != null
@@ -218,9 +239,11 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鎸夎嚜鐒舵棩鍜岃偂绁↖D璁＄畻鏈€鍚庡彲鐢╞ar鐨勬敹鐩樼粨鏋溿€?     *
-     * @param bars 15鍒嗛挓bar
-     * @return 鎸夋棩鏈熷拰鑲＄エID鍒嗙粍鐨勬敹鐩樼粨鏋?     */
+     * 按自然日和股票ID计算最后可用bar的收盘结果。
+     *
+     * @param bars 15分钟bar
+     * @return 按日期和股票ID分组的收盘结果
+     */
     private Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> calculateDaily(
             List<TornStockMarketBar15mDO> bars) {
         Map<LocalDate, List<TornStockMarketBar15mDO>> barsByDate = bars.stream()
@@ -244,9 +267,11 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 灏嗗凡鏍￠獙瀹屾暣鐨勬棩绾垮揩鐓ц浆鎹负鎸夋棩鏈熷拰鑲＄エID绱㈠紩鐨勬敹鐩樼粨鏋溿€?     *
-     * @param snapshots 鏃ョ嚎蹇収
-     * @return 鎸夋棩鏈熷拰鑲＄エID鍒嗙粍鐨勬敹鐩樼粨鏋?     */
+     * 将已校验完整的日线快照转换为按日期和股票ID索引的收盘结果。
+     *
+     * @param snapshots 日线快照
+     * @return 按日期和股票ID分组的收盘结果
+     */
     private Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> toCloseResults(
             List<TornStockAlphaDailySnapshotDO> snapshots) {
         return snapshots.stream()
@@ -259,8 +284,10 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鍒嗘壒鍐欏叆鏃ョ嚎蹇収骞舵牳瀵圭敓鏁堣鏁般€?     *
-     * @param pending 寰呭啓鍏ュ揩鐓?     * @return 瀹為檯鍐欏叆鏉℃暟
+     * 分批写入日线快照并核对生效行数。
+     *
+     * @param pending 待写入快照
+     * @return 实际写入条数
      */
     private int batchInsert(List<TornStockAlphaDailySnapshotDO> pending) {
         if (pending == null || pending.isEmpty()) {
@@ -273,16 +300,17 @@ public class StockAlphaDailyCloseService {
             written += snapshotDao.batchInsertIgnoreConflict(batch);
         }
         if (written != pending.size()) {
-            log.warn("伪鏃ョ嚎蹇収鎵归噺鍐欏叆鏉℃暟涓庨鏈熶笉涓€鑷?缂哄け鏃ユ湡灏嗗湪涓嬫鏋勫缓閲嶆柊琛ラ綈: expected={}, actual={}",
+            log.warn("α日线快照批量写入条数与预期不一致,缺失日期将在下次构建重新补齐: expected={}, actual={}",
                     pending.size(), written);
         }
         return written;
     }
 
     /**
-     * 鏋勫缓鏃ョ嚎蹇収銆?     *
-     * @param close 鏀剁洏缁撴灉
-     * @return 鏃ョ嚎蹇収
+     * 构建日线快照。
+     *
+     * @param close 收盘结果
+     * @return 日线快照
      */
     private TornStockAlphaDailySnapshotDO buildSnapshot(StockAlphaDailyCloseCalculator.CloseResult close) {
         TornStockAlphaDailySnapshotDO snapshot = new TornStockAlphaDailySnapshotDO();
@@ -298,10 +326,11 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鏋勫缓鎼哄甫鎺掑悕瀛楁鐨勬棩绾垮揩鐓с€?     *
-     * @param close   鏀剁洏缁撴灉
-     * @param ranking 鎺掑悕缁撴灉
-     * @return 鏃ョ嚎蹇収
+     * 构建携带排名字段的日线快照。
+     *
+     * @param close   收盘结果
+     * @param ranking 排名结果
+     * @return 日线快照
      */
     private TornStockAlphaDailySnapshotDO buildRankingSnapshot(StockAlphaDailyCloseCalculator.CloseResult close,
                                                                StockAlphaRankingResult ranking) {
@@ -318,28 +347,31 @@ public class StockAlphaDailyCloseService {
     }
 
     /**
-     * 鏃ョ嚎鍐崇瓥绐楀彛鐨勯棴鍖洪棿鏃ユ湡鑼冨洿銆?     *
-     * @param start 璧峰鏃ユ湡
-     * @param end   缁撴潫鏃ユ湡
+     * 日线决策窗口的闭区间日期范围。
+     *
+     * @param start 起始日期
+     * @param end   结束日期
      */
     private record DateRange(LocalDate start, LocalDate end) {
         /**
-         * 鎸夌粨鏉熸棩鏈熸瀯寤哄喅绛栫獥鍙ｃ€?         *
-         * @param endDate 缁撴潫鏃ユ湡
-         * @return 鏃ユ湡鑼冨洿
+         * 按结束日期构建决策窗口。
+         *
+         * @param endDate 结束日期
+         * @return 日期范围
          */
         private static DateRange endingAt(LocalDate endDate) {
             if (endDate == null) {
-                throw new IllegalArgumentException("伪鏃ョ嚎缁撴潫鏃ユ湡涓嶈兘涓虹┖");
+                throw new IllegalArgumentException("α日线结束日期不能为空");
             }
             long windowDays = StockAlphaRuleDefinition.WARMUP_COMMON_DAYS + (long) HISTORY_BUFFER_DAYS;
             return new DateRange(endDate.minusDays(windowDays), endDate);
         }
 
         /**
-         * 鍒ゆ柇鏃ユ湡鏄惁钀藉湪鑼冨洿鍐呫€?         *
-         * @param date 鏃ユ湡
-         * @return 钀藉湪闂尯闂村唴鏃惰繑鍥瀟rue
+         * 判断日期是否落在范围内。
+         *
+         * @param date 日期
+         * @return 落在闭区间内时返回true
          */
         private boolean contains(LocalDate date) {
             return date != null && !date.isBefore(start) && !date.isAfter(end);

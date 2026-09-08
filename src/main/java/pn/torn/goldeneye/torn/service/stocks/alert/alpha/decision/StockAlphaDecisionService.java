@@ -78,7 +78,7 @@ public class StockAlphaDecisionService {
         Objects.requireNonNull(decisionDate, "决策日期不能为空");
         Objects.requireNonNull(executionBarStart, "执行bar起点不能为空");
         LocalDateTime executionBar = StockAlphaExecutionBarPolicy.requireExecutionBar(executionBarStart);
-        Calculation calculation = calculate(decisionDate, currentStocksId, executionBar);
+        Calculation calculation = calculate(decisionDate, currentStocksId);
         if (!calculation.ready()) {
             return new DecisionResult(decisionDate, false, calculation.commonDayCount(), null, null,
                     StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, executionBar);
@@ -167,13 +167,11 @@ public class StockAlphaDecisionService {
      * <p>
      * 只读取已完整持久化的日线快照并执行纯内存排名,不重写历史快照。
      *
-     * @param decisionDate      决策日期
-     * @param currentStocksId   当前持仓股票ID
-     * @param executionBarStart 固定执行bar起点
+     * @param decisionDate    决策日期
+     * @param currentStocksId 当前持仓股票ID
      * @return 计算结果
      */
-    private Calculation calculate(LocalDate decisionDate, Integer currentStocksId,
-                                  LocalDateTime executionBarStart) {
+    private Calculation calculate(LocalDate decisionDate, Integer currentStocksId) {
         Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily =
                 dailyCloseService.loadDailyCloses(decisionDate);
         List<LocalDate> commonDates = daily.entrySet().stream()

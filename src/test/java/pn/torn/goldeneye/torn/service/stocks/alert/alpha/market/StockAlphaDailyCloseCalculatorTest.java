@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.market;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -18,15 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * α策略日线收盘计算器测试。
@@ -35,6 +31,7 @@ import static org.mockito.Mockito.when;
  * @version 1.6.1
  * @since 2026.09.05
  */
+@DisplayName("α策略日线收盘计算器测试")
 @ExtendWith(MockitoExtension.class)
 class StockAlphaDailyCloseCalculatorTest {
     /**
@@ -48,6 +45,7 @@ class StockAlphaDailyCloseCalculatorTest {
     private TornStockAlphaDailySnapshotDAO snapshotDao;
 
     @Test
+    @DisplayName("收盘计算_取自然日最后一根可用正价bar")
     void selectsLastUsablePositiveBarOnBusinessDate() {
         LocalDate date = LocalDate.of(2026, 9, 5);
         TornStockMarketBar15mDO first = bar(date.atTime(23, 45), "100", true);
@@ -57,12 +55,14 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
+    @DisplayName("收盘计算_日期不匹配或价格非正时返回null")
     void missingDateOrInvalidPriceReturnsNull() {
         LocalDate date = LocalDate.of(2026, 9, 5);
         assertNull(StockAlphaDailyCloseCalculator.calculate(date, List.of(bar(date.atStartOfDay(), "0", true))));
     }
 
     @Test
+    @DisplayName("日线读取_中间日期缺失时返回空且不读取bar")
     void loadDailyCloses_returnsEmptyAndReadsNoBarWhenMiddleDateMissing() {
         List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>();
         stored.addAll(completeDay(END_DATE.minusDays(2)));
@@ -79,6 +79,7 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
+    @DisplayName("日线读取_成员集合与固定股票池不一致时返回空")
     void loadDailyCloses_returnsEmptyWhenMemberSetDiffers() {
         List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>(completeDay(END_DATE));
         stored.removeLast();
@@ -93,6 +94,7 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
+    @DisplayName("日线构建_窗口已完整时不扫描bar且不写入")
     void buildDailyCloses_skipsScanAndWriteWhenEveryDateComplete() {
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(END_DATE)))
@@ -107,6 +109,7 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
+    @DisplayName("日线构建_仅批量写入缺失且成员完整的日期")
     void buildDailyCloses_batchWritesOnlyMissingCompleteDate() {
         List<TornStockAlphaDailySnapshotDO> stored = completeWindow(END_DATE.minusDays(1));
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
@@ -126,6 +129,7 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
+    @DisplayName("日线构建_成员不完整日期不写入")
     void buildDailyCloses_dropsDateWithoutFullMemberSet() {
         List<TornStockAlphaDailySnapshotDO> stored = completeWindow(END_DATE.minusDays(1));
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
@@ -138,6 +142,28 @@ class StockAlphaDailyCloseCalculatorTest {
 
         assertEquals(0, service.buildDailyCloses(END_DATE));
         verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
+    }
+
+    @Test
+    @DisplayName("日线读取_窗口完整时返回按日期索引的收盘结果")
+    void loadDailyCloses_returnsIndexedResultsWhenEveryDateComplete() {
+        List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>();
+        for (LocalDate date = END_DATE.minusDays(80); !date.isAfter(END_DATE); date = date.plusDays(1)) {
+            stored.addAll(completeDay(date));
+        }
+        when(snapshotDao.selectByDateRange(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
+                StockAlphaRuleDefinition.RULE_VERSION, END_DATE.minusDays(80), END_DATE))
+                .thenReturn(stored);
+
+        StockAlphaDailyCloseService service =
+                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loaded =
+                service.loadDailyCloses(END_DATE);
+
+        assertEquals(81, loaded.size());
+        assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT, loaded.get(END_DATE).size());
+        assertEquals(new BigDecimal("12.34"), loaded.get(END_DATE).get(1).closePrice());
+        verifyNoInteractions(barDao);
     }
 
     private TornStockMarketBar15mDO bar(LocalDateTime start, String price, boolean usable) {
@@ -232,29 +258,5 @@ class StockAlphaDailyCloseCalculatorTest {
         snapshot.setAlphaRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
         snapshot.setCommonValid(true);
         return snapshot;
-    }
-
-    /**
-     * 校验完整快照读取路径可返回按日期索引的收盘结果。
-     */
-    @Test
-    void loadDailyCloses_returnsIndexedResultsWhenEveryDateComplete() {
-        List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>();
-        for (LocalDate date = END_DATE.minusDays(80); !date.isAfter(END_DATE); date = date.plusDays(1)) {
-            stored.addAll(completeDay(date));
-        }
-        when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
-                eq(StockAlphaRuleDefinition.RULE_VERSION), eq(END_DATE.minusDays(80)), eq(END_DATE)))
-                .thenReturn(stored);
-
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
-        Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loaded =
-                service.loadDailyCloses(END_DATE);
-
-        assertEquals(81, loaded.size());
-        assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT, loaded.get(END_DATE).size());
-        assertEquals(new BigDecimal("12.34"), loaded.get(END_DATE).get(1).closePrice());
-        verifyNoInteractions(barDao);
     }
 }
