@@ -25,6 +25,14 @@ public final class StockAlphaRuleDefinition {
      */
     public static final String STOCK_UNIVERSE_VERSION = "STOCKS_35_V1";
     /**
+     * α批次不参与旧版风格评估时写入的风格规则版本。
+     */
+    public static final String STYLE_RULE_VERSION = "ALPHA_STYLE_NOT_EVALUATED";
+    /**
+     * α批次不参与旧版风险评级时写入的风险规则版本。
+     */
+    public static final String RISK_RULE_VERSION = "ALPHA_RISK_NOT_EVALUATED";
+    /**
      * 股票池成员数量。
      */
     public static final int MEMBER_COUNT = 35;
@@ -36,6 +44,10 @@ public final class StockAlphaRuleDefinition {
      * 决策间隔天数。
      */
     public static final int DECISION_INTERVAL_DAYS = 5;
+    /**
+     * 计算α排名所需的最少共同有效日数量:20日收益需要前20个交易日加当前日。
+     */
+    public static final int RANKING_MIN_COMMON_DAYS = 21;
     /**
      * 持仓保持的最高排名范围。
      */

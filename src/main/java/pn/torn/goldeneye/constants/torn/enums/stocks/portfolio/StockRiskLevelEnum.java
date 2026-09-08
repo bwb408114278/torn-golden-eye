@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票风险等级枚举 - 批次或持仓的当前风险评级
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Getter
@@ -27,6 +27,10 @@ public enum StockRiskLevelEnum {
      * 高风险
      */
     HIGH("HIGH", "高风险"),
+    /**
+     * α策略未评估 — α批次不参与旧版风险评级,禁止写入"不适用"伪业务值
+     */
+    ALPHA_NOT_EVALUATED("ALPHA_NOT_EVALUATED", "α未评估风险"),
     ;
 
     /**

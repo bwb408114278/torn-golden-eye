@@ -71,6 +71,12 @@ public class TornStockVirtualBatchDO extends BaseDO {
     private String batchStatus;
     /**
      * α策略来源决策ID。
+     * <p>
+     * α批次不冗余保存股票池版本、决策业务日和来源摘要:统一以本字段回查唯一决策
+     * ({@code decision_business_date}、{@code phase}、{@code selected_stocks_id}、
+     * {@code source_snapshot_digest}、{@code execution_bar_start_time})以及该决策日的
+     * α日线排名快照({@code stock_universe_version}、{@code alpha_rule_version}、r20/r1与名次),
+     * 从而完整重建该BUY当时的排名事实。
      */
     private Long alphaDecisionId;
     /**

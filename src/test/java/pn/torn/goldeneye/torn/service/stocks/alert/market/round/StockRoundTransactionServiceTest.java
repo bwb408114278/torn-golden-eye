@@ -479,6 +479,29 @@ class StockRoundTransactionServiceTest {
         verify(alphaRebalanceService, never()).rebalance(any(), anyInt(), any(), any());
     }
 
+    @Test
+    @DisplayName("已有Alpha持仓且决策未就绪_不消费phase且不换仓")
+    void executeRound_decisionNotReady_skipsRebalance() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(),
+                lockedSlots, List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
+        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, false, 62, null, null,
+                        StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, roundTime));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaRebalanceService, never()).rebalance(any(), anyInt(), any(), any());
+        verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), anyInt(), any());
+    }
+
     /**
      * 创建Alpha待买入批次,用于验证事务内快照刷新。
      *

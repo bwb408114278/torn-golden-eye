@@ -6,9 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
@@ -16,6 +14,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDe
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
@@ -98,6 +97,7 @@ class StockAlphaRebalanceServiceTest {
         TornStockVirtualBatchDO replacement = replacementCaptor.getValue();
         assertEquals(StockLedgerTypeEnum.FORMAL.getCode(), replacement.getLedgerType());
         assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, replacement.getPortfolioCode());
+        assertAlphaAuditSource(replacement, decision);
         assertNotNull(replacement.getFollowUntil());
         assertNotNull(replacement.getFollowMaxPrice());
         assertEquals(99L, slot.getCurrentBatchId());
@@ -210,6 +210,22 @@ class StockAlphaRebalanceServiceTest {
         verifyNoInteractions(slotDAO, batchDAO);
         verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
         verify(decisionDAO, never()).updateById(any(TornStockAlphaDecisionDO.class));
+    }
+
+    /**
+     * 校验α换仓批次与初始入场批次引用同一α审计来源。
+     *
+     * @param batch    换仓新仓批次
+     * @param decision 来源决策
+     */
+    private void assertAlphaAuditSource(TornStockVirtualBatchDO batch, TornStockAlphaDecisionDO decision) {
+        assertEquals(decision.getId(), batch.getAlphaDecisionId(), "α换仓批次必须可回查来源决策");
+        assertEquals(StockAlphaRuleDefinition.RULE_VERSION, batch.getBuyRuleVersion(), "α批次必须保存α规则版本");
+        assertEquals(StockStrategyFitEnum.ALPHA_NOT_EVALUATED.getCode(), batch.getStylePrior());
+        assertEquals(StockMaturityEnum.ALPHA_NOT_EVALUATED.getCode(), batch.getStyleMaturity());
+        assertEquals(StockRiskLevelEnum.ALPHA_NOT_EVALUATED.getCode(), batch.getRiskLevel());
+        assertEquals(StockAlphaRuleDefinition.STYLE_RULE_VERSION, batch.getStyleRuleVersion());
+        assertEquals(StockAlphaRuleDefinition.RISK_RULE_VERSION, batch.getRiskRuleVersion());
     }
 
     private TornStockAlphaDecisionDO decision(Long id) {

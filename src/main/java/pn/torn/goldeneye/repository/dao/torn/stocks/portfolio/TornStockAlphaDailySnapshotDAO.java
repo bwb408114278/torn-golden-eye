@@ -70,17 +70,19 @@ public class TornStockAlphaDailySnapshotDAO extends ServiceImpl<TornStockAlphaDa
     }
 
     /**
-     * 查询共同有效日期。
+     * 查询固定股票池全部成员均合法收盘的共同有效自然日。
      *
      * @param stockUniverseVersion 股票池版本
      * @param alphaRuleVersion     α规则版本
-     * @param memberCount          股票池成员数量
+     * @param memberIds            股票池成员ID
      * @param startDate            起始日期
      * @param endDate              结束日期
-     * @return 共同有效日期
+     * @return 升序共同有效日期;无行情自然日不在结果中
      */
     public List<LocalDate> selectCommonValidDates(String stockUniverseVersion, String alphaRuleVersion,
-                                                  int memberCount, LocalDate startDate, LocalDate endDate) {
-        return baseMapper.selectCommonValidDates(stockUniverseVersion, alphaRuleVersion, memberCount, startDate, endDate);
+                                                  List<Integer> memberIds, LocalDate startDate,
+                                                  LocalDate endDate) {
+        return baseMapper.selectCommonValidDates(stockUniverseVersion, alphaRuleVersion,
+                memberIds == null ? 0 : memberIds.size(), memberIds, startDate, endDate);
     }
 }

@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票策略适配风格枚举 - 正式组合使用的股票风格分类，与旧 {@code StockPersonalityEnum} 分开维护
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Getter
@@ -39,6 +39,10 @@ public enum StockStrategyFitEnum {
      * 强势
      */
     STRONG("STRONG", "强势"),
+    /**
+     * α策略未评估 — α批次不参与旧版风格分类,禁止写入"不适用"伪业务值
+     */
+    ALPHA_NOT_EVALUATED("ALPHA_NOT_EVALUATED", "α未评估风格"),
     ;
 
     /**

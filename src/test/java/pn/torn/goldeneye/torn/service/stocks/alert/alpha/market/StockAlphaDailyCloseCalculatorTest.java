@@ -62,8 +62,8 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
-    @DisplayName("日线读取_中间日期缺失时返回空且不读取bar")
-    void loadDailyCloses_returnsEmptyAndReadsNoBarWhenMiddleDateMissing() {
+    @DisplayName("日线读取_中间自然日无行情时按真实交易日返回且不读取bar")
+    void loadDailyCloses_ignoresNaturalDaysWithoutQuotes() {
         List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>();
         stored.addAll(completeDay(END_DATE.minusDays(2)));
         stored.addAll(completeDay(END_DATE));
@@ -73,7 +73,8 @@ class StockAlphaDailyCloseCalculatorTest {
         StockAlphaDailyCloseService service =
                 new StockAlphaDailyCloseService(barDao, snapshotDao);
 
-        assertTrue(service.loadDailyCloses(END_DATE).isEmpty());
+        assertEquals(java.util.Set.of(END_DATE.minusDays(2), END_DATE), service.loadDailyCloses(END_DATE).keySet(),
+                "无行情自然日不是共同有效日,不得把窗口判定为不完整");
         verifyNoInteractions(barDao);
         verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
     }
@@ -94,8 +95,8 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     @Test
-    @DisplayName("日线构建_窗口已完整时不扫描bar且不写入")
-    void buildDailyCloses_skipsScanAndWriteWhenEveryDateComplete() {
+    @DisplayName("日线构建_窗口已完整时不重复写入")
+    void buildDailyCloses_skipsWriteWhenEveryDateComplete() {
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(END_DATE)))
                 .thenReturn(completeWindow(END_DATE));
@@ -104,8 +105,56 @@ class StockAlphaDailyCloseCalculatorTest {
                 new StockAlphaDailyCloseService(barDao, snapshotDao);
 
         assertEquals(0, service.buildDailyCloses(END_DATE));
-        verifyNoInteractions(barDao);
         verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
+    }
+
+    @Test
+    @DisplayName("共同有效日_周末无行情不伪造补数且缺员交易日不计入")
+    void loadDailyCloses_countsOnlyCompleteTradingDays() {
+        LocalDate friday = LocalDate.of(2026, 9, 4);
+        LocalDate monday = friday.plusDays(3);
+        List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>(completeDay(friday));
+        stored.addAll(completeDay(monday));
+        List<TornStockAlphaDailySnapshotDO> incompleteDay = completeDay(friday.minusDays(1));
+        incompleteDay.removeLast();
+        stored.addAll(incompleteDay);
+        when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
+                eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(monday))).thenReturn(stored);
+
+        StockAlphaDailyCloseService service =
+                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loaded =
+                service.loadDailyCloses(monday);
+
+        assertEquals(java.util.Set.of(friday, monday), loaded.keySet(),
+                "周五与周一为共同有效日,周末无行情不计入也不要求补数");
+        assertFalse(loaded.containsKey(friday.minusDays(1)), "真实交易日缺一支时该日整体不计入");
+        verifyNoInteractions(barDao);
+    }
+
+    @Test
+    @DisplayName("日线构建_无bar自然日不写入伪快照")
+    void buildDailyCloses_writesOnlyDatesWithCompleteBars() {
+        LocalDate friday = LocalDate.of(2026, 9, 4);
+        LocalDate monday = friday.plusDays(3);
+        when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
+                eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(monday))).thenReturn(List.of());
+        when(barDao.selectByStocksAndTimeRange(eq(StockAlphaRuleDefinition.stockUniverse()), any(), any(), any()))
+                .thenReturn(barsOf(friday, monday));
+        when(snapshotDao.batchInsertIgnoreConflict(any()))
+                .thenReturn(StockAlphaRuleDefinition.MEMBER_COUNT * 2);
+
+        StockAlphaDailyCloseService service =
+                new StockAlphaDailyCloseService(barDao, snapshotDao);
+
+        assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT * 2, service.buildDailyCloses(monday));
+        ArgumentCaptor<List<TornStockAlphaDailySnapshotDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(snapshotDao).batchInsertIgnoreConflict(captor.capture());
+        assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT * 2, captor.getValue().size());
+        assertTrue(captor.getValue().stream()
+                        .allMatch(snapshot -> friday.equals(snapshot.getBusinessDate())
+                                || monday.equals(snapshot.getBusinessDate())),
+                "周末无bar不得写入伪快照");
     }
 
     @Test
@@ -184,11 +233,11 @@ class StockAlphaDailyCloseCalculatorTest {
     @DisplayName("日线读取_窗口完整时返回按日期索引的收盘结果")
     void loadDailyCloses_returnsIndexedResultsWhenEveryDateComplete() {
         List<TornStockAlphaDailySnapshotDO> stored = new ArrayList<>();
-        for (LocalDate date = END_DATE.minusDays(80); !date.isAfter(END_DATE); date = date.plusDays(1)) {
+        for (LocalDate date = END_DATE.minusDays(60); !date.isAfter(END_DATE); date = date.plusDays(1)) {
             stored.addAll(completeDay(date));
         }
         when(snapshotDao.selectByDateRange(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
-                StockAlphaRuleDefinition.RULE_VERSION, END_DATE.minusDays(80), END_DATE))
+                StockAlphaRuleDefinition.RULE_VERSION, END_DATE.minusDays(60), END_DATE))
                 .thenReturn(stored);
 
         StockAlphaDailyCloseService service =
@@ -196,7 +245,7 @@ class StockAlphaDailyCloseCalculatorTest {
         Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loaded =
                 service.loadDailyCloses(END_DATE);
 
-        assertEquals(81, loaded.size());
+        assertEquals(61, loaded.size());
         assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT, loaded.get(END_DATE).size());
         assertEquals(new BigDecimal("12.34"), loaded.get(END_DATE).get(1).closePrice());
         verifyNoInteractions(barDao);
@@ -249,6 +298,20 @@ class StockAlphaDailyCloseCalculatorTest {
     }
 
     /**
+     * 构造多个自然日的全部成员bar。
+     *
+     * @param dates 自然日
+     * @return 15分钟bar
+     */
+    private List<TornStockMarketBar15mDO> barsOf(LocalDate... dates) {
+        List<TornStockMarketBar15mDO> bars = new ArrayList<>();
+        for (LocalDate date : dates) {
+            bars.addAll(completeDayBars(date));
+        }
+        return bars;
+    }
+
+    /**
      * 构造截至指定日期的完整窗口快照。
      *
      * @param endDate 窗口结束日期
@@ -256,7 +319,7 @@ class StockAlphaDailyCloseCalculatorTest {
      */
     private List<TornStockAlphaDailySnapshotDO> completeWindow(LocalDate endDate) {
         List<TornStockAlphaDailySnapshotDO> snapshots = new ArrayList<>();
-        for (LocalDate date = endDate.minusDays(80); !date.isAfter(endDate); date = date.plusDays(1)) {
+        for (LocalDate date = endDate.minusDays(100); !date.isAfter(endDate); date = date.plusDays(1)) {
             snapshots.addAll(completeDay(date));
         }
         return snapshots;

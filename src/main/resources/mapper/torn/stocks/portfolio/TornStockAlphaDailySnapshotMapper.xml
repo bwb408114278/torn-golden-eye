@@ -61,17 +61,23 @@
         ORDER BY business_date, stocks_id
     </select>
 
-    <!-- 查询满足全部股票成员数量的共同有效自然日 -->
+    <!-- 查询固定股票池全部成员均合法收盘的共同有效自然日 -->
     <select id="selectCommonValidDates" resultType="java.time.LocalDate">
         SELECT business_date
         FROM torn_stock_alpha_daily_snapshot
         WHERE stock_universe_version = #{stockUniverseVersion}
           AND alpha_rule_version = #{alphaRuleVersion}
           AND common_valid = true
+          AND close_price > 0
           AND deleted = 0
           AND business_date BETWEEN #{startDate} AND #{endDate}
         GROUP BY business_date
         HAVING COUNT(DISTINCT stocks_id) = #{memberCount}
+           AND COUNT(DISTINCT CASE WHEN stocks_id IN
+        <foreach collection="memberIds" item="memberId" open="(" separator="," close=")">
+            #{memberId}
+        </foreach>
+        THEN stocks_id END) = #{memberCount}
         ORDER BY business_date
     </select>
 

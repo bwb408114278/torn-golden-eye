@@ -86,7 +86,7 @@ public class StockAlphaReadinessGate {
         List<LocalDate> commonDates = snapshotDAO.selectCommonValidDates(
                 StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION,
                 StockAlphaRuleDefinition.RULE_VERSION,
-                StockAlphaRuleDefinition.MEMBER_COUNT,
+                StockAlphaRuleDefinition.stockUniverse(),
                 MIN_DATE,
                 marketClock.today());
         return commonDates != null && commonDates.size() >= StockAlphaRuleDefinition.WARMUP_COMMON_DAYS;
