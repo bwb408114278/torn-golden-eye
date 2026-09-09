@@ -18,21 +18,14 @@ import java.time.LocalDateTime;
 @Mapper
 public interface TornStockAlphaDecisionMapper extends BaseMapper<TornStockAlphaDecisionDO> {
     /**
-     * 锁定最近一次已持久化决策。
-     * <p>
-     * 只用于决策服务在读取完整历史窗口前判断当前轮次是否已产生过决策,
-     * 不作为执行消费入口:执行消费必须按"决策业务键+执行桶"锁定。
-     *
-     * @return 最近一次决策记录;不存在时返回null
-     */
-    TornStockAlphaDecisionDO selectLatestForUpdate();
-
-    /**
      * 按决策自然日和phase锁定决策记录。
+     * <p>
+     * 决策生成与复用统一按本业务键加锁收敛,不再锁定全局最新决策行;
+     * 执行消费仍必须按"决策业务键+持久化执行桶"锁定。
      *
      * @param decisionBusinessDate 决策自然日
      * @param phase                phase编号
-     * @return 决策记录
+     * @return 决策记录;不存在时返回null
      */
     TornStockAlphaDecisionDO selectByBusinessKeyForUpdate(@Param("decisionBusinessDate") LocalDate decisionBusinessDate,
                                                           @Param("phase") Integer phase);

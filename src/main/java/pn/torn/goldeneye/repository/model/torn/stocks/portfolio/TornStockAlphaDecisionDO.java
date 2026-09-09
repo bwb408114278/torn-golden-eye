@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import pn.torn.goldeneye.repository.model.BaseDO;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -52,7 +53,17 @@ public class TornStockAlphaDecisionDO extends BaseDO {
      */
     private String sourceSnapshotDigest;
     /**
+     * 决策时点参考价。
+     * <p>
+     * 取决策桶(执行桶前一根15分钟bar)的最后价,是α批次信号参考价的唯一来源:
+     * 执行阶段不得再用执行bar价格充当信号参考价,否则入场价格偏离保护恒为零。
+     */
+    private BigDecimal signalReferencePrice;
+    /**
      * 执行bar开始时间。
+     * <p>
+     * 由{@code 决策时点向下对齐15分钟 + 15分钟}计算后持久化,执行阶段只消费本字段,
+     * 不得再由轮次时间反推,也不跨桶追补。
      */
     private LocalDateTime executionBarStartTime;
     /**

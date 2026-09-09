@@ -133,6 +133,7 @@ class StockRoundTransactionServiceTest {
                 List.of(externalSnapshotBatch), List.of(), List.of(), externalSlots, roundTime);
 
         stubRoundExecution(roundTime, formalExitPendingBatch, shadowExitPendingBatch, lockedSlots, candidates);
+        stubNoAlphaDecision(roundTime);
 
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
@@ -194,6 +195,7 @@ class StockRoundTransactionServiceTest {
         when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
                 eq(CandidateAcceptanceTarget.candidateShadow())))
                 .thenReturn(StockCandidateAllocationResult.empty());
+        stubNoAlphaDecision(roundTime);
 
         transactionService.executeRound(roundTime, externalSnapshot, true, roundTime);
 
@@ -333,9 +335,10 @@ class StockRoundTransactionServiceTest {
     }
 
     @Test
-    @DisplayName("无Alpha持仓且允许新入场_先生成初始决策再消费且不走旧正式BUY")
+    @DisplayName("无Alpha持仓且执行桶为本轮_先生成或复用决策再消费且入场先于结算")
     void executeRound_withoutAlphaPosition_decidesBeforeCreatingInitialEntry() {
         LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
         List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
         TornStockVirtualBatchDO initialAlphaBatch = alphaEntryPendingBatch(51L, 5001, roundTime);
         RoundSnapshot snapshot = new RoundSnapshot(
@@ -343,9 +346,9 @@ class StockRoundTransactionServiceTest {
         stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(), lockedSlots, List.of());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate())
                 .thenReturn(List.of(), List.of(initialAlphaBatch));
-        when(alphaDecisionService.decide(roundTime.toLocalDate().minusDays(1), roundTime))
+        when(alphaDecisionService.decide(eq(decisionDate), eq(roundTime), anyMap()))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
-                        roundTime.toLocalDate().minusDays(1), true, 60, null, 1001,
+                        decisionDate, true, 60, null, 1001,
                         StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY, 0, roundTime));
         doReturn(new StockEntrySettlementService.EntrySettlementResult(List.of(), List.of()))
                 .when(entrySettlementService).processEntryPending(any(), any(), eq(roundTime), eq(roundTime));
@@ -354,9 +357,9 @@ class StockRoundTransactionServiceTest {
 
         InOrder inOrder = inOrder(alphaDecisionService, alphaEntryService, entrySettlementService,
                 batchPathService, alphaRebalanceService);
-        inOrder.verify(alphaDecisionService).decide(roundTime.toLocalDate().minusDays(1), roundTime);
+        inOrder.verify(alphaDecisionService).decide(eq(decisionDate), eq(roundTime), anyMap());
         inOrder.verify(alphaEntryService).createInitialEntry(
-                eq(roundTime), any(), eq(roundTime.toLocalDate().minusDays(1)), eq(0), eq(roundTime));
+                eq(roundTime), any(), eq(decisionDate), eq(0), eq(roundTime));
         inOrder.verify(entrySettlementService).processEntryPending(snapshotCaptor.capture(), any(),
                 eq(roundTime), eq(roundTime));
         inOrder.verify(batchPathService).updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime));
@@ -371,6 +374,26 @@ class StockRoundTransactionServiceTest {
     }
 
     @Test
+    @DisplayName("无Alpha持仓且执行桶为下一根bar_本轮只落决策不在本轮入场")
+    void executeRound_initialDecisionBarAfterThisRound_skipsEntryInSameRound() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = new RoundSnapshot(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
+        stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(), lockedSlots, List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of());
+        when(alphaDecisionService.decide(eq(decisionDate), eq(roundTime), anyMap()))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 60, null, 1001,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY, 0, roundTime.plusMinutes(15)));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
     @DisplayName("无Alpha持仓且关闭新入场_不生成或消费初始决策")
     void executeRound_withoutAlphaPositionAndNewEntryDisabled_skipsAlphaEntry() {
         LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
@@ -380,6 +403,18 @@ class StockRoundTransactionServiceTest {
         transactionService.executeRound(roundTime, snapshot, false, roundTime);
 
         verifyNoInteractions(alphaDecisionService, alphaEntryService, alphaRebalanceService);
+    }
+
+    /**
+     * 桩化本轮没有可消费的α决策,确保非α场景的存量编排不被初始入场链干扰。
+     *
+     * @param roundTime 轮次时间
+     */
+    private void stubNoAlphaDecision(LocalDateTime roundTime) {
+        when(alphaDecisionService.decide(any(), any(), anyMap()))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        roundTime.toLocalDate().minusDays(1), false, 0, null, null,
+                        StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, roundTime.plusMinutes(15)));
     }
 
     /**
@@ -409,8 +444,8 @@ class StockRoundTransactionServiceTest {
     }
 
     @Test
-    @DisplayName("已有Alpha持仓_换仓按轮次执行桶决策且不按轮次时间反推执行bar")
-    void executeRound_existingAlphaPosition_consumesRoundTimeAsExecutionBar() {
+    @DisplayName("已有Alpha持仓_按本轮决策时点读取决策且只在持久化执行桶换仓")
+    void executeRound_existingAlphaPosition_consumesPersistedExecutionBar() {
         LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
         LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
         TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
@@ -420,15 +455,15 @@ class StockRoundTransactionServiceTest {
         stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(),
                 lockedSlots, List.of());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
-        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+        when(alphaDecisionService.decide(eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap()))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
                         decisionDate, true, 65, null, 5002,
                         StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED, 1, roundTime));
 
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
-        verify(alphaDecisionService).decide(decisionDate, 5001, 61L, roundTime);
-        verify(alphaDecisionService, never()).decide(any(), any(), any(), eq(roundTime.minusMinutes(15)));
+        verify(alphaDecisionService).decide(eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap());
+        verify(alphaDecisionService, never()).decide(any(), any(), any(), eq(roundTime.minusMinutes(15)), anyMap());
         verify(alphaRebalanceService).rebalance(eq(decisionDate), eq(1), eq(roundTime), any());
         verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), anyInt(), any());
     }
@@ -444,7 +479,7 @@ class StockRoundTransactionServiceTest {
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), lockedSlots, roundTime);
         when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(new TornStockMarketRoundDO());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
-        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+        when(alphaDecisionService.decide(eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap()))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
                         decisionDate, true, 65, null, 5002,
                         StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED, 1, roundTime));
@@ -457,7 +492,7 @@ class StockRoundTransactionServiceTest {
     }
 
     @Test
-    @DisplayName("已有Alpha持仓且决策执行桶与本轮不一致_跳过换仓且不跨桶追补")
+    @DisplayName("已有Alpha持仓且执行桶为下一根bar_本轮不换仓且不跨桶追补")
     void executeRound_decisionExecutionBarMismatch_skipsRebalance() {
         LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
         LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
@@ -468,11 +503,11 @@ class StockRoundTransactionServiceTest {
         stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(),
                 lockedSlots, List.of());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
-        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+        when(alphaDecisionService.decide(eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap()))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
                         decisionDate, true, 65, null, 5002,
                         StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED, 1,
-                        roundTime.minusMinutes(15)));
+                        roundTime.plusMinutes(15)));
 
         transactionService.executeRound(roundTime, snapshot, true, roundTime);
 
@@ -491,7 +526,7 @@ class StockRoundTransactionServiceTest {
         stubRoundExecution(roundTime, new TornStockVirtualBatchDO(), new TornStockVirtualBatchDO(),
                 lockedSlots, List.of());
         when(virtualBatchDao.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(alphaBatch));
-        when(alphaDecisionService.decide(decisionDate, 5001, 61L, roundTime))
+        when(alphaDecisionService.decide(eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap()))
                 .thenReturn(new StockAlphaDecisionService.DecisionResult(
                         decisionDate, false, 62, null, null,
                         StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, roundTime));

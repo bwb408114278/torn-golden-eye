@@ -79,8 +79,11 @@ public class StockAlphaReadinessGate {
 
     /**
      * 判断是否存在满足预热要求的共同有效日线快照。
+     * <p>
+     * 统计上界固定为最近已结束自然日:未结束自然日的快照仍可能变化且不得参与统计,
+     * 否则共同有效日会提前增加并让phase提前推进。
      *
-     * @return 共同有效自然日数量达到预热要求时返回true
+     * @return 已结束自然日中的共同有效日数量达到预热要求时返回true
      */
     private boolean hasWarmupSnapshots() {
         List<LocalDate> commonDates = snapshotDAO.selectCommonValidDates(
@@ -88,7 +91,7 @@ public class StockAlphaReadinessGate {
                 StockAlphaRuleDefinition.RULE_VERSION,
                 StockAlphaRuleDefinition.stockUniverse(),
                 MIN_DATE,
-                marketClock.today());
+                marketClock.lastEndedNaturalDay());
         return commonDates != null && commonDates.size() >= StockAlphaRuleDefinition.WARMUP_COMMON_DAYS;
     }
 }

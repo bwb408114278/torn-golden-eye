@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -43,6 +44,8 @@ class StockAlphaDailyCloseCalculatorTest {
     private TornStockMarketBar15mDAO barDao;
     @Mock
     private TornStockAlphaDailySnapshotDAO snapshotDao;
+    @Mock
+    private StockMarketClock marketClock;
 
     @Test
     @DisplayName("收盘计算_取自然日最后一根可用正价bar")
@@ -70,8 +73,7 @@ class StockAlphaDailyCloseCalculatorTest {
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(END_DATE))).thenReturn(stored);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service();
 
         assertEquals(java.util.Set.of(END_DATE.minusDays(2), END_DATE), service.loadDailyCloses(END_DATE).keySet(),
                 "无行情自然日不是共同有效日,不得把窗口判定为不完整");
@@ -88,8 +90,7 @@ class StockAlphaDailyCloseCalculatorTest {
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(END_DATE))).thenReturn(stored);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service();
 
         assertTrue(service.loadDailyCloses(END_DATE).isEmpty());
     }
@@ -101,8 +102,7 @@ class StockAlphaDailyCloseCalculatorTest {
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(END_DATE)))
                 .thenReturn(completeWindow(END_DATE));
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service(END_DATE);
 
         assertEquals(0, service.buildDailyCloses(END_DATE));
         verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
@@ -121,8 +121,7 @@ class StockAlphaDailyCloseCalculatorTest {
         when(snapshotDao.selectByDateRange(eq(StockAlphaRuleDefinition.STOCK_UNIVERSE_VERSION),
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), eq(monday))).thenReturn(stored);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service();
         Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loaded =
                 service.loadDailyCloses(monday);
 
@@ -144,8 +143,7 @@ class StockAlphaDailyCloseCalculatorTest {
         when(snapshotDao.batchInsertIgnoreConflict(any()))
                 .thenReturn(StockAlphaRuleDefinition.MEMBER_COUNT * 2);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service(monday);
 
         assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT * 2, service.buildDailyCloses(monday));
         ArgumentCaptor<List<TornStockAlphaDailySnapshotDO>> captor = ArgumentCaptor.forClass(List.class);
@@ -167,8 +165,7 @@ class StockAlphaDailyCloseCalculatorTest {
                 .thenReturn(completeDayBars(END_DATE));
         when(snapshotDao.batchInsertIgnoreConflict(any())).thenReturn(StockAlphaRuleDefinition.MEMBER_COUNT);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service(END_DATE);
 
         assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT, service.buildDailyCloses(END_DATE));
         ArgumentCaptor<List<TornStockAlphaDailySnapshotDO>> captor = ArgumentCaptor.forClass(List.class);
@@ -186,8 +183,7 @@ class StockAlphaDailyCloseCalculatorTest {
         when(barDao.selectByStocksAndTimeRange(eq(StockAlphaRuleDefinition.stockUniverse()), any(), any(), any()))
                 .thenReturn(List.of(closeBar(END_DATE, 1)));
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service(END_DATE);
 
         assertEquals(0, service.buildDailyCloses(END_DATE));
         verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
@@ -203,8 +199,7 @@ class StockAlphaDailyCloseCalculatorTest {
                 .thenReturn(completeDayBars(END_DATE));
         when(snapshotDao.batchInsertIgnoreConflict(any())).thenReturn(StockAlphaRuleDefinition.MEMBER_COUNT);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service();
 
         assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT,
                 service.buildDailyClosesForEndedDay(END_DATE.atTime(23, 45)), "自然日最后桶必须触发构建");
@@ -220,8 +215,7 @@ class StockAlphaDailyCloseCalculatorTest {
                 eq(StockAlphaRuleDefinition.RULE_VERSION), any(), any()))
                 .thenReturn(completeWindow(END_DATE));
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service();
 
         assertEquals(0, service.buildDailyClosesForEndedDay(END_DATE.atTime(23, 45)));
         assertEquals(0, service.buildDailyClosesForEndedDay(END_DATE.plusDays(1).atTime(0, 15)));
@@ -240,8 +234,7 @@ class StockAlphaDailyCloseCalculatorTest {
                 StockAlphaRuleDefinition.RULE_VERSION, END_DATE.minusDays(60), END_DATE))
                 .thenReturn(stored);
 
-        StockAlphaDailyCloseService service =
-                new StockAlphaDailyCloseService(barDao, snapshotDao);
+        StockAlphaDailyCloseService service = service();
         Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> loaded =
                 service.loadDailyCloses(END_DATE);
 
@@ -249,6 +242,39 @@ class StockAlphaDailyCloseCalculatorTest {
         assertEquals(StockAlphaRuleDefinition.MEMBER_COUNT, loaded.get(END_DATE).size());
         assertEquals(new BigDecimal("12.34"), loaded.get(END_DATE).get(1).closePrice());
         verifyNoInteractions(barDao);
+    }
+
+    @Test
+    @DisplayName("日线构建_未结束自然日直接拒绝且不读取bar不写入")
+    void buildDailyCloses_rejectsUnfinishedNaturalDay() {
+        when(marketClock.lastEndedNaturalDay()).thenReturn(END_DATE.minusDays(1));
+        StockAlphaDailyCloseService service =
+                new StockAlphaDailyCloseService(barDao, snapshotDao, marketClock);
+
+        assertThrows(IllegalArgumentException.class, () -> service.buildDailyCloses(END_DATE),
+                "未结束自然日的部分bar不得冻结为日终收盘");
+        verifyNoInteractions(barDao);
+        verify(snapshotDao, never()).batchInsertIgnoreConflict(any());
+    }
+
+    /**
+     * 构造日线收盘服务,用于不校验结束日期的只读与已结束日构建场景。
+     *
+     * @return 日线收盘服务
+     */
+    private StockAlphaDailyCloseService service() {
+        return new StockAlphaDailyCloseService(barDao, snapshotDao, marketClock);
+    }
+
+    /**
+     * 构造日线收盘服务并桩化最近已结束自然日,用于预填构建场景。
+     *
+     * @param lastEndedDay 最近已结束自然日
+     * @return 日线收盘服务
+     */
+    private StockAlphaDailyCloseService service(LocalDate lastEndedDay) {
+        when(marketClock.lastEndedNaturalDay()).thenReturn(lastEndedDay);
+        return new StockAlphaDailyCloseService(barDao, snapshotDao, marketClock);
     }
 
     private TornStockMarketBar15mDO bar(LocalDateTime start, String price, boolean usable) {

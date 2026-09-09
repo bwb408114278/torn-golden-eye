@@ -74,7 +74,7 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         LocalDate endDate = resolveEndDate(msg);
         if (endDate == null) {
-            return super.buildTextMsg("结束日期无效，请使用" + getCommand() + "#2026-09-05");
+            return super.buildTextMsg("结束日期无效，必须为已结束自然日，例如" + getCommand() + "#2026-09-05");
         }
         if (!maintenanceGate.tryAcquire()) {
             log.warn("股票α日线预填未受理, 原因=已有历史数据维护任务在执行中, endDate={}, groupId={}", endDate, groupId);
@@ -95,17 +95,21 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
     /**
      * 在历史数据维护执行器内执行预填、发送执行回执并释放共享互斥门。
      * <p>
-     * 预填只写入缺失或不完整的自然日快照，重复执行收敛为更新；异常只记录并回执，不外抛。
+     * 预填只写入已结束自然日中缺失或不完整的快照，重复执行收敛为更新；异常只记录并回执，不外抛。
+     * 回执区分"写入条数"与"无已结束有效日期可构建"，避免把"无需构建"误报为执行成功写入。
      *
-     * @param endDate 预填结束日期（闭区间上界）
+     * @param endDate 预填结束日期（闭区间上界，已结束自然日）
      * @param groupId 指令发起的群号
      */
     private void runPrefill(LocalDate endDate, long groupId) {
         long begin = System.currentTimeMillis();
         try {
             int built = alphaDailyCloseService.buildDailyCloses(endDate);
+            String result = built > 0
+                    ? "写入条数：" + built
+                    : "无已结束有效日期可构建（窗口内日期已完整或无行情）";
             sendReceipt(groupId, "【股票α日线预填完成】\n结束日期：" + DateTimeUtils.convertToString(endDate)
-                    + "\n写入条数：" + built + "\n耗时：" + (System.currentTimeMillis() - begin) + "ms");
+                    + "\n" + result + "\n耗时：" + (System.currentTimeMillis() - begin) + "ms");
         } catch (RuntimeException e) {
             log.error("股票α日线预填异常, endDate={}, groupId={}: {}", endDate, groupId, e.getMessage(), e);
             sendReceipt(groupId, "【股票α日线预填失败】\n结束日期：" + DateTimeUtils.convertToString(endDate)
@@ -142,24 +146,28 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
 
     /**
      * 解析指令结束日期。
+     * <p>
+     * 参数为空时使用最近已结束自然日;显式传入当前自然日或未来日期一律拒绝,
+     * 避免把未结束自然日的部分bar冻结为日终收盘。
      *
      * @param msg 指令消息
-     * @return 结束日期；参数为空时为当前业务日期，解析失败时为null
+     * @return 已结束自然日；参数为空时为最近已结束自然日，解析失败或未结束时为null
      */
     private LocalDate resolveEndDate(String msg) {
-        if (msg == null || msg.isBlank()) {
-            return marketClock.today();
+        LocalDate lastEndedDay = marketClock.lastEndedNaturalDay();
+        if (msg == null || msg.isBlank() || !msg.contains(PARAM_SEPARATOR)) {
+            return lastEndedDay;
         }
-        String param = msg.contains(PARAM_SEPARATOR)
-                ? msg.substring(msg.lastIndexOf(PARAM_SEPARATOR) + 1)
-                : msg;
+        String param = msg.substring(msg.lastIndexOf(PARAM_SEPARATOR) + 1);
         if (param.isBlank()) {
-            return marketClock.today();
+            return lastEndedDay;
         }
+        LocalDate parsed;
         try {
-            return DateTimeUtils.convertToDate(param.trim());
+            parsed = DateTimeUtils.convertToDate(param.trim());
         } catch (DateTimeParseException e) {
             return null;
         }
+        return parsed.isAfter(lastEndedDay) ? null : parsed;
     }
 }

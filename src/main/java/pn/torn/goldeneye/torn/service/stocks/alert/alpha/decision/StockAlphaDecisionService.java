@@ -17,11 +17,17 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * α策略日线决策服务。
  *
  * <p>本服务只生成可追溯的日线决策记录，不创建交易批次、不扣减资金且不发送通知。</p>
+ *
+ * <p>时间因果:本服务只接收决策时点,执行bar起点由
+ * {@link StockAlphaExecutionBarPolicy#expectedExecutionBarStart(LocalDateTime)}计算后持久化,
+ * 即"决策时点所在15分钟桶 + 15分钟"。执行阶段只消费持久化执行桶,不得用轮次时间反推,
+ * 也不跨桶追补;已存在决策时只复用原执行桶,不重新推导。</p>
  *
  * @author Bai
  * @version 1.6.1
@@ -31,94 +37,92 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class StockAlphaDecisionService {
+    /**
+     * 来源快照摘要与当前日线排名快照不一致时的不可复核标记。
+     */
+    public static final String SOURCE_NOT_REPRODUCIBLE = "SOURCE_NOT_REPRODUCIBLE";
+
     private static final String PENDING_STATUS = "PENDING";
 
     private final StockAlphaDailyCloseService dailyCloseService;
     private final TornStockAlphaDecisionDAO decisionDAO;
 
     /**
-     * 根据指定日期和执行桶生成或读取唯一α决策。
+     * 按指定决策时点生成或读取唯一α决策。
      *
      * @param decisionDate      决策日期
-     * @param executionBarStart 固定执行bar起点
+     * @param decisionTime      决策时点;执行bar由该时点推导,不得直接传入执行bar
+     * @param decisionBarPrices 决策时点各股票的已结束bar最后价,用于固化信号参考价
      * @return 已持久化决策
      */
-    public DecisionResult decide(LocalDate decisionDate, LocalDateTime executionBarStart) {
-        return decideInternal(decisionDate, null, null, executionBarStart);
+    public DecisionResult decide(LocalDate decisionDate, LocalDateTime decisionTime,
+                                 Map<Integer, BigDecimal> decisionBarPrices) {
+        return decideInternal(decisionDate, null, null, decisionTime, decisionBarPrices);
     }
 
     /**
-     * 根据日期、持仓上下文和固定执行桶生成或读取唯一α决策。
+     * 按指定决策时点和持仓上下文生成或读取唯一α决策。
      *
      * @param decisionDate      决策日期
      * @param currentStocksId   当前持仓股票ID
      * @param currentBatchId    当前持仓批次ID
-     * @param executionBarStart 固定执行bar起点
+     * @param decisionTime      决策时点;执行bar由该时点推导,不得直接传入执行bar
+     * @param decisionBarPrices 决策时点各股票的已结束bar最后价,用于固化信号参考价
      * @return 已持久化决策
      */
     public DecisionResult decide(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                 LocalDateTime executionBarStart) {
-        return decideInternal(decisionDate, currentStocksId, currentBatchId, executionBarStart);
+                                 LocalDateTime decisionTime, Map<Integer, BigDecimal> decisionBarPrices) {
+        return decideInternal(decisionDate, currentStocksId, currentBatchId, decisionTime, decisionBarPrices);
     }
 
     /**
-     * 按共同有效日和持仓上下文生成或读取唯一决策。
+     * 按共同有效日、持仓上下文和决策时点生成或读取唯一决策。
      * <p>
-     * 执行bar起点由调用方以轮次执行桶显式传入并经{@link StockAlphaExecutionBarPolicy}校验后持久化,
+     * 决策时点由生产编排显式传入(轮次已结束bar起点),执行bar起点由
+     * {@link StockAlphaExecutionBarPolicy}按"决策桶 + 15分钟"计算后持久化,
      * 执行阶段只消费该持久化值,不得再由轮次时间反推。
      * <p>
      * 为避免普通轮次产生不必要的重负载,本方法按以下顺序收敛:
      * <ol>
-     *   <li>先按已持久化决策的执行桶短路:同一执行桶重试时直接返回持久化决策,
-     *       不读取完整历史窗口、不重新排名、不写排名快照;</li>
-     *   <li>再按共同有效日廉价统计判断是否为phase边界:非决策日或当前phase已决策时直接返回未就绪,
+     *   <li>先按共同有效日廉价统计判断是否为phase边界:非决策日直接返回未就绪,
      *       不读取完整历史窗口、不排名;</li>
+     *   <li>再按"决策业务日 + phase"业务键加锁读取已持久化决策:存在即复用原执行桶,
+     *       不读取完整历史窗口、不重新排名、不写排名快照;</li>
      *   <li>只有确认需要生成新决策时,才读取完整历史窗口并执行一次排名。</li>
      * </ol>
      *
      * @param decisionDate      决策日期
      * @param currentStocksId   当前持仓股票ID
      * @param currentBatchId    当前持仓批次ID
-     * @param executionBarStart 固定执行bar起点
+     * @param decisionTime      决策时点
+     * @param decisionBarPrices 决策时点各股票的已结束bar最后价
      * @return 已持久化决策
      */
     private DecisionResult decideInternal(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                          LocalDateTime executionBarStart) {
+                                          LocalDateTime decisionTime, Map<Integer, BigDecimal> decisionBarPrices) {
         Objects.requireNonNull(decisionDate, "决策日期不能为空");
-        Objects.requireNonNull(executionBarStart, "执行bar起点不能为空");
-        LocalDateTime executionBar = StockAlphaExecutionBarPolicy.requireExecutionBar(executionBarStart);
-        TornStockAlphaDecisionDO latest = decisionDAO.selectLatestForUpdate();
-        if (isSameExecutionBar(latest, executionBar)) {
-            log.debug("α本轮执行桶已有持久化决策,直接进入幂等短路: decisionId={}, executionBar={}",
-                    latest.getId(), executionBar);
-            return toDecisionResult(latest, List.of());
-        }
+        Objects.requireNonNull(decisionTime, "决策时点不能为空");
+        LocalDateTime executionBar = StockAlphaExecutionBarPolicy.expectedExecutionBarStart(decisionTime);
         List<LocalDate> commonDates = dailyCloseService.commonValidDates(decisionDate);
         int commonDayCount = commonDates.size();
         if (!isDecisionDay(commonDayCount)) {
             return notReady(decisionDate, commonDayCount, executionBar);
         }
-        if (isPhaseAlreadyDecided(latest, commonDates.getLast())) {
-            return notReady(decisionDate, commonDayCount, executionBar);
+        int phase = phaseOf(commonDayCount);
+        TornStockAlphaDecisionDO persisted = decisionDAO.selectByBusinessKeyForUpdate(decisionDate, phase);
+        if (persisted != null) {
+            log.debug("α当前phase已存在决策,复用持久化执行桶且不重新排名: decisionId={}, executionBar={}",
+                    persisted.getId(), persisted.getExecutionBarStartTime());
+            return toDecisionResult(persisted, List.of());
         }
         Calculation calculation = calculate(decisionDate, currentStocksId, commonDayCount);
         if (!calculation.ready()) {
             return notReady(calculation, executionBar);
         }
-        int phase = phaseOf(calculation.commonDayCount());
-        TornStockAlphaDecisionDO consumable = decisionDAO.selectByExecutionKeyForUpdate(
-                calculation.decisionDate(), phase, executionBar);
-        if (consumable != null) {
-            return toDecisionResult(consumable, List.of());
-        }
         DecisionResult candidate = new DecisionResult(calculation.decisionDate(), true, calculation.commonDayCount(),
                 calculation.rankings(), calculation.targetStocksId(), calculation.event(), phase, executionBar);
-        if (isDecidedByOtherExecutionBar(calculation.decisionDate(), phase, latest)) {
-            log.warn("α当前phase已存在其他执行桶的决策,本次不消费且不跨桶追补: decisionDate={}, phase={}, "
-                    + "roundExecutionBar={}", calculation.decisionDate(), phase, executionBar);
-            return notReady(calculation, executionBar);
-        }
-        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, phase, currentBatchId, executionBar);
+        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, phase, currentBatchId, executionBar,
+                decisionBarPrices == null ? null : decisionBarPrices.get(candidate.targetStocksId()));
         dailyCloseService.persistRankings(calculation.decisionDate(), calculation.latestCloses(),
                 calculation.rankings());
         if (decisionDAO.insertIgnoreConflict(decision) != 1) {
@@ -130,48 +134,37 @@ public class StockAlphaDecisionService {
     }
 
     /**
-     * 判断已持久化决策是否属于当前执行桶。
-     *
-     * @param decision     已持久化决策
-     * @param executionBar 本轮执行bar起点
-     * @return 决策存在且执行桶一致时返回true
-     */
-    private boolean isSameExecutionBar(TornStockAlphaDecisionDO decision, LocalDateTime executionBar) {
-        return decision != null && executionBar.equals(decision.getExecutionBarStartTime());
-    }
-
-    /**
-     * 判断指定业务键的当前phase是否已被其他执行桶决策。
+     * 校验决策的来源摘要与当前日线排名快照是否仍然一致。
      * <p>
-     * 创建阶段可以按"决策业务日 + phase"查询是否已有记录,存在即说明该phase已由其他执行桶消费,
-     * 本次只能fail-closed跳过,不得覆盖或跨桶追补。
+     * 排名事实保存在日线快照表且按业务键UPSERT:后续补采或重建同一自然日后,
+     * 回查得到的排名向量可能已变更。本方法按决策业务日重新计算排名向量与摘要并比对,
+     * 不一致即判定不可复核,调用方必须fail-closed,不得把新结果冒充当时的决策事实。
      *
-     * @param decisionDate 决策日期
-     * @param phase        消费阶段
-     * @param latest       最近一次已持久化决策
-     * @return 该业务键已有决策时返回true
+     * @param decision 已持久化决策
+     * @return 摘要可由当前日线快照复现时返回true
      */
-    private boolean isDecidedByOtherExecutionBar(LocalDate decisionDate, int phase,
-                                                 TornStockAlphaDecisionDO latest) {
-        if (latest != null && Integer.valueOf(phase).equals(latest.getPhase())
-                && decisionDate.equals(latest.getDecisionBusinessDate())) {
-            return true;
-        }
-        return decisionDAO.selectByBusinessKeyForUpdate(decisionDate, phase) != null;
-    }
-
-    /**
-     * 判断最新共同有效日所在的phase是否已经产生过决策。
-     *
-     * @param latest         最近一次已持久化决策
-     * @param lastCommonDate 最新共同有效日
-     * @return 已决策时返回true
-     */
-    private boolean isPhaseAlreadyDecided(TornStockAlphaDecisionDO latest, LocalDate lastCommonDate) {
-        if (latest == null || lastCommonDate == null) {
+    public boolean isSourceReproducible(TornStockAlphaDecisionDO decision) {
+        if (decision == null || decision.getSourceSnapshotDigest() == null
+                || decision.getDecisionBusinessDate() == null || decision.getCommonDayIndex() == null) {
             return false;
         }
-        return lastCommonDate.equals(latest.getDecisionBusinessDate());
+        List<StockAlphaRankingResult> rankings = rankingsOf(decision.getDecisionBusinessDate());
+        if (rankings.isEmpty()) {
+            return false;
+        }
+        return decision.getSourceSnapshotDigest().equals(
+                buildSourceSnapshotDigest(decision.getDecisionBusinessDate(), decision.getCommonDayIndex(), rankings));
+    }
+
+    /**
+     * 判断决策是否携带合法的决策时点参考价。
+     *
+     * @param decision 已持久化决策
+     * @return 参考价存在且为正时返回true
+     */
+    public static boolean hasUsableSignalReferencePrice(TornStockAlphaDecisionDO decision) {
+        BigDecimal price = decision == null ? null : decision.getSignalReferencePrice();
+        return price != null && price.signum() > 0;
     }
 
     /**
@@ -179,7 +172,7 @@ public class StockAlphaDecisionService {
      *
      * @param decisionDate   决策日期
      * @param commonDayCount 共同有效日数量
-     * @param executionBar   本轮执行bar起点
+     * @param executionBar   按决策时点推导的执行bar起点
      * @return ready=false且不携带目标与phase的决策结果
      */
     private DecisionResult notReady(LocalDate decisionDate, int commonDayCount, LocalDateTime executionBar) {
@@ -191,7 +184,7 @@ public class StockAlphaDecisionService {
      * 构造不消费phase的未就绪决策结果。
      *
      * @param calculation  本次计算结果
-     * @param executionBar 本轮执行bar起点
+     * @param executionBar 按决策时点推导的执行bar起点
      * @return ready=false且不携带目标与phase的决策结果
      */
     private DecisionResult notReady(Calculation calculation, LocalDateTime executionBar) {
@@ -216,11 +209,13 @@ public class StockAlphaDecisionService {
      * @param result                待持久化的决策结果
      * @param phase                 消费阶段
      * @param currentBatchId        当前持仓批次ID;初始入场时为空
-     * @param executionBarStartTime 固定执行bar起点
+     * @param executionBarStartTime 按决策时点推导的执行bar起点
+     * @param signalReferencePrice  决策时点参考价;缺失时执行阶段fail-closed
      * @return 决策持久化对象
      */
     private TornStockAlphaDecisionDO toDecisionDO(DecisionResult result, int phase, Long currentBatchId,
-                                                  LocalDateTime executionBarStartTime) {
+                                                  LocalDateTime executionBarStartTime,
+                                                  BigDecimal signalReferencePrice) {
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
         decision.setDecisionBusinessDate(result.decisionDate());
         decision.setCommonDayIndex(result.commonDayCount());
@@ -229,17 +224,37 @@ public class StockAlphaDecisionService {
         decision.setExecutionBarStartTime(executionBarStartTime);
         decision.setDecisionType(result.event().name());
         decision.setSourceSnapshotDigest(buildSourceSnapshotDigest(result));
+        decision.setSignalReferencePrice(signalReferencePrice);
         decision.setExecutionStatus(PENDING_STATUS);
         decision.setSelectedStocksId(result.targetStocksId());
         return decision;
     }
 
+    /**
+     * 按决策结果构造来源快照摘要。
+     *
+     * @param result 决策结果
+     * @return 摘要
+     */
     private String buildSourceSnapshotDigest(DecisionResult result) {
-        String source = result.decisionDate() + "|" + result.commonDayCount() + "|"
-                + result.rankings().stream().sorted(Comparator.comparing(StockAlphaRankingResult::stocksId))
+        return buildSourceSnapshotDigest(result.decisionDate(), result.commonDayCount(), result.rankings());
+    }
+
+    /**
+     * 按决策事实构造来源快照摘要。
+     *
+     * @param decisionDate   决策日期
+     * @param commonDayCount 共同有效日序号
+     * @param rankings       排名向量
+     * @return 摘要
+     */
+    private String buildSourceSnapshotDigest(LocalDate decisionDate, int commonDayCount,
+                                             List<StockAlphaRankingResult> rankings) {
+        String source = decisionDate + "|" + commonDayCount + "|"
+                + rankings.stream().sorted(Comparator.comparing(StockAlphaRankingResult::stocksId))
                 .map(ranking -> ranking.stocksId() + ":" + ranking.r20() + ":" + ranking.r1() + ":"
                         + ranking.r20Rank() + ":" + ranking.r1Rank() + ":" + ranking.alphaScore() + ":"
-                        + ranking.rankPosition()).collect(java.util.stream.Collectors.joining("|"));
+                        + ranking.rankPosition()).collect(Collectors.joining("|"));
         return StockHashUtils.sha256(StockAlphaRuleDefinition.RULE_VERSION + "|" + source);
     }
 
@@ -247,7 +262,7 @@ public class StockAlphaDecisionService {
      * 将持久化决策转换为领域结果。
      * <p>
      * 日期、phase、目标、事件和执行桶全部取自持久化决策,不混入本次新算结果;
-     * 只有来源摘要校验通过且执行桶一致时,排名才允许使用本次计算结果,避免两套事实混用。
+     * 只有新生成决策才允许携带本次计算的排名,避免两套事实混用。
      *
      * @param decision 决策持久化对象
      * @param rankings 本次计算排名;与持久化事实不对应时必须传空列表
@@ -276,19 +291,58 @@ public class StockAlphaDecisionService {
     private Calculation calculate(LocalDate decisionDate, Integer currentStocksId, int commonDayCount) {
         Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily =
                 dailyCloseService.loadDailyCloses(decisionDate);
-        List<LocalDate> rankingDates = daily.entrySet().stream()
-                .filter(entry -> entry.getValue().size() == StockAlphaRuleDefinition.MEMBER_COUNT
-                        && entry.getValue().values().stream().allMatch(Objects::nonNull))
-                .map(Map.Entry::getKey).sorted().toList();
+        List<LocalDate> rankingDates = completeDates(daily);
         if (rankingDates.size() < StockAlphaRuleDefinition.RANKING_MIN_COMMON_DAYS) {
             return new Calculation(decisionDate, false, commonDayCount, daily, List.of(), null,
                     StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT);
         }
-        Map<Integer, List<BigDecimal>> closes = buildCloseSeries(rankingDates, daily);
-        List<StockAlphaRankingResult> rankings = StockAlphaRankingCalculator.calculate(closes);
+        List<StockAlphaRankingResult> rankings = rank(rankingDates, daily);
         StockAlphaTargetPolicy.TargetResult target = StockAlphaTargetPolicy.decide(commonDayCount, rankings, currentStocksId);
         return new Calculation(rankingDates.getLast(), true, commonDayCount, daily, rankings,
                 target.targetStocksId(), target.event());
+    }
+
+    /**
+     * 按决策业务日重新计算当前日线快照对应的排名向量。
+     *
+     * @param decisionDate 决策业务日
+     * @return 排名向量;数据不足时返回空列表
+     */
+    private List<StockAlphaRankingResult> rankingsOf(LocalDate decisionDate) {
+        Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily =
+                dailyCloseService.loadDailyCloses(decisionDate);
+        List<LocalDate> rankingDates = completeDates(daily);
+        if (rankingDates.size() < StockAlphaRuleDefinition.RANKING_MIN_COMMON_DAYS) {
+            return List.of();
+        }
+        return rank(rankingDates, daily);
+    }
+
+    /**
+     * 筛选成员完整的排名日期。
+     *
+     * @param daily 日线收盘数据
+     * @return 升序排名日期
+     */
+    private List<LocalDate> completeDates(
+            Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily) {
+        return daily.entrySet().stream()
+                .filter(entry -> entry.getValue().size() == StockAlphaRuleDefinition.MEMBER_COUNT
+                        && entry.getValue().values().stream().allMatch(Objects::nonNull))
+                .map(Map.Entry::getKey).sorted().toList();
+    }
+
+    /**
+     * 按排名日期执行唯一排名实现。
+     *
+     * @param rankingDates 排名日期
+     * @param daily        日线收盘数据
+     * @return 排名向量
+     */
+    private List<StockAlphaRankingResult> rank(
+            List<LocalDate> rankingDates,
+            Map<LocalDate, Map<Integer, StockAlphaDailyCloseCalculator.CloseResult>> daily) {
+        return StockAlphaRankingCalculator.calculate(buildCloseSeries(rankingDates, daily));
     }
 
     /**
@@ -331,11 +385,11 @@ public class StockAlphaDecisionService {
      * @param decisionDate          决策日期
      * @param ready                 是否满足决策前置条件
      * @param commonDayCount        共同有效日数量
-     * @param rankings              排名结果
+     * @param rankings              排名结果;复用已持久化决策时为空列表
      * @param targetStocksId        目标股票ID
      * @param event                 目标事件
      * @param phase                 消费阶段
-     * @param executionBarStartTime 固定执行bar起点
+     * @param executionBarStartTime 由决策时点推导并持久化的执行bar起点
      */
     public record DecisionResult(
             LocalDate decisionDate,

@@ -10,6 +10,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -26,8 +27,8 @@ import java.util.stream.Collectors;
  *       无行情自然日不参与统计,共同有效日不足时fail-closed返回空结果。</li>
  *   <li>{@link #buildDailyClosesForEndedDay(LocalDateTime)}: 单个已结束自然日的快照构建,
  *       首次触发点为自然日最后一个15分钟桶(23:45),未完整时后续轮次继续重试。</li>
- *   <li>{@link #buildDailyCloses(LocalDate)}: 预填与缺口修复,只对有实际行情且不完整的日期批量写入,
- *       不创建无交易日伪快照。</li>
+ *   <li>{@link #buildDailyCloses(LocalDate)}: 预填与缺口修复,只对已结束自然日批量写入,
+ *       不创建无交易日伪快照,也不把未结束自然日的部分bar冻结为日终事实。</li>
  * </ol>
  *
  * @author Bai
@@ -81,6 +82,10 @@ public class StockAlphaDailyCloseService {
      * α日线快照数据访问对象。
      */
     private final TornStockAlphaDailySnapshotDAO snapshotDao;
+    /**
+     * 股票市场时间组件。
+     */
+    private final StockMarketClock marketClock;
 
     /**
      * 读取指定结束日期前的完整日线收盘数据。
@@ -199,14 +204,22 @@ public class StockAlphaDailyCloseService {
     /**
      * 构建或修复指定结束日期前的日线收盘快照。
      * <p>
+     * 结束日期必须是已结束自然日:未结束自然日的bar仍会继续增加,中途写入会把当时价格
+     * 冻结为日终收盘,导致共同有效日和phase提前推进。 Bot入口已先行拒绝,
+     * 本方法作为服务层第二道门禁,任何调用方都不得绕过。
      * 只对实际存在合法bar且不完整的自然日批量UPSERT;无bar的自然日不是交易日,不写入伪快照;
-     * 成员不完整的自然日不写入;已完整的自然日不重复写入。部分写入不会把该日期标记为完整,
-     * 下一次构建仍会重新补齐。
+     * 成员不完整的自然日不写入;已完整的自然日不重复写入。
      *
-     * @param endDate 结束日期(闭区间上界)
+     * @param endDate 结束日期(闭区间上界,必须为已结束自然日)
      * @return 本次写入的快照条数
+     * @throws IllegalArgumentException 结束日期晚于最近已结束自然日时抛出
      */
     public int buildDailyCloses(LocalDate endDate) {
+        LocalDate lastEndedDay = marketClock.lastEndedNaturalDay();
+        if (endDate == null || endDate.isAfter(lastEndedDay)) {
+            throw new IllegalArgumentException("α日线构建结束日期必须为已结束自然日: endDate=" + endDate
+                    + ", lastEndedNaturalDay=" + lastEndedDay);
+        }
         return buildDailyCloses(DateRange.endingAt(endDate, PREFILL_WINDOW_DAYS));
     }
 

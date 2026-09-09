@@ -74,9 +74,11 @@ public class TornStockVirtualBatchDO extends BaseDO {
      * <p>
      * α批次不冗余保存股票池版本、决策业务日和来源摘要:统一以本字段回查唯一决策
      * ({@code decision_business_date}、{@code phase}、{@code selected_stocks_id}、
-     * {@code source_snapshot_digest}、{@code execution_bar_start_time})以及该决策日的
-     * α日线排名快照({@code stock_universe_version}、{@code alpha_rule_version}、r20/r1与名次),
-     * 从而完整重建该BUY当时的排名事实。
+     * {@code source_snapshot_digest}、{@code signal_reference_price}、
+     * {@code execution_bar_start_time})以及该决策日的α日线排名快照
+     * ({@code stock_universe_version}、{@code alpha_rule_version}、r20/r1与名次)。
+     * 日线快照按业务键UPSERT,回查必须先按{@code source_snapshot_digest}校验排名向量可复现,
+     * 摘要不一致时该BUY不可复核,不得用回查后的新排名冒充决策当时的排名事实。
      */
     private Long alphaDecisionId;
     /**

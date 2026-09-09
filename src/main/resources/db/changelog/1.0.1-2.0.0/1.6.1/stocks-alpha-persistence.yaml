@@ -29,7 +29,7 @@ databaseChangeLog:
                   remarks: "Asia/Shanghai自然日"
               - column:
                   name: close_price
-                  type: DECIMAL(18,6)
+                  type: DECIMAL(18,2)
                   constraints:
                     nullable: false
                   remarks: "最后一根可用15分钟bar收盘价"
@@ -98,10 +98,10 @@ databaseChangeLog:
               - column:
                   name: deleted
                   type: TINYINT
-                  defaultValueNumeric: 0
+                  defaultValueComputed: '0'
                   constraints:
                     nullable: false
-                  remarks: "删除标识"
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
                   type: TIMESTAMP
@@ -177,6 +177,10 @@ databaseChangeLog:
                     nullable: false
                   remarks: "来源快照摘要"
               - column:
+                  name: signal_reference_price
+                  type: DECIMAL(18,2)
+                  remarks: "决策时点参考价(决策桶最后价,α批次信号参考价的唯一来源)"
+              - column:
                   name: execution_bar_start_time
                   type: TIMESTAMP
                   remarks: "执行bar开始时间"
@@ -197,10 +201,10 @@ databaseChangeLog:
               - column:
                   name: deleted
                   type: TINYINT
-                  defaultValueNumeric: 0
+                  defaultValueComputed: '0'
                   constraints:
                     nullable: false
-                  remarks: "删除标识"
+                  remarks: "删除标识 1为已删除"
               - column:
                   name: create_time
                   type: TIMESTAMP
@@ -265,21 +269,14 @@ databaseChangeLog:
       author: Bai
       changes:
         - sql:
-            dbms: postgresql
             sql: "UPDATE torn_stock_virtual_batch SET ledger_type = 'FORMAL' WHERE ledger_type = 'VIP_ALPHA' AND portfolio_code = 'VIP_ALPHA'"
         - sql:
-            dbms: postgresql
             sql: "DROP INDEX IF EXISTS uk_stock_virtual_batch_formal_stock"
         - sql:
-            dbms: postgresql
             sql: "DROP INDEX IF EXISTS uk_stock_virtual_batch_formal_slot"
         - sql:
-            dbms: postgresql
             sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_portfolio_stock ON torn_stock_virtual_batch (portfolio_code, stocks_id) WHERE ledger_type = 'FORMAL' AND portfolio_code IN ('VIP_FORMAL', 'VIP_ALPHA') AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND deleted = 0"
         - sql:
-            dbms: postgresql
             sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_formal_portfolio_slot ON torn_stock_virtual_batch (portfolio_code, slot_id) WHERE ledger_type = 'FORMAL' AND portfolio_code IN ('VIP_FORMAL', 'VIP_ALPHA') AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
         - sql:
-            dbms: postgresql
              sql: "ALTER TABLE torn_stock_virtual_batch ADD CONSTRAINT ck_stock_virtual_batch_formal_portfolio_code CHECK (ledger_type <> 'FORMAL' OR portfolio_code IN ('VIP_FORMAL', 'VIP_ALPHA'))"
-

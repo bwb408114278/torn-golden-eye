@@ -57,6 +57,18 @@ class TornStockAlphaPersistenceMapperTest {
                         "ALPHA-35-V1", "ALPHA-0.04-V1").getClosePrice()));
     }
 
+    @Test
+    void insertIgnoreConflict_shouldPersistClosePriceWithTwoDecimalScale() {
+        TornStockAlphaDailySnapshotDO snapshot = snapshot(STOCKS_ID, new BigDecimal("123.456789"));
+
+        assertEquals(1, snapshotDao.insertIgnoreConflict(snapshot));
+
+        BigDecimal savedPrice = snapshotDao.selectByBusinessKeyForUpdate(STOCKS_ID, BUSINESS_DATE,
+                "ALPHA-35-V1", "ALPHA-0.04-V1").getClosePrice();
+        assertEquals(0, new BigDecimal("123.46").compareTo(savedPrice), "股票价格必须按2位小数持久化");
+        assertEquals(2, savedPrice.scale(), "股票价格不得保留超过2位的小数");
+    }
+
     /**
      * 构造指定股票和收盘价的日线快照。
      *

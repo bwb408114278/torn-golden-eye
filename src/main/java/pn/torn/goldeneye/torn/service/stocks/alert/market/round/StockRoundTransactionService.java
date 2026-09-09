@@ -38,6 +38,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdate
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.StockCandidateRankingPolicy;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -185,7 +186,7 @@ public class StockRoundTransactionService {
 
         boolean hasExistingAlphaBatch = hasAlphaBatch(mergedSnapshot);
         if (!hasExistingAlphaBatch && allowNewEntry) {
-            createInitialAlphaEntry(roundTime, actualProcessingTime, mergedSnapshot);
+            createInitialAlphaEntry(roundTime, actualProcessingTime, mergedSnapshot, barByStock);
             mergedSnapshot = refreshAlphaBatches(mergedSnapshot);
         }
 
@@ -203,7 +204,7 @@ public class StockRoundTransactionService {
                 mergedSnapshot, barByStock, featureByStock, roundTime);
 
         if (hasExistingAlphaBatch) {
-            processAlphaRebalance(roundTime, actualProcessingTime, mergedSnapshot);
+            processAlphaRebalance(roundTime, actualProcessingTime, mergedSnapshot, barByStock);
         }
 
         // 步骤6-8: 规则模式与新买入开关共同决定买入研究、候选影子接纳与边沿推进是否执行。
@@ -277,16 +278,18 @@ public class StockRoundTransactionService {
     /**
      * 在轮次事务内消费已持久化的Alpha换仓决策。
      * <p>
-     * 决策读取以本轮执行桶{@code roundTime}为唯一显式事实,执行阶段只消费决策表中已持久化的
-     * {@code execution_bar_start_time};延迟补偿只通过{@code now}判断过期,不改写历史执行桶。
-     * 持久化执行桶与本轮不一致时只跳过换仓并告警,不跨桶追补,也不抛异常把轮次钉死在可重试失败状态。
+     * 决策以本轮{@code roundTime}为决策时点生成或复用:执行桶由决策服务按
+     * "决策桶 + 15分钟"计算并持久化,本方法只在持久化执行桶与本轮完全一致时换仓,
+     * 不跨桶追补,也不抛异常把轮次钉死在可重试失败状态。
      *
-     * @param roundTime 轮次时间(执行桶)
-     * @param now       当前校验时间
-     * @param snapshot  当前轮次快照
+     * @param roundTime  轮次时间(决策时点;执行桶为下一根严格连续bar)
+     * @param now        当前校验时间
+     * @param snapshot   当前轮次快照
+     * @param barByStock 本轮按股票ID索引的行情bar
      */
     private void processAlphaRebalance(LocalDateTime roundTime, LocalDateTime now,
-                                       RoundSnapshot snapshot) {
+                                       RoundSnapshot snapshot,
+                                       Map<Integer, TornStockMarketBar15mDO> barByStock) {
         List<TornStockVirtualBatchDO> alphaBatches = snapshot.activeBatches().stream()
                 .filter(StockPortfolioService::isAlphaBatch)
                 .toList();
@@ -295,7 +298,8 @@ public class StockRoundTransactionService {
             return;
         }
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime);
+                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime,
+                decisionBarPrices(barByStock, roundTime));
         if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
             return;
         }
@@ -326,20 +330,51 @@ public class StockRoundTransactionService {
 
     /**
      * 生成并消费当前轮次对应的Alpha初始决策。
+     * <p>
+     * 本轮{@code roundTime}是决策时点:首次决策在本次生成,执行桶为下一根严格连续bar,
+     * 因此本轮只落决策不入场;后续轮次复用该决策且持久化执行桶与本轮一致时才真正入场。
      *
-     * @param roundTime            轮次时间(执行桶)
+     * @param roundTime            轮次时间(决策时点)
      * @param actualProcessingTime 本次实际处理时刻
      * @param snapshot             当前轮次快照
+     * @param barByStock           本轮按股票ID索引的行情bar
      */
     private void createInitialAlphaEntry(LocalDateTime roundTime, LocalDateTime actualProcessingTime,
-                                         RoundSnapshot snapshot) {
+                                         RoundSnapshot snapshot,
+                                         Map<Integer, TornStockMarketBar15mDO> barByStock) {
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), roundTime);
-        if (decision != null && decision.ready()
-                && decision.event() == StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY) {
-            alphaEntryService.createInitialEntry(roundTime, snapshot, decision.decisionDate(), decision.phase(),
-                    actualProcessingTime);
+                roundTime.toLocalDate().minusDays(1), roundTime, decisionBarPrices(barByStock, roundTime));
+        if (!decision.ready()
+                || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY) {
+            return;
         }
+        if (!roundTime.equals(decision.executionBarStartTime())) {
+            log.warn("α初始入场决策执行桶与当前轮次不一致,本次不入场且不跨桶追补: decisionDate={}, phase={}, "
+                            + "decisionExecutionBar={}, roundTime={}",
+                    decision.decisionDate(), decision.phase(), decision.executionBarStartTime(), roundTime);
+            return;
+        }
+        alphaEntryService.createInitialEntry(roundTime, snapshot, decision.decisionDate(), decision.phase(),
+                actualProcessingTime);
+    }
+
+    /**
+     * 提取决策时点(本轮已结束bar)各股票的合法最后价,作为信号参考价的决策事实。
+     *
+     * @param barByStock 本轮按股票ID索引的行情bar
+     * @param roundTime  轮次时间(决策时点)
+     * @return 股票ID到决策时点参考价的映射;无合法价格时为空映射
+     */
+    private Map<Integer, BigDecimal> decisionBarPrices(Map<Integer, TornStockMarketBar15mDO> barByStock,
+                                                       LocalDateTime roundTime) {
+        Map<Integer, BigDecimal> prices = new HashMap<>();
+        barByStock.forEach((stocksId, bar) -> {
+            if (roundTime.equals(bar.getBarStartTime()) && bar.getLastPrice() != null
+                    && bar.getLastPrice().signum() > 0) {
+                prices.put(stocksId, bar.getLastPrice());
+            }
+        });
+        return prices;
     }
 
     /**

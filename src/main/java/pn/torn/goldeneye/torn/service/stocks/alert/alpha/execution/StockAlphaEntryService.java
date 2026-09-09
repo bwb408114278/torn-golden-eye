@@ -12,6 +12,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
@@ -41,19 +42,21 @@ public class StockAlphaEntryService {
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
     private final StockPortfolioService portfolioService;
+    private final StockAlphaDecisionService decisionService;
 
     /**
      * 消费当前执行轮次对应的初始α决策。
      * <p>
      * 执行bar只来自已持久化的{@code execution_bar_start_time}:本方法先按决策业务键与执行桶读取决策,
      * 再校验当前轮次与持久化执行桶严格一致,不根据轮次时间反推任何决策事实。
+     * 来源摘要与当前日线排名快照不一致时,本方法只标记不可复核并返回null,不写入批次、不扣减资金。
      *
      * @param roundTime            当前执行桶
      * @param snapshot             当前轮次快照
      * @param decisionDate         决策日期
      * @param phase                决策阶段
      * @param actualProcessingTime 本次实际处理时刻,仅用于执行bar已结束校验
-     * @return 初始入场批次；没有待消费决策时返回null
+     * @return 初始入场批次；没有待消费决策或来源不可复核时返回null
      */
     @Transactional(rollbackFor = Exception.class)
     public TornStockVirtualBatchDO createInitialEntry(LocalDateTime roundTime, RoundSnapshot snapshot,
@@ -73,6 +76,10 @@ public class StockAlphaEntryService {
             return null;
         }
         validateExecutionBar(decision, decisionDate, phase, roundTime, snapshot, actualProcessingTime);
+        if (!decisionService.isSourceReproducible(decision)) {
+            markSourceNotReproducible(decision);
+            return null;
+        }
         if (activeBatch != null) {
             validateBatchAssociation(activeBatch, decision);
             markExecuted(decision, activeBatch);
@@ -132,7 +139,8 @@ public class StockAlphaEntryService {
                 || decision.getPhase() == null || !Integer.valueOf(phase).equals(decision.getPhase())
                 || decision.getSelectedStocksId() == null || bar == null || bar.getBarStartTime() == null
                 || bar.getBarEndTime() == null || bar.getStocksShortname() == null
-                || bar.getStocksShortname().isBlank()) {
+                || bar.getStocksShortname().isBlank()
+                || !StockAlphaDecisionService.hasUsableSignalReferencePrice(decision)) {
             throw new IllegalStateException("Alpha初始入场决策或执行bar关键字段缺失");
         }
         if (!roundTime.equals(expected) || !expected.equals(bar.getBarStartTime())
@@ -276,7 +284,7 @@ public class StockAlphaEntryService {
         batch.setSlotId(slot.getId());
         batch.setSlotNo(slot.getSlotNo());
         batch.setSignalTime(StockAlphaExecutionBarPolicy.previousBucket(roundTime));
-        batch.setSignalReferencePrice(bar.getLastPrice());
+        batch.setSignalReferencePrice(decision.getSignalReferencePrice());
         batch.setExpectedEntryBarTime(roundTime);
         batch.setEntryStaleAt(roundTime.plusMinutes(20));
         batch.setMatchedStrategies("[\"ALPHA\"]");
@@ -295,6 +303,23 @@ public class StockAlphaEntryService {
         batch.setSellRuleVersion("ALPHA_REBALANCE_ONLY");
         batch.setResetObserved(false);
         return batch;
+    }
+
+    /**
+     * 将来源不可复核的决策标记失败原因并保持待消费状态。
+     * <p>
+     * 日线快照被后续补采或重建后,回查得到的排名向量可能已与决策摘要不一致。
+     * 此时只标记不可复核并跳过本次入场,不写入批次、不扣减资金、不发送通知,
+     * 也不把新结果冒充决策当时的排名事实。
+     *
+     * @param decision α决策
+     */
+    private void markSourceNotReproducible(TornStockAlphaDecisionDO decision) {
+        log.error("α初始入场决策来源摘要不可复核,本次跳过入场: decisionId={}, decisionDate={}, phase={}, digest={}",
+                decision.getId(), decision.getDecisionBusinessDate(), decision.getPhase(),
+                decision.getSourceSnapshotDigest());
+        decision.setFailureReason(StockAlphaDecisionService.SOURCE_NOT_REPRODUCIBLE);
+        decisionDAO.updateById(decision);
     }
 
     /**

@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
@@ -39,6 +40,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class StockAlphaEntryServiceTest {
     private static final LocalDateTime ROUND_TIME = LocalDateTime.of(2026, 9, 5, 10, 0);
+    /**
+     * 决策时点参考价,必须与执行bar价格不同才能证明信号参考价来自决策事实。
+     */
+    private static final BigDecimal DECISION_PRICE = new BigDecimal("9.90");
 
     @Mock
     private TornStockAlphaDecisionDAO decisionDAO;
@@ -46,21 +51,24 @@ class StockAlphaEntryServiceTest {
     private TornStockVirtualBatchDAO virtualBatchDAO;
     @Mock
     private StockShadowRecordWriter noticeWriter;
+    @Mock
+    private StockAlphaDecisionService decisionService;
 
     @Test
-    @DisplayName("初始入场_持久化待入场批次并预留资金且标记决策已执行")
-    void createInitialEntry_shouldPersistAlphaBatchReserveSlotAndExecuteDecision() {
+    @DisplayName("初始入场_只消费持久化执行桶且信号参考价来自决策事实")
+    void createInitialEntry_persistsAlphaBatchWithDecisionSignalPrice() {
         TornStockAlphaDecisionDO decision = decision();
         TornStockPortfolioSlotDO slot = slot();
         TornStockMarketBar15mDO bar = bar();
         TornStockVirtualBatchDO persisted = persistedBatch(decision, slot);
         when(decisionDAO.selectPendingInitialEntryForUpdate(ROUND_TIME.toLocalDate().minusDays(1), 0, ROUND_TIME))
                 .thenReturn(decision);
+        when(decisionService.isSourceReproducible(decision)).thenReturn(true);
         when(virtualBatchDAO.insertIgnoreConflict(any(TornStockVirtualBatchDO.class))).thenReturn(1);
         when(virtualBatchDAO.selectByBatchNoForUpdate(any())).thenReturn(persisted);
 
         StockAlphaEntryService service = new StockAlphaEntryService(
-                decisionDAO, virtualBatchDAO, new StockPortfolioService());
+                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService);
         TornStockVirtualBatchDO result = service.createInitialEntry(
                 ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
                 ROUND_TIME.plusMinutes(16));
@@ -70,6 +78,10 @@ class StockAlphaEntryServiceTest {
         verify(virtualBatchDAO).insertIgnoreConflict(insertedBatch.capture());
         assertEquals("ALPHA", insertedBatch.getValue().getPrimaryStrategy());
         assertEquals(StockBatchStatusEnum.ENTRY_PENDING.getCode(), insertedBatch.getValue().getBatchStatus());
+        assertEquals(ROUND_TIME.minusMinutes(15), insertedBatch.getValue().getSignalTime(),
+                "信号时间必须是决策桶而不是执行桶");
+        assertEquals(DECISION_PRICE, insertedBatch.getValue().getSignalReferencePrice(),
+                "信号参考价必须来自决策事实,不得使用执行bar成交价");
         assertAlphaAuditSource(insertedBatch.getValue(), decision);
         assertEquals(StockBatchStatusEnum.ENTRY_PENDING.getCode(), result.getBatchStatus());
         assertEquals(StockSlotStatusEnum.RESERVED.getCode(), slot.getSlotStatus());
@@ -89,7 +101,7 @@ class StockAlphaEntryServiceTest {
         when(decisionDAO.selectPendingInitialEntryForUpdate(any(), anyInt(), any())).thenReturn(decision);
 
         StockAlphaEntryService service = new StockAlphaEntryService(
-                decisionDAO, virtualBatchDAO, new StockPortfolioService());
+                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService);
         RoundSnapshot snapshot = snapshot(slot, bar);
         LocalDate decisionDate = decision.getDecisionBusinessDate();
         int phase = decision.getPhase();
@@ -100,6 +112,30 @@ class StockAlphaEntryServiceTest {
                 laterRoundTime, snapshot, decisionDate, phase, actualProcessingTime));
         verify(virtualBatchDAO, never()).insertIgnoreConflict(any(TornStockVirtualBatchDO.class));
         verify(decisionDAO, never()).updateById(decision);
+    }
+
+    @Test
+    @DisplayName("初始入场_来源摘要不可复核时标记失败且不写批次不扣资金")
+    void createInitialEntry_sourceNotReproducible_writesNoBatch() {
+        TornStockAlphaDecisionDO decision = decision();
+        TornStockPortfolioSlotDO slot = slot();
+        TornStockMarketBar15mDO bar = bar();
+        when(decisionDAO.selectPendingInitialEntryForUpdate(ROUND_TIME.toLocalDate().minusDays(1), 0, ROUND_TIME))
+                .thenReturn(decision);
+        when(decisionService.isSourceReproducible(decision)).thenReturn(false);
+
+        StockAlphaEntryService service = new StockAlphaEntryService(
+                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService);
+        TornStockVirtualBatchDO result = service.createInitialEntry(
+                ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
+                ROUND_TIME.plusMinutes(16));
+
+        assertNull(result, "来源不可复核时不得创建初始入场批次");
+        verify(virtualBatchDAO, never()).insertIgnoreConflict(any(TornStockVirtualBatchDO.class));
+        assertEquals(StockAlphaDecisionService.SOURCE_NOT_REPRODUCIBLE, decision.getFailureReason());
+        assertEquals("PENDING", decision.getExecutionStatus(), "不可复核不得把决策标记为已执行");
+        verify(decisionDAO).updateById(decision);
+        assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus(), "不可复核不得预留资金");
     }
 
     /**
@@ -126,6 +162,7 @@ class StockAlphaEntryServiceTest {
         decision.setPhase(0);
         decision.setDecisionType("ALPHA_INITIAL_ENTRY");
         decision.setSelectedStocksId(1001);
+        decision.setSignalReferencePrice(DECISION_PRICE);
         decision.setExecutionBarStartTime(ROUND_TIME);
         decision.setSourceSnapshotDigest("digest");
         decision.setExecutionStatus("PENDING");
@@ -150,7 +187,7 @@ class StockAlphaEntryServiceTest {
         bar.setBarStartTime(ROUND_TIME);
         bar.setBarEndTime(ROUND_TIME.plusMinutes(15));
         bar.setUsable(true);
-        bar.setLastPrice(BigDecimal.ONE);
+        bar.setLastPrice(BigDecimal.TEN);
         return bar;
     }
 
