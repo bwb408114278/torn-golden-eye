@@ -45,6 +45,50 @@ class StockAlphaExecutionBarPolicyTest {
     }
 
     @Test
+    @DisplayName("决策bar校验_仅决策桶上可用且价格为正的bar可固化为信号参考价")
+    void acceptsOnlyUsableDecisionBarOnDecisionBucket() {
+        assertTrue(StockAlphaExecutionBarPolicy.isUsableDecisionBar(DECISION,
+                decisionBar(DECISION, true, new BigDecimal("9.90"))));
+        assertFalse(StockAlphaExecutionBarPolicy.isUsableDecisionBar(DECISION, null),
+                "决策bar缺失时不得固化信号参考价");
+        assertFalse(StockAlphaExecutionBarPolicy.isUsableDecisionBar(DECISION,
+                        decisionBar(DECISION, false, new BigDecimal("9.90"))),
+                "不可用决策bar的正价不得成为信号参考价");
+        assertFalse(StockAlphaExecutionBarPolicy.isUsableDecisionBar(DECISION,
+                        decisionBar(DECISION, true, BigDecimal.ZERO)),
+                "决策bar价格非正时不得固化信号参考价");
+        assertFalse(StockAlphaExecutionBarPolicy.isUsableDecisionBar(DECISION,
+                        decisionBar(DECISION.minusMinutes(15), true, new BigDecimal("9.90"))),
+                "非决策桶的bar不得充当决策bar");
+        assertFalse(StockAlphaExecutionBarPolicy.isUsableDecisionBar(EXECUTION_BAR,
+                        decisionBar(DECISION, true, new BigDecimal("9.90"))),
+                "决策时点不在决策bar所在桶时不得固化信号参考价");
+    }
+
+    @Test
+    @DisplayName("连续性校验_执行桶必须是决策桶严格下一根bar且已结束可用价为正")
+    void requiresStrictNextAndExecutableExecutionBar() {
+        assertTrue(StockAlphaExecutionBarPolicy.isStrictNextBar(DECISION, EXECUTION_BAR),
+                "决策桶09:45的严格下一根必须是执行桶10:00");
+        assertFalse(StockAlphaExecutionBarPolicy.isStrictNextBar(DECISION, EXECUTION_BAR.plusMinutes(15)),
+                "更晚的可用bar不得替代紧邻下一根");
+        assertFalse(StockAlphaExecutionBarPolicy.isStrictNextBar(null, EXECUTION_BAR));
+        var executionBar = new StockAlphaExecutionBarPolicy.ExecutionBar(EXECUTION_BAR,
+                LocalDateTime.of(2026, 9, 5, 10, 15), true, BigDecimal.TEN);
+        assertTrue(StockAlphaExecutionBarPolicy.isExecutable(EXECUTION_BAR, executionBar, NOW));
+        assertFalse(StockAlphaExecutionBarPolicy.isExecutable(EXECUTION_BAR, null, NOW),
+                "执行bar缺失时不得成交");
+        assertFalse(StockAlphaExecutionBarPolicy.isExecutable(EXECUTION_BAR,
+                        new StockAlphaExecutionBarPolicy.ExecutionBar(EXECUTION_BAR,
+                                LocalDateTime.of(2026, 9, 5, 10, 15), false, BigDecimal.TEN), NOW),
+                "执行bar不可用时不得成交");
+        assertFalse(StockAlphaExecutionBarPolicy.isExecutable(EXECUTION_BAR,
+                        new StockAlphaExecutionBarPolicy.ExecutionBar(EXECUTION_BAR,
+                                LocalDateTime.of(2026, 9, 5, 10, 15), true, BigDecimal.ZERO), NOW),
+                "执行bar价格非正时不得成交");
+    }
+
+    @Test
     @DisplayName("执行桶边界_过期边界和跨桶换仓均不可执行")
     void rejectsStaleBoundaryAndInconsistentRebalance() {
         var valid = new StockAlphaExecutionBarPolicy.ExecutionBar(EXECUTION_BAR,
@@ -58,5 +102,18 @@ class StockAlphaExecutionBarPolicyTest {
                 "行情bar与持久化执行桶不一致时不得成交");
         assertFalse(StockAlphaExecutionBarPolicy.isAtomicRebalance(EXECUTION_BAR, valid, later, NOW),
                 "双腿不在同一执行桶时不得换仓");
+    }
+
+    /**
+     * 构造指定起点、可用性和价格的决策bar事实。
+     *
+     * @param barStart 决策桶起点
+     * @param usable   是否满足正式可用标准
+     * @param price    决策时点最后价
+     * @return 决策bar事实
+     */
+    private StockAlphaExecutionBarPolicy.DecisionBar decisionBar(LocalDateTime barStart, boolean usable,
+                                                                 BigDecimal price) {
+        return new StockAlphaExecutionBarPolicy.DecisionBar(barStart, barStart.plusMinutes(15), usable, price);
     }
 }

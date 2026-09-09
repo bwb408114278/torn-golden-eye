@@ -20,9 +20,9 @@ public enum StockLedgerTypeEnum {
      */
     FORMAL("FORMAL", "正式组合"),
     /**
-     * VIP Alpha组合 - 独立单槽10B正式账本
+     * 阿尔法组合 - 独立单槽10B正式账本
      */
-    VIP_ALPHA("VIP_ALPHA", "VIP Alpha组合"),
+    VIP_ALPHA("VIP_ALPHA", "阿尔法组合"),
     /**
      * 候选影子组合 - 独立5槽×20亿的候选影子账本,与正式组合共享规则但完全隔离
      */

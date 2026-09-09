@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseCalculator;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
@@ -63,6 +64,14 @@ class StockAlphaDecisionServiceTest {
      * 已持久化决策ID。
      */
     private static final long DECISION_ID = 11L;
+    /**
+     * 决策bar可用标记。
+     */
+    private static final boolean USABLE = true;
+    /**
+     * 决策bar不可用标记,用于验证有正价但不可用的bar不得形成决策。
+     */
+    private static final boolean UNUSABLE = false;
 
     @Mock
     private StockAlphaDailyCloseService dailyCloseService;
@@ -80,7 +89,7 @@ class StockAlphaDecisionServiceTest {
         StockAlphaDecisionService service = new StockAlphaDecisionService(dailyCloseService, decisionDAO);
         stubWarmupCompleted();
 
-        StockAlphaDecisionService.DecisionResult first = service.decide(DECISION_DATE, DECISION_TIME, decisionPrices());
+        StockAlphaDecisionService.DecisionResult first = service.decide(DECISION_DATE, DECISION_TIME, decisionBars());
 
         assertTrue(first.ready(), "预热完成且落在决策日应可决策");
         assertEquals(EXECUTION_BAR, first.executionBarStartTime(), "执行桶必须是决策桶之后第一根严格连续bar");
@@ -91,7 +100,7 @@ class StockAlphaDecisionServiceTest {
         assertEquals(EXECUTION_BAR, decisionCaptor.getValue().getExecutionBarStartTime());
         assertNotNull(decisionCaptor.getValue().getSourceSnapshotDigest(), "决策必须携带来源摘要");
         assertEquals(first.targetStocksId(), decisionCaptor.getValue().getSelectedStocksId());
-        assertEquals(decisionPrices().get(first.targetStocksId()),
+        assertEquals(decisionBars().get(first.targetStocksId()).price(),
                 decisionCaptor.getValue().getSignalReferencePrice(),
                 "信号参考价必须固化为决策时点事实,不得使用执行bar价格");
         ArgumentCaptor<List<StockAlphaRankingResult>> rankingsCaptor = ArgumentCaptor.forClass(List.class);
@@ -106,8 +115,8 @@ class StockAlphaDecisionServiceTest {
         TornStockAlphaDecisionDO persisted = firstDecision();
         StockAlphaDecisionService service = new StockAlphaDecisionService(dailyCloseService, decisionDAO);
 
-        StockAlphaDecisionService.DecisionResult sameBar = service.decide(DECISION_DATE, DECISION_TIME, decisionPrices());
-        StockAlphaDecisionService.DecisionResult later = service.decide(DECISION_DATE, LATER_DECISION_TIME, decisionPrices());
+        StockAlphaDecisionService.DecisionResult sameBar = service.decide(DECISION_DATE, DECISION_TIME, decisionBars());
+        StockAlphaDecisionService.DecisionResult later = service.decide(DECISION_DATE, LATER_DECISION_TIME, decisionBars());
 
         assertTrue(sameBar.ready(), "同一决策桶重试必须复用原决策");
         assertTrue(later.ready(), "已存在决策时后续轮次必须复用同一决策");
@@ -126,13 +135,41 @@ class StockAlphaDecisionServiceTest {
         when(dailyCloseService.commonValidDates(DECISION_DATE)).thenReturn(commonDates(61));
         StockAlphaDecisionService service = new StockAlphaDecisionService(dailyCloseService, decisionDAO);
 
-        StockAlphaDecisionService.DecisionResult result = service.decide(DECISION_DATE, DECISION_TIME, decisionPrices());
+        StockAlphaDecisionService.DecisionResult result = service.decide(DECISION_DATE, DECISION_TIME, decisionBars());
 
         assertFalse(result.ready(), "共同有效日不是60/65/70时不得决策");
         assertEquals(61, result.commonDayCount());
         verify(dailyCloseService, never()).loadDailyCloses(any());
         verify(dailyCloseService, never()).persistRankings(any(), any(), any());
         verify(decisionDAO, never()).selectByBusinessKeyForUpdate(any(), anyInt());
+        verify(decisionDAO, never()).insertIgnoreConflict(any(TornStockAlphaDecisionDO.class));
+    }
+
+    @Test
+    @DisplayName("决策bar不可用_有正价也不落决策不写排名快照且不入场")
+    void decide_unusableDecisionBar_persistsNoDecision() {
+        StockAlphaDecisionService service = new StockAlphaDecisionService(dailyCloseService, decisionDAO);
+        stubDecisionDay();
+
+        StockAlphaDecisionService.DecisionResult result =
+                service.decide(DECISION_DATE, DECISION_TIME, decisionBars(UNUSABLE));
+
+        assertFalse(result.ready(), "不可用决策bar不得形成正式决策");
+        assertNull(result.targetStocksId(), "不可用决策bar不得产生目标股票与入场事实");
+        verify(decisionDAO, never()).insertIgnoreConflict(any(TornStockAlphaDecisionDO.class));
+        verify(dailyCloseService, never()).persistRankings(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("决策bar缺失_不伪造信号参考价且不进入重负载排名")
+    void decide_missingDecisionBars_skipsRankingAndPersistsNoDecision() {
+        when(dailyCloseService.commonValidDates(DECISION_DATE)).thenReturn(commonDates(60));
+        StockAlphaDecisionService service = new StockAlphaDecisionService(dailyCloseService, decisionDAO);
+
+        StockAlphaDecisionService.DecisionResult result = service.decide(DECISION_DATE, DECISION_TIME, Map.of());
+
+        assertFalse(result.ready(), "没有任何决策bar事实时不得决策");
+        verify(dailyCloseService, never()).loadDailyCloses(any());
         verify(decisionDAO, never()).insertIgnoreConflict(any(TornStockAlphaDecisionDO.class));
     }
 
@@ -158,7 +195,7 @@ class StockAlphaDecisionServiceTest {
     private TornStockAlphaDecisionDO firstDecision() {
         stubWarmupCompleted();
         StockAlphaDecisionService.DecisionResult first = new StockAlphaDecisionService(dailyCloseService, decisionDAO)
-                .decide(DECISION_DATE, DECISION_TIME, decisionPrices());
+                .decide(DECISION_DATE, DECISION_TIME, decisionBars());
         assertTrue(first.ready(), "预热完成且决策日应可决策");
         return inserted[0];
     }
@@ -167,10 +204,7 @@ class StockAlphaDecisionServiceTest {
      * 桩化预热完成的共同有效日与日线收盘窗口。
      */
     private void stubWarmupCompleted() {
-        when(dailyCloseService.commonValidDates(DECISION_DATE)).thenReturn(commonDates(60));
-        when(dailyCloseService.loadDailyCloses(DECISION_DATE)).thenReturn(completeWindow(0));
-        when(decisionDAO.selectByBusinessKeyForUpdate(DECISION_DATE, PHASE))
-                .thenAnswer(invocation -> inserted[0]);
+        stubDecisionDay();
         when(decisionDAO.insertIgnoreConflict(any(TornStockAlphaDecisionDO.class)))
                 .thenAnswer(invocation -> {
                     inserted[0] = invocation.getArgument(0);
@@ -180,16 +214,37 @@ class StockAlphaDecisionServiceTest {
     }
 
     /**
-     * 构造决策时点各股票的已结束bar最后价。
-     *
-     * @return 股票ID到决策时点参考价的映射
+     * 桩化决策日与排名所需的日线窗口,不桩化决策插入。
      */
-    private Map<Integer, BigDecimal> decisionPrices() {
-        Map<Integer, BigDecimal> prices = new HashMap<>();
+    private void stubDecisionDay() {
+        when(dailyCloseService.commonValidDates(DECISION_DATE)).thenReturn(commonDates(60));
+        when(dailyCloseService.loadDailyCloses(DECISION_DATE)).thenReturn(completeWindow(0));
+        when(decisionDAO.selectByBusinessKeyForUpdate(DECISION_DATE, PHASE))
+                .thenAnswer(invocation -> inserted[0]);
+    }
+
+    /**
+     * 构造决策时点各股票可用决策bar事实,价格与执行bar价格不同以证明参考价来源。
+     *
+     * @return 股票ID到决策bar事实的映射
+     */
+    private Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> decisionBars() {
+        return decisionBars(USABLE);
+    }
+
+    /**
+     * 构造决策时点各股票的决策bar事实。
+     *
+     * @param usable 决策bar是否满足正式可用标准
+     * @return 股票ID到决策bar事实的映射
+     */
+    private Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> decisionBars(boolean usable) {
+        Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> bars = new HashMap<>();
         for (Integer stocksId : StockAlphaRuleDefinition.stockUniverse()) {
-            prices.put(stocksId, BigDecimal.valueOf(20L + stocksId));
+            bars.put(stocksId, new StockAlphaExecutionBarPolicy.DecisionBar(DECISION_TIME,
+                    DECISION_TIME.plusMinutes(15), usable, BigDecimal.valueOf(20L + stocksId)));
         }
-        return prices;
+        return bars;
     }
 
     /**

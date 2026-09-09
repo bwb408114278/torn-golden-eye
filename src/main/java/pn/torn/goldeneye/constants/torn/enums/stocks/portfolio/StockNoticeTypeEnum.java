@@ -24,9 +24,9 @@ public enum StockNoticeTypeEnum {
      */
     SELL("SELL", "卖出通知"),
     /**
-     * Alpha原子换仓通知 - 原仓卖出与新仓买入
+     * 阿尔法原子换仓通知 - 原仓卖出与新仓买入
      */
-    ALPHA_REBALANCE("ALPHA_REBALANCE", "Alpha换仓通知"),
+    ALPHA_REBALANCE("ALPHA_REBALANCE", "阿尔法换仓通知"),
     /**
      * 每日摘要 - 每日组合汇总
      */

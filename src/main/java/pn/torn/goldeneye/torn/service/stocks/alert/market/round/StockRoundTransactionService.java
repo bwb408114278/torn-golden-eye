@@ -16,6 +16,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaEntryService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaRebalanceService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
@@ -38,7 +39,6 @@ import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockSignalStateUpdate
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.CandidateInfo;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.StockCandidateRankingPolicy;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -281,6 +281,9 @@ public class StockRoundTransactionService {
      * 决策以本轮{@code roundTime}为决策时点生成或复用:执行桶由决策服务按
      * "决策桶 + 15分钟"计算并持久化,本方法只在持久化执行桶与本轮完全一致时换仓,
      * 不跨桶追补,也不抛异常把轮次钉死在可重试失败状态。
+     * <p>
+     * 本轮bar即决策时点bar,必须以带可用性字段的决策bar事实传给决策服务:
+     * 不可用决策bar不得固化为信号参考价,也不得形成可执行的换仓决策。
      *
      * @param roundTime  轮次时间(决策时点;执行桶为下一根严格连续bar)
      * @param now        当前校验时间
@@ -299,7 +302,7 @@ public class StockRoundTransactionService {
         }
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
                 roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime,
-                decisionBarPrices(barByStock, roundTime));
+                decisionBarFacts(barByStock, roundTime));
         if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
             return;
         }
@@ -333,6 +336,9 @@ public class StockRoundTransactionService {
      * <p>
      * 本轮{@code roundTime}是决策时点:首次决策在本次生成,执行桶为下一根严格连续bar,
      * 因此本轮只落决策不入场;后续轮次复用该决策且持久化执行桶与本轮一致时才真正入场。
+     * <p>
+     * 决策bar事实取自本轮bar并携带可用性字段,由{@link StockAlphaExecutionBarPolicy}判定;
+     * 本方法不复制可用性算法,也不查询更晚的bar。
      *
      * @param roundTime            轮次时间(决策时点)
      * @param actualProcessingTime 本次实际处理时刻
@@ -343,7 +349,7 @@ public class StockRoundTransactionService {
                                          RoundSnapshot snapshot,
                                          Map<Integer, TornStockMarketBar15mDO> barByStock) {
         StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
-                roundTime.toLocalDate().minusDays(1), roundTime, decisionBarPrices(barByStock, roundTime));
+                roundTime.toLocalDate().minusDays(1), roundTime, decisionBarFacts(barByStock, roundTime));
         if (!decision.ready()
                 || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY) {
             return;
@@ -359,22 +365,26 @@ public class StockRoundTransactionService {
     }
 
     /**
-     * 提取决策时点(本轮已结束bar)各股票的合法最后价,作为信号参考价的决策事实。
+     * 提取决策时点(本轮已结束bar)各股票的决策bar事实,作为信号参考价的唯一候选来源。
+     * <p>
+     * 事实携带可用性等完整质量字段,由{@link StockAlphaExecutionBarPolicy}判定是否为合法决策bar;
+     * 本方法只从本轮快照传递事实,不在此处复制可用性算法,也不查询"下一根可用bar"。
      *
      * @param barByStock 本轮按股票ID索引的行情bar
      * @param roundTime  轮次时间(决策时点)
-     * @return 股票ID到决策时点参考价的映射;无合法价格时为空映射
+     * @return 股票ID到决策bar事实的映射;本轮无对应bar时为空映射
      */
-    private Map<Integer, BigDecimal> decisionBarPrices(Map<Integer, TornStockMarketBar15mDO> barByStock,
-                                                       LocalDateTime roundTime) {
-        Map<Integer, BigDecimal> prices = new HashMap<>();
+    private Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> decisionBarFacts(
+            Map<Integer, TornStockMarketBar15mDO> barByStock, LocalDateTime roundTime) {
+        Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> facts = new HashMap<>();
         barByStock.forEach((stocksId, bar) -> {
-            if (roundTime.equals(bar.getBarStartTime()) && bar.getLastPrice() != null
-                    && bar.getLastPrice().signum() > 0) {
-                prices.put(stocksId, bar.getLastPrice());
+            if (roundTime.equals(bar.getBarStartTime())) {
+                facts.put(stocksId, new StockAlphaExecutionBarPolicy.DecisionBar(
+                        bar.getBarStartTime(), bar.getBarEndTime(),
+                        Boolean.TRUE.equals(bar.getUsable()), bar.getLastPrice()));
             }
         });
-        return prices;
+        return facts;
     }
 
     /**

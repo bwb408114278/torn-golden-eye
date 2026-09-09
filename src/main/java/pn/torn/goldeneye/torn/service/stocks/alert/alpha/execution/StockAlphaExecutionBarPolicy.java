@@ -7,7 +7,11 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildServic
 import java.time.LocalDateTime;
 
 /**
- * α策略下一执行bar策略。
+ * α策略决策bar与执行bar的连续性策略。
+ *
+ * <p>本类是"决策时点 → 下一根严格连续、已结束、可用且价格合法的15分钟bar"的唯一算法来源:
+ * 决策bar质量、执行bar质量以及两者的严格相邻关系只在此判定,Entry、Rebalance和轮次编排
+ * 只负责传递事实或调用本类,不得各自复制一套时间或质量判断。
  *
  * @author Bai
  * @version 1.6.1
@@ -45,6 +49,39 @@ public final class StockAlphaExecutionBarPolicy {
             throw new IllegalArgumentException("α执行bar起点不是精确15分钟桶: " + executionBarStart);
         }
         return executionBarStart;
+    }
+
+    /**
+     * 校验决策bar是否为决策时点对齐桶上可用且价格合法的事实。
+     * <p>
+     * 决策bar是{@code signal_reference_price}的唯一来源。不可用、桶不对齐或价格非正的bar
+     * 不得固化为信号参考价,执行阶段也不得用执行bar价格、成本价或0补参考价。
+     *
+     * @param decisionTime 决策时点
+     * @param bar          决策时点所在桶的行情bar事实
+     * @return 决策bar可固化为信号参考价时返回true
+     */
+    public static boolean isUsableDecisionBar(LocalDateTime decisionTime, DecisionBar bar) {
+        if (decisionTime == null || bar == null || bar.barStart() == null || bar.barEnd() == null) {
+            return false;
+        }
+        return bar.barStart().equals(Stock15mBarBuildService.alignToBucket(decisionTime))
+                && bar.usable()
+                && bar.price() != null && bar.price().signum() > 0;
+    }
+
+    /**
+     * 校验执行bar起点是否为决策bar起点的严格下一根15分钟桶。
+     * <p>
+     * 更晚的可用bar不能替代紧邻下一根;决策bar与执行bar不构成严格相邻关系时不得成交。
+     *
+     * @param decisionBarStart  决策bar起点
+     * @param executionBarStart 执行bar起点
+     * @return 执行桶为决策桶的严格下一根时返回true
+     */
+    public static boolean isStrictNextBar(LocalDateTime decisionBarStart, LocalDateTime executionBarStart) {
+        return decisionBarStart != null && executionBarStart != null
+                && executionBarStart.equals(decisionBarStart.plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
     }
 
     /**
@@ -86,6 +123,21 @@ public final class StockAlphaExecutionBarPolicy {
                                             ExecutionBar buyBar, LocalDateTime now) {
         return isExecutable(executionBarStart, sellBar, now) && isExecutable(executionBarStart, buyBar, now)
                 && sellBar.barStart().equals(buyBar.barStart());
+    }
+
+    /**
+     * 决策bar值。
+     *
+     * @param barStart 决策桶起点
+     * @param barEnd   决策桶终点
+     * @param usable   是否满足正式bar可用标准
+     * @param price    决策时点最后价
+     */
+    public record DecisionBar(
+            LocalDateTime barStart,
+            LocalDateTime barEnd,
+            boolean usable,
+            java.math.BigDecimal price) {
     }
 
     /**

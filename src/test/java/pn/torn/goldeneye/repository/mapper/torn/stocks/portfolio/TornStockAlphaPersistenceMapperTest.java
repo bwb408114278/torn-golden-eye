@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,7 @@ class TornStockAlphaPersistenceMapperTest {
     private TornStockAlphaDecisionDAO decisionDao;
 
     @Test
+    @DisplayName("日线快照_批量UPSERT一次写入多条且重复写入收敛为更新")
     void batchInsertIgnoreConflict_shouldUpsertWholeBatchIdempotently() {
         TornStockAlphaDailySnapshotDO first = snapshot(STOCKS_ID, new BigDecimal("10.00"));
         TornStockAlphaDailySnapshotDO second = snapshot(STOCKS_ID + 1, new BigDecimal("20.00"));
@@ -58,6 +60,7 @@ class TornStockAlphaPersistenceMapperTest {
     }
 
     @Test
+    @DisplayName("日线快照_收盘价按2位小数真实读回且不保留更高精度")
     void insertIgnoreConflict_shouldPersistClosePriceWithTwoDecimalScale() {
         TornStockAlphaDailySnapshotDO snapshot = snapshot(STOCKS_ID, new BigDecimal("123.456789"));
 
@@ -90,6 +93,7 @@ class TornStockAlphaPersistenceMapperTest {
     }
 
     @Test
+    @DisplayName("日线快照与决策_同一业务键重复写入收敛为更新且不产生重复行")
     void insertIgnoreConflict_shouldKeepDailySnapshotAndDecisionIdempotent() {
         TornStockAlphaDailySnapshotDO snapshot = new TornStockAlphaDailySnapshotDO();
         snapshot.setStocksId(STOCKS_ID);
