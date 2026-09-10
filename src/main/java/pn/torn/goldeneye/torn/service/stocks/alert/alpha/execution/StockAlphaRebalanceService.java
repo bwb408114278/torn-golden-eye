@@ -36,9 +36,6 @@ import java.util.Objects;
 public class StockAlphaRebalanceService {
     private static final String PENDING_STATUS = "PENDING";
     private static final String EXECUTED_STATUS = "EXECUTED";
-    private static final String ALPHA_REBALANCE = "ALPHA_REBALANCE";
-    private static final String ALPHA_REBALANCE_RULE_VERSION = "ALPHA_REBALANCE_ONLY";
-    private static final String ALPHA_PRIMARY_STRATEGY = "ALPHA";
 
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockPortfolioSlotDAO slotDAO;
@@ -91,9 +88,9 @@ public class StockAlphaRebalanceService {
             throw new IllegalStateException("α换仓执行bar缺失");
         }
         validateBars(executionBarStart, now, sellBar, buyBar);
-        current.setExitSignalTime(executionBarStart);
+        current.setExitSignalTime(decision.getDecisionBarStartTime());
         current.setExpectedExitBarTime(sellBar.getBarStartTime());
-        TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart, executionBarStart);
+        TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart);
         TornStockVirtualBatchDO persistedReplacement = persistReplacement(replacement);
         bindCompletedRebalance(decision, slot, persistedReplacement, executionBarStart);
         batchDAO.updateById(current);
@@ -145,6 +142,9 @@ public class StockAlphaRebalanceService {
         if (!StockAlphaDecisionService.hasUsableSignalReferencePrice(decision)) {
             throw new IllegalStateException("α换仓决策缺少决策时点参考价");
         }
+        if (decision.getDecisionBarStartTime() == null) {
+            throw new IllegalStateException("α换仓决策缺少决策桶起点,禁止换仓");
+        }
     }
 
     /**
@@ -192,13 +192,11 @@ public class StockAlphaRebalanceService {
      * @param sellBar           原仓bar
      * @param buyBar            新仓bar
      * @param executionBarStart 执行bar起点
-     * @param executionTime     执行时间
      * @return 新仓批次
      */
     private TornStockVirtualBatchDO replace(TornStockVirtualBatchDO current, TornStockAlphaDecisionDO decision,
                                             TornStockPortfolioSlotDO slot, TornStockMarketBar15mDO sellBar,
-                                            TornStockMarketBar15mDO buyBar, LocalDateTime executionBarStart,
-                                            LocalDateTime executionTime) {
+                                            TornStockMarketBar15mDO buyBar, LocalDateTime executionBarStart) {
         BigDecimal sellProceeds = portfolioService.settleSlotBacked(current, slot, sellBar.getLastPrice(),
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         current.setSellProceeds(sellProceeds);
@@ -206,8 +204,8 @@ public class StockAlphaRebalanceService {
         current.setBatchStatus(StockBatchStatusEnum.CLOSED_ROTATION.getCode());
         current.setExitTime(executionBarStart);
         current.setExitReferencePrice(sellBar.getLastPrice());
-        current.setExitReason(ALPHA_REBALANCE);
-        current.setSellRuleVersion(ALPHA_REBALANCE_RULE_VERSION);
+        current.setExitReason(StockAlphaRuleDefinition.EXIT_REASON_REBALANCE);
+        current.setSellRuleVersion(StockAlphaRuleDefinition.SELL_RULE_VERSION);
         BigDecimal cash = slot.getAvailableCash();
         long quantity = StockPortfolioService.calculateQuantity(cash, buyBar.getLastPrice());
         if (quantity <= 0) {
@@ -216,17 +214,16 @@ public class StockAlphaRebalanceService {
         TornStockVirtualBatchDO replacement = new TornStockVirtualBatchDO();
         replacement.setBatchNo(buildReplacementBatchNo(decision));
         replacement.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
-        replacement.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        StockAlphaBatchIdentity.applyAlphaIdentity(replacement);
         replacement.setStocksId(decision.getSelectedStocksId());
         replacement.setStocksShortname(buyBar.getStocksShortname());
-        replacement.setPrimaryStrategy(ALPHA_PRIMARY_STRATEGY);
         replacement.setMatchedStrategies("[\"ALPHA\"]");
         replacement.setQualityScore(BigDecimal.ZERO);
         replacement.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
         replacement.setAlphaDecisionId(decision.getId());
         replacement.setSlotId(slot.getId());
         replacement.setSlotNo(slot.getSlotNo());
-        replacement.setSignalTime(executionTime);
+        replacement.setSignalTime(decision.getDecisionBarStartTime());
         replacement.setSignalReferencePrice(decision.getSignalReferencePrice());
         replacement.setExpectedEntryBarTime(buyBar.getBarStartTime());
         replacement.setEntryTime(buyBar.getBarStartTime());
@@ -237,14 +234,9 @@ public class StockAlphaRebalanceService {
         replacement.setStylePrior(StockStrategyFitEnum.ALPHA_NOT_EVALUATED.getCode());
         replacement.setStyleMaturity(StockMaturityEnum.ALPHA_NOT_EVALUATED.getCode());
         replacement.setRiskLevel(StockRiskLevelEnum.ALPHA_NOT_EVALUATED.getCode());
-        replacement.setStyleEffectiveMonth(executionTime.toLocalDate().withDayOfMonth(1));
-        replacement.setBuyRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
-        replacement.setSellRuleVersion(ALPHA_REBALANCE_RULE_VERSION);
+        replacement.setStyleEffectiveMonth(executionBarStart.toLocalDate().withDayOfMonth(1));
         replacement.setStyleRuleVersion(StockAlphaRuleDefinition.STYLE_RULE_VERSION);
         replacement.setRiskRuleVersion(StockAlphaRuleDefinition.RISK_RULE_VERSION);
-        replacement.setAllocationRuleVersion("ALPHA_100_PERCENT");
-        replacement.setMessageRuleVersion("ALPHA_V1");
-        replacement.setExpectedExitBarTime(buyBar.getBarEndTime());
         replacement.setResetObserved(false);
         applyFilledEntryFields(replacement, slot, buyBar, quantity, cash);
         return replacement;
@@ -259,10 +251,6 @@ public class StockAlphaRebalanceService {
         fields.setInvestedCash(buyBar.getLastPrice().multiply(BigDecimal.valueOf(quantity)));
         fields.setRemainingCash(cash.subtract(fields.getInvestedCash()));
         StockVirtualBatchAssembler.applyFilledEntryFields(replacement, fields);
-        replacement.setBuyRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
-        replacement.setSellRuleVersion(ALPHA_REBALANCE_RULE_VERSION);
-        replacement.setAllocationRuleVersion("ALPHA_100_PERCENT");
-        replacement.setMessageRuleVersion("ALPHA_V1");
         slot.setAvailableCash(replacement.getRemainingCash());
         slot.setSlotStatus(StockSlotStatusEnum.OCCUPIED.getCode());
     }

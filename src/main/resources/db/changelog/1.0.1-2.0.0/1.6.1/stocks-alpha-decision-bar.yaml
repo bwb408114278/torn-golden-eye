@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_decision_bar_start_time_to_stock_alpha_decision
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_alpha_decision
+            columns:
+              - column:
+                  name: decision_bar_start_time
+                  type: TIMESTAMP
+                  remarks: "目标变化决策时点所在的15分钟决策桶起点,与执行bar分离保存"

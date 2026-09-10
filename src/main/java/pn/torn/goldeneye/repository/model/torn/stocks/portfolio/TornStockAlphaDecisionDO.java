@@ -67,6 +67,14 @@ public class TornStockAlphaDecisionDO extends BaseDO {
      */
     private LocalDateTime executionBarStartTime;
     /**
+     * 目标变化决策时点所在的15分钟决策桶起点。
+     * <p>
+     * 与执行bar(executionBarStartTime)分离保存,用于审计区分决策事实与执行事实:
+     * 批次来源bar取本字段,批次执行bar取executionBarStartTime,两者不得互相冒充。
+     * 与执行桶一样仅在首次落决策时冻结,冲突路径不改写。
+     */
+    private LocalDateTime decisionBarStartTime;
+    /**
      * 执行状态。
      */
     private String executionStatus;

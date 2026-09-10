@@ -34,6 +34,20 @@ public final class StockAlphaExecutionBarPolicy {
     }
 
     /**
+     * 计算决策时点所在的15分钟决策桶起点。
+     * <p>
+     * 决策桶是"目标变化决策事实"的唯一来源,与执行桶(决策桶+15分钟)分离保存;
+     * 桶对齐算法只有{@link Stock15mBarBuildService#alignToBucket(LocalDateTime)}一份,
+     * 本方法只做语义收敛,不复制对齐实现。
+     *
+     * @param decisionTime 决策时点
+     * @return 决策桶起点
+     */
+    public static LocalDateTime decisionBucket(LocalDateTime decisionTime) {
+        return Stock15mBarBuildService.alignToBucket(decisionTime);
+    }
+
+    /**
      * 校验并固定执行bar起点。
      * <p>
      * 生产编排以轮次执行桶为唯一事实写入{@code execution_bar_start_time},执行阶段只消费该持久化值,

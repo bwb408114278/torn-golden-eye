@@ -5,12 +5,12 @@ import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.notice.StockAlphaNoticeRenderer;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -29,6 +29,12 @@ import java.util.*;
  *   <li>同类型最多展示 {@value #MAX_ACTIONS_PER_MESSAGE} 个动作,超过时拆分为续报</li>
  *   <li>卖出动作不可丢弃,超过上限时全部拆分续报</li>
  * </ul>
+ *
+ * <h3>Alpha批次文案</h3>
+ * <p>
+ * α批次正文经 {@link StockAlphaNoticeRenderer} 渲染,标题仍由本类统一添加,保证α消息可识别
+ * α买卖身份且不进入旧版三类BUY解析器、不展示旧版质量分与五槽语义;α初始入场与α换仓仍走
+ * BUY/SELL/ALPHA_REBALANCE既有通知类型与同一组合、冻结、发送、幂等链,不新增第二套消息服务或消息产品。
  *
  * @author Bai
  * @version 1.6.1
@@ -53,31 +59,6 @@ public class StockNoticeComposeService {
      * 组合槽位总数(仅用于Javadoc展示,实际值来自 {@code StockPortfolioService.SLOT_COUNT})
      */
     private static final int SLOT_TOTAL = 5;
-    /**
-     * 百分比缩放系数(netReturn × 100 转为百分数)
-     */
-    private static final BigDecimal PERCENT_SCALE = new BigDecimal("100");
-    /**
-     * 百分比保留小数位
-     */
-    private static final int PERCENT_SCALE_DIGITS = 2;
-    /**
-     * 价格保留小数位
-     */
-    private static final int PRICE_SCALE_DIGITS = 2;
-    /**
-     * 跟随截止时间格式(yyyy-MM-dd HH:mm)
-     */
-    private static final DateTimeFormatter FOLLOW_UNTIL_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-
-    /**
-     * 小时换算分钟
-     */
-    private static final long MINUTES_PER_HOUR = 60L;
-    /**
-     * 天换算小时
-     */
-    private static final long HOURS_PER_DAY = 24L;
     /**
      * 风险卖出优先级权重(最高)
      */
@@ -104,10 +85,6 @@ public class StockNoticeComposeService {
     private static final String DISASTER_CLOSE_TITLE_TEMPLATE = "【系统虚拟组合｜数据异常关闭】#%s";
 
     /**
-     * 正数符号前缀
-     */
-    private static final String POSITIVE_SIGN = "+";
-    /**
      * 续报标题后缀
      */
     private static final String CONTINUATION_SUFFIX = "（续）";
@@ -123,6 +100,9 @@ public class StockNoticeComposeService {
      * 跟随截止时间和最高建议跟随价直接从批次冻结字段读取(followUntil/followMaxPrice),
      * 不在组合时重新计算,确保审计快照与实际文本一致。
      * 组合槽位展示为 {@code batch.slotNo / 5}。
+     * <p>
+     * α批次不进入旧版三类BUY解析与五槽/质量分展示,直接委托 {@link StockAlphaNoticeRenderer}
+     * 渲染α正文,标题仍由本方法统一添加。
      *
      * @param batch         买入批次(须含batchNo、stocksShortname、primaryStrategy、
      *                      entryReferencePrice、stylePrior、styleMaturity、riskLevel、
@@ -134,6 +114,11 @@ public class StockNoticeComposeService {
         Objects.requireNonNull(batch, "批次不能为空");
         Objects.requireNonNull(batch.getBatchNo(), "批次编号不能为空");
 
+        if (StockPortfolioService.isAlphaBatch(batch)) {
+            return String.format(BUY_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" + "\n"
+                    + StockAlphaNoticeRenderer.renderBuy(batch);
+        }
+
         String strategyChinese = resolveStrategyChinese(batch.getPrimaryStrategy());
         String styleChinese = resolveStyleChinese(batch.getStylePrior());
         String maturityChinese = resolveMaturityChinese(batch.getStyleMaturity());
@@ -143,22 +128,21 @@ public class StockNoticeComposeService {
         if (followUntil == null || batch.getFollowMaxPrice() == null) {
             throw new IllegalStateException("买入批次跟随字段缺失,禁止生成通知: batchNo=" + batch.getBatchNo());
         }
-        BigDecimal followMaxPrice = batch.getFollowMaxPrice()
-                .setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP);
+        BigDecimal followMaxPrice = batch.getFollowMaxPrice();
         int slotNo = batch.getSlotNo() != null ? batch.getSlotNo() : occupiedSlots;
         String slotDisplay = String.format(SLOT_DISPLAY_TEMPLATE, slotNo, SLOT_TOTAL);
 
         return String.format(BUY_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +
-                "股票：" + nullSafeText(batch.getStocksShortname()) + "\n" +
+                "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
                 "买入策略：" + strategyChinese + "\n" +
-                "系统参考买价：$" + formatPrice(entryPrice) + "\n" +
+                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
                 "\n" +
                 "股票风格：" + styleChinese + "\n" +
                 "成熟度：" + maturityChinese + "\n" +
                 "风险等级：" + riskChinese + "\n" +
-                "建议跟随截止：" + followUntil.format(FOLLOW_UNTIL_FORMATTER) + "\n" +
-                "最高建议跟随价：$" + formatPrice(followMaxPrice) + "\n" +
+                "建议跟随截止：" + StockNoticeTextFormat.formatFollowUntil(followUntil) + "\n" +
+                "最高建议跟随价：$" + StockNoticeTextFormat.formatPrice(followMaxPrice) + "\n" +
                 "当前组合槽位：" + slotDisplay + "\n" +
                 "\n" +
                 "本消息属于系统虚拟组合，系统不记录个人持仓。" + "\n" +
@@ -176,6 +160,9 @@ public class StockNoticeComposeService {
      * <p>
      * 当批次为 {@link StockBatchStatusEnum#ADMIN_CLOSED}(数据/管理关闭)时,
      * 组合独立的"数据异常关闭"消息,不使用普通SELL原因码或"止盈"文案。
+     * <p>
+     * α批次(灾难关闭分支之后)委托 {@link StockAlphaNoticeRenderer} 渲染换仓卖出正文,
+     * 不出现止盈、止损、到期退出或风险退出文案,标题仍由本方法统一添加。
      *
      * @param batch 卖出批次(须含batchNo、stocksShortname、primaryStrategy、
      *              entryReferencePrice、exitReferencePrice、netReturn、
@@ -190,19 +177,24 @@ public class StockNoticeComposeService {
             return composeDisasterCloseMessage(batch);
         }
 
+        if (StockPortfolioService.isAlphaBatch(batch)) {
+            return String.format(SELL_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" + "\n"
+                    + StockAlphaNoticeRenderer.renderSell(batch);
+        }
+
         String strategyChinese = resolveStrategyChinese(batch.getPrimaryStrategy());
         String closeTypeChinese = resolveCloseTypeChinese(batch.getExitReason());
         BigDecimal entryPrice = nullSafePrice(batch.getEntryReferencePrice());
         BigDecimal exitPrice = nullSafePrice(batch.getExitReferencePrice());
-        String holdDuration = formatHoldDuration(batch.getEntryTime(), batch.getExitTime());
-        String netReturnText = formatNetReturn(batch.getNetReturn());
+        String holdDuration = StockNoticeTextFormat.formatHoldDuration(batch.getEntryTime(), batch.getExitTime());
+        String netReturnText = StockNoticeTextFormat.formatNetReturn(batch.getNetReturn());
 
         return String.format(SELL_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +
-                "股票：" + nullSafeText(batch.getStocksShortname()) + "\n" +
+                "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
                 "原买入策略：" + strategyChinese + "\n" +
-                "系统参考买价：$" + formatPrice(entryPrice) + "\n" +
-                "系统参考卖价：$" + formatPrice(exitPrice) + "\n" +
+                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
+                "系统参考卖价：$" + StockNoticeTextFormat.formatPrice(exitPrice) + "\n" +
                 "扣除0.1%卖出费后净收益：" + netReturnText + "\n" +
                 "系统持有时间：" + holdDuration + "\n" +
                 "关闭原因：" + closeTypeChinese + "\n" +
@@ -232,19 +224,18 @@ public class StockNoticeComposeService {
         String originalExitReasonChinese = resolveCloseTypeChinese(originalExitReasonCode);
         BigDecimal entryPrice = nullSafePrice(batch.getEntryReferencePrice());
         BigDecimal exitPrice = nullSafePrice(batch.getExitReferencePrice());
-        String netReturnText = formatNetReturn(batch.getNetReturn());
-        String expectedExitText = batch.getExpectedExitBarTime() != null
-                ? batch.getExpectedExitBarTime().format(FOLLOW_UNTIL_FORMATTER) : "未知";
+        String netReturnText = StockNoticeTextFormat.formatNetReturn(batch.getNetReturn());
+        String expectedExitText = StockNoticeTextFormat.formatFollowUntil(batch.getExpectedExitBarTime());
 
         return String.format(DISASTER_CLOSE_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +
-                "股票：" + nullSafeText(batch.getStocksShortname()) + "\n" +
+                "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
                 "原买入策略：" + strategyChinese + "\n" +
-                "系统参考买价：$" + formatPrice(entryPrice) + "\n" +
+                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
                 "原退出信号已触发，但预期成交bar缺失。" + "\n" +
                 "原退出原因：" + originalExitReasonChinese + "\n" +
                 "预期成交时间：" + expectedExitText + "\n" +
-                "数据恢复后首个可用参考价：$" + formatPrice(exitPrice) + "\n" +
+                "数据恢复后首个可用参考价：$" + StockNoticeTextFormat.formatPrice(exitPrice) + "\n" +
                 "扣除0.1%卖出费后系统批次收益：" + netReturnText + "\n" +
                 "\n" +
                 "本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出。" + "\n" +
@@ -420,6 +411,10 @@ public class StockNoticeComposeService {
      * 卖出类型且关闭原因为 CLOSED_RISK 时权重为 {@value #PRIORITY_RISK_SELL}(最高);
      * 其他卖出权重为 {@value #PRIORITY_OTHER_SELL};
      * 买入权重为 {@value #PRIORITY_BUY}(最低)。
+     * <p>
+     * ALPHA_REBALANCE 通知按腿区分: 原仓卖出腿(批次状态为CLOSED_ROTATION或退出原因为
+     * ALPHA_REBALANCE)按其他卖出优先级参与排序,新仓买入腿按买入优先级,
+     * 避免α换仓的SELL腿被降级为买入优先级而与买入动作错误合并。
      *
      * @param notice 通知审计
      * @param batch  关联批次
@@ -427,6 +422,9 @@ public class StockNoticeComposeService {
      */
     private int resolvePriority(TornStockNoticeAuditDO notice, TornStockVirtualBatchDO batch) {
         StockNoticeTypeEnum noticeType = StockNoticeTypeEnum.fromCode(notice.getNoticeType());
+        if (noticeType == StockNoticeTypeEnum.ALPHA_REBALANCE) {
+            return isAlphaRebalanceSellLeg(batch) ? PRIORITY_OTHER_SELL : PRIORITY_BUY;
+        }
         if (noticeType != StockNoticeTypeEnum.SELL) {
             return PRIORITY_BUY;
         }
@@ -438,7 +436,21 @@ public class StockNoticeComposeService {
     }
 
     /**
+     * 判断ALPHA_REBALANCE通知是否为原仓卖出腿。
+     *
+     * @param batch 关联批次
+     * @return 批次已换仓关闭或退出原因为ALPHA_REBALANCE时返回true
+     */
+    private boolean isAlphaRebalanceSellLeg(TornStockVirtualBatchDO batch) {
+        return StockBatchStatusEnum.CLOSED_ROTATION.getCode().equals(batch.getBatchStatus())
+                || StockAlphaRuleDefinition.EXIT_REASON_REBALANCE.equals(batch.getExitReason());
+    }
+
+    /**
      * 将买入策略编码转换为中文展示。
+     * <p>
+     * α主策略编码必须先于旧版三类BUY枚举解析返回α展示名: 旧版枚举不含ALPHA,
+     * 直接进入 {@link StockBuyStrategyEnum#fromCode(String)} 会抛异常并阻断整条PENDING通知链。
      *
      * @param code 买入策略编码
      * @return 中文展示;入参为空时返回占位文本
@@ -446,6 +458,9 @@ public class StockNoticeComposeService {
     private String resolveStrategyChinese(String code) {
         if (code == null || code.isEmpty()) {
             return "未知策略";
+        }
+        if (StockAlphaRuleDefinition.PRIMARY_STRATEGY.equals(code)) {
+            return StockAlphaNoticeRenderer.STRATEGY_DISPLAY;
         }
         return StockBuyStrategyEnum.fromCode(code).getChineseDisplay();
     }
@@ -492,7 +507,8 @@ public class StockNoticeComposeService {
     /**
      * 将关闭类型编码转换为中文展示。
      * <p>
-     * 风险退出按"风险退出"原文展示,不称为止盈。
+     * 风险退出按"风险退出"原文展示,不称为止盈;
+     * ALPHA_REBALANCE按"Alpha目标发生变化（ALPHA_REBALANCE）"展示,与α渲染器共用同一解释常量。
      *
      * @param code 关闭类型编码
      * @return 中文展示;入参为空时返回占位文本
@@ -501,66 +517,12 @@ public class StockNoticeComposeService {
         if (code == null || code.isEmpty()) {
             return "未知原因";
         }
-        if ("ALPHA_REBALANCE".equals(code)) {
-            return "Alpha原子换仓";
+        if (StockAlphaRuleDefinition.EXIT_REASON_REBALANCE.equals(code)) {
+            return StockAlphaNoticeRenderer.REBALANCE_CLOSE_REASON_DISPLAY
+                    + "（" + StockAlphaRuleDefinition.EXIT_REASON_REBALANCE + "）";
         }
         return StockCloseTypeEnum.fromCode(code).getChineseDisplay();
     }
-
-    /**
-     * 格式化持有时间为"X天Y小时"。
-     * <p>
-     * 入场或出场时间为空时返回占位文本;
-     * 出场时间早于入场时间时返回占位文本。
-     *
-     * @param entryTime 入场时间
-     * @param exitTime  出场时间
-     * @return 格式化后的持有时间文本
-     */
-    private String formatHoldDuration(LocalDateTime entryTime, LocalDateTime exitTime) {
-        if (entryTime == null || exitTime == null || exitTime.isBefore(entryTime)) {
-            return "未知";
-        }
-        long totalMinutes = Duration.between(entryTime, exitTime).toMinutes();
-        long totalHours = totalMinutes / MINUTES_PER_HOUR;
-        long days = totalHours / HOURS_PER_DAY;
-        long hours = totalHours % HOURS_PER_DAY;
-        return days + "天" + hours + "小时";
-    }
-
-    /**
-     * 格式化净收益率为 +0.80% 或 -1.50% 形式。
-     * <p>
-     * 入参为null时返回占位文本。正数前加"+",负数自带"-"。
-     * 计算方式: netReturn × 100, 保留 {@value #PERCENT_SCALE_DIGITS} 位小数。
-     *
-     * @param netReturn 净收益率(小数形式,如0.008表示0.8%)
-     * @return 格式化后的百分比文本
-     */
-    private String formatNetReturn(BigDecimal netReturn) {
-        if (netReturn == null) {
-            return "未知";
-        }
-        BigDecimal percent = netReturn.multiply(PERCENT_SCALE)
-                .setScale(PERCENT_SCALE_DIGITS, RoundingMode.HALF_UP);
-        String formatted = percent.abs().toPlainString();
-        String sign = percent.signum() >= 0 ? POSITIVE_SIGN : "-";
-        return sign + formatted + "%";
-    }
-
-    /**
-     * 格式化价格为保留 {@value #PRICE_SCALE_DIGITS} 位小数的字符串。
-     *
-     * @param price 价格
-     * @return 格式化后的价格文本;入参为null时返回"0.00"
-     */
-    private String formatPrice(BigDecimal price) {
-        if (price == null) {
-            return "0.00";
-        }
-        return price.setScale(PRICE_SCALE_DIGITS, RoundingMode.HALF_UP).toPlainString();
-    }
-
 
     /**
      * 返回null安全的价格值,为null时返回0。
@@ -571,17 +533,6 @@ public class StockNoticeComposeService {
     private BigDecimal nullSafePrice(BigDecimal price) {
         return price == null ? BigDecimal.ZERO : price;
     }
-
-    /**
-     * 返回null安全的文本值,为null时返回空字符串。
-     *
-     * @param text 原始文本
-     * @return 非null文本
-     */
-    private String nullSafeText(String text) {
-        return text == null ? "" : text;
-    }
-
 
     /**
      * 组合后的消息值对象。

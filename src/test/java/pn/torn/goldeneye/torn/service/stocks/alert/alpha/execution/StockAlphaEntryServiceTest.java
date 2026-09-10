@@ -163,6 +163,7 @@ class StockAlphaEntryServiceTest {
         decision.setDecisionType("ALPHA_INITIAL_ENTRY");
         decision.setSelectedStocksId(1001);
         decision.setSignalReferencePrice(DECISION_PRICE);
+        decision.setDecisionBarStartTime(ROUND_TIME.minusMinutes(15));
         decision.setExecutionBarStartTime(ROUND_TIME);
         decision.setSourceSnapshotDigest("digest");
         decision.setExecutionStatus("PENDING");

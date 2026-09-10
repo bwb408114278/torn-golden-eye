@@ -140,8 +140,8 @@ public class StockAlphaDecisionService {
                     calculation.decisionDate(), phase, candidate.targetStocksId(), decisionTime, executionBar);
             return notReady(calculation, executionBar);
         }
-        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, phase, currentBatchId, executionBar,
-                decisionBar.price());
+        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, phase, currentBatchId, decisionTime,
+                executionBar, decisionBar.price());
         dailyCloseService.persistRankings(calculation.decisionDate(), calculation.latestCloses(),
                 calculation.rankings());
         if (decisionDao.insertIgnoreConflict(decision) != 1) {
@@ -247,18 +247,20 @@ public class StockAlphaDecisionService {
      * @param result                待持久化的决策结果
      * @param phase                 消费阶段
      * @param currentBatchId        当前持仓批次ID;初始入场时为空
+     * @param decisionTime          决策时点,其对齐桶作为决策事实持久化
      * @param executionBarStartTime 按决策时点推导的执行bar起点
      * @param signalReferencePrice  决策时点参考价;缺失时执行阶段fail-closed
      * @return 决策持久化对象
      */
     private TornStockAlphaDecisionDO toDecisionDO(DecisionResult result, int phase, Long currentBatchId,
-                                                  LocalDateTime executionBarStartTime,
+                                                  LocalDateTime decisionTime, LocalDateTime executionBarStartTime,
                                                   BigDecimal signalReferencePrice) {
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
         decision.setDecisionBusinessDate(result.decisionDate());
         decision.setCommonDayIndex(result.commonDayCount());
         decision.setPhase(phase);
         decision.setCurrentBatchId(currentBatchId);
+        decision.setDecisionBarStartTime(StockAlphaExecutionBarPolicy.decisionBucket(decisionTime));
         decision.setExecutionBarStartTime(executionBarStartTime);
         decision.setDecisionType(result.event().name());
         decision.setSourceSnapshotDigest(buildSourceSnapshotDigest(result));

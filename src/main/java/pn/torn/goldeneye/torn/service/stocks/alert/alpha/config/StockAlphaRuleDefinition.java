@@ -17,6 +17,26 @@ import java.util.List;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class StockAlphaRuleDefinition {
     /**
+     * α主策略编码: 批次primaryStrategy与通知解析识别α身份的唯一取值,不得加入旧版StockBuyStrategyEnum。
+     */
+    public static final String PRIMARY_STRATEGY = "ALPHA";
+    /**
+     * α卖出规则版本: α批次只按目标变化换仓退出,不受旧版固定SELL接管。
+     */
+    public static final String SELL_RULE_VERSION = "ALPHA_REBALANCE_ONLY";
+    /**
+     * α仓位分配规则版本: α组合单槽100%投入,不参与旧版五槽分配。
+     */
+    public static final String ALLOCATION_RULE_VERSION = "ALPHA_100_PERCENT";
+    /**
+     * α消息规则版本: α批次及其通知审计共用的消息规则版本。
+     */
+    public static final String MESSAGE_RULE_VERSION = "ALPHA_V1";
+    /**
+     * α换仓退出原因编码: 既是Alpha换仓关联类型,也是策略退出原因。
+     */
+    public static final String EXIT_REASON_REBALANCE = "ALPHA_REBALANCE";
+    /**
      * α规则版本。
      */
     public static final String RULE_VERSION = "ALPHA_0.04_V1";

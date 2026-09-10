@@ -134,4 +134,40 @@ class TornStockAlphaPersistenceMapperTest {
         assertEquals(STOCKS_ID, savedDecision.getSelectedStocksId());
         assertEquals("digest-updated", savedDecision.getSourceSnapshotDigest());
     }
+
+    @Test
+    @DisplayName("决策桶_decision_bar_start_time真实落库并按业务键读回一致且冲突路径不改写")
+    void insertIgnoreConflict_shouldPersistAndKeepDecisionBarStartTime() {
+        LocalDateTime decisionBar = LocalDateTime.of(2099, 10, 1, 10, 0);
+        LocalDateTime executionBar = decisionBar.plusMinutes(15);
+
+        TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
+        decision.setDecisionBusinessDate(BUSINESS_DATE);
+        decision.setCommonDayIndex(60);
+        decision.setPhase(3);
+        decision.setDecisionType("ALPHA_TARGET_CHANGED");
+        decision.setSourceSnapshotDigest("digest-decision-bar");
+        decision.setExecutionStatus("PENDING");
+        decision.setDecisionBarStartTime(decisionBar);
+        decision.setExecutionBarStartTime(executionBar);
+
+        assertEquals(1, decisionDao.insertIgnoreConflict(decision));
+
+        TornStockAlphaDecisionDO saved = decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 3);
+        assertNotNull(saved, "新列必须真实落库并按业务键读回");
+        assertEquals(decisionBar, saved.getDecisionBarStartTime(), "决策桶必须与执行桶分离保存");
+        assertEquals(executionBar, saved.getExecutionBarStartTime());
+        assertEquals(15L, java.time.Duration.between(
+                saved.getDecisionBarStartTime(), saved.getExecutionBarStartTime()).toMinutes());
+
+        // 冲突路径只更新决策内容,决策桶与执行桶一样仅在首次落决策时冻结
+        decision.setDecisionBarStartTime(decisionBar.plusMinutes(15));
+        decision.setSourceSnapshotDigest("digest-decision-bar-updated");
+        assertEquals(1, decisionDao.insertIgnoreConflict(decision));
+
+        TornStockAlphaDecisionDO unchanged = decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 3);
+        assertNotNull(unchanged);
+        assertEquals("digest-decision-bar-updated", unchanged.getSourceSnapshotDigest());
+        assertEquals(decisionBar, unchanged.getDecisionBarStartTime(), "冲突路径不得改写已冻结的决策桶");
+    }
 }

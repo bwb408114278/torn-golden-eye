@@ -37,12 +37,14 @@
         INSERT INTO torn_stock_alpha_decision
             (decision_business_date, common_day_index, phase, decision_type, current_batch_id,
              selected_stocks_id, source_snapshot_digest, signal_reference_price, execution_bar_start_time,
-             execution_status, failure_reason, rebalance_batch_id, deleted, create_time, update_time)
+             decision_bar_start_time, execution_status, failure_reason, rebalance_batch_id, deleted,
+             create_time, update_time)
         VALUES
              (#{decision.decisionBusinessDate}, #{decision.commonDayIndex}, #{decision.phase}, #{decision.decisionType},
               #{decision.currentBatchId}, #{decision.selectedStocksId}, #{decision.sourceSnapshotDigest},
-              #{decision.signalReferencePrice}, #{decision.executionBarStartTime}, #{decision.executionStatus},
-              #{decision.failureReason}, #{decision.rebalanceBatchId}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+              #{decision.signalReferencePrice}, #{decision.executionBarStartTime}, #{decision.decisionBarStartTime},
+              #{decision.executionStatus}, #{decision.failureReason}, #{decision.rebalanceBatchId}, 0,
+              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (decision_business_date, phase) WHERE deleted = 0
         DO UPDATE SET common_day_index = EXCLUDED.common_day_index,
                       decision_type = EXCLUDED.decision_type,

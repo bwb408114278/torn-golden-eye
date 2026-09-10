@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert.portfolio;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -11,8 +12,10 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockEntrySettlementService.EntrySettlementResult;
 
 import java.math.BigDecimal;
@@ -312,6 +315,8 @@ class StockEntrySettlementServiceTest {
             assertEquals(ENTRY_PRICE, filled.getInvestedCash());
             mocked.verify(() -> StockPortfolioService.indexSlotsById(any()));
             mocked.verify(() -> StockPortfolioService.checkEntryPriceDeviation(SIGNAL_PRICE, ENTRY_PRICE));
+            // 公共成交组装新增α身份判定: 影子批次必须判定为非α批次后才写入旧版默认规则版本
+            mocked.verify(() -> StockPortfolioService.isAlphaBatch(batch));
             mocked.verifyNoMoreInteractions();
         }
     }
@@ -789,7 +794,131 @@ class StockEntrySettlementServiceTest {
         assertNull(batch.getExitTime(), "失败后不得写入退出时间");
     }
 
+    // ==================== 批次成交身份保持 ====================
+
+    @Nested
+    @DisplayName("批次成交身份保持")
+    class EntryFillIdentity {
+
+        @Test
+        @DisplayName("Alpha批次ENTRY_PENDING到OPEN成交_组合主策略与四个α规则版本全部保持")
+        void processEntryPending_alphaBatch_keepsFrozenAlphaIdentity() {
+            TornStockVirtualBatchDO filled = fillEntry(buildAlphaEntryPendingBatch());
+
+            assertEquals(StockBatchStatusEnum.OPEN.getCode(), filled.getBatchStatus(), "α批次应成交为OPEN");
+            assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, filled.getPortfolioCode(),
+                    "公共成交组装不得覆盖α组合编码");
+            assertEquals(StockAlphaRuleDefinition.PRIMARY_STRATEGY, filled.getPrimaryStrategy(),
+                    "公共成交组装不得覆盖α主策略");
+            assertEquals(StockAlphaRuleDefinition.RULE_VERSION, filled.getBuyRuleVersion(),
+                    "公共成交组装不得覆盖α买入规则版本");
+            assertEquals(StockAlphaRuleDefinition.SELL_RULE_VERSION, filled.getSellRuleVersion(),
+                    "公共成交组装不得覆盖α卖出规则版本");
+            assertEquals(StockAlphaRuleDefinition.ALLOCATION_RULE_VERSION, filled.getAllocationRuleVersion(),
+                    "公共成交组装不得覆盖α分配规则版本");
+            assertEquals(StockAlphaRuleDefinition.MESSAGE_RULE_VERSION, filled.getMessageRuleVersion(),
+                    "公共成交组装不得覆盖α消息规则版本");
+            assertEquals(11L, filled.getAlphaDecisionId(), "α批次成交后必须仍可回查来源决策");
+            assertNotNull(filled.getFollowUntil(), "成交必须冻结跟随截止时间");
+            assertNotNull(filled.getFollowMaxPrice(), "成交必须冻结最高建议跟随价");
+        }
+
+        @Test
+        @DisplayName("旧版正式批次成交_仍写入旧版默认规则版本")
+        void processEntryPending_legacyBatch_writesLegacyRuleVersions() {
+            TornStockVirtualBatchDO legacy = buildEntryPendingBatch();
+            legacy.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+            legacy.setSlotId(1L);
+            legacy.setSlotNo(1);
+
+            TornStockVirtualBatchDO filled = fillEntry(legacy);
+
+            assertEquals(StockBatchStatusEnum.OPEN.getCode(), filled.getBatchStatus(), "旧版批次应成交为OPEN");
+            assertEquals(StockPortfolioService.PORTFOLIO_CODE, filled.getPortfolioCode(), "旧版组合编码不得变化");
+            assertEquals(StockRuleVersion.BUY, filled.getBuyRuleVersion());
+            assertEquals(StockRuleVersion.SELL, filled.getSellRuleVersion());
+            assertEquals(StockRuleVersion.ALLOCATION, filled.getAllocationRuleVersion());
+            assertEquals(StockRuleVersion.MESSAGE, filled.getMessageRuleVersion());
+        }
+
+        /**
+         * 以真实公共组装器执行一次ENTRY_PENDING成交,返回成交后的批次。
+         *
+         * @param batch 待成交批次
+         * @return 成交后的批次(状态为OPEN)
+         */
+        private TornStockVirtualBatchDO fillEntry(TornStockVirtualBatchDO batch) {
+            TornStockMarketBar15mDO bar = buildBar(true);
+            TornStockPortfolioSlotDO slot = buildReservedSlot(1L, 1, batch.getId());
+            try (MockedStatic<StockPortfolioService> mocked = mockStatic(StockPortfolioService.class)) {
+                mocked.when(() -> StockPortfolioService.checkEntryPriceDeviation(
+                        any(BigDecimal.class), any(BigDecimal.class))).thenReturn(false);
+                mocked.when(() -> StockPortfolioService.calculateQuantity(
+                        any(BigDecimal.class), any(BigDecimal.class))).thenReturn(1000L);
+                mocked.when(() -> StockPortfolioService.indexSlotsById(any())).thenReturn(Map.of(1L, slot));
+                mocked.when(() -> StockPortfolioService.isAlphaBatch(any(TornStockVirtualBatchDO.class)))
+                        .thenCallRealMethod();
+
+                RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
+                EntrySettlementResult result = entrySettlementService.processEntryPending(
+                        snapshot, Map.of(STOCKS_ID, bar), ROUND_TIME, ROUND_TIME);
+
+                assertEquals(1, result.filledBatches().size(), "批次应成交且只成交一次");
+            }
+            return batch;
+        }
+    }
+
     // ==================== Helper Methods ====================
+
+    /**
+     * 构建α初始入场待成交批次(ENTRY_PENDING,已冻结α身份)。
+     *
+     * @return 预设字段的α批次DO
+     */
+    private TornStockVirtualBatchDO buildAlphaEntryPendingBatch() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(7L);
+        batch.setBatchNo("A20260904-0");
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setPrimaryStrategy(StockAlphaRuleDefinition.PRIMARY_STRATEGY);
+        batch.setStocksId(STOCKS_ID);
+        batch.setStocksShortname(STOCKS_SHORTNAME);
+        batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
+        batch.setSignalReferencePrice(SIGNAL_PRICE);
+        batch.setExpectedEntryBarTime(ROUND_TIME);
+        batch.setEntryStaleAt(ROUND_TIME.plusMinutes(35));
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setAlphaDecisionId(11L);
+        batch.setBuyRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
+        batch.setSellRuleVersion(StockAlphaRuleDefinition.SELL_RULE_VERSION);
+        batch.setAllocationRuleVersion(StockAlphaRuleDefinition.ALLOCATION_RULE_VERSION);
+        batch.setMessageRuleVersion(StockAlphaRuleDefinition.MESSAGE_RULE_VERSION);
+        batch.setResetObserved(false);
+        return batch;
+    }
+
+    /**
+     * 构建已预留资金的槽位(成交时使用预留资金计算股数)。
+     *
+     * @param id             槽位ID
+     * @param slotNo         槽位序号
+     * @param currentBatchId 已绑定批次ID
+     * @return 预留状态槽位DO
+     */
+    private TornStockPortfolioSlotDO buildReservedSlot(Long id, int slotNo, Long currentBatchId) {
+        TornStockPortfolioSlotDO slot = new TornStockPortfolioSlotDO();
+        slot.setId(id);
+        slot.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        slot.setSlotNo(slotNo);
+        slot.setAvailableCash(BigDecimal.ZERO);
+        slot.setReservedCash(new BigDecimal("2000000000.00"));
+        slot.setCurrentBatchId(currentBatchId);
+        slot.setSlotStatus(StockSlotStatusEnum.RESERVED.getCode());
+        return slot;
+    }
 
     private TornStockVirtualBatchDO buildEntryPendingBatch() {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();

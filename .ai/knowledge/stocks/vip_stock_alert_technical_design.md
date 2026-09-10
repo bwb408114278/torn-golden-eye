@@ -5,10 +5,11 @@
 - 文档类型：长期技术架构与实现边界
 - 业务范围：α=0.04 首批股票提醒
 - 长期业务基线：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 一次性开发与验收契约：`.ai/knowledge/stocks/vip_stock_alert_technical_implementation_one_time.md`
+- 一次性开发与验收契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`
 - 业务验收依据：`.ai/knowledge/stocks/vip_stock_alert_business_acceptance_one_time.md`
+- 本轮业务Review结论：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
 - 时区：`Asia/Shanghai`
-- 状态：已完成第六轮实现Review，未发现未关闭P0/P1/P2；代码尚未部署，真实BUY/SELL业务验收仍需独立进行
+- 状态：业务Review不通过（P0=0，开放P1=2：R-ALPHA-001消息链、R-ALPHA-002公共成交链覆盖Alpha身份），已进入第二轮最小整改；本文已按本轮整改口径同步；代码尚未部署，真实BUY/SELL业务验收仍需独立进行
 
 本文坚持最小改动：α是现有股票提醒系统中的新入场决策分支，不建设第二套股票平台。所有新增Java、Schema和测试必须能映射到本文的生产入口和验收证据；无法映射的扩展不得纳入本次开发。
 
@@ -24,6 +25,9 @@
 6. α与旧版允许同时持有同一股票，但资金、批次、SELL配对、规则版本和收益统计必须按组合CODE隔离。
 7. 日线、排名、phase、执行bar和换仓语义只实现一份，使用不可变规则对象和纯领域计算器复用。
 8. 不新增动态SELL、复杂Shadow运行轨道、第二批炒股推荐或研究平台。
+9. 公共入场/成交组装只补充实际成交事实，不得把批次已经冻结的Alpha规则身份（`portfolio_code`、`primary_strategy`、买入/卖出/分配/消息规则版本）覆盖为旧版默认值；历史旧版批次没有专用身份，继续使用旧版默认值。
+10. Alpha消息必须经Alpha感知的最小渲染分支，复用既有BUY/SELL发送、审计、payload冻结与幂等链；不得把`primaryStrategy=ALPHA`交给只认识旧版三类BUY的解析器，不得展示旧版`qualityScore`或旧版五槽容量语义，不新增第二套Alpha消息产品。
+11. 决策事实与执行事实必须分列保存：决策桶起点（`decision_bar_start_time`）、执行桶起点（`execution_bar_start_time`）、批次来源bar（`signal_time`）与批次执行bar（`entry_time`/`exit_time`）不得互相冒充。
 
 ---
 
@@ -50,6 +54,7 @@ src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/portfolio/StockPortfol
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/portfolio/StockBatchPathService.java
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/portfolio/StockBatchExitService.java
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/portfolio/StockEntrySettlementService.java
+src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/portfolio/StockVirtualBatchAssembler.java
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticeComposeService.java
 src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticeSendService.java
 ```
@@ -107,7 +112,7 @@ signalBucketStart = decisionTime向下对齐15分钟边界
 expectedExecutionBarStart = signalBucketStart + 15分钟
 ```
 
-只允许使用该精确桶、已结束、可用且价格合法的bar；不跨断层、不使用后续bar。初始BUY和换仓共用该策略，执行桶写入决策/批次，重启时只恢复同一桶。
+只允许使用该精确桶、已结束、可用且价格合法的bar；不跨断层、不使用后续bar。初始BUY和换仓共用该策略，执行桶写入决策/批次，重启时只恢复同一桶。决策桶（`signalBucketStart`）必须显式持久化为`torn_stock_alpha_decision.decision_bar_start_time`，不得由执行桶反推冒充决策时点；批次的`signal_time`为该决策桶，`entry_time`/`exit_time`为执行桶。
 
 ### 4.4 换仓原子性
 
@@ -173,6 +178,8 @@ execution_bar_start_time
 
 不得把旧`quality_score`改作`alpha_score`。是否真的需要每个字段，必须在代码追踪后确认，禁止按本文列表机械扩表。
 
+Alpha批次的规则身份在决策阶段冻结，由`buy_rule_version=ALPHA_0.04_V1`、`sell_rule_version=ALPHA_REBALANCE_ONLY`、`allocation_rule_version=ALPHA_100_PERCENT`、`message_rule_version=ALPHA_V1`连同`portfolio_code=VIP_ALPHA`、`primary_strategy=ALPHA`、`alpha_decision_id`共同承载；公共入场/成交组装不得覆盖这些字段。当前实现把评分输入保存在`torn_stock_alpha_daily_snapshot`，批次经`alpha_decision_id → 决策(决策业务日/共同有效日序号/选中股票) → 快照(r20/r1/R20/R1/alpha_score/rank_position/stock_universe_version)`读回，不新增重复评分列。
+
 ### 5.4 α日线与决策持久化
 
 若现有表无法保存可复核的日线来源和phase决策，新增最小两张表：
@@ -186,10 +193,11 @@ torn_stock_alpha_daily_snapshot
 torn_stock_alpha_decision
 (decision_business_date, common_day_index, phase, decision_type,
  current_batch_id, selected_stocks_id, source_snapshot_digest,
- execution_bar_start_time, execution_status, failure_reason, rebalance_batch_id)
+ decision_bar_start_time, execution_bar_start_time, execution_status,
+ failure_reason, rebalance_batch_id)
 ```
 
-表名、列名和索引以实际现有Schema核对为准；若现有模型已能无损承载，则不新增表。
+表名、列名和索引以实际现有Schema核对为准；若现有模型已能无损承载，则不新增表。`decision_bar_start_time`在`1.6.1`迁移中追加为可空列，仅在首次落决策时冻结，不参与冲突更新，也不需要历史回填（部署前α决策表为空；如需兼容历史行，回填口径为`execution_bar_start_time - 15分钟`）。
 
 ---
 
@@ -202,8 +210,7 @@ torn_stock_alpha_decision
 ```text
 pn.torn.goldeneye.torn.service.stocks.alert.alpha
 ├── config
-│   ├── StockAlphaRuleDefinition.java
-│   └── StockAlphaPortfolioDefinition.java
+│   └── StockAlphaRuleDefinition.java        (α规则版本、组合身份与35支成员唯一常量来源)
 ├── market
 │   ├── StockAlphaDailyCloseCalculator.java
 │   ├── StockAlphaDailyCloseService.java
@@ -213,21 +220,24 @@ pn.torn.goldeneye.torn.service.stocks.alert.alpha
 │   └── StockAlphaRankingResult.java
 ├── decision
 │   ├── StockAlphaTargetPolicy.java
-│   ├── StockAlphaDecisionService.java
-│   └── StockAlphaDecisionResult.java
+│   └── StockAlphaDecisionService.java
+├── notice
+│   └── StockAlphaNoticeRenderer.java        (α买卖正文唯一文案来源,纯静态)
 └── execution
     ├── StockAlphaExecutionBarPolicy.java
-    ├── StockAlphaExecutionValidator.java
+    ├── StockAlphaBatchIdentity.java         (α批次业务身份唯一写入点)
+    ├── StockAlphaEntryService.java
     └── StockAlphaRebalanceService.java
 ```
 
 职责边界：
 
-- `config`：不可变规则、组合和35支成员映射；不访问数据库。
+- `config`：不可变规则、α批次身份版本常量、组合和35支成员映射；不访问数据库。
 - `market`：日线收盘、共同有效日和准备度；不创建交易事实。
 - `ranking`：纯公式、平均名次和确定性排序；不写库。
-- `decision`：phase消费和目标策略；不直接执行旧版BUY。
-- `execution`：统一执行bar、初始入场接线和原子换仓；复用公共资金/批次服务。
+- `decision`：phase消费和目标策略，持久化决策桶与执行桶；不直接执行旧版BUY。
+- `notice`：α买卖正文的唯一文案来源；不承载发送、审计、payload冻结、幂等职责，不构成第二套Alpha消息服务。
+- `execution`：统一执行bar、α身份写入、初始入场接线和原子换仓；复用公共资金/批次服务。
 
 ### 6.2 持久化文件
 
@@ -257,12 +267,18 @@ StockPortfolioInitService.java
 TornStockVirtualBatchDO.java
 TornStockVirtualBatchMapper.java
 TornStockVirtualBatchMapper.xml
+StockVirtualBatchAssembler.java
+StockAlphaEntryService.java
+StockAlphaRebalanceService.java
 StockBatchPathService.java
 StockBatchExitService.java
 StockEntrySettlementService.java
+StockShadowRecordWriter.java
 StockNoticeComposeService.java
 StockNoticeSendService.java
 TornStockNoticeAuditDO.java
+TornStockAlphaDecisionDO.java
+TornStockAlphaDecisionMapper.xml
 StockDailySummaryQueryService.java
 StockDailySummaryRenderer.java
 ```
@@ -273,6 +289,8 @@ StockDailySummaryRenderer.java
 - 公共资金服务按组合定义读取槽位，不新增α资金Service。
 - 批次查询、锁和唯一键显式带组合CODE。
 - 公共退出服务按组合/规则来源分流，α跳过旧版固定SELL。
+- 公共入场/成交组装器对Alpha批次只补充实际成交字段，保留已冻结的Alpha规则身份；旧版批次继续写旧版默认版本。
+- Alpha文案由`StockAlphaNoticeRenderer`渲染，公共组合器只做身份分流，不调用旧版三类BUY解析器，也不新增第二套消息服务。
 - 通知复用现有审计和发送链，只增加α必要文案与关联字段。
 - 日报按CODE查询，避免把α渲染为旧版五槽。
 
@@ -302,8 +320,9 @@ StrictReboundConfirmBuyStrategy.java
 2. 确定性回填历史组合CODE；
 3. 添加实际查询需要的复合索引/约束；
 4. 创建α快照/决策表（仅在现有表不足时）；
-5. 幂等插入`VIP_ALPHA`单槽；
-6. 在空库和已有历史批次库分别验证。
+5. `1.6.1`追加`torn_stock_alpha_decision.decision_bar_start_time`（可空、不回填、不参与冲突更新）；
+6. 幂等插入`VIP_ALPHA`单槽；
+7. 在空库和已有历史批次库分别验证。
 
 每个表和字段必须有remarks，字符串/金额按项目YAML规范加引号。迁移不得产生BUY、SELL、持仓、成交或通知。
 
@@ -361,7 +380,10 @@ StockAlphaExecutionBarPolicyTest
 - α不走旧版SELL；
 - 换仓任一侧失败无单侧事实；
 - 通知失败不回滚交易；
-- 关闭α新入场仍管理已有α批次。
+- 关闭α新入场仍管理已有α批次；
+- α通知文案可识别（α=0.04主策略、20日反转主因子、1日反弹4%、Top1），不展示旧版质量分、旧版策略依据与五槽语义；
+- α批次`ENTRY_PENDING → OPEN`后保留Alpha规则身份，旧版批次仍写旧版默认版本；
+- 换仓新仓来源bar为决策桶、执行bar为唯一执行桶，两者可区分。
 
 ### 9.3 必要真实PostgreSQL测试
 
@@ -371,6 +393,7 @@ StockAlphaExecutionBarPolicyTest
 - `VIP_ALPHA`槽幂等初始化；
 - 快照/决策唯一键和重复调度幂等；
 - 换仓事务回滚及资金/批次读回；
+- α批次成交后规则身份与`decision_bar_start_time`的真实数据库读回；
 - 通知唯一约束。
 
 复用项目共享库测试方式，不新建隔离profile/独立库；跨线程数据使用`@AfterEach`精确物理DELETE，禁止`setval`、手工ID和`@Disabled`掩盖失败。
@@ -416,6 +439,20 @@ StockAlphaExecutionBarPolicyTest
 
 ## 13. 已完成实现Review记录
 
+### 13.1 业务Review与第二轮整改（2026-09-09）
+
+- Review依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
+- Review结论：P0=0，开放P1=2（R-ALPHA-001消息链、R-ALPHA-002公共成交链覆盖Alpha身份）；业务上线门槛不通过
+- 已关闭误判：股票池ID不是生产ID、部署前没有预填数据、`expectedExitBarTime`必然阻断Alpha换仓
+- 已确认成立、仅需证据：R-ALPHA-003原子换仓与无单侧事实、R-ALPHA-005生产预填指令
+- 本轮一并修复：R-ALPHA-004换仓审计事实区分（新仓来源bar与执行bar分离、决策bar显式持久化、移除OPEN批次上的误导`expectedExitBarTime`）
+- 整改技术方案与开发后验收标准：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`
+- 技术文档同步：本轮只修改技术文档，即本文（长期技术基线）与`vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`（整改技术方案与验收标准）已按整改口径同步
+- 业务文档：`vip_stock_alert_business_acceptance_one_time.md`（§10.7/§11.3级别口径）、`vip_stock_alert_business_review_conclusion_one_time.md`、`vip_stock_virtual_portfolio_strategy.md`（§5.3消息外显措辞）属业务侧修改范围，本轮技术文档不代改；业务确认的口径见整改技术方案§8.2
+- 当前状态：整改方案已冻结；代码整改、聚焦测试、真实Mapper/事务证据与真实BUY/SELL业务验收尚未完成
+
+### 13.2 第六轮实现Review记录
+
 - 审查提交：`11363c6..6f93271`
 - Review结论：P0=0，P1=0，P2=0；本轮功能、规范、性能和测试收敛门禁均已通过
 - 生产源码编译：`mvn.cmd clean test -DskipTests -Dmaven.compiler.showDeprecation=true`，BUILD SUCCESS
@@ -423,7 +460,7 @@ StockAlphaExecutionBarPolicyTest
 - 全量测试：1199 tests，Failures=0，Errors=0，Skipped=6，BUILD SUCCESS
 - Git差异检查：`git diff --check 11363c6..6f93271`及累计检查通过
 - 真实Mapper测试：本轮相关测试已执行并通过；未新增独立迁移门禁
-- 当前状态：技术实现Review完成；等待运维手动部署，部署后再独立进行真实BUY/SELL业务验收
+- 当前状态：第六轮技术实现Review完成；其未覆盖的业务Review问题见`13.1`
 
 ---
 
@@ -434,6 +471,10 @@ StockAlphaExecutionBarPolicyTest
 - 公式、35支股票、日线、phase、执行bar和Top3通过；
 - 原子换仓失败无单侧事实；
 - α不触发旧版固定SELL；
+- α消息可识别（α=0.04主策略、20日反转主因子、1日反弹4%、Top1），不进入旧版三类BUY解析器、不展示旧版质量分与五槽语义，且Alpha消息组合不再抛异常、不会阻塞既有PENDING通知链；
+- α批次从`ENTRY_PENDING`成交为`OPEN`后仍保留Alpha规则身份，公共成交组装未覆盖为旧版默认值；
+- 决策事实与执行事实可区分（决策桶、来源bar、执行bar及两侧执行价格）；
+- `1.6.1`迁移已执行且`decision_bar_start_time`可真实读回；
 - 预填无交易副作用；
 - 通知审计和重试可追溯；
 - 聚焦测试、必要真实Mapper/事务测试和迁移验证通过；

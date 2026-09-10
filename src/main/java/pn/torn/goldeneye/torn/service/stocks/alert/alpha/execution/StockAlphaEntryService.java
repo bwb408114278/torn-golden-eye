@@ -37,7 +37,6 @@ import java.util.Objects;
 public class StockAlphaEntryService {
     private static final String PENDING_STATUS = "PENDING";
     private static final String EXECUTED_STATUS = "EXECUTED";
-    private static final String ALPHA_PRIMARY_STRATEGY = "ALPHA";
 
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
@@ -123,6 +122,8 @@ public class StockAlphaEntryService {
      * 校验决策只能在持久化执行桶消费。
      * <p>
      * 执行bar起点、当前轮次和行情bar起点三者必须严格相等,且持久化执行桶已结束、可用、价格合法。
+     * 决策事实必须显式持久化:决策桶非空且严格等于执行桶的前一根15分钟桶,否则fail-closed,
+     * 不得用执行桶反推决策事实,也不得补默认值。
      *
      * @param decision             决策记录
      * @param roundTime            当前轮次时间
@@ -133,6 +134,11 @@ public class StockAlphaEntryService {
                                       LocalDateTime roundTime, RoundSnapshot snapshot,
                                       LocalDateTime actualProcessingTime) {
         LocalDateTime expected = StockAlphaExecutionBarPolicy.requireExecutionBar(decision.getExecutionBarStartTime());
+        if (decision.getDecisionBarStartTime() == null
+                || !decision.getDecisionBarStartTime().equals(StockAlphaExecutionBarPolicy.previousBucket(expected))) {
+            throw new IllegalStateException("Alpha初始入场决策桶缺失或与执行桶不连续: decisionBarStartTime="
+                    + decision.getDecisionBarStartTime() + ", executionBarStartTime=" + expected);
+        }
         TornStockMarketBar15mDO bar = findBar(snapshot, decision.getSelectedStocksId(), expected);
         if (decision.getId() == null || decision.getDecisionBusinessDate() == null
                 || !decisionDate.equals(decision.getDecisionBusinessDate())
@@ -276,14 +282,13 @@ public class StockAlphaEntryService {
         batch.setBatchNo("A" + decision.getDecisionBusinessDate().format(DateTimeFormatter.BASIC_ISO_DATE)
                 + "-" + decision.getPhase());
         batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
-        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        StockAlphaBatchIdentity.applyAlphaIdentity(batch);
         batch.setStocksId(decision.getSelectedStocksId());
         batch.setStocksShortname(bar.getStocksShortname());
-        batch.setPrimaryStrategy(ALPHA_PRIMARY_STRATEGY);
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
         batch.setSlotId(slot.getId());
         batch.setSlotNo(slot.getSlotNo());
-        batch.setSignalTime(StockAlphaExecutionBarPolicy.previousBucket(roundTime));
+        batch.setSignalTime(decision.getDecisionBarStartTime());
         batch.setSignalReferencePrice(decision.getSignalReferencePrice());
         batch.setExpectedEntryBarTime(roundTime);
         batch.setEntryStaleAt(roundTime.plusMinutes(20));
@@ -297,10 +302,6 @@ public class StockAlphaEntryService {
         batch.setStyleEffectiveMonth(decision.getDecisionBusinessDate().withDayOfMonth(1));
         batch.setStyleRuleVersion(StockAlphaRuleDefinition.STYLE_RULE_VERSION);
         batch.setRiskRuleVersion(StockAlphaRuleDefinition.RISK_RULE_VERSION);
-        batch.setAllocationRuleVersion("ALPHA_100_PERCENT");
-        batch.setMessageRuleVersion("ALPHA_V1");
-        batch.setBuyRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
-        batch.setSellRuleVersion("ALPHA_REBALANCE_ONLY");
         batch.setResetObserved(false);
         return batch;
     }

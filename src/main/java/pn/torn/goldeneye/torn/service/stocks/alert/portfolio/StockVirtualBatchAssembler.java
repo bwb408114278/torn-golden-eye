@@ -1,30 +1,30 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.portfolio;
 
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 
 /**
  * 虚拟批次字段组装器，将服务层事实转换为数据库批次字段。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.29
  */
+@NoArgsConstructor(access = AccessLevel.NONE)
 public final class StockVirtualBatchAssembler {
 
     /**
      * 入场超时宽限分钟数。
      */
     private static final int ENTRY_STALE_GRACE_MINUTES = 35;
-
-    private StockVirtualBatchAssembler() {
-    }
 
     /**
      * 应用信号阶段字段。
@@ -45,11 +45,14 @@ public final class StockVirtualBatchAssembler {
         batch.setRiskLevel(fields.getRiskLevel());
         batch.setStyleEffectiveMonth(fields.getStyleEffectiveMonth());
         batch.setBuyRuleVersion(fields.getBuyRuleVersion());
-        batch.setSellRuleVersion(StockRuleVersion.SELL);
         batch.setStyleRuleVersion(StockRuleVersion.STYLE);
         batch.setRiskRuleVersion(StockRuleVersion.RISK);
-        batch.setAllocationRuleVersion(StockRuleVersion.ALLOCATION);
-        batch.setMessageRuleVersion(StockRuleVersion.MESSAGE);
+        // Alpha批次已在入场/换仓阶段冻结Alpha规则身份,公共组装只补成交事实,不得覆盖为旧版默认值
+        if (!StockPortfolioService.isAlphaBatch(batch)) {
+            batch.setSellRuleVersion(StockRuleVersion.SELL);
+            batch.setAllocationRuleVersion(StockRuleVersion.ALLOCATION);
+            batch.setMessageRuleVersion(StockRuleVersion.MESSAGE);
+        }
         batch.setResetObserved(false);
     }
 
@@ -118,6 +121,21 @@ public final class StockVirtualBatchAssembler {
                 : fields.getEntryTime().plusMinutes(StockNoticeComposeService.FOLLOW_MINUTES));
         batch.setFollowMaxPrice(fields.getEntryReferencePrice() == null ? null
                 : fields.getEntryReferencePrice().multiply(StockNoticeComposeService.FOLLOW_PRICE_MULTIPLIER));
+        // Alpha批次已在入场/换仓阶段冻结Alpha规则身份,公共组装只补成交事实,不得覆盖为旧版默认值
+        if (!StockPortfolioService.isAlphaBatch(batch)) {
+            applyLegacyRuleVersions(batch);
+        }
+    }
+
+    /**
+     * 写入旧版正式组合的四个默认规则版本。
+     * <p>
+     * 只供非α批次(正式组合、候选影子)使用;α批次的组合、主策略与四个规则版本由
+     * {@code StockAlphaBatchIdentity}在入场/换仓阶段冻结,公共成交组装不得覆盖。
+     *
+     * @param batch 批次DO
+     */
+    private static void applyLegacyRuleVersions(TornStockVirtualBatchDO batch) {
         batch.setBuyRuleVersion(StockRuleVersion.BUY);
         batch.setSellRuleVersion(StockRuleVersion.SELL);
         batch.setAllocationRuleVersion(StockRuleVersion.ALLOCATION);

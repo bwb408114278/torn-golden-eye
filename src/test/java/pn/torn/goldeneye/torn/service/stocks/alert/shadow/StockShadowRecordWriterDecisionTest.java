@@ -84,6 +84,10 @@ class StockShadowRecordWriterDecisionTest {
                 "SELL通知必须固化α换仓退出原因");
         assertTrue(sellNotice.getPayloadSnapshot().contains("VIP_ALPHA"), "SELL通知必须标记α组合来源");
         assertTrue(buyNotice.getPayloadSnapshot().contains("VIP_ALPHA"), "BUY通知必须标记α组合来源");
+        assertEquals("ALPHA_V1", buyNotice.getMessageRuleVersion(),
+                "α通知审计的消息规则版本必须与批次(ALPHA_V1)一致,不得回落旧版默认值");
+        assertEquals("ALPHA_V1", sellNotice.getMessageRuleVersion(),
+                "α卖出通知审计的消息规则版本必须与批次一致");
         assertEquals(StockNoticeStatusEnum.PENDING.getCode(), sellNotice.getSendStatus());
         assertEquals(EXECUTION_BAR, sellNotice.getScheduledRoundTime());
         // 原BUY关联: SELL通知绑定被换出的原持仓批次,BUY通知绑定新仓批次,两条审计同属一次换仓

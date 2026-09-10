@@ -42,6 +42,10 @@ import static org.mockito.Mockito.*;
 class StockAlphaRebalanceServiceTest {
     private static final LocalDateTime EXECUTION_TIME = LocalDateTime.of(2026, 9, 5, 0, 15);
     /**
+     * 目标变化决策桶(执行桶前一根15分钟桶),与执行bar必须可区分。
+     */
+    private static final LocalDateTime DECISION_BUCKET = EXECUTION_TIME.minusMinutes(15);
+    /**
      * 决策时点参考价,必须与执行bar价格不同才能证明信号参考价来自决策事实。
      */
     private static final BigDecimal DECISION_PRICE = new BigDecimal("9.90");
@@ -68,7 +72,6 @@ class StockAlphaRebalanceServiceTest {
         TornStockVirtualBatchDO persisted = new TornStockVirtualBatchDO();
         persisted.setId(99L);
         persisted.setBatchNo("AR-2026-09-05-0-11");
-        persisted.setExpectedExitBarTime(EXECUTION_TIME.plusMinutes(15));
         persisted.setEntryReferencePrice(new BigDecimal("10"));
         persisted.setQuantity(1L);
         persisted.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
@@ -107,16 +110,25 @@ class StockAlphaRebalanceServiceTest {
         assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, replacement.getPortfolioCode());
         assertEquals(DECISION_PRICE, replacement.getSignalReferencePrice(),
                 "换仓新仓信号参考价必须来自决策事实,不得使用执行bar成交价");
+        assertEquals(DECISION_BUCKET, replacement.getSignalTime(), "换仓新仓来源bar必须为决策桶");
+        assertNotEquals(replacement.getSignalTime(), replacement.getEntryTime(),
+                "换仓新仓来源bar与执行bar必须可区分");
+        assertEquals(EXECUTION_TIME, replacement.getEntryTime(), "换仓新仓执行bar必须是持久化执行桶");
+        assertNull(replacement.getExpectedExitBarTime(), "OPEN新仓不得写入误导的expectedExitBarTime");
         assertAlphaAuditSource(replacement, decision);
         assertNotNull(replacement.getFollowUntil());
         assertNotNull(replacement.getFollowMaxPrice());
+        assertEquals(DECISION_BUCKET, current.getExitSignalTime(), "原仓退出信号时间必须为决策事实(决策桶)");
+        assertEquals(EXECUTION_TIME, current.getExpectedExitBarTime(), "原仓预期成交bar必须为执行事实(执行桶)");
+        assertEquals(StockAlphaRuleDefinition.EXIT_REASON_REBALANCE, current.getExitReason());
+        assertEquals(StockAlphaRuleDefinition.SELL_RULE_VERSION, current.getSellRuleVersion());
         assertEquals(99L, slot.getCurrentBatchId());
         assertEquals(99L, decision.getCurrentBatchId());
         ArgumentCaptor<List<TornStockVirtualBatchDO>> entries = ArgumentCaptor.forClass(List.class);
         verify(noticeWriter).writeNoticeAudits(entries.capture(), any(), any(), eq(Boolean.TRUE));
         TornStockVirtualBatchDO noticeBatch = entries.getValue().getFirst();
         assertEquals(99L, noticeBatch.getId());
-        assertNotNull(noticeBatch.getExpectedExitBarTime());
+        assertNull(noticeBatch.getExpectedExitBarTime(), "换仓新仓通知批次不得残留expectedExitBarTime");
     }
 
     @Test
@@ -260,7 +272,15 @@ class StockAlphaRebalanceServiceTest {
      */
     private void assertAlphaAuditSource(TornStockVirtualBatchDO batch, TornStockAlphaDecisionDO decision) {
         assertEquals(decision.getId(), batch.getAlphaDecisionId(), "α换仓批次必须可回查来源决策");
+        assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, batch.getPortfolioCode(), "α批次必须保持α组合身份");
+        assertEquals(StockAlphaRuleDefinition.PRIMARY_STRATEGY, batch.getPrimaryStrategy(), "α批次必须保持α主策略身份");
         assertEquals(StockAlphaRuleDefinition.RULE_VERSION, batch.getBuyRuleVersion(), "α批次必须保存α规则版本");
+        assertEquals(StockAlphaRuleDefinition.SELL_RULE_VERSION, batch.getSellRuleVersion(),
+                "公共组装器不得把α卖出规则版本覆盖为旧版默认值");
+        assertEquals(StockAlphaRuleDefinition.ALLOCATION_RULE_VERSION, batch.getAllocationRuleVersion(),
+                "公共组装器不得把α分配规则版本覆盖为旧版默认值");
+        assertEquals(StockAlphaRuleDefinition.MESSAGE_RULE_VERSION, batch.getMessageRuleVersion(),
+                "公共组装器不得把α消息规则版本覆盖为旧版默认值");
         assertEquals(StockStrategyFitEnum.ALPHA_NOT_EVALUATED.getCode(), batch.getStylePrior());
         assertEquals(StockMaturityEnum.ALPHA_NOT_EVALUATED.getCode(), batch.getStyleMaturity());
         assertEquals(StockRiskLevelEnum.ALPHA_NOT_EVALUATED.getCode(), batch.getRiskLevel());
@@ -277,6 +297,7 @@ class StockAlphaRebalanceServiceTest {
         decision.setCurrentBatchId(7L);
         decision.setSelectedStocksId(2002);
         decision.setExecutionStatus("PENDING");
+        decision.setDecisionBarStartTime(DECISION_BUCKET);
         decision.setExecutionBarStartTime(EXECUTION_TIME);
         decision.setSignalReferencePrice(DECISION_PRICE);
         return decision;

@@ -153,6 +153,9 @@ public class StockShadowRecordWriter {
 
     /**
      * 构建通知审计DO(PENDING状态)。
+     * <p>
+     * 消息规则版本与批次保持一致: α批次为{@code ALPHA_V1}, 旧版批次为
+     * {@link StockRuleVersion#MESSAGE}, 避免审计自身的消息规则版本与批次读回自相矛盾。
      *
      * @param batch      关联批次
      * @param noticeType 通知类型
@@ -170,7 +173,8 @@ public class StockShadowRecordWriter {
         notice.setScheduledRoundTime(roundTime);
         notice.setSendStatus(StockNoticeStatusEnum.PENDING.getCode());
         notice.setSendAttemptCount(0);
-        notice.setMessageRuleVersion(StockRuleVersion.MESSAGE);
+        notice.setMessageRuleVersion(batch.getMessageRuleVersion() != null
+                ? batch.getMessageRuleVersion() : StockRuleVersion.MESSAGE);
         String payloadSnapshot = buildNoticePayload(batch, noticeType);
         notice.setPayloadSnapshot(payloadSnapshot);
         notice.setPayloadHash(generatePayloadHash(payloadSnapshot));

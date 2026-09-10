@@ -7,7 +7,9 @@ import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService.ComposedMessage;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -269,6 +271,86 @@ class StockNoticeComposeServiceTest {
         }
     }
 
+    // ==================== Alpha消息 ====================
+
+    @Nested
+    @DisplayName("Alpha消息组合")
+    class ComposeAlphaMessage {
+
+        @Test
+        @DisplayName("Alpha买入文案_可识别α身份与Top1目标且不含旧版槽位与质量分")
+        void composeBuyMessage_alphaBatch_identifiesAlphaIdentity() {
+            TornStockVirtualBatchDO batch = buildAlphaBuyBatch();
+
+            String text = service.composeBuyMessage(batch, 2);
+
+            assertTrue(text.contains("批次 AR-2026-09-05-0-11"), "应包含α批次号");
+            assertTrue(text.contains("α=0.04 反转主策略"), "应包含α主策略展示名");
+            assertTrue(text.contains("20日反转96% + 1日反弹4%"), "应包含20日反转主因子与1日反弹权重");
+            assertTrue(text.contains("当前为Top1目标"), "应包含Top1目标口径");
+            assertTrue(text.contains("建议跟随截止：2026-09-05 10:00"), "应包含跟随截止时间");
+            assertTrue(text.contains("最高建议跟随价：$10.02"), "应包含最高建议跟随价");
+            assertTrue(text.contains("本消息属于系统虚拟组合，系统不记录个人持仓"),
+                    "应包含系统不记录个人持仓声明");
+            assertFalse(text.contains("/ 5"), "α消息不得展示旧版五槽语义");
+            assertFalse(text.contains("qualityScore"), "α消息不得展示旧版质量分");
+            assertFalse(text.contains("当前组合槽位"), "α消息不得展示旧版组合槽位行");
+            assertFalse(text.contains("股票风格"), "α消息不得展示旧版风格行");
+            assertFalse(text.contains("成熟度"), "α消息不得展示旧版成熟度行");
+            assertFalse(text.contains("风险等级"), "α消息不得展示旧版风险等级行");
+            assertFalse(text.contains(StockBuyStrategyEnum.RANGE_LOWER_BUY.getChineseDisplay()),
+                    "α消息不得展示旧版三类BUY策略名");
+        }
+
+        @Test
+        @DisplayName("Alpha换仓SELL文案_引用原批次且关闭原因为Alpha目标发生变化")
+        void composeSellMessage_alphaBatch_identifiesRebalanceReason() {
+            TornStockVirtualBatchDO batch = buildAlphaSellBatch();
+
+            String text = service.composeSellMessage(batch);
+
+            assertTrue(text.contains("批次 A20260904-0"), "应包含原BUY批次号");
+            assertTrue(text.contains("原买入批次：A20260904-0"), "应引用被换出的原买入批次");
+            assertTrue(text.contains("系统参考买价：$100.00"), "应包含系统参考买价");
+            assertTrue(text.contains("系统参考卖价：$110.00"), "应包含系统参考卖价");
+            assertTrue(text.contains("扣除0.1%卖出费后净收益：+9.80%"), "应包含扣费后净收益");
+            assertTrue(text.contains("系统持有时间：3天5小时"), "应包含系统持有时间");
+            assertTrue(text.contains("关闭原因：Alpha目标发生变化（ALPHA_REBALANCE）"),
+                    "关闭原因必须为Alpha目标发生变化并带ALPHA_REBALANCE");
+            assertTrue(text.contains("本卖出仅对应批次 A20260904-0"), "应说明仅对应原批次");
+            assertTrue(text.contains("为α目标变化换仓，不是止盈、止损或到期退出"),
+                    "必须显式区分α换仓与止盈/止损/到期退出");
+            assertFalse(text.contains("关闭原因：达到目标收益"), "α换仓关闭原因不得为旧版目标退出");
+            assertFalse(text.contains("关闭原因：风险退出"), "α换仓关闭原因不得为旧版风险退出");
+            assertFalse(text.contains("关闭原因：区间恢复退出"), "α换仓关闭原因不得为旧版区间退出");
+            assertFalse(text.contains("关闭原因：达到最长持有时间"), "α换仓关闭原因不得为旧版到期退出");
+            assertFalse(text.contains("原买入策略"), "α换仓SELL不得进入旧版策略解析展示");
+        }
+
+        @Test
+        @DisplayName("Alpha换仓同轮两腿_合并为一条消息且原仓卖出在前两腿齐全")
+        void composeAndMergeNotices_alphaRebalance_pairInSingleMessageSellFirst() {
+            TornStockVirtualBatchDO soldBatch = buildAlphaSellBatch();
+            TornStockVirtualBatchDO boughtBatch = buildAlphaBuyBatch();
+            TornStockNoticeAuditDO sellNotice = buildNotice(31L, 501L, "ALPHA_REBALANCE");
+            TornStockNoticeAuditDO buyNotice = buildNotice(32L, 502L, "ALPHA_REBALANCE");
+
+            List<ComposedMessage> result = service.composeAndMergeNotices(
+                    List.of(buyNotice, sellNotice), Map.of(501L, soldBatch, 502L, boughtBatch));
+
+            assertEquals(1, result.size(), "同轮SELL+BUY两腿必须落在同一条换仓消息内");
+            ComposedMessage message = result.getFirst();
+            assertEquals(List.of(31L, 32L), message.noticeIds(),
+                    "换仓消息noticeIds应为原仓卖出在前、新仓买入在后,单侧不得丢失");
+            String text = message.text();
+            assertTrue(text.contains("【VIP Alpha换仓｜原仓卖出】"), "应包含原仓卖出腿");
+            assertTrue(text.contains("【VIP Alpha换仓｜新仓买入】"), "应包含新仓买入腿");
+            assertTrue(text.indexOf("原仓卖出") < text.indexOf("新仓买入"), "原仓卖出腿必须排在新仓买入腿之前");
+            assertTrue(text.contains("关闭原因：Alpha目标发生变化"), "应包含α换仓关闭原因");
+            assertTrue(text.contains("当前为Top1目标"), "新仓买入腿必须可识别α身份");
+        }
+    }
+
     // ==================== 合并与优先级排序 ====================
 
     @Nested
@@ -409,6 +491,59 @@ class StockNoticeComposeServiceTest {
         batch.setExitReason(closeTypeCode);
         batch.setNetReturn(netReturn);
         batch.setSellProceeds(new BigDecimal("10080.00"));
+        return batch;
+    }
+
+    /**
+     * 构建α新仓买入批次测试数据(OPEN状态)。
+     *
+     * @return 预设字段的α买入批次DO
+     */
+    private static TornStockVirtualBatchDO buildAlphaBuyBatch() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(502L);
+        batch.setBatchNo("AR-2026-09-05-0-11");
+        batch.setStocksId(2002);
+        batch.setStocksShortname("ALPHA新仓");
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setPrimaryStrategy(StockAlphaRuleDefinition.PRIMARY_STRATEGY);
+        batch.setBatchStatus(StockBatchStatusEnum.OPEN.getCode());
+        batch.setEntryReferencePrice(new BigDecimal("10.00"));
+        batch.setQuantity(1L);
+        batch.setSlotNo(1);
+        batch.setFollowUntil(LocalDateTime.of(2026, 9, 5, 10, 0));
+        batch.setFollowMaxPrice(new BigDecimal("10.015000"));
+        batch.setBuyRuleVersion(StockAlphaRuleDefinition.RULE_VERSION);
+        batch.setSellRuleVersion(StockAlphaRuleDefinition.SELL_RULE_VERSION);
+        batch.setAllocationRuleVersion(StockAlphaRuleDefinition.ALLOCATION_RULE_VERSION);
+        batch.setMessageRuleVersion(StockAlphaRuleDefinition.MESSAGE_RULE_VERSION);
+        return batch;
+    }
+
+    /**
+     * 构建α换仓原仓卖出批次测试数据(已换仓关闭)。
+     *
+     * @return 预设字段的α卖出批次DO
+     */
+    private static TornStockVirtualBatchDO buildAlphaSellBatch() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(501L);
+        batch.setBatchNo("A20260904-0");
+        batch.setStocksId(1001);
+        batch.setStocksShortname("ALPHA原仓");
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setPrimaryStrategy(StockAlphaRuleDefinition.PRIMARY_STRATEGY);
+        batch.setBatchStatus(StockBatchStatusEnum.CLOSED_ROTATION.getCode());
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setExitReferencePrice(new BigDecimal("110.00"));
+        batch.setEntryTime(LocalDateTime.of(2026, 7, 25, 6, 0));
+        batch.setExitTime(LocalDateTime.of(2026, 7, 28, 11, 0));
+        batch.setNetReturn(new BigDecimal("0.098"));
+        batch.setExitReason(StockAlphaRuleDefinition.EXIT_REASON_REBALANCE);
+        batch.setSellRuleVersion(StockAlphaRuleDefinition.SELL_RULE_VERSION);
+        batch.setSlotNo(1);
         return batch;
     }
 

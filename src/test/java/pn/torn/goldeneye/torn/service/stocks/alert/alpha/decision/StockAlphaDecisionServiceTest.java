@@ -98,6 +98,12 @@ class StockAlphaDecisionServiceTest {
                 ArgumentCaptor.forClass(TornStockAlphaDecisionDO.class);
         verify(decisionDAO).insertIgnoreConflict(decisionCaptor.capture());
         assertEquals(EXECUTION_BAR, decisionCaptor.getValue().getExecutionBarStartTime());
+        assertEquals(DECISION_TIME, decisionCaptor.getValue().getDecisionBarStartTime(),
+                "决策桶必须显式持久化为决策时点对齐桶");
+        assertEquals(15L, java.time.Duration.between(
+                        decisionCaptor.getValue().getDecisionBarStartTime(),
+                        decisionCaptor.getValue().getExecutionBarStartTime()).toMinutes(),
+                "决策事实与执行事实必须分列保存且相差一根15分钟bar");
         assertNotNull(decisionCaptor.getValue().getSourceSnapshotDigest(), "决策必须携带来源摘要");
         assertEquals(first.targetStocksId(), decisionCaptor.getValue().getSelectedStocksId());
         assertEquals(decisionBars().get(first.targetStocksId()).price(),
