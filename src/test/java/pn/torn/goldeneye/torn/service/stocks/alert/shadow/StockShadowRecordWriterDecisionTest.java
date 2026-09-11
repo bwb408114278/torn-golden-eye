@@ -15,6 +15,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticeRebalanceAssociation;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockEligibilityService.EligibilityResult;
 
@@ -23,8 +24,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,7 +69,8 @@ class StockShadowRecordWriterDecisionTest {
 
         StockShadowRecordWriter writer =
                 new StockShadowRecordWriter(noticeAuditDao, projectProperty, marketClock);
-        writer.writeNoticeAudits(List.of(boughtBatch), List.of(soldBatch), EXECUTION_BAR, true);
+        writer.writeNoticeAudits(List.of(boughtBatch), List.of(soldBatch), EXECUTION_BAR,
+                new NoticeRebalanceAssociation(11L, 7L, 99L));
 
         ArgumentCaptor<List<TornStockNoticeAuditDO>> captor = ArgumentCaptor.forClass(List.class);
         verify(noticeAuditDao).saveBatch(captor.capture());
@@ -93,6 +94,85 @@ class StockShadowRecordWriterDecisionTest {
         // 原BUY关联: SELL通知绑定被换出的原持仓批次,BUY通知绑定新仓批次,两条审计同属一次换仓
         assertEquals(7L, sellNotice.getBatchId());
         assertEquals(99L, buyNotice.getBatchId());
+        assertRebalanceAssociation(sellNotice, "SELL", 1);
+        assertRebalanceAssociation(buyNotice, "BUY", 2);
+    }
+
+    @Test
+    @DisplayName("旧版普通买卖通知_不得写入任何Alpha换仓关联字段")
+    void writeNoticeAudits_legacyNotice_hasNoAlphaRebalanceFields() {
+        when(marketClock.now()).thenReturn(EXECUTION_BAR);
+        TornStockVirtualBatchDO boughtBatch = legacyBatch(51L, "B-LEGACY-BUY", StockBatchStatusEnum.OPEN.getCode());
+        boughtBatch.setEntryReferencePrice(new BigDecimal("10.00"));
+        boughtBatch.setQuantity(1L);
+        boughtBatch.setInvestedCash(new BigDecimal("10.00"));
+        TornStockVirtualBatchDO soldBatch = legacyBatch(52L, "B-LEGACY-SELL",
+                StockBatchStatusEnum.CLOSED_TARGET.getCode());
+        soldBatch.setExitReason("CLOSED_TARGET");
+        soldBatch.setEntryReferencePrice(new BigDecimal("10.00"));
+        soldBatch.setExitReferencePrice(new BigDecimal("11.00"));
+        soldBatch.setExitTime(EXECUTION_BAR);
+        soldBatch.setNetReturn(new BigDecimal("0.0980"));
+
+        StockShadowRecordWriter writer =
+                new StockShadowRecordWriter(noticeAuditDao, projectProperty, marketClock);
+        writer.writeNoticeAudits(List.of(boughtBatch), List.of(soldBatch), EXECUTION_BAR);
+
+        ArgumentCaptor<List<TornStockNoticeAuditDO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(noticeAuditDao).saveBatch(captor.capture());
+        for (TornStockNoticeAuditDO notice : captor.getValue()) {
+            assertTrue("BUY".equals(notice.getNoticeType()) || "SELL".equals(notice.getNoticeType()),
+                    "旧版通知类型不得被改写为ALPHA_REBALANCE");
+            String payload = notice.getPayloadSnapshot();
+            assertFalse(payload.contains("rebalanceAssociationId"), "旧版通知不得携带换仓关联标识");
+            assertFalse(payload.contains("rebalanceDecisionId"), "旧版通知不得携带换仓决策ID");
+            assertFalse(payload.contains("originalBatchId"), "旧版通知不得携带原仓批次ID");
+            assertFalse(payload.contains("replacementBatchId"), "旧版通知不得携带新仓批次ID");
+            assertFalse(payload.contains("rebalanceLeg"), "旧版通知不得携带换仓腿标识");
+            assertFalse(payload.contains("legOrder"), "旧版通知不得携带换仓腿顺序");
+        }
+    }
+
+    /**
+     * 断言通知审计固化了一次换仓的统一关联事实与腿标识。
+     *
+     * @param notice 通知审计
+     * @param leg    期望腿标识
+     * @param order  期望腿顺序
+     */
+    private void assertRebalanceAssociation(TornStockNoticeAuditDO notice, String leg, int order) {
+        String payload = notice.getPayloadSnapshot();
+        assertTrue(payload.contains("\"rebalanceDecisionId\":11"), "必须固化为换仓决策ID");
+        assertTrue(payload.contains("\"rebalanceAssociationId\":\"ALPHA_REBALANCE:11\""),
+                "换仓关联标识必须为固定格式ALPHA_REBALANCE:{决策ID}");
+        assertTrue(payload.contains("\"originalBatchId\":7"), "必须固化被换出的原仓批次ID");
+        assertTrue(payload.contains("\"replacementBatchId\":99"), "必须固化换仓后的新仓批次ID");
+        assertTrue(payload.contains("\"rebalanceLeg\":\"" + leg + "\""), "必须固化本通知的换仓腿标识");
+        assertTrue(payload.contains("\"legOrder\":" + order), "必须固化本通知的换仓腿顺序");
+    }
+
+    /**
+     * 构建旧版正式组合批次。
+     *
+     * @param id          批次ID
+     * @param batchNo     批次编号
+     * @param batchStatus 批次状态
+     * @return 旧版批次
+     */
+    private TornStockVirtualBatchDO legacyBatch(Long id, String batchNo, String batchStatus) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo(batchNo);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+        batch.setStocksId(1001);
+        batch.setStocksShortname("LEGACY");
+        batch.setPrimaryStrategy("RANGE_LOWER_BUY");
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setBatchStatus(batchStatus);
+        batch.setMessageRuleVersion("1.2.14");
+        return batch;
     }
 
     @Test

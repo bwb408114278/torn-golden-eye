@@ -439,7 +439,9 @@ public class StockNoticeSendService {
     /**
      * 将一批通知标记为已发送(SENT)并设置发送成功时间。
      * <p>
-     * 单条更新异常不影响其他通知,异常被捕获并记录日志。
+     * SENT为终态且不得再次发送。更新行数必须完整等于本条消息的通知数:行数不足说明存在
+     * 一条通知已处于其他终态而另一条仍为PENDING的部分成功状态,必须记录ERROR以便审计发现,
+     * 不得把单腿成功解释为完整换仓通知成功(发送已完成,不回滚交易事实)。
      *
      * @param noticeIds 本批次组合消息对应的通知ID列表
      */
@@ -448,7 +450,11 @@ public class StockNoticeSendService {
             return;
         }
         try {
-            noticeAuditDao.markSentByIds(noticeIds);
+            int updated = noticeAuditDao.markSentByIds(noticeIds);
+            if (updated != noticeIds.size()) {
+                log.error("股票通知发送-标记SENT行数不完整,同组通知状态不一致: updated={}, expected={}",
+                        updated, noticeIds.size());
+            }
         } catch (Exception e) {
             log.error("股票通知发送-批量标记SENT状态异常, noticeCount={}", noticeIds.size(), e);
         }
@@ -457,7 +463,8 @@ public class StockNoticeSendService {
     /**
      * 将一批通知标记为发送失败(FAILED)并记录实际错误信息
      * <p>
-     * 单条更新异常不影响其他通知,异常被捕获并记录日志。
+     * FAILED为本批次终态,不被后续普通调度自动重新查询和发送。更新行数必须完整等于
+     * 本条消息的通知数:行数不足说明同组通知未全部进入同一失败终态,必须记录ERROR。
      *
      * @param noticeIds     本批次组合消息对应的通知ID列表
      * @param failureReason 实际发送失败原因
@@ -467,9 +474,13 @@ public class StockNoticeSendService {
             return;
         }
         try {
-            noticeAuditDao.markSendFailedByIds(noticeIds,
+            int updated = noticeAuditDao.markSendFailedByIds(noticeIds,
                     failureReason == null || failureReason.isBlank()
                             ? BOT_SEND_FAILURE_MESSAGE : failureReason);
+            if (updated != noticeIds.size()) {
+                log.error("股票通知发送-标记FAILED行数不完整,同组通知状态不一致: updated={}, expected={}",
+                        updated, noticeIds.size());
+            }
         } catch (Exception e) {
             log.error("股票通知发送-批量标记FAILED状态异常, noticeCount={}", noticeIds.size(), e);
         }

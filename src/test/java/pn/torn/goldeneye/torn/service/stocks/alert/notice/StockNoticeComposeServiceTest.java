@@ -311,8 +311,8 @@ class StockNoticeComposeServiceTest {
 
             assertTrue(text.contains("批次 A20260904-0"), "应包含原BUY批次号");
             assertTrue(text.contains("原买入批次：A20260904-0"), "应引用被换出的原买入批次");
-            assertTrue(text.contains("系统参考买价：$100.00"), "应包含系统参考买价");
-            assertTrue(text.contains("系统参考卖价：$110.00"), "应包含系统参考卖价");
+            assertTrue(text.contains("系统参考买价：100.00"), "Alpha SELL应按新版模板展示系统参考买价");
+            assertTrue(text.contains("系统参考卖价：110.00"), "Alpha SELL应按新版模板展示系统参考卖价");
             assertTrue(text.contains("扣除0.1%卖出费后净收益：+9.80%"), "应包含扣费后净收益");
             assertTrue(text.contains("系统持有时间：3天5小时"), "应包含系统持有时间");
             assertTrue(text.contains("关闭原因：Alpha目标发生变化（ALPHA_REBALANCE）"),
@@ -348,6 +348,38 @@ class StockNoticeComposeServiceTest {
             assertTrue(text.indexOf("原仓卖出") < text.indexOf("新仓买入"), "原仓卖出腿必须排在新仓买入腿之前");
             assertTrue(text.contains("关闭原因：Alpha目标发生变化"), "应包含α换仓关闭原因");
             assertTrue(text.contains("当前为Top1目标"), "新仓买入腿必须可识别α身份");
+        }
+
+        @Test
+        @DisplayName("同轮两次换仓四腿_同一换仓关联的SELL与BUY保持同一条消息且卖出在前")
+        void composeAndMergeNotices_twoRebalanceAssociations_keepsEachPairTogether() {
+            TornStockVirtualBatchDO soldFirst = buildAlphaSellBatch();
+            TornStockVirtualBatchDO boughtFirst = buildAlphaBuyBatch();
+            TornStockVirtualBatchDO soldSecond = buildAlphaSellBatch();
+            soldSecond.setId(503L);
+            soldSecond.setBatchNo("A20260904-1");
+            TornStockVirtualBatchDO boughtSecond = buildAlphaBuyBatch();
+            boughtSecond.setId(504L);
+            boughtSecond.setBatchNo("AR-2026-09-05-0-12");
+
+            List<ComposedMessage> result = service.composeAndMergeNotices(
+                    List.of(buildRebalanceNotice(31L, 501L, "ALPHA_REBALANCE:11"),
+                            buildRebalanceNotice(32L, 502L, "ALPHA_REBALANCE:11"),
+                            buildRebalanceNotice(33L, 503L, "ALPHA_REBALANCE:12"),
+                            buildRebalanceNotice(34L, 504L, "ALPHA_REBALANCE:12")),
+                    Map.of(501L, soldFirst, 502L, boughtFirst, 503L, soldSecond, 504L, boughtSecond));
+
+            assertEquals(2, result.size(), "两组换仓必须拆为两条消息,同一换仓的两腿不得被拆分到不同消息");
+            assertEquals(List.of(31L, 32L), result.get(0).noticeIds(),
+                    "第一次换仓必须保持SELL腿在前、BUY腿在后");
+            assertEquals(List.of(33L, 34L), result.get(1).noticeIds(),
+                    "第二次换仓必须保持SELL腿在前、BUY腿在后");
+            for (ComposedMessage message : result) {
+                assertTrue(message.text().contains("【VIP Alpha换仓｜原仓卖出】"),
+                        "每条换仓消息必须包含原仓卖出腿");
+                assertTrue(message.text().contains("【VIP Alpha换仓｜新仓买入】"),
+                        "每条换仓消息必须包含新仓买入腿");
+            }
         }
     }
 
@@ -561,6 +593,21 @@ class StockNoticeComposeServiceTest {
         notice.setBatchId(batchId);
         notice.setNoticeType(noticeType);
         notice.setScheduledRoundTime(LocalDateTime.of(2026, 7, 25, 12, 0));
+        return notice;
+    }
+
+    /**
+     * 构建携带Alpha换仓关联标识的通知审计测试数据。
+     *
+     * @param id            通知ID
+     * @param batchId       关联批次ID
+     * @param associationId 换仓关联标识
+     * @return 预设换仓载荷的通知审计DO
+     */
+    private static TornStockNoticeAuditDO buildRebalanceNotice(Long id, Long batchId, String associationId) {
+        TornStockNoticeAuditDO notice = buildNotice(id, batchId, "ALPHA_REBALANCE");
+        notice.setPayloadSnapshot("{\"noticeType\":\"ALPHA_REBALANCE\",\"batchId\":" + batchId
+                + ",\"rebalanceAssociationId\":\"" + associationId + "\"}");
         return notice;
     }
 }

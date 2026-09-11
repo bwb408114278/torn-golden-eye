@@ -18,6 +18,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDe
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticeRebalanceAssociation;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
 
@@ -27,7 +28,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
@@ -41,6 +42,14 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class StockAlphaRebalanceServiceTest {
     private static final LocalDateTime EXECUTION_TIME = LocalDateTime.of(2026, 9, 5, 0, 15);
+    /**
+     * 决策业务日。
+     */
+    private static final LocalDate DECISION_DATE = LocalDate.of(2026, 9, 5);
+    /**
+     * 本次实际处理时刻,仅用于执行bar已结束校验。
+     */
+    private static final LocalDateTime PROCESSING_TIME = LocalDateTime.of(2026, 9, 5, 0, 31);
     /**
      * 目标变化决策桶(执行桶前一根15分钟桶),与执行bar必须可区分。
      */
@@ -84,51 +93,27 @@ class StockAlphaRebalanceServiceTest {
                 .thenReturn(List.of(slot));
         when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(current));
         when(batchDAO.insertIgnoreConflict(any())).thenReturn(1);
-        when(batchDAO.selectByBatchNoForUpdate(persisted.getBatchNo())).thenAnswer(invocation -> {
-            persisted.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
-            persisted.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
-            return null;
-        }).thenReturn(persisted);
+        when(batchDAO.selectByBatchNoForUpdate(persisted.getBatchNo()))
+                .thenAnswer(invocation -> probeBeforeInsert(persisted))
+                .thenReturn(persisted);
         when(portfolioService.settleSlotBacked(current, slot, new BigDecimal("110"),
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenAnswer(invocation -> {
-                    slot.setAvailableCash(new BigDecimal("1049.45"));
-                    return new BigDecimal("549.45");
-                });
+                .thenAnswer(invocation -> settleAlphaSlot(slot));
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
         StockAlphaRebalanceService.RebalanceResult result = service.rebalance(
-                LocalDate.of(2026, 9, 5), 0, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot());
+                DECISION_DATE, 0, PROCESSING_TIME, snapshot());
 
         assertEquals(99L, result.boughtBatchId());
-        verify(batchDAO).insertIgnoreConflict(any());
-        ArgumentCaptor<TornStockVirtualBatchDO> replacementCaptor = ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
-        verify(batchDAO).insertIgnoreConflict(replacementCaptor.capture());
-        TornStockVirtualBatchDO replacement = replacementCaptor.getValue();
-        assertEquals(StockLedgerTypeEnum.FORMAL.getCode(), replacement.getLedgerType());
-        assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, replacement.getPortfolioCode());
-        assertEquals(DECISION_PRICE, replacement.getSignalReferencePrice(),
-                "换仓新仓信号参考价必须来自决策事实,不得使用执行bar成交价");
-        assertEquals(DECISION_BUCKET, replacement.getSignalTime(), "换仓新仓来源bar必须为决策桶");
-        assertNotEquals(replacement.getSignalTime(), replacement.getEntryTime(),
-                "换仓新仓来源bar与执行bar必须可区分");
-        assertEquals(EXECUTION_TIME, replacement.getEntryTime(), "换仓新仓执行bar必须是持久化执行桶");
-        assertNull(replacement.getExpectedExitBarTime(), "OPEN新仓不得写入误导的expectedExitBarTime");
-        assertAlphaAuditSource(replacement, decision);
-        assertNotNull(replacement.getFollowUntil());
-        assertNotNull(replacement.getFollowMaxPrice());
-        assertEquals(DECISION_BUCKET, current.getExitSignalTime(), "原仓退出信号时间必须为决策事实(决策桶)");
-        assertEquals(EXECUTION_TIME, current.getExpectedExitBarTime(), "原仓预期成交bar必须为执行事实(执行桶)");
-        assertEquals(StockAlphaRuleDefinition.EXIT_REASON_REBALANCE, current.getExitReason());
-        assertEquals(StockAlphaRuleDefinition.SELL_RULE_VERSION, current.getSellRuleVersion());
-        assertEquals(99L, slot.getCurrentBatchId());
-        assertEquals(99L, decision.getCurrentBatchId());
+        assertReplacementBatchFacts(captureInsertedReplacement(), decision);
+        assertOriginalBatchClosedAndRebound(current, slot, decision);
+
         ArgumentCaptor<List<TornStockVirtualBatchDO>> entries = ArgumentCaptor.forClass(List.class);
-        verify(noticeWriter).writeNoticeAudits(entries.capture(), any(), any(), eq(Boolean.TRUE));
-        TornStockVirtualBatchDO noticeBatch = entries.getValue().getFirst();
-        assertEquals(99L, noticeBatch.getId());
-        assertNull(noticeBatch.getExpectedExitBarTime(), "换仓新仓通知批次不得残留expectedExitBarTime");
+        ArgumentCaptor<NoticeRebalanceAssociation> associationCaptor =
+                ArgumentCaptor.forClass(NoticeRebalanceAssociation.class);
+        verify(noticeWriter).writeNoticeAudits(entries.capture(), any(), any(), associationCaptor.capture());
+        assertRebalanceNoticeAudit(entries.getValue(), associationCaptor.getValue());
     }
 
     @Test
@@ -148,10 +133,9 @@ class StockAlphaRebalanceServiceTest {
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
 
         RoundSnapshot snapshot = snapshot();
-        LocalDate decisionDate = LocalDate.of(2026, 9, 5);
-        LocalDateTime processingTime = LocalDateTime.of(2026, 9, 5, 0, 31);
+        LocalDateTime processingTime = PROCESSING_TIME;
         assertThrows(IllegalStateException.class, () -> service.rebalance(
-                decisionDate, 0, processingTime, snapshot));
+                DECISION_DATE, 0, processingTime, snapshot));
     }
 
     @Test
@@ -176,7 +160,7 @@ class StockAlphaRebalanceServiceTest {
         assertEquals(99L, result.boughtBatchId(), "重试必须复用已持久化的换仓批次");
         assertEquals(EXECUTION_TIME, result.executionBarStartTime(), "重试不得改写已持久化执行桶");
         verifyNoInteractions(slotDAO, batchDAO);
-        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
+        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), any());
         verify(decisionDAO, never()).updateById(decision);
     }
 
@@ -197,11 +181,10 @@ class StockAlphaRebalanceServiceTest {
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
         RoundSnapshot snapshot = snapshot();
-        LocalDate decisionDate = LocalDate.of(2026, 9, 5);
-        LocalDateTime processingTime = LocalDateTime.of(2026, 9, 5, 0, 31);
+        LocalDateTime processingTime = PROCESSING_TIME;
 
         assertThrows(IllegalStateException.class, () -> service.rebalance(
-                decisionDate, 0, processingTime, snapshot));
+                DECISION_DATE, 0, processingTime, snapshot));
         assertEquals(7L, decision.getCurrentBatchId());
         assertNull(decision.getRebalanceBatchId());
         assertEquals("PENDING", decision.getExecutionStatus());
@@ -209,7 +192,7 @@ class StockAlphaRebalanceServiceTest {
         verify(batchDAO, never()).updateById(any(TornStockVirtualBatchDO.class));
         verify(decisionDAO, never()).updateById(decision);
         verify(slotDAO, never()).updateById(slot);
-        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
+        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), any());
     }
 
     @Test
@@ -237,7 +220,7 @@ class StockAlphaRebalanceServiceTest {
         verify(batchDAO, never()).insertIgnoreConflict(any());
         verify(batchDAO, never()).updateById(any(TornStockVirtualBatchDO.class));
         verify(slotDAO, never()).updateById(any(TornStockPortfolioSlotDO.class));
-        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
+        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), any());
     }
 
     @Test
@@ -260,8 +243,200 @@ class StockAlphaRebalanceServiceTest {
         assertNull(result.executionBarStartTime());
         verify(decisionDAO).selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, laterExecutionBar);
         verifyNoInteractions(slotDAO, batchDAO);
-        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), anyBoolean());
+        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), any());
         verify(decisionDAO, never()).updateById(any(TornStockAlphaDecisionDO.class));
+    }
+
+    @Test
+    @DisplayName("原子换仓_执行桶不是决策桶严格下一根时拒绝且无任何交易或通知写入")
+    void rebalance_executionBarNotStrictNext_rejectsWithoutAnySideEffect() {
+        LocalDateTime decisionBucket = LocalDateTime.of(2026, 9, 5, 0, 15);
+        LocalDateTime gapExecutionBar = LocalDateTime.of(2026, 9, 5, 0, 45);
+        TornStockAlphaDecisionDO decision = decision(11L);
+        decision.setDecisionBarStartTime(decisionBucket);
+        decision.setExecutionBarStartTime(gapExecutionBar);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, gapExecutionBar))
+                .thenReturn(decision);
+        when(decisionService.isSourceReproducible(decision)).thenReturn(true);
+        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(slot()));
+        when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(currentBatch()));
+
+        StockAlphaRebalanceService service = new StockAlphaRebalanceService(
+                decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
+        RoundSnapshot snapshot = snapshotAt(gapExecutionBar,
+                List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))));
+
+        LocalDateTime processingTime = gapExecutionBar.plusMinutes(16);
+        assertThrows(IllegalStateException.class,
+                () -> service.rebalance(DECISION_DATE, 0, processingTime, snapshot),
+                "相差30分钟的执行桶不构成严格相邻,必须拒绝换仓");
+        assertNoRebalanceSideEffect();
+    }
+
+    @Test
+    @DisplayName("原子换仓_决策桶缺失时拒绝且无任何交易或通知写入")
+    void rebalance_missingDecisionBar_rejectsWithoutAnySideEffect() {
+        TornStockAlphaDecisionDO decision = decision(11L);
+        decision.setDecisionBarStartTime(null);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                .thenReturn(decision);
+        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(slot()));
+        when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(currentBatch()));
+
+        StockAlphaRebalanceService service = new StockAlphaRebalanceService(
+                decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
+
+        RoundSnapshot snapshot = snapshot();
+        LocalDateTime processingTime = PROCESSING_TIME;
+        assertThrows(IllegalStateException.class,
+                () -> service.rebalance(DECISION_DATE, 0, processingTime, snapshot),
+                "决策桶缺失时禁止换仓,不得用执行桶反推决策事实");
+        assertNoRebalanceSideEffect();
+    }
+
+    @Test
+    @DisplayName("原子换仓_执行bar缺失时拒绝且无任何交易或通知写入")
+    void rebalance_missingExecutionBar_rejectsWithoutAnySideEffect() {
+        TornStockAlphaDecisionDO decision = decision(11L);
+        when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                .thenReturn(decision);
+        when(decisionService.isSourceReproducible(decision)).thenReturn(true);
+        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(slot()));
+        when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(currentBatch()));
+
+        StockAlphaRebalanceService service = new StockAlphaRebalanceService(
+                decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
+        RoundSnapshot snapshot = snapshotAt(EXECUTION_TIME, List.of());
+        LocalDateTime processingTime = PROCESSING_TIME;
+
+        assertThrows(IllegalStateException.class,
+                () -> service.rebalance(DECISION_DATE, 0, processingTime, snapshot),
+                "执行bar缺失时禁止换仓,不得跨断层追补更晚bar");
+        assertNoRebalanceSideEffect();
+    }
+
+    @Test
+    @DisplayName("原子换仓_执行bar不可用_未结束或价格非正时拒绝且无任何交易或通知写入")
+    void rebalance_illegalExecutionBarQuality_rejectsWithoutAnySideEffect() {
+        List<TornStockMarketBar15mDO> illegalSellBars = List.of(
+                bar(1001, new BigDecimal("110"), false, EXECUTION_TIME.plusMinutes(15)),
+                bar(1001, new BigDecimal("110"), true, EXECUTION_TIME.plusMinutes(45)),
+                bar(1001, BigDecimal.ZERO, true, EXECUTION_TIME.plusMinutes(15)));
+
+        for (TornStockMarketBar15mDO illegalSellBar : illegalSellBars) {
+            TornStockAlphaDecisionDO decision = decision(11L);
+            when(decisionDAO.selectByExecutionKeyForUpdate(LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
+                    .thenReturn(decision);
+            when(decisionService.isSourceReproducible(decision)).thenReturn(true);
+            when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                    .thenReturn(List.of(slot()));
+            when(batchDAO.selectActiveAlphaBatchesForUpdate()).thenReturn(List.of(currentBatch()));
+
+            StockAlphaRebalanceService service = new StockAlphaRebalanceService(
+                    decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService);
+            RoundSnapshot snapshot = snapshotAt(EXECUTION_TIME,
+                    List.of(illegalSellBar, bar(2002, new BigDecimal("10"))));
+
+            LocalDateTime processingTime = PROCESSING_TIME;
+            assertThrows(IllegalStateException.class,
+                    () -> service.rebalance(DECISION_DATE, 0, processingTime, snapshot),
+                    "执行bar不可用、未结束或价格非正时必须拒绝换仓且原仓保持OPEN");
+        }
+        assertNoRebalanceSideEffect();
+    }
+
+    /**
+     * 捕获实际插入的换仓新仓批次,并校验插入只发生一次。
+     *
+     * @return 实际插入的换仓新仓批次
+     */
+    private TornStockVirtualBatchDO captureInsertedReplacement() {
+        ArgumentCaptor<TornStockVirtualBatchDO> replacementCaptor =
+                ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
+        verify(batchDAO).insertIgnoreConflict(replacementCaptor.capture());
+        return replacementCaptor.getValue();
+    }
+
+    /**
+     * 校验换仓新仓批次的事实字段与冻结的α业务身份。
+     *
+     * @param replacement 换仓新仓批次
+     * @param decision    来源目标变化决策
+     */
+    private void assertReplacementBatchFacts(TornStockVirtualBatchDO replacement, TornStockAlphaDecisionDO decision) {
+        assertEquals(StockLedgerTypeEnum.FORMAL.getCode(), replacement.getLedgerType());
+        assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, replacement.getPortfolioCode());
+        assertEquals(DECISION_PRICE, replacement.getSignalReferencePrice(),
+                "换仓新仓信号参考价必须来自决策事实,不得使用执行bar成交价");
+        assertEquals(DECISION_BUCKET, replacement.getSignalTime(), "换仓新仓来源bar必须为决策桶");
+        assertNotEquals(replacement.getSignalTime(), replacement.getEntryTime(),
+                "换仓新仓来源bar与执行bar必须可区分");
+        assertEquals(EXECUTION_TIME, replacement.getEntryTime(), "换仓新仓执行bar必须是持久化执行桶");
+        assertNull(replacement.getExpectedExitBarTime(), "OPEN新仓不得写入误导的expectedExitBarTime");
+        assertAlphaAuditSource(replacement, decision);
+        assertNotNull(replacement.getFollowUntil());
+        assertNotNull(replacement.getFollowMaxPrice());
+    }
+
+    /**
+     * 校验原仓已按决策桶与执行桶关闭,且槽位与决策均已改绑新仓。
+     *
+     * @param current  原仓批次
+     * @param slot     α策略槽位
+     * @param decision 目标变化决策
+     */
+    private void assertOriginalBatchClosedAndRebound(TornStockVirtualBatchDO current, TornStockPortfolioSlotDO slot,
+                                                     TornStockAlphaDecisionDO decision) {
+        assertEquals(DECISION_BUCKET, current.getExitSignalTime(), "原仓退出信号时间必须为决策事实(决策桶)");
+        assertEquals(EXECUTION_TIME, current.getExpectedExitBarTime(), "原仓预期成交bar必须为执行事实(执行桶)");
+        assertEquals(StockAlphaRuleDefinition.EXIT_REASON_REBALANCE, current.getExitReason());
+        assertEquals(StockAlphaRuleDefinition.SELL_RULE_VERSION, current.getSellRuleVersion());
+        assertEquals(99L, slot.getCurrentBatchId());
+        assertEquals(99L, decision.getCurrentBatchId());
+    }
+
+    /**
+     * 校验换仓通知审计携带新仓批次与统一的双腿关联事实。
+     *
+     * @param entryBatches 通知审计写入的买入腿批次列表
+     * @param association  写入的换仓统一关联事实
+     */
+    private void assertRebalanceNoticeAudit(List<TornStockVirtualBatchDO> entryBatches,
+                                            NoticeRebalanceAssociation association) {
+        TornStockVirtualBatchDO noticeBatch = entryBatches.getFirst();
+        assertEquals(99L, noticeBatch.getId());
+        assertNull(noticeBatch.getExpectedExitBarTime(), "换仓新仓通知批次不得残留expectedExitBarTime");
+        // 换仓统一关联事实必须由决策ID、原仓批次与新仓批次组成,供两条通知审计直接读回
+        assertEquals(11L, association.rebalanceDecisionId(), "换仓关联必须指向目标变化决策ID");
+        assertEquals(7L, association.originalBatchId(), "换仓关联必须指向被换出的原仓批次");
+        assertEquals(99L, association.replacementBatchId(), "换仓关联必须指向换仓后的新仓批次");
+        assertEquals("ALPHA_REBALANCE:11", association.associationId(), "换仓关联标识格式必须固定");
+    }
+
+    /**
+     * 模拟"按批次号首次查询不存在"的读回结果。
+     *
+     * @param persisted 插入前待读回批次
+     * @return null,表示插入前按批次号查不到记录
+     */
+    private TornStockVirtualBatchDO probeBeforeInsert(TornStockVirtualBatchDO persisted) {
+        persisted.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        persisted.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        return null;
+    }
+
+    /**
+     * 模拟α槽位结算后的可用资金变化并返回扣费后卖出所得。
+     *
+     * @param slot α策略槽位
+     * @return 扣费后卖出所得
+     */
+    private BigDecimal settleAlphaSlot(TornStockPortfolioSlotDO slot) {
+        slot.setAvailableCash(new BigDecimal("1049.45"));
+        return new BigDecimal("549.45");
     }
 
     /**
@@ -332,18 +507,52 @@ class StockAlphaRebalanceServiceTest {
     }
 
     private RoundSnapshot snapshot() {
-        return new RoundSnapshot(List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), EXECUTION_TIME);
+        return snapshotAt(EXECUTION_TIME, List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))));
+    }
+
+    /**
+     * 按指定轮次时间和bar事实构建轮次快照。
+     *
+     * @param roundTime 轮次时间(执行桶)
+     * @param bars      行情bar
+     * @return 轮次快照
+     */
+    private RoundSnapshot snapshotAt(LocalDateTime roundTime, List<TornStockMarketBar15mDO> bars) {
+        return new RoundSnapshot(bars, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), roundTime);
     }
 
     private TornStockMarketBar15mDO bar(Integer stocksId, BigDecimal price) {
+        return bar(stocksId, price, true, EXECUTION_TIME.plusMinutes(15));
+    }
+
+    /**
+     * 构建指定起点外质量字段的行情bar。
+     *
+     * @param stocksId 股票ID
+     * @param price    最后价
+     * @param usable   是否可用
+     * @param barEnd   bar结束时间
+     * @return 行情bar
+     */
+    private TornStockMarketBar15mDO bar(Integer stocksId, BigDecimal price, boolean usable, LocalDateTime barEnd) {
         TornStockMarketBar15mDO bar = new TornStockMarketBar15mDO();
         bar.setStocksId(stocksId);
         bar.setStocksShortname("S" + stocksId);
         bar.setBarStartTime(EXECUTION_TIME);
-        bar.setBarEndTime(EXECUTION_TIME.plusMinutes(15));
+        bar.setBarEndTime(barEnd);
         bar.setLastPrice(price);
-        bar.setUsable(true);
+        bar.setUsable(usable);
         return bar;
+    }
+
+    /**
+     * 断言本次换仓没有产生任何交易、槽位、决策或通知副作用。
+     */
+    private void assertNoRebalanceSideEffect() {
+        verify(batchDAO, never()).insertIgnoreConflict(any());
+        verify(batchDAO, never()).updateById(any(TornStockVirtualBatchDO.class));
+        verify(decisionDAO, never()).updateById(any(TornStockAlphaDecisionDO.class));
+        verify(slotDAO, never()).updateById(any(TornStockPortfolioSlotDO.class));
+        verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), any());
     }
 }

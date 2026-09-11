@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
  * 股票通知发送服务测试,覆盖NapCat响应判定、开关门禁和无关联批次处理。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.6.1
  * @since 2026.07.28
  */
 @DisplayName("股票通知发送服务测试")
@@ -133,6 +133,7 @@ class StockNoticeSendServiceTest {
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(11L), "测试通知")));
         when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(noticeAuditDAO.markSendFailedByIds(eq(List.of(11L)), any())).thenReturn(1);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
 
@@ -154,6 +155,7 @@ class StockNoticeSendServiceTest {
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(12L), "测试通知")));
         when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
+        when(noticeAuditDAO.markSentByIds(List.of(12L))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -175,6 +177,7 @@ class StockNoticeSendServiceTest {
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(14L), "测试通知")));
         when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
+        when(noticeAuditDAO.markSentByIds(List.of(14L))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -248,6 +251,7 @@ class StockNoticeSendServiceTest {
                 + "\"messageText\":\"已冻结文本\",\"frozenAt\":\"2026-08-02T10:00:00\"}");
         when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(frozen));
         when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(27L)));
+        when(noticeAuditDAO.markSentByIds(List.of(17L))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -279,6 +283,7 @@ class StockNoticeSendServiceTest {
                 + "\"messageText\":\"已冻结文本\",\"frozenAt\":\"2026-08-02T10:00:00\"}");
         when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(frozen));
         when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(28L)));
+        when(noticeAuditDAO.markSendFailedByIds(eq(List.of(18L)), any())).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
@@ -288,6 +293,66 @@ class StockNoticeSendServiceTest {
         verify(noticeAuditDAO, never()).finalizePayload(any());
         verify(noticeAuditDAO).markSendFailedByIds(eq(List.of(18L)), contains("HTTP状态非2xx"));
         verify(noticeAuditDAO, never()).markSentByIds(any());
+    }
+
+    @Test
+    @DisplayName("α换仓两腿合并消息_Bot成功时两条通知都更新为SENT且只调用一次Bot")
+    void sendPendingNotices_alphaRebalanceBothLegs_bothMarkedSent() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = notice(31L, 501L);
+        TornStockNoticeAuditDO buyLeg = notice(32L, 502L);
+        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(31L, 32L), "α换仓合并消息")));
+        when(noticeAuditDAO.finalizePayload(any())).thenReturn(2);
+        when(noticeAuditDAO.markSentByIds(List.of(31L, 32L))).thenReturn(2);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDAO).markSentByIds(List.of(31L, 32L));
+        verify(noticeAuditDAO, never()).markSendFailedByIds(any(), any());
+        verify(bot, times(1)).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("α换仓两腿合并消息_Bot失败时两条通知都更新为FAILED且不修改交易事实")
+    void sendPendingNotices_alphaRebalanceBothLegs_bothMarkedFailed() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = notice(33L, 503L);
+        TornStockNoticeAuditDO buyLeg = notice(34L, 504L);
+        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(503L), batch(504L)));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(33L, 34L), "α换仓合并消息")));
+        when(noticeAuditDAO.finalizePayload(any())).thenReturn(2);
+        when(noticeAuditDAO.markSendFailedByIds(eq(List.of(33L, 34L)), any())).thenReturn(2);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDAO).markSendFailedByIds(eq(List.of(33L, 34L)), contains("HTTP状态非2xx"));
+        verify(noticeAuditDAO, never()).markSentByIds(any());
+        verify(virtualBatchDAO, never()).updateById(any(TornStockVirtualBatchDO.class));
+    }
+
+    @Test
+    @DisplayName("FAILED终态通知不再被查询_再次调用发送入口不增加Bot调用")
+    void sendPendingNotices_noPendingAfterFailure_doesNotCallBotAgain() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of());
+
+        service().sendPendingNotices();
+
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDAO, never()).finalizePayload(any());
+        verify(noticeAuditDAO, never()).markSentByIds(any());
+        verify(noticeAuditDAO, never()).markSendFailedByIds(any(), any());
     }
 
     private TornStockNoticeAuditDO notice(Long id, Long batchId) {

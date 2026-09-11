@@ -13,6 +13,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDe
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticeRebalanceAssociation;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
 import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
@@ -87,7 +88,7 @@ public class StockAlphaRebalanceService {
         if (sellBar == null || buyBar == null) {
             throw new IllegalStateException("α换仓执行bar缺失");
         }
-        validateBars(executionBarStart, now, sellBar, buyBar);
+        validateBars(decision.getDecisionBarStartTime(), executionBarStart, now, sellBar, buyBar);
         current.setExitSignalTime(decision.getDecisionBarStartTime());
         current.setExpectedExitBarTime(sellBar.getBarStartTime());
         TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart);
@@ -97,7 +98,9 @@ public class StockAlphaRebalanceService {
         batchDAO.updateById(persistedReplacement);
         decisionDAO.updateById(decision);
         slotDAO.updateById(slot);
-        noticeWriter.writeNoticeAudits(List.of(persistedReplacement), List.of(current), executionBarStart, true);
+        NoticeRebalanceAssociation association = new NoticeRebalanceAssociation(
+                decision.getId(), current.getId(), persistedReplacement.getId());
+        noticeWriter.writeNoticeAudits(List.of(persistedReplacement), List.of(current), executionBarStart, association);
         return new RebalanceResult(current.getId(), persistedReplacement.getId(), executionBarStart);
     }
 
@@ -148,17 +151,27 @@ public class StockAlphaRebalanceService {
     }
 
     /**
-     * 校验两腿必须使用同一持久化执行桶。
+     * 校验决策桶与执行桶严格相邻,且两腿使用同一持久化执行桶。
+     * <p>
+     * 初始入场与目标变化换仓必须使用同一时间因果规则:执行桶必须是决策桶的严格下一根15分钟bar。
+     * 决策桶缺失、执行桶未对齐15分钟边界、执行桶不是决策桶的严格下一根,或执行bar跨断层、
+     * 未结束、不可用、价格非正时一律fail-closed,不结算、不插入新仓、不更新原仓、不更新槽位、不写通知。
+     * 时间与连续性算法只来自 {@link StockAlphaExecutionBarPolicy},本服务不复制第二套实现。
      *
+     * @param decisionBarStart  持久化决策桶起点
      * @param executionBarStart 持久化执行bar起点
      * @param now               当前校验时点
      * @param sellBar           原仓bar
      * @param buyBar            新仓bar
      */
-    private void validateBars(LocalDateTime executionBarStart, LocalDateTime now,
+    private void validateBars(LocalDateTime decisionBarStart, LocalDateTime executionBarStart, LocalDateTime now,
                               TornStockMarketBar15mDO sellBar, TornStockMarketBar15mDO buyBar) {
         if (sellBar == null || buyBar == null) {
             throw new IllegalStateException("α换仓执行bar缺失");
+        }
+        if (!StockAlphaExecutionBarPolicy.isStrictNextBar(decisionBarStart, executionBarStart)) {
+            throw new IllegalStateException("α换仓执行桶不是决策桶的严格下一根15分钟bar: decisionBarStartTime="
+                    + decisionBarStart + ", executionBarStartTime=" + executionBarStart);
         }
         if (!StockAlphaExecutionBarPolicy.isAtomicRebalance(executionBarStart,
                 toExecutionBar(sellBar), toExecutionBar(buyBar), now)) {

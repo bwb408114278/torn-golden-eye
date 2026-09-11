@@ -9,7 +9,7 @@
 - 业务验收依据：`.ai/knowledge/stocks/vip_stock_alert_business_acceptance_one_time.md`
 - 本轮业务Review结论：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
 - 时区：`Asia/Shanghai`
-- 状态：业务Review不通过（P0=0，开放P1=2：R-ALPHA-001消息链、R-ALPHA-002公共成交链覆盖Alpha身份），已进入第二轮最小整改；本文已按本轮整改口径同步；代码尚未部署，真实BUY/SELL业务验收仍需独立进行
+- 状态：业务Review不通过（P0=0；Alpha新版消息模板业务口径已确认，Alpha SELL测试断言已修复；当前开放P1为换仓双腿统一关联事实，决策日期/phase持续性为部署后7×24小时观察项），本文已按本轮一次性整改口径同步；代码尚未部署，真实BUY/SELL业务验收仍需独立进行
 
 本文坚持最小改动：α是现有股票提醒系统中的新入场决策分支，不建设第二套股票平台。所有新增Java、Schema和测试必须能映射到本文的生产入口和验收证据；无法映射的扩展不得纳入本次开发。
 
@@ -290,7 +290,7 @@ StockDailySummaryRenderer.java
 - 批次查询、锁和唯一键显式带组合CODE。
 - 公共退出服务按组合/规则来源分流，α跳过旧版固定SELL。
 - 公共入场/成交组装器对Alpha批次只补充实际成交字段，保留已冻结的Alpha规则身份；旧版批次继续写旧版默认版本。
-- Alpha文案由`StockAlphaNoticeRenderer`渲染，公共组合器只做身份分流，不调用旧版三类BUY解析器，也不新增第二套消息服务。
+- Alpha文案由`StockAlphaNoticeRenderer`按已审核的新版Alpha模板渲染，公共组合器只做身份分流，不调用旧版三类BUY解析器，也不新增第二套消息服务；Alpha模板允许且必须与旧版模板明确区分。
 - 通知复用现有审计和发送链，只增加α必要文案与关联字段。
 - 日报按CODE查询，避免把α渲染为旧版五槽。
 
@@ -345,7 +345,7 @@ StrictReboundConfirmBuyStrategy.java
 - 同一业务日、版本和phase最多一条有效决策。
 - 重复调度先读取已有决策，不重复消费phase。
 - α/旧版查询、锁和内存Map不能只以`stocksId`作为跨策略唯一键。
-- 通知在交易事务提交后发送；失败进入现有PENDING/FAILED重试，不回滚交易。
+- 通知在交易事务提交后发送；本批次采用单次发送语义：`PENDING → SENT`或`PENDING → FAILED`，`FAILED`不由普通调度自动重试；通知失败不回滚已提交交易，换仓合并消息失败时两条通知必须保持一致的失败状态，不得将单腿成功解释为完整换仓通知成功。
 - 预填任务只能写快照/排名数据，禁止调用批次、资金、结算和通知writer。
 - `VIP_ALPHA`换仓失败必须整体回滚；旧版异常不能改写α，α异常不能吞掉旧版存量SELL。
 
@@ -439,17 +439,16 @@ StockAlphaExecutionBarPolicyTest
 
 ## 13. 已完成实现Review记录
 
-### 13.1 业务Review与第二轮整改（2026-09-09）
+### 13.1 业务Review与本轮一次性整改（2026-09-11）
 
 - Review依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
-- Review结论：P0=0，开放P1=2（R-ALPHA-001消息链、R-ALPHA-002公共成交链覆盖Alpha身份）；业务上线门槛不通过
-- 已关闭误判：股票池ID不是生产ID、部署前没有预填数据、`expectedExitBarTime`必然阻断Alpha换仓
-- 已确认成立、仅需证据：R-ALPHA-003原子换仓与无单侧事实、R-ALPHA-005生产预填指令
-- 本轮一并修复：R-ALPHA-004换仓审计事实区分（新仓来源bar与执行bar分离、决策bar显式持久化、移除OPEN批次上的误导`expectedExitBarTime`）
-- 整改技术方案与开发后验收标准：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`
-- 技术文档同步：本轮只修改技术文档，即本文（长期技术基线）与`vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`（整改技术方案与验收标准）已按整改口径同步
-- 业务文档：`vip_stock_alert_business_acceptance_one_time.md`（§10.7/§11.3级别口径）、`vip_stock_alert_business_review_conclusion_one_time.md`、`vip_stock_virtual_portfolio_strategy.md`（§5.3消息外显措辞）属业务侧修改范围，本轮技术文档不代改；业务确认的口径见整改技术方案§8.2
-- 当前状态：整改方案已冻结；代码整改、聚焦测试、真实Mapper/事务证据与真实BUY/SELL业务验收尚未完成
+- Review结论：P0=0；Alpha新版消息模板差异已按业务负责人确认，不再作为问题；Alpha SELL旧版美元符号测试断言已修复；当前开放P1为换仓双腿统一关联事实，原子换仓真实事务读回和生产预填无副作用属于业务上线证据门禁；7×24小时决策日期/phase稳定性属于部署后观察项
+- 已关闭：股票池ID不是生产ID、部署前没有预填数据、`expectedExitBarTime`必然阻断Alpha换仓、Alpha消息必须沿用旧版模板、Alpha SELL价格必须带美元符号
+- 本轮一次性整改方案：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
+- 本轮长期业务口径同步：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`已同步Alpha新版消息模板、换仓统一关联事实、单次通知失败终态和Torn 7×24小时交易规则
+- 本轮已实现：`R-ALPHA-006`两条换仓通知审计固化同一`rebalanceAssociationId`（固定格式`ALPHA_REBALANCE:{决策ID}`）、换仓决策ID、原仓批次、新仓批次、腿标识与腿顺序，旧版BUY/SELL通知不写入这些字段；`R-ALPHA-007`换仓复用`StockAlphaExecutionBarPolicy.isStrictNextBar()`校验决策桶与执行桶严格相邻，非法时间关系在结算前fail-closed；`R-ALPHA-008`换仓两腿按关联标识绑定为不可拆分动作组、发送终态回写校验更新行数完整性
+- 本轮证据：生产源码编译通过；聚焦测试（含换仓关联字段读回、决策/执行严格相邻拒绝场景、换仓两腿不可拆分、通知终态与失败语义）Failures=0、Errors=0；全量单元测试1213 tests，Failures=0，Skipped=6（6个Errors为本地环境Playwright Chromium无法安装导致的`@SpringBootTest`上下文加载失败，与本次改动无关）；`git diff --check`通过
+- 当前状态：`R-ALPHA-003`原子换仓真实事务读回证据本轮不提交自动化shared-db测试，改为按`vip_stock_alert_business_review_conclusion_one_time.md`§7要求人工提供真实PostgreSQL证据；`R-ALPHA-005`生产预填无副作用证据、`R-ALPHA-009`7×24小时连续运行观察与真实Alpha BUY/配对SELL业务确认尚未完成，不得宣称业务验收通过
 
 ### 13.2 第六轮实现Review记录
 
@@ -471,12 +470,13 @@ StockAlphaExecutionBarPolicyTest
 - 公式、35支股票、日线、phase、执行bar和Top3通过；
 - 原子换仓失败无单侧事实；
 - α不触发旧版固定SELL；
-- α消息可识别（α=0.04主策略、20日反转主因子、1日反弹4%、Top1），不进入旧版三类BUY解析器、不展示旧版质量分与五槽语义，且Alpha消息组合不再抛异常、不会阻塞既有PENDING通知链；
+- Alpha消息使用已审核新版模板，可识别（α=0.04主策略、20日反转主因子、1日反弹4%、Top1），不进入旧版三类BUY解析器、不展示旧版质量分与五槽语义，且Alpha消息组合不再抛异常、不会阻塞既有PENDING通知链；
+- Alpha换仓SELL/BUY两腿共享可读回的换仓决策ID、固定格式换仓关联ID、原仓批次、新仓批次和腿类型；
 - α批次从`ENTRY_PENDING`成交为`OPEN`后仍保留Alpha规则身份，公共成交组装未覆盖为旧版默认值；
 - 决策事实与执行事实可区分（决策桶、来源bar、执行bar及两侧执行价格）；
 - `1.6.1`迁移已执行且`decision_bar_start_time`可真实读回；
 - 预填无交易副作用；
-- 通知审计和重试可追溯；
+- 通知审计、单次发送状态和失败不回滚交易语义可追溯；
 - 聚焦测试、必要真实Mapper/事务测试和迁移验证通过；
 - 无未解决P0/P1。
 

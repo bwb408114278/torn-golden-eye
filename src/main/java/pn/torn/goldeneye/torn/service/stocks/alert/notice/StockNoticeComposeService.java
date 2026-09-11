@@ -8,6 +8,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.notice.StockAlphaNoticeRenderer;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -269,6 +270,9 @@ public class StockNoticeComposeService {
      * 同类型最多展示 {@value #MAX_ACTIONS_PER_MESSAGE} 个动作,超过时拆分为多条续报。
      * 卖出动作不可丢弃,超过上限的全部拆分续报。返回的每条 {@link ComposedMessage}
      * 携带其对应的通知ID列表,便于发送后回写发送状态。
+     * <p>
+     * 同一次Alpha换仓的SELL腿与BUY腿共享同一{@code rebalanceAssociationId}:两条通知必须落在
+     * 同一条消息内,不得因为续报拆分而被切开,否则会把单腿发送成功错误解释为完整换仓通知成功。
      *
      * @param pendingNotices 待发送通知列表(须含noticeType、batchId)
      * @param batchMap       批次ID到批次DO的映射(用于组合消息内容)
@@ -287,7 +291,8 @@ public class StockNoticeComposeService {
                 log.warn("股票通知组合-通知[{}]未找到关联批次[{}],跳过", notice.getId(), notice.getBatchId());
                 continue;
             }
-            enriched.add(new NoticeWithBatch(notice, batch, resolvePriority(notice, batch)));
+            enriched.add(new NoticeWithBatch(notice, batch, resolvePriority(notice, batch),
+                    resolveRebalanceAssociationId(notice)));
         }
         if (enriched.isEmpty()) {
             return List.of();
@@ -300,30 +305,83 @@ public class StockNoticeComposeService {
     /**
      * 将排序后的通知按类型分组并拆分为多条消息,每条最多 {@value #MAX_ACTIONS_PER_MESSAGE} 个动作。
      * <p>
-     * 同类型的连续通知合并到一条消息,超过上限的部分拆分为续报。
-     * 卖出动作不可丢弃,拆分时全部保留。
+     * 同类型的连续动作组合并到一条消息,超过上限的部分拆分为续报。
+     * 卖出动作不可丢弃,拆分时全部保留。一条消息的最小拆分单位是动作组:
+     * 普通通知各自成组,同一{@code rebalanceAssociationId}的换仓两腿合并为一个不可拆分的动作组,
+     * 因此换仓SELL腿与BUY腿必然落在同一条消息内。
      *
-     * @param enriched 已排序的通知+批次+优先级三元组列表
+     * @param enriched 已排序的通知+批次+优先级+换仓关联标识列表
      * @return 拆分后的组合消息列表
      */
     private List<ComposedMessage> splitIntoMessages(List<NoticeWithBatch> enriched) {
         List<ComposedMessage> result = new ArrayList<>();
         List<NoticeWithBatch> bucket = new ArrayList<>(MAX_ACTIONS_PER_MESSAGE);
-        String currentType = null;
-        for (NoticeWithBatch item : enriched) {
-            String itemType = item.notice().getNoticeType();
-            if (currentType == null) {
-                currentType = itemType;
-            }
-            if (!itemType.equals(currentType) || bucket.size() >= MAX_ACTIONS_PER_MESSAGE) {
-                flushBucket(result, bucket, currentType);
+        String bucketType = null;
+        for (List<NoticeWithBatch> group : groupByRebalanceAssociation(enriched)) {
+            String groupType = group.getFirst().notice().getNoticeType();
+            boolean typeChanged = bucketType != null && !groupType.equals(bucketType);
+            boolean overflow = bucket.size() + group.size() > MAX_ACTIONS_PER_MESSAGE;
+            if (!bucket.isEmpty() && (typeChanged || overflow)) {
+                flushBucket(result, bucket, bucketType);
                 bucket = new ArrayList<>(MAX_ACTIONS_PER_MESSAGE);
-                currentType = itemType;
             }
-            bucket.add(item);
+            if (bucket.isEmpty()) {
+                bucketType = groupType;
+            }
+            bucket.addAll(group);
         }
-        flushBucket(result, bucket, currentType);
+        flushBucket(result, bucket, bucketType);
         return result;
+    }
+
+    /**
+     * 将已排序通知聚合为不可拆分的动作组。
+     * <p>
+     * 无换仓关联标识的通知各自单组成,保持原有优先级与类型合并语义;
+     * 带有同一换仓关联标识的通知聚合为一组,保证Alpha换仓两腿不被续报拆分切开。
+     *
+     * @param enriched 已排序的通知列表
+     * @return 按出现顺序排列的动作组列表
+     */
+    private List<List<NoticeWithBatch>> groupByRebalanceAssociation(List<NoticeWithBatch> enriched) {
+        List<List<NoticeWithBatch>> groups = new ArrayList<>(enriched.size());
+        Map<String, List<NoticeWithBatch>> associationGroups = new LinkedHashMap<>();
+        for (NoticeWithBatch item : enriched) {
+            String associationId = item.rebalanceAssociationId();
+            if (associationId == null) {
+                groups.add(List.of(item));
+                continue;
+            }
+            List<NoticeWithBatch> group = associationGroups.get(associationId);
+            if (group == null) {
+                group = new ArrayList<>(2);
+                associationGroups.put(associationId, group);
+                groups.add(group);
+            }
+            group.add(item);
+        }
+        return groups;
+    }
+
+    /**
+     * 读取通知载荷中固化的Alpha换仓关联标识。
+     * <p>
+     * 旧版普通BUY/SELL通知不含该字段,返回null即表示不参与换仓两腿绑定。
+     *
+     * @param notice 通知审计
+     * @return 换仓关联标识;不存在时返回null
+     */
+    private String resolveRebalanceAssociationId(TornStockNoticeAuditDO notice) {
+        String payloadSnapshot = notice.getPayloadSnapshot();
+        if (payloadSnapshot == null || payloadSnapshot.isBlank()) {
+            return null;
+        }
+        com.fasterxml.jackson.databind.JsonNode node =
+                JsonUtils.getNode(payloadSnapshot, "rebalanceAssociationId");
+        if (node == null || node.isNull() || node.asText().isBlank()) {
+            return null;
+        }
+        return node.asText();
     }
 
     /**
@@ -333,7 +391,7 @@ public class StockNoticeComposeService {
      * 若桶内通知数大于1,则为合并消息;后续拆分续报由调用方分桶保证。
      *
      * @param result      组合消息结果列表
-     * @param bucket      当前桶内的通知三元组列表
+     * @param bucket      当前桶内的通知四元组列表
      * @param currentType 当前桶的通知类型代码
      */
     private void flushBucket(List<ComposedMessage> result, List<NoticeWithBatch> bucket, String currentType) {
@@ -378,7 +436,7 @@ public class StockNoticeComposeService {
     /**
      * 组合单条通知的消息文本(买入或卖出)。
      *
-     * @param item 通知+批次三元组
+     * @param item 通知+批次四元组
      * @return 单条消息文本
      */
     private String composeSingleNotice(NoticeWithBatch item) {
@@ -548,15 +606,17 @@ public class StockNoticeComposeService {
     }
 
     /**
-     * 通知+批次+优先级三元组,用于排序与分桶。
+     * 通知+批次+优先级+换仓关联标识四元组,用于排序、分桶与换仓两腿绑定。
      *
-     * @param notice   通知审计DO
-     * @param batch    关联批次DO
-     * @param priority 优先级权重(数值越小优先级越高)
+     * @param notice                 通知审计DO
+     * @param batch                  关联批次DO
+     * @param priority               优先级权重(数值越小优先级越高)
+     * @param rebalanceAssociationId 通知载荷固化的Alpha换仓关联标识;非换仓通知为null
      */
     private record NoticeWithBatch(
             TornStockNoticeAuditDO notice,
             TornStockVirtualBatchDO batch,
-            int priority) {
+            int priority,
+            String rebalanceAssociationId) {
     }
 }
