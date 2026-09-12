@@ -393,6 +393,8 @@ StockAlphaExecutionBarPolicyTest
 - `VIP_ALPHA`槽幂等初始化；
 - 快照/决策唯一键和重复调度幂等；
 - 换仓事务回滚及资金/批次读回；
+- 换仓事务回滚只需一个代表性集成测试方法，该方法必须显式使用`@Transactional`和`@Rollback`，不要求为同一业务方法机械扩展多个成功/失败测试方法；
+- 涉及资金、槽位、批次、决策或通知审计数据的测试方法必须显式使用`@Transactional`和`@Rollback`，业务写入和读回优先使用真实DAO，不得在Java测试文件中堆积业务SQL；
 - α批次成交后规则身份与`decision_bar_start_time`的真实数据库读回；
 - 通知唯一约束。
 
@@ -439,16 +441,15 @@ StockAlphaExecutionBarPolicyTest
 
 ## 13. 已完成实现Review记录
 
-### 13.1 业务Review与本轮一次性整改（2026-09-11）
+### 13.1 业务Review与第三批修复（2026-09-11）
 
 - Review依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
-- Review结论：P0=0；Alpha新版消息模板差异已按业务负责人确认，不再作为问题；Alpha SELL旧版美元符号测试断言已修复；当前开放P1为换仓双腿统一关联事实，原子换仓真实事务读回和生产预填无副作用属于业务上线证据门禁；7×24小时决策日期/phase稳定性属于部署后观察项
-- 已关闭：股票池ID不是生产ID、部署前没有预填数据、`expectedExitBarTime`必然阻断Alpha换仓、Alpha消息必须沿用旧版模板、Alpha SELL价格必须带美元符号
-- 本轮一次性整改方案：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
-- 本轮长期业务口径同步：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`已同步Alpha新版消息模板、换仓统一关联事实、单次通知失败终态和Torn 7×24小时交易规则
-- 本轮已实现：`R-ALPHA-006`两条换仓通知审计固化同一`rebalanceAssociationId`（固定格式`ALPHA_REBALANCE:{决策ID}`）、换仓决策ID、原仓批次、新仓批次、腿标识与腿顺序，旧版BUY/SELL通知不写入这些字段；`R-ALPHA-007`换仓复用`StockAlphaExecutionBarPolicy.isStrictNextBar()`校验决策桶与执行桶严格相邻，非法时间关系在结算前fail-closed；`R-ALPHA-008`换仓两腿按关联标识绑定为不可拆分动作组、发送终态回写校验更新行数完整性
-- 本轮证据：生产源码编译通过；聚焦测试（含换仓关联字段读回、决策/执行严格相邻拒绝场景、换仓两腿不可拆分、通知终态与失败语义）Failures=0、Errors=0；全量单元测试1213 tests，Failures=0，Skipped=6（6个Errors为本地环境Playwright Chromium无法安装导致的`@SpringBootTest`上下文加载失败，与本次改动无关）；`git diff --check`通过
-- 当前状态：`R-ALPHA-003`原子换仓真实事务读回证据本轮不提交自动化shared-db测试，改为按`vip_stock_alert_business_review_conclusion_one_time.md`§7要求人工提供真实PostgreSQL证据；`R-ALPHA-005`生产预填无副作用证据、`R-ALPHA-009`7×24小时连续运行观察与真实Alpha BUY/配对SELL业务确认尚未完成，不得宣称业务验收通过
+- Review结论：P0=0；核心业务口径通过；第三批代码整改部分通过；聚焦测试通过；当前开放P1为换仓通知关联组在部分冻结/部分发送/重启恢复/缺腿场景下的完整性，业务上线门槛不通过
+- 已关闭：Alpha消息新版模板差异、Alpha SELL测试旧美元符号断言、Torn 7×24小时交易日历阻断判断、决策桶与执行桶严格相邻校验
+- 本轮已实现：换仓决策ID、固定格式换仓关联ID、原仓/新仓批次ID、SELL/BUY腿标识和顺序；正常两腿通知关联、合并和单次发送成功/失败状态
+- 本轮聚焦测试：50 tests，Failures=0，Errors=0，Skipped=0；生产源码编译通过；`git diff --check`通过
+- 当前未闭环：关联组缺腿/重复腿/字段冲突和部分冻结/部分发送/重启恢复的发送闭包；真实PostgreSQL换仓回滚证据；生产预填无交易副作用；7×24小时连续运行观察；真实Alpha BUY、配对`ALPHA_REBALANCE` SELL和业务负责人确认
+- 真实事务证据要求已收敛：只需一个代表性回滚集成测试方法，显式使用`@Transactional`和`@Rollback`，使用真实Spring Service和真实DAO读回，不要求为一个业务方法机械扩展多个测试方法，不得在Java测试文件中堆积业务SQL
 
 ### 13.2 第六轮实现Review记录
 

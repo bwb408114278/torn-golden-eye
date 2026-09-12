@@ -37,6 +37,10 @@ import java.util.Objects;
 public class StockAlphaRebalanceService {
     private static final String PENDING_STATUS = "PENDING";
     private static final String EXECUTED_STATUS = "EXECUTED";
+    /**
+     * α新仓入场过期宽限分钟数,与α初始入场口径一致。
+     */
+    private static final int ALPHA_ENTRY_STALE_GRACE_MINUTES = 20;
 
     private final TornStockAlphaDecisionDAO decisionDAO;
     private final TornStockPortfolioSlotDAO slotDAO;
@@ -92,9 +96,11 @@ public class StockAlphaRebalanceService {
         current.setExitSignalTime(decision.getDecisionBarStartTime());
         current.setExpectedExitBarTime(sellBar.getBarStartTime());
         TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart);
+        // 原仓必须先在库中关闭再插入新仓: 活跃批次部分唯一索引按(组合, 槽位)唯一,
+        // 否则换仓新仓插入会与库中仍为OPEN的原仓冲突;两次写入同处一个事务,失败仍整体回滚
+        batchDAO.updateById(current);
         TornStockVirtualBatchDO persistedReplacement = persistReplacement(replacement);
         bindCompletedRebalance(decision, slot, persistedReplacement, executionBarStart);
-        batchDAO.updateById(current);
         batchDAO.updateById(persistedReplacement);
         decisionDAO.updateById(decision);
         slotDAO.updateById(slot);
@@ -239,6 +245,8 @@ public class StockAlphaRebalanceService {
         replacement.setSignalTime(decision.getDecisionBarStartTime());
         replacement.setSignalReferencePrice(decision.getSignalReferencePrice());
         replacement.setExpectedEntryBarTime(buyBar.getBarStartTime());
+        // entry_stale_at为非空列,换仓新仓与α初始入场使用同一入场过期口径
+        replacement.setEntryStaleAt(buyBar.getBarStartTime().plusMinutes(ALPHA_ENTRY_STALE_GRACE_MINUTES));
         replacement.setEntryTime(buyBar.getBarStartTime());
         replacement.setEntryReferencePrice(buyBar.getLastPrice());
         replacement.setQuantity(quantity);

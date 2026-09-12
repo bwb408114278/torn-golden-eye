@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票通知审计数据库访问层
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Mapper
@@ -24,6 +24,17 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
      * @return 待发送通知列表
      */
     List<TornStockNoticeAuditDO> selectPendingNotices();
+
+    /**
+     * 按换仓关联标识读取该α换仓关联组的完整通知集合(不限发送状态)。
+     * <p>
+     * 发送前必须能读取关联组的完整通知集合:只依赖当前内存中的PENDING子集无法判断缺腿、
+     * 重复腿、字段冲突和一腿已进入终态的部分完成状态。
+     *
+     * @param rebalanceAssociationId 换仓关联标识(固定格式{@code ALPHA_REBALANCE:{rebalanceDecisionId}})
+     * @return 该关联组全部未删除通知(按ID升序);不存在时返回空列表
+     */
+    List<TornStockNoticeAuditDO> selectByRebalanceAssociationId(@Param("rebalanceAssociationId") String rebalanceAssociationId);
 
     /**
      * 批量标记无关联批次的通知为FAILED。

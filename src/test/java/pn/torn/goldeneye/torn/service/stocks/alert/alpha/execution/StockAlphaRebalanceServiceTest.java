@@ -188,8 +188,11 @@ class StockAlphaRebalanceServiceTest {
         assertEquals(7L, decision.getCurrentBatchId());
         assertNull(decision.getRebalanceBatchId());
         assertEquals("PENDING", decision.getExecutionStatus());
-        // 两腿持久化、决策状态、槽位与通知审计均未落库,异常由@Transactional整体回滚,不产生单腿事实
-        verify(batchDAO, never()).updateById(any(TornStockVirtualBatchDO.class));
+        // 原仓关闭更新必须先于新仓插入执行(活跃批次按组合+槽位唯一),且与原仓关闭同处一个事务;
+        // 该更新与后续插入失败的整段回滚由 StockAlphaRebalanceTransactionItTest 用真实数据库证明,
+        // 本编排测试只证明决策、槽位与通知审计均未写入,不产生单腿事实
+        verify(batchDAO).updateById(current);
+        verify(batchDAO, times(1)).updateById(any(TornStockVirtualBatchDO.class));
         verify(decisionDAO, never()).updateById(decision);
         verify(slotDAO, never()).updateById(slot);
         verify(noticeWriter, never()).writeNoticeAudits(any(), any(), any(), any());
@@ -375,6 +378,8 @@ class StockAlphaRebalanceServiceTest {
         assertNotEquals(replacement.getSignalTime(), replacement.getEntryTime(),
                 "换仓新仓来源bar与执行bar必须可区分");
         assertEquals(EXECUTION_TIME, replacement.getEntryTime(), "换仓新仓执行bar必须是持久化执行桶");
+        assertEquals(EXECUTION_TIME.plusMinutes(20), replacement.getEntryStaleAt(),
+                "换仓新仓必须写入非空入场过期时间,与α初始入场口径一致");
         assertNull(replacement.getExpectedExitBarTime(), "OPEN新仓不得写入误导的expectedExitBarTime");
         assertAlphaAuditSource(replacement, decision);
         assertNotNull(replacement.getFollowUntil());

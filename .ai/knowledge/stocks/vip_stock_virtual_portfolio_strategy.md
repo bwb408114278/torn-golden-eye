@@ -229,13 +229,20 @@ netReturn
 
 本策略长期采用“新增决策、复用交易基础设施”的最小实现边界：Alpha只新增日线收盘、横截面排名、phase、Top1/Top3目标决策和目标变化编排；轮次调度、槽位、资金、整数股数、跟随/偏离、批次状态、通知审计、BUY/SELL发送和幂等均复用现有能力。公共成交组装只能补充实际成交字段，不得无条件覆盖批次已经冻结的Alpha规则版本、来源和分配规则。当前首批整改及证据门禁以`vip_stock_alert_business_review_conclusion_one_time.md`为补充依据。
 
-目标变化换仓的业务事实至少应能区分：
+目标变化换仓的业务事实必须能够直接区分并关联：
 
 - 目标变化决策时间；
 - 原仓退出执行bar及实际价格；
 - 新仓入场执行bar及实际价格；
 - 原仓、新仓各自的来源bar；
-- `ALPHA_REBALANCE`关联的原BUY批次和新批次。
+- `rebalanceDecisionId`：目标变化决策ID；
+- `rebalanceAssociationId`：固定格式`ALPHA_REBALANCE:{rebalanceDecisionId}`；
+- `originalBatchId`：被换出的原Alpha BUY批次ID；
+- `replacementBatchId`：换仓后新Top1批次ID；
+- `rebalanceLeg`：`SELL`或`BUY`；
+- `legOrder`：SELL为`1`、BUY为`2`。
+
+同一`rebalanceAssociationId`必须对应完整的一条SELL腿和一条BUY腿，不能用同一关联ID聚合重复腿、缺腿或字段冲突的通知。
 
 ### 5.3 消息
 
@@ -260,7 +267,7 @@ SELL需要说明：
 - Alpha目标发生变化；
 - 未跟随原BUY者无需操作。
 
-换仓可以使用一条合并Alpha消息或两条同轮Alpha腿消息；无论采用哪种形式，SELL和BUY必须通过同一Alpha决策/换仓事实关联，至少可读回换仓决策ID、换仓关联ID、原仓批次、新仓批次和腿类型，不能将单侧消息发送成功当作完整换仓通知成功。Alpha模板可以与旧版BUY/SELL模板明确不同；`ALPHA_REBALANCE`不得称为止盈、止损或旧版风险SELL。
+换仓可以使用一条合并Alpha消息或两条同轮Alpha腿消息；无论采用哪种形式，SELL和BUY必须通过同一Alpha决策/换仓事实关联，至少可读回换仓决策ID、固定格式换仓关联ID、原仓批次、新仓批次、腿类型和腿顺序，不能将单侧消息发送成功当作完整换仓通知成功。Alpha模板可以与旧版BUY/SELL模板明确不同；同一换仓关联必须保持完整的一条SELL腿和一条BUY腿，不得因冻结状态、重启或续报拆分为无法解释的单腿消息。`ALPHA_REBALANCE`不得称为止盈、止损或旧版风险SELL。
 
 ---
 
@@ -409,7 +416,8 @@ RETROSPECTIVE_EXPLORATORY_OOS_ALREADY_CONSUMED
 - 不为了兼容旧代码而改变α公式和横截面排名语义；
 - Alpha只新增日线收盘、排名、phase、Top1/Top3目标决策和目标变化编排，不复制既有资金、批次、通知和调度基础设施；
 - Alpha消息使用与旧版明确区分的已审核新模板和Alpha感知渲染分支，但继续复用既有发送、审计、payload冻结和幂等链，`ALPHA_REBALANCE`作为策略退出原因和换仓关联事实，不建设独立Alpha消息体系；
-- Alpha换仓两腿必须共享可直接读回的换仓决策ID、换仓关联ID、原仓批次、新仓批次和腿类型；
+- Alpha换仓两腿必须共享可直接读回的换仓决策ID、固定格式换仓关联ID、原仓批次、新仓批次和腿类型；
+- Alpha换仓关联组必须完整包含一条SELL腿和一条BUY腿；缺腿、重复腿、字段冲突或状态不一致时不得静默发送或宣称换仓通知完整送达；
 - 通知失败在本批次不自动重试，失败不回滚交易，未来如需重试必须另行冻结业务规则和版本；
 - 公共成交组装继续复用，但不得覆盖已经冻结的Alpha规则身份；
 - 首批整改和业务复审以`vip_stock_alert_business_review_conclusion_one_time.md`为补充验收依据；

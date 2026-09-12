@@ -74,6 +74,14 @@
           AND torn_stock_notice_audit.send_status = 'PENDING'
     </update>
 
+    <!-- 按换仓关联标识读取该α换仓关联组的完整通知集合(不限发送状态) -->
+    <select id="selectByRebalanceAssociationId" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
+        SELECT * FROM torn_stock_notice_audit
+        WHERE deleted = 0
+          AND payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+        ORDER BY id ASC
+    </select>
+
     <!-- 判断是否存在待发送通知 -->
     <select id="existsPendingNotices" resultType="boolean">
         SELECT EXISTS (

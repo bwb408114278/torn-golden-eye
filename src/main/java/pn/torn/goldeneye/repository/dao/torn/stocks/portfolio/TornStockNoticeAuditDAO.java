@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票通知审计持久层类
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Repository
@@ -25,6 +25,22 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
      */
     public List<TornStockNoticeAuditDO> selectPendingNotices() {
         return baseMapper.selectPendingNotices();
+    }
+
+    /**
+     * 按换仓关联标识读取该α换仓关联组的完整通知集合(不限发送状态)。
+     * <p>
+     * α换仓两腿必须作为一条原子消息统一冻结与发送,因此发送前读取的是关联组完整通知集合,
+     * 而不是仅当前批次的PENDING子集。
+     *
+     * @param rebalanceAssociationId 换仓关联标识
+     * @return 该关联组全部未删除通知(按ID升序);不存在时返回空列表
+     */
+    public List<TornStockNoticeAuditDO> selectByRebalanceAssociationId(String rebalanceAssociationId) {
+        if (rebalanceAssociationId == null || rebalanceAssociationId.isBlank()) {
+            return List.of();
+        }
+        return baseMapper.selectByRebalanceAssociationId(rebalanceAssociationId);
     }
 
     /**
