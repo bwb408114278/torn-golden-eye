@@ -253,22 +253,38 @@ public class StockNoticeSendService {
                                       Map<Long, TornStockNoticeAuditDO> noticeById,
                                       NoticeSendCounter counter) {
         for (StockNoticeComposeService.ComposedMessage composedMessage : composedMessages) {
-            List<Long> noticeIds = composedMessage.noticeIds();
-            String claimToken = sendRecorder.newClaimToken();
-            if (!sendRecorder.claim(noticeIds, claimToken)) {
-                counter.countFailure();
-                log.warn("股票通知发送-本条合并消息未领取成功,跳过发送: noticeIds={}", noticeIds);
-                continue;
-            }
-            if (!freezeComposedMessage(noticeById, composedMessage, claimToken)) {
-                counter.countFailure();
-                log.error("股票通知发送-最终payload冻结行数不符,停止发送本条合并消息: noticeCount={}",
-                        noticeIds.size());
-                sendRecorder.markSendFailed(noticeIds, claimToken, FINALIZE_FAILURE_MESSAGE);
-                continue;
-            }
-            deliverComposedMessage(composedMessage, claimToken, counter);
+            sendComposedMessage(composedMessage, noticeById, counter);
         }
+    }
+
+    /**
+     * 领取并发送单条已组合消息。
+     * <p>
+     * 未领取成功或发送前冻结行数不符时,本条消息立即停止且不调用Bot:前者说明通知已被其他发送流程
+     * 持有,后者说明payload不可审计;两种情况都只影响本条消息,不影响后续消息投递。
+     *
+     * @param composedMessage 已组合消息
+     * @param noticeById      通知ID索引
+     * @param counter         发送计数
+     */
+    private void sendComposedMessage(StockNoticeComposeService.ComposedMessage composedMessage,
+                                     Map<Long, TornStockNoticeAuditDO> noticeById,
+                                     NoticeSendCounter counter) {
+        List<Long> noticeIds = composedMessage.noticeIds();
+        String claimToken = sendRecorder.newClaimToken();
+        if (!sendRecorder.claim(noticeIds, claimToken)) {
+            counter.countFailure();
+            log.warn("股票通知发送-本条合并消息未领取成功,跳过发送: noticeIds={}", noticeIds);
+            return;
+        }
+        if (!freezeComposedMessage(noticeById, composedMessage, claimToken)) {
+            counter.countFailure();
+            log.error("股票通知发送-最终payload冻结行数不符,停止发送本条合并消息: noticeCount={}",
+                    noticeIds.size());
+            sendRecorder.markSendFailed(noticeIds, claimToken, FINALIZE_FAILURE_MESSAGE);
+            return;
+        }
+        deliverComposedMessage(composedMessage, claimToken, counter);
     }
 
     /**
