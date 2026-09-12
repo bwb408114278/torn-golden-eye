@@ -1,0 +1,39 @@
+databaseChangeLog:
+  # 第四批Review R-ALPHA-010/R-ALPHA-011: 通知发送需要"数据库级领取 + 有限次数自动重发"。
+  # 仅扩展 torn_stock_notice_audit 既有表的领取字段与尝试次数上限,不新增表/消息平台/独立发送服务:
+  #  1) 新增 claim_token/claim_time,作为发送领取标识与租约时间,写回必须绑定领取标识;
+  #  2) 尝试次数上限由1放宽到3(首次1次 + 自动重发2次),达到上限进入FAILED_FINAL;
+  #  3) send_status放宽到VARCHAR(32),容纳 FAILED_RETRYABLE/FAILED_FINAL 状态码。
+  - changeSet:
+      id: stock_notice_claim_and_retry_columns
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_notice_audit
+            columns:
+              - column:
+                  name: claim_token
+                  type: VARCHAR(64)
+                  remarks: "发送领取标识(仅领取者可回写终态;NULL表示未被领取)"
+              - column:
+                  name: claim_time
+                  type: TIMESTAMP
+                  remarks: "领取时间;超过租约仍未回写时按结果未知恢复为可重发"
+        - modifyDataType:
+            tableName: torn_stock_notice_audit
+            columnName: send_status
+            newDataType: VARCHAR(32)
+        - setColumnRemarks:
+            tableName: torn_stock_notice_audit
+            columnName: send_status
+            remarks: "发送状态(PENDING/SENDING/SENT/FAILED_RETRYABLE/FAILED_FINAL;FAILED为历史遗留终态)"
+        - setColumnRemarks:
+            tableName: torn_stock_notice_audit
+            columnName: send_attempt_count
+            remarks: "已领取(Bot调用)次数,上限3次"
+        - sql:
+            sql: "ALTER TABLE torn_stock_notice_audit DROP CONSTRAINT ck_notice_attempt_count"
+        - sql:
+            sql: "ALTER TABLE torn_stock_notice_audit ADD CONSTRAINT ck_notice_attempt_count CHECK (send_attempt_count BETWEEN 0 AND 3)"
+        - sql:
+            sql: "COMMENT ON COLUMN torn_stock_notice_audit.attempted_at IS '最近一次领取(Bot调用)时间'"

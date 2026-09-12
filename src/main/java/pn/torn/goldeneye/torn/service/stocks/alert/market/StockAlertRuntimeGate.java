@@ -60,7 +60,7 @@ public class StockAlertRuntimeGate {
         StockRuleModeEnum ruleMode = resolveRuleMode();
 
         boolean existsActiveBatches = virtualBatchDao.existsActiveBatches();
-        boolean existsPendingNotices = noticeAuditDao.existsPendingNotices();
+        boolean existsPendingNotices = noticeAuditDao.existsSendableNotices();
         boolean existsPendingRejectedObservationEvents =
                 signalEventDao.existsPendingRejectedObservationEvents();
 

@@ -6,6 +6,7 @@ import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockNotice
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticePayloadFinalizeCommand;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -19,12 +20,14 @@ import java.util.List;
 public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMapper, TornStockNoticeAuditDO> {
 
     /**
-     * 查询待发送通知,批量获取避免N+1
+     * 查询可发送通知(PENDING或未达尝试上限的FAILED_RETRYABLE)。
+     * <p>
+     * 本查询只用于生成本轮待发送集合,不构成互斥:是否可发送必须由 {@link #claimByIds} 的原子领取结果决定。
      *
-     * @return 待发送通知列表
+     * @return 可发送通知列表
      */
-    public List<TornStockNoticeAuditDO> selectPendingNotices() {
-        return baseMapper.selectPendingNotices();
+    public List<TornStockNoticeAuditDO> selectSendableNotices() {
+        return baseMapper.selectSendableNotices();
     }
 
     /**
@@ -44,48 +47,92 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
     }
 
     /**
-     * 批量标记无关联批次的通知为FAILED。
+     * 原子领取一批通知。
      *
-     * @param noticeIds    通知ID列表
-     * @param errorMessage 错误信息
-     * @return 更新行数
+     * @param noticeIds  通知ID列表
+     * @param claimToken 本次领取标识
+     * @return 实际领取行数;入参为空时返回0
      */
-    public int markFailedByIds(List<Long> noticeIds, String errorMessage) {
-        if (noticeIds == null || noticeIds.isEmpty()) {
+    public int claimByIds(List<Long> noticeIds, String claimToken) {
+        if (noticeIds == null || noticeIds.isEmpty() || claimToken == null || claimToken.isBlank()) {
             return 0;
         }
-        return baseMapper.markFailedByIds(noticeIds, errorMessage);
+        return baseMapper.claimByIds(noticeIds, claimToken);
     }
 
     /**
-     * 批量标记通知发送成功。
+     * 以换仓关联标识为单位原子领取该关联组仍可发送的腿。
      *
-     * @param noticeIds 通知ID列表
-     * @return 更新行数
+     * @param rebalanceAssociationId 换仓关联标识
+     * @param claimToken             本次领取标识
+     * @return 实际领取行数;入参为空时返回0
      */
-    public int markSentByIds(List<Long> noticeIds) {
-        if (noticeIds == null || noticeIds.isEmpty()) {
+    public int claimByRebalanceAssociationId(String rebalanceAssociationId, String claimToken) {
+        if (rebalanceAssociationId == null || rebalanceAssociationId.isBlank()
+                || claimToken == null || claimToken.isBlank()) {
             return 0;
         }
-        return baseMapper.markSentByIds(noticeIds);
+        return baseMapper.claimByRebalanceAssociationId(rebalanceAssociationId, claimToken);
     }
 
     /**
-     * 批量标记通知发送失败。
+     * 批量标记通知发送成功(SENT)。
+     *
+     * @param noticeIds  通知ID列表
+     * @param claimToken 本次领取标识
+     * @return 更新行数
+     */
+    public int markSentByIds(List<Long> noticeIds, String claimToken) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.markSentByIds(noticeIds, claimToken);
+    }
+
+    /**
+     * 批量标记通知发送失败(未达上限为FAILED_RETRYABLE,达到上限为FAILED_FINAL)。
      *
      * @param noticeIds    通知ID列表
+     * @param claimToken   本次领取标识
      * @param errorMessage 失败原因
      * @return 更新行数
      */
-    public int markSendFailedByIds(List<Long> noticeIds, String errorMessage) {
+    public int markSendFailedByIds(List<Long> noticeIds, String claimToken, String errorMessage) {
         if (noticeIds == null || noticeIds.isEmpty()) {
             return 0;
         }
-        return baseMapper.markSendFailedByIds(noticeIds, errorMessage);
+        return baseMapper.markSendFailedByIds(noticeIds, claimToken, errorMessage);
     }
 
     /**
-     * 在发送前逐条冻结最终文本、载荷哈希和实际发送尝试时间。
+     * 批量将不可自动重发的通知置为最终失败(FAILED_FINAL)人工核验终态。
+     *
+     * @param noticeIds    通知ID列表
+     * @param errorMessage 人工核验原因
+     * @return 更新行数
+     */
+    public int markFinalByIds(List<Long> noticeIds, String errorMessage) {
+        if (noticeIds == null || noticeIds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.markFinalByIds(noticeIds, errorMessage);
+    }
+
+    /**
+     * 释放本次领取持有的未回写SENDING通知。
+     *
+     * @param claimToken 本次领取标识
+     * @return 释放的通知行数
+     */
+    public int releaseClaim(String claimToken) {
+        if (claimToken == null || claimToken.isBlank()) {
+            return 0;
+        }
+        return baseMapper.releaseClaim(claimToken);
+    }
+
+    /**
+     * 在发送前逐条冻结最终文本和载荷哈希。
      * <p>
      * 同一合并消息可能对应多条通知,每条通知业务payload不同,因此必须逐条冻结,
      * 禁止用一份payload覆盖整个noticeIds集合。返回实际更新行数,调用方必须校验
@@ -102,13 +149,26 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
     }
 
     /**
-     * 判断是否存在待发送(PENDING)通知。
-     * <p>
-     * 用于运行时门禁:即使轮次总开关关闭,只要存在PENDING通知且正式消息开关允许,仍应投递。
+     * 恢复领取租约超时仍未回写的通知。
      *
-     * @return 存在待发送通知返回true;否则false
+     * @param staleBefore 租约截止时间
+     * @return 恢复的通知行数
      */
-    public boolean existsPendingNotices() {
-        return baseMapper.existsPendingNotices();
+    public int recoverStaleClaims(LocalDateTime staleBefore) {
+        if (staleBefore == null) {
+            return 0;
+        }
+        return baseMapper.recoverStaleClaims(staleBefore);
+    }
+
+    /**
+     * 判断是否存在待发送、可重发或待恢复的通知。
+     * <p>
+     * 用于运行时门禁:即使轮次总开关关闭,只要存在可发送通知且正式消息开关允许,仍应投递。
+     *
+     * @return 存在可发送通知返回true;否则false
+     */
+    public boolean existsSendableNotices() {
+        return baseMapper.existsSendableNotices();
     }
 }

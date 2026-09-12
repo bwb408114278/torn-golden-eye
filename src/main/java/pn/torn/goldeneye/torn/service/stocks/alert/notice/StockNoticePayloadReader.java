@@ -62,6 +62,20 @@ public final class StockNoticePayloadReader {
     }
 
     /**
+     * 读取通知载荷中固化的消息正文。
+     * <p>
+     * 与 {@link #readFrozenMessageText(String)} 的区别是不要求存在{@code frozenAt}:
+     * 无关联批次的自包含通知(如每日摘要)在创建时即固化正文,崩溃恢复后可按原正文补冻结;
+     * 正文缺失属于不可解释状态,由调用方fail-closed。
+     *
+     * @param notice 通知审计DO
+     * @return 固化的消息正文;不存在或为空时返回null
+     */
+    public static String readMessageText(TornStockNoticeAuditDO notice) {
+        return notice == null ? null : readText(notice.getPayloadSnapshot(), FIELD_MESSAGE_TEXT);
+    }
+
+    /**
      * 读取已冻结腿的冻结时间。
      *
      * @param payloadSnapshot 通知载荷JSON

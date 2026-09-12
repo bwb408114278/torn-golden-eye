@@ -58,7 +58,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -78,7 +78,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -96,7 +96,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -114,7 +114,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("OFF");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -132,7 +132,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(true);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -151,7 +151,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("true");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(true);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -168,7 +168,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("PROVISIONAL");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(true);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();

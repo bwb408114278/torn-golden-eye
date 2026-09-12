@@ -6,6 +6,12 @@ import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeBotSender;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendRecorder;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -14,17 +20,12 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 /**
  * 股票日报数据质量测试，验证权益缺失时仍展示现金和缺失行情明细。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.17
  */
 @DisplayName("股票日报数据质量测试")
@@ -249,11 +250,23 @@ class StockDailySummaryServiceTest {
         when(property.getEnv()).thenReturn(pn.torn.goldeneye.constants.bot.BotConstants.ENV_PROD);
         when(settings.getSettingValue(pn.torn.goldeneye.constants.torn.SettingConstants.KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED))
                 .thenReturn("true");
-        when(noticeDao.save(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        // 保存时必须回填主键,领取发送以主键为唯一入口
+        when(noticeDao.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            TornStockNoticeAuditDO saved = invocation.getArgument(0);
+            saved.setId(9001L);
+            return true;
+        });
+        when(noticeDao.claimByIds(org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
+        when(noticeDao.finalizePayload(org.mockito.ArgumentMatchers.any())).thenReturn(1);
+        when(sendService.sendSingleMessageResult(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(StockNoticeBotSender.SendResult.successful());
 
         service.executeDailySummary();
 
-        verify(sendService).sendSingleMessage(org.mockito.ArgumentMatchers.anyString());
+        verify(sendService).sendSingleMessageResult(org.mockito.ArgumentMatchers.anyString());
+        verify(noticeDao).markSentByIds(org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -277,7 +290,7 @@ class StockDailySummaryServiceTest {
 
         service.executeDailySummary();
 
-        verify(sendService, never()).sendSingleMessage(org.mockito.ArgumentMatchers.anyString());
+        verify(sendService, never()).sendSingleMessageResult(org.mockito.ArgumentMatchers.anyString());
     }
 
     /**
@@ -394,7 +407,8 @@ class StockDailySummaryServiceTest {
                 equityCalculator, researchCalculator, metricsCalculator);
         StockDailySummaryRenderer renderer = new StockDailySummaryRenderer();
         StockDailySummaryNoticeService noticeService = new StockDailySummaryNoticeService(
-                noticeAuditDAO, sendService, marketClock, projectProperty);
+                noticeAuditDAO, new StockNoticeSendRecorder(noticeAuditDAO), sendService, marketClock,
+                projectProperty);
         return new StockDailySummaryService(queryService, renderer, noticeService,
                 marketClock, projectProperty, sysSettingManager);
     }

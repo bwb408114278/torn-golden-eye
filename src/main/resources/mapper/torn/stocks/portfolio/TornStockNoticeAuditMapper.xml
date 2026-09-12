@@ -1,99 +1,160 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockNoticeAuditMapper">
-    <!-- 查询待发送通知 -->
-    <select id="selectPendingNotices" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
+    <!-- 查询可发送通知(PENDING或未达尝试上限的FAILED_RETRYABLE),按ID升序保证领取顺序稳定 -->
+    <select id="selectSendableNotices" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
         SELECT id, notice_no, batch_id, notice_type, scheduled_round_time, summary_date, group_id,
-               payload_hash, payload_snapshot, send_status, send_attempt_count, attempted_at, sent_at,
-               error_message, message_rule_version, deleted, create_time, update_time
+               payload_hash, payload_snapshot, send_status, send_attempt_count, claim_token, claim_time,
+               attempted_at, sent_at, error_message, message_rule_version, deleted, create_time, update_time
         FROM torn_stock_notice_audit
-        WHERE send_status = 'PENDING'
+        WHERE send_status IN ('PENDING', 'FAILED_RETRYABLE')
+          AND COALESCE(send_attempt_count, 0) &lt; 3
           AND deleted = 0
+        ORDER BY id ASC
     </select>
-
-    <!-- 批量标记无关联批次的通知为FAILED -->
-    <update id="markFailedByIds">
-        UPDATE torn_stock_notice_audit
-        SET send_status = 'FAILED',
-            attempted_at = CURRENT_TIMESTAMP,
-            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
-            error_message = #{errorMessage},
-            update_time = CURRENT_TIMESTAMP
-        WHERE deleted = 0
-          AND send_status = 'PENDING'
-          AND id IN
-        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
-            #{id}
-        </foreach>
-    </update>
-
-    <!-- 批量标记通知发送成功 -->
-    <update id="markSentByIds">
-        UPDATE torn_stock_notice_audit
-        SET send_status = 'SENT',
-            sent_at = CURRENT_TIMESTAMP,
-            attempted_at = CURRENT_TIMESTAMP,
-            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
-            update_time = CURRENT_TIMESTAMP
-        WHERE deleted = 0
-          AND send_status = 'PENDING'
-          AND id IN
-        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
-            #{id}
-        </foreach>
-    </update>
-
-    <!-- 批量标记通知发送失败 -->
-    <update id="markSendFailedByIds">
-        UPDATE torn_stock_notice_audit
-        SET send_status = 'FAILED',
-            attempted_at = CURRENT_TIMESTAMP,
-            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
-            error_message = #{errorMessage},
-            update_time = CURRENT_TIMESTAMP
-        WHERE deleted = 0
-          AND send_status = 'PENDING'
-          AND id IN
-        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
-            #{id}
-        </foreach>
-    </update>
-
-    <!-- 发送前逐条冻结最终载荷和实际发送尝试时间 -->
-    <update id="finalizePayload">
-        UPDATE torn_stock_notice_audit
-        SET payload_snapshot = source.payload_snapshot,
-            payload_hash = source.payload_hash,
-            attempted_at = source.attempted_at,
-            update_time = CURRENT_TIMESTAMP
-        FROM (VALUES
-            <foreach collection="commands" item="cmd" separator=",">
-                (CAST(#{cmd.noticeId} AS BIGINT), CAST(#{cmd.payloadSnapshot} AS jsonb),
-                 #{cmd.payloadHash}, CAST(#{cmd.attemptedAt} AS TIMESTAMP))
-            </foreach>
-        ) AS source(notice_id, payload_snapshot, payload_hash, attempted_at)
-        WHERE torn_stock_notice_audit.id = source.notice_id
-          AND torn_stock_notice_audit.deleted = 0
-          AND torn_stock_notice_audit.send_status = 'PENDING'
-    </update>
 
     <!-- 按换仓关联标识读取该α换仓关联组的完整通知集合(不限发送状态) -->
     <select id="selectByRebalanceAssociationId" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
         SELECT id, notice_no, batch_id, notice_type, scheduled_round_time, summary_date, group_id,
-               payload_hash, payload_snapshot, send_status, send_attempt_count, attempted_at, sent_at,
-               error_message, message_rule_version, deleted, create_time, update_time
+               payload_hash, payload_snapshot, send_status, send_attempt_count, claim_token, claim_time,
+               attempted_at, sent_at, error_message, message_rule_version, deleted, create_time, update_time
         FROM torn_stock_notice_audit
         WHERE deleted = 0
           AND payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
         ORDER BY id ASC
     </select>
 
-    <!-- 判断是否存在待发送通知 -->
-    <select id="existsPendingNotices" resultType="boolean">
+    <!-- 原子领取一批通知:仅PENDING/FAILED_RETRYABLE且未达上限可领取,领取即累计一次发送尝试 -->
+    <update id="claimByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'SENDING',
+            claim_token = #{claimToken},
+            claim_time = CURRENT_TIMESTAMP,
+            attempted_at = CURRENT_TIMESTAMP,
+            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status IN ('PENDING', 'FAILED_RETRYABLE')
+          AND COALESCE(send_attempt_count, 0) &lt; 3
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 以换仓关联标识为单位原子领取该关联组仍可发送的腿(已SENT或达上限的腿不会被领取) -->
+    <update id="claimByRebalanceAssociationId">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'SENDING',
+            claim_token = #{claimToken},
+            claim_time = CURRENT_TIMESTAMP,
+            attempted_at = CURRENT_TIMESTAMP,
+            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status IN ('PENDING', 'FAILED_RETRYABLE')
+          AND COALESCE(send_attempt_count, 0) &lt; 3
+          AND payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+    </update>
+
+    <!-- 标记发送成功:只回写本领取者持有的SENDING通知 -->
+    <update id="markSentByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'SENT',
+            sent_at = CURRENT_TIMESTAMP,
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'SENDING'
+          AND claim_token = #{claimToken}
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 标记发送失败:未达上限写FAILED_RETRYABLE自动重发,达到上限写FAILED_FINAL终态 -->
+    <update id="markSendFailedByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = CASE
+                WHEN COALESCE(send_attempt_count, 0) &gt;= 3 THEN 'FAILED_FINAL'
+                ELSE 'FAILED_RETRYABLE'
+            END,
+            error_message = #{errorMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'SENDING'
+          AND claim_token = #{claimToken}
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 直接置为最终失败(关联批次不存在、关联组异常等不可自动重发的人工核验终态) -->
+    <update id="markFinalByIds">
+        UPDATE torn_stock_notice_audit
+        SET send_status = 'FAILED_FINAL',
+            error_message = #{errorMessage},
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status IN ('PENDING', 'FAILED_RETRYABLE')
+          AND id IN
+        <foreach collection="noticeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 释放本次领取:未完整领取时把未发送的SENDING通知退回可重发/最终失败 -->
+    <update id="releaseClaim">
+        UPDATE torn_stock_notice_audit
+        SET send_status = CASE
+                WHEN COALESCE(send_attempt_count, 0) &gt;= 3 THEN 'FAILED_FINAL'
+                ELSE 'FAILED_RETRYABLE'
+            END,
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'SENDING'
+          AND claim_token = #{claimToken}
+    </update>
+
+    <!-- 发送前逐条冻结最终载荷;只能冻结本领取者持有的SENDING通知 -->
+    <update id="finalizePayload">
+        UPDATE torn_stock_notice_audit
+        SET payload_snapshot = source.payload_snapshot,
+            payload_hash = source.payload_hash,
+            update_time = CURRENT_TIMESTAMP
+        FROM (VALUES
+            <foreach collection="commands" item="cmd" separator=",">
+                (CAST(#{cmd.noticeId} AS BIGINT), CAST(#{cmd.payloadSnapshot} AS jsonb),
+                 #{cmd.payloadHash}, CAST(#{cmd.claimToken} AS VARCHAR(64)))
+            </foreach>
+        ) AS source(notice_id, payload_snapshot, payload_hash, claim_token)
+        WHERE torn_stock_notice_audit.id = source.notice_id
+          AND torn_stock_notice_audit.deleted = 0
+          AND torn_stock_notice_audit.send_status = 'SENDING'
+          AND torn_stock_notice_audit.claim_token = source.claim_token
+    </update>
+
+    <!-- 恢复领取超时未回写的SENDING通知:未达上限恢复为可重发,达到上限恢复为最终失败 -->
+    <update id="recoverStaleClaims">
+        UPDATE torn_stock_notice_audit
+        SET send_status = CASE
+                WHEN COALESCE(send_attempt_count, 0) &gt;= 3 THEN 'FAILED_FINAL'
+                ELSE 'FAILED_RETRYABLE'
+            END,
+            error_message = '发送领取超时未回写,按结果未知恢复',
+            update_time = CURRENT_TIMESTAMP
+        WHERE deleted = 0
+          AND send_status = 'SENDING'
+          AND claim_time &lt; #{staleBefore}
+    </update>
+
+    <!-- 判断是否存在待发送、可重发或待恢复的通知 -->
+    <select id="existsSendableNotices" resultType="boolean">
         SELECT EXISTS (
             SELECT 1 FROM torn_stock_notice_audit
-            WHERE send_status = 'PENDING'
-              AND deleted = 0
+            WHERE deleted = 0
+              AND send_status IN ('PENDING', 'FAILED_RETRYABLE', 'SENDING')
         )
     </select>
 

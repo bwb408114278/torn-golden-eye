@@ -345,7 +345,9 @@ StrictReboundConfirmBuyStrategy.java
 - 同一业务日、版本和phase最多一条有效决策。
 - 重复调度先读取已有决策，不重复消费phase。
 - α/旧版查询、锁和内存Map不能只以`stocksId`作为跨策略唯一键。
-- 通知在交易事务提交后发送；本批次采用单次发送语义：`PENDING → SENT`或`PENDING → FAILED`，`FAILED`不由普通调度自动重试；通知失败不回滚已提交交易，换仓合并消息失败时两条通知必须保持一致的失败状态，不得将单腿成功解释为完整换仓通知成功。
+- 通知在交易事务提交后发送；发送入口采用数据库级领取语义：只有`PENDING`/`FAILED_RETRYABLE`且未达3次总尝试上限的通知可被原子领取为`SENDING`（领取即累计一次尝试并写入`claim_token`/`claim_time`），冻结与终态回写必须绑定同一领取标识，未领取成功者不得调用Bot，旧领取者不能覆盖新状态。
+- 通知生命周期为`PENDING → SENDING → SENT`或`SENDING → FAILED_RETRYABLE → SENDING → SENT/FAILED_FINAL`：总尝试次数固定3次（首次1次、自动重发2次），达到上限进入`FAILED_FINAL`不再自动发送；失败与状态未知（回写异常、更新行数不足、领取租约超时）都进入可自动重发状态，人工只处理`FAILED_FINAL`或不可解释状态。自动重发直接复用首次冻结的`messageText`/`payloadSnapshot`/`payloadHash`，重复消息可依据批次标识识别。
+- 通知失败不回滚已提交交易；换仓合并消息以`rebalanceAssociationId`为单位领取，两腿必须在同一次领取与同一次回写中进入同一状态，已`SENT`腿不得重复发送，不得将单腿成功解释为完整换仓通知成功；缺腿、重复腿、字段冲突或状态不一致时fail-closed进入`FAILED_FINAL`人工核验。
 - 预填任务只能写快照/排名数据，禁止调用批次、资金、结算和通知writer。
 - `VIP_ALPHA`换仓失败必须整体回滚；旧版异常不能改写α，α异常不能吞掉旧版存量SELL。
 

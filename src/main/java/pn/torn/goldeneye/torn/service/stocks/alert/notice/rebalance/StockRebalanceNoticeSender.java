@@ -23,18 +23,20 @@ import java.util.*;
  * <ol>
  *   <li>按关联标识分组:关联标识缺失的α换仓通知属于格式非法,直接fail-closed,不调用Bot,
  *       也不得当作单腿普通消息发送</li>
- *   <li>按关联标识读取关联组完整通知集合(不限发送状态):只依赖当前内存中的PENDING子集
+ *   <li>按关联标识读取关联组完整通知集合(不限发送状态):只依赖当前内存中的可发送子集
  *       无法判断缺腿、重复腿与部分完成</li>
  *   <li>校验恰好一条SELL腿(legOrder=1)与一条BUY腿(legOrder=2),且通知类型、腿标识、腿顺序、
  *       换仓关联字段与关联批次绑定全部一致</li>
- *   <li>两腿均为PENDING时组合为一条原子换仓消息统一冻结(更新行数必须为2)并只调用Bot一次;
+ *   <li>以换仓关联标识为单位原子领取两腿并累计一次尝试,领取行数不足时释放领取且不调用Bot</li>
+ *   <li>两腿均未冻结时组合为一条原子换仓消息统一冻结(更新行数必须为2)并只调用Bot一次;
  *       一腿已冻结、一腿未冻结时只补齐未冻结腿并沿用已冻结腿的冻结时间,不覆盖已冻结腿的
- *       messageText/frozenAt/payloadHash;两腿均已冻结时复用同一冻结文本,不重复冻结、不重新组合</li>
- *   <li>一腿已SENT/FAILED时识别为部分完成:不重复发送已终态腿,剩余PENDING腿标记为需人工核验的FAILED</li>
- *   <li>Bot成功后两腿同时更新为SENT,失败后两腿同时更新为FAILED</li>
+ *       messageText/frozenAt/payloadHash;两腿均已冻结(自动重发)时复用同一冻结文本,
+ *       不重复冻结、不重新组合</li>
+ *   <li>两腿在本次领取中同时回写终态:成功为SENT,失败未达3次总尝试上限为FAILED_RETRYABLE
+ *       由后续调度自动重发,达到上限为FAILED_FINAL</li>
  * </ol>
- * 缺腿、重复同类腿、字段冲突、格式非法或部分完成一律fail-closed:禁止调用Bot,剩余PENDING腿标记为
- * 需人工核验的FAILED终态,既不静默重复发送也不静默丢弃,并保留统一关联事实供人工核验。
+ * 缺腿、重复同类腿、字段冲突、格式非法或状态不一致时fail-closed:禁止调用Bot,剩余可发送腿置为
+ * 人工核验的FAILED_FINAL终态,既不静默重复发送也不静默丢弃,并保留统一关联事实供人工核验。
  *
  * @author Bai
  * @version 1.6.1
@@ -89,6 +91,10 @@ public class StockRebalanceNoticeSender {
      * 关联组无法恢复完整一致换仓消息的异常原因。
      */
     private static final String UNRECOVERABLE_MESSAGE_REASON = "无法恢复完整且一致的换仓消息";
+    /**
+     * 关联组冻结行数不符时的失败原因。
+     */
+    private static final String FINALIZE_FAILURE_MESSAGE = "α换仓关联组最终payload冻结行数不符";
 
     private final TornStockNoticeAuditDAO noticeAuditDao;
     private final StockNoticeComposeService stockNoticeComposeService;
@@ -125,7 +131,7 @@ public class StockRebalanceNoticeSender {
     /**
      * 发送本轮全部α换仓关联组。
      *
-     * @param rebalanceNotices 本轮有效的α换仓PENDING通知
+     * @param rebalanceNotices 本轮可发送的α换仓通知
      * @param batchMap         批次ID到批次DO的映射,用于组合两腿消息
      * @param counter          发送计数
      */
@@ -143,10 +149,10 @@ public class StockRebalanceNoticeSender {
     }
 
     /**
-     * 将本轮有效的α换仓通知按换仓关联标识分组,并分离缺少关联标识的非法通知。
+     * 将本轮可发送的α换仓通知按换仓关联标识分组,并分离缺少关联标识的非法通知。
      *
-     * @param rebalanceNotices 本轮有效的α换仓PENDING通知
-     * @return 关联标识到该组PENDING腿的映射与非法通知列表
+     * @param rebalanceNotices 本轮可发送的α换仓通知
+     * @return 关联标识到该组可发送腿的映射与非法通知列表
      */
     private RebalancePartition partitionByAssociationId(List<TornStockNoticeAuditDO> rebalanceNotices) {
         Map<String, List<TornStockNoticeAuditDO>> groups = new LinkedHashMap<>();
@@ -163,10 +169,14 @@ public class StockRebalanceNoticeSender {
     }
 
     /**
-     * 发送一个完整的α换仓关联组。
+     * 领取并发送一个α换仓关联组。
+     * <p>
+     * 关联组校验、消息恢复均在领取前完成:任何fail-closed判定都不消耗领取,也不调用Bot;
+     * 领取以关联标识为单位原子完成,只有本次实际领取的腿会参与冻结与终态回写,
+     * 已SENT腿不会被重新发送。
      *
      * @param associationId 换仓关联标识
-     * @param pendingLegs   本轮查询命中的该关联组PENDING腿
+     * @param pendingLegs   本轮查询命中的该关联组可发送腿
      * @param batchMap      批次ID到批次DO的映射
      * @param counter       发送计数
      */
@@ -180,16 +190,80 @@ public class StockRebalanceNoticeSender {
         }
         TornStockNoticeAuditDO sellLeg = validation.sellLeg();
         TornStockNoticeAuditDO buyLeg = validation.buyLeg();
-        if (!isPendingNotice(sellLeg) || !isPendingNotice(buyLeg)) {
-            markGroupAnomaly(pendingLegs, partialCompletionReason(sellLeg, buyLeg), counter);
+        List<TornStockNoticeAuditDO> sendableLegs = resolveSendableLegs(sellLeg, buyLeg);
+        if (sendableLegs.isEmpty()) {
+            log.debug("股票通知发送-α换仓两腿均已进入终态,无需发送: associationId={}", associationId);
+            return;
+        }
+        if (sendableLegs.size() < REBALANCE_LEG_COUNT) {
+            markGroupAnomaly(sendableLegs, partialCompletionReason(sellLeg, buyLeg), counter);
             return;
         }
         RebalanceMessage message = resolveMessage(sellLeg, buyLeg, batchMap);
         if (message == null) {
-            markGroupAnomaly(pendingLegs, UNRECOVERABLE_MESSAGE_REASON, counter);
+            markGroupAnomaly(sendableLegs, UNRECOVERABLE_MESSAGE_REASON, counter);
             return;
         }
-        freezeAndSend(sellLeg, buyLeg, message, counter);
+        List<Long> sendableLegIds = sendableLegs.stream().map(TornStockNoticeAuditDO::getId).toList();
+        String claimToken = sendRecorder.newClaimToken();
+        if (!sendRecorder.claimRebalanceGroup(associationId, sendableLegIds.size(), claimToken)) {
+            counter.countFailure();
+            log.warn("股票通知发送-α换仓关联组领取失败,跳过发送: associationId={}", associationId);
+            return;
+        }
+        if (!freezeUnfrozenLegs(sellLeg, buyLeg, message, claimToken)) {
+            counter.countFailure();
+            log.error("股票通知发送-α换仓关联组冻结行数不符,停止发送: sellNoticeId={}, buyNoticeId={}",
+                    sellLeg.getId(), buyLeg.getId());
+            sendRecorder.markSendFailed(sendableLegIds, claimToken, FINALIZE_FAILURE_MESSAGE);
+            return;
+        }
+        deliverGroupMessage(message, sendableLegIds, claimToken, counter);
+    }
+
+    /**
+     * 调用Bot发送关联组消息并按结果回写本次实际领取腿的终态。
+     * <p>
+     * 两腿必须在同一次回写中进入同一状态:成功为SENT,失败未达总尝试上限为FAILED_RETRYABLE
+     * (后续调度自动重发,重发复用首次冻结文本),达到上限为FAILED_FINAL。
+     *
+     * @param message    已冻结的换仓消息上下文
+     * @param legIds     本次实际领取的腿ID(按SELL、BUY顺序)
+     * @param claimToken 本次领取标识
+     * @param counter    发送计数
+     */
+    private void deliverGroupMessage(RebalanceMessage message, List<Long> legIds, String claimToken,
+                                     NoticeSendCounter counter) {
+        StockNoticeBotSender.SendResult sendResult = botSender.send(message.messageText());
+        if (sendResult.success()) {
+            counter.countSuccess();
+            sendRecorder.markSent(legIds, claimToken);
+        } else {
+            counter.countFailure();
+            sendRecorder.markSendFailed(legIds, claimToken, sendResult.failureReason());
+        }
+    }
+
+    /**
+     * 解析本次仍可领取发送的腿。
+     * <p>
+     * 只有处于PENDING/FAILED_RETRYABLE且未达总尝试上限的腿可参与本次发送;已SENT腿与
+     * 达到上限的FAILED_FINAL腿不会被重新发送。
+     *
+     * @param sellLeg 原仓卖出腿
+     * @param buyLeg  新仓买入腿
+     * @return 仍可发送的腿(顺序为SELL、BUY)
+     */
+    private List<TornStockNoticeAuditDO> resolveSendableLegs(TornStockNoticeAuditDO sellLeg,
+                                                             TornStockNoticeAuditDO buyLeg) {
+        List<TornStockNoticeAuditDO> sendableLegs = new ArrayList<>(REBALANCE_LEG_COUNT);
+        if (isSendableNotice(sellLeg)) {
+            sendableLegs.add(sellLeg);
+        }
+        if (isSendableNotice(buyLeg)) {
+            sendableLegs.add(buyLeg);
+        }
+        return sendableLegs;
     }
 
     /**
@@ -355,9 +429,9 @@ public class StockRebalanceNoticeSender {
     /**
      * 解析本次发送的最终换仓消息文本。
      * <p>
-     * 两腿均未冻结时按当前两腿重新组合;两腿均已冻结时复用同一冻结文本,文本不一致即判定无法恢复;
-     * 一腿已冻结、一腿未冻结时,已冻结文本必须与当前两腿可组合文本完全一致才可用于补齐另一腿,
-     * 否则fail-closed,禁止把单腿文本当成完整换仓消息。
+     * 两腿均未冻结时按当前两腿重新组合;两腿均已冻结(含自动重发)时复用同一冻结文本,
+     * 文本不一致即判定无法恢复;一腿已冻结、一腿未冻结时,已冻结文本必须与当前两腿可组合文本
+     * 完全一致才可用于补齐另一腿,否则fail-closed,禁止把单腿文本当成完整换仓消息。
      *
      * @param sellLeg  原仓卖出腿
      * @param buyLeg   新仓买入腿
@@ -449,46 +523,20 @@ public class StockRebalanceNoticeSender {
     }
 
     /**
-     * 冻结未冻结腿并发送,按发送结果回写两腿终态。
-     *
-     * @param sellLeg 原仓卖出腿
-     * @param buyLeg  新仓买入腿
-     * @param message 已解析的最终消息上下文
-     * @param counter 发送计数
-     */
-    private void freezeAndSend(TornStockNoticeAuditDO sellLeg, TornStockNoticeAuditDO buyLeg,
-                               RebalanceMessage message, NoticeSendCounter counter) {
-        if (!freezeUnfrozenLegs(sellLeg, buyLeg, message)) {
-            counter.countFailure();
-            log.error("股票通知发送-α换仓关联组冻结行数不符,停止发送: sellNoticeId={}, buyNoticeId={}",
-                    sellLeg.getId(), buyLeg.getId());
-            return;
-        }
-        List<Long> legIds = List.of(sellLeg.getId(), buyLeg.getId());
-        StockNoticeBotSender.SendResult sendResult = botSender.send(message.messageText());
-        if (sendResult.success()) {
-            counter.countSuccess();
-            sendRecorder.markSent(legIds);
-        } else {
-            counter.countFailure();
-            sendRecorder.markSendFailed(legIds, sendResult.failureReason());
-        }
-    }
-
-    /**
      * 冻结关联组尚未冻结的腿,并校验冻结更新行数等于待冻结腿数。
      * <p>
-     * 两腿均已冻结时不做任何冻结更新,直接复用已冻结payload(重启恢复不得覆盖
-     * messageText/frozenAt/payloadHash);部分冻结时只补齐未冻结腿,并沿用已冻结腿的冻结时间
-     * 保证两腿处于同一最终消息上下文。
+     * 两腿均已冻结(自动重发)时不做任何冻结更新,直接复用已冻结payload,不得覆盖
+     * messageText/frozenAt/payloadHash;部分冻结时只补齐未冻结腿,并沿用已冻结腿的冻结时间
+     * 保证两腿处于同一最终消息上下文。冻结只能作用于本次领取者持有的SENDING通知。
      *
-     * @param sellLeg 原仓卖出腿
-     * @param buyLeg  新仓买入腿
-     * @param message 已解析的最终消息上下文
+     * @param sellLeg    原仓卖出腿
+     * @param buyLeg     新仓买入腿
+     * @param message    已解析的最终消息上下文
+     * @param claimToken 本次领取标识
      * @return 冻结成功返回true;行数不符返回false
      */
     private boolean freezeUnfrozenLegs(TornStockNoticeAuditDO sellLeg, TornStockNoticeAuditDO buyLeg,
-                                       RebalanceMessage message) {
+                                       RebalanceMessage message, String claimToken) {
         List<Long> unfrozenLegIds = new ArrayList<>(REBALANCE_LEG_COUNT);
         if (!StockNoticePayloadReader.isAlreadyFrozen(sellLeg)) {
             unfrozenLegIds.add(sellLeg.getId());
@@ -499,20 +547,21 @@ public class StockRebalanceNoticeSender {
         if (unfrozenLegIds.isEmpty()) {
             return true;
         }
-        LocalDateTime attemptedAt = message.frozenAt() != null ? message.frozenAt() : LocalDateTime.now();
+        LocalDateTime frozenAt = message.frozenAt() != null ? message.frozenAt() : LocalDateTime.now();
         Map<Long, TornStockNoticeAuditDO> legById = HashMap.newHashMap(REBALANCE_LEG_COUNT);
         legById.put(sellLeg.getId(), sellLeg);
         legById.put(buyLeg.getId(), buyLeg);
-        return sendRecorder.freezePayload(legById, unfrozenLegIds, message.messageText(), attemptedAt);
+        return sendRecorder.freezePayload(legById, unfrozenLegIds, message.messageText(), frozenAt, claimToken);
     }
 
     /**
-     * 记录α换仓关联组异常并将剩余PENDING腿标记为需人工核验的FAILED终态。
+     * 记录α换仓关联组异常并将剩余可发送腿置为人工核验终态(FAILED_FINAL)。
      * <p>
-     * 关联组缺腿、重复腿、字段冲突、格式非法或部分完成时禁止调用Bot;标记FAILED是本批次明确的
-     * fail-closed人工处理规则,既不静默重复发送也不静默丢弃,并保留统一关联事实供人工核验。
+     * 关联组缺腿、重复腿、字段冲突、格式非法或状态不一致时禁止调用Bot;置为FAILED_FINAL是本批次
+     * 明确的人工处理规则,既不静默重复发送也不静默丢弃,并保留统一关联事实供人工核验。
+     * 达到总尝试上限的失败腿由回写直接进入FAILED_FINAL,不经过本方法。
      *
-     * @param pendingLegs 本轮仍为PENDING的关联组腿
+     * @param pendingLegs 本轮仍可发送的关联组腿
      * @param reason      异常原因
      * @param counter     发送计数
      */
@@ -527,37 +576,33 @@ public class StockRebalanceNoticeSender {
         if (noticeIds.isEmpty()) {
             return;
         }
-        try {
-            int updated = noticeAuditDao.markFailedByIds(noticeIds, REBALANCE_GROUP_ANOMALY_PREFIX + reason);
-            if (updated != noticeIds.size()) {
-                log.error("股票通知发送-α换仓关联组异常标记行数不完整: updated={}, expected={}",
-                        updated, noticeIds.size());
-            }
-        } catch (Exception e) {
-            log.error("股票通知发送-α换仓关联组异常标记失败, noticeCount={}", noticeIds.size(), e);
-        }
+        sendRecorder.markFinal(noticeIds, REBALANCE_GROUP_ANOMALY_PREFIX + reason);
     }
 
     /**
-     * 构建关联组部分完成的失败原因。
+     * 构建关联组状态不一致的失败原因。
      *
      * @param sellLeg 原仓卖出腿
      * @param buyLeg  新仓买入腿
-     * @return 部分完成失败原因
+     * @return 状态不一致失败原因
      */
     private String partialCompletionReason(TornStockNoticeAuditDO sellLeg, TornStockNoticeAuditDO buyLeg) {
-        return "关联组部分完成,一腿已进入终态,禁止重复发送或静默丢弃: sellStatus="
+        return "关联组状态不一致,仅一腿可发送,禁止重复发送或静默丢弃: sellStatus="
                 + sendStatusOf(sellLeg) + ", buyStatus=" + sendStatusOf(buyLeg);
     }
 
     /**
-     * 判断通知是否仍处于待发送PENDING状态。
+     * 判断通知是否处于可领取发送状态且未达总尝试上限。
      *
      * @param notice 通知审计
-     * @return PENDING返回true
+     * @return 可发送返回true
      */
-    private boolean isPendingNotice(TornStockNoticeAuditDO notice) {
-        return notice != null && StockNoticeStatusEnum.PENDING.getCode().equals(notice.getSendStatus());
+    private boolean isSendableNotice(TornStockNoticeAuditDO notice) {
+        if (notice == null || !StockNoticeStatusEnum.isClaimable(notice.getSendStatus())) {
+            return false;
+        }
+        Integer attemptCount = notice.getSendAttemptCount();
+        return attemptCount == null || attemptCount < StockNoticeSendRecorder.MAX_SEND_ATTEMPTS;
     }
 
     /**
@@ -617,7 +662,7 @@ public class StockRebalanceNoticeSender {
     /**
      * α换仓通知按关联标识分组后的分流结果。
      *
-     * @param groups           换仓关联标识到该关联组PENDING腿的映射
+     * @param groups           换仓关联标识到该关联组可发送腿的映射
      * @param malformedNotices 通知类型为α换仓但缺少换仓关联标识的通知
      */
     private record RebalancePartition(
