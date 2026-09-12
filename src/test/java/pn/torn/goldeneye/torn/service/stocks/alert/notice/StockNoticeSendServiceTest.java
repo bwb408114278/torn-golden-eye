@@ -16,6 +16,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.rebalance.StockRebalanceNoticeSender;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -634,8 +635,17 @@ class StockNoticeSendServiceTest {
         return batch;
     }
 
+    /**
+     * 组装被测发送服务及其协作对象,协作对象共用同一批Mock以便统一校验真实调用。
+     *
+     * @return 股票通知发送服务
+     */
     private StockNoticeSendService service() {
-        return new StockNoticeSendService(
-                bot, projectProperty, sysSettingManager, noticeAuditDAO, virtualBatchDAO, composeService);
+        StockNoticeBotSender botSender = new StockNoticeBotSender(bot, projectProperty);
+        StockNoticeSendRecorder sendRecorder = new StockNoticeSendRecorder(noticeAuditDAO);
+        StockRebalanceNoticeSender rebalanceSender = new StockRebalanceNoticeSender(
+                noticeAuditDAO, composeService, sendRecorder, botSender);
+        return new StockNoticeSendService(sysSettingManager, noticeAuditDAO, virtualBatchDAO, composeService,
+                botSender, sendRecorder, rebalanceSender);
     }
 }
