@@ -547,7 +547,7 @@ public class StockRebalanceNoticeSender {
      */
     private String partialCompletionReason(TornStockNoticeAuditDO sellLeg, TornStockNoticeAuditDO buyLeg) {
         return "关联组部分完成,一腿已进入终态,禁止重复发送或静默丢弃: sellStatus="
-                + sellLeg.getSendStatus() + ", buyStatus=" + buyLeg.getSendStatus();
+                + sendStatusOf(sellLeg) + ", buyStatus=" + sendStatusOf(buyLeg);
     }
 
     /**
@@ -568,6 +568,16 @@ public class StockRebalanceNoticeSender {
      */
     private String noticeTypeOf(TornStockNoticeAuditDO notice) {
         return notice == null ? null : notice.getNoticeType();
+    }
+
+    /**
+     * 读取通知的发送状态,通知为空时返回null。
+     *
+     * @param notice 通知审计
+     * @return 发送状态
+     */
+    private String sendStatusOf(TornStockNoticeAuditDO notice) {
+        return notice == null ? null : notice.getSendStatus();
     }
 
     /**

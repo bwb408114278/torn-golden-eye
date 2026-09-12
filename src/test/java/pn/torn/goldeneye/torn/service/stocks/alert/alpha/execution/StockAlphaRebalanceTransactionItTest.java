@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
@@ -32,12 +33,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.*;
 
 /**
  * α换仓真实事务回滚集成测试。
@@ -162,30 +161,43 @@ class StockAlphaRebalanceTransactionItTest {
         Long originalBatchId = persistOriginalBatch(alphaSlot);
         bindSlotToOriginalBatch(alphaSlot, originalBatchId);
         Long decisionId = persistRebalanceDecision(originalBatchId);
-        AtomicReference<NoticeRebalanceAssociation> associationHolder = new AtomicReference<>();
 
         doReturn(true).when(decisionService).isSourceReproducible(any(TornStockAlphaDecisionDO.class));
-        doAnswer(invocation -> {
-            associationHolder.set(invocation.getArgument(3));
-            throw new IllegalStateException(AUDIT_FAILURE_MESSAGE);
-        }).when(noticeWriter)
+        doThrow(new IllegalStateException(AUDIT_FAILURE_MESSAGE))
+                .when(noticeWriter)
                 .writeNoticeAudits(anyList(), anyList(), eq(EXECUTION_BAR), any(NoticeRebalanceAssociation.class));
 
-        IllegalStateException exception = assertThrows(IllegalStateException.class,
-                () -> rebalanceService.rebalance(DECISION_DATE, PHASE, PROCESSING_TIME, roundSnapshot()),
+        IllegalStateException exception = assertThrows(IllegalStateException.class, this::executeRebalance,
                 "换仓事务最后阶段的通知审计写入失败必须使整个换仓事务失败");
         assertTrue(exception.getMessage().contains(AUDIT_FAILURE_MESSAGE),
                 "失败必须来自注入的通知审计写入,实际: " + exception.getMessage());
 
+        // 换仓必须真实发起过通知审计写入,关联事实从该次调用捕获
+        ArgumentCaptor<NoticeRebalanceAssociation> associationCaptor =
+                ArgumentCaptor.forClass(NoticeRebalanceAssociation.class);
+        verify(noticeWriter).writeNoticeAudits(anyList(), anyList(), eq(EXECUTION_BAR),
+                associationCaptor.capture());
+        NoticeRebalanceAssociation association = associationCaptor.getValue();
+
         // 事务内阶段: 换仓已推进到末端,原仓结算、新仓建立、槽位改绑与决策推进都已写入同一事务
-        assertRebalanceWritesVisible(associationHolder.get(), originalBatchId, decisionId, alphaSlot.getId());
+        assertRebalanceWritesVisible(association, originalBatchId, decisionId, alphaSlot.getId());
 
         // 回滚阶段: 真实回滚测试事务后,在独立事务中用真实DAO读回提交态
         TestTransaction.flagForRollback();
         TestTransaction.end();
         assertFalse(TestTransaction.isActive(), "测试事务必须已真实结束并回滚");
         TestTransaction.start();
-        assertNoResidualFacts(slotBefore, associationHolder.get());
+        assertNoResidualFacts(slotBefore, association);
+    }
+
+    /**
+     * 在测试事务内以固定参数执行一次换仓。
+     * <p>
+     * 使用独立方法而非lambda,使断言入口只包含一次调用,满足Sonar对lambda内可抛运行时异常
+     * 调用数量的约束。
+     */
+    private void executeRebalance() {
+        rebalanceService.rebalance(DECISION_DATE, PHASE, PROCESSING_TIME, roundSnapshot());
     }
 
     /**
