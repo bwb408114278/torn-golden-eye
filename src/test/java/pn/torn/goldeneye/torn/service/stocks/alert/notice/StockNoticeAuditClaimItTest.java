@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,15 +37,19 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>领取租约超时按结果未知恢复为可重发或最终失败,重启不归零尝试次数</li>
  *   <li>α换仓关联组以关联标识为单位原子领取,已SENT腿不会被重新领取</li>
  * </ul>
- * 全部读写通过真实DAO完成,测试文件内不写SQL;夹具为隔离的远期日期与随机编号,结束后逻辑删除。
+ * 全部读写通过真实DAO完成,测试SQL仅用于清理;夹具为隔离的远期日期与随机编号。
+ * <p>
+ * <b>并发用例为什么不能使用测试级事务:</b>并发领取必须在两个独立连接上竞争同一条通知,而测试级事务中
+ * 插入的夹具行尚未提交,其它连接在READ COMMITTED下看不到该行,两个领取者都会更新0行,测试无法证明
+ * 数据库互斥。因此该用例不参与测试级事务,夹具即时提交,并在{@code @AfterEach}按通知ID执行精确物理
+ * DELETE清理;同线程用例仍使用{@code @Transactional}+{@code @Rollback},避免超时恢复扫描污染共享库中的
+ * 无关通知。清理一律物理删除,不残留{@code deleted=1}记录。
  *
  * @author Bai
  * @version 1.6.1
  * @since 2026.09.12
  */
 @SpringBootTest
-@Transactional
-@Rollback
 @Tag("shared-db")
 @DisplayName("股票通知领取与自动重发真实数据库测试")
 class StockNoticeAuditClaimItTest {
@@ -76,6 +81,11 @@ class StockNoticeAuditClaimItTest {
     @Autowired
     private TornStockNoticeAuditDAO noticeAuditDao;
     /**
+     * 仅用于按通知ID物理删除夹具,避免逻辑删除在共享库残留{@code deleted=1}记录。
+     */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    /**
      * 表格图片渲染浏览器与本领取/重发证据无关,且需要下载/启动外部Chromium;测试上下文以替身替换,
      * 不改变真实通知审计DAO与真实领取SQL。
      */
@@ -83,13 +93,15 @@ class StockNoticeAuditClaimItTest {
     private PlaywrightBrowserManager playwrightBrowserManager;
 
     /**
-     * 夹具通知主键,测试结束后逻辑删除。
+     * 夹具通知主键,测试结束后物理删除。
      */
     private final List<Long> createdNoticeIds = new ArrayList<>();
 
     @AfterEach
     void removeFixtures() {
-        createdNoticeIds.forEach(noticeAuditDao::removeById);
+        // 并发用例的夹具已在独立事务中提交,测试级回滚无法清理;按通知ID物理删除保证共享库零残留
+        createdNoticeIds.forEach(noticeId ->
+                jdbcTemplate.update("DELETE FROM torn_stock_notice_audit WHERE id = ?", noticeId));
         createdNoticeIds.clear();
     }
 
@@ -123,6 +135,8 @@ class StockNoticeAuditClaimItTest {
     }
 
     @Test
+    @Transactional
+    @Rollback
     @DisplayName("失败自动重发_总尝试3次后进入FAILED_FINAL且不再被领取")
     void retryLifecycle_threeAttemptsThenFinal() {
         Long noticeId = insertDailySummaryNotice(SUMMARY_DATE_RETRY);
@@ -149,6 +163,8 @@ class StockNoticeAuditClaimItTest {
     }
 
     @Test
+    @Transactional
+    @Rollback
     @DisplayName("领取租约超时_按结果未知恢复为可重发或最终失败")
     void staleClaimRecovery_returnsToRetryableOrFinal() {
         Long retryableId = insertClaimedStaleNotice(SUMMARY_DATE_STALE_RETRYABLE, 1);
@@ -167,6 +183,8 @@ class StockNoticeAuditClaimItTest {
     }
 
     @Test
+    @Transactional
+    @Rollback
     @DisplayName("α换仓关联组_组级领取严格完整两腿且已SENT腿导致整组不领取")
     void rebalanceGroupClaim_requiresWholeGroupAndNeverResendsSentLeg() {
         // 一腿已SENT一腿可重试:组边界不完整,整组必须更新0行,禁止只领取剩余腿
