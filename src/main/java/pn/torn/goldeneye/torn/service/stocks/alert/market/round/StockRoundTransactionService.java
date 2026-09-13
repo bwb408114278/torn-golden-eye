@@ -114,8 +114,13 @@ public class StockRoundTransactionService {
      * 事务内不再产生N+1查询。
      * <p>
      * {@code allowNewEntry=false} 时仍完整执行ENTRY/EXIT结算、存量路径管理、灾难关闭、
-     * 冷却与通知审计,仅在买入信号评估、事件/影子创建、候选接纳和买入边沿推进阶段
-     * 应用该开关,确保紧急回滚不遗弃已存在的正式持仓。
+     * 冷却与通知审计,仅在Alpha正式初始入场、买入信号评估、事件/影子创建、候选接纳和
+     * 买入边沿推进阶段应用该开关,确保紧急回滚不遗弃已存在的正式持仓。
+     * <p>
+     * 正式Alpha新入场只允许{@code FORMAL}:门禁已经收敛为FORMAL-only,本方法仍以本地解析的规则模式
+     * 再做一次同源防线,保证{@code SHADOW}/{@code PROVISIONAL}不会因任何调用方传入的
+     * {@code allowNewEntry=true} 创建{@code VIP_ALPHA}正式批次。
+     * 已有Alpha批次的存量管理、ENTRY_PENDING结算、换仓与通知审计不消费本开关。
      * <p>
      * 时间语义: {@code roundTime} 是历史决策/成交bar的业务锚点;
      * {@code actualProcessingTime} 是本轮真实执行/恢复时刻,由调度层通过
@@ -125,7 +130,7 @@ public class StockRoundTransactionService {
      *
      * @param roundTime            本轮bar开始时间(历史决策锚点)
      * @param snapshot             事务外已加载的批量数据快照
-     * @param allowNewEntry        是否允许创建新的正式/候选影子批次
+     * @param allowNewEntry        是否允许正式新入场(门禁已确保仅{@code FORMAL}成立)
      * @param actualProcessingTime 本次实际处理时刻(仅用于ENTRY过期判定)
      */
     @Transactional(rollbackFor = Exception.class)
@@ -184,8 +189,13 @@ public class StockRoundTransactionService {
                 allActiveBatches, shadowBatches, snapshot.signalStates(),
                 lockedSlots, snapshot.roundTime());
 
+        // 正式新入场许可:门禁已收敛为FORMAL-only,这里以同一规则再校验一次,
+        // 禁止SHADOW/PROVISIONAL通过任何调用方创建VIP_ALPHA正式批次。
+        StockRuleModeEnum ruleMode = resolveRuleMode();
+        boolean formalNewEntryAllowed = allowNewEntry && ruleMode == StockRuleModeEnum.FORMAL;
+
         boolean hasExistingAlphaBatch = hasAlphaBatch(mergedSnapshot);
-        if (!hasExistingAlphaBatch && allowNewEntry) {
+        if (!hasExistingAlphaBatch && formalNewEntryAllowed) {
             createInitialAlphaEntry(roundTime, actualProcessingTime, mergedSnapshot, barByStock);
             mergedSnapshot = refreshAlphaBatches(mergedSnapshot);
         }
@@ -207,13 +217,12 @@ public class StockRoundTransactionService {
             processAlphaRebalance(roundTime, actualProcessingTime, mergedSnapshot, barByStock);
         }
 
-        // 步骤6-8: 规则模式与新买入开关共同决定买入研究、候选影子接纳与边沿推进是否执行。
-        // allowNewEntry=false 或规则模式OFF时,跳过买入信号评估、事件/影子创建、
-        // 候选接纳与买入边沿推进,但存量批次退出/灾难关闭/冷却/通知审计不受影响。
-        StockRuleModeEnum ruleMode = resolveRuleMode();
-        boolean newEntryAllowed = allowNewEntry && ruleMode != StockRuleModeEnum.OFF;
+        // 步骤6-8: 正式新入场许可决定买入研究、候选影子接纳与边沿推进是否执行。
+        // 许可为false时,跳过买入信号评估、事件/影子创建、候选接纳与买入边沿推进,
+        // 但存量批次退出/灾难关闭/冷却/通知审计不受影响。
+        boolean newEntryAllowed = formalNewEntryAllowed;
         if (!newEntryAllowed) {
-            log.info("新买入关闭或规则模式[{}]不推进买入研究,跳过候选编排: allowNewEntry={}",
+            log.info("正式新入场关闭或规则模式[{}]不允许正式新入场,跳过候选编排: allowNewEntry={}",
                     ruleMode.getCode(), allowNewEntry);
         } else {
             BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(

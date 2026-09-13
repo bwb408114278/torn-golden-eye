@@ -17,6 +17,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
@@ -117,23 +118,25 @@ public class StockDailySummaryNoticeService {
         }
         Long noticeId = notice.getId();
         List<Long> noticeIds = List.of(noticeId);
+        // 同一次发送编排只读取一次业务时间:领取、冻结与终态回写全部复用同一businessNow。
+        LocalDateTime businessNow = marketClock.now();
         String claimToken = noticeSendRecorder.newClaimToken();
-        if (!noticeSendRecorder.claim(noticeIds, claimToken)) {
+        if (!noticeSendRecorder.claim(noticeIds, claimToken, businessNow)) {
             log.warn("VIP股票每日摘要-通知未被领取,已有发送流程持有,跳过: noticeNo={}", notice.getNoticeNo());
             return;
         }
         if (!noticeSendRecorder.freezePayload(Map.of(noticeId, notice), noticeIds, summaryText,
-                marketClock.now(), claimToken)) {
+                businessNow, claimToken, businessNow)) {
             log.error("VIP股票每日摘要-最终payload冻结行数不符,停止发送: noticeNo={}", notice.getNoticeNo());
-            noticeSendRecorder.markSendFailed(noticeIds, claimToken, FREEZE_FAILURE_MESSAGE);
+            noticeSendRecorder.markSendFailed(noticeIds, claimToken, FREEZE_FAILURE_MESSAGE, businessNow);
             return;
         }
         StockNoticeBotSender.SendResult sendResult = noticeSendService.sendSingleMessageResult(summaryText);
         if (sendResult.success()) {
-            noticeSendRecorder.markSent(noticeIds, claimToken);
+            noticeSendRecorder.markSent(noticeIds, claimToken, businessNow);
             log.info("VIP股票每日摘要-发送成功, noticeNo={}", notice.getNoticeNo());
         } else {
-            noticeSendRecorder.markSendFailed(noticeIds, claimToken, sendResult.failureReason());
+            noticeSendRecorder.markSendFailed(noticeIds, claimToken, sendResult.failureReason(), businessNow);
             log.warn("VIP股票每日摘要-发送失败, noticeNo={}, reason={}",
                     notice.getNoticeNo(), sendResult.failureReason());
         }

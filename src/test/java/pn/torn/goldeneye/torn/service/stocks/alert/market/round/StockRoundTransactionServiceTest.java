@@ -199,7 +199,7 @@ class StockRoundTransactionServiceTest {
                     return new BuySignalResult(acceptedCandidates, List.of());
                 });
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
-                .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
+                .thenReturn(StockRuleModeEnum.FORMAL.getCode());
         when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
                 eq(CandidateAcceptanceTarget.candidateShadow())))
                 .thenReturn(StockCandidateAllocationResult.empty());
@@ -432,6 +432,27 @@ class StockRoundTransactionServiceTest {
         verifyNoInteractions(alphaDecisionService, alphaEntryService, alphaRebalanceService);
     }
 
+    @Test
+    @DisplayName("PROVISIONAL模式_即使门禁传入allowNewEntry=true也不创建VIP_ALPHA正式批次")
+    void executeRound_provisionalMode_neverCreatesAlphaBatch() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = alphaSnapshot(roundTime, List.of(), lockedSlots, List.of());
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(new TornStockMarketRoundDO());
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(lockedSlots);
+        when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of());
+        when(virtualBatchDao.selectActiveShadowBatchesForUpdate()).thenReturn(List.of());
+        when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime))).thenReturn(List.of());
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
+                .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), anyInt(), any());
+        verify(alphaDecisionService, never()).decide(any(), any(), anyMap());
+    }
+
     /**
      * 构造α编排测试使用的轮次快照,避免各场景重复构造空数据快照。
      *
@@ -621,8 +642,9 @@ class StockRoundTransactionServiceTest {
         when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime))).thenReturn(List.of());
         when(buySignalEvaluator.evaluateSignals(any(), any(), any(), any(), eq(roundTime)))
                 .thenReturn(new BuySignalResult(candidates, List.of()));
+        // 正式新入场只允许FORMAL,测试必须按生产门禁语义配置规则模式
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
-                .thenReturn(StockRuleModeEnum.PROVISIONAL.getCode());
+                .thenReturn(StockRuleModeEnum.FORMAL.getCode());
         when(candidateTrackAllocationService.acceptCandidates(any(), any(), any(), any(), any(), eq(roundTime),
                 eq(CandidateAcceptanceTarget.candidateShadow())))
                 .thenReturn(StockCandidateAllocationResult.empty());

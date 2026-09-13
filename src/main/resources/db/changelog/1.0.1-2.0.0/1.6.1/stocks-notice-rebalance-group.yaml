@@ -1,0 +1,22 @@
+databaseChangeLog:
+  # 第五批Review R-ALPHA-PRE-001: α换仓通知必须以完整两腿关联组为单位表达组级状态。
+  # 仅扩展 torn_stock_notice_audit 既有表,不新增第二张通知表或第二套消息平台:
+  #  1) rebalance_group_status: 组级状态,两腿记录必须保持相同值,普通通知为NULL;
+  #  2) rebalance_group_error:  组级异常原因,两腿记录必须保持相同值,普通通知为NULL。
+  # 值域与 Java 枚举 StockNoticeRebalanceGroupStatusEnum 完全一致:
+  #  PENDING/SENDING/SENT/FAILED_RETRYABLE/FAILED_FINAL/INCONSISTENT。
+  - changeSet:
+      id: stock_notice_rebalance_group_columns
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_notice_audit
+            columns:
+              - column:
+                  name: rebalance_group_status
+                  type: VARCHAR(32)
+                  remarks: "α换仓关联组级状态(PENDING/SENDING/SENT/FAILED_RETRYABLE/FAILED_FINAL/INCONSISTENT);两腿记录必须保持相同值,普通通知为NULL"
+              - column:
+                  name: rebalance_group_error
+                  type: VARCHAR(1000)
+                  remarks: "α换仓关联组级异常原因(缺腿/重复腿/字段冲突/回写行数不足/组状态不可解释);两腿记录必须保持相同值,普通通知为NULL"

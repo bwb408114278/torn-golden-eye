@@ -5,11 +5,10 @@
 - 文档类型：长期技术架构与实现边界
 - 业务范围：α=0.04 首批股票提醒
 - 长期业务基线：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 一次性开发与验收契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`
-- 业务验收依据：`.ai/knowledge/stocks/vip_stock_alert_business_acceptance_one_time.md`
-- 本轮业务Review结论：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
+- 当前一次性技术修复契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`（关闭本轮P1并完成验收后删除）
+- 业务验收依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
 - 时区：`Asia/Shanghai`
-- 状态：业务Review不通过（P0=0；Alpha新版消息模板业务口径已确认，Alpha SELL测试断言已修复；当前开放P1为换仓双腿统一关联事实，决策日期/phase持续性为部署后7×24小时观察项），本文已按本轮一次性整改口径同步；代码尚未部署，真实BUY/SELL业务验收仍需独立进行
+- 状态：第五批业务Review不通过；当前代码整改范围为`R-ALPHA-PRE-001`换仓通知组级收敛、`R-ALPHA-PRE-002`仅FORMAL允许VIP_ALPHA正式新入场、`R-ALPHA-PRE-003`通知链统一业务时钟。`R-ALPHA-PRE-004`正式环境证据、`R-ALPHA-PRE-006`通知数据来源确认及真实BUY/SELL验收属于部署后门禁，不能写成代码已完成。
 
 本文坚持最小改动：α是现有股票提醒系统中的新入场决策分支，不建设第二套股票平台。所有新增Java、Schema和测试必须能映射到本文的生产入口和验收证据；无法映射的扩展不得纳入本次开发。
 
@@ -19,15 +18,16 @@
 
 1. α是当前唯一的新正式入场来源；旧版三类BUY、qualityScore、旧版五槽竞争不再参与新α入场。
 2. 旧版已有批次继续按创建时规则收尾，不改写为α，不因α切换而删除或重新解释。
-3. 复用现有调度、15分钟bar、批次、槽位、资金结算、通知和审计能力。
-4. 只在公共模型无法表达业务边界时增加字段、查询条件或分支。
-5. `VIP_ALPHA`为独立10B逻辑资金槽，`slot_no=1`；`VIP_FORMAL`继续使用既有5个2B槽位。
-6. α与旧版允许同时持有同一股票，但资金、批次、SELL配对、规则版本和收益统计必须按组合CODE隔离。
-7. 日线、排名、phase、执行bar和换仓语义只实现一份，使用不可变规则对象和纯领域计算器复用。
-8. 不新增动态SELL、复杂Shadow运行轨道、第二批炒股推荐或研究平台。
-9. 公共入场/成交组装只补充实际成交事实，不得把批次已经冻结的Alpha规则身份（`portfolio_code`、`primary_strategy`、买入/卖出/分配/消息规则版本）覆盖为旧版默认值；历史旧版批次没有专用身份，继续使用旧版默认值。
-10. Alpha消息必须经Alpha感知的最小渲染分支，复用既有BUY/SELL发送、审计、payload冻结与幂等链；不得把`primaryStrategy=ALPHA`交给只认识旧版三类BUY的解析器，不得展示旧版`qualityScore`或旧版五槽容量语义，不新增第二套Alpha消息产品。
-11. 决策事实与执行事实必须分列保存：决策桶起点（`decision_bar_start_time`）、执行桶起点（`execution_bar_start_time`）、批次来源bar（`signal_time`）与批次执行bar（`entry_time`/`exit_time`）不得互相冒充。
+3. `StockRuleModeEnum`为运行模式枚举；`OFF`只禁止新买入研究和正式入场，`SHADOW`与`PROVISIONAL`不得创建`VIP_ALPHA`正式批次，只有`FORMAL`在readiness和开关通过后才允许Alpha正式新入场。
+4. 复用现有调度、15分钟bar、批次、槽位、资金结算、通知和审计能力。
+5. 只在公共模型无法表达业务边界时增加字段、查询条件或分支。
+6. `VIP_ALPHA`为独立10B逻辑资金槽，`slot_no=1`；`VIP_FORMAL`继续使用既有5个2B槽位。
+7. α与旧版允许同时持有同一股票，但资金、批次、SELL配对、规则版本和收益统计必须按组合CODE隔离。
+8. 日线、排名、phase、执行bar和换仓语义只实现一份，使用不可变规则对象和纯领域计算器复用。
+9. 不新增动态SELL、复杂Shadow运行轨道、第二批炒股推荐或研究平台。
+10. 公共入场/成交组装只补充实际成交事实，不得把批次已经冻结的Alpha规则身份（`portfolio_code`、`primary_strategy`、买入/卖出/分配/消息规则版本）覆盖为旧版默认值；历史旧版批次没有专用身份，继续使用旧版默认值。
+11. Alpha消息必须经Alpha感知的最小渲染分支，复用既有BUY/SELL发送、审计、payload冻结与幂等链；不得把`primaryStrategy=ALPHA`交给只认识旧版三类BUY的解析器，不得展示旧版`qualityScore`或旧版五槽容量语义，不新增第二套Alpha消息产品。
+12. 决策事实与执行事实必须分列保存：决策桶起点（`decision_bar_start_time`）、执行桶起点（`execution_bar_start_time`）、批次来源bar（`signal_time`）与批次执行bar（`entry_time`/`exit_time`）不得互相冒充。
 
 ---
 
@@ -346,8 +346,9 @@ StrictReboundConfirmBuyStrategy.java
 - 重复调度先读取已有决策，不重复消费phase。
 - α/旧版查询、锁和内存Map不能只以`stocksId`作为跨策略唯一键。
 - 通知在交易事务提交后发送；发送入口采用数据库级领取语义：只有`PENDING`/`FAILED_RETRYABLE`且未达3次总尝试上限的通知可被原子领取为`SENDING`（领取即累计一次尝试并写入`claim_token`/`claim_time`），冻结与终态回写必须绑定同一领取标识，未领取成功者不得调用Bot，旧领取者不能覆盖新状态。
-- 通知生命周期为`PENDING → SENDING → SENT`或`SENDING → FAILED_RETRYABLE → SENDING → SENT/FAILED_FINAL`：总尝试次数固定3次（首次1次、自动重发2次），达到上限进入`FAILED_FINAL`不再自动发送；失败与状态未知（回写异常、更新行数不足、领取租约超时）都进入可自动重发状态，人工只处理`FAILED_FINAL`或不可解释状态。自动重发直接复用首次冻结的`messageText`/`payloadSnapshot`/`payloadHash`，重复消息可依据批次标识识别。
-- 通知失败不回滚已提交交易；换仓合并消息以`rebalanceAssociationId`为单位领取，两腿必须在同一次领取与同一次回写中进入同一状态，已`SENT`腿不得重复发送，不得将单腿成功解释为完整换仓通知成功；缺腿、重复腿、字段冲突或状态不一致时fail-closed进入`FAILED_FINAL`人工核验。
+- 通知生命周期为`PENDING → SENDING → SENT`或`SENDING → FAILED_RETRYABLE → SENDING → SENT/FAILED_FINAL`：总尝试次数固定3次（首次1次、自动重发2次），达到上限进入`FAILED_FINAL`不再自动发送；失败与状态未知（回写异常、更新行数不足、领取租约超时）不得只写日志，必须按完整换仓组重新读取并持久化收敛为`FAILED_RETRYABLE`、`FAILED_FINAL`或`INCONSISTENT`。自动重发直接复用首次冻结的`messageText`/`payloadSnapshot`/`payloadHash`，重复消息可依据批次标识识别。
+- 通知失败不回滚已提交交易；换仓合并消息以`rebalanceAssociationId`为单位领取、冻结和回写，完整两腿必须在同一组级条件下进入同一状态，已`SENT`腿不得重复发送，不得将单腿成功解释为完整换仓通知成功；缺腿、重复腿、字段冲突、部分完成或状态不可解释时fail-closed并持久化人工核验状态。组级成功/失败回写必须校验实际更新行数等于2，更新不足不得返回成功语义。
+- 通知领取、租约恢复、payload冻结补齐和组级终态回写使用同一发送流程的`StockMarketClock`业务时间；Mapper关键时间通过显式参数传入，禁止通知Java链直接调用`LocalDateTime.now()`，也不得未说明地混用数据库`CURRENT_TIMESTAMP`。
 - 预填任务只能写快照/排名数据，禁止调用批次、资金、结算和通知writer。
 - `VIP_ALPHA`换仓失败必须整体回滚；旧版异常不能改写α，α异常不能吞掉旧版存量SELL。
 
@@ -443,33 +444,27 @@ StockAlphaExecutionBarPolicyTest
 
 ## 13. 已完成实现Review记录
 
-### 13.1 业务Review与第三批修复（2026-09-11）
+### 13.1 第五批业务Review与整改方案（2026-09-13）
 
 - Review依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
-- Review结论：P0=0；核心业务口径通过；第三批代码整改部分通过；聚焦测试通过；当前开放P1为换仓通知关联组在部分冻结/部分发送/重启恢复/缺腿场景下的完整性，业务上线门槛不通过
-- 已关闭：Alpha消息新版模板差异、Alpha SELL测试旧美元符号断言、Torn 7×24小时交易日历阻断判断、决策桶与执行桶严格相邻校验
-- 本轮已实现：换仓决策ID、固定格式换仓关联ID、原仓/新仓批次ID、SELL/BUY腿标识和顺序；正常两腿通知关联、合并和单次发送成功/失败状态
-- 本轮聚焦测试：50 tests，Failures=0，Errors=0，Skipped=0；生产源码编译通过；`git diff --check`通过
-- 当前未闭环：关联组缺腿/重复腿/字段冲突和部分冻结/部分发送/重启恢复的发送闭包；真实PostgreSQL换仓回滚证据；生产预填无交易副作用；7×24小时连续运行观察；真实Alpha BUY、配对`ALPHA_REBALANCE` SELL和业务负责人确认
-- 真实事务证据要求已收敛：只需一个代表性回滚集成测试方法，显式使用`@Transactional`和`@Rollback`，使用真实Spring Service和真实DAO读回，不要求为一个业务方法机械扩展多个测试方法，不得在Java测试文件中堆积业务SQL
+- 当前技术实施依据：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`
+- Review结论：P0=0；当前开放P1为`R-ALPHA-PRE-001`换仓通知组级状态收敛、`R-ALPHA-PRE-002`模式与`VIP_ALPHA`正式资金门禁、`R-ALPHA-PRE-003`通知链统一业务时钟；`R-ALPHA-PRE-004`、`R-ALPHA-PRE-006`和真实BUY/SELL属于部署后证据门禁；`R-ALPHA-PRE-007`为不阻断首批的P2。
+- 当前实现事实：Alpha核心策略、组合隔离、换仓关联字段及正常两腿消息链已存在；通知回写行数不足/异常收敛、非FORMAL正式入场拦截和通知时钟统一仍待实施。
+- 实施范围：只修改一次性技术方案列明的生产包、DAO/Mapper/Schema（如代码追踪确认必须）和收敛测试；不修改旧版策略算法，不建设第二套消息或资金平台。
+- 关闭条件：三项P1按一次性方案完成实现和聚焦/真实数据库证据后，由AI复审；复审完成前不得打开Alpha正式新入场。
 
-### 13.2 第六轮实现Review记录
+### 13.2 历史第三批/第六轮记录（仅作历史证据）
 
-- 审查提交：`11363c6..6f93271`
-- Review结论：P0=0，P1=0，P2=0；本轮功能、规范、性能和测试收敛门禁均已通过
-- 生产源码编译：`mvn.cmd clean test -DskipTests -Dmaven.compiler.showDeprecation=true`，BUILD SUCCESS
-- 第六轮相关聚焦测试：54 tests，Failures=0，Errors=0，Skipped=0
-- 全量测试：1199 tests，Failures=0，Errors=0，Skipped=6，BUILD SUCCESS
-- Git差异检查：`git diff --check 11363c6..6f93271`及累计检查通过
-- 真实Mapper测试：本轮相关测试已执行并通过；未新增独立迁移门禁
-- 当前状态：第六轮技术实现Review完成；其未覆盖的业务Review问题见`13.1`
+- 早期第三批和第六轮记录保留为历史审查上下文，不代表第五批当前状态；其中“当前唯一开放P1为换仓双腿”已被本节13.1覆盖。
+- 早期测试计数、提交范围和“P1=0”结论不作为第五批整改完成证据。
 
 ---
 
 ## 14. 技术停止条件
 
-- α唯一新入场调用链可证明；
-- `VIP_ALPHA`与`VIP_FORMAL`资金、批次、SELL来源隔离；
+- `SHADOW`/`PROVISIONAL`不得创建`VIP_ALPHA`正式批次；只有`FORMAL`在readiness和新入场开关通过后允许Alpha正式新入场；`OFF`和关闭新入场只阻止新入场，不停止已有Alpha批次管理，也不自动恢复旧版新入场。
+- 换仓消息必须以完整两腿和`rebalanceAssociationId`为组处理；成功/失败回写实际更新行数必须等于2，部分回写、回写异常或一腿已终态等不可解释状态必须持久化收敛，不得只记录日志或单腿重发。
+- 通知租约、冻结和回写使用统一`StockMarketClock`业务时间；关键Mapper时间显式传入，禁止通知链直接调用`LocalDateTime.now()`或未说明地混用`CURRENT_TIMESTAMP`。
 - 公式、35支股票、日线、phase、执行bar和Top3通过；
 - 原子换仓失败无单侧事实；
 - α不触发旧版固定SELL；

@@ -257,8 +257,10 @@ class StockDailySummaryServiceTest {
             return true;
         });
         when(noticeDao.claimByIds(org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
-        when(noticeDao.finalizePayload(org.mockito.ArgumentMatchers.any())).thenReturn(1);
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(java.time.LocalDateTime.class))).thenReturn(1);
+        when(noticeDao.finalizePayload(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(java.time.LocalDateTime.class))).thenReturn(1);
         when(sendService.sendSingleMessageResult(org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(StockNoticeBotSender.SendResult.successful());
 
@@ -266,7 +268,8 @@ class StockDailySummaryServiceTest {
 
         verify(sendService).sendSingleMessageResult(org.mockito.ArgumentMatchers.anyString());
         verify(noticeDao).markSentByIds(org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.anyString());
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(java.time.LocalDateTime.class));
     }
 
     @Test

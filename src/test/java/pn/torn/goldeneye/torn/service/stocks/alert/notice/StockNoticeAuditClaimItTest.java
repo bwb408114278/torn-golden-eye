@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeRebalanceGroupStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeTypeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
@@ -67,6 +68,10 @@ class StockNoticeAuditClaimItTest {
      * 通知规则版本(夹具值)。
      */
     private static final String MESSAGE_RULE_VERSION = "IT-1.6.1";
+    /**
+     * 夹具统一业务时间(替代数据库CURRENT_TIMESTAMP)。
+     */
+    private static final LocalDateTime BUSINESS_NOW = LocalDateTime.of(2026, 9, 13, 11, 0);
 
     @Autowired
     private TornStockNoticeAuditDAO noticeAuditDao;
@@ -108,12 +113,12 @@ class StockNoticeAuditClaimItTest {
         String loserToken = winnerToken.equals(claimTokens.get(0)) ? claimTokens.get(1) : claimTokens.get(0);
 
         // 旧领取者不能覆盖新状态:状态与领取标识必须同时匹配
-        assertEquals(0, noticeAuditDao.markSentByIds(List.of(noticeId), loserToken));
-        assertEquals(0, noticeAuditDao.markSendFailedByIds(List.of(noticeId), loserToken, "越权回写"));
+        assertEquals(0, noticeAuditDao.markSentByIds(List.of(noticeId), loserToken, BUSINESS_NOW));
+        assertEquals(0, noticeAuditDao.markSendFailedByIds(List.of(noticeId), loserToken, "越权回写", BUSINESS_NOW));
         assertEquals(StockNoticeStatusEnum.SENDING.getCode(), noticeAuditDao.getById(noticeId).getSendStatus());
 
         // 本领取者可以回写终态
-        assertEquals(1, noticeAuditDao.markSentByIds(List.of(noticeId), winnerToken));
+        assertEquals(1, noticeAuditDao.markSentByIds(List.of(noticeId), winnerToken, BUSINESS_NOW));
         assertEquals(StockNoticeStatusEnum.SENT.getCode(), noticeAuditDao.getById(noticeId).getSendStatus());
     }
 
@@ -125,10 +130,10 @@ class StockNoticeAuditClaimItTest {
         for (int attempt = 1; attempt <= 3; attempt++) {
             assertTrue(isSendable(noticeId), "第" + attempt + "次发送前必须仍在可发送集合中");
             String claimToken = "it-retry-" + attempt;
-            assertEquals(1, noticeAuditDao.claimByIds(List.of(noticeId), claimToken),
+            assertEquals(1, noticeAuditDao.claimByIds(List.of(noticeId), claimToken, BUSINESS_NOW),
                     "第" + attempt + "次尝试必须可被领取");
             assertEquals(1, noticeAuditDao.markSendFailedByIds(List.of(noticeId), claimToken,
-                    "模拟第" + attempt + "次发送失败"));
+                    "模拟第" + attempt + "次发送失败", BUSINESS_NOW));
 
             TornStockNoticeAuditDO afterFailure = noticeAuditDao.getById(noticeId);
             assertEquals(attempt, afterFailure.getSendAttemptCount(), "发送尝试次数必须持久化累计");
@@ -139,7 +144,7 @@ class StockNoticeAuditClaimItTest {
         }
 
         // 达到上限后不再领取也不再出现在可发送集合中
-        assertEquals(0, noticeAuditDao.claimByIds(List.of(noticeId), "it-retry-4"));
+        assertEquals(0, noticeAuditDao.claimByIds(List.of(noticeId), "it-retry-4", BUSINESS_NOW));
         assertFalse(isSendable(noticeId), "FAILED_FINAL不得再被后续调度领取");
     }
 
@@ -149,7 +154,7 @@ class StockNoticeAuditClaimItTest {
         Long retryableId = insertClaimedStaleNotice(SUMMARY_DATE_STALE_RETRYABLE, 1);
         Long finalId = insertClaimedStaleNotice(SUMMARY_DATE_STALE_FINAL, 3);
 
-        int recovered = noticeAuditDao.recoverStaleClaims(LocalDateTime.now().minusMinutes(5));
+        int recovered = noticeAuditDao.recoverStaleClaims(BUSINESS_NOW.minusMinutes(5), BUSINESS_NOW);
 
         assertTrue(recovered >= 2, "超时领取必须被恢复, recovered=" + recovered);
         assertEquals(StockNoticeStatusEnum.FAILED_RETRYABLE.getCode(),
@@ -162,40 +167,59 @@ class StockNoticeAuditClaimItTest {
     }
 
     @Test
-    @DisplayName("α换仓关联组_以关联标识为单位原子领取且已SENT腿不被重新领取")
-    void rebalanceGroupClaim_claimsWholeGroupWithoutResendingSentLeg() {
-        String associationId = "ALPHA_REBALANCE:IT-" + UUID.randomUUID();
-        Long buyLegId = insertRebalanceLeg(associationId, "BUY", 2, 900002L,
+    @DisplayName("α换仓关联组_组级领取严格完整两腿且已SENT腿导致整组不领取")
+    void rebalanceGroupClaim_requiresWholeGroupAndNeverResendsSentLeg() {
+        // 一腿已SENT一腿可重试:组边界不完整,整组必须更新0行,禁止只领取剩余腿
+        String mixedAssociation = "ALPHA_REBALANCE:IT-" + UUID.randomUUID();
+        Long buyLegId = insertRebalanceLeg(mixedAssociation, "BUY", 2, 900002L,
                 StockNoticeStatusEnum.PENDING.getCode(), 0);
-        // 已SENT腿:不得被重新领取,尝试次数不得再次累计
-        Long sentSellLegId = insertRebalanceLeg(associationId, "SELL", 1, 900001L,
+        Long sentSellLegId = insertRebalanceLeg(mixedAssociation, "SELL", 1, 900001L,
                 StockNoticeStatusEnum.SENT.getCode(), 1);
-        String groupToken = "it-group-" + UUID.randomUUID();
 
-        assertEquals(1, noticeAuditDao.claimByRebalanceAssociationId(associationId, groupToken),
-                "关联组领取必须以关联标识为单位且只领取仍可发送的腿");
+        assertEquals(0, noticeAuditDao.claimByRebalanceAssociationId(mixedAssociation,
+                        "it-group-mixed", BUSINESS_NOW),
+                "关联组不完整时必须以更新0行fail-closed,禁止部分领取");
         assertEquals(StockNoticeStatusEnum.SENT.getCode(), noticeAuditDao.getById(sentSellLegId).getSendStatus(),
                 "已SENT腿不得被重新领取");
         assertEquals(1, noticeAuditDao.getById(sentSellLegId).getSendAttemptCount(),
                 "已SENT腿的尝试次数不得被关联组领取再次累计");
+        TornStockNoticeAuditDO untouchedBuyLeg = noticeAuditDao.getById(buyLegId);
+        assertEquals(StockNoticeStatusEnum.PENDING.getCode(), untouchedBuyLeg.getSendStatus(),
+                "组级领取失败时另一腿不得被部分更新为SENDING");
+        assertNull(untouchedBuyLeg.getClaimToken(), "组级领取失败时不得留下领取标识");
 
-        TornStockNoticeAuditDO claimedBuyLeg = noticeAuditDao.getById(buyLegId);
-        assertEquals(StockNoticeStatusEnum.SENDING.getCode(), claimedBuyLeg.getSendStatus());
-        assertEquals(1, claimedBuyLeg.getSendAttemptCount());
-        assertEquals(groupToken, claimedBuyLeg.getClaimToken());
-
-        // 关联组内已无可发送腿时不再被任何发送流程领取
-        assertEquals(0, noticeAuditDao.claimByRebalanceAssociationId(associationId, "it-group-again"));
-        assertEquals(1, noticeAuditDao.markSentByIds(List.of(buyLegId), groupToken));
-
-        // 两条腿均为PENDING时,关联组以一次领取原子覆盖两腿
+        // 两条腿均为PENDING时,关联组以一次领取原子覆盖两腿并写入组状态SENDING
         String wholeGroupAssociation = "ALPHA_REBALANCE:IT-" + UUID.randomUUID();
-        insertRebalanceLeg(wholeGroupAssociation, "SELL", 1, 900003L, StockNoticeStatusEnum.PENDING.getCode(), 0);
-        insertRebalanceLeg(wholeGroupAssociation, "BUY", 2, 900004L, StockNoticeStatusEnum.PENDING.getCode(), 0);
-        assertEquals(2, noticeAuditDao.claimByRebalanceAssociationId(wholeGroupAssociation, "it-group-whole"),
+        Long wholeSellLegId = insertRebalanceLeg(wholeGroupAssociation, "SELL", 1, 900003L,
+                StockNoticeStatusEnum.PENDING.getCode(), 0);
+        Long wholeBuyLegId = insertRebalanceLeg(wholeGroupAssociation, "BUY", 2, 900004L,
+                StockNoticeStatusEnum.PENDING.getCode(), 0);
+        assertEquals(2, noticeAuditDao.claimByRebalanceAssociationId(wholeGroupAssociation,
+                        "it-group-whole", BUSINESS_NOW),
                 "完整关联组必须以一次领取原子覆盖两条腿");
-        assertEquals(0, noticeAuditDao.claimByRebalanceAssociationId(wholeGroupAssociation, "it-group-whole-2"),
+        for (Long legId : List.of(wholeSellLegId, wholeBuyLegId)) {
+            TornStockNoticeAuditDO claimed = noticeAuditDao.getById(legId);
+            assertEquals(StockNoticeStatusEnum.SENDING.getCode(), claimed.getSendStatus());
+            assertEquals(StockNoticeRebalanceGroupStatusEnum.SENDING.getCode(),
+                    claimed.getRebalanceGroupStatus(), "组级领取必须同时写入两腿组状态SENDING");
+            assertEquals(1, claimed.getSendAttemptCount(), "组级领取必须为两腿各累计一次尝试");
+            assertEquals("it-group-whole", claimed.getClaimToken());
+        }
+        assertEquals(0, noticeAuditDao.claimByRebalanceAssociationId(wholeGroupAssociation,
+                        "it-group-whole-2", BUSINESS_NOW),
                 "已被领取的关联组不得被第二个发送流程重复领取");
+
+        // 组级原子成功回写:两腿必须在同一SQL语义内同时进入SENT与组状态SENT
+        assertEquals(2, noticeAuditDao.markRebalanceGroupSent(wholeGroupAssociation,
+                        "it-group-whole", BUSINESS_NOW),
+                "完整两腿必须一次原子回写2行");
+        for (Long legId : List.of(wholeSellLegId, wholeBuyLegId)) {
+            TornStockNoticeAuditDO sent = noticeAuditDao.getById(legId);
+            assertEquals(StockNoticeStatusEnum.SENT.getCode(), sent.getSendStatus());
+            assertEquals(StockNoticeRebalanceGroupStatusEnum.SENT.getCode(), sent.getRebalanceGroupStatus());
+            assertNotNull(sent.getSentAt(), "组级成功回写必须写入发送成功时间");
+            assertEquals(BUSINESS_NOW, sent.getSentAt(), "发送成功时间必须等于调用方传入的业务时间");
+        }
     }
 
     /**
@@ -213,7 +237,7 @@ class StockNoticeAuditClaimItTest {
             for (String claimToken : claimTokens) {
                 futures.add(executor.submit(() -> {
                     startGate.await();
-                    return noticeAuditDao.claimByIds(List.of(noticeId), claimToken);
+                    return noticeAuditDao.claimByIds(List.of(noticeId), claimToken, BUSINESS_NOW);
                 }));
             }
             startGate.countDown();

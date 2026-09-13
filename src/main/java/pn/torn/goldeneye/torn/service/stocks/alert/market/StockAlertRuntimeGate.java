@@ -21,6 +21,8 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadin
  *   <li>总开关 {@code VIP_STOCK_ALERT_ENABLED} 关闭时,只要存在活跃批次,仍应构建存量管理所需轮次
  *       (退出、恢复、灾难关闭、冷却),仅禁止新买入;</li>
  *   <li>新买入开关 {@code VIP_STOCK_NEW_ENTRY_ENABLED} 缺失或为false按false处理,禁止从总开关推导为true;</li>
+ *   <li>正式新入场只允许 {@code FORMAL}:{@code SHADOW}/{@code PROVISIONAL} 只允许研究、快照与Shadow记录,
+ *       不得借用{@code VIP_ALPHA}的10B、100%正式组合语义,也不得创建正式批次;</li>
  *   <li>规则模式 OFF 只禁止买入研究事件、Shadow新批次和正式接纳,不阻断存量批次管理;</li>
  *   <li>存在未结算拒绝观察时,即使新买入关闭且无活跃持仓,仍应构建观察窗口bar并结算研究义务;</li>
  *   <li>历史PENDING通知投递独立于轮次开关,由正式消息开关单独决定。</li>
@@ -65,8 +67,10 @@ public class StockAlertRuntimeGate {
                 signalEventDao.existsPendingRejectedObservationEvents();
 
         boolean shouldBuildRounds = alertEnabled || existsActiveBatches || existsPendingRejectedObservationEvents;
-        boolean allowNewEntry = alertEnabled && newEntryEnabled && ruleMode != StockRuleModeEnum.OFF
-                && alphaReadinessGate.isReady();
+        // 正式新入场是"总开关 ∧ 新入场开关 ∧ 规则模式为FORMAL ∧ Alpha readiness"的合取:
+        // SHADOW/PROVISIONAL 没有独立的小规模资金、槽位和消息契约,不得借用VIP_ALPHA的10B、100%正式语义。
+        boolean allowNewEntry = alertEnabled && newEntryEnabled
+                && ruleMode == StockRuleModeEnum.FORMAL && alphaReadinessGate.isReady();
         boolean shouldSendPendingNotices = formalNoticeEnabled && existsPendingNotices;
 
         RuntimeDecision decision = new RuntimeDecision(
@@ -120,7 +124,7 @@ public class StockAlertRuntimeGate {
      * @param shouldBuildRounds                是否构建轮次(含存量管理或拒绝观察义务所需轮次)
      * @param manageExistingBatches            是否存在活跃存量批次需要继续管理
      * @param manageResearchObligations        是否存在未结算拒绝观察需要继续结算研究义务
-     * @param allowNewEntry                    是否允许创建新的正式/候选影子批次
+     * @param allowNewEntry                    是否允许正式新入场(唯一正式许可:仅{@code FORMAL}模式成立)
      * @param shouldSendPendingNotices         是否应投递历史PENDING通知
      * @param ruleMode                         当前规则模式
      * @param existsActiveBatches              查询到的活跃批次存在性(用于日志与测试断言)

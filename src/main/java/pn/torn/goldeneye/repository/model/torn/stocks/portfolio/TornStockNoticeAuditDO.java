@@ -16,9 +16,13 @@ import java.time.LocalDateTime;
  * 保存正式买卖和每日摘要的中文消息快照、发送领取事实与最终发送结果。
  * 它是最小审计表,不是高可用Outbox实现:不解析NapCat ACK,不建设第二套消息平台;
  * 自动重发在既有通知审计、payload冻结和发送状态下完成,总尝试次数固定3次。
+ * <p>
+ * α换仓的两条通知共享同一{@code rebalanceAssociationId},以{@code rebalanceGroupStatus}表达
+ * 一次完整换仓的组级状态:两腿记录必须保持相同值,任何组级领取、成功、失败和异常收敛都必须在
+ * 同一次数据库语义内写入两腿,禁止只更新其中一腿后用日志掩盖差异。普通通知的组级字段固定为null。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Data
@@ -94,4 +98,19 @@ public class TornStockNoticeAuditDO extends BaseDO {
      * 消息规则版本(生成通知内容所用的规则版本)
      */
     private String messageRuleVersion;
+    /**
+     * α换仓关联组级状态({@link pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeRebalanceGroupStatusEnum})。
+     * <p>
+     * 取值PENDING/SENDING/SENT/FAILED_RETRYABLE/FAILED_FINAL/INCONSISTENT,表示同一次α换仓完整两腿的组级业务状态。
+     * 同一{@code rebalanceAssociationId}的两腿记录必须保持相同值:任何组级领取、成功、失败和异常收敛
+     * 都必须在同一次数据库语义内写入两腿,禁止只更新其中一腿后用日志掩盖差异。
+     * 普通通知不参与换仓组语义,固定为null。
+     */
+    private String rebalanceGroupStatus;
+    /**
+     * α换仓关联组级异常原因(缺腿、重复腿、字段冲突、回写行数不足、组状态不可解释等人工核验依据)。
+     * <p>
+     * 同一{@code rebalanceAssociationId}的两腿记录必须保持相同值,只用于α换仓组;普通通知固定为null。
+     */
+    private String rebalanceGroupError;
 }

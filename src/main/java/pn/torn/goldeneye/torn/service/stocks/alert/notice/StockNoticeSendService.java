@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.rebalance.StockRebalanceNoticeSender;
 
 import java.time.LocalDateTime;
@@ -24,7 +25,10 @@ import java.util.stream.Collectors;
  * 在VIP股票策略轮次事务提交后驱动消息投递。整体流程:
  * <ol>
  *   <li>校验 {@link SettingConstants#KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED} 开关(值为"true"时启用)</li>
- *   <li>先恢复领取租约超时仍未回写的通知(进程崩溃或回写异常时按结果未知回到可重发/最终失败)</li>
+ *   <li>一次性取得本次发送编排的唯一业务时间 {@code businessNow = StockMarketClock.now()},
+ *       租约恢复、领取、冻结、成功/失败回写全部复用该时间,禁止在同一调用链中读取多个不同瞬间</li>
+ *   <li>按{@code businessNow - 5分钟}恢复领取租约超时仍未回写的通知
+ *       (进程崩溃或回写异常时按结果未知回到可重发/最终失败)</li>
  *   <li>查询可发送通知(PENDING与未达上限的FAILED_RETRYABLE),批量查询关联批次信息,
  *       无有效批次的通知置为FAILED_FINAL人工核验终态</li>
  *   <li>按通知类型分流: α换仓通知交由 {@link StockRebalanceNoticeSender} 以完整两腿关联组
@@ -36,6 +40,9 @@ import java.util.stream.Collectors;
  *   <li>发送经 {@link StockNoticeBotSender} 执行,状态回写经 {@link StockNoticeSendRecorder} 执行;
  *       失败未达3次总尝试上限进入FAILED_RETRYABLE由后续调度自动重发,达到上限进入FAILED_FINAL,
  *       SENT不得再次发送</li>
+ *   <li>α换仓关联组以完整两腿为单位领取与回写终态:组级回写行数不足时由
+ *       {@link pn.torn.goldeneye.torn.service.stocks.alert.notice.rebalance.RebalanceGroupRecoveryPolicy}
+ *       决策收敛为可重发或INCONSISTENT人工核验终态,不得只记录日志</li>
  * </ol>
  * 单条通知发送异常不会中断后续通知投递,异常信息写入errorMessage字段。
  * <p>
@@ -73,6 +80,7 @@ public class StockNoticeSendService {
     private static final long CLAIM_LEASE_MINUTES = 5;
 
     private final SysSettingManager sysSettingManager;
+    private final StockMarketClock marketClock;
     private final TornStockNoticeAuditDAO noticeAuditDao;
     private final TornStockVirtualBatchDAO virtualBatchDao;
     private final StockNoticeComposeService stockNoticeComposeService;
@@ -104,7 +112,10 @@ public class StockNoticeSendService {
             return;
         }
 
-        recoverStaleClaims();
+        // 同一次发送编排只读取一次业务时间:租约恢复、领取、冻结、成功/失败回写全部复用同一businessNow,
+        // 禁止在同一调用链中由不同组件分别读取不同瞬间的系统时钟。
+        LocalDateTime businessNow = marketClock.now();
+        recoverStaleClaims(businessNow);
 
         List<TornStockNoticeAuditDO> sendableNotices = noticeAuditDao.selectSendableNotices();
         if (CollectionUtils.isEmpty(sendableNotices)) {
@@ -117,7 +128,7 @@ public class StockNoticeSendService {
         Map<Long, TornStockVirtualBatchDO> batchMap = loadBatchMap(sendableNotices);
         List<TornStockNoticeAuditDO> validNotices = filterNoticesWithoutRequiredBatch(sendableNotices, batchMap);
         if (validNotices.size() < sendableNotices.size()) {
-            markMissingBatchNoticesFinal(sendableNotices, batchMap);
+            markMissingBatchNoticesFinal(sendableNotices, batchMap, businessNow);
         }
         if (validNotices.isEmpty()) {
             log.warn("股票通知发送-无有效批次关联, sendableNotices={}", sendableNotices.size());
@@ -129,8 +140,8 @@ public class StockNoticeSendService {
         List<TornStockNoticeAuditDO> rebalanceNotices = new ArrayList<>();
         classifyNotices(validNotices, rebalanceNotices, normalNotices);
         // α换仓关联组必须以完整两腿组合成一条原子消息发送,不得与普通通知合并后被拆分
-        rebalanceNoticeSender.sendGroups(rebalanceNotices, batchMap, counter);
-        sendNormalNotices(normalNotices, batchMap, counter);
+        rebalanceNoticeSender.sendGroups(rebalanceNotices, batchMap, counter, businessNow);
+        sendNormalNotices(normalNotices, batchMap, counter, businessNow);
 
         log.info("股票通知发送-完成, 成功={}条, 失败={}条", counter.successCount(), counter.failedCount());
     }
@@ -142,9 +153,11 @@ public class StockNoticeSendService {
      * 处理,未达尝试上限恢复为FAILED_RETRYABLE等待自动重发,达到上限恢复为FAILED_FINAL终态;
      * 恢复失败不阻塞本轮,后续调度继续尝试。
      */
-    private void recoverStaleClaims() {
+    private void recoverStaleClaims(LocalDateTime businessNow) {
         try {
-            int recovered = noticeAuditDao.recoverStaleClaims(LocalDateTime.now().minusMinutes(CLAIM_LEASE_MINUTES));
+            // 租约边界固定为businessNow减5分钟:claimTime == staleBefore不恢复,严格早于才恢复。
+            int recovered = noticeAuditDao.recoverStaleClaims(
+                    businessNow.minusMinutes(CLAIM_LEASE_MINUTES), businessNow);
             if (recovered > 0) {
                 log.warn("股票通知发送-恢复领取超时的通知, count={}", recovered);
             }
@@ -187,12 +200,14 @@ public class StockNoticeSendService {
      */
     private void sendNormalNotices(List<TornStockNoticeAuditDO> normalNotices,
                                    Map<Long, TornStockVirtualBatchDO> batchMap,
-                                   NoticeSendCounter counter) {
+                                   NoticeSendCounter counter,
+                                   LocalDateTime businessNow) {
         if (CollectionUtils.isEmpty(normalNotices)) {
             return;
         }
         Map<Long, TornStockNoticeAuditDO> noticeById = indexNoticesById(normalNotices);
-        List<TornStockNoticeAuditDO> composableNotices = excludeNoticesWithoutMessageText(normalNotices, counter);
+        List<TornStockNoticeAuditDO> composableNotices =
+                excludeNoticesWithoutMessageText(normalNotices, counter, businessNow);
         if (CollectionUtils.isEmpty(composableNotices)) {
             return;
         }
@@ -202,7 +217,7 @@ public class StockNoticeSendService {
             log.warn("股票通知发送-消息组合结果为空,待发送通知数={}", composableNotices.size());
             return;
         }
-        sendComposedMessages(composedMessages, noticeById, counter);
+        sendComposedMessages(composedMessages, noticeById, counter, businessNow);
     }
 
     /**
@@ -217,7 +232,7 @@ public class StockNoticeSendService {
      * @return 可进入组合链的通知
      */
     private List<TornStockNoticeAuditDO> excludeNoticesWithoutMessageText(
-            List<TornStockNoticeAuditDO> normalNotices, NoticeSendCounter counter) {
+            List<TornStockNoticeAuditDO> normalNotices, NoticeSendCounter counter, LocalDateTime businessNow) {
         List<TornStockNoticeAuditDO> composable = new ArrayList<>(normalNotices.size());
         List<Long> corruptNoticeIds = new ArrayList<>();
         for (TornStockNoticeAuditDO notice : normalNotices) {
@@ -233,7 +248,7 @@ public class StockNoticeSendService {
         if (!corruptNoticeIds.isEmpty()) {
             counter.countFailure();
             log.error("股票通知发送-通知既未冻结又缺少可发送正文,置为人工核验终态: noticeIds={}", corruptNoticeIds);
-            sendRecorder.markFinal(corruptNoticeIds, MISSING_MESSAGE_TEXT_FAILURE_MESSAGE);
+            sendRecorder.markFinal(corruptNoticeIds, MISSING_MESSAGE_TEXT_FAILURE_MESSAGE, businessNow);
         }
         return composable;
     }
@@ -251,9 +266,10 @@ public class StockNoticeSendService {
      */
     private void sendComposedMessages(List<StockNoticeComposeService.ComposedMessage> composedMessages,
                                       Map<Long, TornStockNoticeAuditDO> noticeById,
-                                      NoticeSendCounter counter) {
+                                      NoticeSendCounter counter,
+                                      LocalDateTime businessNow) {
         for (StockNoticeComposeService.ComposedMessage composedMessage : composedMessages) {
-            sendComposedMessage(composedMessage, noticeById, counter);
+            sendComposedMessage(composedMessage, noticeById, counter, businessNow);
         }
     }
 
@@ -269,22 +285,23 @@ public class StockNoticeSendService {
      */
     private void sendComposedMessage(StockNoticeComposeService.ComposedMessage composedMessage,
                                      Map<Long, TornStockNoticeAuditDO> noticeById,
-                                     NoticeSendCounter counter) {
+                                     NoticeSendCounter counter,
+                                     LocalDateTime businessNow) {
         List<Long> noticeIds = composedMessage.noticeIds();
         String claimToken = sendRecorder.newClaimToken();
-        if (!sendRecorder.claim(noticeIds, claimToken)) {
+        if (!sendRecorder.claim(noticeIds, claimToken, businessNow)) {
             counter.countFailure();
             log.warn("股票通知发送-本条合并消息未领取成功,跳过发送: noticeIds={}", noticeIds);
             return;
         }
-        if (!freezeComposedMessage(noticeById, composedMessage, claimToken)) {
+        if (!freezeComposedMessage(noticeById, composedMessage, claimToken, businessNow)) {
             counter.countFailure();
             log.error("股票通知发送-最终payload冻结行数不符,停止发送本条合并消息: noticeCount={}",
                     noticeIds.size());
-            sendRecorder.markSendFailed(noticeIds, claimToken, FINALIZE_FAILURE_MESSAGE);
+            sendRecorder.markSendFailed(noticeIds, claimToken, FINALIZE_FAILURE_MESSAGE, businessNow);
             return;
         }
-        deliverComposedMessage(composedMessage, claimToken, counter);
+        deliverComposedMessage(composedMessage, claimToken, counter, businessNow);
     }
 
     /**
@@ -297,7 +314,8 @@ public class StockNoticeSendService {
      */
     private boolean freezeComposedMessage(Map<Long, TornStockNoticeAuditDO> noticeById,
                                           StockNoticeComposeService.ComposedMessage composedMessage,
-                                          String claimToken) {
+                                          String claimToken,
+                                          LocalDateTime businessNow) {
         List<Long> unfrozenNoticeIds = composedMessage.noticeIds().stream()
                 .filter(noticeId -> !StockNoticePayloadReader.isAlreadyFrozen(noticeById.get(noticeId)))
                 .toList();
@@ -305,7 +323,7 @@ public class StockNoticeSendService {
             return true;
         }
         return sendRecorder.freezePayload(noticeById, unfrozenNoticeIds, composedMessage.text(),
-                LocalDateTime.now(), claimToken);
+                businessNow, claimToken, businessNow);
     }
 
     /**
@@ -317,14 +335,16 @@ public class StockNoticeSendService {
      */
     private void deliverComposedMessage(StockNoticeComposeService.ComposedMessage composedMessage,
                                         String claimToken,
-                                        NoticeSendCounter counter) {
+                                        NoticeSendCounter counter,
+                                        LocalDateTime businessNow) {
         StockNoticeBotSender.SendResult sendResult = botSender.send(composedMessage.text());
         if (sendResult.success()) {
             counter.countSuccess();
-            sendRecorder.markSent(composedMessage.noticeIds(), claimToken);
+            sendRecorder.markSent(composedMessage.noticeIds(), claimToken, businessNow);
         } else {
             counter.countFailure();
-            sendRecorder.markSendFailed(composedMessage.noticeIds(), claimToken, sendResult.failureReason());
+            sendRecorder.markSendFailed(composedMessage.noticeIds(), claimToken, sendResult.failureReason(),
+                    businessNow);
         }
     }
 
@@ -458,7 +478,8 @@ public class StockNoticeSendService {
      * @param batchMap 已加载的批次索引
      */
     private void markMissingBatchNoticesFinal(List<TornStockNoticeAuditDO> notices,
-                                              Map<Long, TornStockVirtualBatchDO> batchMap) {
+                                              Map<Long, TornStockVirtualBatchDO> batchMap,
+                                              LocalDateTime businessNow) {
         List<Long> missingNoticeIds = notices.stream()
                 .filter(notice -> requiresBatch(notice)
                         && (notice.getBatchId() == null || !batchMap.containsKey(notice.getBatchId())))
@@ -466,7 +487,7 @@ public class StockNoticeSendService {
                 .filter(Objects::nonNull)
                 .toList();
         if (!missingNoticeIds.isEmpty()) {
-            sendRecorder.markFinal(missingNoticeIds, MISSING_BATCH_FAILURE_MESSAGE);
+            sendRecorder.markFinal(missingNoticeIds, MISSING_BATCH_FAILURE_MESSAGE, businessNow);
             log.warn("股票通知发送-无关联批次通知已标记FAILED_FINAL: count={}", missingNoticeIds.size());
         }
     }

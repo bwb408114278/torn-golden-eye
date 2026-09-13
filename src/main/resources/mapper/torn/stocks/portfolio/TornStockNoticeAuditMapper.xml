@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockNoticeAuditMapper">
-    <!-- 查询可发送通知(PENDING或未达尝试上限的FAILED_RETRYABLE),按ID升序保证领取顺序稳定 -->
+    <!-- 查询可发送通知(PENDING或未达尝试上限的FAILED_RETRYABLE),按ID升序保证领取顺序稳定。
+         α换仓组状态已进入终态(SENT/FAILED_FINAL/INCONSISTENT)的腿不再进入待发送集合,
+         避免组级异常终态被普通发送查询再次投递。 -->
     <select id="selectSendableNotices" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
         SELECT id, notice_no, batch_id, notice_type, scheduled_round_time, summary_date, group_id,
                payload_hash, payload_snapshot, send_status, send_attempt_count, claim_token, claim_time,
-               attempted_at, sent_at, error_message, message_rule_version, deleted, create_time, update_time
+               attempted_at, sent_at, error_message, message_rule_version, rebalance_group_status,
+               rebalance_group_error, deleted, create_time, update_time
         FROM torn_stock_notice_audit
         WHERE send_status IN ('PENDING', 'FAILED_RETRYABLE')
           AND COALESCE(send_attempt_count, 0) &lt; 3
           AND deleted = 0
+          AND (rebalance_group_status IS NULL
+               OR rebalance_group_status NOT IN ('SENT', 'FAILED_FINAL', 'INCONSISTENT'))
         ORDER BY id ASC
     </select>
 
@@ -17,22 +22,24 @@
     <select id="selectByRebalanceAssociationId" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
         SELECT id, notice_no, batch_id, notice_type, scheduled_round_time, summary_date, group_id,
                payload_hash, payload_snapshot, send_status, send_attempt_count, claim_token, claim_time,
-               attempted_at, sent_at, error_message, message_rule_version, deleted, create_time, update_time
+               attempted_at, sent_at, error_message, message_rule_version, rebalance_group_status,
+               rebalance_group_error, deleted, create_time, update_time
         FROM torn_stock_notice_audit
         WHERE deleted = 0
           AND payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
         ORDER BY id ASC
     </select>
 
-    <!-- 原子领取一批通知:仅PENDING/FAILED_RETRYABLE且未达上限可领取,领取即累计一次发送尝试 -->
+    <!-- 原子领取一批通知:仅PENDING/FAILED_RETRYABLE且未达上限可领取,领取即累计一次发送尝试。
+         时间一律由应用层传入统一businessNow,不使用数据库CURRENT_TIMESTAMP。 -->
     <update id="claimByIds">
         UPDATE torn_stock_notice_audit
         SET send_status = 'SENDING',
             claim_token = #{claimToken},
-            claim_time = CURRENT_TIMESTAMP,
-            attempted_at = CURRENT_TIMESTAMP,
+            claim_time = #{businessNow},
+            attempted_at = #{businessNow},
             send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
-            update_time = CURRENT_TIMESTAMP
+            update_time = #{businessNow}
         WHERE deleted = 0
           AND send_status IN ('PENDING', 'FAILED_RETRYABLE')
           AND COALESCE(send_attempt_count, 0) &lt; 3
@@ -42,27 +49,44 @@
         </foreach>
     </update>
 
-    <!-- 以换仓关联标识为单位原子领取该关联组仍可发送的腿(已SENT或达上限的腿不会被领取) -->
+    <!-- 组级原子领取:仅当关联组恰好两条α换仓腿,且两腿同时可领取并都未达上限时,
+         才在同一条SQL内一次领取两腿并写入组状态SENDING;否则更新0行,调用方禁止调用Bot。 -->
     <update id="claimByRebalanceAssociationId">
-        UPDATE torn_stock_notice_audit
+        UPDATE torn_stock_notice_audit t
         SET send_status = 'SENDING',
+            rebalance_group_status = 'SENDING',
             claim_token = #{claimToken},
-            claim_time = CURRENT_TIMESTAMP,
-            attempted_at = CURRENT_TIMESTAMP,
-            send_attempt_count = COALESCE(send_attempt_count, 0) + 1,
-            update_time = CURRENT_TIMESTAMP
-        WHERE deleted = 0
-          AND send_status IN ('PENDING', 'FAILED_RETRYABLE')
-          AND COALESCE(send_attempt_count, 0) &lt; 3
-          AND payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+            claim_time = #{businessNow},
+            attempted_at = #{businessNow},
+            send_attempt_count = COALESCE(t.send_attempt_count, 0) + 1,
+            update_time = #{businessNow}
+        WHERE t.deleted = 0
+          AND t.notice_type = 'ALPHA_REBALANCE'
+          AND t.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+          AND t.send_status IN ('PENDING', 'FAILED_RETRYABLE')
+          AND COALESCE(t.send_attempt_count, 0) &lt; 3
+          AND (t.rebalance_group_status IS NULL
+               OR t.rebalance_group_status IN ('PENDING', 'FAILED_RETRYABLE'))
+          AND (SELECT COUNT(*)
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}) = 2
+          AND (SELECT COUNT(*)
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+                 AND g.send_status IN ('PENDING', 'FAILED_RETRYABLE')
+                 AND COALESCE(g.send_attempt_count, 0) &lt; 3) = 2
     </update>
 
     <!-- 标记发送成功:只回写本领取者持有的SENDING通知 -->
     <update id="markSentByIds">
         UPDATE torn_stock_notice_audit
         SET send_status = 'SENT',
-            sent_at = CURRENT_TIMESTAMP,
-            update_time = CURRENT_TIMESTAMP
+            sent_at = #{businessNow},
+            update_time = #{businessNow}
         WHERE deleted = 0
           AND send_status = 'SENDING'
           AND claim_token = #{claimToken}
@@ -80,7 +104,7 @@
                 ELSE 'FAILED_RETRYABLE'
             END,
             error_message = #{errorMessage},
-            update_time = CURRENT_TIMESTAMP
+            update_time = #{businessNow}
         WHERE deleted = 0
           AND send_status = 'SENDING'
           AND claim_token = #{claimToken}
@@ -90,12 +114,12 @@
         </foreach>
     </update>
 
-    <!-- 直接置为最终失败(关联批次不存在、关联组异常等不可自动重发的人工核验终态) -->
+    <!-- 直接置为最终失败(关联批次不存在、α换仓通知缺少关联标识等不可自动重发的人工核验终态) -->
     <update id="markFinalByIds">
         UPDATE torn_stock_notice_audit
         SET send_status = 'FAILED_FINAL',
             error_message = #{errorMessage},
-            update_time = CURRENT_TIMESTAMP
+            update_time = #{businessNow}
         WHERE deleted = 0
           AND send_status IN ('PENDING', 'FAILED_RETRYABLE')
           AND id IN
@@ -111,7 +135,7 @@
                 WHEN COALESCE(send_attempt_count, 0) &gt;= 3 THEN 'FAILED_FINAL'
                 ELSE 'FAILED_RETRYABLE'
             END,
-            update_time = CURRENT_TIMESTAMP
+            update_time = #{businessNow}
         WHERE deleted = 0
           AND send_status = 'SENDING'
           AND claim_token = #{claimToken}
@@ -122,7 +146,7 @@
         UPDATE torn_stock_notice_audit
         SET payload_snapshot = source.payload_snapshot,
             payload_hash = source.payload_hash,
-            update_time = CURRENT_TIMESTAMP
+            update_time = #{businessNow}
         FROM (VALUES
             <foreach collection="commands" item="cmd" separator=",">
                 (CAST(#{cmd.noticeId} AS BIGINT), CAST(#{cmd.payloadSnapshot} AS jsonb),
@@ -143,7 +167,7 @@
                 ELSE 'FAILED_RETRYABLE'
             END,
             error_message = '发送领取超时未回写,按结果未知恢复',
-            update_time = CURRENT_TIMESTAMP
+            update_time = #{businessNow}
         WHERE deleted = 0
           AND send_status = 'SENDING'
           AND claim_time &lt; #{staleBefore}
@@ -157,5 +181,108 @@
               AND send_status IN ('PENDING', 'FAILED_RETRYABLE', 'SENDING')
         )
     </select>
+
+    <!-- 组级原子成功回写:关联组恰好两条腿、两腿均属本领取者且均为SENDING时,
+         才在同一SQL语义内把两腿与组状态一起写成SENT;否则更新0行。 -->
+    <update id="markRebalanceGroupSent">
+        UPDATE torn_stock_notice_audit t
+        SET send_status = 'SENT',
+            rebalance_group_status = 'SENT',
+            rebalance_group_error = NULL,
+            sent_at = #{businessNow},
+            error_message = NULL,
+            update_time = #{businessNow}
+        WHERE t.deleted = 0
+          AND t.notice_type = 'ALPHA_REBALANCE'
+          AND t.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+          AND t.claim_token = #{claimToken}
+          AND t.send_status = 'SENDING'
+          AND t.rebalance_group_status = 'SENDING'
+          AND (SELECT COUNT(*)
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}) = 2
+          AND (SELECT COUNT(*)
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+                 AND g.claim_token = #{claimToken}
+                 AND g.send_status = 'SENDING'
+                 AND g.rebalance_group_status = 'SENDING') = 2
+    </update>
+
+    <!-- 组级原子失败回写:两腿必须在同一数据库语义内得到同一失败结果。
+         额外要求两腿尝试次数完全相同:次数不同说明组事实已不一致,更新0行并交由异常收敛处理。 -->
+    <update id="markRebalanceGroupFailed">
+        UPDATE torn_stock_notice_audit t
+        SET send_status = CASE
+                WHEN COALESCE(t.send_attempt_count, 0) &gt;= 3 THEN 'FAILED_FINAL'
+                ELSE 'FAILED_RETRYABLE'
+            END,
+            rebalance_group_status = CASE
+                WHEN COALESCE(t.send_attempt_count, 0) &gt;= 3 THEN 'FAILED_FINAL'
+                ELSE 'FAILED_RETRYABLE'
+            END,
+            rebalance_group_error = #{errorMessage},
+            error_message = #{errorMessage},
+            update_time = #{businessNow}
+        WHERE t.deleted = 0
+          AND t.notice_type = 'ALPHA_REBALANCE'
+          AND t.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+          AND t.claim_token = #{claimToken}
+          AND t.send_status = 'SENDING'
+          AND t.rebalance_group_status = 'SENDING'
+          AND (SELECT COUNT(*)
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}) = 2
+          AND (SELECT COUNT(*)
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+                 AND g.claim_token = #{claimToken}
+                 AND g.send_status = 'SENDING'
+                 AND g.rebalance_group_status = 'SENDING') = 2
+          AND (SELECT COUNT(DISTINCT COALESCE(g.send_attempt_count, 0))
+               FROM torn_stock_notice_audit g
+               WHERE g.deleted = 0
+                 AND g.notice_type = 'ALPHA_REBALANCE'
+                 AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+                 AND g.claim_token = #{claimToken}
+                 AND g.send_status = 'SENDING') = 1
+    </update>
+
+    <!-- 组级异常终态收敛:非SENT腿写FAILED_FINAL,已确认成功的腿保持SENT不被降级,
+         两腿组状态统一写为传入groupStatus;已确认成功(存在组状态SENT)的完整组不被覆盖。
+         缺腿/重复腿等无法构成完整两腿的组同样会被覆盖到已有腿,禁止只写日志。 -->
+    <update id="convergeRebalanceGroup">
+        UPDATE torn_stock_notice_audit t
+        SET send_status = CASE
+                WHEN t.send_status = 'SENT' THEN 'SENT'
+                ELSE 'FAILED_FINAL'
+            END,
+            rebalance_group_status = #{groupStatus},
+            rebalance_group_error = #{groupError},
+            error_message = CASE
+                WHEN t.send_status = 'SENT' THEN t.error_message
+                ELSE #{groupError}
+            END,
+            update_time = #{businessNow}
+        WHERE t.deleted = 0
+          AND t.notice_type = 'ALPHA_REBALANCE'
+          AND t.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM torn_stock_notice_audit g
+              WHERE g.deleted = 0
+                AND g.notice_type = 'ALPHA_REBALANCE'
+                AND g.payload_snapshot ->> 'rebalanceAssociationId' = #{rebalanceAssociationId}
+                AND g.rebalance_group_status = 'SENT'
+          )
+    </update>
 
 </mapper>
