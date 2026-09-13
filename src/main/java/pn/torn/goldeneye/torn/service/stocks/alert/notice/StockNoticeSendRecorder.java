@@ -335,10 +335,40 @@ public class StockNoticeSendRecorder {
     }
 
     /**
-     * 组级异常终态收敛:把关联组内全部腿统一写入FAILED_FINAL/INCONSISTENT人工核验终态。
+     * 组级异常终态收敛(当前流程持有组):只在本领取标识仍能证明持有该关联组时持久化人工核验终态。
      * <p>
-     * 缺腿、重复腿、字段冲突、一腿SENT而另一腿可重试、组回写行数不足等无法按正常组规则解释的状态
-     * 必须持久化组级结果,不得只记录日志;已确认发送成功的腿保持SENT不被降级。
+     * 用于Bot结果未知、失败回写行数不足等本流程已持有完整两腿的场景:数据库只更新本领取标识
+     * 能够证明持有的腿,其他流程持有的SENDING腿不会被覆盖;缺少领取标识时不写入并返回0行结果。
+     * 已确认发送成功的腿保持SENT不被降级。
+     *
+     * @param rebalanceAssociationId 换仓关联标识
+     * @param claimToken             本次领取标识
+     * @param groupStatus            目标组状态(FAILED_FINAL或INCONSISTENT)
+     * @param errorMessage           组级异常原因
+     * @param expectedRows           该关联组当前实际腿数(缺腿组小于2时也必须可判定完整)
+     * @param businessNow            本次发送编排的统一业务时间
+     * @return 组级回写结果
+     */
+    public RebalanceGroupWriteResult convergeOwnedRebalanceGroup(String rebalanceAssociationId,
+                                                                 String claimToken,
+                                                                 StockNoticeRebalanceGroupStatusEnum groupStatus,
+                                                                 String errorMessage, int expectedRows,
+                                                                 LocalDateTime businessNow) {
+        if (claimToken == null || claimToken.isBlank()) {
+            log.error("股票通知发送-缺少领取标识,禁止按关联标识收敛α换仓关联组: associationId={}",
+                    rebalanceAssociationId);
+            return RebalanceGroupWriteResult.of(expectedRows, 0, groupStatus);
+        }
+        return writeGroup(rebalanceAssociationId, groupStatus, expectedRows,
+                "收敛本流程持有的α换仓关联组异常终态", () -> noticeAuditDao.convergeOwnedRebalanceGroup(
+                        rebalanceAssociationId, claimToken, groupStatus.getCode(), errorMessage, businessNow));
+    }
+
+    /**
+     * 组级异常终态收敛(无持有者):只在组内不存在任何发送流程持有的SENDING状态时持久化人工核验终态。
+     * <p>
+     * 用于缺腿、重复腿、字段冲突等领取前结构异常以及无持有者的失败回写收敛:数据库在发现任一流程
+     * 正在持有组或组已确认成功时返回0行,本方法不得把0行解释为已收敛成功。
      *
      * @param rebalanceAssociationId 换仓关联标识
      * @param groupStatus            目标组状态(FAILED_FINAL或INCONSISTENT)
@@ -347,12 +377,12 @@ public class StockNoticeSendRecorder {
      * @param businessNow            本次发送编排的统一业务时间
      * @return 组级回写结果
      */
-    public RebalanceGroupWriteResult convergeRebalanceGroup(String rebalanceAssociationId,
-                                                            StockNoticeRebalanceGroupStatusEnum groupStatus,
-                                                            String errorMessage, int expectedRows,
-                                                            LocalDateTime businessNow) {
+    public RebalanceGroupWriteResult convergeUnclaimedRebalanceGroup(String rebalanceAssociationId,
+                                                                     StockNoticeRebalanceGroupStatusEnum groupStatus,
+                                                                     String errorMessage, int expectedRows,
+                                                                     LocalDateTime businessNow) {
         return writeGroup(rebalanceAssociationId, groupStatus, expectedRows,
-                "收敛α换仓关联组异常终态", () -> noticeAuditDao.convergeRebalanceGroup(
+                "收敛无持有者的α换仓关联组异常终态", () -> noticeAuditDao.convergeUnclaimedRebalanceGroup(
                         rebalanceAssociationId, groupStatus.getCode(), errorMessage, businessNow));
     }
 

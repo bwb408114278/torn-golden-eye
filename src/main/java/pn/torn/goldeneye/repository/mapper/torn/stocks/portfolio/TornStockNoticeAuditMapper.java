@@ -70,9 +70,10 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
     /**
      * 以换仓关联标识为单位原子领取α换仓关联组的两腿。
      * <p>
-     * 组边界必须完整:仅当关联组恰好包含两条α换仓腿,且两腿同时处于可领取状态并都未达尝试上限时,
-     * 才在同一条SQL内一次领取两腿并写入组状态SENDING;任一腿不满足条件时更新0行,调用方禁止调用Bot。
-     * 已SENT或已达上限的腿不会被领取。
+     * 组边界必须完整:仅当关联组恰好包含两条α换仓腿,两腿同时处于可领取状态、都未达尝试上限、
+     * 尝试次数完全相同,且两腿组状态按兼容口径一致(NULL与PENDING视为同一待发送口径)时,
+     * 才在同一条SQL内一次领取两腿并写入组状态SENDING;任一条件不满足时更新0行,调用方禁止调用Bot。
+     * 已SENT、已达上限、尝试次数分叉或组状态不一致的腿不会被领取,避免组内事实分叉继续进入发送流程。
      *
      * @param rebalanceAssociationId 换仓关联标识
      * @param claimToken             本次领取标识
@@ -134,6 +135,12 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
      * <p>
      * 领取不完整(并发流程已持有部分通知)时调用,保证未调用Bot的通知不停留在SENDING等待租约;
      * 已回写SENT/终态的通知不会被本语句影响。
+     * <p>
+     * 普通通知只更新{@code send_status};α换仓组只在本领取标识能够证明持有完整两腿
+     * (恰好两腿、两腿均SENDING、两腿组状态均SENDING、两腿均属本领取标识、两腿尝试次数相同)时,
+     * 才在同一条SQL内同步写入两腿{@code send_status}与{@code rebalance_group_status}。
+     * 任一条件不满足时组分支更新0行:不得只更新其中一腿,也不得覆盖其他领取标识持有的行,
+     * 更不允许组状态停留在SENDING而腿状态已经变为失败状态。
      *
      * @param claimToken  本次领取标识
      * @param businessNow 本次发送编排的统一业务时间
@@ -160,6 +167,14 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
      * <p>
      * 领取成功者进程崩溃或回写异常时通知会停留在SENDING:超过租约后按"结果未知"处理,
      * 未达上限恢复为FAILED_RETRYABLE等待自动重发,达到上限恢复为FAILED_FINAL终态。
+     * <p>
+     * 普通通知严格使用{@code claim_time < staleBefore}(相等时不恢复),并且不匹配任何携带换仓关联
+     * 事实的通知,避免先恢复α换仓组的一条腿再由另一条路径补组状态。
+     * α换仓组只恢复能够证明属于同一次租约的完整组(恰好两腿、两腿均SENDING、两腿组状态均SENDING、
+     * 两腿领取标识相同、两腿领取时间均早于{@code staleBefore}、两腿尝试次数相同),
+     * 并在同一条SQL内同步写入两腿{@code send_status}与{@code rebalance_group_status}。
+     * 组成员缺失、领取者不同、尝试次数分叉或状态已被其他流程改变时更新0行,
+     * 不得按单腿事实猜测组状态,该组保留给下一轮安全判断或人工核验。
      *
      * @param staleBefore 租约截止时间,领取时间早于该值的SENDING通知视为失效
      * @param businessNow 本次发送编排的统一业务时间
@@ -212,21 +227,49 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
                                  @Param("businessNow") LocalDateTime businessNow);
 
     /**
-     * 组级异常终态收敛:把关联组内全部腿统一写入人工核验终态。
+     * 组级异常终态收敛(当前流程持有组):仅在本流程仍能证明持有该关联组时写入人工核验终态。
      * <p>
      * 非{@code SENT}腿写{@code FAILED_FINAL},已确认发送成功的腿保持{@code SENT}不被降级,
      * 两腿组状态统一写为传入的{@code groupStatus}({@code FAILED_FINAL}或{@code INCONSISTENT}),
-     * 并持久化组级原因。已确认成功的完整组(存在组状态{@code SENT}的腿)不会被覆盖。
-     * 缺腿、重复腿、字段冲突等无法构成完整两腿的组也会被本语句覆盖到已有腿,而不是只写日志。
+     * 并持久化组级原因。
+     * <p>
+     * 必须同时满足:关联组恰好两腿、不存在其他{@code claimToken}持有的{@code SENDING}腿、
+     * 每条非{@code SENT}腿仍为{@code SENDING}且{@code claim_token}等于本次领取标识、
+     * 组状态仍为{@code SENDING}。任一条件不满足(其他流程接管、组已终态或状态已变化)时更新0行,
+     * 禁止按关联标识无条件覆盖SENDING行,也禁止把Bot成功结果改写成可重试后再次投递。
+     *
+     * @param rebalanceAssociationId 换仓关联标识
+     * @param claimToken             本次领取标识
+     * @param groupStatus            目标组状态(FAILED_FINAL或INCONSISTENT)
+     * @param groupError             组级异常原因
+     * @param businessNow            本次发送编排的统一业务时间
+     * @return 实际更新行数;无所有权证明、组不存在或已确认成功时为0
+     */
+    int convergeOwnedRebalanceGroup(@Param("rebalanceAssociationId") String rebalanceAssociationId,
+                                    @Param("claimToken") String claimToken,
+                                    @Param("groupStatus") String groupStatus,
+                                    @Param("groupError") String groupError,
+                                    @Param("businessNow") LocalDateTime businessNow);
+
+    /**
+     * 组级异常终态收敛(无持有者):只在组内不存在任何发送流程持有的SENDING状态时收敛。
+     * <p>
+     * 用于缺腿、重复腿、字段冲突等领取前结构异常,以及无持有者的失败回写收敛:
+     * 非{@code SENT}腿写{@code FAILED_FINAL},已确认发送成功的腿不被降级,
+     * 组状态统一写为传入的{@code groupStatus}并持久化组级原因。
+     * <p>
+     * 组内存在{@code send_status=SENDING}的腿、存在{@code rebalance_group_status=SENDING}的可解释
+     * 持有状态,或组已确认成功(存在组状态{@code SENT}的腿)时更新0行并停止本次收敛,
+     * 禁止按关联标识覆盖其他流程持有的组。
      *
      * @param rebalanceAssociationId 换仓关联标识
      * @param groupStatus            目标组状态(FAILED_FINAL或INCONSISTENT)
      * @param groupError             组级异常原因
      * @param businessNow            本次发送编排的统一业务时间
-     * @return 实际更新行数;组不存在或已确认成功时为0
+     * @return 实际更新行数;组被持有、组不存在或已确认成功时为0
      */
-    int convergeRebalanceGroup(@Param("rebalanceAssociationId") String rebalanceAssociationId,
-                               @Param("groupStatus") String groupStatus,
-                               @Param("groupError") String groupError,
-                               @Param("businessNow") LocalDateTime businessNow);
+    int convergeUnclaimedRebalanceGroup(@Param("rebalanceAssociationId") String rebalanceAssociationId,
+                                        @Param("groupStatus") String groupStatus,
+                                        @Param("groupError") String groupError,
+                                        @Param("businessNow") LocalDateTime businessNow);
 }

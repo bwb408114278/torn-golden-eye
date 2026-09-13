@@ -92,8 +92,30 @@ class StockNoticeSendServiceTest {
                 any(LocalDateTime.class))).thenReturn(2);
         lenient().when(noticeAuditDao.markRebalanceGroupFailed(anyString(), anyString(), anyString(),
                 any(LocalDateTime.class))).thenReturn(2);
-        lenient().when(noticeAuditDao.convergeRebalanceGroup(anyString(), anyString(), anyString(),
+        lenient().when(noticeAuditDao.convergeOwnedRebalanceGroup(anyString(), anyString(), anyString(),
+                anyString(), any(LocalDateTime.class))).thenReturn(2);
+        lenient().when(noticeAuditDao.convergeUnclaimedRebalanceGroup(anyString(), anyString(), anyString(),
                 any(LocalDateTime.class))).thenReturn(2);
+    }
+
+    /**
+     * 让组级领取按真实数据库语义把夹具两腿标记为本次流程持有:
+     * 两腿SENDING、组状态SENDING、claim_token为本次随机领取标识,便于验证所有权收敛分支。
+     *
+     * @param legs 关联组两条腿夹具
+     */
+    private void stubGroupClaimHoldingBoth(TornStockNoticeAuditDO... legs) {
+        when(noticeAuditDao.claimByRebalanceAssociationId(eq(REBALANCE_ASSOCIATION), anyString(),
+                any(LocalDateTime.class))).thenAnswer(invocation -> {
+            String claimToken = invocation.getArgument(1);
+            for (TornStockNoticeAuditDO leg : legs) {
+                leg.setSendStatus("SENDING");
+                leg.setRebalanceGroupStatus("SENDING");
+                leg.setClaimToken(claimToken);
+                leg.setSendAttemptCount(1);
+            }
+            return legs.length;
+        });
     }
 
     @Test
@@ -490,13 +512,16 @@ class StockNoticeSendServiceTest {
         // 成功回写只更新1行:数据库/契约异常,不得宣称完整送达
         when(noticeAuditDao.markRebalanceGroupSent(eq(REBALANCE_ASSOCIATION), anyString(),
                 eq(BUSINESS_NOW))).thenReturn(1);
+        stubGroupClaimHoldingBoth(sellLeg, buyLeg);
 
         service().sendPendingNotices();
 
-        // Bot成功但回写不完整属于"结果未知",必须收敛为INCONSISTENT且禁止再次调用Bot
-        verify(noticeAuditDao).convergeRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+        // Bot成功但回写不完整属于"结果未知",必须按同一领取标识收敛为INCONSISTENT且禁止再次调用Bot
+        verify(noticeAuditDao).convergeOwnedRebalanceGroup(eq(REBALANCE_ASSOCIATION), anyString(),
                 eq(StockNoticeRebalanceGroupStatusEnum.INCONSISTENT.getCode()),
                 contains("结果未知"), eq(BUSINESS_NOW));
+        verify(noticeAuditDao, never()).convergeUnclaimedRebalanceGroup(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class));
         verify(bot, times(1)).sendRequest(any(BotHttpReqParam.class), eq(String.class));
     }
 
@@ -518,10 +543,12 @@ class StockNoticeSendServiceTest {
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
         when(noticeAuditDao.markRebalanceGroupFailed(eq(REBALANCE_ASSOCIATION), anyString(), anyString(),
                 eq(BUSINESS_NOW))).thenReturn(0);
+        stubGroupClaimHoldingBoth(sellLeg, buyLeg);
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDao).convergeRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+        // 失败回写行数不足且所有权仍可证明时,只允许按同一领取标识收敛为人工核验终态
+        verify(noticeAuditDao).convergeOwnedRebalanceGroup(eq(REBALANCE_ASSOCIATION), anyString(),
                 eq(StockNoticeRebalanceGroupStatusEnum.INCONSISTENT.getCode()), anyString(),
                 eq(BUSINESS_NOW));
         verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(), any());
@@ -625,7 +652,7 @@ class StockNoticeSendServiceTest {
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDao).convergeRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
                 eq(StockNoticeRebalanceGroupStatusEnum.FAILED_FINAL.getCode()),
                 contains("关联组通知数不为2"), eq(BUSINESS_NOW));
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
@@ -647,7 +674,7 @@ class StockNoticeSendServiceTest {
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDao).convergeRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
                 eq(StockNoticeRebalanceGroupStatusEnum.FAILED_FINAL.getCode()),
                 contains("重复BUY腿"), eq(BUSINESS_NOW));
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
@@ -667,7 +694,7 @@ class StockNoticeSendServiceTest {
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDao).convergeRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
                 eq(StockNoticeRebalanceGroupStatusEnum.FAILED_FINAL.getCode()),
                 contains("rebalanceDecisionId"), eq(BUSINESS_NOW));
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
@@ -687,13 +714,64 @@ class StockNoticeSendServiceTest {
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDao).convergeRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
                 eq(StockNoticeRebalanceGroupStatusEnum.INCONSISTENT.getCode()),
                 contains("无法按正常组规则解释"), eq(BUSINESS_NOW));
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
         verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(), any());
         verify(noticeAuditDao, never()).finalizePayload(any(), any());
         verify(noticeAuditDao, never()).claimByRebalanceAssociationId(anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("α换仓组领取返回0且其他流程持有SENDING_不调用Bot不收敛且不覆盖其他领取标识")
+    void sendPendingNotices_alphaRebalanceGroupHeldByOtherFlow_stopsWithoutConvergence() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        String otherClaimToken = "it-other-claim";
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(61L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(62L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        TornStockNoticeAuditDO otherHeldSellLeg =
+                rebalanceLeg(61L, 501L, REBALANCE_ASSOCIATION, "SELL", 1, "SENDING");
+        TornStockNoticeAuditDO otherHeldBuyLeg =
+                rebalanceLeg(62L, 502L, REBALANCE_ASSOCIATION, "BUY", 2, "SENDING");
+        for (TornStockNoticeAuditDO otherHeldLeg : List.of(otherHeldSellLeg, otherHeldBuyLeg)) {
+            otherHeldLeg.setClaimToken(otherClaimToken);
+            otherHeldLeg.setRebalanceGroupStatus("SENDING");
+            otherHeldLeg.setSendAttemptCount(1);
+        }
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        // 首次读取用于组校验,第二次读取(恢复阶段)显示两腿已由other-token持有且为SENDING
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg), List.of(otherHeldSellLeg, otherHeldBuyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(61L, 62L), "α换仓合并消息")));
+        when(noticeAuditDao.claimByRebalanceAssociationId(eq(REBALANCE_ASSOCIATION), anyString(),
+                any(LocalDateTime.class))).thenReturn(0);
+
+        service().sendPendingNotices();
+
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao, never()).convergeOwnedRebalanceGroup(anyString(), anyString(), anyString(),
+                anyString(), any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).convergeUnclaimedRebalanceGroup(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).markRebalanceGroupFailed(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        assertEquals("SENDING", otherHeldSellLeg.getSendStatus(), "其他流程持有的腿状态不得被改写");
+        assertEquals("SENDING", otherHeldBuyLeg.getSendStatus());
+        assertEquals("SENDING", otherHeldSellLeg.getRebalanceGroupStatus(), "组状态不得被本次流程覆盖");
+        assertEquals("SENDING", otherHeldBuyLeg.getRebalanceGroupStatus());
+        assertEquals(otherClaimToken, otherHeldSellLeg.getClaimToken(), "其他流程的领取标识不得被替换");
+        assertEquals(otherClaimToken, otherHeldBuyLeg.getClaimToken());
+        // 本次流程只能释放自己的领取标识,不能借释放覆盖其他持有者
+        ArgumentCaptor<String> releaseCaptor = ArgumentCaptor.forClass(String.class);
+        verify(noticeAuditDao).releaseClaim(releaseCaptor.capture(), eq(BUSINESS_NOW));
+        assertNotEquals(otherClaimToken, releaseCaptor.getValue(), "释放只能作用于本次流程自己的领取标识");
     }
 
     @Test

@@ -222,20 +222,42 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
     }
 
     /**
-     * 组级异常终态收敛:把关联组内全部腿统一写入FAILED_FINAL/INCONSISTENT人工核验终态。
+     * 组级异常终态收敛(当前流程持有组):仅在本领取标识仍能证明持有该关联组时写入人工核验终态。
+     *
+     * @param rebalanceAssociationId 换仓关联标识
+     * @param claimToken             本次领取标识
+     * @param groupStatus            目标组状态(FAILED_FINAL或INCONSISTENT)
+     * @param groupError             组级异常原因
+     * @param businessNow            本次发送编排的统一业务时间
+     * @return 实际更新行数;无所有权证明、组不存在或已确认成功时为0
+     */
+    public int convergeOwnedRebalanceGroup(String rebalanceAssociationId, String claimToken, String groupStatus,
+                                           String groupError, LocalDateTime businessNow) {
+        if (rebalanceAssociationId == null || rebalanceAssociationId.isBlank()
+                || claimToken == null || claimToken.isBlank()
+                || groupStatus == null || groupStatus.isBlank() || businessNow == null) {
+            return 0;
+        }
+        return baseMapper.convergeOwnedRebalanceGroup(rebalanceAssociationId, claimToken, groupStatus,
+                groupError, businessNow);
+    }
+
+    /**
+     * 组级异常终态收敛(无持有者):只在组内不存在任何发送流程持有的SENDING状态时收敛。
      *
      * @param rebalanceAssociationId 换仓关联标识
      * @param groupStatus            目标组状态(FAILED_FINAL或INCONSISTENT)
      * @param groupError             组级异常原因
      * @param businessNow            本次发送编排的统一业务时间
-     * @return 实际更新行数;组不存在或已确认成功时为0
+     * @return 实际更新行数;组被持有、组不存在或已确认成功时为0
      */
-    public int convergeRebalanceGroup(String rebalanceAssociationId, String groupStatus, String groupError,
-                                      LocalDateTime businessNow) {
+    public int convergeUnclaimedRebalanceGroup(String rebalanceAssociationId, String groupStatus,
+                                               String groupError, LocalDateTime businessNow) {
         if (rebalanceAssociationId == null || rebalanceAssociationId.isBlank()
                 || groupStatus == null || groupStatus.isBlank() || businessNow == null) {
             return 0;
         }
-        return baseMapper.convergeRebalanceGroup(rebalanceAssociationId, groupStatus, groupError, businessNow);
+        return baseMapper.convergeUnclaimedRebalanceGroup(rebalanceAssociationId, groupStatus, groupError,
+                businessNow);
     }
 }

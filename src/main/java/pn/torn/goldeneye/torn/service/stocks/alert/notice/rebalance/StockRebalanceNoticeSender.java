@@ -36,7 +36,8 @@ import java.util.*;
  *       不重复冻结、不重新组合</li>
  *   <li>组级原子回写终态:成功为两腿同时SENT且组状态SENT,失败按两腿相同尝试次数同时进入
  *       FAILED_RETRYABLE或FAILED_FINAL;回写行数不足时由 {@link RebalanceGroupRecoveryPolicy}
- *       决策收敛路径并持久化结果,禁止只记录日志</li>
+ *       决策收敛路径:当前流程仍持有组时按所有权条件持久化结果,其他流程持有组时只停止本次动作,
+ *       不调用Bot也不覆盖组状态</li>
  * </ol>
  * 缺腿、重复同类腿、字段冲突、格式非法或状态不一致时fail-closed:禁止调用Bot,并把关联组持久化到
  * FAILED_FINAL或INCONSISTENT人工核验终态,既不静默重复发送也不静默丢弃。
@@ -151,28 +152,31 @@ public class StockRebalanceNoticeSender {
         RebalancePartition partition = partitionByAssociationId(rebalanceNotices);
         partition.malformedNotices().forEach(notice ->
                 markMalformedNoticeFinal(notice, counter, businessNow));
-        partition.groups().forEach((associationId, pendingLegs) ->
-                sendGroup(associationId, pendingLegs, batchMap, counter, businessNow));
+        partition.associationIds().forEach(associationId ->
+                sendGroup(associationId, batchMap, counter, businessNow));
     }
 
     /**
-     * 将本轮可发送的α换仓通知按换仓关联标识分组,并分离缺少关联标识的非法通知。
+     * 将本轮可发送的α换仓通知按换仓关联标识去重,并分离缺少关联标识的非法通知。
+     * <p>
+     * 本方法只保留关联标识:组内完整通知集合必须由数据库按关联标识重新读取,本轮内存中的
+     * 可发送子集既不完整、也可能已被其他发送流程改变,不能作为组校验、领取或回写的依据。
      *
      * @param rebalanceNotices 本轮可发送的α换仓通知
-     * @return 关联标识到该组可发送腿的映射与非法通知列表
+     * @return 本轮命中的关联标识集合与非法通知列表
      */
     private RebalancePartition partitionByAssociationId(List<TornStockNoticeAuditDO> rebalanceNotices) {
-        Map<String, List<TornStockNoticeAuditDO>> groups = new LinkedHashMap<>();
+        Set<String> associationIds = new LinkedHashSet<>();
         List<TornStockNoticeAuditDO> malformedNotices = new ArrayList<>();
         for (TornStockNoticeAuditDO notice : rebalanceNotices) {
             String associationId = StockNoticePayloadReader.readText(notice, FIELD_REBALANCE_ASSOCIATION_ID);
             if (associationId == null) {
                 malformedNotices.add(notice);
             } else {
-                groups.computeIfAbsent(associationId, ignored -> new ArrayList<>(REBALANCE_LEG_COUNT)).add(notice);
+                associationIds.add(associationId);
             }
         }
-        return new RebalancePartition(groups, malformedNotices);
+        return new RebalancePartition(associationIds, malformedNotices);
     }
 
     /**
@@ -182,14 +186,12 @@ public class StockRebalanceNoticeSender {
      * 领取以关联标识为单位原子完成,只有完整两腿才参与冻结、Bot调用与组级终态回写。
      *
      * @param associationId 换仓关联标识
-     * @param pendingLegs   本轮查询命中的该关联组可发送腿
      * @param batchMap      批次ID到批次DO的映射
      * @param counter       发送计数
      * @param businessNow   本次发送编排的统一业务时间
      */
-    private void sendGroup(String associationId, List<TornStockNoticeAuditDO> pendingLegs,
-                           Map<Long, TornStockVirtualBatchDO> batchMap, NoticeSendCounter counter,
-                           LocalDateTime businessNow) {
+    private void sendGroup(String associationId, Map<Long, TornStockVirtualBatchDO> batchMap,
+                           NoticeSendCounter counter, LocalDateTime businessNow) {
         List<TornStockNoticeAuditDO> group = noticeAuditDao.selectByRebalanceAssociationId(associationId);
         int groupSize = group.size();
         RebalanceGroupValidation validation = validateGroup(associationId, group);
@@ -259,7 +261,7 @@ public class StockRebalanceNoticeSender {
         RebalanceGroupWriteResult writeResult = sendResult.success()
                 ? sendRecorder.markRebalanceGroupSent(associationId, claimToken, businessNow)
                 : sendRecorder.markRebalanceGroupFailed(associationId, claimToken,
-                        sendResult.failureReason(), businessNow);
+                sendResult.failureReason(), businessNow);
         if (writeResult.complete()) {
             if (sendResult.success()) {
                 counter.countSuccess();
@@ -277,10 +279,12 @@ public class StockRebalanceNoticeSender {
     }
 
     /**
-     * 组级回写行数不足或结果未知时读取完整关联组并持久化收敛。
+     * 组级回写行数不足或结果未知时读取完整关联组并按所有权动作持久化收敛。
      * <p>
-     * Bot失败且两腿仍由同一领取者持有SENDING时按完整组重写失败结果(数据库按尝试次数进入可重发或最终失败);
-     * 其余状态收敛为INCONSISTENT人工核验终态,禁止把单腿当作完整组重新发送。
+     * 收敛动作必须区分所有权:{@code FAILURE_WRITE}按同一领取标识重写完整组失败结果;
+     * {@code OWNED_UNKNOWN_RESULT}按同一领取标识收敛为INCONSISTENT且禁止再次调用Bot;
+     * {@code UNCLAIMED_CONVERGENCE}只在无任何持有者时收敛;
+     * {@code NO_ACTION}只记录日志。其他流程持有SENDING腿时禁止按关联标识覆盖,也不得发送剩余单腿。
      *
      * @param associationId 换仓关联标识
      * @param claimToken    本次领取标识
@@ -293,22 +297,84 @@ public class StockRebalanceNoticeSender {
         List<TornStockNoticeAuditDO> group = noticeAuditDao.selectByRebalanceAssociationId(associationId);
         RebalanceGroupRecoveryPolicy.RebalanceGroupRecovery recovery =
                 RebalanceGroupRecoveryPolicy.decideWriteFailure(botSucceeded, claimToken, failureReason, group);
-        if (recovery == null) {
-            log.warn("股票通知发送-α换仓关联组回写行数不足但组已处于可解释终态,无需收敛: associationId={}",
-                    associationId);
+        int expectedRows = Math.max(group.size(), 1);
+        switch (recovery.action()) {
+            case FAILURE_WRITE -> recoverGroupByFailureWrite(associationId, claimToken, recovery, expectedRows,
+                    businessNow);
+            case OWNED_UNKNOWN_RESULT -> convergeOwnedGroupAnomaly(associationId, claimToken, recovery,
+                    expectedRows, businessNow);
+            case UNCLAIMED_CONVERGENCE -> convergeUnclaimedGroupAnomaly(associationId, recovery, expectedRows,
+                    businessNow);
+            case NO_ACTION -> log.warn("股票通知发送-α换仓关联组不满足安全收敛条件,不写入也不发送,需人工核验: "
+                    + "associationId={}, reason={}", associationId, recovery.errorMessage());
+        }
+    }
+
+    /**
+     * 按当前领取标识重写完整组失败结果,行数仍不完整时由所有权收敛收口。
+     * <p>
+     * 数据库按两腿相同尝试次数决定FAILED_RETRYABLE或FAILED_FINAL;行数不足说明组事实已分叉,
+     * 不允许按较小尝试次数猜测重试结果。
+     *
+     * @param associationId 换仓关联标识
+     * @param claimToken    本次领取标识
+     * @param recovery      恢复决策
+     * @param expectedRows  预期更新行数
+     * @param businessNow   本次发送编排的统一业务时间
+     */
+    private void recoverGroupByFailureWrite(String associationId, String claimToken,
+                                            RebalanceGroupRecoveryPolicy.RebalanceGroupRecovery recovery,
+                                            int expectedRows, LocalDateTime businessNow) {
+        RebalanceGroupWriteResult failed = sendRecorder.markRebalanceGroupFailed(
+                associationId, claimToken, recovery.errorMessage(), businessNow);
+        if (failed.complete()) {
             return;
         }
-        RebalanceGroupWriteResult converged;
-        if (recovery.action() == RebalanceGroupRecoveryPolicy.RebalanceGroupRecoveryAction.FAILURE_WRITE) {
-            converged = sendRecorder.markRebalanceGroupFailed(
-                    associationId, claimToken, recovery.errorMessage(), businessNow);
-            if (converged.complete()) {
-                return;
-            }
-        }
-        converged = sendRecorder.convergeRebalanceGroup(associationId,
-                StockNoticeRebalanceGroupStatusEnum.INCONSISTENT, recovery.errorMessage(),
-                Math.max(group.size(), 1), businessNow);
+        convergeOwnedGroupAnomaly(associationId, claimToken, recovery, expectedRows, businessNow);
+    }
+
+    /**
+     * 按当前领取标识的所有权条件收敛为INCONSISTENT人工核验终态。
+     *
+     * @param associationId 换仓关联标识
+     * @param claimToken    本次领取标识
+     * @param recovery      恢复决策
+     * @param expectedRows  预期更新行数
+     * @param businessNow   本次发送编排的统一业务时间
+     */
+    private void convergeOwnedGroupAnomaly(String associationId, String claimToken,
+                                           RebalanceGroupRecoveryPolicy.RebalanceGroupRecovery recovery,
+                                           int expectedRows, LocalDateTime businessNow) {
+        RebalanceGroupWriteResult converged = sendRecorder.convergeOwnedRebalanceGroup(associationId, claimToken,
+                StockNoticeRebalanceGroupStatusEnum.INCONSISTENT, recovery.errorMessage(), expectedRows,
+                businessNow);
+        logUnsafeConvergence(associationId, converged);
+    }
+
+    /**
+     * 在组内不存在任何持有者时收敛为INCONSISTENT人工核验终态。
+     *
+     * @param associationId 换仓关联标识
+     * @param recovery      恢复决策
+     * @param expectedRows  预期更新行数
+     * @param businessNow   本次发送编排的统一业务时间
+     */
+    private void convergeUnclaimedGroupAnomaly(String associationId,
+                                               RebalanceGroupRecoveryPolicy.RebalanceGroupRecovery recovery,
+                                               int expectedRows, LocalDateTime businessNow) {
+        RebalanceGroupWriteResult converged = sendRecorder.convergeUnclaimedRebalanceGroup(associationId,
+                StockNoticeRebalanceGroupStatusEnum.INCONSISTENT, recovery.errorMessage(), expectedRows,
+                businessNow);
+        logUnsafeConvergence(associationId, converged);
+    }
+
+    /**
+     * 记录未按预期行数完成的收敛,提醒人工核验。
+     *
+     * @param associationId 换仓关联标识
+     * @param converged     组级收敛结果
+     */
+    private void logUnsafeConvergence(String associationId, RebalanceGroupWriteResult converged) {
         if (!converged.complete()) {
             log.error("股票通知发送-α换仓关联组收敛行数不完整,需人工核验: associationId={}, updated={}, "
                             + "expected={}",
@@ -321,6 +387,8 @@ public class StockRebalanceNoticeSender {
      * <p>
      * 缺腿、重复腿、字段冲突、类型非法等结构异常写FAILED_FINAL;组内数据库状态不可解释写INCONSISTENT。
      * 已确认发送成功的腿保持SENT不被降级,禁止只写日志。
+     * 该入口只走无持有者收敛:组内任一腿仍被其他发送流程持有SENDING时数据库返回0行,
+     * 保留事实等待人工核验,不得按关联标识覆盖其他流程持有的组。
      *
      * @param associationId 换仓关联标识
      * @param groupStatus   目标组状态(FAILED_FINAL或INCONSISTENT)
@@ -336,8 +404,8 @@ public class StockRebalanceNoticeSender {
         counter.countFailure();
         log.error("股票通知发送-α换仓关联组异常,禁止调用Bot: associationId={}, groupStatus={}, reason={}",
                 associationId, groupStatus.getCode(), reason);
-        RebalanceGroupWriteResult result = sendRecorder.convergeRebalanceGroup(associationId, groupStatus,
-                REBALANCE_GROUP_ANOMALY_PREFIX + reason, Math.max(expectedRows, 1), businessNow);
+        RebalanceGroupWriteResult result = sendRecorder.convergeUnclaimedRebalanceGroup(associationId,
+                groupStatus, REBALANCE_GROUP_ANOMALY_PREFIX + reason, Math.max(expectedRows, 1), businessNow);
         if (!result.complete()) {
             log.error("股票通知发送-α换仓关联组异常终态持久化行数不完整,需人工核验: associationId={}, "
                             + "updated={}, expected={}",
@@ -703,13 +771,13 @@ public class StockRebalanceNoticeSender {
     }
 
     /**
-     * α换仓通知按关联标识分组后的分流结果。
+     * α换仓通知按关联标识分流后的结果。
      *
-     * @param groups           换仓关联标识到该关联组可发送腿的映射
+     * @param associationIds   本轮命中的有效换仓关联标识(按首次出现顺序去重)
      * @param malformedNotices 通知类型为α换仓但缺少换仓关联标识的通知
      */
     private record RebalancePartition(
-            Map<String, List<TornStockNoticeAuditDO>> groups,
+            Set<String> associationIds,
             List<TornStockNoticeAuditDO> malformedNotices) {
     }
 }

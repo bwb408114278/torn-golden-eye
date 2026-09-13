@@ -108,10 +108,13 @@ class TornStockNoticeAuditDAOTest {
     void groupWriteback_blankInput_returnsZeroWithoutMapperCall() {
         assertEquals(0, dao.markRebalanceGroupSent(null, CLAIM_TOKEN, BUSINESS_NOW));
         assertEquals(0, dao.markRebalanceGroupFailed(ASSOCIATION_ID, "", "原因", BUSINESS_NOW));
-        assertEquals(0, dao.convergeRebalanceGroup(ASSOCIATION_ID, null, "原因", BUSINESS_NOW));
+        assertEquals(0, dao.convergeOwnedRebalanceGroup(ASSOCIATION_ID, null, "INCONSISTENT", "原因", BUSINESS_NOW));
+        assertEquals(0, dao.convergeOwnedRebalanceGroup(ASSOCIATION_ID, CLAIM_TOKEN, null, "原因", BUSINESS_NOW));
+        assertEquals(0, dao.convergeUnclaimedRebalanceGroup(ASSOCIATION_ID, null, "原因", BUSINESS_NOW));
         verify(mapper, never()).markRebalanceGroupSent(any(), any(), any());
         verify(mapper, never()).markRebalanceGroupFailed(any(), any(), any(), any());
-        verify(mapper, never()).convergeRebalanceGroup(any(), any(), any(), any());
+        verify(mapper, never()).convergeOwnedRebalanceGroup(any(), any(), any(), any(), any());
+        verify(mapper, never()).convergeUnclaimedRebalanceGroup(any(), any(), any(), any());
     }
 
     @Test
@@ -156,14 +159,22 @@ class TornStockNoticeAuditDAOTest {
     void groupWriteback_nonBlankInput_delegatesToMapper() {
         when(mapper.markRebalanceGroupSent(ASSOCIATION_ID, CLAIM_TOKEN, BUSINESS_NOW)).thenReturn(2);
         when(mapper.markRebalanceGroupFailed(ASSOCIATION_ID, CLAIM_TOKEN, "原因", BUSINESS_NOW)).thenReturn(2);
-        when(mapper.convergeRebalanceGroup(ASSOCIATION_ID, "INCONSISTENT", "原因", BUSINESS_NOW)).thenReturn(2);
+        when(mapper.convergeOwnedRebalanceGroup(ASSOCIATION_ID, CLAIM_TOKEN, "INCONSISTENT", "原因",
+                BUSINESS_NOW)).thenReturn(2);
+        when(mapper.convergeUnclaimedRebalanceGroup(ASSOCIATION_ID, "INCONSISTENT", "原因",
+                BUSINESS_NOW)).thenReturn(2);
 
         assertEquals(2, dao.markRebalanceGroupSent(ASSOCIATION_ID, CLAIM_TOKEN, BUSINESS_NOW));
         assertEquals(2, dao.markRebalanceGroupFailed(ASSOCIATION_ID, CLAIM_TOKEN, "原因", BUSINESS_NOW));
-        assertEquals(2, dao.convergeRebalanceGroup(ASSOCIATION_ID, "INCONSISTENT", "原因", BUSINESS_NOW));
+        assertEquals(2, dao.convergeOwnedRebalanceGroup(ASSOCIATION_ID, CLAIM_TOKEN, "INCONSISTENT", "原因",
+                BUSINESS_NOW));
+        assertEquals(2, dao.convergeUnclaimedRebalanceGroup(ASSOCIATION_ID, "INCONSISTENT", "原因",
+                BUSINESS_NOW));
         verify(mapper).markRebalanceGroupSent(ASSOCIATION_ID, CLAIM_TOKEN, BUSINESS_NOW);
         verify(mapper).markRebalanceGroupFailed(ASSOCIATION_ID, CLAIM_TOKEN, "原因", BUSINESS_NOW);
-        verify(mapper).convergeRebalanceGroup(ASSOCIATION_ID, "INCONSISTENT", "原因", BUSINESS_NOW);
+        verify(mapper).convergeOwnedRebalanceGroup(ASSOCIATION_ID, CLAIM_TOKEN, "INCONSISTENT", "原因",
+                BUSINESS_NOW);
+        verify(mapper).convergeUnclaimedRebalanceGroup(ASSOCIATION_ID, "INCONSISTENT", "原因", BUSINESS_NOW);
     }
 
     @Test
