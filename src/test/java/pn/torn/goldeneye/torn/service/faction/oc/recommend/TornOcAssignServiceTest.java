@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 
 import java.math.BigDecimal;
@@ -31,6 +32,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * OC分配服务单元测试，验证停转优先级和相同准备时间下的候选保留。
+ *
+ * @author Bai
+ * @version 1.6.2
+ * @since 2026.08.20
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("OC分配服务测试")
@@ -48,6 +53,8 @@ class TornOcAssignServiceTest {
     private TornFactionOcUserDAO ocUserDao;
     @Mock
     private TornUserDAO userDao;
+    @Mock
+    private TornSettingOcReassignManager reassignManager;
 
     @InjectMocks
     private TornOcAssignService assignService;

@@ -18,6 +18,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 
@@ -33,7 +34,7 @@ import static org.mockito.Mockito.*;
  * OC推荐服务单元测试 —— 验证大锅饭模式下当前队的豁免逻辑
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.6.2
  * @since 2026.06.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -52,6 +53,8 @@ class TornOcRecommendServiceTest {
     private TornFactionOcSlotDAO ocSlotDao;
     @Mock
     private TornFactionOcUserDAO ocUserDao;
+    @Mock
+    private TornSettingOcReassignManager reassignManager;
 
     @InjectMocks
     private TornOcRecommendService recommendService;
@@ -85,6 +88,9 @@ class TornOcRecommendServiceTest {
         breakBankSlot.setOcId(2L);
         breakBankSlot.setUserId(null);                   // 空闲槽位
         breakBankSlot.setPosition("Engineer#1");
+
+        // 大锅饭名单仅含轮转OC Break the Bank；lenient兼容isReassign=false不查名单的用例
+        lenient().doReturn(List.of(OC_BREAK_BANK)).when(reassignManager).getRotationOcNames(FACTION_HP);
     }
 
     // ========================================================
