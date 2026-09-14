@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.enums.TornOcIncomeModeEnum;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
@@ -19,6 +19,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryD
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcIncomeService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
@@ -40,7 +41,7 @@ import java.util.Objects;
  * OC收益查询实现类
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.6.2
  * @since 2025.08.20
  */
 @Component
@@ -50,6 +51,7 @@ public class OcBenefitQueryStrategyImpl extends BaseOcBenefitQueryStrategy {
     private final TornFactionOcBenefitDAO benefitDao;
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
     private final TornSettingFactionManager settingFactionManager;
+    private final TornSettingOcReassignManager reassignManager;
 
     @Override
     public String getCommand() {
@@ -59,11 +61,6 @@ public class OcBenefitQueryStrategyImpl extends BaseOcBenefitQueryStrategy {
     @Override
     public String getCommandDescription() {
         return "查询OC收益，例g#" + BotCommands.OC_BENEFIT + "(#用户ID)(#yyyy-MM)";
-    }
-
-    @Override
-    public boolean supportsAtUserTarget() {
-        return true;
     }
 
     @Override
@@ -196,7 +193,8 @@ public class OcBenefitQueryStrategyImpl extends BaseOcBenefitQueryStrategy {
      */
     private List<TornFactionOcBenefitDO> queryBenefitList(TornUserDO user, DateRange dateRange) {
         OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(),
-                dateRange.fromDate(), dateRange.toDate());
+                dateRange.fromDate(), dateRange.toDate(),
+                reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         return benefitDao.queryPersonalBenefitList(query);
     }
 
@@ -207,7 +205,8 @@ public class OcBenefitQueryStrategyImpl extends BaseOcBenefitQueryStrategy {
      * 历史月或换帮场景下收益归属帮派与当前帮派不一致时，文案展示归属帮派简称。</p>
      */
     public String buildUserRankingMsg(TornUserDO user, YearMonth month) {
-        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), month.atDay(1));
+        OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), month.atDay(1),
+                reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(query);
         if (ranking == null) {
             return user.getNickname() + "在" + monthLabel(month) + "还没有OC收益";
@@ -274,8 +273,7 @@ public class OcBenefitQueryStrategyImpl extends BaseOcBenefitQueryStrategy {
      * 创建表格显示配置
      */
     private TableDisplayConfig createDisplayConfig(TornUserDO user) {
-        boolean isNoCoefficientReassign = user.getFactionId().equals(TornConstants.FACTION_NOV_ID)
-                || user.getFactionId().equals(TornConstants.FACTION_BSU_ID);
+        boolean isNoCoefficientReassign = reassignManager.getIncomeMode(user.getFactionId()) == TornOcIncomeModeEnum.EQUAL;
         return new TableDisplayConfig(isNoCoefficientReassign);
     }
 

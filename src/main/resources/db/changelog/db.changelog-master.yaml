@@ -102,4 +102,6 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.6.1/stocks-notice-claim-retry.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.6.1/stocks-notice-rebalance-group.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.6.2/oc-reassign.yaml
 

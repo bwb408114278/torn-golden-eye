@@ -4,11 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.enums.TornOcIncomeModeEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.WorkingHoursDTO;
 
 import java.math.BigDecimal;
@@ -20,7 +21,7 @@ import java.util.List;
  * OC工时计算服务
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.6.2
  * @since 2025.11.03
  */
 @Service
@@ -28,6 +29,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TornOcWorkingHourService {
     private final TornSettingOcCoefficientManager coefficientManager;
+    private final TornSettingOcReassignManager reassignManager;
     private final TornFactionOcSlotDAO ocSlotDao;
 
     /**
@@ -54,9 +56,8 @@ public class TornOcWorkingHourService {
             // 2.1 计算基础工时（第一个人工时最多）
             int baseWorkingHours = totalSlots - i;
 
-            // 2.2 获取系数
-            boolean isNoCoefficient = oc.getFactionId().equals(TornConstants.FACTION_NOV_ID)
-                    || oc.getFactionId().equals(TornConstants.FACTION_BSU_ID);
+            // 2.2 获取系数(平分模式系数固定为1)
+            boolean isNoCoefficient = reassignManager.getIncomeMode(oc.getFactionId()) == TornOcIncomeModeEnum.EQUAL;
             BigDecimal coefficient = isNoCoefficient ?
                     BigDecimal.ONE :
                     coefficientManager.getCoefficient(oc, slot.getPosition(), slot.getPassRate());

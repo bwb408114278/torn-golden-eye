@@ -13,6 +13,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.utils.NumberUtils;
 import pn.torn.goldeneye.utils.image.TableImageUtils;
@@ -26,7 +27,7 @@ import java.util.List;
  * OC收益榜策略实现类
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.6.2
  * @since 2025.09.10
  */
 @Component
@@ -34,6 +35,7 @@ import java.util.List;
 public class OcBenefitRankStrategyImpl extends BaseOcBenefitQueryStrategy {
     private final TornSettingFactionManager settingFactionManager;
     private final TornFactionOcBenefitDAO benefitDao;
+    private final TornSettingOcReassignManager reassignManager;
     @Lazy
     @Resource
     private OcBenefitRankStrategyImpl ocBenefitRankStrategy;
@@ -68,12 +70,14 @@ public class OcBenefitRankStrategyImpl extends BaseOcBenefitQueryStrategy {
         List<TornFactionOcBenefitRankDO> rankList;
         String title;
         if (user != null) {
-            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), month.atDay(1));
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(user.getId(), month.atDay(1),
+                    reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
             rankList = benefitDao.queryCohortBenefitRanking(query);
             String cohort = String.format("%07d", user.getId()).substring(0, 3);
             title = cohort + "同期" + monthLabel(month) + "OC收益排行榜";
         } else {
-            OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, month.atDay(1));
+            OcBenefitRankingQuery query = new OcBenefitRankingQuery(factionId, 0L, month.atDay(1),
+                    reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
             rankList = benefitDao.queryBenefitRanking(query);
             String factionName = factionId == 0L ?
                     "SMTH" : settingFactionManager.getIdMap().get(factionId).getFactionShortName();

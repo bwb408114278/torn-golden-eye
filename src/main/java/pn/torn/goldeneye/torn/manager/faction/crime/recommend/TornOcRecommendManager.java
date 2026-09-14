@@ -2,7 +2,7 @@ package pn.torn.goldeneye.torn.manager.faction.crime.recommend;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.constants.torn.TornConstants;
+import pn.torn.goldeneye.constants.torn.enums.TornOcIncomeModeEnum;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 
 import java.math.BigDecimal;
@@ -24,7 +25,7 @@ import java.util.List;
  * OC队伍推荐公共逻辑层
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.6.2
  * @since 2025.11.24
  */
 @Component
@@ -33,6 +34,7 @@ public class TornOcRecommendManager {
     private final TornSettingFactionOcManager settingFactionOcManager;
     private final TornSettingOcSlotManager settingOcSlotManager;
     private final TornSettingOcCoefficientManager coefficientManager;
+    private final TornSettingOcReassignManager reassignManager;
 
     /**
      * 查询对应的OC岗位配置
@@ -109,13 +111,13 @@ public class TornOcRecommendManager {
      * @return true为推荐大锅饭
      */
     public boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
-        if (!TornConstants.REASSIGN_OC_FACTION.contains(user.getFactionId())) {
+        if (!reassignManager.getReassignFactionList().contains(user.getFactionId())) {
             return false;
         }
 
         List<TornSettingOcSlotDO> reassignSlotList = settingOcSlotManager.getList().stream()
                 .filter(s ->
-                        TornConstants.ROTATION_OC_NAME.get(user.getFactionId()).contains(s.getOcName()))
+                        reassignManager.getRotationOcNames(user.getFactionId()).contains(s.getOcName()))
                 .toList();
 
         boolean isMatch = false;
@@ -170,8 +172,10 @@ public class TornOcRecommendManager {
                                                   TornFactionOcUserDO userPassRate) {
         // 1. 停转时间评分
         BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
-        // 2. 岗位评分, 根据系数、成功率和岗位权重
-        BigDecimal coefficient = coefficientManager.getCoefficient(oc, slotSetting.getSlotCode(), userPassRate.getPassRate());
+        // 2. 岗位评分, 根据系数、成功率和岗位权重(平分模式系数固定为1)
+        BigDecimal coefficient = reassignManager.getIncomeMode(oc.getFactionId()) == TornOcIncomeModeEnum.EQUAL
+                ? BigDecimal.ONE
+                : coefficientManager.getCoefficient(oc, slotSetting.getSlotCode(), userPassRate.getPassRate());
         BigDecimal passRateScore = calcPassRateScore(slotSetting, userPassRate);
         BigDecimal priorityScore = calcPriorityScore(slotSetting);
         BigDecimal positionScore = coefficient.multiply(BigDecimal.valueOf(4))

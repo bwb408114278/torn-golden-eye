@@ -5,13 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.*;
 
 import java.time.LocalDateTime;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
  * 必须通过Spring代理由批量门面调用，禁止在同一Service内自调用。</p>
  *
  * @author Bai
- * @version 1.3.4
+ * @version 1.6.2
  * @since 2026.08.03
  */
 @Slf4j
@@ -39,6 +39,7 @@ public class TornOcIncomeTransactionWorker {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcIncomeDAO incomeDao;
     private final TornOcIncomeService incomeService;
+    private final TornSettingOcReassignManager reassignManager;
 
     /**
      * 在独立事务中处理一条链，事务提交或回滚完成后才返回。
@@ -211,7 +212,7 @@ public class TornOcIncomeTransactionWorker {
         if (!TornOcStatusEnum.getCompleteStatusList().contains(leaf.getStatus())) {
             return false;
         }
-        List<String> rotationList = TornConstants.ROTATION_OC_NAME.get(factionId);
+        List<String> rotationList = reassignManager.getRotationOcNames(factionId);
         if (CollectionUtils.isEmpty(rotationList) || !rotationList.contains(leaf.getName())) {
             return false;
         }

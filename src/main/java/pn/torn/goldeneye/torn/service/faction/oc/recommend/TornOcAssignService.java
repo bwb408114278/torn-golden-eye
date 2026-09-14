@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
@@ -15,6 +14,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 
 import java.math.BigDecimal;
@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  * OC队伍分配基础逻辑层
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.6.2
  * @since 2025.11.24
  */
 @Slf4j
@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TornOcAssignService {
     private final TornOcRecommendManager ocRecommendManager;
+    private final TornSettingOcReassignManager reassignManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
@@ -185,7 +186,7 @@ public class TornOcAssignService {
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
             TornFactionOcDO oc = entry.getKey();
             // 大锅饭制度的, 只要成功率够了就只判断大锅饭
-            if (isReassign && !TornConstants.ROTATION_OC_NAME.get(user.getFactionId()).contains(oc.getName())) {
+            if (isReassign && !reassignManager.getRotationOcNames(user.getFactionId()).contains(oc.getName())) {
                 continue;
             }
 

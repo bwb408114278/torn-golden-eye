@@ -1,0 +1,185 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_table_oc_reassign_faction
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_oc_reassign_faction
+            remarks: "帮派级大锅饭开关与收益模式配置"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  remarks: "帮派ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: income_mode
+                  type: VARCHAR(16)
+                  remarks: "收益模式: COEFFICIENT(系数)/EQUAL(平分)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: enabled
+                  type: BOOLEAN
+                  remarks: "是否启用大锅饭"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - addUniqueConstraint:
+            tableName: torn_setting_oc_reassign_faction
+            columnNames: faction_id
+            constraintName: uk_setting_oc_reassign_faction_id
+  - changeSet:
+      id: create_table_oc_reassign_oc
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_oc_reassign_oc
+            remarks: "帮派大锅饭OC范围行配置"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  remarks: "帮派ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  remarks: "OC名称"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: rank
+                  type: SMALLINT
+                  remarks: "OC级别(冗余自目录, 便于审计, 与链表口径一致)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: effective_from
+                  type: TIMESTAMP
+                  remarks: "生效时间, NULL表示历史所有月份均属大锅饭(原有名单语义)"
+              - column:
+                  name: enabled
+                  type: BOOLEAN
+                  remarks: "是否启用该范围行"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - createIndex:
+            tableName: torn_setting_oc_reassign_oc
+            indexName: idx_setting_oc_reassign_oc_faction
+            columns:
+              - column:
+                  name: faction_id
+  - changeSet:
+      id: seed_oc_reassign_config
+      author: Bai
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO torn_setting_oc_reassign_faction
+                (id, faction_id, income_mode, enabled)
+              VALUES
+                (1, 20465, 'COEFFICIENT', true),
+                (2, 2095, 'COEFFICIENT', true),
+                (3, 27902, 'COEFFICIENT', true),
+                (4, 36134, 'COEFFICIENT', true),
+                (5, 16335, 'EQUAL', true),
+                (6, 11796, 'EQUAL', true);
+
+              INSERT INTO torn_setting_oc_reassign_oc
+                (id, faction_id, oc_name, "rank", effective_from, enabled)
+              VALUES
+                (1, 20465, 'Ace in the Hole', 9, NULL, true),
+                (2, 20465, 'Stacking the Deck', 8, NULL, true),
+                (3, 20465, 'Break the Bank', 8, NULL, true),
+                (4, 20465, 'Clinical Precision', 8, NULL, true),
+                (5, 20465, 'Blast from the Past', 7, NULL, true),
+                (6, 20465, 'Window of Opportunity', 7, NULL, true),
+                (7, 20465, 'Lock Stock', 8, '2026-08-01 00:00:00', true),
+                (8, 20465, 'Hostile Takeover', 9, '2026-08-01 00:00:00', true),
+                (9, 2095, 'Break the Bank', 8, NULL, true),
+                (10, 2095, 'Clinical Precision', 8, NULL, true),
+                (11, 2095, 'Blast from the Past', 7, NULL, true),
+                (12, 2095, 'Window of Opportunity', 7, NULL, true),
+                (13, 27902, 'Break the Bank', 8, NULL, true),
+                (14, 27902, 'Clinical Precision', 8, NULL, true),
+                (15, 27902, 'Blast from the Past', 7, NULL, true),
+                (16, 27902, 'Window of Opportunity', 7, NULL, true),
+                (17, 36134, 'Break the Bank', 8, NULL, true),
+                (18, 36134, 'Clinical Precision', 8, NULL, true),
+                (19, 36134, 'Blast from the Past', 7, NULL, true),
+                (20, 36134, 'Window of Opportunity', 7, NULL, true),
+                (21, 16335, 'Break the Bank', 8, NULL, true),
+                (22, 16335, 'Clinical Precision', 8, NULL, true),
+                (23, 16335, 'Blast from the Past', 7, NULL, true),
+                (24, 16335, 'Window of Opportunity', 7, NULL, true),
+                (25, 16335, 'Lock Stock', 8, '2026-07-01 00:00:00', true),
+                (26, 16335, 'Stacking the Deck', 8, '2026-07-01 00:00:00', true),
+                (27, 16335, 'Manifest Cruelty', 8, '2026-07-01 00:00:00', true),
+                (28, 16335, 'Gone Fission', 9, '2026-07-01 00:00:00', true),
+                (29, 16335, 'Ace in the Hole', 9, '2026-07-01 00:00:00', true),
+                (30, 16335, 'Hostile Takeover', 9, '2026-07-01 00:00:00', true),
+                (31, 16335, 'Crane Reaction', 10, '2026-07-01 00:00:00', true),
+                (32, 11796, 'Break the Bank', 8, NULL, true),
+                (33, 11796, 'Clinical Precision', 8, NULL, true),
+                (34, 11796, 'Blast from the Past', 7, NULL, true),
+                (35, 11796, 'Window of Opportunity', 7, NULL, true);
