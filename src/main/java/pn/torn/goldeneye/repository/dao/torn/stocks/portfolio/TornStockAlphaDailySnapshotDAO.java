@@ -1,0 +1,88 @@
+package pn.torn.goldeneye.repository.dao.torn.stocks.portfolio;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.stereotype.Repository;
+import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockAlphaDailySnapshotMapper;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * α策略日线快照持久层。
+ *
+ * @author Bai
+ * @version 1.6.1
+ * @since 2026.09.05
+ */
+@Repository
+public class TornStockAlphaDailySnapshotDAO extends ServiceImpl<TornStockAlphaDailySnapshotMapper, TornStockAlphaDailySnapshotDO> {
+    /**
+     * 按业务键锁定日线快照。
+     *
+     * @param stocksId             股票ID
+     * @param businessDate         自然日
+     * @param stockUniverseVersion 股票池版本
+     * @param alphaRuleVersion     α规则版本
+     * @return 日线快照
+     */
+    public TornStockAlphaDailySnapshotDO selectByBusinessKeyForUpdate(Integer stocksId, LocalDate businessDate,
+                                                                      String stockUniverseVersion, String alphaRuleVersion) {
+        return baseMapper.selectByBusinessKeyForUpdate(stocksId, businessDate, stockUniverseVersion, alphaRuleVersion);
+    }
+
+    /**
+     * 冲突安全插入日线快照。
+     *
+     * @param snapshot 待插入快照
+     * @return 实际插入行数
+     */
+    public int insertIgnoreConflict(TornStockAlphaDailySnapshotDO snapshot) {
+        return baseMapper.insertIgnoreConflict(snapshot);
+    }
+
+    /**
+     * 冲突安全批量插入日线快照。
+     * <p>
+     * 日线预填与缺口修复的唯一写入入口,调用方负责分批并核对生效行数。
+     *
+     * @param snapshots 待插入日线快照
+     * @return 实际生效行数
+     */
+    public int batchInsertIgnoreConflict(List<TornStockAlphaDailySnapshotDO> snapshots) {
+        return baseMapper.batchInsertIgnoreConflict(snapshots);
+    }
+
+    /**
+     * 查询指定版本日期范围内的日线快照。
+     *
+     * @param stockUniverseVersion 股票池版本
+     * @param alphaRuleVersion     α规则版本
+     * @param startDate            起始日期
+     * @param endDate              结束日期
+     * @return 日线快照
+     */
+    public List<TornStockAlphaDailySnapshotDO> selectByDateRange(String stockUniverseVersion,
+                                                                 String alphaRuleVersion,
+                                                                 LocalDate startDate,
+                                                                 LocalDate endDate) {
+        return baseMapper.selectByDateRange(stockUniverseVersion, alphaRuleVersion, startDate, endDate);
+    }
+
+    /**
+     * 查询固定股票池全部成员均合法收盘的共同有效自然日。
+     *
+     * @param stockUniverseVersion 股票池版本
+     * @param alphaRuleVersion     α规则版本
+     * @param memberIds            股票池成员ID
+     * @param startDate            起始日期
+     * @param endDate              结束日期
+     * @return 升序共同有效日期;无行情自然日不在结果中
+     */
+    public List<LocalDate> selectCommonValidDates(String stockUniverseVersion, String alphaRuleVersion,
+                                                  List<Integer> memberIds, LocalDate startDate,
+                                                  LocalDate endDate) {
+        return baseMapper.selectCommonValidDates(stockUniverseVersion, alphaRuleVersion,
+                memberIds == null ? 0 : memberIds.size(), memberIds, startDate, endDate);
+    }
+}

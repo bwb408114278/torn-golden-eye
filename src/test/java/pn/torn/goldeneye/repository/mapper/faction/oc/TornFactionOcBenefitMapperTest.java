@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcBenefitDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitRankDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcBenefitUserRankDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 
 import java.time.LocalDate;
@@ -29,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 按帮派+OC名称+生效时间的大锅饭排除规则，日期边界结论一致。</p>
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.6.2
  * @since 2026.08.03
  */
 @SpringBootTest
@@ -40,6 +41,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class TornFactionOcBenefitMapperTest {
     @Autowired
     private TornFactionOcBenefitDAO benefitDao;
+    @Autowired
+    private TornSettingOcReassignManager reassignManager;
 
     private static final Long PN_USER = 8803001L;
     private static final Long NOV_USER = 8803002L;
@@ -106,7 +109,8 @@ class TornFactionOcBenefitMapperTest {
     @DisplayName("PN帮派收益榜：生效前普通收益计入、生效后排除")
     void factionRanking_pnDateBoundary() {
         OcBenefitRankingQuery julyQuery =
-                new OcBenefitRankingQuery(TornConstants.FACTION_PN_ID, 0L, LocalDate.of(2026, 7, 1));
+                new OcBenefitRankingQuery(TornConstants.FACTION_PN_ID, 0L, LocalDate.of(2026, 7, 1),
+                        reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         julyQuery.setLimit(10000);
         List<TornFactionOcBenefitRankDO> july = benefitDao.queryBenefitRanking(julyQuery);
         TornFactionOcBenefitRankDO pnUserJuly = findRank(july, PN_USER);
@@ -115,7 +119,8 @@ class TornFactionOcBenefitMapperTest {
         assertEquals(500L, pnUserJuly.getBenefit());
 
         OcBenefitRankingQuery augustQuery =
-                new OcBenefitRankingQuery(TornConstants.FACTION_PN_ID, 0L, LocalDate.of(2026, 8, 1));
+                new OcBenefitRankingQuery(TornConstants.FACTION_PN_ID, 0L, LocalDate.of(2026, 8, 1),
+                        reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         augustQuery.setLimit(10000);
         List<TornFactionOcBenefitRankDO> august = benefitDao.queryBenefitRanking(augustQuery);
         // 生效后：Lock Stock 被排除，PN榜无该用户普通收益
@@ -125,7 +130,8 @@ class TornFactionOcBenefitMapperTest {
     @Test
     @DisplayName("SMTH总榜：普通帮派收益计入、生效后目标OC普通收益排除")
     void smthRanking_keepsOrdinaryAndExcludesScheduled() {
-        OcBenefitRankingQuery augustQuery = new OcBenefitRankingQuery(0L, 0L, LocalDate.of(2026, 8, 1));
+        OcBenefitRankingQuery augustQuery = new OcBenefitRankingQuery(0L, 0L, LocalDate.of(2026, 8, 1),
+                reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         augustQuery.setLimit(10000);
         List<TornFactionOcBenefitRankDO> august = benefitDao.queryBenefitRanking(augustQuery);
         // 普通帮派收益进入总榜
@@ -140,7 +146,8 @@ class TornFactionOcBenefitMapperTest {
     @DisplayName("用户个人排名与帮派榜使用同一排除结论，且返回收益归属帮派")
     void userRanking_consistentWithFactionRanking() {
         TornFactionOcBenefitUserRankDO ranking = benefitDao.queryBenefitUserRanking(
-                new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 7, 1)));
+                new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 7, 1),
+                        reassignManager.getReassignFactionList(), reassignManager.getExclusionRules()));
         assertNotNull(ranking);
         assertEquals(500L, ranking.getBenefit());
         assertEquals(TornConstants.FACTION_PN_ID, ranking.getFactionId());
@@ -150,7 +157,8 @@ class TornFactionOcBenefitMapperTest {
     @DisplayName("同期榜：生效前普通收益计入、生效后目标OC普通收益排除")
     void cohortRanking_appliesSameExclusionRule() {
         // PN_USER=8803001、NOV_USER=8803002、OTHER_USER=8803003 同为880同期组
-        OcBenefitRankingQuery julyQuery = new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 7, 1));
+        OcBenefitRankingQuery julyQuery = new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 7, 1),
+                reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         julyQuery.setLimit(10000);
         List<TornFactionOcBenefitRankDO> july = benefitDao.queryCohortBenefitRanking(julyQuery);
         TornFactionOcBenefitRankDO pnUserJuly = findRank(july, PN_USER);
@@ -158,7 +166,8 @@ class TornFactionOcBenefitMapperTest {
         // 生效前：Lock Stock(100) + Hostile Takeover(400) 计入，Ace in the Hole 始终排除
         assertEquals(500L, pnUserJuly.getBenefit());
 
-        OcBenefitRankingQuery augustQuery = new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 8, 1));
+        OcBenefitRankingQuery augustQuery = new OcBenefitRankingQuery(PN_USER, LocalDate.of(2026, 8, 1),
+                reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
         augustQuery.setLimit(10000);
         List<TornFactionOcBenefitRankDO> august = benefitDao.queryCohortBenefitRanking(augustQuery);
         // 生效后：PN Lock Stock 普通收益被排除，同期榜不再出现该用户
@@ -167,7 +176,8 @@ class TornFactionOcBenefitMapperTest {
 
     private OcBenefitRankingQuery personalQuery(long factionId, long userId,
                                                 LocalDateTime from, LocalDateTime to) {
-        return new OcBenefitRankingQuery(factionId, userId, from, to);
+        return new OcBenefitRankingQuery(factionId, userId, from, to,
+                reassignManager.getReassignFactionList(), reassignManager.getExclusionRules());
     }
 
     private TornFactionOcBenefitRankDO findRank(List<TornFactionOcBenefitRankDO> rankList, Long userId) {

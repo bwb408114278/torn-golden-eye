@@ -8,9 +8,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -28,15 +30,19 @@ import static org.junit.jupiter.api.Assertions.*;
  * 入场过期时间计算以及组合权益计算。静态方法直接调用,实例方法通过 Mockito mock DAO 构造服务实例。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("股票组合管理服务测试")
 class StockPortfolioServiceTest {
+    /**
+     * 跨组合结算用例使用的结算价格。
+     */
+    private static final BigDecimal SETTLEMENT_PRICE = new BigDecimal("110.00");
 
     @Mock
-    private TornStockPortfolioSlotDAO portfolioSlotDAO;
+    private TornStockPortfolioSlotDAO portfolioSlotDao;
 
     private StockPortfolioService portfolioService;
 
@@ -45,10 +51,37 @@ class StockPortfolioServiceTest {
         portfolioService = new StockPortfolioService();
     }
 
-    // ==================== 纯计算方法(静态) ====================
+    @Test
+    @DisplayName("组合参数_ VIP_ALPHA为1槽且每槽初始资金100亿")
+    void vipAlphaPortfolioParameters_areCompatible() {
+        assertEquals("VIP_ALPHA", StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        assertEquals(1, StockPortfolioService.VIP_ALPHA_SLOT_COUNT);
+        assertEquals(0, new BigDecimal("10000000000.00").compareTo(StockPortfolioService.VIP_ALPHA_INITIAL_CASH));
+        assertEquals(5, StockPortfolioService.SLOT_COUNT);
+        assertEquals(0, new BigDecimal("2000000000.00").compareTo(StockPortfolioService.INITIAL_CASH));
+    }
+
 
     @Test
-    @DisplayName("计算股数_20亿除以100元入场价,返回2000万股")
+    @DisplayName("账本校验_ FORMAL账本由组合编码区分旧版与Alpha")
+    void isAlphaBatch_formalLedgerAndAlphaPortfolio_returnsTrue() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+
+        assertTrue(StockPortfolioService.isAlphaBatch(batch));
+        assertFalse(StockPortfolioService.isFormalBatch(batch));
+        assertTrue(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.FORMAL.getCode()));
+        assertTrue(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode()));
+        assertFalse(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode()));
+    }
+
+    @Test
+    @DisplayName("账本校验_旧VIP_ALPHA账本类型不再作为槽位账本")
+    void isSlotBackedLedger_legacyAlphaLedgerType_isRejected() {
+        assertFalse(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.VIP_ALPHA.getCode()));
+    }
+
     void calculateQuantity_2BillionDividedBy100_returns20MillionShares() {
         BigDecimal availableCash = new BigDecimal("2000000000.00");
         BigDecimal entryReferencePrice = new BigDecimal("100.00");
@@ -206,6 +239,91 @@ class StockPortfolioServiceTest {
         assertEquals(0, expectedAvailable.compareTo(slot.getAvailableCash()),
                 "可用现金应增加卖出所得,期望: " + expectedAvailable + ",实际: " + slot.getAvailableCash());
         assertNull(slot.getCurrentBatchId(), "批次ID应解绑");
+    }
+
+    @Test
+    @DisplayName("槽位账本结算_ VIP_ALPHA卖出所得与余款回到独立槽位并保持守恒")
+    void settleSlotBacked_vipAlpha_preservesRemainingCashAndSellProceeds() {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(7L);
+        batch.setBatchNo("ALPHA-7");
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setStocksId(1001);
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setQuantity(5L);
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setExpectedExitBarTime(LocalDateTime.of(2026, 9, 5, 0, 15));
+        batch.setRemainingCash(new BigDecimal("500.00"));
+        TornStockPortfolioSlotDO slot = buildOccupiedSlot(1, new BigDecimal("500.00"));
+        slot.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        slot.setCurrentBatchId(7L);
+
+        BigDecimal proceeds = portfolioService.settleSlotBacked(batch, slot, new BigDecimal("110.00"),
+                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+
+        assertEquals(0, new BigDecimal("549.45").compareTo(proceeds));
+        assertEquals(0, new BigDecimal("1049.45").compareTo(slot.getAvailableCash()));
+        assertEquals(0, slot.getAvailableCash().compareTo(batch.getRemainingCash().add(proceeds)));
+        assertEquals(StockSlotStatusEnum.AVAILABLE.getCode(), slot.getSlotStatus());
+        assertNull(slot.getCurrentBatchId());
+    }
+
+    @Test
+    @DisplayName("同股不同组合_FORMAL+VIP_ALPHA与VIP_FORMAL槽位互不配对且资金不混用")
+    void settleSlotBacked_sameStockCrossPortfolio_rejectsPairingInBothDirections() {
+        TornStockVirtualBatchDO alphaBatch = alphaSettlementBatch(7L, "ALPHA-7");
+        TornStockPortfolioSlotDO formalSlot = buildOccupiedSlot(1, new BigDecimal("500.00"));
+        formalSlot.setCurrentBatchId(7L);
+        BigDecimal formalAvailableBefore = formalSlot.getAvailableCash();
+
+        assertThrows(IllegalStateException.class, () -> portfolioService.settleSlotBacked(
+                alphaBatch, formalSlot, SETTLEMENT_PRICE,
+                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE));
+
+        assertEquals(0, formalAvailableBefore.compareTo(formalSlot.getAvailableCash()),
+                "α批次不得回笼正式组合槽位资金");
+        assertEquals(StockSlotStatusEnum.OCCUPIED.getCode(), formalSlot.getSlotStatus());
+        assertEquals(7L, formalSlot.getCurrentBatchId());
+
+        TornStockVirtualBatchDO formalBatch = alphaSettlementBatch(8L, "FORMAL-8");
+        formalBatch.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+        TornStockPortfolioSlotDO alphaSlot = buildOccupiedSlot(1, new BigDecimal("500.00"));
+        alphaSlot.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        alphaSlot.setCurrentBatchId(8L);
+        BigDecimal alphaAvailableBefore = alphaSlot.getAvailableCash();
+
+        assertThrows(IllegalStateException.class, () -> portfolioService.settleSlotBacked(
+                formalBatch, alphaSlot, SETTLEMENT_PRICE,
+                StockPortfolioService.PORTFOLIO_CODE));
+
+        assertEquals(0, alphaAvailableBefore.compareTo(alphaSlot.getAvailableCash()),
+                "正式批次不得回笼α独立槽位资金");
+        assertEquals(7L, formalSlot.getCurrentBatchId());
+    }
+
+    /**
+     * 构建同股(1001)、同槽位形状、指定组合编码的待结算批次。
+     *
+     * @param id       批次ID
+     * @param batchNo  批次编号
+     * @return 待结算批次
+     */
+    private TornStockVirtualBatchDO alphaSettlementBatch(Long id, String batchNo) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setId(id);
+        batch.setBatchNo(batchNo);
+        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        batch.setStocksId(1001);
+        batch.setSlotId(1L);
+        batch.setSlotNo(1);
+        batch.setQuantity(5L);
+        batch.setEntryReferencePrice(new BigDecimal("100.00"));
+        batch.setExpectedExitBarTime(LocalDateTime.of(2026, 9, 5, 0, 15));
+        batch.setRemainingCash(new BigDecimal("500.00"));
+        return batch;
     }
 
     @Test

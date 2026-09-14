@@ -11,6 +11,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
 import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcBatchIncomeService;
@@ -39,6 +40,8 @@ class TornFactionOcManagerTest {
     @Mock
     private TornItemsManager itemsManager;
     @Mock
+    private TornSettingOcReassignManager reassignManager;
+    @Mock
     private TornFactionOcDAO ocDao;
     @Mock
     private TornFactionOcSlotDAO slotDao;
@@ -50,7 +53,7 @@ class TornFactionOcManagerTest {
     @BeforeEach
     void setUp() {
         ocManager = new TornFactionOcManager(virtualThreadExecutor, ocBatchIncomeService,
-                slotManager, ocUserManager, itemsManager, ocDao, slotDao);
+                slotManager, ocUserManager, itemsManager, reassignManager, ocDao, slotDao);
     }
 
     @Test

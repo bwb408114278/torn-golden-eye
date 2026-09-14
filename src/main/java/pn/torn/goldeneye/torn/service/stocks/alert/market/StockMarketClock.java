@@ -14,7 +14,7 @@ import java.time.ZoneId;
  * 测试中可注入固定时间。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.26
  */
 @Component
@@ -41,6 +41,19 @@ public class StockMarketClock {
      */
     public LocalDate today() {
         return LocalDate.now(ZONE_ID);
+    }
+
+    /**
+     * 获取最近已结束自然日。
+     * <p>
+     * 自然日只有在进入下一自然日时才算真正结束:当前自然日尚未结束,
+     * 其日线收盘仍可能被后续bar覆盖,因此最近已结束自然日固定为当前自然日的前一自然日。
+     * 日线构建、共同有效日统计和人工预填都必须以本方法为上界,不得冻结未结束自然日。
+     *
+     * @return 最近已结束自然日
+     */
+    public LocalDate lastEndedNaturalDay() {
+        return today().minusDays(1);
     }
 
     /**

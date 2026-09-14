@@ -20,6 +20,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.FactionOcExclusion;
 import pn.torn.goldeneye.torn.model.faction.crime.income.OcBenefitRankingQuery;
 import pn.torn.goldeneye.torn.service.faction.oc.income.TornOcIncomeService;
@@ -44,7 +45,7 @@ import static org.mockito.Mockito.*;
  * 不能替代真实Mapper数据库测试，日期边界与排除结论以{@code TornFactionOcBenefitMapperTest}为准。</p>
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.6.2
  * @since 2026.08.04
  */
 @SpringBootTest
@@ -61,6 +62,8 @@ class OcBenefitQueryStrategyImplTest {
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
     @Autowired
     private TornSettingFactionManager settingFactionManager;
+    @Autowired
+    private TornSettingOcReassignManager reassignManager;
 
     @Test
     @DisplayName("个人普通收益明细构造跨帮派排除规则查询并调用生产DAO")
@@ -84,7 +87,7 @@ class OcBenefitQueryStrategyImplTest {
         List<FactionOcExclusion> rules = query.getFactionOcExclusions();
         assertFalse(rules.isEmpty());
         // 规则覆盖全部大锅饭帮派，且包含带生效时间的NOV新增名单，证明不锁定当前帮派
-        for (Long fid : TornConstants.REASSIGN_OC_FACTION) {
+        for (Long fid : reassignManager.getReassignFactionList()) {
             assertTrue(rules.stream().anyMatch(r -> fid.equals(r.getFactionId())));
         }
         assertTrue(rules.stream().anyMatch(r -> r.getEffectiveFrom() != null
@@ -106,7 +109,7 @@ class OcBenefitQueryStrategyImplTest {
         verify(benefitDao).queryPersonalBenefitList(queryCaptor.capture());
         List<FactionOcExclusion> rules = queryCaptor.getValue().getFactionOcExclusions();
         assertFalse(rules.isEmpty());
-        for (Long fid : TornConstants.REASSIGN_OC_FACTION) {
+        for (Long fid : reassignManager.getReassignFactionList()) {
             assertTrue(rules.stream().anyMatch(r -> fid.equals(r.getFactionId())));
         }
     }

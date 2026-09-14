@@ -10,7 +10,7 @@ import java.util.Set;
  * 股票成熟度枚举 - 标识股票历史数据/策略适配的成熟度阶段
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Getter
@@ -36,6 +36,10 @@ public enum StockMaturityEnum {
      * 成熟 - 历史数据完备
      */
     M4_MATURE("M4_MATURE", "成熟"),
+    /**
+     * α策略未评估 — α批次不参与旧版成熟度分类,禁止写入"不适用"伪业务值
+     */
+    ALPHA_NOT_EVALUATED("ALPHA_NOT_EVALUATED", "α未评估成熟度"),
     ;
 
     /**

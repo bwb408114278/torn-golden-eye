@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
@@ -15,6 +14,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
 
@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * OC队伍推荐逻辑层
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.6.2
  * @since 2025.11.01
  */
 @Slf4j
@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TornOcRecommendService {
     private final TornOcRecommendManager ocRecommendManager;
+    private final TornSettingOcReassignManager reassignManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
@@ -160,7 +161,7 @@ public class TornOcRecommendService {
         if (!isReassign) {
             return false;
         }
-        if (TornConstants.ROTATION_OC_NAME.get(factionId).contains(oc.getName())) {
+        if (reassignManager.getRotationOcNames(factionId).contains(oc.getName())) {
             return false;
         }
         return joinedOc == null || !joinedOc.getOc().getId().equals(oc.getId());

@@ -8,7 +8,11 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticeRebalanceAssociation;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDateTime;
@@ -17,8 +21,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 
 /**
  * 股票通知审计写入器 - 步骤9:为已成交的买入/卖出批次写入PENDING状态的通知审计记录。
@@ -28,7 +30,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
  * {@link StockCandidateTrackAllocationService}。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @Slf4j
@@ -71,16 +73,37 @@ public class StockShadowRecordWriter {
     public void writeNoticeAudits(List<TornStockVirtualBatchDO> entryFilledBatches,
                                   List<TornStockVirtualBatchDO> exitFilledBatches,
                                   LocalDateTime roundTime) {
-        List<TornStockVirtualBatchDO> formalEntryBatches = filterFormalBatches(entryFilledBatches);
-        List<TornStockVirtualBatchDO> formalExitBatches = filterFormalBatches(exitFilledBatches);
+        writeNoticeAudits(entryFilledBatches, exitFilledBatches, roundTime, null);
+    }
+
+    /**
+     * 为已成交的买入/卖出写入通知审计,Alpha换仓时同时固化双腿统一关联事实。
+     * <p>
+     * 关联事实非空即表示本次为Alpha原子换仓:两腿通知类型统一为
+     * {@link StockNoticeTypeEnum#ALPHA_REBALANCE},并在payload中固化同一换仓决策ID、
+     * 换仓关联标识、原仓批次、新仓批次、腿标识与腿顺序,使业务可以从任一换仓通知直接还原一次完整换仓。
+     * 关联事实为空时保持旧版BUY/SELL通知语义,不得写入任何Alpha换仓字段。
+     *
+     * @param entryFilledBatches   已成交买入批次
+     * @param exitFilledBatches    已成交卖出批次
+     * @param roundTime            本轮时间
+     * @param rebalanceAssociation Alpha换仓统一关联事实;非换仓通知传null
+     */
+    public void writeNoticeAudits(List<TornStockVirtualBatchDO> entryFilledBatches,
+                                  List<TornStockVirtualBatchDO> exitFilledBatches,
+                                  LocalDateTime roundTime,
+                                  NoticeRebalanceAssociation rebalanceAssociation) {
+        List<TornStockVirtualBatchDO> formalEntryBatches = filterNoticeBatches(entryFilledBatches);
+        List<TornStockVirtualBatchDO> formalExitBatches = filterNoticeBatches(exitFilledBatches);
         List<TornStockNoticeAuditDO> notices = new ArrayList<>();
-        collectBuyNotices(formalEntryBatches, roundTime, notices);
-        collectSellNotices(formalExitBatches, roundTime, notices);
+        collectBuyNotices(formalEntryBatches, roundTime, rebalanceAssociation, notices);
+        collectSellNotices(formalExitBatches, roundTime, rebalanceAssociation, notices);
 
         if (!notices.isEmpty()) {
             noticeAuditDao.saveBatch(notices);
-            log.info("通知审计写入完成: buyNotices={}, sellNotices={}",
-                    formalEntryBatches.size(), formalExitBatches.size());
+            log.info("通知审计写入完成: buyNotices={}, sellNotices={}, rebalanceAssociationId={}",
+                    formalEntryBatches.size(), formalExitBatches.size(),
+                    rebalanceAssociation == null ? null : rebalanceAssociation.associationId());
         }
     }
 
@@ -90,56 +113,73 @@ public class StockShadowRecordWriter {
      * @param batches 待过滤批次
      * @return 正式账本批次;空值返回空列表
      */
-    private List<TornStockVirtualBatchDO> filterFormalBatches(List<TornStockVirtualBatchDO> batches) {
+    private List<TornStockVirtualBatchDO> filterNoticeBatches(List<TornStockVirtualBatchDO> batches) {
         if (batches == null || batches.isEmpty()) {
             return List.of();
         }
         return batches.stream()
-                .filter(batch -> StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType()))
+                .filter(batch -> StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                        && (StockPortfolioService.PORTFOLIO_CODE.equals(batch.getPortfolioCode())
+                        || StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(batch.getPortfolioCode())))
                 .toList();
     }
 
     /**
-     * 为已成交买入批次构建通知审计并追加到列表。
+     * 为已成交买入批次构建通知审计并追加到列表,买入方向固定为换仓BUY腿。
      *
-     * @param batches   已成交买入批次
-     * @param roundTime 本轮时间
-     * @param notices   通知审计输出列表
+     * @param batches              已成交买入批次
+     * @param roundTime            本轮时间
+     * @param rebalanceAssociation Alpha换仓关联事实;非换仓通知传null
+     * @param notices              通知审计输出列表
      */
     private void collectBuyNotices(List<TornStockVirtualBatchDO> batches,
                                    LocalDateTime roundTime,
+                                   NoticeRebalanceAssociation rebalanceAssociation,
                                    List<TornStockNoticeAuditDO> notices) {
         for (TornStockVirtualBatchDO batch : batches) {
-            notices.add(buildNoticeAudit(batch, StockNoticeTypeEnum.BUY, roundTime));
+            notices.add(buildNoticeAudit(batch,
+                    resolveNoticeType(StockNoticeTypeEnum.BUY, rebalanceAssociation != null), roundTime,
+                    rebalanceAssociation, StockAlphaRebalanceLegEnum.BUY));
         }
     }
 
     /**
-     * 为已成交卖出批次构建通知审计并追加到列表。
+     * 为已成交卖出批次构建通知审计并追加到列表,卖出方向固定为换仓SELL腿。
      *
-     * @param batches   已成交卖出批次
-     * @param roundTime 本轮时间
-     * @param notices   通知审计输出列表
+     * @param batches              已成交卖出批次
+     * @param roundTime            本轮时间
+     * @param rebalanceAssociation Alpha换仓关联事实;非换仓通知传null
+     * @param notices              通知审计输出列表
      */
     private void collectSellNotices(List<TornStockVirtualBatchDO> batches,
                                     LocalDateTime roundTime,
+                                    NoticeRebalanceAssociation rebalanceAssociation,
                                     List<TornStockNoticeAuditDO> notices) {
         for (TornStockVirtualBatchDO batch : batches) {
-            notices.add(buildNoticeAudit(batch, StockNoticeTypeEnum.SELL, roundTime));
+            notices.add(buildNoticeAudit(batch,
+                    resolveNoticeType(StockNoticeTypeEnum.SELL, rebalanceAssociation != null), roundTime,
+                    rebalanceAssociation, StockAlphaRebalanceLegEnum.SELL));
         }
     }
 
     /**
      * 构建通知审计DO(PENDING状态)。
+     * <p>
+     * 消息规则版本与批次保持一致: α批次为{@code ALPHA_V1}, 旧版批次为
+     * {@link StockRuleVersion#MESSAGE}, 避免审计自身的消息规则版本与批次读回自相矛盾。
      *
-     * @param batch      关联批次
-     * @param noticeType 通知类型
-     * @param roundTime  本轮时间
+     * @param batch                关联批次
+     * @param noticeType           通知类型
+     * @param roundTime            本轮时间
+     * @param rebalanceAssociation Alpha换仓关联事实;非换仓通知传null
+     * @param rebalanceLeg         换仓腿标识;非换仓通知为对应买卖方向占位值
      * @return 未保存的通知审计DO
      */
     private TornStockNoticeAuditDO buildNoticeAudit(TornStockVirtualBatchDO batch,
                                                     StockNoticeTypeEnum noticeType,
-                                                    LocalDateTime roundTime) {
+                                                    LocalDateTime roundTime,
+                                                    NoticeRebalanceAssociation rebalanceAssociation,
+                                                    StockAlphaRebalanceLegEnum rebalanceLeg) {
         TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
         notice.setNoticeNo(generateNoticeNo(batch, noticeType));
         notice.setBatchId(batch.getId());
@@ -148,11 +188,23 @@ public class StockShadowRecordWriter {
         notice.setScheduledRoundTime(roundTime);
         notice.setSendStatus(StockNoticeStatusEnum.PENDING.getCode());
         notice.setSendAttemptCount(0);
-        notice.setMessageRuleVersion(StockRuleVersion.MESSAGE);
-        String payloadSnapshot = buildNoticePayload(batch, noticeType);
+        notice.setMessageRuleVersion(batch.getMessageRuleVersion() != null
+                ? batch.getMessageRuleVersion() : StockRuleVersion.MESSAGE);
+        String payloadSnapshot = buildNoticePayload(batch, noticeType, rebalanceAssociation, rebalanceLeg);
         notice.setPayloadSnapshot(payloadSnapshot);
         notice.setPayloadHash(generatePayloadHash(payloadSnapshot));
         return notice;
+    }
+
+    /**
+     * Alpha初始入场和普通组合沿用BUY/SELL通知类型；仅原子换仓调用方传入关联事实时使用ALPHA_REBALANCE。
+     *
+     * @param noticeType     默认通知类型
+     * @param alphaRebalance 是否为Alpha原子换仓
+     * @return 实际通知类型
+     */
+    private StockNoticeTypeEnum resolveNoticeType(StockNoticeTypeEnum noticeType, boolean alphaRebalance) {
+        return alphaRebalance ? StockNoticeTypeEnum.ALPHA_REBALANCE : noticeType;
     }
 
     /**
@@ -192,21 +244,31 @@ public class StockShadowRecordWriter {
      * 数据/管理关闭批次(ADMIN_CLOSED)额外固化 originalExitReason、adminCloseReason、
      * expectedExitBarTime、recoveryBarStart/EndTime 与 staleExitDurationSeconds,
      * 便于审计区分灾难处置与普通策略卖出。
+     * Alpha换仓通知在以上字段之外额外固化双腿统一关联事实:换仓决策ID、换仓关联标识、
+     * 原仓批次ID、新仓批次ID、腿标识与腿顺序,两条通知共享同一关联标识。
      * 载荷通过 {@link StockNoticePayloadCanonicalizer} 规范化后落库,键序确定。
      *
-     * @param batch      关联批次
-     * @param noticeType 通知类型
+     * @param batch                关联批次
+     * @param noticeType           通知类型
+     * @param rebalanceAssociation Alpha换仓统一关联事实;非换仓通知传null
+     * @param rebalanceLeg         换仓腿标识
      * @return 载荷快照JSON文本
      */
-    private String buildNoticePayload(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType) {
+    private String buildNoticePayload(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType,
+                                      NoticeRebalanceAssociation rebalanceAssociation,
+                                      StockAlphaRebalanceLegEnum rebalanceLeg) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("noticeType", noticeType.getCode());
         payload.put("batchId", batch.getId());
         payload.put("batchNo", batch.getBatchNo());
         payload.put("stocksId", batch.getStocksId());
         payload.put("stocksShortname", batch.getStocksShortname());
+        payload.put("ledgerType", batch.getLedgerType());
+        payload.put("portfolioCode", resolvePortfolioCode(batch));
         payload.put("primaryStrategy", batch.getPrimaryStrategy());
-        if (StockNoticeTypeEnum.BUY == noticeType) {
+        if (StockNoticeTypeEnum.BUY == noticeType
+                || (StockNoticeTypeEnum.ALPHA_REBALANCE == noticeType
+                && StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))) {
             payload.put("entryReferencePrice", batch.getEntryReferencePrice());
             payload.put("quantity", batch.getQuantity());
             payload.put("investedCash", batch.getInvestedCash());
@@ -236,14 +298,47 @@ public class StockShadowRecordWriter {
                 payload.put("formalReason", resolveFormalReason(batch.getExitReason()));
             }
         }
+        appendRebalanceAssociation(payload, rebalanceAssociation, rebalanceLeg);
         return StockNoticePayloadCanonicalizer.canonicalize(JsonUtils.objToJson(payload));
     }
 
     /**
-     * 将原策略退出类型映射为正式卖出原因编码。
+     * 向Alpha换仓通知payload追加双腿统一关联事实。
      * <p>
-     * 普通策略卖出(非数据/管理关闭)使用稳定正式原因码;未知编码回退为原退出类型本身,
-     * 不在此处抛异常,避免通知审计写入被未知编码阻塞。
+     * 关联事实为空时直接返回,旧版普通BUY/SELL通知不得被写入Alpha换仓字段。
+     * 原批次的原始{@code alphaDecisionId}仍表示其入场来源,换仓关联使用独立的
+     * {@code rebalanceDecisionId}语义,不覆盖原批次身份。
+     *
+     * @param payload              载荷字段
+     * @param rebalanceAssociation Alpha换仓统一关联事实;非换仓通知传null
+     * @param rebalanceLeg         换仓腿标识
+     */
+    private void appendRebalanceAssociation(Map<String, Object> payload,
+                                            NoticeRebalanceAssociation rebalanceAssociation,
+                                            StockAlphaRebalanceLegEnum rebalanceLeg) {
+        if (rebalanceAssociation == null) {
+            return;
+        }
+        payload.put("rebalanceDecisionId", rebalanceAssociation.rebalanceDecisionId());
+        payload.put("rebalanceAssociationId", rebalanceAssociation.associationId());
+        payload.put("originalBatchId", rebalanceAssociation.originalBatchId());
+        payload.put("replacementBatchId", rebalanceAssociation.replacementBatchId());
+        payload.put("rebalanceLeg", rebalanceLeg.getCode());
+        payload.put("legOrder", rebalanceLeg.getLegOrder());
+    }
+
+    /**
+     * 解析批次所属的组合编码。
+     *
+     * @param batch 股票虚拟批次
+     * @return 批次所属组合编码
+     */
+    private String resolvePortfolioCode(TornStockVirtualBatchDO batch) {
+        return batch.getPortfolioCode();
+    }
+
+    /**
+     * 将原策略退出类型映射为正式卖出原因编码。
      *
      * @param exitReason 原策略退出类型编码
      * @return 正式卖出原因编码

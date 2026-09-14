@@ -5,10 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 /**
  * 股票市场轮次快照加载器 - 事务外一次性批量读取本轮决策所需的全部数据
@@ -28,7 +28,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioServi
  * </ol>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @Slf4j
@@ -83,15 +83,20 @@ public class StockMarketRoundLoader {
                 Stock15mFeatureBuildService.FEATURE_VERSION);
         List<TornStockMonthlyStateDO> monthlyStates =
                 monthlyStateDao.selectConfirmedByMonth(roundTime.toLocalDate().withDayOfMonth(1));
-        List<TornStockVirtualBatchDO> activeBatches = virtualBatchDao.selectActiveFormalBatches();
+        List<TornStockVirtualBatchDO> activeBatches = new java.util.ArrayList<>(
+                virtualBatchDao.selectActiveFormalBatches());
+        activeBatches.addAll(virtualBatchDao.selectActiveAlphaBatches());
         List<TornStockVirtualBatchDO> shadowBatches = virtualBatchDao.selectActiveShadowBatches();
         List<TornStockSignalStateDO> signalStates = signalStateDao.selectAll();
         List<TornStockPortfolioSlotDO> formalSlots =
                 portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> candidateShadowSlots =
                 portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
+        List<TornStockPortfolioSlotDO> alphaSlots =
+                portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> allSlots = new java.util.ArrayList<>(formalSlots);
         allSlots.addAll(candidateShadowSlots);
+        allSlots.addAll(alphaSlots);
         log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, formalBatches={}, shadowBatches={}, signalStates={}, formalSlots={}, candidateShadowSlots={}",
                 bars.size(), features.size(), monthlyStates.size(),
                 activeBatches.size(), shadowBatches.size(), signalStates.size(),
@@ -109,7 +114,7 @@ public class StockMarketRoundLoader {
      * @param bars          本轮全部股票15分钟bar
      * @param features      本轮全部股票15分钟策略特征
      * @param monthlyStates 当月已确认的月度风格状态
-     * @param activeBatches 所有正式活跃批次
+     * @param activeBatches 所有正式与VIP Alpha活跃批次
      * @param shadowBatches 所有活跃影子批次(UNLIMITED_SHADOW)
      * @param signalStates  所有信号边沿状态
      * @param slots         正式组合全部槽位状态
@@ -123,7 +128,6 @@ public class StockMarketRoundLoader {
             List<TornStockVirtualBatchDO> shadowBatches,
             List<TornStockSignalStateDO> signalStates,
             List<TornStockPortfolioSlotDO> slots,
-            LocalDateTime roundTime
-    ) {
+            LocalDateTime roundTime) {
     }
 }

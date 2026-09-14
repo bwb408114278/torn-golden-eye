@@ -7,7 +7,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.base.exception.BizException;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
@@ -19,6 +18,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.*;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * OC收益计算服务
  *
  * @author Bai
- * @version 1.3.4
+ * @version 1.6.2
  * @since 2025.11.03
  */
 @Service
@@ -46,6 +46,7 @@ public class TornOcIncomeService {
     private final TornFactionOcIncomeSummaryDAO incomeSummaryDao;
     private final TornFactionOcDAO ocDao;
     private final TornSettingOcChainDAO ocChainDao;
+    private final TornSettingOcReassignManager reassignManager;
 
     /**
      * 计算并保存OC收益（含受影响月份汇总重算）。
@@ -292,7 +293,7 @@ public class TornOcIncomeService {
         LocalDateTime monthEnd = monthStart.plusMonths(1);
         Set<OcKey> chainParentKeys = loadChainParentKeys();
         Set<Long> chainNodeIds = new LinkedHashSet<>();
-        for (Long factionId : TornConstants.REASSIGN_OC_FACTION) {
+        for (Long factionId : reassignManager.getReassignFactionList()) {
             List<TornFactionOcDO> leaves = querySettlementLeaves(factionId, monthStart, monthEnd, chainParentKeys);
             if (CollectionUtils.isEmpty(leaves)) {
                 continue;
@@ -335,7 +336,7 @@ public class TornOcIncomeService {
      */
     private List<TornFactionOcDO> querySettlementLeaves(long factionId, LocalDateTime monthStart,
                                                         LocalDateTime monthEnd, Set<OcKey> chainParentKeys) {
-        List<String> rotationList = TornConstants.ROTATION_OC_NAME.get(factionId);
+        List<String> rotationList = reassignManager.getRotationOcNames(factionId);
         List<TornFactionOcDO> leaves;
         if (CollectionUtils.isEmpty(rotationList)) {
             leaves = ocDao.lambdaQuery()
@@ -768,8 +769,9 @@ public class TornOcIncomeService {
      * @param nodeMap              OC ID到节点映射（含本批叶子及全部祖先节点）
      * @param settlementLeafByOcId OC ID到结算叶子OC ID映射
      */
-    private record ChainContext(Map<Long, TornFactionOcDO> nodeMap,
-                                Map<Long, Long> settlementLeafByOcId) {
+    private record ChainContext(
+            Map<Long, TornFactionOcDO> nodeMap,
+            Map<Long, Long> settlementLeafByOcId) {
     }
 
     /**
@@ -778,6 +780,8 @@ public class TornOcIncomeService {
      * @param chain       有序链（从最早祖先到叶子，含叶子自身）
      * @param cycleNodeId 检测到环形引用时指向环中重复节点OC ID；无环时为{@code null}
      */
-    private record ChainWalkResult(List<TornFactionOcDO> chain, Long cycleNodeId) {
+    private record ChainWalkResult(
+            List<TornFactionOcDO> chain,
+            Long cycleNodeId) {
     }
 }

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRoundStatusEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum;
@@ -12,6 +13,11 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketRou
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaEntryService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaRebalanceService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundFactory;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
@@ -59,7 +65,7 @@ import java.util.stream.Collectors;
  * </ol>
  *
  * @author Bai
- * @version 1.4.9
+ * @version 1.6.1
  * @since 2026.07.25
  */
 @Slf4j
@@ -86,6 +92,9 @@ public class StockRoundTransactionService {
     private final TornStockBatchMarkDAO batchMarkDao;
 
     private final StockEntrySettlementService entrySettlementService;
+    private final StockAlphaEntryService alphaEntryService;
+    private final StockAlphaDecisionService alphaDecisionService;
+    private final StockAlphaRebalanceService alphaRebalanceService;
     private final StockBatchPathService batchPathService;
     private final StockBuySignalEvaluator buySignalEvaluator;
     private final StockCandidateRankingPolicy candidateRankingPolicy;
@@ -105,8 +114,13 @@ public class StockRoundTransactionService {
      * 事务内不再产生N+1查询。
      * <p>
      * {@code allowNewEntry=false} 时仍完整执行ENTRY/EXIT结算、存量路径管理、灾难关闭、
-     * 冷却与通知审计,仅在买入信号评估、事件/影子创建、候选接纳和买入边沿推进阶段
-     * 应用该开关,确保紧急回滚不遗弃已存在的正式持仓。
+     * 冷却与通知审计,仅在Alpha正式初始入场、买入信号评估、事件/影子创建、候选接纳和
+     * 买入边沿推进阶段应用该开关,确保紧急回滚不遗弃已存在的正式持仓。
+     * <p>
+     * 正式Alpha新入场只允许{@code FORMAL}:门禁已经收敛为FORMAL-only,本方法仍以本地解析的规则模式
+     * 再做一次同源防线,保证{@code SHADOW}/{@code PROVISIONAL}不会因任何调用方传入的
+     * {@code allowNewEntry=true} 创建{@code VIP_ALPHA}正式批次。
+     * 已有Alpha批次的存量管理、ENTRY_PENDING结算、换仓与通知审计不消费本开关。
      * <p>
      * 时间语义: {@code roundTime} 是历史决策/成交bar的业务锚点;
      * {@code actualProcessingTime} 是本轮真实执行/恢复时刻,由调度层通过
@@ -116,7 +130,7 @@ public class StockRoundTransactionService {
      *
      * @param roundTime            本轮bar开始时间(历史决策锚点)
      * @param snapshot             事务外已加载的批量数据快照
-     * @param allowNewEntry        是否允许创建新的正式/候选影子批次
+     * @param allowNewEntry        是否允许正式新入场(门禁已确保仅{@code FORMAL}成立)
      * @param actualProcessingTime 本次实际处理时刻(仅用于ENTRY过期判定)
      */
     @Transactional(rollbackFor = Exception.class)
@@ -138,9 +152,13 @@ public class StockRoundTransactionService {
                 portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> lockedCandidateSlots =
                 portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
+        List<TornStockPortfolioSlotDO> lockedAlphaSlots =
+                portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> lockedSlots = mergeSlots(lockedFormalSlots, lockedCandidateSlots);
-        log.debug("槽位行锁已获取: formalSlotCount={}, candidateShadowSlotCount={}",
-                lockedFormalSlots.size(), lockedCandidateSlots.size());
+        lockedSlots = mergeSlots(lockedSlots, lockedAlphaSlots);
+        log.debug("槽位行锁已获取: formalSlotCount={}, candidateShadowSlotCount={}, alphaSlotCount={}",
+                lockedFormalSlots.size(), lockedCandidateSlots.size(), lockedAlphaSlots.size());
+
 
         // 活跃批次必须在同一事务内重新读取并加行锁,不能继续使用事务外快照。
         // 影子锁查询已包含候选影子与无限资金影子。
@@ -148,8 +166,12 @@ public class StockRoundTransactionService {
                 virtualBatchDao.selectActiveFormalBatchesForUpdate();
         List<TornStockVirtualBatchDO> lockedShadowBatches =
                 virtualBatchDao.selectActiveShadowBatchesForUpdate();
-        log.debug("活跃批次行锁已获取: formalCount={}, shadowCount={}",
-                lockedFormalBatches.size(), lockedShadowBatches.size());
+        List<TornStockVirtualBatchDO> lockedAlphaBatches =
+                virtualBatchDao.selectActiveAlphaBatchesForUpdate();
+        lockedFormalBatches = mergeActiveBatches(lockedFormalBatches, lockedAlphaBatches);
+        log.debug("活跃批次行锁已获取: formalCount={}, alphaCount={}, shadowCount={},",
+                lockedFormalBatches.size(), lockedAlphaBatches.size(), lockedShadowBatches.size());
+
 
         // 预构建索引
         Map<Integer, TornStockMarketBar15mDO> barByStock = indexBarsByStockId(snapshot.bars());
@@ -167,11 +189,23 @@ public class StockRoundTransactionService {
                 allActiveBatches, shadowBatches, snapshot.signalStates(),
                 lockedSlots, snapshot.roundTime());
 
+        // 正式新入场许可:门禁已收敛为FORMAL-only,这里以同一规则再校验一次,
+        // 禁止SHADOW/PROVISIONAL通过任何调用方创建VIP_ALPHA正式批次。
+        StockRuleModeEnum ruleMode = resolveRuleMode();
+        boolean formalNewEntryAllowed = allowNewEntry && ruleMode == StockRuleModeEnum.FORMAL;
+
+        boolean hasExistingAlphaBatch = hasAlphaBatch(mergedSnapshot);
+        if (!hasExistingAlphaBatch && formalNewEntryAllowed) {
+            createInitialAlphaEntry(roundTime, actualProcessingTime, mergedSnapshot, barByStock);
+            mergedSnapshot = refreshAlphaBatches(mergedSnapshot);
+        }
+
         // 步骤2: 处理待买入批次(ENTRY_PENDING) - 含正式与影子
         EntrySettlementResult entryResult = entrySettlementService.processEntryPending(
                 mergedSnapshot, barByStock, roundTime, actualProcessingTime);
 
-        // 步骤3: 处理待卖出批次(EXIT_PENDING) - 含正式与影子
+
+        // 步骤3: 处理待卖出批次(含正式与影子)
         List<TornStockVirtualBatchDO> exitFilledBatches = entrySettlementService.processExitPending(
                 mergedSnapshot, barByStock, roundTime);
 
@@ -179,13 +213,16 @@ public class StockRoundTransactionService {
         List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
                 mergedSnapshot, barByStock, featureByStock, roundTime);
 
-        // 步骤6-8: 规则模式与新买入开关共同决定买入研究、候选接纳与边沿推进是否执行。
-        // allowNewEntry=false 或规则模式OFF时,跳过买入信号评估、事件/影子创建、
-        // 候选接纳与买入边沿推进,但存量批次退出/灾难关闭/冷却/通知审计不受影响。
-        StockRuleModeEnum ruleMode = resolveRuleMode();
-        boolean newEntryAllowed = allowNewEntry && ruleMode != StockRuleModeEnum.OFF;
+        if (hasExistingAlphaBatch) {
+            processAlphaRebalance(roundTime, actualProcessingTime, mergedSnapshot, barByStock);
+        }
+
+        // 步骤6-8: 正式新入场许可决定买入研究、候选影子接纳与边沿推进是否执行。
+        // 许可为false时,跳过买入信号评估、事件/影子创建、候选接纳与买入边沿推进,
+        // 但存量批次退出/灾难关闭/冷却/通知审计不受影响。
+        boolean newEntryAllowed = formalNewEntryAllowed;
         if (!newEntryAllowed) {
-            log.info("新买入关闭或规则模式[{}]不推进买入研究,跳过候选编排: allowNewEntry={}",
+            log.info("正式新入场关闭或规则模式[{}]不允许正式新入场,跳过候选编排: allowNewEntry={}",
                     ruleMode.getCode(), allowNewEntry);
         } else {
             BuySignalResult signalResult = buySignalEvaluator.evaluateSignals(
@@ -197,32 +234,18 @@ public class StockRoundTransactionService {
                     .filter(evaluation -> evaluation.stocksId() != null)
                     .collect(Collectors.toMap(SignalEvaluation::stocksId,
                             evaluation -> evaluation, (left, right) -> left));
-            StockCandidateAllocationResult allocationResult = StockCandidateAllocationResult.empty();
-            switch (ruleMode) {
-                case StockRuleModeEnum.PROVISIONAL, StockRuleModeEnum.FORMAL ->
-                        allocationResult = candidateTrackAllocationService.acceptCandidates(
-                                rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                                evaluationByStockId, roundTime,
-                                CandidateAcceptanceTarget.formal());
-                case StockRuleModeEnum.SHADOW ->
-                    // SHADOW模式: 同一排序结果喂给独立5槽候选影子账本,第6名及之后记录NO_AVAILABLE_SLOT
-                        allocationResult = candidateTrackAllocationService.acceptCandidates(
-                                rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
-                                evaluationByStockId, roundTime,
-                                CandidateAcceptanceTarget.candidateShadow());
-                default -> log.info("规则模式[{}]不推进候选接纳,跳过: candidateCount={}",
-                        ruleMode.getCode(), rankedCandidates.size());
-            }
+            StockCandidateAllocationResult allocationResult = candidateTrackAllocationService.acceptCandidates(
+                    rankedCandidates, mergedSnapshot, barByStock, monthlyStateByStock,
+                    evaluationByStockId, roundTime,
+                    CandidateAcceptanceTarget.candidateShadow());
 
             // 构建候选排名映射(stocksId -> rank),供事件回写
             Map<Integer, Integer> candidateRankByStockId = buildCandidateRankByStockId(rankedCandidates);
 
             // 写入原始信号事件、候选影子/无限资金影子与拒绝观察批次。
-            // 正式模式: 新建批次均为正式,无候选影子; SHADOW模式: 新建批次均为候选影子,无正式。
-            List<TornStockVirtualBatchDO> allocatedBatches = ruleMode == StockRuleModeEnum.SHADOW
-                    ? List.of() : allocationResult.allocatedBatches();
-            List<TornStockVirtualBatchDO> candidateShadowBatches = ruleMode == StockRuleModeEnum.SHADOW
-                    ? allocationResult.allocatedBatches() : List.of();
+            // 现有生产轮次只保留研究与候选影子语义,不通过旧正式候选路径创建FORMAL批次。
+            List<TornStockVirtualBatchDO> allocatedBatches = List.of();
+            List<TornStockVirtualBatchDO> candidateShadowBatches = allocationResult.allocatedBatches();
             shadowTrackRecorder.writeShadowRecords(signalResult.allEvaluations(),
                     allocatedBatches, candidateShadowBatches,
                     candidateRankByStockId, allocationResult.resultByStockId(), roundTime);
@@ -251,9 +274,148 @@ public class StockRoundTransactionService {
     }
 
     /**
+     * 判断事务开始时是否存在Alpha活跃批次。
+     *
+     * @param snapshot 当前轮次快照
+     * @return 存在Alpha活跃批次时返回true
+     */
+    private boolean hasAlphaBatch(RoundSnapshot snapshot) {
+        return snapshot.activeBatches().stream()
+                .anyMatch(StockPortfolioService::isAlphaBatch);
+    }
+
+    /**
+     * 在轮次事务内消费已持久化的Alpha换仓决策。
+     * <p>
+     * 决策以本轮{@code roundTime}为决策时点生成或复用:执行桶由决策服务按
+     * "决策桶 + 15分钟"计算并持久化,本方法只在持久化执行桶与本轮完全一致时换仓,
+     * 不跨桶追补,也不抛异常把轮次钉死在可重试失败状态。
+     * <p>
+     * 本轮bar即决策时点bar,必须以带可用性字段的决策bar事实传给决策服务:
+     * 不可用决策bar不得固化为信号参考价,也不得形成可执行的换仓决策。
+     *
+     * @param roundTime  轮次时间(决策时点;执行桶为下一根严格连续bar)
+     * @param now        当前校验时间
+     * @param snapshot   当前轮次快照
+     * @param barByStock 本轮按股票ID索引的行情bar
+     */
+    private void processAlphaRebalance(LocalDateTime roundTime, LocalDateTime now,
+                                       RoundSnapshot snapshot,
+                                       Map<Integer, TornStockMarketBar15mDO> barByStock) {
+        List<TornStockVirtualBatchDO> alphaBatches = snapshot.activeBatches().stream()
+                .filter(StockPortfolioService::isAlphaBatch)
+                .toList();
+        TornStockVirtualBatchDO current = findOpenAlphaBatch(alphaBatches);
+        if (current == null) {
+            return;
+        }
+        StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
+                roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime,
+                decisionBarFacts(barByStock, roundTime));
+        if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
+            return;
+        }
+        if (!roundTime.equals(decision.executionBarStartTime())) {
+            log.warn("α换仓决策执行桶与当前轮次不一致,本次不换仓且不跨桶追补: decisionDate={}, phase={}, "
+                            + "decisionExecutionBar={}, roundTime={}",
+                    decision.decisionDate(), decision.phase(), decision.executionBarStartTime(), roundTime);
+            return;
+        }
+        alphaRebalanceService.rebalance(decision.decisionDate(), decision.phase(), now, snapshot);
+    }
+
+    /**
+     * 刷新Alpha批次快照,确保本轮新建批次进入入场结算链。
+     *
+     * @param snapshot 当前轮次快照
+     * @return 包含事务内最新Alpha批次的快照
+     */
+    private RoundSnapshot refreshAlphaBatches(RoundSnapshot snapshot) {
+        List<TornStockVirtualBatchDO> alphaBatches = virtualBatchDao.selectActiveAlphaBatchesForUpdate();
+        List<TornStockVirtualBatchDO> activeBatches = mergeActiveBatches(
+                snapshot.activeBatches(), alphaBatches);
+        List<TornStockVirtualBatchDO> shadowBatches = filterLedgerBatches(
+                activeBatches, StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        return new RoundSnapshot(snapshot.bars(), snapshot.features(), snapshot.monthlyStates(),
+                activeBatches, shadowBatches, snapshot.signalStates(), snapshot.slots(), snapshot.roundTime());
+    }
+
+    /**
+     * 生成并消费当前轮次对应的Alpha初始决策。
+     * <p>
+     * 本轮{@code roundTime}是决策时点:首次决策在本次生成,执行桶为下一根严格连续bar,
+     * 因此本轮只落决策不入场;后续轮次复用该决策且持久化执行桶与本轮一致时才真正入场。
+     * <p>
+     * 决策bar事实取自本轮bar并携带可用性字段,由{@link StockAlphaExecutionBarPolicy}判定;
+     * 本方法不复制可用性算法,也不查询更晚的bar。
+     *
+     * @param roundTime            轮次时间(决策时点)
+     * @param actualProcessingTime 本次实际处理时刻
+     * @param snapshot             当前轮次快照
+     * @param barByStock           本轮按股票ID索引的行情bar
+     */
+    private void createInitialAlphaEntry(LocalDateTime roundTime, LocalDateTime actualProcessingTime,
+                                         RoundSnapshot snapshot,
+                                         Map<Integer, TornStockMarketBar15mDO> barByStock) {
+        StockAlphaDecisionService.DecisionResult decision = alphaDecisionService.decide(
+                roundTime.toLocalDate().minusDays(1), roundTime, decisionBarFacts(barByStock, roundTime));
+        if (!decision.ready()
+                || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY) {
+            return;
+        }
+        if (!roundTime.equals(decision.executionBarStartTime())) {
+            log.warn("α初始入场决策执行桶与当前轮次不一致,本次不入场且不跨桶追补: decisionDate={}, phase={}, "
+                            + "decisionExecutionBar={}, roundTime={}",
+                    decision.decisionDate(), decision.phase(), decision.executionBarStartTime(), roundTime);
+            return;
+        }
+        alphaEntryService.createInitialEntry(roundTime, snapshot, decision.decisionDate(), decision.phase(),
+                actualProcessingTime);
+    }
+
+    /**
+     * 提取决策时点(本轮已结束bar)各股票的决策bar事实,作为信号参考价的唯一候选来源。
+     * <p>
+     * 事实携带可用性等完整质量字段,由{@link StockAlphaExecutionBarPolicy}判定是否为合法决策bar;
+     * 本方法只从本轮快照传递事实,不在此处复制可用性算法,也不查询"下一根可用bar"。
+     *
+     * @param barByStock 本轮按股票ID索引的行情bar
+     * @param roundTime  轮次时间(决策时点)
+     * @return 股票ID到决策bar事实的映射;本轮无对应bar时为空映射
+     */
+    private Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> decisionBarFacts(
+            Map<Integer, TornStockMarketBar15mDO> barByStock, LocalDateTime roundTime) {
+        Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> facts = new HashMap<>();
+        barByStock.forEach((stocksId, bar) -> {
+            if (roundTime.equals(bar.getBarStartTime())) {
+                facts.put(stocksId, new StockAlphaExecutionBarPolicy.DecisionBar(
+                        bar.getBarStartTime(), bar.getBarEndTime(),
+                        Boolean.TRUE.equals(bar.getUsable()), bar.getLastPrice()));
+            }
+        });
+        return facts;
+    }
+
+    /**
+     * 查找唯一开放Alpha持仓。
+     *
+     * @param alphaBatches Alpha活跃批次
+     * @return 开放持仓；不存在时返回null
+     */
+    private TornStockVirtualBatchDO findOpenAlphaBatch(List<TornStockVirtualBatchDO> alphaBatches) {
+        List<TornStockVirtualBatchDO> open = alphaBatches.stream()
+                .filter(Objects::nonNull)
+                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))
+                .toList();
+        if (open.size() > 1) {
+            throw new IllegalStateException("VIP_ALPHA当前开放持仓数量异常");
+        }
+        return open.isEmpty() ? null : open.getFirst();
+    }
+
+    /**
      * 构建候选排名索引。
      *
-     * @param rankedCandidates 已排序候选
      * @return 股票ID到候选排名的映射
      */
     private Map<Integer, Integer> buildCandidateRankByStockId(List<CandidateInfo> rankedCandidates) {

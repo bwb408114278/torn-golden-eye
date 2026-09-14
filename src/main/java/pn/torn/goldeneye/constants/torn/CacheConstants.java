@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 1.2.10
+ * @version 1.6.2
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -94,6 +94,14 @@ public class CacheConstants {
      * OC系数设置Key
      */
     public static final String KEY_TORN_SETTING_OC_COEFFICIENT = "torn:setting:oc:coefficient";
+    /**
+     * 大锅饭帮派开关设置Key
+     */
+    public static final String KEY_TORN_SETTING_OC_REASSIGN_FACTION = "torn:setting:oc:reassign:faction";
+    /**
+     * 大锅饭OC范围行设置Key
+     */
+    public static final String KEY_TORN_SETTING_OC_REASSIGN_OC = "torn:setting:oc:reassign:oc";
     /**
      * OC新队OC档案Key
      */

@@ -1,18 +1,21 @@
 package pn.torn.goldeneye.torn.model.faction.crime.income;
 
 import lombok.Data;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * OC收益排名查询参数
  *
+ * <p>大锅饭帮派集合与普通收益排除规则由构造入参注入（调用方传入
+ * {@code TornSettingOcReassignManager}的派生结果），本模型不依赖Spring与数据源。</p>
+ *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.2
  * @since 2025.09.10
  */
 @Data
@@ -58,22 +61,32 @@ public class OcBenefitRankingQuery {
      */
     private int limit;
 
-    public OcBenefitRankingQuery(long factionId, long userId, LocalDate baseMonth) {
+    /**
+     * 排行榜查询构造器。
+     *
+     * @param factionId           帮派ID，0表示SMTH总榜
+     * @param userId              用户ID
+     * @param baseMonth           目标月份
+     * @param reassignFactionList 大锅饭帮派集合（门面派生）
+     * @param exclusionRules      Key为帮派ID的排除规则（门面派生）
+     */
+    public OcBenefitRankingQuery(long factionId, long userId, LocalDate baseMonth,
+                                 List<Long> reassignFactionList, Map<Long, List<FactionOcExclusion>> exclusionRules) {
         this.fromDate = baseMonth.withDayOfMonth(1).atTime(0, 0, 0);
         this.toDate = baseMonth.withDayOfMonth(baseMonth.lengthOfMonth()).atTime(23, 59, 59);
         this.yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
-        this.reassignFactionList = TornConstants.REASSIGN_OC_FACTION;
+        this.reassignFactionList = reassignFactionList;
         this.factionId = factionId;
         this.userId = userId;
         this.limit = 30;
         if (factionId == 0L) {
             // 为每个大锅饭帮派展开各自的排除规则
-            this.factionOcExclusions = loadAllFactionExclusions();
+            this.factionOcExclusions = loadAllFactionExclusions(reassignFactionList, exclusionRules);
             this.includeNormalBenefit = true;
             this.includeReassignBenefit = true;
             this.limit = 50;
-        } else if (TornConstants.REASSIGN_OC_FACTION.contains(factionId)) {
-            this.factionOcExclusions = TornConstants.OC_BENEFIT_EXCLUSION_RULES.getOrDefault(factionId, List.of());
+        } else if (reassignFactionList.contains(factionId)) {
+            this.factionOcExclusions = exclusionRules.getOrDefault(factionId, List.of());
             this.includeNormalBenefit = false;
             this.includeReassignBenefit = true;
         } else {
@@ -83,13 +96,22 @@ public class OcBenefitRankingQuery {
         }
     }
 
-    public OcBenefitRankingQuery(long userId, LocalDate baseMonth) {
+    /**
+     * 同期榜查询构造器。
+     *
+     * @param userId              用户ID
+     * @param baseMonth           目标月份
+     * @param reassignFactionList 大锅饭帮派集合（门面派生）
+     * @param exclusionRules      Key为帮派ID的排除规则（门面派生）
+     */
+    public OcBenefitRankingQuery(long userId, LocalDate baseMonth, List<Long> reassignFactionList,
+                                 Map<Long, List<FactionOcExclusion>> exclusionRules) {
         this.fromDate = baseMonth.withDayOfMonth(1).atTime(0, 0, 0);
         this.toDate = baseMonth.withDayOfMonth(baseMonth.lengthOfMonth()).atTime(23, 59, 59);
         this.yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
         this.factionId = 0L;
-        this.reassignFactionList = TornConstants.REASSIGN_OC_FACTION;
-        this.factionOcExclusions = loadAllFactionExclusions();
+        this.reassignFactionList = reassignFactionList;
+        this.factionOcExclusions = loadAllFactionExclusions(reassignFactionList, exclusionRules);
         this.includeNormalBenefit = true;
         this.includeReassignBenefit = true;
         this.userId = userId;
@@ -101,19 +123,22 @@ public class OcBenefitRankingQuery {
      * <p>使用指定的时间范围，并按用户所属帮派的大锅饭排除规则过滤普通收益明细；
      * 非大锅饭帮派用户不应用任何排除规则。</p>
      *
-     * @param factionId 用户所属帮派ID
-     * @param userId    用户ID
-     * @param fromDate  查询开始时间（含）
-     * @param toDate    查询结束时间（含）
+     * @param factionId           用户所属帮派ID
+     * @param userId              用户ID
+     * @param fromDate            查询开始时间（含）
+     * @param toDate              查询结束时间（含）
+     * @param reassignFactionList 大锅饭帮派集合（门面派生）
+     * @param exclusionRules      Key为帮派ID的排除规则（门面派生）
      */
-    public OcBenefitRankingQuery(long factionId, long userId, LocalDateTime fromDate, LocalDateTime toDate) {
+    public OcBenefitRankingQuery(long factionId, long userId, LocalDateTime fromDate, LocalDateTime toDate,
+                                 List<Long> reassignFactionList, Map<Long, List<FactionOcExclusion>> exclusionRules) {
         this.fromDate = fromDate;
         this.toDate = toDate;
         this.yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
         this.factionId = factionId;
         this.userId = userId;
-        this.reassignFactionList = TornConstants.REASSIGN_OC_FACTION;
-        this.factionOcExclusions = TornConstants.OC_BENEFIT_EXCLUSION_RULES.getOrDefault(factionId, List.of());
+        this.reassignFactionList = reassignFactionList;
+        this.factionOcExclusions = exclusionRules.getOrDefault(factionId, List.of());
         this.includeNormalBenefit = false;
         this.includeReassignBenefit = false;
         this.limit = 30;
@@ -125,18 +150,21 @@ public class OcBenefitRankingQuery {
      * <p>加载全部大锅饭帮派的排除规则，由每条普通收益自身的{@code factionId + ocName + ocFinishTime}
      * 决定是否排除，覆盖用户当月参与过的全部历史帮派，不锁定当前帮派。</p>
      *
-     * @param userId   用户ID
-     * @param fromDate 查询开始时间（含）
-     * @param toDate   查询结束时间（含）
+     * @param userId              用户ID
+     * @param fromDate            查询开始时间（含）
+     * @param toDate              查询结束时间（含）
+     * @param reassignFactionList 大锅饭帮派集合（门面派生）
+     * @param exclusionRules      Key为帮派ID的排除规则（门面派生）
      */
-    public OcBenefitRankingQuery(long userId, LocalDateTime fromDate, LocalDateTime toDate) {
+    public OcBenefitRankingQuery(long userId, LocalDateTime fromDate, LocalDateTime toDate,
+                                 List<Long> reassignFactionList, Map<Long, List<FactionOcExclusion>> exclusionRules) {
         this.fromDate = fromDate;
         this.toDate = toDate;
         this.yearMonth = toDate.format(DateTimeUtils.YEAR_MONTH_FORMATTER);
         this.factionId = 0L;
         this.userId = userId;
-        this.reassignFactionList = TornConstants.REASSIGN_OC_FACTION;
-        this.factionOcExclusions = loadAllFactionExclusions();
+        this.reassignFactionList = reassignFactionList;
+        this.factionOcExclusions = loadAllFactionExclusions(reassignFactionList, exclusionRules);
         this.includeNormalBenefit = false;
         this.includeReassignBenefit = false;
         this.limit = 30;
@@ -145,11 +173,14 @@ public class OcBenefitRankingQuery {
     /**
      * 展开所有大锅饭帮派的普通收益排除规则。
      *
+     * @param reassignFactionList 大锅饭帮派集合
+     * @param exclusionRules      Key为帮派ID的排除规则
      * @return 扁平化后的排除规则列表
      */
-    private static List<FactionOcExclusion> loadAllFactionExclusions() {
-        return TornConstants.REASSIGN_OC_FACTION.stream()
-                .flatMap(fid -> TornConstants.OC_BENEFIT_EXCLUSION_RULES.getOrDefault(fid, List.of()).stream())
+    private static List<FactionOcExclusion> loadAllFactionExclusions(List<Long> reassignFactionList,
+                                                                     Map<Long, List<FactionOcExclusion>> exclusionRules) {
+        return reassignFactionList.stream()
+                .flatMap(fid -> exclusionRules.getOrDefault(fid, List.of()).stream())
                 .toList();
     }
 }

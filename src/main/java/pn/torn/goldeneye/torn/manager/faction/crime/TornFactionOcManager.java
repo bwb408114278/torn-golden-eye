@@ -8,13 +8,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeSlotVO;
 import pn.torn.goldeneye.torn.model.faction.crime.TornFactionCrimeVO;
@@ -31,7 +31,7 @@ import java.util.Map;
  * OC公共逻辑层
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.2
  * @since 2025.08.08
  */
 @Component
@@ -42,6 +42,7 @@ public class TornFactionOcManager {
     private final TornFactionOcSlotManager slotManager;
     private final TornFactionOcUserManager ocUserManager;
     private final TornItemsManager itemsManager;
+    private final TornSettingOcReassignManager reassignManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO slotDao;
 
@@ -55,7 +56,7 @@ public class TornFactionOcManager {
         validOcIdList.addAll(completeOcData(factionId, completeList));
         deleteOcData(factionId, validOcIdList);
 
-        if (TornConstants.REASSIGN_OC_FACTION.contains(factionId)) {
+        if (reassignManager.getReassignFactionList().contains(factionId)) {
             registerIncomeTriggerAfterCommit(factionId, execTime);
         }
     }

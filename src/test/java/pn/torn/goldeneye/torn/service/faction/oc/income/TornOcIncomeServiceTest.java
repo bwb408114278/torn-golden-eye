@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.base.exception.BizException;
 import pn.torn.goldeneye.constants.torn.TornConstants;
@@ -18,18 +19,20 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeSummaryDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.doReturn;
 
 /**
  * 大锅饭OC收益计算集成测试
  *
  * @author Bai
- * @version 1.0.0
+ * @version 1.6.2
  * @since 2026.04.20
  */
 @SpringBootTest
@@ -48,6 +51,8 @@ class TornOcIncomeServiceTest {
     private TornFactionOcIncomeDAO incomeDao;
     @Autowired
     private TornFactionOcIncomeSummaryDAO incomeSummaryDao;
+    @MockitoSpyBean
+    private TornSettingOcReassignManager reassignManager;
 
     private static final Long FACTION_ID = 1000L;
     private static final Long USER_ID_1 = 2001L;
@@ -344,8 +349,8 @@ class TornOcIncomeServiceTest {
 
         incomeService.calculateAndSaveIncome(step2);
 
-        // 临时加入大锅饭帮派列表，使该测试帮派可被个人结算月份查询扫描
-        boolean added = TornConstants.REASSIGN_OC_FACTION.add(FACTION_ID);
+        // 门面spy临时限定大锅饭帮派列表为该测试帮派，使个人结算月份查询可扫描到它
+        doReturn(List.of(FACTION_ID)).when(reassignManager).getReassignFactionList();
         try {
             List<TornFactionOcIncomeDO> user1Income =
                     incomeService.queryUserIncomeBySettlementMonth(USER_ID_1, "2026-04");
@@ -363,9 +368,7 @@ class TornOcIncomeServiceTest {
                     incomeService.queryUserIncomeBySettlementMonth(USER_ID_1, "2026-03");
             assertTrue(user1March.isEmpty());
         } finally {
-            if (added) {
-                TornConstants.REASSIGN_OC_FACTION.remove(FACTION_ID);
-            }
+            org.mockito.Mockito.reset(reassignManager);
         }
     }
 

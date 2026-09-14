@@ -12,16 +12,18 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadinessGate;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * 股票提醒运行时门禁测试,验证总开关关闭但有存量批次/拒绝观察时仍继续管理,
+ * 股票提醒运行时门禁测试,验证正式新入场只允许FORMAL,总开关关闭但有存量批次/拒绝观察时仍继续管理,
  * 新买入开关缺失按false处理,以及历史PENDING通知独立投递。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.08.02
  */
 @DisplayName("股票提醒运行时门禁测试")
@@ -36,12 +38,16 @@ class StockAlertRuntimeGateTest {
     private TornStockNoticeAuditDAO noticeAuditDao;
     @Mock
     private TornStockSignalEventDAO signalEventDao;
+    @Mock
+    private StockAlphaReadinessGate alphaReadinessGate;
 
     private StockAlertRuntimeGate runtimeGate;
 
     @BeforeEach
     void setUp() {
-        runtimeGate = new StockAlertRuntimeGate(sysSettingManager, virtualBatchDao, noticeAuditDao, signalEventDao);
+        runtimeGate = new StockAlertRuntimeGate(sysSettingManager, virtualBatchDao, noticeAuditDao, signalEventDao,
+                alphaReadinessGate);
+        lenient().when(alphaReadinessGate.isReady()).thenReturn(true);
     }
 
     @Test
@@ -52,7 +58,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -72,7 +78,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -88,9 +94,9 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED)).thenReturn("true");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED)).thenReturn(null);
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
-        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("FORMAL");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -108,7 +114,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("OFF");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -126,7 +132,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(false);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(true);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -145,7 +151,7 @@ class StockAlertRuntimeGateTest {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("true");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(true);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
@@ -155,21 +161,76 @@ class StockAlertRuntimeGateTest {
     }
 
     @Test
-    @DisplayName("总开关开启新买入开启_正式消息关闭_允许轮次与新买入但不投递通知")
-    void evaluate_allEnabledExceptFormalNotice_allowsRoundsAndNewEntry() {
+    @DisplayName("FORMAL模式_readiness与新入场开关均通过时允许正式新入场")
+    void evaluate_formalModeWithReadinessAndSwitch_allowsFormalNewEntry() {
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED)).thenReturn("true");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED)).thenReturn("true");
         when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
-        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("PROVISIONAL");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("FORMAL");
         when(virtualBatchDao.existsActiveBatches()).thenReturn(false);
-        when(noticeAuditDao.existsPendingNotices()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(true);
         when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
+        when(alphaReadinessGate.isReady()).thenReturn(true);
 
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
 
         assertTrue(decision.shouldBuildRounds());
-        assertTrue(decision.allowNewEntry());
-        assertEquals(StockRuleModeEnum.PROVISIONAL, decision.ruleMode());
+        assertTrue(decision.allowNewEntry(), "只有FORMAL才允许正式新入场");
+        assertEquals(StockRuleModeEnum.FORMAL, decision.ruleMode());
         assertFalse(decision.shouldSendPendingNotices(), "正式消息关闭只阻止发送");
+    }
+
+    @Test
+    @DisplayName("SHADOW模式_即使readiness与新入场开关通过也不允许正式新入场")
+    void evaluate_shadowMode_blocksFormalNewEntry() {
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED)).thenReturn("true");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED)).thenReturn("true");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("SHADOW");
+        when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
+        when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
+
+        StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
+
+        assertEquals(StockRuleModeEnum.SHADOW, decision.ruleMode());
+        assertFalse(decision.allowNewEntry(), "SHADOW不得创建VIP_ALPHA正式批次");
+        assertTrue(decision.manageExistingBatches(), "SHADOW不得停止存量批次管理");
+    }
+
+    @Test
+    @DisplayName("PROVISIONAL模式_不得借用VIP_ALPHA的10B正式资金语义")
+    void evaluate_provisionalMode_blocksFormalNewEntry() {
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED)).thenReturn("true");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED)).thenReturn("true");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("PROVISIONAL");
+        when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
+        when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
+
+        StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
+
+        assertEquals(StockRuleModeEnum.PROVISIONAL, decision.ruleMode());
+        assertFalse(decision.allowNewEntry(), "PROVISIONAL没有小规模资金契约,不得使用10B/100%正式组合");
+        assertTrue(decision.manageExistingBatches());
+    }
+
+    @Test
+    @DisplayName("FORMAL模式_readiness不通过不得新入场")
+    void evaluate_formalModeWithoutReadiness_blocksNewEntry() {
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED)).thenReturn("true");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED)).thenReturn("true");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED)).thenReturn("false");
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE)).thenReturn("FORMAL");
+        when(virtualBatchDao.existsActiveBatches()).thenReturn(true);
+        when(noticeAuditDao.existsSendableNotices()).thenReturn(false);
+        when(signalEventDao.existsPendingRejectedObservationEvents()).thenReturn(false);
+        when(alphaReadinessGate.isReady()).thenReturn(false);
+
+        StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
+
+        assertFalse(decision.allowNewEntry(), "Alpha readiness未通过不得新入场");
+        assertTrue(decision.manageExistingBatches(), "readiness不影响存量批次管理");
     }
 }

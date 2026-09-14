@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
  * 峰谷价格、MFE/MAE、动态卖出状态机以及平仓收益等全量字段。
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Data
@@ -38,6 +38,11 @@ public class TornStockVirtualBatchDO extends BaseDO {
      * 账本类型(FORMAL正式/UNLIMITED_SHADOW无限资金影子/REJECTED_OBSERVATION拒绝观察)
      */
     private String ledgerType;
+    /**
+     * 所属组合编码(VIP_FORMAL、VIP_ALPHA或VIP_SHADOW_CANDIDATE)。
+     */
+    @TableField("portfolio_code")
+    private String portfolioCode;
     /**
      * 股票ID
      */
@@ -65,7 +70,19 @@ public class TornStockVirtualBatchDO extends BaseDO {
      */
     private String batchStatus;
     /**
-     * 关联信号事件ID
+     * α策略来源决策ID。
+     * <p>
+     * α批次不冗余保存股票池版本、决策业务日和来源摘要:统一以本字段回查唯一决策
+     * ({@code decision_business_date}、{@code phase}、{@code selected_stocks_id}、
+     * {@code source_snapshot_digest}、{@code signal_reference_price}、
+     * {@code execution_bar_start_time})以及该决策日的α日线排名快照
+     * ({@code stock_universe_version}、{@code alpha_rule_version}、r20/r1与名次)。
+     * 日线快照按业务键UPSERT,回查必须先按{@code source_snapshot_digest}校验排名向量可复现,
+     * 摘要不一致时该BUY不可复核,不得用回查后的新排名冒充决策当时的排名事实。
+     */
+    private Long alphaDecisionId;
+    /**
+     * 关联信号事件ID，旧版批次使用。
      */
     private Long signalEventId;
     /**
@@ -253,4 +270,21 @@ public class TornStockVirtualBatchDO extends BaseDO {
      */
     private String cancelReason;
 
+    /**
+     * 返回批次所属组合编码；历史调用方未填写时按账本类型确定性推导。
+     *
+     * @return 组合编码
+     */
+    public String getPortfolioCode() {
+        if (portfolioCode != null) {
+            return portfolioCode;
+        }
+        if ("FORMAL".equals(ledgerType)) {
+            return "VIP_FORMAL";
+        }
+        if ("SHADOW_FORMAL_CANDIDATE".equals(ledgerType)) {
+            return "VIP_SHADOW_CANDIDATE";
+        }
+        return ledgerType;
+    }
 }

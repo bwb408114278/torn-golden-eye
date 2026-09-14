@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.notice;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,29 +12,42 @@ import org.springframework.http.ResponseEntity;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockNoticeRebalanceGroupStatusEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.rebalance.StockRebalanceNoticeSender;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * 股票通知发送服务测试,覆盖NapCat响应判定、开关门禁和无关联批次处理。
+ * 股票通知发送服务测试,覆盖NapCat响应判定、开关门禁、数据库级领取、冻结复用、
+ * 失败自动重发、统一业务时钟与α换仓关联组原子闭包。
  *
  * @author Bai
- * @version 1.2.13
+ * @version 1.6.1
  * @since 2026.07.28
  */
 @DisplayName("股票通知发送服务测试")
 @ExtendWith(MockitoExtension.class)
 class StockNoticeSendServiceTest {
+
+    /**
+     * 测试用α换仓关联标识。
+     */
+    private static final String REBALANCE_ASSOCIATION = "ALPHA_REBALANCE:11";
+    /**
+     * 固定业务时间:同一次发送编排的全部时间都必须等于该值。
+     */
+    private static final LocalDateTime BUSINESS_NOW = LocalDateTime.of(2026, 9, 13, 11, 0, 0);
 
     @Mock
     private Bot bot;
@@ -45,13 +59,64 @@ class StockNoticeSendServiceTest {
     private SysSettingManager sysSettingManager;
 
     @Mock
-    private TornStockNoticeAuditDAO noticeAuditDAO;
+    private StockMarketClock marketClock;
 
     @Mock
-    private TornStockVirtualBatchDAO virtualBatchDAO;
+    private TornStockNoticeAuditDAO noticeAuditDao;
+
+    @Mock
+    private TornStockVirtualBatchDAO virtualBatchDao;
 
     @Mock
     private StockNoticeComposeService composeService;
+
+    /**
+     * 默认领取与回写成功:单个用例可覆盖为明确的行数不足异常场景。
+     * 这里不掩盖部分更新缺陷,每个异常场景都必须显式覆盖对应回写行数。
+     */
+    @BeforeEach
+    void stubClaimSuccess() {
+        lenient().when(marketClock.now()).thenReturn(BUSINESS_NOW);
+        lenient().when(noticeAuditDao.claimByIds(anyList(), anyString(), any(LocalDateTime.class)))
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).size());
+        lenient().when(noticeAuditDao.claimByRebalanceAssociationId(anyString(), anyString(),
+                any(LocalDateTime.class))).thenReturn(2);
+        // 终态回写默认按真实数据库行为返回完整行数,避免掩盖"回写行数不足"的ERROR口径
+        lenient().when(noticeAuditDao.markSentByIds(anyList(), anyString(), any(LocalDateTime.class)))
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).size());
+        lenient().when(noticeAuditDao.markSendFailedByIds(anyList(), anyString(), anyString(),
+                any(LocalDateTime.class))).thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).size());
+        lenient().when(noticeAuditDao.markFinalByIds(anyList(), anyString(), any(LocalDateTime.class)))
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).size());
+        lenient().when(noticeAuditDao.markRebalanceGroupSent(anyString(), anyString(),
+                any(LocalDateTime.class))).thenReturn(2);
+        lenient().when(noticeAuditDao.markRebalanceGroupFailed(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class))).thenReturn(2);
+        lenient().when(noticeAuditDao.convergeOwnedRebalanceGroup(anyString(), anyString(), anyString(),
+                anyString(), any(LocalDateTime.class))).thenReturn(2);
+        lenient().when(noticeAuditDao.convergeUnclaimedRebalanceGroup(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class))).thenReturn(2);
+    }
+
+    /**
+     * 让组级领取按真实数据库语义把夹具两腿标记为本次流程持有:
+     * 两腿SENDING、组状态SENDING、claim_token为本次随机领取标识,便于验证所有权收敛分支。
+     *
+     * @param legs 关联组两条腿夹具
+     */
+    private void stubGroupClaimHoldingBoth(TornStockNoticeAuditDO... legs) {
+        when(noticeAuditDao.claimByRebalanceAssociationId(eq(REBALANCE_ASSOCIATION), anyString(),
+                any(LocalDateTime.class))).thenAnswer(invocation -> {
+            String claimToken = invocation.getArgument(1);
+            for (TornStockNoticeAuditDO leg : legs) {
+                leg.setSendStatus("SENDING");
+                leg.setRebalanceGroupStatus("SENDING");
+                leg.setClaimToken(claimToken);
+                leg.setSendAttemptCount(1);
+            }
+            return legs.length;
+        });
+    }
 
     @Test
     @DisplayName("NapCat返回成功响应_sendSingleMessage返回true")
@@ -102,152 +167,183 @@ class StockNoticeSendServiceTest {
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDAO, never()).selectPendingNotices();
-        verify(virtualBatchDAO, never()).listByIds(any());
+        verify(noticeAuditDao, never()).selectSendableNotices();
+        verify(virtualBatchDao, never()).listByIds(any());
     }
 
     @Test
-    @DisplayName("通知缺少关联批次_批量标记FAILED且不发送")
-    void sendPendingNotices_missingBatch_marksFailedWithoutSending() {
+    @DisplayName("发送入口先按统一业务时间恢复领取超时通知_再查询可发送集合")
+    void sendPendingNotices_recoversStaleClaimsBeforeQuery() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
-        TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-        notice.setId(10L);
-        notice.setBatchId(null);
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
+        when(noticeAuditDao.recoverStaleClaims(any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(1);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of());
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDAO).markFailedByIds(List.of(10L), "关联虚拟交易批次不存在");
+        // 租约边界固定为businessNow减5分钟,恢复时间与租约截止时间来自同一businessNow
+        verify(noticeAuditDao).recoverStaleClaims(BUSINESS_NOW.minusMinutes(5), BUSINESS_NOW);
+        verify(noticeAuditDao).selectSendableNotices();
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("通知缺少关联批次_标记人工核验终态且不发送")
+    void sendPendingNotices_missingBatch_marksFinalWithoutSending() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO notice = notice(10L, null);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(notice));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).markFinalByIds(List.of(10L), "关联虚拟交易批次不存在", BUSINESS_NOW);
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
         verify(composeService, never()).composeAndMergeNotices(any(), any());
     }
 
     @Test
-    @DisplayName("通知发送HTTP失败_批量失败原因必须记录HTTP状态")
+    @DisplayName("通知发送HTTP失败_失败原因必须记录且进入可重发状态")
     void sendPendingNotices_httpFailure_recordsActualFailureReason() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
         TornStockNoticeAuditDO notice = notice(11L, 21L);
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(21L)));
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(notice));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(21L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(11L), "测试通知")));
-        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDAO).markSendFailedByIds(eq(List.of(11L)), contains("HTTP状态非2xx"));
+        verify(noticeAuditDao).markSendFailedByIds(eq(List.of(11L)), anyString(),
+                contains("HTTP状态非2xx"), eq(BUSINESS_NOW));
     }
 
     @Test
-    @DisplayName("有效和缺失批次混合_缺失通知失败且有效通知继续发送")
-    void sendPendingNotices_mixedBatchReferences_processesValidNoticeAndFailsMissingNotice() {
+    @DisplayName("有效和缺失批次混合_缺失通知终态失败且有效通知继续发送")
+    void sendPendingNotices_mixedBatchReferences_processesValidNoticeAndFinalizesMissingNotice() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
         TornStockNoticeAuditDO valid = notice(12L, 22L);
-        TornStockNoticeAuditDO missing = new TornStockNoticeAuditDO();
-        missing.setId(13L);
-        missing.setBatchId(23L);
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(valid, missing));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(22L)));
+        TornStockNoticeAuditDO missing = notice(13L, 23L);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(valid, missing));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(22L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(12L), "测试通知")));
-        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDAO).markFailedByIds(List.of(13L), "关联虚拟交易批次不存在");
-        verify(noticeAuditDAO).markSentByIds(List.of(12L));
+        verify(noticeAuditDao).markFinalByIds(List.of(13L), "关联虚拟交易批次不存在", BUSINESS_NOW);
+        verify(noticeAuditDao).markSentByIds(eq(List.of(12L)), anyString(), eq(BUSINESS_NOW));
         verify(bot).sendRequest(any(BotHttpReqParam.class), eq(String.class));
     }
 
     @Test
-    @DisplayName("通知发送成功_调用成功状态批量更新")
-    void sendPendingNotices_successfulResponse_marksNoticesSent() {
+    @DisplayName("通知发送成功_回写必须绑定本次领取标识")
+    void sendPendingNotices_successfulResponse_marksNoticesSentAndBindsClaimToken() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
         TornStockNoticeAuditDO notice = notice(14L, 24L);
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(24L)));
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(notice));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(24L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(14L), "测试通知")));
-        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDAO).markSentByIds(List.of(14L));
-        verify(noticeAuditDAO, never()).markSendFailedByIds(any(), any());
+        ArgumentCaptor<String> claimCaptor = ArgumentCaptor.forClass(String.class);
+        verify(noticeAuditDao).claimByIds(eq(List.of(14L)), claimCaptor.capture(), eq(BUSINESS_NOW));
+        ArgumentCaptor<String> sentCaptor = ArgumentCaptor.forClass(String.class);
+        verify(noticeAuditDao).markSentByIds(eq(List.of(14L)), sentCaptor.capture(), eq(BUSINESS_NOW));
+        assertEquals(claimCaptor.getValue(), sentCaptor.getValue(), "终态回写必须绑定同一领取标识");
+        verify(noticeAuditDao, never()).markSendFailedByIds(any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("冻结命令_逐条保留业务字段且hash等于最终payload哈希")
+    @DisplayName("冻结命令_逐条保留业务字段且hash等于最终payload哈希且冻结时间等于统一业务时间")
     void sendPendingNotices_capturesFinalizeCommandPreservesFieldsAndHash() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
         TornStockNoticeAuditDO notice = notice(15L, 25L);
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(25L)));
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(notice));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(25L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(15L), "灾难关闭文本")));
-        when(noticeAuditDAO.finalizePayload(any())).thenReturn(1);
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
 
         service().sendPendingNotices();
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<NoticePayloadFinalizeCommand>> captor =
-                ArgumentCaptor.forClass((Class<List<NoticePayloadFinalizeCommand>>) (Class<?>) List.class);
-        verify(noticeAuditDAO).finalizePayload(captor.capture());
-        List<NoticePayloadFinalizeCommand> commands = captor.getValue();
+        List<NoticePayloadFinalizeCommand> commands = capturedFinalizeCommands();
         assertEquals(1, commands.size(), "逐条冻结命令数必须等于通知数");
         NoticePayloadFinalizeCommand command = commands.getFirst();
         assertEquals(15L, command.noticeId());
+        assertNotNull(command.claimToken(), "冻结命令必须携带本次领取标识");
         // 最终JSON必须保留创建时业务字段,不得被messageText/frozenAt覆盖
         assertTrue(command.payloadSnapshot().contains("\"noticeType\":\"SELL\""));
         assertTrue(command.payloadSnapshot().contains("\"batchId\":25"));
         assertTrue(command.payloadSnapshot().contains("\"batchNo\":\"B25\""));
         assertTrue(command.payloadSnapshot().contains("\"messageText\":\"灾难关闭文本\""));
+        assertTrue(command.payloadSnapshot().contains("\"frozenAt\":\"2026-09-13T11:00\""),
+                "首次冻结时间必须等于同一次发送编排的businessNow");
         // hash必须基于最终完整payload计算,可复核
         assertEquals(StockNoticePayloadCanonicalizer.sha256(command.payloadSnapshot()), command.payloadHash(),
                 "payloadHash必须等于最终完整payload的SHA-256");
     }
 
     @Test
-    @DisplayName("冻结行数不符_部分更新禁止Bot发送")
+    @DisplayName("冻结行数不符_禁止Bot发送且进入可重发状态")
     void sendPendingNotices_finalizePartialUpdate_stopsBotSending() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
         TornStockNoticeAuditDO notice = notice(16L, 26L);
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(notice));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(26L)));
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(notice));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(26L)));
         when(composeService.composeAndMergeNotices(any(), any()))
                 .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(16L), "文本")));
-        when(noticeAuditDAO.finalizePayload(any())).thenReturn(0);
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(0);
 
         service().sendPendingNotices();
 
         verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
-        verify(noticeAuditDAO, never()).markSentByIds(any());
-        verify(noticeAuditDAO, never()).markSendFailedByIds(any(), any());
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(noticeAuditDao).markSendFailedByIds(eq(List.of(16L)), anyString(),
+                contains("冻结行数不符"), eq(BUSINESS_NOW));
     }
 
     @Test
-    @DisplayName("已冻结PENDING通知_重启后复用冻结文本且不重复组合不重复冻结")
+    @DisplayName("领取失败_禁止Bot发送并释放本次领取")
+    void sendPendingNotices_claimNotAcquired_doesNotCallBotAndReleasesClaim() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO notice = notice(19L, 29L);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(notice));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(29L)));
+        when(composeService.composeAndMergeNotices(any(), any()))
+                .thenReturn(List.of(new StockNoticeComposeService.ComposedMessage(List.of(19L), "测试通知")));
+        when(noticeAuditDao.claimByIds(eq(List.of(19L)), anyString(), any(LocalDateTime.class))).thenReturn(0);
+
+        service().sendPendingNotices();
+
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(noticeAuditDao).releaseClaim(anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("已冻结通知_重启后复用冻结文本且不重复组合不重复冻结")
     void sendPendingNotices_frozenPendingNotice_reusesFrozenTextWithoutRecompose() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
-        TornStockNoticeAuditDO frozen = new TornStockNoticeAuditDO();
-        frozen.setId(17L);
-        frozen.setBatchId(27L);
-        frozen.setPayloadSnapshot("{\"noticeType\":\"SELL\",\"batchId\":27,\"batchNo\":\"B27\",\"stocksId\":1001,"
-                + "\"messageText\":\"已冻结文本\",\"frozenAt\":\"2026-08-02T10:00:00\"}");
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(frozen));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(27L)));
+        TornStockNoticeAuditDO frozen = frozenNotice(17L, 27L, "已冻结文本");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(frozen));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(27L)));
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
@@ -264,39 +360,578 @@ class StockNoticeSendServiceTest {
         verify(composeService).composeAndMergeNotices(composeCaptor.capture(), any());
         assertTrue(composeCaptor.getValue().isEmpty(),
                 "已冻结通知不得进入重新组合,必须复用已冻结文本");
-        verify(noticeAuditDAO, never()).finalizePayload(any());
-        verify(noticeAuditDAO).markSentByIds(List.of(17L));
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao).markSentByIds(eq(List.of(17L)), anyString(), eq(BUSINESS_NOW));
     }
 
     @Test
-    @DisplayName("已冻结PENDING通知_Bot失败不再次冻结payload且标记FAILED")
-    void sendPendingNotices_frozenPendingNotice_botFailure_marksFailedWithoutRefinalize() {
+    @DisplayName("已冻结通知_Bot失败不再次冻结payload且进入可重发状态")
+    void sendPendingNotices_frozenPendingNotice_botFailure_marksRetryableWithoutRefinalize() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");
-        TornStockNoticeAuditDO frozen = new TornStockNoticeAuditDO();
-        frozen.setId(18L);
-        frozen.setBatchId(28L);
-        frozen.setPayloadSnapshot("{\"noticeType\":\"SELL\",\"batchId\":28,\"batchNo\":\"B28\",\"stocksId\":1001,"
-                + "\"messageText\":\"已冻结文本\",\"frozenAt\":\"2026-08-02T10:00:00\"}");
-        when(noticeAuditDAO.selectPendingNotices()).thenReturn(List.of(frozen));
-        when(virtualBatchDAO.listByIds(any())).thenReturn(List.of(batch(28L)));
+        TornStockNoticeAuditDO frozen = frozenNotice(18L, 28L, "已冻结文本");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(frozen));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(28L)));
         when(projectProperty.getVipGroupId()).thenReturn(10001L);
         when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
                 .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
 
         service().sendPendingNotices();
 
-        verify(noticeAuditDAO, never()).finalizePayload(any());
-        verify(noticeAuditDAO).markSendFailedByIds(eq(List.of(18L)), contains("HTTP状态非2xx"));
-        verify(noticeAuditDAO, never()).markSentByIds(any());
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao).markSendFailedByIds(eq(List.of(18L)), anyString(),
+                contains("HTTP状态非2xx"), eq(BUSINESS_NOW));
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("FAILED_RETRYABLE通知_自动重发复用首次冻结文本")
+    void sendPendingNotices_retryableFrozenNotice_autoResentWithSameFrozenText() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO retryable = frozenNotice(20L, 30L, "首次冻结文本");
+        retryable.setSendStatus("FAILED_RETRYABLE");
+        retryable.setSendAttemptCount(1);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(retryable));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(30L)));
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).claimByIds(eq(List.of(20L)), anyString(), eq(BUSINESS_NOW));
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot).sendRequest(paramCaptor.capture(), eq(String.class));
+        assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("首次冻结文本"),
+                "自动重发必须复用首次冻结载荷,不得重新组合正文");
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao).markSentByIds(eq(List.of(20L)), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("每日摘要无关联批次_按创建时正文发送且不因缺批次终态失败")
+    void sendPendingNotices_dailySummaryWithoutBatch_sentFromPayloadMessageText() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO summary = new TornStockNoticeAuditDO();
+        summary.setId(21L);
+        summary.setBatchId(null);
+        summary.setNoticeType("DAILY_SUMMARY");
+        summary.setSendStatus("PENDING");
+        summary.setPayloadSnapshot("{\"noticeType\":\"DAILY_SUMMARY\",\"summaryDate\":\"2026-09-05\","
+                + "\"groupId\":10001,\"messageText\":\"每日摘要正文\"}");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(summary));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao, never()).markFinalByIds(any(), any(), any());
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot).sendRequest(paramCaptor.capture(), eq(String.class));
+        assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("每日摘要正文"),
+                "无批次通知必须按创建时正文发送");
+        verify(noticeAuditDao).markSentByIds(eq(List.of(21L)), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("α换仓两腿关联组_Bot成功时按完整关联组领取、两腿同时SENT且只调用一次Bot")
+    void sendPendingNotices_alphaRebalanceBothLegs_bothMarkedSent() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(31L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(32L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(31L, 32L), "α换仓合并消息")));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(2);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        // 发送前必须按关联标识读取关联组完整通知集合,不得只依赖内存子集
+        verify(noticeAuditDao).selectByRebalanceAssociationId(REBALANCE_ASSOCIATION);
+        // 关联组必须以关联组为单位领取,不能只领取一条腿
+        verify(noticeAuditDao).claimByRebalanceAssociationId(eq(REBALANCE_ASSOCIATION), anyString(),
+                eq(BUSINESS_NOW));
+        assertEquals(2, capturedFinalizeCommands().size(), "完整两腿关联组必须同时冻结两条通知");
+        // 两腿必须在同一SQL语义内写入SENT与组状态SENT,禁止按通知ID逐条回写
+        verify(noticeAuditDao).markRebalanceGroupSent(eq(REBALANCE_ASSOCIATION), anyString(), eq(BUSINESS_NOW));
+        verify(noticeAuditDao, never()).markRebalanceGroupFailed(anyString(), anyString(), anyString(), any());
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(bot, times(1)).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("α换仓两腿关联组_Bot失败时两腿同时进入失败终态且不修改交易事实")
+    void sendPendingNotices_alphaRebalanceBothLegs_bothMarkedFailed() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(33L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(34L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(33L, 34L), "α换仓合并消息")));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(2);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
+
+        service().sendPendingNotices();
+
+        // 失败时两腿必须保持一致的失败状态,单腿结果不得被解释为完整换仓通知送达
+        verify(noticeAuditDao).markRebalanceGroupFailed(eq(REBALANCE_ASSOCIATION), anyString(),
+                contains("HTTP状态非2xx"), eq(BUSINESS_NOW));
+        verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(), any());
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(virtualBatchDao, never()).updateById(any(TornStockVirtualBatchDO.class));
+    }
+
+    @Test
+    @DisplayName("α换仓组成功回写仅1行_不得宣称成功且必须持久化INCONSISTENT收敛")
+    void sendPendingNotices_alphaRebalanceGroupSentPartial_writebackConvergesInconsistent() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(51L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(52L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(51L, 52L), "α换仓合并消息")));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(2);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+        // 成功回写只更新1行:数据库/契约异常,不得宣称完整送达
+        when(noticeAuditDao.markRebalanceGroupSent(eq(REBALANCE_ASSOCIATION), anyString(),
+                eq(BUSINESS_NOW))).thenReturn(1);
+        stubGroupClaimHoldingBoth(sellLeg, buyLeg);
+
+        service().sendPendingNotices();
+
+        // Bot成功但回写不完整属于"结果未知",必须按同一领取标识收敛为INCONSISTENT且禁止再次调用Bot
+        verify(noticeAuditDao).convergeOwnedRebalanceGroup(eq(REBALANCE_ASSOCIATION), anyString(),
+                eq(StockNoticeRebalanceGroupStatusEnum.INCONSISTENT.getCode()),
+                contains("结果未知"), eq(BUSINESS_NOW));
+        verify(noticeAuditDao, never()).convergeUnclaimedRebalanceGroup(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(bot, times(1)).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("α换仓组失败回写0行_不得宣称两腿一致失败且必须持久化收敛")
+    void sendPendingNotices_alphaRebalanceGroupFailedZeroRows_convergesWithoutClaimingFailure() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(53L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(54L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(53L, 54L), "α换仓合并消息")));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(2);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("{}"));
+        when(noticeAuditDao.markRebalanceGroupFailed(eq(REBALANCE_ASSOCIATION), anyString(), anyString(),
+                eq(BUSINESS_NOW))).thenReturn(0);
+        stubGroupClaimHoldingBoth(sellLeg, buyLeg);
+
+        service().sendPendingNotices();
+
+        // 失败回写行数不足且所有权仍可证明时,只允许按同一领取标识收敛为人工核验终态
+        verify(noticeAuditDao).convergeOwnedRebalanceGroup(eq(REBALANCE_ASSOCIATION), anyString(),
+                eq(StockNoticeRebalanceGroupStatusEnum.INCONSISTENT.getCode()), anyString(),
+                eq(BUSINESS_NOW));
+        verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("α换仓两腿均为可重发失败_以关联组为单位自动重发且复用冻结文本")
+    void sendPendingNotices_alphaRebalanceRetryableBothLegs_resentAsGroup() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = frozenRebalanceLeg(25L, 501L, REBALANCE_ASSOCIATION, "SELL", 1,
+                "α换仓合并消息", "2026-09-05T11:00:00", "FAILED_RETRYABLE");
+        TornStockNoticeAuditDO buyLeg = frozenRebalanceLeg(26L, 502L, REBALANCE_ASSOCIATION, "BUY", 2,
+                "α换仓合并消息", "2026-09-05T11:00:00", "FAILED_RETRYABLE");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).claimByRebalanceAssociationId(eq(REBALANCE_ASSOCIATION), anyString(),
+                eq(BUSINESS_NOW));
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot, times(1)).sendRequest(paramCaptor.capture(), eq(String.class));
+        assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("α换仓合并消息"),
+                "自动重发必须复用首次冻结文本");
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao).markRebalanceGroupSent(eq(REBALANCE_ASSOCIATION), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("α换仓一腿已冻结一腿未冻结_不拆成两条消息且只补齐未冻结腿并沿用同一冻结时间")
+    void sendPendingNotices_alphaRebalancePartiallyFrozen_completesOtherLegWithoutRefreeze() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = frozenRebalanceLeg(35L, 501L, REBALANCE_ASSOCIATION, "SELL", 1,
+                "α换仓合并消息", "2026-09-05T11:00:00", "PENDING");
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(36L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(35L, 36L), "α换仓合并消息")));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        // 只允许冻结未冻结腿,已冻结腿的messageText/frozenAt/payloadHash不得被覆盖
+        List<NoticePayloadFinalizeCommand> commands = capturedFinalizeCommands();
+        assertEquals(1, commands.size(), "只允许补齐未冻结腿,禁止重复冻结已冻结腿");
+        assertEquals(36L, commands.getFirst().noticeId(), "只有未冻结的BUY腿允许被冻结");
+        assertTrue(commands.getFirst().payloadSnapshot().contains("\"messageText\":\"α换仓合并消息\""),
+                "未冻结腿必须补齐到同一最终消息上下文");
+        assertTrue(commands.getFirst().payloadSnapshot().contains("\"frozenAt\":\"2026-09-05T11:00\""),
+                "补齐腿必须沿用已冻结腿的冻结时间,保持同一最终消息上下文");
+        verify(bot, times(1)).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao).markRebalanceGroupSent(eq(REBALANCE_ASSOCIATION), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("α换仓两腿均已冻结_重启恢复复用同一冻结文本且不重新冻结")
+    void sendPendingNotices_alphaRebalanceBothFrozen_reusesFrozenTextWithoutRefreeze() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = frozenRebalanceLeg(37L, 501L, REBALANCE_ASSOCIATION, "SELL", 1,
+                "α换仓合并消息", "2026-09-05T11:00:00", "PENDING");
+        TornStockNoticeAuditDO buyLeg = frozenRebalanceLeg(38L, 502L, REBALANCE_ASSOCIATION, "BUY", 2,
+                "α换仓合并消息", "2026-09-05T11:00:00", "PENDING");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot, times(1)).sendRequest(paramCaptor.capture(), eq(String.class));
+        assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("α换仓合并消息"),
+                "重启恢复必须复用关联组已冻结文本");
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(composeService, never()).composeAndMergeNotices(any(), any());
+        verify(noticeAuditDao).markRebalanceGroupSent(eq(REBALANCE_ASSOCIATION), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("α换仓关联组缺腿_不调用Bot且关联组持久化为人工核验终态")
+    void sendPendingNotices_alphaRebalanceMissingLeg_doesNotCallBot() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(41L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION)).thenReturn(List.of(sellLeg));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+                eq(StockNoticeRebalanceGroupStatusEnum.FAILED_FINAL.getCode()),
+                contains("关联组通知数不为2"), eq(BUSINESS_NOW));
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(), any());
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao, never()).claimByRebalanceAssociationId(anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("α换仓关联组重复同类腿_不调用Bot且关联组持久化为人工核验终态")
+    void sendPendingNotices_alphaRebalanceDuplicateBuyLeg_doesNotCallBot() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO firstBuyLeg = rebalanceLeg(42L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        TornStockNoticeAuditDO secondBuyLeg = rebalanceLeg(43L, 503L, REBALANCE_ASSOCIATION, "BUY", 2);
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(firstBuyLeg, secondBuyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(502L), batch(503L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(firstBuyLeg, secondBuyLeg));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+                eq(StockNoticeRebalanceGroupStatusEnum.FAILED_FINAL.getCode()),
+                contains("重复BUY腿"), eq(BUSINESS_NOW));
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("α换仓关联组换仓字段冲突_不调用Bot且腿标记人工核验终态")
+    void sendPendingNotices_alphaRebalanceAssociationConflict_doesNotCallBot() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(44L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(45L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        buyLeg.setPayloadSnapshot(rebalancePayload(502L, REBALANCE_ASSOCIATION, "BUY", 2, 12L, null, null));
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+                eq(StockNoticeRebalanceGroupStatusEnum.FAILED_FINAL.getCode()),
+                contains("rebalanceDecisionId"), eq(BUSINESS_NOW));
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+    }
+
+    @Test
+    @DisplayName("α换仓一腿已SENT一腿可重发_不重复发送已SENT腿且组状态收敛为INCONSISTENT")
+    void sendPendingNotices_alphaRebalanceSentLegNotResent_retryableLegGoesInconsistent() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO sentSellLeg = rebalanceLeg(46L, 501L, REBALANCE_ASSOCIATION, "SELL", 1, "SENT");
+        TornStockNoticeAuditDO retryableBuyLeg =
+                rebalanceLeg(47L, 502L, REBALANCE_ASSOCIATION, "BUY", 2, "FAILED_RETRYABLE");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(retryableBuyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(502L)));
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sentSellLeg, retryableBuyLeg));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).convergeUnclaimedRebalanceGroup(eq(REBALANCE_ASSOCIATION),
+                eq(StockNoticeRebalanceGroupStatusEnum.INCONSISTENT.getCode()),
+                contains("无法按正常组规则解释"), eq(BUSINESS_NOW));
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(), any());
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao, never()).claimByRebalanceAssociationId(anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("α换仓组领取返回0且其他流程持有SENDING_不调用Bot不收敛且不覆盖其他领取标识")
+    void sendPendingNotices_alphaRebalanceGroupHeldByOtherFlow_stopsWithoutConvergence() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        String otherClaimToken = "it-other-claim";
+        TornStockNoticeAuditDO sellLeg = rebalanceLeg(61L, 501L, REBALANCE_ASSOCIATION, "SELL", 1);
+        TornStockNoticeAuditDO buyLeg = rebalanceLeg(62L, 502L, REBALANCE_ASSOCIATION, "BUY", 2);
+        TornStockNoticeAuditDO otherHeldSellLeg =
+                rebalanceLeg(61L, 501L, REBALANCE_ASSOCIATION, "SELL", 1, "SENDING");
+        TornStockNoticeAuditDO otherHeldBuyLeg =
+                rebalanceLeg(62L, 502L, REBALANCE_ASSOCIATION, "BUY", 2, "SENDING");
+        for (TornStockNoticeAuditDO otherHeldLeg : List.of(otherHeldSellLeg, otherHeldBuyLeg)) {
+            otherHeldLeg.setClaimToken(otherClaimToken);
+            otherHeldLeg.setRebalanceGroupStatus("SENDING");
+            otherHeldLeg.setSendAttemptCount(1);
+        }
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(sellLeg, buyLeg));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L), batch(502L)));
+        // 首次读取用于组校验,第二次读取(恢复阶段)显示两腿已由other-token持有且为SENDING
+        when(noticeAuditDao.selectByRebalanceAssociationId(REBALANCE_ASSOCIATION))
+                .thenReturn(List.of(sellLeg, buyLeg), List.of(otherHeldSellLeg, otherHeldBuyLeg));
+        when(composeService.composeAndMergeNotices(any(), any())).thenReturn(List.of(
+                new StockNoticeComposeService.ComposedMessage(List.of(61L, 62L), "α换仓合并消息")));
+        when(noticeAuditDao.claimByRebalanceAssociationId(eq(REBALANCE_ASSOCIATION), anyString(),
+                any(LocalDateTime.class))).thenReturn(0);
+
+        service().sendPendingNotices();
+
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao, never()).convergeOwnedRebalanceGroup(anyString(), anyString(), anyString(),
+                anyString(), any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).convergeUnclaimedRebalanceGroup(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).markRebalanceGroupFailed(anyString(), anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).markRebalanceGroupSent(anyString(), anyString(),
+                any(LocalDateTime.class));
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        assertEquals("SENDING", otherHeldSellLeg.getSendStatus(), "其他流程持有的腿状态不得被改写");
+        assertEquals("SENDING", otherHeldBuyLeg.getSendStatus());
+        assertEquals("SENDING", otherHeldSellLeg.getRebalanceGroupStatus(), "组状态不得被本次流程覆盖");
+        assertEquals("SENDING", otherHeldBuyLeg.getRebalanceGroupStatus());
+        assertEquals(otherClaimToken, otherHeldSellLeg.getClaimToken(), "其他流程的领取标识不得被替换");
+        assertEquals(otherClaimToken, otherHeldBuyLeg.getClaimToken());
+        // 本次流程只能释放自己的领取标识,不能借释放覆盖其他持有者
+        ArgumentCaptor<String> releaseCaptor = ArgumentCaptor.forClass(String.class);
+        verify(noticeAuditDao).releaseClaim(releaseCaptor.capture(), eq(BUSINESS_NOW));
+        assertNotEquals(otherClaimToken, releaseCaptor.getValue(), "释放只能作用于本次流程自己的领取标识");
+    }
+
+    @Test
+    @DisplayName("α换仓通知缺少关联标识_不调用Bot且标记人工核验终态")
+    void sendPendingNotices_alphaRebalanceNoticeWithoutAssociationId_doesNotCallBot() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO malformed = notice(48L, 501L);
+        malformed.setNoticeType("ALPHA_REBALANCE");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(malformed));
+        when(virtualBatchDao.listByIds(any())).thenReturn(List.of(batch(501L)));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao).markFinalByIds(eq(List.of(48L)), contains("缺少换仓关联标识"), eq(BUSINESS_NOW));
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(composeService, never()).composeAndMergeNotices(any(), any());
+    }
+
+    @Test
+    @DisplayName("无可发送通知_不调用Bot不冻结不回写")
+    void sendPendingNotices_noSendableNotices_doesNotCallBot() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of());
+
+        service().sendPendingNotices();
+
+        verify(bot, never()).sendRequest(any(BotHttpReqParam.class), eq(String.class));
+        verify(noticeAuditDao, never()).finalizePayload(any(), any());
+        verify(noticeAuditDao, never()).markSentByIds(any(), any(), any());
+        verify(noticeAuditDao, never()).markSendFailedByIds(any(), any(), any(), any());
+    }
+
+    /**
+     * 捕获发送前的逐条冻结命令。
+     *
+     * @return 冻结命令列表
+     */
+    @SuppressWarnings("unchecked")
+    private List<NoticePayloadFinalizeCommand> capturedFinalizeCommands() {
+        ArgumentCaptor<List<NoticePayloadFinalizeCommand>> captor =
+                ArgumentCaptor.forClass((Class<List<NoticePayloadFinalizeCommand>>) (Class<?>) List.class);
+        verify(noticeAuditDao).finalizePayload(captor.capture(), any(LocalDateTime.class));
+        return captor.getValue();
     }
 
     private TornStockNoticeAuditDO notice(Long id, Long batchId) {
         TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
         notice.setId(id);
         notice.setBatchId(batchId);
+        notice.setNoticeType("SELL");
+        notice.setSendStatus("PENDING");
         notice.setPayloadSnapshot("{\"noticeType\":\"SELL\",\"batchId\":" + batchId
                 + ",\"batchNo\":\"B" + batchId + "\",\"stocksId\":1001}");
         return notice;
+    }
+
+    /**
+     * 构建已冻结最终文本的普通通知。
+     *
+     * @param id          通知ID
+     * @param batchId     关联批次ID
+     * @param messageText 已冻结文本
+     * @return 已冻结通知审计DO
+     */
+    private TornStockNoticeAuditDO frozenNotice(Long id, Long batchId, String messageText) {
+        TornStockNoticeAuditDO notice = notice(id, batchId);
+        notice.setPayloadSnapshot("{\"noticeType\":\"SELL\",\"batchId\":" + batchId
+                + ",\"batchNo\":\"B" + batchId + "\",\"stocksId\":1001"
+                + ",\"messageText\":\"" + messageText + "\""
+                + ",\"frozenAt\":\"2026-08-02T10:00:00\"}");
+        return notice;
+    }
+
+    /**
+     * 构建PENDING状态的α换仓腿通知。
+     *
+     * @param id            通知ID
+     * @param batchId       关联批次ID
+     * @param associationId 换仓关联标识
+     * @param leg           腿标识(SELL/BUY)
+     * @param legOrder      腿顺序
+     * @return 携带完整换仓关联事实的通知审计DO
+     */
+    private TornStockNoticeAuditDO rebalanceLeg(Long id, Long batchId, String associationId,
+                                                String leg, int legOrder) {
+        return rebalanceLeg(id, batchId, associationId, leg, legOrder, "PENDING");
+    }
+
+    /**
+     * 构建指定发送状态的α换仓腿通知。
+     *
+     * @param id            通知ID
+     * @param batchId       关联批次ID
+     * @param associationId 换仓关联标识
+     * @param leg           腿标识(SELL/BUY)
+     * @param legOrder      腿顺序
+     * @param sendStatus    发送状态
+     * @return 通知审计DO
+     */
+    private TornStockNoticeAuditDO rebalanceLeg(Long id, Long batchId, String associationId,
+                                                String leg, int legOrder, String sendStatus) {
+        TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
+        notice.setId(id);
+        notice.setBatchId(batchId);
+        notice.setNoticeType("ALPHA_REBALANCE");
+        notice.setSendStatus(sendStatus);
+        notice.setSendAttemptCount(0);
+        notice.setPayloadSnapshot(rebalancePayload(batchId, associationId, leg, legOrder, 11L, null, null));
+        return notice;
+    }
+
+    /**
+     * 构建已冻结最终文本的α换仓腿通知。
+     *
+     * @param id            通知ID
+     * @param batchId       关联批次ID
+     * @param associationId 换仓关联标识
+     * @param leg           腿标识(SELL/BUY)
+     * @param legOrder      腿顺序
+     * @param messageText   已冻结最终文本
+     * @param frozenAt      已冻结时间
+     * @param sendStatus    发送状态
+     * @return 已冻结通知审计DO
+     */
+    private TornStockNoticeAuditDO frozenRebalanceLeg(Long id, Long batchId, String associationId,
+                                                      String leg, int legOrder, String messageText,
+                                                      String frozenAt, String sendStatus) {
+        TornStockNoticeAuditDO notice = rebalanceLeg(id, batchId, associationId, leg, legOrder, sendStatus);
+        notice.setPayloadSnapshot(rebalancePayload(batchId, associationId, leg, legOrder, 11L,
+                messageText, frozenAt));
+        return notice;
+    }
+
+    /**
+     * 构建α换仓通知payload,原仓批次固定501、新仓批次固定502。
+     *
+     * @param batchId       关联批次ID
+     * @param associationId 换仓关联标识
+     * @param leg           腿标识
+     * @param legOrder      腿顺序
+     * @param decisionId    换仓决策ID
+     * @param messageText   已冻结最终文本;未冻结时为null
+     * @param frozenAt      已冻结时间;未冻结时为null
+     * @return 通知payload JSON
+     */
+    private String rebalancePayload(Long batchId, String associationId, String leg, int legOrder,
+                                    Long decisionId, String messageText, String frozenAt) {
+        StringBuilder json = new StringBuilder("{\"noticeType\":\"ALPHA_REBALANCE\",\"batchId\":")
+                .append(batchId)
+                .append(",\"rebalanceDecisionId\":").append(decisionId)
+                .append(",\"rebalanceAssociationId\":\"").append(associationId).append("\"")
+                .append(",\"originalBatchId\":501,\"replacementBatchId\":502")
+                .append(",\"rebalanceLeg\":\"").append(leg).append("\",\"legOrder\":").append(legOrder);
+        if (messageText != null) {
+            json.append(",\"messageText\":\"").append(messageText).append("\"");
+        }
+        if (frozenAt != null) {
+            json.append(",\"frozenAt\":\"").append(frozenAt).append("\"");
+        }
+        return json.append("}").toString();
     }
 
     private TornStockVirtualBatchDO batch(Long id) {
@@ -307,8 +942,17 @@ class StockNoticeSendServiceTest {
         return batch;
     }
 
+    /**
+     * 组装被测发送服务及其协作对象,协作对象共用同一批Mock以便统一校验真实调用。
+     *
+     * @return 股票通知发送服务
+     */
     private StockNoticeSendService service() {
-        return new StockNoticeSendService(
-                bot, projectProperty, sysSettingManager, noticeAuditDAO, virtualBatchDAO, composeService);
+        StockNoticeBotSender botSender = new StockNoticeBotSender(bot, projectProperty);
+        StockNoticeSendRecorder sendRecorder = new StockNoticeSendRecorder(noticeAuditDao);
+        StockRebalanceNoticeSender rebalanceSender = new StockRebalanceNoticeSender(
+                noticeAuditDao, composeService, sendRecorder, botSender);
+        return new StockNoticeSendService(sysSettingManager, marketClock, noticeAuditDao, virtualBatchDao,
+                composeService, botSender, sendRecorder, rebalanceSender);
     }
 }

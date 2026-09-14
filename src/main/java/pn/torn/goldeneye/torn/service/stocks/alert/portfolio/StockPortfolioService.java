@@ -19,7 +19,7 @@ import java.util.Objects;
 /**
  * 股票组合管理服务 - 维护5槽正式组合的整数股数、余款现金与槽内复利
  * <p>
- * 正式组合由 {@value #SLOT_COUNT} 个独立槽位组成,每槽初始资金 {@value #INITIAL_CASH_PLAIN} ,
+ * 正式组合由 {@value #SLOT_COUNT} 个独立槽位组成,每槽初始资金 2,000,000,000.00 ,
  * 槽位之间资金不自动调拨。本服务封装槽位分配、预留、建仓占用、取消释放、卖出结算
  * 与组合权益计算等纯领域能力,所有金额运算使用 {@link BigDecimal}(精度18位,HALF_UP),
  * 股数一律取整数({@link Long})。卖出统一扣除0.1%手续费。
@@ -34,7 +34,7 @@ import java.util.Objects;
  * </ul>
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.1
  * @since 2026.07.24
  */
 @Slf4j
@@ -50,17 +50,25 @@ public class StockPortfolioService {
      */
     public static final String SHADOW_CANDIDATE_PORTFOLIO_CODE = "VIP_SHADOW_CANDIDATE";
     /**
+     * 组合编码 - VIP Alpha组合
+     */
+    public static final String VIP_ALPHA_PORTFOLIO_CODE = "VIP_ALPHA";
+    /**
      * 槽位数量
      */
     public static final int SLOT_COUNT = 5;
+    /**
+     * VIP Alpha组合槽位数量
+     */
+    public static final int VIP_ALPHA_SLOT_COUNT = 1;
     /**
      * 每槽初始资金(20亿)
      */
     public static final BigDecimal INITIAL_CASH = new BigDecimal("2000000000.00");
     /**
-     * 初始资金明文(仅用于Javadoc展示)
+     * VIP Alpha组合每槽初始资金(100亿)
      */
-    static final String INITIAL_CASH_PLAIN = "2,000,000,000.00";
+    public static final BigDecimal VIP_ALPHA_INITIAL_CASH = new BigDecimal("10000000000.00");
     /**
      * 卖出费率(0.1%手续费,实得99.9%)
      */
@@ -83,8 +91,28 @@ public class StockPortfolioService {
      */
     private static final String SLOT_NULL_MSG = "槽位不能为空";
 
+    /**
+     * 判断批次是否属于α正式组合。
+     *
+     * @param batch 待判断批次
+     * @return 账本为FORMAL且组合为VIP_ALPHA时返回true
+     */
+    public static boolean isAlphaBatch(TornStockVirtualBatchDO batch) {
+        return batch != null && StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                && VIP_ALPHA_PORTFOLIO_CODE.equals(batch.getPortfolioCode());
+    }
 
-    // ==================== 槽位生命周期 ====================
+    /**
+     * 判断批次是否属于旧版正式组合。
+     *
+     * @param batch 待判断批次
+     * @return 账本为FORMAL且组合为VIP_FORMAL时返回true
+     */
+    public static boolean isFormalBatch(TornStockVirtualBatchDO batch) {
+        return batch != null && StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
+                && PORTFOLIO_CODE.equals(batch.getPortfolioCode());
+    }
+
 
     /**
      * 预留槽位和预算(ENTRY_PENDING阶段)
@@ -195,7 +223,7 @@ public class StockPortfolioService {
      * 解绑批次ID。本方法不负责写批次终态与冷却,由调用方按各自入口状态(DATA_STALE_EXIT
      * 灾难关闭或 EXIT_PENDING 正常卖出)完成。
      *
-     * @param batch              槽位账本批次(ledgerType为FORMAL或SHADOW_FORMAL_CANDIDATE)
+     * @param batch              槽位账本批次(ledgerType为FORMAL、VIP_ALPHA或SHADOW_FORMAL_CANDIDATE)
      * @param slot               锁后槽位
      * @param exitReferencePrice 卖出参考价(>0)
      * @return 扣费后卖出所得(sellProceeds)
@@ -204,7 +232,32 @@ public class StockPortfolioService {
     public BigDecimal settleFormalSlot(TornStockVirtualBatchDO batch,
                                        TornStockPortfolioSlotDO slot,
                                        BigDecimal exitReferencePrice) {
+        return settleSlotBacked(batch, slot, exitReferencePrice, batch == null ? null : batch.getPortfolioCode());
+    }
+
+    /**
+     * 对指定槽位账本执行安全卖出结算。
+     * <p>
+     * 通过显式账本类型与组合编码绑定结算入口，保证 Alpha 独立10B槽位不会误用其他组合资金。
+     * 结算后 {@code slot.availableCash = batch.remainingCash + sellProceeds}，并解除原批次绑定。
+     *
+     * @param batch              槽位账本批次
+     * @param slot               锁后槽位
+     * @param exitReferencePrice 卖出参考价(>0)
+     * @param portfolioCode      期望组合编码
+     * @return 扣费后卖出所得
+     * @throws IllegalStateException 槽位账本一致性或组合绑定校验失败时抛出
+     */
+    public BigDecimal settleSlotBacked(TornStockVirtualBatchDO batch,
+                                       TornStockPortfolioSlotDO slot,
+                                       BigDecimal exitReferencePrice,
+                                       String portfolioCode) {
         validateFormalSettlement(batch, slot, exitReferencePrice);
+        if (!Objects.equals(portfolioCode, batch.getPortfolioCode())
+                || !Objects.equals(portfolioCode, slot.getPortfolioCode())) {
+            throw new IllegalStateException("槽位批次组合绑定不一致,账本一致性破坏: batchNo=" + batch.getBatchNo()
+                    + ", portfolioCode=" + portfolioCode);
+        }
 
         BigDecimal sellProceeds = exitReferencePrice
                 .multiply(BigDecimal.valueOf(batch.getQuantity()))
@@ -214,7 +267,7 @@ public class StockPortfolioService {
         slot.setReservedCash(BigDecimal.ZERO);
         slot.setCurrentBatchId(null);
         slot.setSlotStatus(StockSlotStatusEnum.AVAILABLE.getCode());
-        log.info("槽位账本批次结算: batchNo={}, ledgerType={}, slotNo={}, sellProceeds={}, availableCash={}",
+        log.info("槽位账本批次结算: batchNo={}, ledgerType={}, slotNo={}, sellProceeds={}, availableCash={} ",
                 batch.getBatchNo(), batch.getLedgerType(), slot.getSlotNo(), sellProceeds, slot.getAvailableCash());
         return sellProceeds;
     }
@@ -270,7 +323,7 @@ public class StockPortfolioService {
     }
 
     /**
-     * 校验槽位账本类型必须为支持槽位组合的账本(FORMAL或SHADOW_FORMAL_CANDIDATE),
+     * 校验槽位账本类型必须为支持槽位组合的账本(FORMAL、VIP_ALPHA或SHADOW_FORMAL_CANDIDATE),
      * 禁止"非Shadow即正式"宽松判断,未知/无限资金/拒绝观察不得走槽位结算。
      *
      * @param batch 槽位账本批次
@@ -284,7 +337,7 @@ public class StockPortfolioService {
     }
 
     /**
-     * 判断账本类型是否为有槽位组合账本(正式或候选影子)。
+     * 判断账本类型是否为有槽位组合账本(正式、VIP Alpha或候选影子)。
      *
      * @param ledgerType 账本类型编码
      * @return 支持槽位组合返回true

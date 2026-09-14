@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.6.2
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -61,6 +61,18 @@ public class BotCommands {
      * OC分配
      */
     public static final String OC_ASSIGN = "OC分配";
+    /**
+     * OC大锅饭开启
+     */
+    public static final String OC_REASSIGN_OPEN = "OC大锅饭开启";
+    /**
+     * OC大锅饭添加
+     */
+    public static final String OC_REASSIGN_ADD = "OC大锅饭添加";
+    /**
+     * OC大锅饭名单
+     */
+    public static final String OC_REASSIGN_LIST = "OC大锅饭名单";
 
     // ====================帮派物资相关====================
     /**
@@ -191,6 +203,10 @@ public class BotCommands {
      * 重建股票派生数据
      */
     public static final String DERIVED_STOCK_DATA_REBUILD = "重建股票派生数据";
+    /**
+     * 预填股票α日线
+     */
+    public static final String ALPHA_STOCK_DAILY_PREFILL = "预填股票α日线";
     /**
      * 绑Key
      */

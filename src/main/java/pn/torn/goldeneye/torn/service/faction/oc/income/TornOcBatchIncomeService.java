@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.constants.torn.enums.TornOcStatusEnum;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
@@ -13,6 +12,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcIncomeDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.income.*;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * 全部链提交后统一重算受影响月份汇总。锁在Worker返回（事务提交/回滚完成）后于finally释放。</p>
  *
  * @author Bai
- * @version 1.3.4
+ * @version 1.6.2
  * @since 2025.11.03
  */
 @Slf4j
@@ -46,6 +46,7 @@ public class TornOcBatchIncomeService {
     private final TornSettingOcChainDAO ocChainDao;
     private final TornFactionOcIncomeDAO incomeDao;
     private final TornOcIncomeService incomeService;
+    private final TornSettingOcReassignManager reassignManager;
 
     /**
      * 批量计算已完成OC的收益（单次执行，不含重跑合并）。
@@ -139,7 +140,7 @@ public class TornOcBatchIncomeService {
      */
     private BatchIncomeResult doBatchCalculateIncome(long factionId, LocalDateTime execTime) {
         LocalDateTime startTime = resolveIncomeStartTime(factionId, execTime);
-        List<String> rotationList = TornConstants.ROTATION_OC_NAME.get(factionId);
+        List<String> rotationList = reassignManager.getRotationOcNames(factionId);
         if (CollectionUtils.isEmpty(rotationList)) {
             log.info("该帮派没有配置大锅饭OC名单，跳过批量收益计算: factionId={}", factionId);
             return BatchIncomeResult.empty();
@@ -430,21 +431,15 @@ public class TornOcBatchIncomeService {
     /**
      * 解析帮派级大锅饭收益扫描起点。
      *
-     * <p>PN从2026-08-01起、NOV从2026-07-01起扫描历史补算；其他帮派保持现有行为，
-     * 使用执行时间所在月份第一天。该方法是纯函数，不读取数据库、系统时间或外部配置。</p>
+     * <p>委托{@link TornSettingOcReassignManager}按该帮派范围行的最小非NULL生效时间解析；
+     * 全部为NULL时使用执行时间所在月份第一天。该方法是纯函数透传，不读取数据库、系统时间或外部配置。</p>
      *
      * @param factionId 帮派ID
      * @param execTime  执行时间
      * @return 大锅饭收益扫描起点（左闭区间）
      */
     LocalDateTime resolveIncomeStartTime(long factionId, LocalDateTime execTime) {
-        if (factionId == TornConstants.FACTION_PN_ID) {
-            return TornConstants.PN_OC_REASSIGN_EFFECTIVE_FROM;
-        }
-        if (factionId == TornConstants.FACTION_NOV_ID) {
-            return TornConstants.NOV_OC_REASSIGN_EFFECTIVE_FROM;
-        }
-        return LocalDateTime.of(execTime.getYear(), execTime.getMonth(), 1, 0, 0, 0);
+        return reassignManager.resolveIncomeStartTime(factionId, execTime);
     }
 
     /**

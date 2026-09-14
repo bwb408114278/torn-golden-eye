@@ -6,6 +6,11 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalEvaluator;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocationResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.signal.policy.CandidateInfo;
 import pn.torn.goldeneye.utils.JsonUtils;
 
@@ -13,12 +18,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalEvaluator;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockBuySignalResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocationResult;
 
 /**
  * 股票候选轨道接纳服务 - 在短事务内将候选接纳到正式或候选影子槽位账本。
@@ -32,7 +31,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.signal.StockCandidateAllocati
  * 产生不同成交价格或时间边界。
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.6.1
  * @since 2026.08.09
  */
 @Slf4j
@@ -235,6 +234,7 @@ public class StockCandidateTrackAllocationService {
         batch.setBatchNo(target.batchNoPrefix()
                 + roundTime.format(FORMAL_BATCH_NO_FORMATTER) + candidate.stocksId());
         batch.setLedgerType(target.ledgerType());
+        batch.setPortfolioCode(target.portfolioCode());
         batch.setStocksId(candidate.stocksId());
         batch.setStocksShortname(candidate.stocksShortname());
         batch.setPrimaryStrategy(candidate.primaryStrategy().getCode());
@@ -361,7 +361,6 @@ public class StockCandidateTrackAllocationService {
             TornStockMonthlyStateDO monthlyState,
             BigDecimal signalReferencePrice,
             Long quantity,
-            LocalDateTime roundTime
-    ) {
+            LocalDateTime roundTime) {
     }
 }
