@@ -27,6 +27,11 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class OcReassignOpenStrategyImpl extends BaseGroupMsgStrategy {
+    /**
+     * 指令用法示例（帮派ID必填，收益模式系数/平分二选一）
+     */
+    private static final String USAGE_EXAMPLE = "g#" + BotCommands.OC_REASSIGN_OPEN + "#帮派ID#系数|平分";
+
     private final OcReassignConfigService reassignConfigService;
     private final TornSettingFactionManager settingFactionManager;
 
@@ -47,19 +52,19 @@ public class OcReassignOpenStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "开启帮派大锅饭(仅超管), 例g#" + BotCommands.OC_REASSIGN_OPEN + "#帮派ID#系数|平分";
+        return "开启帮派大锅饭(仅超管), 例" + USAGE_EXAMPLE;
     }
 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         String[] msgArray = msg.split("#");
         if (msgArray.length != 2 || !NumberUtils.isLong(msgArray[0])) {
-            return super.buildTextMsg("参数有误，正确格式：g#" + BotCommands.OC_REASSIGN_OPEN + "#帮派ID#系数|平分");
+            return super.buildTextMsg("参数有误，正确格式：" + USAGE_EXAMPLE);
         }
 
         TornOcIncomeModeEnum mode = TornOcIncomeModeEnum.ofLabel(msgArray[1].trim());
         if (mode == null) {
-            return super.buildTextMsg("参数有误，正确格式：g#" + BotCommands.OC_REASSIGN_OPEN + "#帮派ID#系数|平分");
+            return super.buildTextMsg("参数有误，正确格式：" + USAGE_EXAMPLE);
         }
 
         long factionId = Long.parseLong(msgArray[0]);
