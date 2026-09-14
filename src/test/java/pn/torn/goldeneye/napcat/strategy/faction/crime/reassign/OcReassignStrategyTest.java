@@ -26,19 +26,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * 大锅饭三个指令策略测试。
@@ -149,10 +139,11 @@ class OcReassignStrategyTest {
         List<? extends QqMsgParam<?>> msgs =
                 addStrategy.handle(1L, sender, "Ace in the Hole");
 
-        assertEquals("已加入大锅饭: BSU - Ace in the Hole\n"
-                + "生效时间: 2026-09-01 00:00:00\n"
-                + "规划范围: 已同步\n"
-                + "补算: 已提交异步执行, 稍后可用[OC大锅饭名单]确认", textOf(msgs));
+        assertEquals("""
+                已加入大锅饭: BSU - Ace in the Hole
+                生效时间: 2026-09-01 00:00:00
+                规划范围: 已同步
+                补算: 已提交异步执行, 稍后可用[OC大锅饭名单]确认""", textOf(msgs));
         verify(ocBatchIncomeService).requestBatchIncome(eq(FACTION_BSU), any(LocalDateTime.class));
     }
 
@@ -172,11 +163,12 @@ class OcReassignStrategyTest {
         List<? extends QqMsgParam<?>> msgs =
                 addStrategy.handle(1L, sender, FACTION_BSU + "#Cleared for Takeoff#2026-09-01");
 
-        assertEquals("已加入大锅饭: BSU - Cleared for Takeoff\n"
-                + "生效时间: 2026-09-01 00:00:00\n"
-                + "规划范围: 规划行已存在\n"
-                + "警告: 该OC缺少新队规划档案(torn_setting_oc_plan_profile), 自动规划不会规划该OC\n"
-                + "补算: 已提交异步执行, 稍后可用[OC大锅饭名单]确认", textOf(msgs));
+        assertEquals("""
+                已加入大锅饭: BSU - Cleared for Takeoff
+                生效时间: 2026-09-01 00:00:00
+                规划范围: 规划行已存在
+                警告: 该OC缺少新队规划档案(torn_setting_oc_plan_profile), 自动规划不会规划该OC
+                补算: 已提交异步执行, 稍后可用[OC大锅饭名单]确认""", textOf(msgs));
     }
 
     @Test
@@ -215,9 +207,10 @@ class OcReassignStrategyTest {
                 new OcReassignConfigService.ScopeRow("Ace in the Hole", 9,
                         LocalDateTime.of(2026, 9, 1, 0, 0, 0), false))));
 
-        assertEquals("大锅饭名单: BSU(11796) 模式=平分\n"
-                + "Break the Bank [8] 始终\n"
-                + "Ace in the Hole [9] 2026-09-01 00:00:00 缺规划行",
+        assertEquals("""
+                        大锅饭名单: BSU(11796) 模式=平分
+                        Break the Bank [8] 始终
+                        Ace in the Hole [9] 2026-09-01 00:00:00 缺规划行""",
                 textOf(listStrategy.handle(1L, sender, "")));
     }
 

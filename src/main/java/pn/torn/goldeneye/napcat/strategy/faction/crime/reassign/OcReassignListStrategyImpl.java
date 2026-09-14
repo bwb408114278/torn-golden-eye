@@ -31,6 +31,11 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class OcReassignListStrategyImpl extends BaseGroupMsgStrategy {
+    /**
+     * 指令用法示例（可选帮派ID前缀仅超管）
+     */
+    private static final String USAGE_EXAMPLE = "g#" + BotCommands.OC_REASSIGN_LIST + "(#帮派ID)";
+
     private final OcReassignConfigService reassignConfigService;
     private final TornSettingFactionManager settingFactionManager;
     private final ProjectProperty projectProperty;
@@ -47,7 +52,7 @@ public class OcReassignListStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "查询帮派大锅饭名单, 例g#" + BotCommands.OC_REASSIGN_LIST + "(#帮派ID)";
+        return "查询帮派大锅饭名单, 例" + USAGE_EXAMPLE;
     }
 
     @Override
@@ -56,14 +61,14 @@ public class OcReassignListStrategyImpl extends BaseGroupMsgStrategy {
         long factionId;
         if (StringUtils.hasText(msg) && msgArray.length == 1) {
             if (!NumberUtils.isLong(msgArray[0])) {
-                return super.buildTextMsg("参数有误，正确格式：g#" + BotCommands.OC_REASSIGN_LIST + "(#帮派ID)");
+                return super.buildTextMsg("参数有误，正确格式：" + USAGE_EXAMPLE);
             }
             if (!projectProperty.getAdminId().contains(sender.getUserId())) {
                 return super.buildTextMsg("失败: 仅超管可指定帮派ID");
             }
             factionId = Long.parseLong(msgArray[0]);
         } else if (msgArray.length > 1) {
-            return super.buildTextMsg("参数有误，正确格式：g#" + BotCommands.OC_REASSIGN_LIST + "(#帮派ID)");
+            return super.buildTextMsg("参数有误，正确格式：" + USAGE_EXAMPLE);
         } else {
             TornUserDO user = super.getTornUser(sender, "");
             factionId = user.getFactionId() == null ? 0L : user.getFactionId();

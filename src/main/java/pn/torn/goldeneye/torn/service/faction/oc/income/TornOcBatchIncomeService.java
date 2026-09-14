@@ -49,29 +49,6 @@ public class TornOcBatchIncomeService {
     private final TornSettingOcReassignManager reassignManager;
 
     /**
-     * 批量计算已完成OC的收益（单次执行，不含重跑合并）。
-     *
-     * <p>供定时任务与既有测试直接调用。同一帮派同时只允许一个流程，抢占失败直接返回{@code null}；
-     * 每个叶子经独立事务Worker处理，失败链不影响其他链。</p>
-     *
-     * @param factionId 帮派ID
-     * @param execTime  执行时间
-     * @return 批次统计结果；因同帮派并发抢占失败时返回{@code null}
-     */
-    public BatchIncomeResult batchCalculateIncome(long factionId, LocalDateTime execTime) {
-        FactionRunState state = factionRunStates.computeIfAbsent(factionId, key -> new FactionRunState());
-        if (!state.running.compareAndSet(false, true)) {
-            log.info("帮派{}的批量收益计算正在进行中，本次跳过", factionId);
-            return null;
-        }
-        try {
-            return doBatchCalculateIncome(factionId, execTime);
-        } finally {
-            state.running.set(false);
-        }
-    }
-
-    /**
      * 触发一次帮派批量收益计算，运行期间的新触发会合并为一次最终重跑。
      *
      * <p>供分页校准事务提交后的异步触发使用：同一帮派计算运行中收到新触发时不并发执行，
@@ -100,31 +77,6 @@ public class TornOcBatchIncomeService {
             if (!state.rerunRequested.compareAndSet(true, false)) {
                 return;
             }
-        }
-    }
-
-    /**
-     * 尝试抢占指定帮派的批量收益计算标记。
-     *
-     * <p>同一帮派同时只允许一个批量收益计算流程，不同帮派可以并行。</p>
-     *
-     * @param factionId 帮派ID
-     * @return 抢占成功返回{@code true}，否则返回{@code false}
-     */
-    boolean tryAcquireFactionCalculateLock(long factionId) {
-        FactionRunState state = factionRunStates.computeIfAbsent(factionId, key -> new FactionRunState());
-        return state.running.compareAndSet(false, true);
-    }
-
-    /**
-     * 释放指定帮派的批量收益计算标记。
-     *
-     * @param factionId 帮派ID
-     */
-    void releaseFactionCalculateLock(long factionId) {
-        FactionRunState state = factionRunStates.get(factionId);
-        if (state != null) {
-            state.running.set(false);
         }
     }
 

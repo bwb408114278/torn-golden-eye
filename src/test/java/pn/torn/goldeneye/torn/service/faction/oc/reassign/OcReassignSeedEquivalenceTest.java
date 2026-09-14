@@ -16,8 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 大锅饭Liquibase种子等价性测试（迁移等价生命线）。
@@ -108,10 +107,10 @@ class OcReassignSeedEquivalenceTest {
         assertEquals(6, rows.size(), "实际帮级行: " + rows);
         for (TornSettingOcReassignFactionDO row : rows) {
             TornOcIncomeModeEnum expectedMode = EXPECTED_MODES.get(row.getFactionId());
-            assertTrue(expectedMode != null, "非期望帮派: " + row.getFactionId());
+            assertNotNull(expectedMode, "非期望帮派: " + row.getFactionId());
             assertEquals(expectedMode, TornOcIncomeModeEnum.of(row.getIncomeMode()),
                     "帮派" + row.getFactionId() + "模式不符");
-            assertTrue(Boolean.TRUE.equals(row.getEnabled()), "帮派" + row.getFactionId() + "应启用");
+            assertEquals(Boolean.TRUE, row.getEnabled(), "帮派" + row.getFactionId() + "应启用");
         }
     }
 

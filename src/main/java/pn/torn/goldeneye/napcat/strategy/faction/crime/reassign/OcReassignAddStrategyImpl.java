@@ -40,6 +40,11 @@ public class OcReassignAddStrategyImpl extends BaseGroupMsgStrategy {
      * 生效日期参数格式
      */
     private static final Pattern EFFECTIVE_DATE_PATTERN = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    /**
+     * 指令用法示例（可选帮派ID前缀仅超管、可选生效日期默认当月1日）
+     */
+    private static final String USAGE_EXAMPLE =
+            "g#" + BotCommands.OC_REASSIGN_ADD + "(#帮派ID)#OC名称(#yyyy-MM-dd)";
 
     private final OcReassignConfigService reassignConfigService;
     private final TornSettingFactionManager settingFactionManager;
@@ -59,7 +64,7 @@ public class OcReassignAddStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "添加OC进大锅饭名单, 例g#" + BotCommands.OC_REASSIGN_ADD + "(#帮派ID)#OC名称(#yyyy-MM-dd)";
+        return "添加OC进大锅饭名单, 例" + USAGE_EXAMPLE;
     }
 
     @Override
@@ -90,7 +95,7 @@ public class OcReassignAddStrategyImpl extends BaseGroupMsgStrategy {
     private AddCommand parseCommand(QqRecMsgSender sender, String msg) {
         String[] msgArray = msg.split("#");
         int index = 0;
-        long factionId = 0L;
+        long factionId;
         if (msgArray.length > index && NumberUtils.isLong(msgArray[index])) {
             if (!projectProperty.getAdminId().contains(sender.getUserId())) {
                 return new AddCommand(0L, null, null, "失败: 仅超管可指定帮派ID");
@@ -104,7 +109,7 @@ public class OcReassignAddStrategyImpl extends BaseGroupMsgStrategy {
 
         if (msgArray.length < index + 1 || !StringUtils.hasText(msgArray[index])) {
             return new AddCommand(0L, null, null,
-                    "参数有误，正确格式：g#" + BotCommands.OC_REASSIGN_ADD + "(#帮派ID)#OC名称(#yyyy-MM-dd)");
+                    "参数有误，正确格式：" + USAGE_EXAMPLE);
         }
         String ocName = msgArray[index].trim();
         index++;
@@ -113,7 +118,7 @@ public class OcReassignAddStrategyImpl extends BaseGroupMsgStrategy {
         if (msgArray.length > index) {
             if (msgArray.length > index + 1 || !EFFECTIVE_DATE_PATTERN.matcher(msgArray[index]).matches()) {
                 return new AddCommand(0L, null, null,
-                        "参数有误，正确格式：g#" + BotCommands.OC_REASSIGN_ADD + "(#帮派ID)#OC名称(#yyyy-MM-dd)");
+                        "参数有误，正确格式：" + USAGE_EXAMPLE);
             }
             effectiveDate = LocalDate.parse(msgArray[index]);
         }
