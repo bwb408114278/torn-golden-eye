@@ -91,9 +91,9 @@ class PcRacePersistServiceTest {
     }
 
     @Test
-    @DisplayName("联盟判定与昵称帮派均取抓取时刻快照")
+    @DisplayName("家族判定与昵称帮派均取抓取时刻快照")
     void save_shouldSnapshotAllianceFields() {
-        TornUserDO allianceUser = user(1L, "联盟选手", ALLIANCE_FACTION_ID);
+        TornUserDO allianceUser = user(1L, "家族选手", ALLIANCE_FACTION_ID);
         TornUserDO outsider = user(2L, "外部选手", 999L);
         when(userDao.queryUserMap(any())).thenReturn(Map.of(1L, allianceUser, 2L, outsider));
         when(factionManager.getIdMap()).thenReturn(Map.of(ALLIANCE_FACTION_ID, new TornSettingFactionDO()));
@@ -104,7 +104,7 @@ class PcRacePersistServiceTest {
         assertEquals(3, participantList.size());
         TornRacingParticipantDO alliance = participantList.get(0);
         assertTrue(alliance.getIsAlliance());
-        assertEquals("联盟选手", alliance.getNickname());
+        assertEquals("家族选手", alliance.getNickname());
         assertEquals(ALLIANCE_FACTION_ID, alliance.getFactionId());
         TornRacingParticipantDO local = participantList.get(1);
         assertFalse(local.getIsAlliance());

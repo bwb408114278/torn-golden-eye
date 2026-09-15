@@ -54,6 +54,24 @@ class PcRaceDrawCalculatorTest {
         assertNull(drawCalculator.draw(RACE_ID, null));
     }
 
+    @Test
+    @DisplayName("新人奖同一赛事重复抽取结果恒定")
+    void drawNewcomer_shouldReturnSameWinnerForSameRace() {
+        List<PcRaceParticipantVO> pool = pool(1L, 2L, 3L, 4L, 5L);
+
+        PcRaceParticipantVO first = drawCalculator.drawNewcomer(RACE_ID, pool);
+        PcRaceParticipantVO second = new PcRaceDrawCalculator().drawNewcomer(RACE_ID, pool);
+
+        assertEquals(first.userId(), second.userId());
+    }
+
+    @Test
+    @DisplayName("新人奖池为空时返回null")
+    void drawNewcomer_shouldReturnNullForEmptyPool() {
+        assertNull(drawCalculator.drawNewcomer(RACE_ID, List.of()));
+        assertNull(drawCalculator.drawNewcomer(RACE_ID, null));
+    }
+
     private List<PcRaceParticipantVO> pool(long... userIds) {
         List<PcRaceParticipantVO> pool = new ArrayList<>(userIds.length);
         for (long userId : userIds) {

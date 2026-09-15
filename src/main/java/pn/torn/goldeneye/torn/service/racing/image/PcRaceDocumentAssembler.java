@@ -184,7 +184,7 @@ public class PcRaceDocumentAssembler {
     }
 
     /**
-     * 构建页脚，展示抓取时间与联盟参赛人数。
+     * 构建页脚，展示抓取时间与家族参赛人数。
      *
      * @param result 榜单结果
      * @return 页脚文本
@@ -192,6 +192,6 @@ public class PcRaceDocumentAssembler {
     private String buildFooter(PcRaceResultBO result) {
         String capturedTimeText = result.capturedTime() == null
                 ? EMPTY_PLACEHOLDER : DateTimeUtils.convertToString(result.capturedTime());
-        return "抓取时间：" + capturedTimeText + FOOTER_SEPARATOR + "联盟参赛人数：" + result.allianceCount();
+        return "抓取时间：" + capturedTimeText + FOOTER_SEPARATOR + "家族参赛人数：" + result.allianceCount();
     }
 }

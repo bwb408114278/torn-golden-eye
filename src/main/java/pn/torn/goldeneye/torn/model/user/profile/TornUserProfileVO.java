@@ -11,7 +11,7 @@ import pn.torn.goldeneye.utils.DateTimeUtils;
  * Torn用户详情响应参数
  *
  * @author Bai
- * @version 1.2.3
+ * @version 1.6.3
  * @since 2025.10.09
  */
 @Data
@@ -27,6 +27,7 @@ public class TornUserProfileVO {
     /**
      * 注册日期
      */
+    @JsonProperty("signed_up")
     private Long signedUp;
     /**
      * 所在帮派

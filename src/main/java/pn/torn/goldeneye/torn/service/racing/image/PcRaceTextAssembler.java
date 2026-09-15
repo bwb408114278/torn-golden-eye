@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 public class PcRaceTextAssembler {
     private static final DateTimeFormatter MONTH_DAY_FORMATTER = DateTimeFormatter.ofPattern("MM-dd");
     private static final String NO_DATA_TEXT = "无";
+    private static final String NO_NEWCOMER_TEXT = "今天没有新人参赛";
     private static final String EMPTY_PLACEHOLDER = "—";
     private static final String ITEM_SEPARATOR = "、";
     private static final String UNFINISHED_SUFFIX = " (未完赛)";
@@ -37,7 +38,7 @@ public class PcRaceTextAssembler {
      * 组装榜单汇总文本。
      *
      * @param result 榜单结果
-     * @return 含最快圈、参赛率、Crash名单与抽奖结果的文本
+     * @return 含最快圈、参赛率、Crash名单、抽奖与新人奖结果的文本
      */
     public String assembleSummary(PcRaceResultBO result) {
         return buildTitle(result)
@@ -45,7 +46,8 @@ public class PcRaceTextAssembler {
                 + "\n参赛率：" + result.allianceCount() + "/" + result.totalCount()
                 + " = " + result.allianceRate().toPlainString() + "%"
                 + "\n💥 Crash：" + formatCrashedList(result.crashedList())
-                + "\n🎲 抽奖：" + formatParticipant(result.drawWinner());
+                + "\n🎲 抽奖：" + formatParticipant(result.drawWinner())
+                + "\n🎁 新人奖：" + formatNewcomer(result.newcomerWinner());
     }
 
     /**
@@ -127,6 +129,16 @@ public class PcRaceTextAssembler {
         }
 
         return crashedList.stream().map(this::formatParticipant).collect(Collectors.joining(ITEM_SEPARATOR));
+    }
+
+    /**
+     * 组装新人奖文本，新人池为空时输出固定文案。
+     *
+     * @param newcomerWinner 新人奖中奖选手
+     * @return 新人奖文本；池为空时输出“今天没有新人参赛”
+     */
+    private String formatNewcomer(PcRaceParticipantVO newcomerWinner) {
+        return newcomerWinner == null ? NO_NEWCOMER_TEXT : formatParticipant(newcomerWinner);
     }
 
     /**

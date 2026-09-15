@@ -37,6 +37,14 @@ public class RacingConstants {
      */
     public static final String DRAW_SEED_SUFFIX = "Ciallo";
     /**
+     * 新人奖种子后缀，与赛事ID拼接后作为固定随机种子（与普通抽奖相互独立）
+     */
+    public static final String NEWCOMER_DRAW_SEED_SUFFIX = "CialloNew";
+    /**
+     * 新人奖的注册时长阈值（天）：注册时间晚于开赛时间减该天数者具备资格
+     */
+    public static final int NEWCOMER_DAYS = 120;
+    /**
      * 每日抓取动态任务ID，执行完毕后自续期
      */
     public static final String CAPTURE_TASK_ID = "pc-race-capture";

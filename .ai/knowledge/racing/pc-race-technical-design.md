@@ -10,6 +10,7 @@
 - 最后更新：2026.09.15
 - 维护人：Bai
 - 状态：已确认待开发（列头与消息文案可后续微调）
+- 增量记录：2026.09.15 新增「新人奖」并修复/补齐 `torn_user.register_time`（见 2.2、6.8）；表格与文案术语由「联盟」统一改为「家族」
 
 ---
 
@@ -40,7 +41,7 @@
 | 赛事名称 | `SMTHPC`（匹配不区分大小写） |
 | 开赛时间 | 每天北京时间 00:30 |
 | 赛事时长 | 约 5 小时（约 05:30 结束） |
-| 抓取时间 | 每天北京时间 **08:30**（晚于 08:10 的联盟成员刷新，且赛事已结束） |
+| 抓取时间 | 每天北京时间 **08:30**（晚于 08:10 的家族成员刷新，且赛事已结束） |
 | 业务日期 | `business_date` = 赛事 `start_time` 对应的 **Torn 日** = `startTime.minusHours(8).toLocalDate()` |
 | 默认查询 | `PC结果` 无参数 = `当前Torn日 - 1`（固定日期；该日未抓取时返回未抓取提示，**不回退**更早的已抓取日期） |
 
@@ -50,20 +51,23 @@
 
 | 规则 | 契约 |
 |---|---|
-| 落库范围 | 该场赛事的**全部参赛选手**，不只是联盟选手 |
+| 落库范围 | 该场赛事的**全部参赛选手**，不只是家族选手 |
 | 查询范围 | 仅 `is_alliance = true` 的选手 |
-| 联盟判定 | 抓取时刻 `torn_user.faction_id ∈ torn_setting_faction.id` 全集（当前 10 个帮派，**禁止硬编码帮派ID或名称**） |
+| 家族判定 | 抓取时刻 `torn_user.faction_id ∈ torn_setting_faction.id` 全集（当前 10 个帮派，**禁止硬编码帮派ID或名称**） |
 | 归属快照 | `nickname` / `faction_id` / `is_alliance` 存**抓取时的快照**，不随用户后续换帮派变化 |
-| 榜单 | `is_alliance = true` **全员入图（含撞车）**：未撞车选手按 API 原始 `position` 升序展示；SMTH 名次 = 联盟未撞车选手内按 `position` 排序的序号（1..N）；撞车行置底，名次列显示"—"；两列名次均为 API 原始口径，不重排 |
+| 榜单 | `is_alliance = true` **全员入图（含撞车）**：未撞车选手按 API 原始 `position` 升序展示；SMTH 名次 = 家族未撞车选手内按 `position` 排序的序号（1..N）；撞车行置底，名次列显示"—"；两列名次均为 API 原始口径，不重排 |
 | 最快圈 | `is_alliance = true`、未撞车且 `best_lap_time` 非空，取最小者 |
-| 参赛率 | 联盟参赛人数 ÷ 总参赛人数 × 100，保留两位小数；**分子分母均含撞车选手** |
+| 参赛率 | 家族参赛人数 ÷ 总参赛人数 × 100，保留两位小数；**分子分母均含撞车选手** |
 | Crash 名单 | `is_alliance = true` 且 `has_crashed = true`；`position` 为空者显示「昵称(未完赛)」 |
-| 抽奖 | 池 = **全部**未撞车的联盟选手（与图片展示行一致，按名次升序，顺序稳定）；种子 = `raceId + "Ciallo"`；抽 **1** 人；同一 raceId 结果恒定 |
+| 抽奖 | 池 = **全部**未撞车的家族选手（与图片展示行一致，按名次升序，顺序稳定）；种子 = `raceId + "Ciallo"`；抽 **1** 人；同一 raceId 结果恒定 |
+| 新人奖 | 池 = **全部家族选手（含撞车）**中 `torn_user.register_time` 晚于「开赛时间 − NEWCOMER_DAYS(120) 天」者，按榜单顺序稳定排列；种子 = `raceId + "CialloNew"`；抽 **1** 人；`register_time` 为空者不具备资格；与普通抽奖使用不同盐、相互独立，**允许同一人重复中奖**；同一 raceId 结果恒定 |
+| 注册时间基准 | 新人判定基准取**该场赛事开赛时间**（非查询时刻）；`register_time` 为账号不可变属性，故同一赛事结果可在任何时间复现 |
+| 注册时间来源 | 实时读取 `torn_user.register_time`，**不落快照**到 `torn_racing_participant`；缺失时新人池不含该选手 |
 
 展示分工（用户明确要求）：
 
-- **图片表格**：联盟全员榜单（8 列，见 6.5.6）。
-- **文本消息**：最快圈、参赛率、Crash 名单、抽奖结果。
+- **图片表格**：家族全员榜单（8 列，见 6.5.6）。
+- **文本消息**：最快圈、参赛率、Crash 名单、抽奖结果、新人奖结果（新人奖**只出现在文本**，不进图片）。
 
 ### 2.3 指令契约
 
@@ -105,7 +109,7 @@
 | 现有主题是**单一硬编码 CSS** | `HtmlTableMarkupRenderer` 构造期一次性加载 `/table-image/oc-table.css`；`documentType` 目前仅透传给浏览器层，Markup 层不消费 |
 | `styleClass()` 穷尽 switch 位于 `HtmlTableMarkupRenderer`（非枚举内） | 新增 `TableCellStyleEnum` 常量若不补 case 会编译失败，用于防止遗漏 |
 | OC 已有迁移样板 | `OcTableDocumentAssembler`（只产语义文档）→ `TornFactionOcMsgManager`（注入 `TableImageRenderer`） |
-| 联盟成员数据现成 | `torn_setting_faction` 共 10 行；`torn_user.faction_id` 每帮约 90–100 人（联盟用户共约 967 人），由 `TornFactionDataService` 每天 08:10 刷新 |
+| 家族成员数据现成 | `torn_setting_faction` 共 10 行；`torn_user.faction_id` 每帮约 90–100 人（家族用户共约 967 人），由 `TornFactionDataService` 每天 08:10 刷新 |
 | 可用 Key 池充足 | `torn_api_key` 有效 405 条；PN/CCRC 共 153 条 |
 | 赛事列表接口已有模型 | `TornUserRaceDTO`（`/user/races`，`limit=1` 与 `sort=DESC` 硬编码于 `buildReqParam`，当前无活跃调用方——`RacingNoticeChecker` 整类注释）、`TornUserRacesVO`、`TornRaceDetailVO`、`TornRaceScheduleVO` |
 | **列表接口自带全量成绩** | 真实报文验证：`/v2/user/races?limit=20&cat=custom` 的列表项含完整 `results`（74 条全字段），支持 `cat` / `sort` / `limit` 参数；**无需详情接口** |
@@ -134,8 +138,25 @@ PcRacePersistService  @Transactional 纯插入落库
         ↓
 （查询侧，无抓取）
 PC结果 ──→ PcRaceQueryService ──→ PcRaceDocumentAssembler ──→ TableImageRenderer ──→ 图片
-                              └──→ PcRaceTextAssembler ──────────────────────────→ 文本
+                              ├──→ PcRaceTextAssembler ──────────────────────────→ 文本
+                              └──→ TornUserDAO（批量取 register_time，构建新人奖池）
 PC成绩 ──→ PcRaceQueryService ──→ PcRaceTextAssembler ──────────────────────────→ 文本
+```
+
+注册时间补齐链路（与抓取链路并行，见 6.8）：
+
+```text
+08:10 家族成员抓取 TornFactionDataService.spiderFactionMember
+        ↓
+TornFactionMemberManager.updateFactionMember（成员落库）
+        ↓
+TornUserService.backfillRegisterTime（只取 register_time IS NULL 的成员）
+        ↓
+/user/{id}/profile ──→ 回写 torn_user.register_time     # 长期入口
+
+RegisterTimeBootstrapBackfill（启动一次性，临时组件，补齐后删除）
+        ↓（在族且 register_time IS NULL 的全体用户）
+TornUserService.backfillRegisterTime
 ```
 
 ### 4.2 优先级候选链（核心设计）
@@ -217,9 +238,9 @@ TableDocument.documentType  ──→  TableThemeEnum.of(type)  ──→  List<
 | id | BIGINT | PK | 主键ID |
 | race_id | BIGINT | NOT NULL | Torn 赛事ID |
 | user_id | BIGINT | NOT NULL | 选手 Torn 用户ID |
-| nickname | VARCHAR(64) | NULL | 抓取时昵称快照（本地无记录的非联盟选手为空） |
+| nickname | VARCHAR(64) | NULL | 抓取时昵称快照（本地无记录的非家族选手为空） |
 | faction_id | BIGINT | NULL | 抓取时帮派ID快照 |
-| is_alliance | BOOLEAN | NOT NULL | 抓取时是否为联盟选手 |
+| is_alliance | BOOLEAN | NOT NULL | 抓取时是否为家族选手 |
 | position | INT | NULL | 赛事名次（API 原始值） |
 | race_time | NUMERIC(10,2) | NULL | 完赛用时（秒），撞车为空 |
 | best_lap_time | NUMERIC(10,2) | NULL | 最快圈用时（秒） |
@@ -330,6 +351,8 @@ public enum TableThemeEnum {
 | `RACE_CATEGORY_CUSTOM` | `"custom"` | `/user/races` 的 `cat` 参数值（自定义赛，排除官方赛） |
 | `CREATOR_USER_ID` | `2554043L` | 常任创建人（P1 候选） |
 | `DRAW_SEED_SUFFIX` | `"Ciallo"` | 抽奖种子后缀 |
+| `NEWCOMER_DRAW_SEED_SUFFIX` | `"CialloNew"` | 新人奖种子后缀（与 `DRAW_SEED_SUFFIX` 不同，两次抽取相互独立） |
+| `NEWCOMER_DAYS` | `120` | 新人奖注册时长阈值（天）：注册时间晚于「开赛时间 − 该天数」者具备资格 |
 | `CAPTURE_TASK_ID` | `"pc-race-capture"` | 动态任务ID（自续期用） |
 | `SCORE_HISTORY_LIMIT` | `10` | `PC成绩` 展示场次 |
 | `DISCOVERY_PAGE_SIZE` | `50` | 定位时 `/user/races` 拉取条数（接口上限 100；cat=custom 过滤后 50 场冗余充分） |
@@ -351,7 +374,7 @@ public static final String PC_RACE_SCORE = "PC成绩";
 
 #### 6.2.3 修改 `constants/InitOrderConstants.java`
 
-追加 `public static final int TORN_PC_RACE = 10010;`（晚于 `TORN_FACTION_DATA = 10003`，确保启动补抓时联盟成员数据已就绪；以**类级 `@Order`** 注解生效，见 6.5.2）。
+追加 `public static final int TORN_PC_RACE = 10010;`（晚于 `TORN_FACTION_DATA = 10003`，确保启动补抓时家族成员数据已就绪；以**类级 `@Order`** 注解生效，见 6.5.2）。
 
 #### 6.2.4 修改 `utils/DateTimeUtils.java`
 
@@ -472,18 +495,18 @@ public void save(TornRaceDetailVO race, LocalDate businessDate)
 public PcRaceResultBO buildResultByBusinessDate(LocalDate businessDate)
 /** 按赛事ID构建榜单结果；无赛事时返回 null。 */
 public PcRaceResultBO buildResultByRaceId(long raceId)
-/** 构建指定用户的近 SCORE_HISTORY_LIMIT 场联盟赛事成绩。 */
+/** 构建指定用户的近 SCORE_HISTORY_LIMIT 场家族赛事成绩。 */
 public PcRaceScoreBO buildScore(long userId)
 ```
 
 规则：
 
 - 三个方法共用私有 `buildResult(TornRacingRaceDO race)`，**禁止重复榜单口径**。
-- 一次取回该场全部明细，在内存完成：全员榜单（含撞车）、SMTH 名次（联盟未撞车选手按 `position` 升序的序号 1..N，撞车为 null）、最快圈、Crash 名单、参赛率、抽奖池。
+- 一次取回该场全部明细，在内存完成：全员榜单（含撞车）、SMTH 名次（家族未撞车选手按 `position` 升序的序号 1..N，撞车为 null）、最快圈、Crash 名单、参赛率、抽奖池。
 - 展示文本在此处一次性生成（`raceTimeText` = `HH:mm:ss.SS`，`bestLapTimeText` = `mm:ss.SS`，null → null），避免两个展示类各自实现格式化。
 - `factionShortName` 由 `TornSettingFactionManager.getIdMap()` 查快照 `faction_id` 得到（命中缓存，无额外查询）。
 - 抽奖委托 `PcRaceDrawCalculator`。
-- `buildScore`：按 `user_id + is_alliance = true` 取最近 `SCORE_HISTORY_LIMIT` 条明细（`orderByDesc(raceId)`），再一次 `in(raceId)` 取主行与当轮全部联盟明细（回算每场 SMTH 名次），按 `startTime` 降序组装。
+- `buildScore`：按 `user_id + is_alliance = true` 取最近 `SCORE_HISTORY_LIMIT` 条明细（`orderByDesc(raceId)`），再一次 `in(raceId)` 取主行与当轮全部家族明细（回算每场 SMTH 名次），按 `startTime` 降序组装。
 
 #### 6.5.5 `torn/service/racing/query/PcRaceDrawCalculator.java`
 
@@ -492,14 +515,18 @@ public PcRaceScoreBO buildScore(long userId)
  * 在未撞车选手中按 raceId 与固定盐做确定性抽取。
  *
  * @param raceId 赛事ID
- * @param pool 未撞车的全部联盟选手（调用方保证顺序稳定）
+ * @param pool 未撞车的全部家族选手（调用方保证顺序稳定）
  * @return 中奖选手；池为空时返回 null
  */
 public PcRaceParticipantVO draw(long raceId, List<PcRaceParticipantVO> pool)
+/** 在具备新人奖资格的家族选手中按 raceId 与新人奖固定盐做确定性抽取。 */
+public PcRaceParticipantVO drawNewcomer(long raceId, List<PcRaceParticipantVO> pool)
 ```
 
-实现：`new Random((raceId + RacingConstants.DRAW_SEED_SUFFIX).hashCode()).nextInt(pool.size())`。
+实现：两个公开入口委托同一个私有 `draw(raceId, seedSuffix, pool)`，仅盐不同：
+`new Random((raceId + seedSuffix).hashCode()).nextInt(pool.size())`。
 `String.hashCode()` 由 JLS 规定，跨 JVM 稳定，保证"任何人任何时候重算结果一致"。
+普通抽奖使用 `DRAW_SEED_SUFFIX`，新人奖使用 `NEWCOMER_DRAW_SEED_SUFFIX`；池为空时返回 `null`。
 
 #### 6.5.6 `torn/service/racing/image/PcRaceDocumentAssembler.java`
 
@@ -513,7 +540,7 @@ public TableDocument assemble(PcRaceResultBO result)
 
 | 序 | 内容 | 列头提案 | 说明 |
 |---|---|---|---|
-| 1 | SMTH名次 | `SMTH名次` | 联盟未撞车内序号；撞车行显示"—" |
+| 1 | SMTH名次 | `SMTH名次` | 家族未撞车内序号；撞车行显示"—" |
 | 2 | 选手ID | `选手ID` | Torn userId |
 | 3 | 选手昵称 | `昵称` | 抓取时昵称快照 |
 | 4 | 帮派简称 | `帮派` | `factionShortName` |
@@ -522,14 +549,14 @@ public TableDocument assemble(PcRaceResultBO result)
 | 7 | 是否撞车 | `状态` | 撞车行显示"撞车"，其余留空 |
 | 8 | 全场名次 | `全场名次` | API 原始 `position`；缺失显示"—" |
 
-- 行结构：标题行（`TITLE`，colspan=8）→ 表头行（`HEADER`×8）→ 榜单行（未撞车按 SMTH 名次序，**前三整行** `RANK_FIRST`/`RANK_SECOND`/`RANK_THIRD`，其余 `BODY`；**撞车行置底**）→ 页脚行（`FOOTER`，colspan=8，展示抓取时间与联盟参赛人数）。
+- 行结构：标题行（`TITLE`，colspan=8）→ 表头行（`HEADER`×8）→ 榜单行（未撞车按 SMTH 名次序，**前三整行** `RANK_FIRST`/`RANK_SECOND`/`RANK_THIRD`，其余 `BODY`；**撞车行置底**）→ 页脚行（`FOOTER`，colspan=8，展示抓取时间与家族参赛人数）。
 - **图内不使用 emoji**（容器字体无 emoji 字形，会渲染成方块），撞车标记一律用文字。
 - 榜单为空时输出一行"暂无成绩记录"，不得抛异常。
 
 #### 6.5.7 `torn/service/racing/image/PcRaceTextAssembler.java`
 
 ```java
-/** 组装榜单汇总文本（最快圈 / 参赛率 / Crash / 抽奖）。 */
+/** 组装榜单汇总文本（最快圈 / 参赛率 / Crash / 抽奖 / 新人奖）。 */
 public String assembleSummary(PcRaceResultBO result)
 /** 组装个人成绩文本。 */
 public String assembleScore(PcRaceScoreBO score)
@@ -543,7 +570,10 @@ public String assembleScore(PcRaceScoreBO score)
 参赛率：45/62 = 72.58%
 💥 Crash：Bar(第12名)、Baz(未完赛)
 🎲 抽奖：Qux(第7名)
+🎁 新人奖：New(第12名)
 ```
+
+新人池为空时固定输出 `🎁 新人奖：今天没有新人参赛`（不输出 `无`）。
 
 ```text
 🏎 PC成绩 Foo(近10场)
@@ -567,7 +597,7 @@ public String assembleScore(PcRaceScoreBO score)
  * @param userId 选手Torn用户ID
  * @param nickname 抓取时昵称快照
  * @param factionShortName 帮派简称
- * @param smthRank SMTH内部名次（联盟未撞车内序号）；撞车为null
+ * @param smthRank SMTH内部名次（家族未撞车内序号）；撞车为null
  * @param position 赛事名次（API原始值）
  * @param raceTimeText 完赛用时文本，撞车或缺失为null
  * @param bestLapTimeText 最快圈文本，缺失为null
@@ -580,7 +610,7 @@ public record PcRaceParticipantVO(long userId, String nickname, String factionSh
 
 #### 6.6.2 `PcRaceResultBO`
 
-字段：`raceId`、`businessDate`、`startTime`、`capturedTime`、`participants`（**全员**，含撞车）、`fastestLap`、`crashedList`、`allianceCount`、`totalCount`、`allianceRate`（`BigDecimal`）、`drawWinner`。
+字段：`raceId`、`businessDate`、`startTime`、`capturedTime`、`participants`（**全员**，含撞车）、`fastestLap`、`crashedList`、`allianceCount`、`totalCount`、`allianceRate`（`BigDecimal`）、`drawWinner`、`newcomerWinner`（新人奖中奖选手；新人池为空时为 `null`）。
 
 为**扁平展示模型**，不得承载 DO，也不得被直接写入数据库。
 
@@ -623,6 +653,52 @@ public record PcRaceScoreBO(long userId, String nickname, List<Item> items) {
 - 目标用户复用基类 `getTornUser(sender, msg)`（支持 `@` / 数字ID / 默认本人），**禁止自行实现用户解析**。
 - 无记录返回"暂无赛车成绩记录"。
 
+### 6.8 注册时间修复与补齐（本次增量）
+
+`torn_user.register_time` 长期为空，导致新人奖无法判定。根因与补齐口径如下。
+
+#### 6.8.1 根因：`signed_up` 缺少 `@JsonProperty`
+
+`TornUserProfileVO.signedUp` 缺少 `@JsonProperty("signed_up")`，而 `JsonUtils` 的 `ObjectMapper` 为默认 camelCase 命名策略（`FAIL_ON_UNKNOWN_PROPERTIES=false`），Torn 返回的 `signed_up` 被静默丢弃，`registerTime` 恒为 null。
+
+- 同文件 `factionId`（`faction_id`）、`lastAction`（`last_action`）与 `TornUserStatusVO.planeImageType`（`plane_image_type`）均显式标注；项目约定即「每个多词 snake_case 字段必须显式 `@JsonProperty`」。
+- 证据：2026-06-18 引入该字段后绑定 Key 的 104 个用户 `register_time` 全部为空；`torn_user` 1256 行中仅 4 行为 2025-08-04 首批导入自带数据。
+- 口径确认：Torn v2 的 `signed_up` 属 `profile` 选择集（`UserProfileResponse.profile.signed_up`，秒级时间戳），basic 选择集不含该字段。
+
+#### 6.8.2 修改清单
+
+| 文件 | 动作 |
+|---|---|
+| `torn/model/user/profile/TornUserProfileVO.java` | `signedUp` 补 `@JsonProperty("signed_up")` |
+| `repository/dao/user/TornUserDAO.java` | 新增 `queryIdListWithoutRegisterTime(Collection<Long>)` 与 `updateRegisterTimeIfAbsent(long, LocalDateTime)` |
+| `torn/service/user/TornUserService.java` | 新增 `backfillRegisterTime(Collection<Long>)`：只对缺失用户调 `/user/{id}/profile` 并回写；单用户失败只记 warn，不阻断其余用户 |
+| `torn/service/data/TornFactionDataService.java` | `spiderFactionMember` 成员落库后对该帮派成员调用补齐（**长期补齐入口**） |
+| `torn/service/data/RegisterTimeBootstrapBackfill.java` | **新增临时组件**：启动时对「在族且注册时间为空」的用户做一次性补齐 |
+| `constants/InitOrderConstants.java` | 新增 `TORN_USER_REGISTER_BACKFILL = 10010`，并将 `TORN_PC_RACE` 调整为 `10011`（补齐必须早于赛事补抓，见 6.8.4） |
+
+#### 6.8.3 补齐范围与口径
+
+- 只补**在族成员**：每日抓取按该帮派成员名单补齐；启动一次性补齐只取 `faction_id <> 0` 且 `register_time IS NULL` 的用户。
+- **离族成员不补齐**（用户已确认）：`is_alliance` 为抓取时快照，赛后离族者其当场新人奖将无法判定，列为已知限制。
+- 条件回写：`updateRegisterTimeIfAbsent` 带 `register_time IS NULL` 条件，避免覆盖并发写入。
+- **不落快照**：新人判定在查询时实时读取 `torn_user.register_time`，不新增 `torn_racing_participant` 列（用户已确认）。
+- 调用量与限速：`/user/{id}/profile` 仅需 public 权限；`TornApiKeyConfig.getEnableKey()` 按 `use_count` 选最空闲 Key，约 965 次请求均摊至 400+ Key，单 Key 每分钟远低于 100 次上限。
+- **不改已应用的 Liquibase changelog**（`racing.yaml` 的 `remarks` 保留原措辞，避免 checksum 校验失败）。
+
+#### 6.8.4 临时组件生命周期（必须执行）
+
+`RegisterTimeBootstrapBackfill` 与 `InitOrderConstants.TORN_USER_REGISTER_BACKFILL` 是**临时组件**：
+
+1. 仅在首次部署（1.6.3 上线）补齐历史缺失数据；
+2. 生产确认在族成员 `register_time` 已补齐后，**必须删除该组件与对应 `InitOrderConstants` 常量**；
+3. 删除后日常补齐仍由 6.8.2 的每日成员抓取入口承担，能力不缺失。
+
+**启动顺序约束（P1）**：`TORN_USER_REGISTER_BACKFILL(10010)` 必须早于 `TORN_PC_RACE(10011)`。
+
+- 理由：奖项在**查询时**计算（抓取不落任何中奖结果），而新人池依赖实时的 `torn_user.register_time`。`ApplicationReadyEvent` 由 `SimpleApplicationEventMulticaster` **同步按 `@Order` 串行派发**（未配置 taskExecutor），因此若先补抓赛事、后补注册时间，两步之间的 `PC结果` 查询会输出「今天没有新人参赛」，补齐后同一场再查又变正确，造成同一战报前后不一致。
+- 10002–10009 已被占用，无法在 `TORN_FACTION_DATA` 之前插入，故采用与 `TORN_PC_RACE` 对调的方式。
+- 生产日常路径无此问题：08:10 成员抓取（内含补齐）早于 08:30 赛事抓取。
+
 ---
 
 ## 7. 关键算法
@@ -656,10 +732,19 @@ return null
 ### 7.3 抽奖
 
 ```text
-pool   = 全部未撞车联盟选手（按名次升序）   # 与图片展示行一致；顺序稳定，禁止使用无序集合
+# 普通抽奖
+pool   = 全部未撞车家族选手（按名次升序）   # 与图片展示行一致；顺序稳定，禁止使用无序集合
 seed   = (raceId + "Ciallo").hashCode()
 winner = pool[new Random(seed).nextInt(pool.size())]
+
+# 新人奖
+threshold = raceStartTime - NEWCOMER_DAYS(120) 天
+pool      = 全部家族选手（含撞车，按榜单顺序）中 register_time > threshold 者
+seed      = (raceId + "CialloNew").hashCode()
+winner    = pool[new Random(seed).nextInt(pool.size())]   # 池为空返回 null
 ```
+
+两次抽取使用**不同盐**，互不影响，且都只依赖「赛事ID + 池顺序」，满足可复现要求。
 
 ---
 
@@ -671,13 +756,20 @@ winner = pool[new Random(seed).nextInt(pool.size())]
 |---|---|
 | `PcRaceDiscoveryServiceTest` | 候选链顺序与截断；命中即停（返回完整 VO）；全部未命中返回 null；单候选异常不中断；**每个候选的 Key 必被归还（含命中与异常路径）**；请求参数含 cat=custom |
 | `PcRaceCaptureServiceTest` | 已有主行跳过；`status != finished` 不落库；正常路径调用一次落库；非 prod 不抓取；失败后仍自续期次日 |
-| `PcRacePersistServiceTest` | 联盟判定与快照；撞车/用时映射；纯插入（无删除调用） |
-| `PcRaceQueryServiceTest` | SMTH 名次口径（联盟未撞车内序）；全员榜单（含撞车置底）；最快圈（排除空圈速）；参赛率（含撞车）；抽奖接入 |
-| `PcRaceDrawCalculatorTest` | 同种子结果稳定；池顺序影响结果；空池返回 null |
+| `PcRacePersistServiceTest` | 家族判定与快照；撞车/用时映射；纯插入（无删除调用） |
+| `PcRaceQueryServiceTest` | SMTH 名次口径（家族未撞车内序）；全员榜单（含撞车置底）；最快圈（排除空圈速）；参赛率（含撞车）；抽奖接入；**新人奖池含撞车且按阈值排除** |
+| `PcRaceDrawCalculatorTest` | 同种子结果稳定；池顺序影响结果；空池返回 null；**新人奖同赛事结果恒定** |
 | `PcRaceDocumentAssemblerTest` | 8 列行结构（标题/表头/榜单/页脚）；前三（按 SMTH 名次）样式；撞车行置底与"—"；空榜单分支 |
 | `PcRaceResultStrategyImplTest` + `PcRaceScoreStrategyImplTest` | 参数解析（默认/日期/raceId/非法含超 long）；消息组装；无数据分支 |
 
-（上表最后一行为 2 个测试类，总数为 8；除此之外不得再新增测试类。）
+（上表最后一行为 2 个测试类，总数为 8。）
+
+本次增量新增 2 个测试类（不属赛车功能，独立列出）：
+
+| 测试类 | 覆盖的**唯一**主证据 |
+|---|---|
+| `TornUserProfileVOTest` | 真实 `profile` 报文经 `JsonUtils` 解析后 `signed_up` → `registerTime` 映射成立（锁定 6.8.1 根因） |
+| `TornUserServiceTest` | 注册时间补齐：无缺失时不发请求；只为缺失用户请求并回写；单用户失败不阻断其余用户 |
 
 ### 8.2 修改测试（2 个）
 
@@ -695,7 +787,7 @@ winner = pool[new Random(seed).nextInt(pool.size())]
 
 ```text
 mvn -q -DskipTests compile
-mvn -q test -Dtest='PcRace*Test,HtmlTableMarkupRendererTest'
+mvn -q test -Dtest='PcRace*Test,HtmlTableMarkupRendererTest,TornUserServiceTest,TornUserProfileVOTest'
 TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererIntegrationTest
 ```
 
@@ -706,10 +798,14 @@ TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererInt
 1. 本地启动，确认 Chromium 正常（OC 指令出图不回归）。
 2. 手工触发 `capture(LocalDate)`（临时用测试触发），确认 `torn_racing_race` 与 `torn_racing_participant` 行数与赛事一致。
 3. 重复触发一次，确认幂等检查直接返回、**不产生重复行**。
-4. 群内执行 `PC结果`，确认：图片为联盟**全员 8 列**榜单、前三（按 SMTH 名次）高亮、撞车行置底；文本含最快圈/参赛率/Crash/抽奖。
+4. 群内执行 `PC结果`，确认：图片为家族**全员 8 列**榜单、前三（按 SMTH 名次）高亮、撞车行置底；文本含最快圈/参赛率/Crash/抽奖。
 5. 群内执行 `PC成绩`（无参、数字ID、`@某人`）三种形态。
 6. 断言抽奖：同一 raceId 重复执行结果一致。
 7. 断网/无 Key 场景下确认只有日志、无异常外溢、无部分写入。
+8. 确认在族成员注册时间已补齐：`torn_user` 中 `faction_id <> 0 AND register_time IS NULL` 为 0 行。
+9. 群内执行 `PC结果`，确认文本新增 `🎁 新人奖` 行；构造无符合条件选手的赛事确认输出「今天没有新人参赛」。
+10. 同一 raceId 重复执行，确认新人奖结果一致，且与普通抽奖互不影响。
+11. **补齐完成后删除临时组件** `RegisterTimeBootstrapBackfill` 与 `InitOrderConstants.TORN_USER_REGISTER_BACKFILL`（见 6.8.4）。
 
 ---
 
@@ -743,11 +839,18 @@ TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererInt
 功能：
 
 - [ ] `business_date` 按 Torn 日计算，默认查询为"当前 Torn 日 - 1"，未抓取不回退。
-- [ ] 落库为全部参赛选手，查询仅取联盟选手，`is_alliance`/`nickname`/`faction_id` 为快照。
+- [ ] 落库为全部参赛选手，查询仅取家族选手，`is_alliance`/`nickname`/`faction_id` 为快照。
 - [ ] `(race_id, user_id)` 唯一索引存在且生效；重复抓取不产生重复行；`save` 无删除语句（纯插入）。
-- [ ] SMTH 名次 = 联盟未撞车选手内按原始 `position` 的序号；撞车行置底、名次列"—"。
+- [ ] SMTH 名次 = 家族未撞车选手内按原始 `position` 的序号；撞车行置底、名次列"—"。
 - [ ] 图片为全员 8 列；前三按 SMTH 名次高亮；最快圈/参赛率/Crash/抽奖仅在文本；图内无 emoji。
-- [ ] 抽奖种子为 `raceId + "Ciallo"`，池为全部未撞车联盟选手，结果可复现。
+- [ ] 抽奖种子为 `raceId + "Ciallo"`，池为全部未撞车家族选手，结果可复现。
+- [ ] 新人奖池 = 全部家族选手中（**含撞车**）`register_time > 开赛时间 − NEWCOMER_DAYS` 者；基准取开赛时间而非查询时刻；`register_time` 为空者不入池。
+- [ ] 新人奖种子为 `raceId + "CialloNew"`，与普通抽奖独立，允许同一人重复中奖。
+- [ ] 新人奖只出现在文本汇总；新人池为空时固定输出「今天没有新人参赛」。
+- [ ] `signedUp` 已显式标注 `@JsonProperty("signed_up")`，并由 `TornUserProfileVOTest` 锁定。
+- [ ] 注册时间补齐只覆盖在族成员，回写带 `register_time IS NULL` 条件，单用户失败不阻断。
+- [ ] 临时启动补齐组件已按 6.8.4 在补齐完成后删除。
+- [ ] 表格与文案中 SMTH 的称呼统一为「家族」，表格页脚为「家族参赛人数：」。
 - [ ] 主题按 `documentType` 选择；未注册类型快速失败；CSS 拆分层叠等价（`.cell-footer` 迁移无冲突）。
 - [ ] 抓取失败只记日志，无重试、无推送、无部分写入；动态任务失败自续期次日。
 - [ ] 非 prod 环境不抓取（`init` 门禁）。
@@ -766,7 +869,11 @@ TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererInt
 - 不做赛事自动推送（用户已确认）。
 - 不实现"幸运抽奖 N 人"（参考脚本的第二种抽奖）；如后续需要，复用 `PcRaceDrawCalculator` 扩展参数。
 - 不实现赛前报名、赛事创建、赛程提醒。
-- 不做历史数据回填；**停机跨多日的缺口不回补**（用户已确认）。
+- 不做赛事的**历史数据回填**；**停机跨多日的缺口不回补**（用户已确认）。
+- 不为**离族成员**补齐注册时间（用户已确认）；由此导致的当场新人奖缺判列为已知限制。
+- 不把 `register_time` 快照进 `torn_racing_participant`，也不为此改表结构（用户已确认）。
+- 不修改**已应用**的 Liquibase changelog（`1.6.3/racing.yaml` 的 `remarks` 保留原措辞，避免 checksum 校验失败）。
+- 不为其他子系统批量改写「联盟 / 帮派」措辞，本次术语变更仅限 SMTHPC 赛车功能与其技术方案文档。
 - **不提供重抓/修数入口**：数据修正依靠手工 SQL（用户已确认）。
 - 列表 `results` 不完整时的详情接口回落为后续预案，本批不实现。
 - 不改造 OC 之外的既有表格渲染调用方；不删除 `TableImageUtils`。
@@ -781,9 +888,9 @@ TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererInt
 
 1. P1 常任创建人固定 `2554043`：真实报文证实其本人参赛（position 1），Key 不可用自动降级。
 2. 赛事名称匹配：忽略大小写精确匹配 `SMTHPC`（报文 `title` 字段一致）。
-3. `PC成绩`：近 10 场、仅联盟赛事（快照口径）；历史行含当场 SMTH 名次。
-4. 榜单展示联盟**全员**（含撞车），双名次列（SMTH 名次 + 全场名次）——取代早期"前 30 名"方案。
-5. 抽奖保留 1 人；池为全部未撞车联盟选手。
+3. `PC成绩`：近 10 场、仅家族赛事（快照口径）；历史行含当场 SMTH 名次。
+4. 榜单展示家族**全员**（含撞车），双名次列（SMTH 名次 + 全场名次）——取代早期"前 30 名"方案。
+5. 抽奖保留 1 人；池为全部未撞车家族选手。
 6. 表名 `torn_racing_race` / `torn_racing_participant` 可接受。
 7. 启动补偿保留（动态任务 `init` 补抓，仅 prod）。
 8. 抓取链路列表直取：`/user/races` 自带全量 `results`，不调详情接口。
@@ -792,6 +899,16 @@ TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererInt
 11. 定位请求参数：`cat=custom`、`sort=DESC`、`limit=50`（接口上限 100）。
 12. `TORN_DAY_OFFSET_HOURS` 为 `DateTimeUtils` 全局常量。
 13. 列头文案（6.5.6 提案）与消息文案（6.5.7 示例）可在实现期微调，不阻断开工。
+
+本次增量（2026.09.15 讨论定稿）：
+
+14. 新增「新人奖」：注册时间 < 120 天具备资格；池**含撞车选手**；与普通抽奖相互独立，**允许同一人重复中奖**。
+15. 新人判定基准取**该场赛事开赛时间**（非查询时刻），保证同一赛事结果可复现。
+16. 新人池为空时文本固定输出「今天没有新人参赛」。
+17. 注册时间补齐**只覆盖在族成员**，离族成员不补。
+18. 新人判定在查询时**实时读取 `torn_user`**，不落快照、不改表结构。
+19. 启动一次性补齐为**临时组件**，生产补齐完成后必须删除。
+20. 表格与文案中 SMTH 的称呼由「联盟」统一改为「家族」。
 
 ---
 

@@ -31,7 +31,7 @@ public class TornRacingParticipantDO extends BaseDO {
      */
     private Long userId;
     /**
-     * 抓取时昵称快照，本地无记录的非联盟选手为空
+     * 抓取时昵称快照，本地无记录的非家族选手为空
      */
     private String nickname;
     /**
@@ -39,7 +39,7 @@ public class TornRacingParticipantDO extends BaseDO {
      */
     private Long factionId;
     /**
-     * 抓取时是否为联盟选手
+     * 抓取时是否为家族选手
      */
     private Boolean isAlliance;
     /**

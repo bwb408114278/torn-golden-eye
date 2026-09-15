@@ -8,7 +8,7 @@ import java.util.List;
  *
  * @param userId   目标选手Torn用户ID
  * @param nickname 展示昵称
- * @param items    近若干场联盟赛事成绩，按开赛时间降序
+ * @param items    近若干场家族赛事成绩，按开赛时间降序
  * @author Bai
  * @version 1.6.3
  * @since 2026.09.15

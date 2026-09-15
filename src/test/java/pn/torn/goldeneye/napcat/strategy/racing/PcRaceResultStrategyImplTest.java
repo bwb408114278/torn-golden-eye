@@ -77,7 +77,8 @@ class PcRaceResultStrategyImplTest {
                 最快圈：Baby [2554043] (第47名) 02:41.32
                 参赛率：2/3 = 66.67%
                 💥 Crash：无
-                🎲 抽奖：Jubelie [2554044] (第71名)""", summary(messages));
+                🎲 抽奖：Jubelie [2554044] (第71名)
+                🎁 新人奖：Newbie [2554047] (第55名)""", summary(messages));
     }
 
     @Test
@@ -90,7 +91,7 @@ class PcRaceResultStrategyImplTest {
         PcRaceResultBO result = new PcRaceResultBO(RACE_ID, BUSINESS_DATE, null,
                 LocalDateTime.of(2026, 1, 5, 0, 30), LocalDateTime.of(2026, 1, 5, 8, 30), List.of(),
                 null, List.of(crashedWithPosition, crashedWithoutPosition), 0, 2,
-                new BigDecimal("0.00"), null);
+                new BigDecimal("0.00"), null, null);
         when(queryService.buildResultByBusinessDate(any(LocalDate.class))).thenReturn(result);
         stubRender(result);
 
@@ -100,6 +101,7 @@ class PcRaceResultStrategyImplTest {
         assertTrue(summary.contains("Crash：Bar [2554045] (第12名)、Baz [2554046] (未完赛)"));
         assertTrue(summary.contains("最快圈：无"));
         assertTrue(summary.contains("抽奖：无"));
+        assertTrue(summary.contains("新人奖：今天没有新人参赛"));
     }
 
     @Test
@@ -154,9 +156,10 @@ class PcRaceResultStrategyImplTest {
     private PcRaceResultBO result() {
         PcRaceParticipantVO fastestLap = participant(2554043L, "Baby", 47, "02:41.32");
         PcRaceParticipantVO drawWinner = participant(2554044L, "Jubelie", 71, null);
+        PcRaceParticipantVO newcomerWinner = participant(2554047L, "Newbie", 55, null);
         return new PcRaceResultBO(RACE_ID, BUSINESS_DATE, "Docks", LocalDateTime.of(2026, 1, 5, 0, 30),
                 LocalDateTime.of(2026, 1, 5, 8, 30), List.of(fastestLap, drawWinner), fastestLap, List.of(),
-                2, 3, new BigDecimal("66.67"), drawWinner);
+                2, 3, new BigDecimal("66.67"), drawWinner, newcomerWinner);
     }
 
     private PcRaceParticipantVO participant(long userId, String nickname, Integer position,

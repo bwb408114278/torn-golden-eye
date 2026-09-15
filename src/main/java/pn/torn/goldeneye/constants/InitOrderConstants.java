@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 初始化顺序常量
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.6.3
  * @since 2025.11.20
  */
 @NoArgsConstructor(access = AccessLevel.NONE)

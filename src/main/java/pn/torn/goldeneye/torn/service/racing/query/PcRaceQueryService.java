@@ -5,9 +5,11 @@ import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.RacingConstants;
 import pn.torn.goldeneye.repository.dao.racing.TornRacingParticipantDAO;
 import pn.torn.goldeneye.repository.dao.racing.TornRacingRaceDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.racing.TornRacingParticipantDO;
 import pn.torn.goldeneye.repository.model.racing.TornRacingRaceDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.racing.view.PcRaceParticipantVO;
 import pn.torn.goldeneye.torn.model.racing.view.PcRaceResultBO;
@@ -16,6 +18,7 @@ import pn.torn.goldeneye.torn.model.racing.view.PcRaceScoreBO;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -53,6 +56,7 @@ public class PcRaceQueryService {
 
     private final TornRacingRaceDAO raceDao;
     private final TornRacingParticipantDAO participantDao;
+    private final TornUserDAO userDao;
     private final TornSettingFactionManager factionManager;
     private final PcRaceDrawCalculator drawCalculator;
 
@@ -77,7 +81,7 @@ public class PcRaceQueryService {
     }
 
     /**
-     * 构建指定用户的近若干场联盟赛事成绩。
+     * 构建指定用户的近若干场家族赛事成绩。
      *
      * @param userId 目标选手Torn用户ID
      * @return 个人成绩；无记录时成绩条目为空列表
@@ -155,19 +159,58 @@ public class PcRaceQueryService {
             crashedVoList.add(crashed);
         }
 
+        List<PcRaceParticipantVO> drawPool = participants.stream()
+                .filter(participant -> !participant.crashed())
+                .toList();
         return new PcRaceResultBO(race.getRaceId(), race.getBusinessDate(), race.getTrackName(),
                 race.getStartTime(), race.getCapturedTime(), participants,
                 findFastestLap(uncrashedList, smthRankMap, factionMap),
                 crashedVoList, allianceList.size(), participantList.size(),
                 calcAllianceRate(allianceList.size(), participantList.size()),
-                drawCalculator.draw(race.getRaceId(),
-                        participants.stream().filter(participant -> !participant.crashed()).toList()));
+                drawCalculator.draw(race.getRaceId(), drawPool),
+                drawCalculator.drawNewcomer(race.getRaceId(),
+                        buildNewcomerPool(participants, race.getStartTime())));
     }
 
     /**
-     * 计算联盟未撞车选手按原始名次排序后的SMTH内部名次。
+     * 构建新人奖池：家族选手中注册时间晚于开赛时间减NEWCOMER_DAYS天者。
      *
-     * @param allianceList 该场联盟选手明细
+     * <p>基准取该场赛事的开赛时间而非查询时刻，且注册时间是账号不可变属性，
+     * 因此同一赛事的新人奖结果可被任何人在任何时候复现。注册时间为空者不具备资格。</p>
+     *
+     * @param participants 该场家族全员榜单（含撞车，顺序稳定）
+     * @param startTime    开赛时间（北京时间）
+     * @return 新人奖池；开赛时间缺失或选手列表为空时返回空列表
+     */
+    private List<PcRaceParticipantVO> buildNewcomerPool(List<PcRaceParticipantVO> participants,
+                                                        LocalDateTime startTime) {
+        if (startTime == null || participants.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, TornUserDO> userMap = userDao.queryUserMap(
+                participants.stream().map(PcRaceParticipantVO::userId).toList());
+        LocalDateTime threshold = startTime.minusDays(RacingConstants.NEWCOMER_DAYS);
+        return participants.stream()
+                .filter(participant -> isNewcomer(userMap.get(participant.userId()), threshold))
+                .toList();
+    }
+
+    /**
+     * 判断选手是否具备新人奖资格。
+     *
+     * @param user      选手的本地用户记录，本地无记录时为null
+     * @param threshold 新人阈值（开赛时间减NEWCOMER_DAYS天）
+     * @return true为具备资格
+     */
+    private boolean isNewcomer(TornUserDO user, LocalDateTime threshold) {
+        return user != null && user.getRegisterTime() != null && user.getRegisterTime().isAfter(threshold);
+    }
+
+    /**
+     * 计算家族未撞车选手按原始名次排序后的SMTH内部名次。
+     *
+     * @param allianceList 该场家族选手明细
      * @return Key为选手用户ID、Value为从1开始的SMTH名次
      */
     private Map<Long, Integer> buildSmthRankMap(List<TornRacingParticipantDO> allianceList) {
@@ -180,9 +223,9 @@ public class PcRaceQueryService {
     }
 
     /**
-     * 按原始名次升序排列联盟未撞车选手。
+     * 按原始名次升序排列家族未撞车选手。
      *
-     * @param allianceList 该场联盟选手明细
+     * @param allianceList 该场家族选手明细
      * @return 未撞车选手
      */
     private List<TornRacingParticipantDO> sortUncrashed(List<TornRacingParticipantDO> allianceList) {
@@ -193,9 +236,9 @@ public class PcRaceQueryService {
     }
 
     /**
-     * 按原始名次升序排列撞车的联盟选手，用于置底展示。
+     * 按原始名次升序排列撞车的家族选手，用于置底展示。
      *
-     * @param allianceList 该场联盟选手明细
+     * @param allianceList 该场家族选手明细
      * @return 撞车选手
      */
     private List<TornRacingParticipantDO> sortCrashed(List<TornRacingParticipantDO> allianceList) {
@@ -206,9 +249,9 @@ public class PcRaceQueryService {
     }
 
     /**
-     * 在联盟未撞车且圈速非空的选手中取最快圈。
+     * 在家族未撞车且圈速非空的选手中取最快圈。
      *
-     * @param uncrashedList 该场联盟未撞车选手
+     * @param uncrashedList 该场家族未撞车选手
      * @param smthRankMap   SMTH名次映射
      * @param factionMap    帮派设置映射
      * @return 最快圈选手；无有效圈速时返回null
@@ -246,9 +289,9 @@ public class PcRaceQueryService {
     }
 
     /**
-     * 计算联盟参赛率，分子分母均含撞车选手。
+     * 计算家族参赛率，分子分母均含撞车选手。
      *
-     * @param allianceCount 联盟参赛人数
+     * @param allianceCount 家族参赛人数
      * @param totalCount    全部参赛人数
      * @return 百分比，保留两位小数
      */

@@ -59,7 +59,7 @@ class PcRaceDocumentAssemblerTest {
         assertEquals(1, footerRow.cells().size());
         assertEquals(TableCellStyleEnum.FOOTER, footerRow.cells().getFirst().style());
         assertEquals(8, footerRow.cells().getFirst().colSpan());
-        assertTrue(footerRow.cells().getFirst().text().contains("联盟参赛人数：45"));
+        assertTrue(footerRow.cells().getFirst().text().contains("家族参赛人数：45"));
     }
 
     @Test
@@ -116,7 +116,7 @@ class PcRaceDocumentAssemblerTest {
     private PcRaceResultBO result(List<PcRaceParticipantVO> participantList) {
         return new PcRaceResultBO(RACE_ID, LocalDate.of(2026, 1, 4), "Docks", LocalDateTime.of(2026, 1, 5, 0, 30),
                 LocalDateTime.of(2026, 1, 5, 8, 30), participantList, null, List.of(), 45, 62,
-                new BigDecimal("72.58"), null);
+                new BigDecimal("72.58"), null, null);
     }
 
     private PcRaceParticipantVO participant(long userId, Integer smthRank, Integer position, String raceTimeText,

@@ -102,7 +102,7 @@ public class PcRacePersistService {
      * @param raceId             Torn赛事ID
      * @param result             单条成绩
      * @param userMap            参赛选手的本地用户映射
-     * @param allianceFactionIds 联盟帮派ID全集
+     * @param allianceFactionIds 家族帮派ID全集
      * @return 选手明细
      */
     private TornRacingParticipantDO buildParticipant(long raceId, TornRaceResultVO result,

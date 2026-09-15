@@ -10,9 +10,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.RacingConstants;
 import pn.torn.goldeneye.repository.dao.racing.TornRacingParticipantDAO;
 import pn.torn.goldeneye.repository.dao.racing.TornRacingRaceDAO;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.racing.TornRacingParticipantDO;
 import pn.torn.goldeneye.repository.model.racing.TornRacingRaceDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.racing.view.PcRaceParticipantVO;
 import pn.torn.goldeneye.torn.model.racing.view.PcRaceResultBO;
@@ -57,6 +59,8 @@ class PcRaceQueryServiceTest {
     @Mock
     private TornRacingParticipantDAO participantDao;
     @Mock
+    private TornUserDAO userDao;
+    @Mock
     private TornSettingFactionManager factionManager;
     @Mock
     private PcRaceDrawCalculator drawCalculator;
@@ -65,11 +69,11 @@ class PcRaceQueryServiceTest {
 
     @BeforeEach
     void setUp() {
-        queryService = new PcRaceQueryService(raceDao, participantDao, factionManager, drawCalculator);
+        queryService = new PcRaceQueryService(raceDao, participantDao, userDao, factionManager, drawCalculator);
     }
 
     @Test
-    @DisplayName("SMTH名次为联盟未撞车内按原始名次的序号，撞车行置底且名次为空")
+    @DisplayName("SMTH名次为家族未撞车内按原始名次的序号，撞车行置底且名次为空")
     void buildResultByRaceId_shouldRankAllianceUncrashedAndPushCrashedToBottom() {
         stubResult(List.of(
                 withLap(participant(RACE_ID, 1L, ALLIANCE_FACTION_ID, false, 2), "30.00", "31.00"),
@@ -97,7 +101,7 @@ class PcRaceQueryServiceTest {
     }
 
     @Test
-    @DisplayName("最快圈排除撞车与非联盟选手的圈速")
+    @DisplayName("最快圈排除撞车与非家族选手的圈速")
     void buildResultByRaceId_shouldPickFastestLapAmongUncrashedAlliance() {
         stubResult(List.of(
                 withLap(participant(RACE_ID, 1L, ALLIANCE_FACTION_ID, false, 1), "30.00", "26.45"),
@@ -128,7 +132,7 @@ class PcRaceQueryServiceTest {
     }
 
     @Test
-    @DisplayName("抽奖使用未撞车的联盟选手且保持展示顺序")
+    @DisplayName("抽奖使用未撞车的家族选手且保持展示顺序")
     void buildResultByRaceId_shouldDelegateDrawWithUncrashedAlliancePool() {
         stubResult(List.of(
                 withLap(participant(RACE_ID, 1L, ALLIANCE_FACTION_ID, false, 2), "30.00", "31.00"),
@@ -175,6 +179,54 @@ class PcRaceQueryServiceTest {
         assertEquals(BUSINESS_DATE, score.items().get(1).businessDate());
         assertEquals(List.of(1, 2),
                 score.items().stream().map(item -> item.participant().smthRank()).toList());
+    }
+
+    @Test
+    @DisplayName("新人奖池含撞车选手，且排除注册时间超阈值与注册时间缺失的选手")
+    void buildResultByRaceId_shouldBuildNewcomerPoolWithCrashedAndThreshold() {
+        stubResult(List.of(
+                withLap(participant(RACE_ID, 1L, ALLIANCE_FACTION_ID, false, 1), "30.00", "26.45"),
+                participant(RACE_ID, 2L, ALLIANCE_FACTION_ID, true, null),
+                withLap(participant(RACE_ID, 3L, ALLIANCE_FACTION_ID, false, 2), "31.00", "27.00"),
+                withLap(participant(RACE_ID, 4L, ALLIANCE_FACTION_ID, false, 3), "32.00", "28.00")));
+        LocalDateTime raceStartTime = DateTimeUtils.convertToDateTime(RACE_START_TIMESTAMP);
+        when(userDao.queryUserMap(anyList())).thenReturn(Map.of(
+                1L, user(1L, raceStartTime.minusDays(RacingConstants.NEWCOMER_DAYS - 1L)),
+                2L, user(2L, raceStartTime.minusDays(RacingConstants.NEWCOMER_DAYS - 1L)),
+                3L, user(3L, raceStartTime.minusDays(RacingConstants.NEWCOMER_DAYS)),
+                4L, user(4L, null)));
+
+        queryService.buildResultByRaceId(RACE_ID);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<PcRaceParticipantVO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(drawCalculator).drawNewcomer(eq(RACE_ID), captor.capture());
+        assertEquals(List.of(1L, 2L),
+                captor.getValue().stream().map(PcRaceParticipantVO::userId).toList());
+    }
+
+    @Test
+    @DisplayName("无选手满足注册时间条件时新人奖池为空")
+    void buildResultByRaceId_shouldReturnEmptyNewcomerPoolWhenNobodyQualified() {
+        stubResult(List.of(
+                withLap(participant(RACE_ID, 1L, ALLIANCE_FACTION_ID, false, 1), "30.00", "26.45")));
+        when(userDao.queryUserMap(anyList())).thenReturn(Map.of(
+                1L, user(1L, DateTimeUtils.convertToDateTime(RACE_START_TIMESTAMP)
+                        .minusDays(RacingConstants.NEWCOMER_DAYS))));
+
+        queryService.buildResultByRaceId(RACE_ID);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<PcRaceParticipantVO>> captor = ArgumentCaptor.forClass(List.class);
+        verify(drawCalculator).drawNewcomer(eq(RACE_ID), captor.capture());
+        assertTrue(captor.getValue().isEmpty());
+    }
+
+    private TornUserDO user(long userId, LocalDateTime registerTime) {
+        TornUserDO user = new TornUserDO();
+        user.setId(userId);
+        user.setRegisterTime(registerTime);
+        return user;
     }
 
     private void stubResult(List<TornRacingParticipantDO> participantList) {

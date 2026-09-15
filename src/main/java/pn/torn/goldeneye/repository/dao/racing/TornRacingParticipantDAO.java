@@ -47,7 +47,7 @@ public class TornRacingParticipantDAO extends ServiceImpl<TornRacingParticipantM
     }
 
     /**
-     * 查询指定用户在联盟赛事中的最近若干场明细。
+     * 查询指定用户在家族赛事中的最近若干场明细。
      *
      * @param userId 目标选手Torn用户ID
      * @param limit  场次上限
