@@ -11,6 +11,7 @@ import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
+import pn.torn.goldeneye.torn.model.racing.view.PcRaceParticipantVO;
 import pn.torn.goldeneye.torn.model.racing.view.PcRaceResultBO;
 import pn.torn.goldeneye.torn.service.racing.image.PcRaceDocumentAssembler;
 import pn.torn.goldeneye.torn.service.racing.image.PcRaceTextAssembler;
@@ -45,8 +46,7 @@ class PcRaceResultStrategyImplTest {
     private PcRaceQueryService queryService;
     @Mock
     private PcRaceDocumentAssembler documentAssembler;
-    @Mock
-    private PcRaceTextAssembler textAssembler;
+    private final PcRaceTextAssembler textAssembler = new PcRaceTextAssembler();
     @Mock
     private TableImageRenderer imageRenderer;
 
@@ -72,7 +72,33 @@ class PcRaceResultStrategyImplTest {
         assertEquals(2, messages.size());
         assertInstanceOf(ImageQqMsg.class, messages.getFirst());
         assertEquals("base64://image", ((ImageQqMsg) messages.getFirst()).getData().file());
-        assertEquals("汇总文本", ((TextQqMsg) messages.get(1)).getData().text());
+        assertEquals("""
+                🏁 SMTHPC 2026-01-05
+                最快圈：Baby [2554043] (第47名) 02:41.32
+                参赛率：2/3 = 66.67%
+                💥 Crash：无
+                🎲 抽奖：Jubelie [2554044] (第71名)""", summary(messages));
+    }
+
+    @Test
+    @DisplayName("有撞车选手时按昵称、用户ID与名次罗列，最快圈与抽奖无数据时显示无")
+    void handle_shouldListCrashedParticipantsWithUserId() {
+        PcRaceParticipantVO crashedWithPosition = new PcRaceParticipantVO(2554045L, "Bar", "PHN", null, 12,
+                null, null, true);
+        PcRaceParticipantVO crashedWithoutPosition = new PcRaceParticipantVO(2554046L, "Baz", "PHN", null, null,
+                null, null, true);
+        PcRaceResultBO result = new PcRaceResultBO(RACE_ID, BUSINESS_DATE, "Docks",
+                LocalDateTime.of(2026, 1, 5, 0, 30), LocalDateTime.of(2026, 1, 5, 8, 30), List.of(),
+                null, List.of(crashedWithPosition, crashedWithoutPosition), 0, 2,
+                new BigDecimal("0.00"), null);
+        when(queryService.buildResultByBusinessDate(any(LocalDate.class))).thenReturn(result);
+        stubRender(result);
+
+        String summary = summary(strategy.handle(0L, sender(), ""));
+
+        assertTrue(summary.contains("Crash：Bar [2554045] (第12名)、Baz [2554046] (未完赛)"));
+        assertTrue(summary.contains("最快圈：无"));
+        assertTrue(summary.contains("抽奖：无"));
     }
 
     @Test
@@ -122,13 +148,29 @@ class PcRaceResultStrategyImplTest {
     private void stubRender(PcRaceResultBO result) {
         when(documentAssembler.assemble(result)).thenReturn(document());
         when(imageRenderer.render(any(TableDocument.class))).thenReturn("image");
-        when(textAssembler.assembleSummary(result)).thenReturn("汇总文本");
     }
 
     private PcRaceResultBO result() {
-        return new PcRaceResultBO(RACE_ID, BUSINESS_DATE, LocalDateTime.of(2026, 1, 5, 0, 30),
-                LocalDateTime.of(2026, 1, 5, 8, 30), List.of(), null, List.of(), 0, 0,
-                new BigDecimal("0.00"), null);
+        PcRaceParticipantVO fastestLap = participant(2554043L, "Baby", 47, "02:41.32");
+        PcRaceParticipantVO drawWinner = participant(2554044L, "Jubelie", 71, null);
+        return new PcRaceResultBO(RACE_ID, BUSINESS_DATE, "Docks", LocalDateTime.of(2026, 1, 5, 0, 30),
+                LocalDateTime.of(2026, 1, 5, 8, 30), List.of(fastestLap, drawWinner), fastestLap, List.of(),
+                2, 3, new BigDecimal("66.67"), drawWinner);
+    }
+
+    private PcRaceParticipantVO participant(long userId, String nickname, Integer position,
+                                            String bestLapTimeText) {
+        return new PcRaceParticipantVO(userId, nickname, "PHN", null, position, null, bestLapTimeText, false);
+    }
+
+    /**
+     * 读取指令返回的汇总文本消息。
+     *
+     * @param messages 指令返回的消息列表
+     * @return 汇总文本
+     */
+    private String summary(List<? extends QqMsgParam<?>> messages) {
+        return ((TextQqMsg) messages.get(1)).getData().text();
     }
 
     private TableDocument document() {

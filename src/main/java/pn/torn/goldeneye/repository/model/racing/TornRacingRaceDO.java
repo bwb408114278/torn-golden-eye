@@ -32,6 +32,10 @@ public class TornRacingRaceDO extends BaseDO {
      */
     private String title;
     /**
+     * 赛道名称快照，赛道ID未收录时为空
+     */
+    private String trackName;
+    /**
      * 业务日期（开赛时间对应的Torn日）
      */
     private LocalDate businessDate;

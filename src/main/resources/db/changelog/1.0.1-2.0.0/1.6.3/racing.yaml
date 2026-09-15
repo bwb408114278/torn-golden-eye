@@ -27,6 +27,10 @@ databaseChangeLog:
                   constraints:
                     nullable: false
               - column:
+                  name: track_name
+                  type: VARCHAR(32)
+                  remarks: "赛道名称快照，赛道ID未收录时为空"
+              - column:
                   name: business_date
                   type: DATE
                   remarks: "业务日期（开赛时间对应的Torn日）"

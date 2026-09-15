@@ -1,7 +1,89 @@
-.table-image table td:nth-child(1) { width: 90px;  text-align: center; }                                                /* SMTH名次 */
-.table-image table td:nth-child(2) { width: 120px; text-align: center; font-variant-numeric: tabular-nums; }            /* 选手ID */
-.table-image table td:nth-child(4) { width: 120px; text-align: center; }                                                /* 帮派 */
-.table-image table td:nth-child(5) { width: 150px; text-align: right;  font-variant-numeric: tabular-nums; }            /* 用时 */
-.table-image table td:nth-child(6) { width: 130px; text-align: right;  font-variant-numeric: tabular-nums; }            /* 最快圈 */
-.table-image table td:nth-child(7) { width: 90px;  text-align: center; }                                                /* 状态 */
-.table-image table td:nth-child(8) { width: 110px; text-align: center; }                                                /* 全场名次 */
+/* ==========================================================================
+   PC赛车主题层：只放PC表格的版式与配色差异，通用规则一律复用基础层。
+   注意：下方 :nth-child 列规则会同时命中标题/表头/页脚的跨列单元格，
+   因此这三类单元格的覆盖规则必须紧跟其后（同特异度时按源序生效）。
+   ========================================================================== */
+
+/* 图片宽度：截图以 article.table-image 为根元素，此处宽度即最终PNG宽度 */
+.table-image {
+    width: 1120px;
+    padding: 20px;
+    background: #eef1f8;
+}
+
+.table-image table {
+    width: 100%;
+    background: #ffffff;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12);
+}
+
+/* ---- 列宽与对齐（榜单数据行） ---- */
+.table-image table td:nth-child(1) { width: 110px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }  /* SMTH名次 */
+.table-image table td:nth-child(2) { width: 130px; text-align: center; color: #475569; font-variant-numeric: tabular-nums; }  /* 选手ID */
+.table-image table td:nth-child(3) { width: 200px; max-width: 200px; text-align: left; }                                        /* 昵称 */
+.table-image table td:nth-child(4) { width: 110px; text-align: center; }                                                        /* 帮派 */
+.table-image table td:nth-child(5) { width: 170px; text-align: right; font-variant-numeric: tabular-nums; }                      /* 用时 */
+.table-image table td:nth-child(6) { width: 150px; text-align: right; font-variant-numeric: tabular-nums; }                      /* 最快圈 */
+.table-image table td:nth-child(7) { width: 100px; text-align: center; }                                                        /* 创了 */
+.table-image table td:nth-child(8) { width: 110px; text-align: center; font-variant-numeric: tabular-nums; }                     /* 全场名次 */
+
+/* ---- 标题/表头/页脚覆盖：必须位于上方列规则之后 ---- */
+.table-image table td.cell-title  { width: auto; max-width: none; text-align: center; }
+.table-image table td.cell-header { width: auto; max-width: none; text-align: center; white-space: nowrap; }
+.table-image table td.cell-footer { width: auto; max-width: none; text-align: center; }
+
+/* ---- 边框与质感 ---- */
+.table-image table td {
+    border: 0;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 11px 14px;
+}
+
+.table-image table td:nth-child(1) { border-left: 1px solid #e2e8f0; }
+.table-image table td:last-child  { border-right: 1px solid #e2e8f0; }
+
+.table-image table td.cell-title {
+    background: linear-gradient(135deg, #1e1b4b 0%, #4f46e5 100%);
+    color: #ffffff;
+    border-top: 1px solid #4f46e5;
+    border-bottom: 0;
+    font-size: 30px;
+    letter-spacing: 2px;
+    padding: 22px 16px;
+}
+
+.table-image table td.cell-header {
+    background: linear-gradient(180deg, #3730a3 0%, #1e1b4b 100%);
+    color: #e0e7ff;
+    border-bottom: 2px solid #4f46e5;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 13px 12px;
+}
+
+/* 斑马纹：只作用于榜单数据行，标题/表头/页脚不受影响 */
+.table-image table tr:nth-child(even) td:not(.cell-title):not(.cell-header):not(.cell-footer) {
+    background: #f1f5f9;
+}
+
+.table-image table td.cell-body {
+    background: #ffffff;
+    color: #1f2937;
+}
+
+/* 前三名：不做背景高亮，名次序号的奖牌emoji即区分标识 */
+.table-image table td.cell-rank-first,
+.table-image table td.cell-rank-second,
+.table-image table td.cell-rank-third {
+    background: #ffffff;
+    color: #1f2937;
+}
+
+.table-image table td.cell-footer {
+    background: #eef2ff;
+    color: #4b5563;
+    border-top: 2px solid #c7d2fe;
+    border-bottom: 0;
+    padding: 12px 14px;
+}

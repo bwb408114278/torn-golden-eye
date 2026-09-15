@@ -50,6 +50,7 @@ class PcRaceQueryServiceTest {
     private static final LocalDate BUSINESS_DATE = LocalDate.of(2026, 1, 4);
     private static final long ALLIANCE_FACTION_ID = 20465L;
     private static final long OUTSIDER_FACTION_ID = 999L;
+    private static final String TRACK_NAME = "Docks";
 
     @Mock
     private TornRacingRaceDAO raceDao;
@@ -80,6 +81,7 @@ class PcRaceQueryServiceTest {
         PcRaceResultBO result = queryService.buildResultByRaceId(RACE_ID);
 
         assertNotNull(result);
+        assertEquals(TRACK_NAME, result.trackName());
         assertEquals(List.of(2L, 1L, 4L, 3L),
                 result.participants().stream().map(PcRaceParticipantVO::userId).toList());
         assertEquals(Arrays.asList(1, 2, 3, null),
@@ -185,6 +187,7 @@ class PcRaceQueryServiceTest {
     private TornRacingRaceDO race(long raceId, long startTimestamp) {
         TornRacingRaceDO race = new TornRacingRaceDO();
         race.setRaceId(raceId);
+        race.setTrackName(TRACK_NAME);
         race.setBusinessDate(BUSINESS_DATE.plusDays(raceId - RACE_ID));
         race.setStartTime(DateTimeUtils.convertToDateTime(startTimestamp));
         race.setCapturedTime(LocalDateTime.of(2026, 1, 5, 8, 30));

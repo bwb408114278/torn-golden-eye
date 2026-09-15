@@ -42,7 +42,7 @@ class PcRaceDocumentAssemblerTest {
 
         assertEquals(TableThemeEnum.PC_RACE.getDocumentType(), document.documentType());
         assertEquals(1600, document.width());
-        assertEquals("SMTHPC 2026-01-04", document.title());
+        assertEquals("每日PC大赛成绩-Docks (2026-01-04)", document.title());
         List<TableRow> rows = document.rows();
         assertEquals(6, rows.size());
         TableRow titleRow = rows.getFirst();
@@ -53,6 +53,7 @@ class PcRaceDocumentAssemblerTest {
         assertEquals(8, headerRow.cells().size());
         headerRow.cells().forEach(cell -> assertEquals(TableCellStyleEnum.HEADER, cell.style()));
         assertEquals("SMTH名次", headerRow.cells().getFirst().text());
+        assertEquals("创了", headerRow.cells().get(6).text());
         assertEquals("全场名次", headerRow.cells().get(7).text());
         TableRow footerRow = rows.getLast();
         assertEquals(1, footerRow.cells().size());
@@ -62,8 +63,8 @@ class PcRaceDocumentAssemblerTest {
     }
 
     @Test
-    @DisplayName("前三名按SMTH名次整行使用名次样式")
-    void assemble_shouldHighlightTopThreeBySmthRank() {
+    @DisplayName("前三名按SMTH名次标记奖牌且整行使用名次样式")
+    void assemble_shouldMarkTopThreeWithMedalAndRankStyle() {
         PcRaceResultBO result = result(List.of(
                 participant(11L, 1, 1, "04:52:16.00", false),
                 participant(12L, 2, 2, "04:53:00.00", false),
@@ -76,6 +77,10 @@ class PcRaceDocumentAssemblerTest {
         assertEquals(TableCellStyleEnum.RANK_SECOND, rows.get(3).cells().getFirst().style());
         assertEquals(TableCellStyleEnum.RANK_THIRD, rows.get(4).cells().getFirst().style());
         assertEquals(TableCellStyleEnum.BODY, rows.get(5).cells().getFirst().style());
+        assertEquals("🥇 1", rows.get(2).cells().getFirst().text());
+        assertEquals("🥈 2", rows.get(3).cells().getFirst().text());
+        assertEquals("🥉 3", rows.get(4).cells().getFirst().text());
+        assertEquals("4", rows.get(5).cells().getFirst().text());
     }
 
     @Test
@@ -109,7 +114,7 @@ class PcRaceDocumentAssemblerTest {
     }
 
     private PcRaceResultBO result(List<PcRaceParticipantVO> participantList) {
-        return new PcRaceResultBO(RACE_ID, LocalDate.of(2026, 1, 4), LocalDateTime.of(2026, 1, 5, 0, 30),
+        return new PcRaceResultBO(RACE_ID, LocalDate.of(2026, 1, 4), "Docks", LocalDateTime.of(2026, 1, 5, 0, 30),
                 LocalDateTime.of(2026, 1, 5, 8, 30), participantList, null, List.of(), 45, 62,
                 new BigDecimal("72.58"), null);
     }

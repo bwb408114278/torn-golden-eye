@@ -17,6 +17,10 @@ public class RacingConstants {
      */
     public static final String RACE_TITLE = "SMTHPC";
     /**
+     * 榜单图片标题前缀
+     */
+    public static final String RACE_TITLE_PREFIX = "每日PC大赛成绩";
+    /**
      * 成绩可抓取的赛事状态
      */
     public static final String RACE_FINISHED_STATUS = "finished";

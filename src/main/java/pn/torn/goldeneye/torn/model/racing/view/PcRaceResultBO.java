@@ -12,6 +12,7 @@ import java.util.List;
  *
  * @param raceId        赛事ID
  * @param businessDate  业务日期
+ * @param trackName     赛道名称快照；赛道ID未收录时为null
  * @param startTime     开赛时间（北京时间）
  * @param capturedTime  抓取完成时间（北京时间）
  * @param participants  联盟全员榜单，未撞车在前、撞车置底
@@ -28,6 +29,7 @@ import java.util.List;
 public record PcRaceResultBO(
         long raceId,
         LocalDate businessDate,
+        String trackName,
         LocalDateTime startTime,
         LocalDateTime capturedTime,
         List<PcRaceParticipantVO> participants,

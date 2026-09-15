@@ -3,6 +3,7 @@ package pn.torn.goldeneye.torn.service.racing.capture;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pn.torn.goldeneye.constants.torn.enums.racing.TornRaceTrackEnum;
 import pn.torn.goldeneye.repository.dao.racing.TornRacingParticipantDAO;
 import pn.torn.goldeneye.repository.dao.racing.TornRacingRaceDAO;
 import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
@@ -60,6 +61,7 @@ public class PcRacePersistService {
         TornRacingRaceDO raceDO = new TornRacingRaceDO();
         raceDO.setRaceId(race.getId());
         raceDO.setTitle(race.getTitle());
+        raceDO.setTrackName(TornRaceTrackEnum.titleOf(race.getTrackId()));
         raceDO.setBusinessDate(businessDate);
         TornRaceScheduleVO schedule = race.getSchedule();
         if (schedule != null) {

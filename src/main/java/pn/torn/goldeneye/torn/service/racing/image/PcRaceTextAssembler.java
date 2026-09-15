@@ -16,6 +16,9 @@ import java.util.stream.Collectors;
 /**
  * PC赛车榜单汇总文本与个人成绩文本组装器。
  *
+ * <p>选手条目统一渲染为{@code 昵称 [用户ID] (第N名)}，便于群内直接复制用户ID查询；
+ * 无成绩时以“无”明确表达，不输出null或空串。</p>
+ *
  * @author Bai
  * @version 1.6.3
  * @since 2026.09.15
@@ -23,11 +26,12 @@ import java.util.stream.Collectors;
 @Component
 public class PcRaceTextAssembler {
     private static final DateTimeFormatter MONTH_DAY_FORMATTER = DateTimeFormatter.ofPattern("MM-dd");
-    private static final String NO_DATA_TEXT = "无数据";
+    private static final String NO_DATA_TEXT = "无";
     private static final String EMPTY_PLACEHOLDER = "—";
     private static final String ITEM_SEPARATOR = "、";
-    private static final String UNFINISHED_SUFFIX = "(未完赛)";
+    private static final String UNFINISHED_SUFFIX = " (未完赛)";
     private static final String CRASHED_TEXT = "撞车";
+    private static final String SPACE_SEPARATOR = " ";
 
     /**
      * 组装榜单汇总文本。
@@ -36,7 +40,8 @@ public class PcRaceTextAssembler {
      * @return 含最快圈、参赛率、Crash名单与抽奖结果的文本
      */
     public String assembleSummary(PcRaceResultBO result) {
-        return "🏁 " + RacingConstants.RACE_TITLE + " " + DateTimeUtils.convertToString(result.businessDate())
+        return "🏁 " + RacingConstants.RACE_TITLE + SPACE_SEPARATOR
+                + DateTimeUtils.convertToString(result.businessDate())
                 + "\n最快圈：" + formatFastestLap(result.fastestLap())
                 + "\n参赛率：" + result.allianceCount() + "/" + result.totalCount()
                 + " = " + result.allianceRate().toPlainString() + "%"
@@ -74,33 +79,33 @@ public class PcRaceTextAssembler {
         String dateText = item.businessDate().format(MONTH_DAY_FORMATTER);
         PcRaceParticipantVO participant = item.participant();
         if (participant.crashed()) {
-            return dateText + " " + CRASHED_TEXT;
+            return dateText + SPACE_SEPARATOR + CRASHED_TEXT;
         }
 
         return dateText + " 比赛第" + formatValue(participant.position())
                 + " SMTH第" + formatValue(participant.smthRank())
-                + " " + formatValue(participant.raceTimeText());
+                + SPACE_SEPARATOR + formatValue(participant.raceTimeText());
     }
 
     /**
      * 组装最快圈文本。
      *
      * @param fastestLap 最快圈选手
-     * @return 最快圈文本；无有效圈速时返回无数据
+     * @return 最快圈文本；无有效圈速时返回“无”
      */
     private String formatFastestLap(PcRaceParticipantVO fastestLap) {
         if (fastestLap == null || fastestLap.bestLapTimeText() == null) {
             return NO_DATA_TEXT;
         }
 
-        return formatParticipant(fastestLap) + " " + fastestLap.bestLapTimeText();
+        return formatParticipant(fastestLap) + SPACE_SEPARATOR + fastestLap.bestLapTimeText();
     }
 
     /**
      * 组装Crash名单文本。
      *
      * @param crashedList 撞车选手
-     * @return Crash名单文本；无撞车选手时返回无数据
+     * @return Crash名单文本；无撞车选手时返回“无”
      */
     private String formatCrashedList(List<PcRaceParticipantVO> crashedList) {
         if (CollectionUtils.isEmpty(crashedList)) {
@@ -114,7 +119,7 @@ public class PcRaceTextAssembler {
      * 组装单个选手文本，名次缺失时标记未完赛。
      *
      * @param participant 选手展示模型
-     * @return 选手文本；选手为null时返回无数据
+     * @return 选手文本；选手为null时返回“无”
      */
     private String formatParticipant(PcRaceParticipantVO participant) {
         if (participant == null) {
@@ -123,10 +128,11 @@ public class PcRaceTextAssembler {
 
         String nickname = StringUtils.hasText(participant.nickname())
                 ? participant.nickname() : String.valueOf(participant.userId());
+        String participantText = nickname + " [" + participant.userId() + "]";
         if (participant.position() == null) {
-            return nickname + UNFINISHED_SUFFIX;
+            return participantText + UNFINISHED_SUFFIX;
         }
-        return nickname + "(第" + participant.position() + "名)";
+        return participantText + " (第" + participant.position() + "名)";
     }
 
     /**

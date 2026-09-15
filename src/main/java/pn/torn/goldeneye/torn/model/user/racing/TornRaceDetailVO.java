@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.model.user.racing;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.util.List;
@@ -21,6 +22,11 @@ public class TornRaceDetailVO {
      * 比赛名称
      */
     private String title;
+    /**
+     * 赛道ID
+     */
+    @JsonProperty("track_id")
+    private Integer trackId;
     /**
      * 比赛状态
      */

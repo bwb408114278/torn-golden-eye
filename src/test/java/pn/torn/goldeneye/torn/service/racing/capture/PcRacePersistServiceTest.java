@@ -48,6 +48,10 @@ class PcRacePersistServiceTest {
      */
     private static final long RACE_START_TIMESTAMP = 1767544200L;
     private static final long ALLIANCE_FACTION_ID = 20465L;
+    /**
+     * Torn赛道ID 10 = Docks
+     */
+    private static final int TRACK_ID = 10;
 
     @Mock
     private TornRacingRaceDAO raceDao;
@@ -78,6 +82,7 @@ class PcRacePersistServiceTest {
         TornRacingRaceDO raceDO = captor.getValue();
         assertEquals(RACE_ID, raceDO.getRaceId());
         assertEquals(RacingConstants.RACE_TITLE, raceDO.getTitle());
+        assertEquals("Docks", raceDO.getTrackName());
         assertEquals(BUSINESS_DATE, raceDO.getBusinessDate());
         assertEquals(RacingConstants.RACE_FINISHED_STATUS, raceDO.getStatus());
         assertEquals(LocalDateTime.of(2026, 1, 5, 0, 30), raceDO.getStartTime());
@@ -163,6 +168,7 @@ class PcRacePersistServiceTest {
         TornRaceDetailVO race = new TornRaceDetailVO();
         race.setId(RACE_ID);
         race.setTitle(RacingConstants.RACE_TITLE);
+        race.setTrackId(TRACK_ID);
         race.setStatus(RacingConstants.RACE_FINISHED_STATUS);
         race.setSchedule(schedule);
         race.setResults(resultList);

@@ -36,7 +36,7 @@ public class PcRaceQueryService {
      */
     private static final Comparator<TornRacingParticipantDO> POSITION_COMPARATOR =
             Comparator.comparing(TornRacingParticipantDO::getPosition,
-                            Comparator.nullsLast(Comparator.<Integer>naturalOrder()))
+                            Comparator.nullsLast(Comparator.naturalOrder()))
                     .thenComparing(TornRacingParticipantDO::getUserId);
     /**
      * 参赛率百分比基数
@@ -155,8 +155,9 @@ public class PcRaceQueryService {
             crashedVoList.add(crashed);
         }
 
-        return new PcRaceResultBO(race.getRaceId(), race.getBusinessDate(), race.getStartTime(),
-                race.getCapturedTime(), participants, findFastestLap(uncrashedList, smthRankMap, factionMap),
+        return new PcRaceResultBO(race.getRaceId(), race.getBusinessDate(), race.getTrackName(),
+                race.getStartTime(), race.getCapturedTime(), participants,
+                findFastestLap(uncrashedList, smthRankMap, factionMap),
                 crashedVoList, allianceList.size(), participantList.size(),
                 calcAllianceRate(allianceList.size(), participantList.size()),
                 drawCalculator.draw(race.getRaceId(),
