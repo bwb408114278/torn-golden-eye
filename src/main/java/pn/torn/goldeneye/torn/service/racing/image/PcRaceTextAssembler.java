@@ -40,13 +40,27 @@ public class PcRaceTextAssembler {
      * @return 含最快圈、参赛率、Crash名单与抽奖结果的文本
      */
     public String assembleSummary(PcRaceResultBO result) {
-        return "🏁 " + RacingConstants.RACE_TITLE + SPACE_SEPARATOR
-                + DateTimeUtils.convertToString(result.businessDate())
+        return buildTitle(result)
                 + "\n最快圈：" + formatFastestLap(result.fastestLap())
                 + "\n参赛率：" + result.allianceCount() + "/" + result.totalCount()
                 + " = " + result.allianceRate().toPlainString() + "%"
                 + "\n💥 Crash：" + formatCrashedList(result.crashedList())
                 + "\n🎲 抽奖：" + formatParticipant(result.drawWinner());
+    }
+
+    /**
+     * 构建汇总文本标题行，形如{@code 🏁 SMTHPC-Docks 2026-09-14}；赛道缺失时只保留赛事名。
+     *
+     * @param result 榜单结果
+     * @return 标题行文本
+     */
+    private String buildTitle(PcRaceResultBO result) {
+        StringBuilder title = new StringBuilder("🏁 ").append(RacingConstants.RACE_TITLE);
+        if (StringUtils.hasText(result.trackName())) {
+            title.append('-').append(result.trackName());
+        }
+        return title.append(SPACE_SEPARATOR)
+                .append(DateTimeUtils.convertToString(result.businessDate())).toString();
     }
 
     /**

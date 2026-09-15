@@ -73,7 +73,7 @@ class PcRaceResultStrategyImplTest {
         assertInstanceOf(ImageQqMsg.class, messages.getFirst());
         assertEquals("base64://image", ((ImageQqMsg) messages.getFirst()).getData().file());
         assertEquals("""
-                🏁 SMTHPC 2026-01-05
+                🏁 SMTHPC-Docks 2026-01-05
                 最快圈：Baby [2554043] (第47名) 02:41.32
                 参赛率：2/3 = 66.67%
                 💥 Crash：无
@@ -81,13 +81,13 @@ class PcRaceResultStrategyImplTest {
     }
 
     @Test
-    @DisplayName("有撞车选手时按昵称、用户ID与名次罗列，最快圈与抽奖无数据时显示无")
+    @DisplayName("有撞车选手时罗列用户ID与名次，赛道缺失时标题省略赛道且无数据显示无")
     void handle_shouldListCrashedParticipantsWithUserId() {
         PcRaceParticipantVO crashedWithPosition = new PcRaceParticipantVO(2554045L, "Bar", "PHN", null, 12,
                 null, null, true);
         PcRaceParticipantVO crashedWithoutPosition = new PcRaceParticipantVO(2554046L, "Baz", "PHN", null, null,
                 null, null, true);
-        PcRaceResultBO result = new PcRaceResultBO(RACE_ID, BUSINESS_DATE, "Docks",
+        PcRaceResultBO result = new PcRaceResultBO(RACE_ID, BUSINESS_DATE, null,
                 LocalDateTime.of(2026, 1, 5, 0, 30), LocalDateTime.of(2026, 1, 5, 8, 30), List.of(),
                 null, List.of(crashedWithPosition, crashedWithoutPosition), 0, 2,
                 new BigDecimal("0.00"), null);
@@ -96,6 +96,7 @@ class PcRaceResultStrategyImplTest {
 
         String summary = summary(strategy.handle(0L, sender(), ""));
 
+        assertTrue(summary.contains("🏁 SMTHPC 2026-01-05"));
         assertTrue(summary.contains("Crash：Bar [2554045] (第12名)、Baz [2554046] (未完赛)"));
         assertTrue(summary.contains("最快圈：无"));
         assertTrue(summary.contains("抽奖：无"));
