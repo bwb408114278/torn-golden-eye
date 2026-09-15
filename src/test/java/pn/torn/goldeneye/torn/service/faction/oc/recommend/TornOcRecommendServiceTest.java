@@ -34,7 +34,7 @@ import static org.mockito.Mockito.*;
  * OC推荐服务单元测试 —— 验证大锅饭模式下当前队的豁免逻辑
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.3
  * @since 2026.06.29
  */
 @ExtendWith(MockitoExtension.class)
