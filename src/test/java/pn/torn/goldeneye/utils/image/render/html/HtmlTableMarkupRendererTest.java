@@ -6,8 +6,7 @@ import pn.torn.goldeneye.utils.image.document.*;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 固定HTML结构、转义和枚举样式映射测试。
@@ -25,7 +24,7 @@ class HtmlTableMarkupRendererTest {
     void shouldEscapeTextAndRenderControlledAttributes() {
         TableDocument document = new TableDocument("标题 <危险>", List.of(new TableRow(List.of(
                 new TableCell("<>&\"' 中文", TableCellStyleEnum.SLOT_RECOMMENDED, 2, 3,
-                        TableTextOverflowEnum.ELLIPSIS)))), 1600, "test");
+                        TableTextOverflowEnum.ELLIPSIS)))), 1600, TableThemeEnum.OC.getDocumentType());
 
         String html = renderer.render(document);
 
@@ -55,9 +54,15 @@ class HtmlTableMarkupRendererTest {
                 new TableCell("当前空成员", TableCellStyleEnum.CURRENT_MEMBER_EMPTY, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("成员", TableCellStyleEnum.MEMBER_FILLED, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("空成员", TableCellStyleEnum.MEMBER_EMPTY, 1, 1, TableTextOverflowEnum.WRAP),
-                new TableCell("页脚", TableCellStyleEnum.FOOTER, 1, 1, TableTextOverflowEnum.CLIP)
+                new TableCell("页脚", TableCellStyleEnum.FOOTER, 1, 1, TableTextOverflowEnum.CLIP),
+                new TableCell("表头", TableCellStyleEnum.HEADER, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("数据", TableCellStyleEnum.BODY, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("第一", TableCellStyleEnum.RANK_FIRST, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("第二", TableCellStyleEnum.RANK_SECOND, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("第三", TableCellStyleEnum.RANK_THIRD, 1, 1, TableTextOverflowEnum.WRAP)
         );
-        String html = renderer.render(new TableDocument("测试", List.of(new TableRow(cells)), 1600, "test"));
+        String html = renderer.render(new TableDocument("测试", List.of(new TableRow(cells)), 1600,
+                TableThemeEnum.OC.getDocumentType()));
 
         assertTrue(html.contains("cell-title"));
         assertTrue(html.contains("cell-section"));
@@ -72,6 +77,21 @@ class HtmlTableMarkupRendererTest {
         assertTrue(html.contains("cell-member-filled"));
         assertTrue(html.contains("cell-member-empty"));
         assertTrue(html.contains("cell-footer overflow-clip"));
+        assertTrue(html.contains("cell-header"));
+        assertTrue(html.contains("cell-body"));
+        assertTrue(html.contains("cell-rank-first"));
+        assertTrue(html.contains("cell-rank-second"));
+        assertTrue(html.contains("cell-rank-third"));
+    }
+
+    @Test
+    @DisplayName("未注册主题应快速失败且不静默回退")
+    void shouldFailFastForUnregisteredTheme() {
+        TableDocument document = new TableDocument("标题", List.of(new TableRow(List.of(
+                new TableCell("单元", TableCellStyleEnum.BODY, 1, 1, TableTextOverflowEnum.WRAP)))),
+                1600, "unregistered-theme");
+
+        assertThrows(IllegalArgumentException.class, () -> renderer.render(document));
     }
 
     @Test
@@ -87,7 +107,7 @@ class HtmlTableMarkupRendererTest {
                         TableCellStyleEnum.SECTION, 1, 1, TableTextOverflowEnum.WRAP),
                 TableCell.threePartText("⚠️ <4>", "Assassin#1 <5>", "76 <6>",
                         TableCellStyleEnum.SLOT_FILLED, 1, 1, TableTextOverflowEnum.CLIP)))),
-                1600, "test");
+                1600, TableThemeEnum.OC.getDocumentType());
 
         String html = renderer.render(document);
 

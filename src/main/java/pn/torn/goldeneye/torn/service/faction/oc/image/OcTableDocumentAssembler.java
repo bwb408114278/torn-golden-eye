@@ -23,14 +23,14 @@ import java.util.Map;
  * 该组件只处理已经批量查询好的数据，不访问DAO、Torn API或渲染器，也不拼接HTML或布局空格。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.3
  * @since 2026.08.31
  */
 @Component
 @RequiredArgsConstructor
 public class OcTableDocumentAssembler {
     private static final int DOCUMENT_WIDTH = 1600;
-    private static final String DOCUMENT_TYPE = "oc-table";
+    private static final String DOCUMENT_TYPE = TableThemeEnum.OC.getDocumentType();
     private static final String STATUS_LEGEND = "状态说明：💤 空转 ｜ ⏳ 准备中 ｜ ✅ 准备完成 ｜ ⚠️ 缺少道具";
     private static final String FOOTER_SEPARATOR = " ｜ ";
     private final OcImageStatusResolver statusResolver;

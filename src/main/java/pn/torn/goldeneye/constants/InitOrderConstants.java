@@ -24,6 +24,7 @@ public class InitOrderConstants {
     public static final int TORN_OC_BENEFIT = 10007;
     public static final int TORN_RW = 10008;
     public static final int TORN_AUCTION = 10009;
+    public static final int TORN_PC_RACE = 10010;
 
     public static final int TORN_FACTION_ARMORY = 11001;
 }

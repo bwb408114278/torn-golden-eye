@@ -12,11 +12,16 @@ import java.util.concurrent.TimeUnit;
  * 时间工具类
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.6.3
  * @since 2025.07.29
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public class DateTimeUtils {
+    /**
+     * Torn日切换偏移小时数（Torn日在UTC 00:00切换，即北京时间08:00）
+     */
+    public static final long TORN_DAY_OFFSET_HOURS = 8L;
+
     public static final DateTimeFormatter YEAR_MONTH_FORMATTER;
     private static final DateTimeFormatter DATE_FORMATTER;
     private static final DateTimeFormatter DATE_TIME_FORMATTER;
@@ -68,6 +73,17 @@ public class DateTimeUtils {
     }
 
     /**
+     * 将Torn时间戳转换为Torn业务日期（Torn日在UTC 00:00切换，即北京时间08:00）。
+     *
+     * @param timestamp 秒级或毫秒级Unix时间戳
+     * @return Torn业务日期；timestamp为null时返回null
+     */
+    public static LocalDate convertToTornDate(Long timestamp) {
+        LocalDateTime dateTime = convertToDateTime(timestamp);
+        return dateTime == null ? null : dateTime.minusHours(TORN_DAY_OFFSET_HOURS).toLocalDate();
+    }
+
+    /**
      * 转换字符串为日期时间
      */
     public static LocalDateTime convertToDateTime(String datetime) {
@@ -114,8 +130,9 @@ public class DateTimeUtils {
      */
     public static LocalDate getTornLocalDate() {
         LocalDateTime result = LocalDateTime.now();
-        boolean isTornOldDay = result.toLocalTime().isAfter(LocalTime.of(0, 0))
-                && result.toLocalTime().isBefore(LocalTime.of(8, 0));
+        LocalTime tornDaySwitch = LocalTime.MIDNIGHT.plusHours(TORN_DAY_OFFSET_HOURS);
+        boolean isTornOldDay = result.toLocalTime().isAfter(LocalTime.MIDNIGHT)
+                && result.toLocalTime().isBefore(tornDaySwitch);
         return isTornOldDay ? result.toLocalDate().minusDays(1) : result.toLocalDate();
     }
 

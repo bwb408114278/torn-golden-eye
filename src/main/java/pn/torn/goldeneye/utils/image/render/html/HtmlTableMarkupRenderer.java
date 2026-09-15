@@ -6,6 +6,8 @@ import pn.torn.goldeneye.utils.image.document.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
  * 将表格文档映射为固定、安全的HTML片段。
@@ -18,14 +20,17 @@ import java.nio.charset.StandardCharsets;
  */
 @Component
 public class HtmlTableMarkupRenderer {
-    private static final String CSS_RESOURCE = "/table-image/oc-table.css";
-    private final String css;
+    private final Map<TableThemeEnum, String> cssByTheme;
 
     /**
-     * 加载classpath内固定的表格主题CSS。
+     * 按主题注册表加载classpath内固定的表格主题CSS，各主题互不影响。
      */
     public HtmlTableMarkupRenderer() {
-        this.css = loadCss();
+        Map<TableThemeEnum, String> cssMap = new EnumMap<>(TableThemeEnum.class);
+        for (TableThemeEnum theme : TableThemeEnum.values()) {
+            cssMap.put(theme, loadThemeCss(theme));
+        }
+        this.cssByTheme = Map.copyOf(cssMap);
     }
 
     /**
@@ -39,6 +44,7 @@ public class HtmlTableMarkupRenderer {
         if (document == null) {
             throw new NullPointerException("document不能为null");
         }
+        String css = cssByTheme.get(TableThemeEnum.of(document.documentType()));
         StringBuilder html = new StringBuilder(512);
         html.append("<!doctype html><html lang=\"zh-CN\"><head>")
                 .append("<meta charset=\"UTF-8\"><title>")
@@ -187,6 +193,11 @@ public class HtmlTableMarkupRenderer {
             case MEMBER_FILLED -> "cell-member-filled";
             case MEMBER_EMPTY -> "cell-member-empty";
             case FOOTER -> "cell-footer";
+            case HEADER -> "cell-header";
+            case BODY -> "cell-body";
+            case RANK_FIRST -> "cell-rank-first";
+            case RANK_SECOND -> "cell-rank-second";
+            case RANK_THIRD -> "cell-rank-third";
         };
     }
 
@@ -219,19 +230,34 @@ public class HtmlTableMarkupRenderer {
     }
 
     /**
-     * 从classpath加载固定表格主题CSS。
+     * 按主题登记的层叠顺序拼接CSS文本。
      *
+     * @param theme 表格主题
+     * @return 拼接后的CSS文本
+     */
+    private String loadThemeCss(TableThemeEnum theme) {
+        StringBuilder css = new StringBuilder(1024);
+        for (String resource : theme.getCssResources()) {
+            css.append(loadCss(resource));
+        }
+        return css.toString();
+    }
+
+    /**
+     * 从classpath加载指定CSS资源。
+     *
+     * @param resource classpath资源路径
      * @return CSS文本
      * @throws IllegalStateException CSS资源不存在或读取失败时抛出
      */
-    private String loadCss() {
-        try (InputStream inputStream = HtmlTableMarkupRenderer.class.getResourceAsStream(CSS_RESOURCE)) {
+    private String loadCss(String resource) {
+        try (InputStream inputStream = HtmlTableMarkupRenderer.class.getResourceAsStream(resource)) {
             if (inputStream == null) {
-                throw new IllegalStateException("表格图片CSS资源不存在");
+                throw new IllegalStateException("表格图片CSS资源不存在: " + resource);
             }
             return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new IllegalStateException("表格图片CSS资源读取失败", e);
+            throw new IllegalStateException("表格图片CSS资源读取失败: " + resource, e);
         }
     }
 }

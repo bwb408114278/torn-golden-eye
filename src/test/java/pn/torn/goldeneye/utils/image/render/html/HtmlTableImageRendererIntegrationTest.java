@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 仅在设置{@code TABLE_IMAGE_RENDER_INTEGRATION=true}时执行；未设置时由JUnit明确跳过，不能视为通过。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.3
  * @since 2026.08.31
  */
 @DisplayName("HTML表格图片Chromium集成测试")
@@ -40,7 +40,7 @@ class HtmlTableImageRendererIntegrationTest {
                     new HtmlTableMarkupRenderer(), browserManager, property);
             String result = renderer.render(new TableDocument("中文 💤 ⏳ ✅ ⚠️", List.of(new TableRow(List.of(
                     new TableCell("阶段A 中文 💤 ⏳ ✅ ⚠️", TableCellStyleEnum.TITLE, 1, 1,
-                            TableTextOverflowEnum.WRAP)))), 1600, "integration"));
+                            TableTextOverflowEnum.WRAP)))), 1600, TableThemeEnum.OC.getDocumentType()));
 
             byte[] png = Base64.getDecoder().decode(result);
             Files.createDirectories(output.getParent());

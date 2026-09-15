@@ -1,0 +1,7 @@
+.table-image table td:nth-child(1) { width: 90px;  text-align: center; }                                                /* SMTH名次 */
+.table-image table td:nth-child(2) { width: 120px; text-align: center; font-variant-numeric: tabular-nums; }            /* 选手ID */
+.table-image table td:nth-child(4) { width: 120px; text-align: center; }                                                /* 帮派 */
+.table-image table td:nth-child(5) { width: 150px; text-align: right;  font-variant-numeric: tabular-nums; }            /* 用时 */
+.table-image table td:nth-child(6) { width: 130px; text-align: right;  font-variant-numeric: tabular-nums; }            /* 最快圈 */
+.table-image table td:nth-child(7) { width: 90px;  text-align: center; }                                                /* 状态 */
+.table-image table td:nth-child(8) { width: 110px; text-align: center; }                                                /* 全场名次 */
