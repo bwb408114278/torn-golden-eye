@@ -15,11 +15,15 @@ import java.util.Map;
  * 动态文本统一HTML转义，样式只来自受控枚举，不接受调用方传入class、CSS、URL或其他属性。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.3
  * @since 2026.08.31
  */
 @Component
 public class HtmlTableMarkupRenderer {
+    /**
+     * 受控span容器的固定闭合片段
+     */
+    private static final String SPAN_CLOSE = "</span>";
     private final Map<TableThemeEnum, String> cssByTheme;
 
     /**
@@ -119,15 +123,15 @@ public class HtmlTableMarkupRenderer {
     private void appendBadgeTextContent(StringBuilder html, TableCellContent.BadgeText badgeText) {
         html.append("<span class=\"cell-section-head\"><span class=\"cell-section-name\">");
         appendEscapedText(html, badgeText.primaryText());
-        html.append("</span>");
+        html.append(SPAN_CLOSE);
         for (TableCellContent.Badge badge : badgeText.badges()) {
             html.append("<span class=\"cell-badge ")
                     .append(badgeToneClass(badge.badgeTone()))
                     .append("\">");
             appendEscapedText(html, badge.text());
-            html.append("</span>");
+            html.append(SPAN_CLOSE);
         }
-        html.append("</span>");
+        html.append(SPAN_CLOSE);
     }
 
     /**
