@@ -21,6 +21,7 @@ RUN mvn clean package -DskipTests
 FROM openjdk:21-jdk
 
 # Chromium运行依赖固定在Oracle Linux 8镜像内，不依赖宿主机或NAS环境。
+# google-noto-emoji-fonts 是单色老字符集（无🥇等奖牌字形），CSS字体栈需要的 Noto Color Emoji 家族由 color 包提供。
 RUN microdnf install -y \
     ca-certificates \
     fontconfig \
@@ -51,6 +52,7 @@ RUN microdnf install -y \
     libxshmfence \
     liberation-fonts \
     google-noto-emoji-fonts \
+    google-noto-emoji-color-fonts \
     && microdnf clean all
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -65,11 +67,14 @@ COPY ./build/fonts/msyhl.ttc /usr/share/fonts/custom/msyhl.ttc
 COPY ./build/fonts/msyhbd.ttc /usr/share/fonts/custom/msyhbd.ttc
 # 刷新字体缓存，确保系统识别新添加的字体
 RUN fc-cache -f -v
-# Oracle Linux google-noto-emoji-fonts 的版权与许可证说明归档到可审计路径。
+# Oracle Linux emoji字体包的版权与许可证说明归档到可审计路径，兼作安装成功校验。
 RUN mkdir -p /usr/share/licenses/golden-eye \
     && cp /usr/share/licenses/google-noto-emoji-fonts/LICENSE \
         /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts \
-    && test -s /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts
+    && test -s /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts \
+    && cp /usr/share/licenses/google-noto-emoji-color-fonts/LICENSE \
+        /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-color-fonts \
+    && test -s /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-color-fonts
 COPY ./src/main/resources/fonts/LICENSE-google-noto-emoji-fonts.txt \
     /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts.txt
 
