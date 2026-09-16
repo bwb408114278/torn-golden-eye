@@ -158,10 +158,6 @@ public class BotCommands {
      */
     public static final String RW_CONTRIBUTION = "RW贡献榜";
     /**
-     * RW比分回填（一次性SA指令，生产验证后删除）
-     */
-    public static final String RW_SCORE_BACKFILL = "RW比分回填";
-    /**
      * 拍卖历史
      */
     public static final String AUCTION_HISTORY = "拍卖历史";

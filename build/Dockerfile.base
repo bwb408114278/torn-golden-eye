@@ -1,0 +1,85 @@
+# Golden-Eye 运行环境基础镜像。
+#
+# 这不是部署产物，只在构建期被 build/Dockerfile 复用。它把"Chromium 运行依赖 + 中文字体 +
+# emoji 字体"这类几个月才变一次的环境依赖从应用打包流程中剥离出来，使日常打包不再访问
+# yum.oracle.com（该仓库元数据约 168MB，国际链路一次抖动就会让构建失败）。
+#
+# 构建（仅首次，或"升级触发条件"命中时执行）：
+#   docker build -f ./build/Dockerfile.base -t golden-eye-env:1-ol8-jdk21 .
+#
+# 标签命名规则：序号必须唯一标识一次内容构建。改动本文件后请递增序号（1 → 2 → …），
+# 并同步修改 build/Dockerfile 中的 FROM。若沿用旧标签，会出现"基础镜像已更新但应用仍使用旧环境"。
+#
+# 升级触发条件：
+#   1. 包列表增删改（例如 Playwright 升级后要求新的系统库）
+#   2. build/fonts/*.ttc 字体文件变更
+#   3. src/main/resources/fonts/LICENSE-google-noto-emoji-fonts.txt 变更
+#   4. 需要获取 Oracle Linux 8 的安全补丁（按季度重新构建即可，包会更新到仓库当前版本）
+# 不需要重建的情况：Playwright 版本升级。Chromium 由 build/Dockerfile 的构建阶段安装，不在本镜像内。
+FROM openjdk:21-jdk
+
+# Oracle Linux 8 的 ol8_baseos_latest / ol8_appstream 元数据约 168MB（primary 98MB + filelists 70MB），
+# 且 microdnf 对大文件无法续传，国际链路一次 TLS 重置（Curl error 35 / SSL_ERROR_SYSCALL）
+# 就会让整个构建失败，因此失败自动重试。
+# 循环内故意不清缓存：已下载到 /var/cache/dnf 的元数据与 rpm 可被下一次重试复用，
+# dnf 会对元数据做完整性校验，半截文件不会污染缓存；统一在循环外清理。
+# 5 次全部失败则构建失败，不会产出缺库的残缺镜像。
+RUN set -eu; \
+    ok=0; \
+    for i in 1 2 3 4 5; do \
+        if microdnf install -y \
+            ca-certificates \
+            fontconfig \
+            alsa-lib \
+            atk \
+            at-spi2-atk \
+            at-spi2-core \
+            cairo \
+            cups-libs \
+            dbus-libs \
+            libdrm \
+            mesa-libEGL \
+            mesa-libgbm \
+            glib2 \
+            gtk3 \
+            nspr \
+            nss \
+            pango \
+            libX11 \
+            libXcomposite \
+            libXdamage \
+            libXext \
+            libXfixes \
+            libXi \
+            libXrandr \
+            libxcb \
+            libxkbcommon \
+            libxshmfence \
+            liberation-fonts \
+            google-noto-emoji-fonts \
+            google-noto-emoji-color-fonts; \
+        then ok=1; break; fi; \
+        echo "microdnf install failed (attempt $i/5), retrying in 15s..." >&2; \
+        sleep 15; \
+    done; \
+    [ "$ok" = "1" ]; \
+    microdnf clean all
+
+# 创建字体目录
+RUN mkdir -p /usr/share/fonts/custom
+# 将宿主机的Fonts目录下的所有字体文件复制到容器的字体目录
+COPY ./build/fonts/msyh.ttc /usr/share/fonts/custom/msyh.ttc
+COPY ./build/fonts/msyhl.ttc /usr/share/fonts/custom/msyhl.ttc
+COPY ./build/fonts/msyhbd.ttc /usr/share/fonts/custom/msyhbd.ttc
+# 刷新字体缓存，确保系统识别新添加的字体
+RUN fc-cache -f -v
+# Oracle Linux emoji字体包的版权与许可证说明归档到可审计路径，兼作安装成功校验。
+RUN mkdir -p /usr/share/licenses/golden-eye \
+    && cp /usr/share/licenses/google-noto-emoji-fonts/LICENSE \
+        /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts \
+    && test -s /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts \
+    && cp /usr/share/licenses/google-noto-emoji-color-fonts/LICENSE \
+        /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-color-fonts \
+    && test -s /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-color-fonts
+COPY ./src/main/resources/fonts/LICENSE-google-noto-emoji-fonts.txt \
+    /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts.txt

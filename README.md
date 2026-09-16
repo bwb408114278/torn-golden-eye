@@ -24,44 +24,51 @@ QQ群聊天机器人金眼，基于Torn的部分帮派群定制功能
 
 ## 启动方式
 
-1. 进入项目所在的文件夹,运行以下代码打包镜像
+1. 进入项目所在的文件夹。首次打包时（或运行环境基础镜像有升级时），先构建运行环境基础镜像
+
+```
+docker build -f ./build/Dockerfile.base -t golden-eye-env:1-ol8-jdk21 .
+```
+
+2. 运行以下代码打包应用镜像（日常只需这一步）
 
 ```
 docker build -f ./build/Dockerfile -t golden-eye:当前版本 .
 ```
 
-2. 进入build文件夹,修改.env文件
-3. 控制台运行以下命令用来启动容器:
+3. 进入build文件夹,修改.env文件
+4. 控制台运行以下命令用来启动容器:
 
 ```
 docker-compose up -d --scale golden-eye=0
 ```
 
-4. 控制台运行如下代码，然后使用手机QQ扫码登录
+5. 控制台运行如下代码，然后使用手机QQ扫码登录
 
 ```
 docker logs napcat
 ```
 
-5. 手动创建数据库`golden-eye`
+6. 手动创建数据库`golden-eye`
 
-6. 控制台运行以下命令启动金眼
+7. 控制台运行以下命令启动金眼
 
 ```
 docker compose up -d golden-eye
 ```
 
-7. 浏览器输入localhost:16699，打开NapCat的WebUI，输入默认Token`napcat`登录WebUI
+8. 浏览器输入localhost:16699，打开NapCat的WebUI，输入默认Token`napcat`登录WebUI
 
 ## 常见问题排查
 
 > 镜像打包失败
 
 - 请确认工作目录是否正确，应当同时能看到src、build两个文件夹和pom.xml文件
+- 请确认运行环境基础镜像`golden-eye-env:1-ol8-jdk21`是否已构建（见启动方式第1步）。缺失时`build/Dockerfile`会尝试去Docker Hub拉取同名镜像并报`pull access denied`
 - 网络原因，需要科学上网，如果连接不稳定可以将源镜像先pull到本地再运行
 - ```
   docker pull maven:3.9.10-amazoncorretto-21
-  docker pull openjdk:21-jdk-slim
+  docker pull openjdk:21-jdk
   ```
 
 > 没有捕获到慢Sql日志
