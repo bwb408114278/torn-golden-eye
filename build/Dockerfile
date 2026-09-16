@@ -17,61 +17,14 @@ RUN mvn -q org.codehaus.mojo:exec-maven-plugin:3.5.0:java \
 COPY ./src src
 RUN mvn clean package -DskipTests
 
-#使用OpenJDK运行环境
-FROM openjdk:21-jdk
-
-# Chromium运行依赖固定在Oracle Linux 8镜像内，不依赖宿主机或NAS环境。
-RUN microdnf install -y \
-    ca-certificates \
-    fontconfig \
-    alsa-lib \
-    atk \
-    at-spi2-atk \
-    at-spi2-core \
-    cairo \
-    cups-libs \
-    dbus-libs \
-    libdrm \
-    mesa-libEGL \
-    mesa-libgbm \
-    glib2 \
-    gtk3 \
-    nspr \
-    nss \
-    pango \
-    libX11 \
-    libXcomposite \
-    libXdamage \
-    libXext \
-    libXfixes \
-    libXi \
-    libXrandr \
-    libxcb \
-    libxkbcommon \
-    libxshmfence \
-    liberation-fonts \
-    google-noto-emoji-fonts \
-    && microdnf clean all
+# 运行环境由本地预构建的基础镜像提供：JDK21 + Chromium运行依赖 + 中文字体/emoji字体。
+# 该基础镜像不是部署产物，只用于构建期复用；构建方式与升级触发条件见 build/Dockerfile.base。
+# 改动基础镜像后必须同步修改此处的标签。
+FROM golden-eye-env:1-ol8-jdk21
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY --from=build /ms-playwright /ms-playwright
-
-# 创建字体目录
-RUN mkdir -p /usr/share/fonts/custom
-# 将宿主机的Fonts目录下的所有字体文件复制到容器的字体目录
-COPY ./build/fonts/msyh.ttc /usr/share/fonts/custom/msyh.ttc
-COPY ./build/fonts/msyhl.ttc /usr/share/fonts/custom/msyhl.ttc
-COPY ./build/fonts/msyhbd.ttc /usr/share/fonts/custom/msyhbd.ttc
-# 刷新字体缓存，确保系统识别新添加的字体
-RUN fc-cache -f -v
-# Oracle Linux google-noto-emoji-fonts 的版权与许可证说明归档到可审计路径。
-RUN mkdir -p /usr/share/licenses/golden-eye \
-    && cp /usr/share/licenses/google-noto-emoji-fonts/LICENSE \
-        /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts \
-    && test -s /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts
-COPY ./src/main/resources/fonts/LICENSE-google-noto-emoji-fonts.txt \
-    /usr/share/licenses/golden-eye/LICENSE-google-noto-emoji-fonts.txt
 
 WORKDIR /app/golden-eye
 # 从构建阶段复制生成的jar文件

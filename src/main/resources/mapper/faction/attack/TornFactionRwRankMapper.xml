@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.faction.attack.TornFactionRwRankMapper">
+    <!-- 物理删除指定RW的全部结算行：逻辑删除行会占用 (rw_id, user_id) 唯一索引，重结算前必须物理清空 -->
+    <delete id="physicalDeleteByRwId">
+        DELETE
+        FROM torn_faction_rw_rank
+        WHERE rw_id = #{rwId}
+    </delete>
+</mapper>

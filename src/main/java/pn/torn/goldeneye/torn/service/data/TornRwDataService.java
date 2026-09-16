@@ -23,9 +23,11 @@ import pn.torn.goldeneye.torn.manager.faction.attack.TornRwWarningManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwDTO;
+import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwFactionVO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwRespVO;
 import pn.torn.goldeneye.torn.model.faction.rw.TornFactionRwVO;
 import pn.torn.goldeneye.torn.service.faction.attack.TornFactionAttackService;
+import pn.torn.goldeneye.torn.service.faction.attack.contribution.RwRankSettleService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDateTime;
@@ -37,7 +39,7 @@ import java.util.List;
  * TornRw数据逻辑层
  *
  * @author Bai
- * @version 1.2.3
+ * @version 1.6.4
  * @since 2025.12.25
  */
 @Slf4j
@@ -54,6 +56,7 @@ public class TornRwDataService {
     private final SysSettingDAO settingDao;
     private final TornFactionRwDAO rwDao;
     private final ProjectProperty projectProperty;
+    private final RwRankSettleService rwRankSettleService;
 
     private static final long QUERY_OVERLAP_SECONDS = 2L;
     private static final long NORMAL_INTERVAL_MINUTES = 2;
@@ -128,10 +131,7 @@ public class TornRwDataService {
 
             reviveManager.spiderReviveData(faction, rw, start, to);
             if (ended) {
-                rwDao.lambdaUpdate()
-                        .set(TornFactionRwDO::getEndTime, to)
-                        .eq(TornFactionRwDO::getId, rw.getId())
-                        .update();
+                settleRank(updateWarResult(currentRw, faction, rw, to));
             } else {
                 addScheduleTask(faction, to, rw);
             }
@@ -140,6 +140,53 @@ public class TornRwDataService {
                     faction.getFactionShortName(), rw.getId(), from, to, e);
             addScheduleTask(faction, from, rw);
             throw e;
+        }
+    }
+
+    /**
+     * 写入战争终值：结束时间、胜方与双方最终战争分。
+     *
+     * <p>比分以API当次返回为准覆盖，保证重跑结果一致；胜方为0（未知）时不写，
+     * 保持“null=未知”语义；对手简称只在库内为空时补默认值，不覆盖人工改库修正的结果。</p>
+     *
+     * @param currentRw API返回的当前RW
+     * @param faction   帮派设置
+     * @param rw        库内RW对象
+     * @param endTime   战争结束时间
+     * @return 回查后的最新RW对象
+     */
+    private TornFactionRwDO updateWarResult(TornFactionRwVO currentRw, TornSettingFactionDO faction,
+                                            TornFactionRwDO rw, LocalDateTime endTime) {
+        TornFactionRwFactionVO opponent = currentRw.getOpponentFaction(faction.getId());
+        String shortName = rw.getOpponentShortName() == null
+                ? TornFactionRwVO.defaultShortName(opponent.getName()) : null;
+        rwDao.lambdaUpdate()
+                .set(TornFactionRwDO::getEndTime, endTime)
+                .set(currentRw.getWinner() != 0L, TornFactionRwDO::getWinnerFactionId, currentRw.getWinner())
+                .set(TornFactionRwDO::getFactionScore, currentRw.getSelfFaction(faction.getId()).getScore())
+                .set(TornFactionRwDO::getOpponentScore, opponent.getScore())
+                .set(shortName != null, TornFactionRwDO::getOpponentShortName, shortName)
+                .eq(TornFactionRwDO::getId, rw.getId())
+                .update();
+        return rwDao.getById(rw.getId());
+    }
+
+    /**
+     * 触发战神榜名次结算。
+     *
+     * <p>结算失败只记录日志，不阻断抓取主流程；缺失的结算行可由RW比分回填指令补齐。</p>
+     *
+     * @param rw 已结束的RW对象
+     */
+    private void settleRank(TornFactionRwDO rw) {
+        if (rw == null) {
+            return;
+        }
+
+        try {
+            rwRankSettleService.settle(rw);
+        } catch (RuntimeException e) {
+            log.error("RW名次结算失败，可由RW比分回填指令补结算。rwId={}", rw.getId(), e);
         }
     }
 
