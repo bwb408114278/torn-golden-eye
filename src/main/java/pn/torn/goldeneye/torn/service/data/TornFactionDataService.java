@@ -27,6 +27,8 @@ import pn.torn.goldeneye.torn.model.faction.ce.TornFactionCeRankDTO;
 import pn.torn.goldeneye.torn.model.faction.ce.TornFactionCeRankVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
+import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.torn.service.user.TornUserService;
 import pn.torn.goldeneye.utils.DateTimeUtils;
 
 import java.time.LocalDate;
@@ -39,7 +41,7 @@ import java.util.concurrent.CompletableFuture;
  * Torn帮派数据逻辑层
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.6.3
  * @since 2025.12.03
  */
 @Slf4j
@@ -52,6 +54,7 @@ public class TornFactionDataService {
     private final TornApiKeyConfig apiKeyConfig;
     private final TornApi tornApi;
     private final TornFactionMemberManager factionMemberManager;
+    private final TornUserService userService;
     private final TornSettingFactionManager settingFactionManager;
     private final TornUserDAO userDao;
     private final SysSettingDAO settingDao;
@@ -113,6 +116,9 @@ public class TornFactionDataService {
         }
 
         factionMemberManager.updateFactionMember(factionId, memberList);
+        userService.backfillRegisterTime(memberList.getMembers().stream()
+                .map(TornFactionMemberVO::getId)
+                .toList());
     }
 
     /**

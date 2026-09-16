@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * 全部链提交后统一重算受影响月份汇总。锁在Worker返回（事务提交/回滚完成）后于finally释放。</p>
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.3
  * @since 2025.11.03
  */
 @Slf4j
@@ -152,7 +152,9 @@ public class TornOcBatchIncomeService {
     /**
      * 查询当前帮派待计算的目标终点（叶子）候选。
      *
-     * <p>R10不再用叶子任意income直接排除，完整性由后续预分类判定；R16对后继子查询显式过滤逻辑删除。</p>
+     * <p>R10不再用叶子任意income直接排除，完整性由后续预分类判定；R16对后继子查询显式过滤逻辑删除。
+     * 完成时间早于该OC生效行时间的候选被剔除（生效时间语义是"该OC从那时起算大锅饭"，不改变
+     * 帮派级扫描窗口，"始终"行不受影响）。</p>
      *
      * @param factionId    帮派ID
      * @param startTime    扫描起点（左闭区间）
@@ -161,13 +163,28 @@ public class TornOcBatchIncomeService {
      */
     private List<TornFactionOcDO> queryLeafCandidates(long factionId, LocalDateTime startTime,
                                                       List<String> rotationList) {
+        Map<String, LocalDateTime> effectiveFromByName = reassignManager.getEffectiveFromByName(factionId);
         return ocDao.lambdaQuery()
                 .eq(TornFactionOcDO::getFactionId, factionId)
                 .in(TornFactionOcDO::getStatus, TornOcStatusEnum.getCompleteStatusList())
                 .in(TornFactionOcDO::getName, rotationList)
                 .ge(TornFactionOcDO::getExecutedTime, startTime)
                 .notExists("SELECT 1 FROM torn_faction_oc child WHERE child.previous_oc_id = torn_faction_oc.id AND child.deleted = 0")
-                .list();
+                .list().stream()
+                .filter(oc -> isWithinEffectiveFrom(oc, effectiveFromByName))
+                .toList();
+    }
+
+    /**
+     * 判断OC完成时间是否已达其生效行时间。
+     *
+     * @param oc                  叶子候选
+     * @param effectiveFromByName OC名称到生效时间的映射，"始终"OC不在映射内
+     * @return 完成时间不早于生效时间（或无生效行）返回true
+     */
+    private boolean isWithinEffectiveFrom(TornFactionOcDO oc, Map<String, LocalDateTime> effectiveFromByName) {
+        LocalDateTime effectiveFrom = effectiveFromByName.get(oc.getName());
+        return effectiveFrom == null || !oc.getExecutedTime().isBefore(effectiveFrom);
     }
 
     /**

@@ -17,6 +17,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.income.FactionOcExclusion;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -26,11 +27,12 @@ import static org.mockito.Mockito.mock;
 /**
  * 大锅饭配置派生门面单元测试。
  *
- * <p>覆盖派生规则各主路径：名单组装、NULL/日期分组归并的排除规则、帮派集合、扫描起点取最小值
- * 与全NULL回落当月月初、模式默认值。DAO列表以Mockito桩替换，不依赖数据库。</p>
+ * <p>覆盖派生规则各主路径：名单组装、NULL/日期分组归并的排除规则、帮派集合、扫描起点取当月月初
+ * 与最早生效时间更早者（未来生效钳制在月初）、逐OC生效时间映射、模式默认值。DAO列表以Mockito桩
+ * 替换，不依赖数据库。</p>
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.3
  * @since 2026.09.14
  */
 @ExtendWith(MockitoExtension.class)
@@ -102,7 +104,7 @@ class TornSettingOcReassignManagerTest {
     }
 
     @Test
-    @DisplayName("扫描起点取非NULL生效时间最小值，全NULL回落执行月月初")
+    @DisplayName("扫描起点取当月月初与最早生效时间更早者，未来生效不越过月初")
     void resolveIncomeStartTime_minEffectiveFromOrMonthStart() {
         stubOcList(List.of(
                 scopeRow(FACTION_PN, "Ace in the Hole", null, true),
@@ -115,6 +117,28 @@ class TornSettingOcReassignManagerTest {
         stubOcList(List.of(scopeRow(FACTION_PN, "Ace in the Hole", null, true)));
         assertEquals(LocalDateTime.of(2026, 9, 1, 0, 0, 0),
                 reassignManager.resolveIncomeStartTime(FACTION_PN, execTime));
+
+        // 未来生效行只把全帮扫描起点钳制在当月月初，不暂停基础OC的当月结算
+        stubOcList(List.of(
+                scopeRow(FACTION_PN, "Ace in the Hole", null, true),
+                scopeRow(FACTION_PN, "Cleared for Takeoff", LocalDateTime.of(2026, 10, 1, 0, 0, 0), true)));
+        assertEquals(LocalDateTime.of(2026, 9, 1, 0, 0, 0),
+                reassignManager.resolveIncomeStartTime(FACTION_PN, execTime));
+    }
+
+    @Test
+    @DisplayName("生效时间映射仅含非NULL启用行，未启用帮派返回空映射")
+    void getEffectiveFromByName_onlyDatedEnabledRows() {
+        stubFactionList(factionRow(FACTION_PN, TornOcIncomeModeEnum.COEFFICIENT, true));
+        stubOcList(List.of(
+                scopeRow(FACTION_PN, "Ace in the Hole", null, true),
+                scopeRow(FACTION_PN, "Lock Stock", AUG_FROM, true),
+                scopeRow(FACTION_PN, "Hostile Takeover", AUG_FROM, false)));
+
+        assertEquals(Map.of("Lock Stock", AUG_FROM), reassignManager.getEffectiveFromByName(FACTION_PN));
+
+        stubFactionList();
+        assertTrue(reassignManager.getEffectiveFromByName(FACTION_PN).isEmpty());
     }
 
     @Test

@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.3
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -243,4 +243,14 @@ public class BotCommands {
      * 活跃度帮派对比
      */
     public static final String ACTIVITY_COMPARE = "活跃度对比";
+
+    // ====================PC赛车相关====================
+    /**
+     * PC赛车榜单查询
+     */
+    public static final String PC_RACE_RESULT = "PC结果";
+    /**
+     * PC赛车个人成绩查询
+     */
+    public static final String PC_RACE_SCORE = "PC成绩";
 }

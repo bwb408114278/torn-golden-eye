@@ -6,13 +6,14 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.mapper.user.TornUserMapper;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
  * Torn User持久层类
  *
  * @author Bai
- * @version 0.1.0
+ * @version 1.6.3
  * @since 2025.07.24
  */
 @Repository
@@ -32,6 +33,40 @@ public class TornUserDAO extends ServiceImpl<TornUserMapper, TornUserDO> {
         Map<Long, TornUserDO> resultMap = HashMap.newHashMap(userList.size());
         userList.forEach(u -> resultMap.put(u.getId(), u));
         return resultMap;
+    }
+
+    /**
+     * 查询指定用户中注册时间仍为空的用户ID。
+     *
+     * @param idList 候选用户ID
+     * @return 注册时间为空的用户ID；入参为空时返回空列表
+     */
+    public List<Long> queryIdListWithoutRegisterTime(Collection<Long> idList) {
+        if (CollectionUtils.isEmpty(idList)) {
+            return List.of();
+        }
+
+        return lambdaQuery()
+                .select(TornUserDO::getId)
+                .in(TornUserDO::getId, idList)
+                .isNull(TornUserDO::getRegisterTime)
+                .list().stream()
+                .map(TornUserDO::getId)
+                .toList();
+    }
+
+    /**
+     * 仅在注册时间仍为空时回写，避免覆盖并发写入。
+     *
+     * @param userId       用户ID
+     * @param registerTime 注册时间
+     */
+    public void updateRegisterTimeIfAbsent(long userId, LocalDateTime registerTime) {
+        lambdaUpdate()
+                .set(TornUserDO::getRegisterTime, registerTime)
+                .eq(TornUserDO::getId, userId)
+                .isNull(TornUserDO::getRegisterTime)
+                .update();
     }
 
     /**

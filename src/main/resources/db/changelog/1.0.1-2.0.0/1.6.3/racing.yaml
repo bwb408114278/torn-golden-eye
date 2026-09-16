@@ -1,0 +1,189 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_table_torn_racing_race
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_racing_race
+            remarks: "SMTHPC每日赛事主表"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: race_id
+                  type: BIGINT
+                  remarks: "Torn赛事ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: title
+                  type: VARCHAR(64)
+                  remarks: "赛事名称快照"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: track_name
+                  type: VARCHAR(32)
+                  remarks: "赛道名称快照，赛道ID未收录时为空"
+              - column:
+                  name: business_date
+                  type: DATE
+                  remarks: "业务日期（开赛时间对应的Torn日）"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: start_time
+                  type: TIMESTAMP
+                  remarks: "开赛时间（北京时间）"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: end_time
+                  type: TIMESTAMP
+                  remarks: "结束时间（北京时间）"
+              - column:
+                  name: status
+                  type: VARCHAR(16)
+                  remarks: "抓取时的赛事状态"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: captured_time
+                  type: TIMESTAMP
+                  remarks: "数据抓取完成时间（北京时间）"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  remarks: "删除标识 1为已删除"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "创建时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "更新时间"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_racing_race
+            columnNames: race_id
+            constraintName: uk_racing_race_id
+        - createIndex:
+            tableName: torn_racing_race
+            indexName: idx_racing_race_business_date
+            columns:
+              - column:
+                  name: business_date
+  - changeSet:
+      id: create_table_torn_racing_participant
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_racing_participant
+            remarks: "SMTHPC赛事参赛选手明细表"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: race_id
+                  type: BIGINT
+                  remarks: "Torn赛事ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  remarks: "选手Torn用户ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: nickname
+                  type: VARCHAR(64)
+                  remarks: "抓取时昵称快照，本地无记录的非联盟选手为空"
+              - column:
+                  name: faction_id
+                  type: BIGINT
+                  remarks: "抓取时帮派ID快照"
+              - column:
+                  name: is_alliance
+                  type: BOOLEAN
+                  remarks: "抓取时是否为联盟选手"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: position
+                  type: INT
+                  remarks: "赛事名次（API原始值）"
+              - column:
+                  name: race_time
+                  type: NUMERIC(10,2)
+                  remarks: "完赛用时（秒），撞车为空"
+              - column:
+                  name: best_lap_time
+                  type: NUMERIC(10,2)
+                  remarks: "最快圈用时（秒）"
+              - column:
+                  name: has_crashed
+                  type: BOOLEAN
+                  remarks: "是否撞车"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  remarks: "删除标识 1为已删除"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "创建时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "更新时间"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_racing_participant
+            columnNames: race_id, user_id
+            constraintName: uk_racing_participant_race_user
+        - createIndex:
+            tableName: torn_racing_participant
+            indexName: idx_racing_participant_race_alliance
+            columns:
+              - column:
+                  name: race_id
+              - column:
+                  name: is_alliance
+        - createIndex:
+            tableName: torn_racing_participant
+            indexName: idx_racing_participant_user
+            columns:
+              - column:
+                  name: user_id

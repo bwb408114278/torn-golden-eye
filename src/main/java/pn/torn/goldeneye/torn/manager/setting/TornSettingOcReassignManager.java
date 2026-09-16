@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * 仅依赖已缓存列表与入参，不查库、不读系统时间。</p>
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.3
  * @since 2026.09.14
  */
 @Component
@@ -135,25 +135,46 @@ public class TornSettingOcReassignManager implements DataCacheManager {
     /**
      * 解析帮派级大锅饭收益扫描起点。
      *
-     * <p>派生规则：该帮派范围行中非NULL生效时间的最小值；全部为NULL时取{@code execTime}所在月份
-     * 第一天。本方法为纯函数，仅依赖已缓存列表与入参。</p>
+     * <p>派生规则：取执行时间所在月份第一天与该帮派范围行非NULL生效时间最小值二者中更早者。
+     * 生效时间只用于向过去回溯补算（如PN从2026-08-01起），扫描起点不晚于当月第一天——未来生效的行
+     * 不暂停全帮当月结算；逐OC的生效判定由批量候选过滤按完成时间与该OC生效行比较保证。本方法为
+     * 纯函数，仅依赖已缓存列表与入参。</p>
      *
      * @param factionId 帮派ID
      * @param execTime  执行时间
      * @return 大锅饭收益扫描起点（左闭区间）
      */
     public LocalDateTime resolveIncomeStartTime(long factionId, LocalDateTime execTime) {
-        LocalDateTime earliest = reassignManager.getOcList().stream()
+        LocalDateTime monthStart = LocalDateTime.of(execTime.getYear(), execTime.getMonth(), 1, 0, 0, 0);
+        return reassignManager.getOcList().stream()
                 .filter(row -> row.getFactionId() != null && row.getFactionId() == factionId)
                 .filter(row -> Boolean.TRUE.equals(row.getEnabled()))
                 .map(TornSettingOcReassignOcDO::getEffectiveFrom)
                 .filter(Objects::nonNull)
                 .min(Comparator.naturalOrder())
-                .orElse(null);
-        if (earliest != null) {
-            return earliest;
+                .filter(earliest -> earliest.isBefore(monthStart))
+                .orElse(monthStart);
+    }
+
+    /**
+     * 获取指定帮派各OC的生效时间映射（仅含非NULL生效时间的启用范围行）。
+     *
+     * <p>供批量收益候选过滤做逐OC生效判定：完成时间早于其生效行时间的OC不按大锅饭结算，
+     * "始终"（NULL）行不在映射内即始终通过。帮派未启用时返回空映射。</p>
+     *
+     * @param factionId 帮派ID
+     * @return OC名称到生效时间的映射，无生效时间的不在映射内
+     */
+    public Map<String, LocalDateTime> getEffectiveFromByName(long factionId) {
+        if (!enabledFactionIds().contains(factionId)) {
+            return Map.of();
         }
-        return LocalDateTime.of(execTime.getYear(), execTime.getMonth(), 1, 0, 0, 0);
+        return reassignManager.getOcList().stream()
+                .filter(row -> row.getFactionId() != null && row.getFactionId() == factionId)
+                .filter(row -> Boolean.TRUE.equals(row.getEnabled()))
+                .filter(row -> row.getEffectiveFrom() != null)
+                .collect(Collectors.toMap(TornSettingOcReassignOcDO::getOcName,
+                        TornSettingOcReassignOcDO::getEffectiveFrom, (first, second) -> first));
     }
 
     /**

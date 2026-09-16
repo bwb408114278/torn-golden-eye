@@ -4,7 +4,7 @@ package pn.torn.goldeneye.utils.image.document;
  * 表格单元格的有限语义样式。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.3
  * @since 2026.08.31
  */
 public enum TableCellStyleEnum {
@@ -59,5 +59,25 @@ public enum TableCellStyleEnum {
     /**
      * 页脚。
      */
-    FOOTER
+    FOOTER,
+    /**
+     * 表头行。
+     */
+    HEADER,
+    /**
+     * 普通数据行。
+     */
+    BODY,
+    /**
+     * 第一名。
+     */
+    RANK_FIRST,
+    /**
+     * 第二名。
+     */
+    RANK_SECOND,
+    /**
+     * 第三名。
+     */
+    RANK_THIRD
 }
