@@ -6,14 +6,12 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.ImageQqMsg;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
-import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.napcat.strategy.faction.attack.BaseRwStrategy;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
 import pn.torn.goldeneye.torn.model.faction.attack.contribution.RwContributionReportBO;
 import pn.torn.goldeneye.torn.service.faction.attack.contribution.RwContributionQueryService;
 import pn.torn.goldeneye.torn.service.faction.attack.contribution.image.RwContributionDocumentAssembler;
-import pn.torn.goldeneye.torn.service.faction.attack.contribution.image.RwContributionTextAssembler;
 import pn.torn.goldeneye.utils.image.render.TableImageRenderer;
 
 import java.util.List;
@@ -22,7 +20,8 @@ import java.util.List;
  * RW真赛贡献榜查询策略
  *
  * <p>公开指令，不触发任何抓取或结算行为；按发送者所属帮派统计，
- * 只在本功能开放的5个群内可见。无合格场次时不渲染表格，直接回复兜底文案。</p>
+ * 只在本功能开放的5个群内可见。正常时只发送一条表格图片消息，无合格场次时
+ * 不渲染表格，直接回复兜底文案。</p>
  *
  * @author Bai
  * @version 1.6.4
@@ -35,7 +34,6 @@ public class FactionRwContributionStrategyImpl extends BaseRwStrategy {
 
     private final RwContributionQueryService queryService;
     private final RwContributionDocumentAssembler documentAssembler;
-    private final RwContributionTextAssembler textAssembler;
     private final TableImageRenderer imageRenderer;
     private final TornSettingFactionManager factionManager;
 
@@ -63,7 +61,6 @@ public class FactionRwContributionStrategyImpl extends BaseRwStrategy {
         }
 
         String image = imageRenderer.render(documentAssembler.assemble(faction.getFactionShortName(), report));
-        return List.<QqMsgParam<?>>of(ImageQqMsg.fromBase64(image),
-                new TextQqMsg(textAssembler.assemble(faction.getFactionShortName(), report)));
+        return List.<QqMsgParam<?>>of(ImageQqMsg.fromBase64(image));
     }
 }

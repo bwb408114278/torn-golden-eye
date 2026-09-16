@@ -117,29 +117,55 @@ public class RwScoreBackfillService {
         int matched = 0;
         int updated = 0;
         int offset = 0;
-        while (true) {
-            TornFactionRwRespVO resp = tornApi.sendRequest(factionId,
-                    new TornFactionRwDTO(SORT_DESC, PAGE_SIZE, offset), TornFactionRwRespVO.class);
-            List<TornFactionRwVO> page = resp == null ? null : resp.getRwList();
+        boolean finished = false;
+        while (!finished) {
+            List<TornFactionRwVO> page = fetchPage(factionId, offset);
             if (CollectionUtils.isEmpty(page)) {
-                break;
+                finished = true;
+            } else {
+                ScoreFillResult pageResult = fillPage(page, warMap, factionId);
+                matched += pageResult.matched();
+                updated += pageResult.updated();
+                finished = isCovered(page.getLast(), earliestStart);
+                offset += PAGE_SIZE;
             }
+        }
 
-            for (TornFactionRwVO war : page) {
-                TornFactionRwDO exists = warMap.get(war.getId());
-                if (exists == null) {
-                    continue;
-                }
+        return new ScoreFillResult(matched, updated);
+    }
 
+    /**
+     * 拉取单页真赛场次。
+     *
+     * @param factionId 帮派ID
+     * @param offset    页偏移量
+     * @return 本页场次列表；响应为空时返回null
+     */
+    private List<TornFactionRwVO> fetchPage(long factionId, int offset) {
+        TornFactionRwRespVO resp = tornApi.sendRequest(factionId,
+                new TornFactionRwDTO(SORT_DESC, PAGE_SIZE, offset), TornFactionRwRespVO.class);
+        return resp == null ? null : resp.getRwList();
+    }
+
+    /**
+     * 补齐单页中已在库场次仍为null的比分列。
+     *
+     * @param page      本页API场次
+     * @param warMap    库内场次，键为RW ID，方法内会同步更新为回填后的状态
+     * @param factionId 帮派ID
+     * @return 本页匹配场次数与实际更新场次数
+     */
+    private ScoreFillResult fillPage(List<TornFactionRwVO> page, Map<Long, TornFactionRwDO> warMap, long factionId) {
+        int matched = 0;
+        int updated = 0;
+        for (TornFactionRwVO war : page) {
+            TornFactionRwDO exists = warMap.get(war.getId());
+            if (exists != null) {
                 matched++;
                 if (fillNullColumns(exists, war, factionId)) {
                     updated++;
                 }
             }
-            if (isCovered(page.getLast(), earliestStart)) {
-                break;
-            }
-            offset += PAGE_SIZE;
         }
 
         return new ScoreFillResult(matched, updated);
@@ -249,7 +275,7 @@ public class RwScoreBackfillService {
     }
 
     /**
-     * 单帮派比分回填结果。
+     * 比分回填匹配与更新计数，单页与单帮派汇总共用。
      *
      * @param matched 与库内场次匹配上的API场次数
      * @param updated 实际执行更新的场次数
