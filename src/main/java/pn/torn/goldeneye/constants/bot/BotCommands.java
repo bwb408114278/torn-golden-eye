@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.6.3
+ * @version 1.6.4
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -153,6 +153,14 @@ public class BotCommands {
      * RW神医榜
      */
     public static final String RW_REVIVE_RANK = "RW神医榜";
+    /**
+     * RW贡献榜
+     */
+    public static final String RW_CONTRIBUTION = "RW贡献榜";
+    /**
+     * RW比分回填（一次性SA指令，生产验证后删除）
+     */
+    public static final String RW_SCORE_BACKFILL = "RW比分回填";
     /**
      * 拍卖历史
      */

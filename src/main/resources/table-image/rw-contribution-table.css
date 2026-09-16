@@ -1,0 +1,82 @@
+/* ==========================================================================
+   RW贡献榜主题层：只放RW真赛贡献榜的版式与配色差异，通用规则一律复用基础层。
+   列数为 4+N（N=合格场次数，1~3）：排名/ID/昵称/总分 + N个场次列；
+   下方 :nth-child 列规则按最多3场定义，合格场次不足时靠后的规则自然不生效。
+   注意：本主题层表头必须保持换行能力（依赖 overflow-wrap 的 pre-line），
+   不得为表头设置 white-space:nowrap，否则两行式场次表头会被压成一行。
+   ========================================================================== */
+
+/* 图片宽度：截图以 article.table-image 为根元素，此处宽度即最终PNG宽度 */
+.table-image {
+    width: 1600px;
+    padding: 20px;
+    background: #eef1f8;
+}
+
+.table-image table {
+    width: 100%;
+    background: #ffffff;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12);
+}
+
+/* ---- 列宽与对齐（榜单数据行，最多7列） ---- */
+.table-image table td:nth-child(1) { width: 100px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }  /* 排名 */
+.table-image table td:nth-child(2) { width: 130px; text-align: center; color: #475569; font-variant-numeric: tabular-nums; }  /* ID */
+.table-image table td:nth-child(3) { width: 230px; max-width: 230px; text-align: left; }                                        /* 昵称 */
+.table-image table td:nth-child(4) { width: 180px; text-align: center; font-weight: 700; color: #7f1d1d; font-variant-numeric: tabular-nums; } /* 总分 */
+.table-image table td:nth-child(5) { width: 320px; text-align: center; font-variant-numeric: tabular-nums; }                     /* 最近一场 */
+.table-image table td:nth-child(6) { width: 320px; text-align: center; font-variant-numeric: tabular-nums; }                     /* 第二场 */
+.table-image table td:nth-child(7) { width: 320px; text-align: center; font-variant-numeric: tabular-nums; }                     /* 第三场 */
+
+/* ---- 标题/表头/页脚覆盖：必须位于上方列规则之后 ---- */
+.table-image table td.cell-title  { width: auto; max-width: none; text-align: center; }
+.table-image table td.cell-header { width: auto; max-width: none; text-align: center; line-height: 1.5; }
+.table-image table td.cell-footer { width: auto; max-width: none; text-align: center; }
+
+/* ---- 边框与质感 ---- */
+.table-image table td {
+    border: 0;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 11px 14px;
+}
+
+.table-image table td:nth-child(1) { border-left: 1px solid #e2e8f0; }
+.table-image table td:last-child  { border-right: 1px solid #e2e8f0; }
+
+.table-image table td.cell-title {
+    background: linear-gradient(135deg, #7f1d1d 0%, #b91c1c 100%);
+    color: #ffffff;
+    border-top: 1px solid #b91c1c;
+    border-bottom: 0;
+    font-size: 30px;
+    letter-spacing: 2px;
+    padding: 22px 16px;
+}
+
+.table-image table td.cell-header {
+    background: linear-gradient(180deg, #991b1b 0%, #7f1d1d 100%);
+    color: #fee2e2;
+    border-bottom: 2px solid #b91c1c;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 13px 12px;
+}
+
+/* 斑马纹：只作用于榜单数据行，标题/表头/页脚不受影响 */
+.table-image table tr:nth-child(even) td:not(.cell-title):not(.cell-header):not(.cell-footer) {
+    background: #f1f5f9;
+}
+
+.table-image table td.cell-body {
+    background: #ffffff;
+    color: #1f2937;
+}
+
+.table-image table td.cell-footer {
+    background: #fef2f2;
+    color: #4b5563;
+    border-top: 2px solid #fecaca;
+    border-bottom: 0;
+    padding: 12px 14px;
+}

@@ -5,6 +5,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotConstants;
+import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 import pn.torn.goldeneye.repository.dao.faction.attack.TornFactionRwDAO;
@@ -26,7 +27,7 @@ import java.util.List;
  * RW基础策略
  *
  * @author Bai
- * @version 1.4.5
+ * @version 1.6.4
  * @since 2026.06.17
  */
 @Slf4j
@@ -39,8 +40,6 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
     private ProjectProperty projectProperty;
     @Resource
     private RwStatWindowService rwStatWindowService;
-    private static final int WINDOW_MINUTES = 3;
-    private static final int MIN_BATTLE_COUNT = 100;
 
     @Override
     public List<Long> getCustomGroupId() {
@@ -205,7 +204,10 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
      * @param rw           目标RW
      * @param errorMessage 稳定错误提示
      */
-    protected record RwStatWindowContext(RwStatWindowQuery query, TornFactionRwDO rw, String errorMessage) {
+    protected record RwStatWindowContext(
+            RwStatWindowQuery query,
+            TornFactionRwDO rw,
+            String errorMessage) {
     }
 
     /**
@@ -246,6 +248,7 @@ public abstract class BaseRwStrategy extends SmthMsgStrategy {
         LocalDateTime startTime = rw.getStartTime();
         LocalDateTime endTime = rw.getEndTime() == null ? LocalDateTime.now() : rw.getEndTime();
         return attackLogDao.queryActiveTimeWindows(rw.getFactionId(),
-                rw.getOpponentFactionId(), WINDOW_MINUTES, MIN_BATTLE_COUNT, startTime, endTime);
+                rw.getOpponentFactionId(), TornConstants.RW_ACTIVE_WINDOW_MINUTES,
+                TornConstants.RW_ACTIVE_MIN_BATTLE_COUNT, startTime, endTime);
     }
 }

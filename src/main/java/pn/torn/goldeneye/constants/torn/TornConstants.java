@@ -9,11 +9,8 @@ import java.util.List;
 /**
  * Torn常量
  *
- * <p>大锅饭名单、排除规则、帮派集合、补算扫描起点与收益模式已迁移至数据库配置表，
- * 由TornSettingOcReassignManager统一派生，本类不再承载。</p>
- *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.4
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -68,6 +65,16 @@ public class TornConstants {
     public static final String OC_NAME_MANIFEST_CRUELTY = "Manifest Cruelty";
     public static final String OC_NAME_GONE_FISSION = "Gone Fission";
     public static final String OC_NAME_CRANE_REACTION = "Crane Reaction";
+
+    // ====================RW相关====================
+    /**
+     * RW活跃对战窗口长度（分钟）
+     */
+    public static final int RW_ACTIVE_WINDOW_MINUTES = 3;
+    /**
+     * RW活跃对战窗口内满足对冲的最小出手次数
+     */
+    public static final int RW_ACTIVE_MIN_BATTLE_COUNT = 100;
 
     // ====================物品相关====================
     public static final String ITEM_TYPE_WEAPON = "Weapon";

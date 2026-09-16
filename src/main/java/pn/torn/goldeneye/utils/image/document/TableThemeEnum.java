@@ -12,7 +12,7 @@ import java.util.List;
  * 未注册的文档类型快速失败，不静默回退到其他主题。</p>
  *
  * @author Bai
- * @version 1.6.3
+ * @version 1.6.4
  * @since 2026.09.15
  */
 @AllArgsConstructor
@@ -25,7 +25,12 @@ public enum TableThemeEnum {
     /**
      * PC赛车主题：通用基础层 + PC赛车专有层
      */
-    PC_RACE("pc-race-table", List.of("/table-image/table-base.css", "/table-image/pc-race-table.css"));
+    PC_RACE("pc-race-table", List.of("/table-image/table-base.css", "/table-image/pc-race-table.css")),
+    /**
+     * RW贡献榜主题：通用基础层 + RW贡献榜专有层
+     */
+    RW_CONTRIBUTION("rw-contribution-table",
+            List.of("/table-image/table-base.css", "/table-image/rw-contribution-table.css"));
 
     /**
      * 获取主题的文档类型标识。

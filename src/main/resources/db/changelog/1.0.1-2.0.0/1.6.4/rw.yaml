@@ -1,0 +1,103 @@
+databaseChangeLog:
+  - changeSet:
+      id: alter_table_torn_faction_rw_add_war_result
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_rw
+            columns:
+              - column:
+                  name: target_score
+                  type: INT
+                  remarks: "战争目标分数，登记时写入；null为未知"
+              - column:
+                  name: winner_faction_id
+                  type: BIGINT
+                  remarks: "胜方帮派ID；null为未结束或未知"
+              - column:
+                  name: faction_score
+                  type: INT
+                  remarks: "我方最终战争分；null为未结束或未知"
+              - column:
+                  name: opponent_score
+                  type: INT
+                  remarks: "对手最终战争分；null为未结束或未知"
+              - column:
+                  name: opponent_short_name
+                  type: VARCHAR(32)
+                  remarks: "对手帮派简称，表头展示用；默认按名称首字母生成，支持人工改库修正，为空时渲染回退全名"
+      rollback:
+        - dropColumn:
+            tableName: torn_faction_rw
+            columnNames: target_score,winner_faction_id,faction_score,opponent_score,opponent_short_name
+  - changeSet:
+      id: create_table_torn_faction_rw_rank
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_faction_rw_rank
+            remarks: "RW真赛战神榜名次结算表"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  remarks: "主键ID（雪花）"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: rw_id
+                  type: BIGINT
+                  remarks: "所属RW ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  remarks: "成员Torn用户ID"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: nickname
+                  type: VARCHAR(64)
+                  remarks: "结算时昵称快照"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: rank_num
+                  type: INT
+                  remarks: "战神榜名次（输出评分降序行号）"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: damage_score
+                  type: NUMERIC(14,2)
+                  remarks: "输出评分快照"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  remarks: "删除标识 1为已删除"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "创建时间"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  remarks: "更新时间"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: torn_faction_rw_rank
+            columnNames: rw_id, user_id
+            constraintName: uk_rw_rank_war_user
+      rollback:
+        - dropTable:
+            tableName: torn_faction_rw_rank

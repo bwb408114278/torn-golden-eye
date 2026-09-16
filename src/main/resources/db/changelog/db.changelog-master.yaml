@@ -106,4 +106,6 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.6.2/oc-reassign.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.6.3/racing.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.6.4/rw.yaml
 

@@ -12,7 +12,7 @@ import java.time.LocalTime;
  * 帮派Rw表
  *
  * @author Bai
- * @version 1.2.3
+ * @version 1.6.4
  * @since 2025.12.25
  */
 @Data
@@ -59,4 +59,24 @@ public class TornFactionRwDO extends BaseDO {
      * 飞书上传后的工作表ID
      */
     private String larksuiteSheetId;
+    /**
+     * 战争目标分数，登记真赛时写入；null为未知
+     */
+    private Integer targetScore;
+    /**
+     * 胜方帮派ID，战争结束后写入；null为未结束或未知
+     */
+    private Long winnerFactionId;
+    /**
+     * 我方最终战争分，战争结束后写入；null为未结束或未知
+     */
+    private Integer factionScore;
+    /**
+     * 对手最终战争分，战争结束后写入；null为未结束或未知
+     */
+    private Integer opponentScore;
+    /**
+     * 对手帮派简称，表头展示用；默认按对手名称首字母生成，支持人工改库修正
+     */
+    private String opponentShortName;
 }
