@@ -27,7 +27,7 @@ import java.util.List;
  * OC收益榜策略实现类
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.5
  * @since 2025.09.10
  */
 @Component
@@ -47,7 +47,7 @@ public class OcBenefitRankStrategyImpl extends BaseOcBenefitQueryStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "让我看看谁的OC赔钱了，例g#" + BotCommands.OC_BENEFIT_RANK + "(#帮派ID|同期)(#yyyy-MM)";
+        return "查询月度OC收益榜，例g#" + BotCommands.OC_BENEFIT_RANK + "(#帮派ID|同期)(#yyyy-MM)";
     }
 
     @Override

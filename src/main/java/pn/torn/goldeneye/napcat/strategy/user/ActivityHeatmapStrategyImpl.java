@@ -24,7 +24,7 @@ import java.util.List;
  * 本类只保留目标段解析与查询分发。
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.6.5
  * @since 2026.07.07
  */
 @Component
@@ -39,7 +39,7 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "查询活跃度热力图，支持帮派/用户（缺省查自己/所属帮派）和截止日期参数";
+        return "查询活跃度热力图，支持帮派/用户两种查询方式";
     }
 
     /**

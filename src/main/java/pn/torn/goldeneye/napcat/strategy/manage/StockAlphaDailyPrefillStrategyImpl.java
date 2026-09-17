@@ -32,7 +32,7 @@ import java.util.concurrent.RejectedExecutionException;
  * 不占用Bot消息线程，也不把批量历史扫描伪装成瞬时完成；执行结果通过独立回执发送到指令发起群。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.08
  */
 @Slf4j
@@ -57,7 +57,7 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "预填或修复股票α日线快照，可带结束日期，例如" + getCommand() + "#2026-09-05";
+        return "预填股票α日线快照，例如" + getCommand() + "(#2026-09-05)";
     }
 
     @Override
