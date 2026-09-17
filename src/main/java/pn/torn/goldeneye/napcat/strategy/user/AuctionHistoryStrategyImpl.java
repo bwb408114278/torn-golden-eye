@@ -31,7 +31,7 @@ import static pn.torn.goldeneye.constants.torn.TornAuctionConstants.*;
  * 拍卖行历史策略实现类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.6.5
  * @since 2026.01.15
  */
 @Component
@@ -230,8 +230,11 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
 
     /**
      * 构建物品条件列表
+     *
+     * @param msg 物品参数，可为别名，也可为物品全名的左起若干字母
+     * @return 参与 IN 查询的物品全名列表；套装别名展开为该套装全部部位
      */
-    private List<String> buildItemCondition(String msg) {
+    List<String> buildItemCondition(String msg) {
         if (!StringUtils.hasText(msg)) {
             return List.of();
         }
@@ -239,7 +242,7 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         String itemParam = msg.toUpperCase().replace(" ", "");
         for (Map.Entry<String, String> entry : ITEM_ALAIS_MAP.entrySet()) {
             if (entry.getKey().toUpperCase().replace(" ", "").equals(itemParam)) {
-                return List.of(entry.getValue());
+                return expandItemName(entry.getValue());
             }
         }
 
@@ -259,6 +262,25 @@ public class AuctionHistoryStrategyImpl extends SmthMsgStrategy {
         }
 
         return resultList;
+    }
+
+    /**
+     * 展开别名对应的物品全名。套装别名登记的是套装基名（如 Riot），
+     * 数据库中并不存在该名称的成交记录，需展开为物品列表中登记的全部部位，
+     * 才能一次查询整套装备。
+     *
+     * @param itemName 别名映射到的物品名，可能是物品全名或套装基名
+     * @return 参与 IN 查询的物品全名列表；无法展开时返回原值以保持原有精确匹配行为
+     */
+    private List<String> expandItemName(String itemName) {
+        if (ITEM_LIST.contains(itemName)) {
+            return List.of(itemName);
+        }
+
+        List<String> setItems = ITEM_LIST.stream()
+                .filter(name -> name.startsWith(itemName + " "))
+                .toList();
+        return setItems.isEmpty() ? List.of(itemName) : setItems;
     }
 
     /**
