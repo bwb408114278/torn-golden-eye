@@ -5,10 +5,11 @@
 - 文档类型：长期技术架构与实现边界
 - 业务范围：α=0.04 首批股票提醒
 - 长期业务基线：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 当前一次性技术修复契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_review_remediation_technical_plan_one_time.md`（关闭本轮P1并完成验收后删除）
+- 当前一次性技术方案契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_morning_window_technical_plan_one_time.md`（α早间决策窗口；完成§8验收后删除并把结论并入§13）
 - 业务验收依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
 - 时区：`Asia/Shanghai`
 - 状态：第六批业务Review不通过；当前代码整改范围仅为`R-ALPHA-PRE-001`换仓通知组租约恢复/领取释放组状态同步及领取者安全收敛。`R-ALPHA-PRE-002`仅FORMAL允许VIP_ALPHA正式新入场、`R-ALPHA-PRE-003`通知链统一业务时钟属于已确认的代码层基本通过项，仅保留直接回归验证。`R-ALPHA-PRE-004`正式环境证据、`R-ALPHA-PRE-006`通知数据来源确认及真实BUY/SELL验收属于部署后门禁，不能写成代码已完成。
+- 早间决策窗口：α新决策与"已结束自然日快照"后移至`08:00`起的已结束桶，Tornsy巡检提前至07:00、股票日报提前至08:10；该变更以§4.3.1、§5.4和一次性方案为基线。
 
 本文坚持最小改动：α是现有股票提醒系统中的新入场决策分支，不建设第二套股票平台。所有新增Java、Schema和测试必须能映射到本文的生产入口和验收证据；无法映射的扩展不得纳入本次开发。
 
@@ -28,6 +29,7 @@
 10. 公共入场/成交组装只补充实际成交事实，不得把批次已经冻结的Alpha规则身份（`portfolio_code`、`primary_strategy`、买入/卖出/分配/消息规则版本）覆盖为旧版默认值；历史旧版批次没有专用身份，继续使用旧版默认值。
 11. Alpha消息必须经Alpha感知的最小渲染分支，复用既有BUY/SELL发送、审计、payload冻结与幂等链；不得把`primaryStrategy=ALPHA`交给只认识旧版三类BUY的解析器，不得展示旧版`qualityScore`或旧版五槽容量语义，不新增第二套Alpha消息产品。
 12. 决策事实与执行事实必须分列保存：决策桶起点（`decision_bar_start_time`）、执行桶起点（`execution_bar_start_time`）、批次来源bar（`signal_time`）与批次执行bar（`entry_time`/`exit_time`）不得互相冒充。
+13. α新决策与已结束自然日快照只允许在`StockAlphaRuleDefinition.DECISION_WINDOW_START`（`08:00`，Asia/Shanghai）起的已结束桶内产生，执行桶仍为该决策桶的严格下一根15分钟bar；窗口只约束"新建事实"，不约束已持久化决策的复用、消费与执行。
 
 ---
 
@@ -114,6 +116,24 @@ expectedExecutionBarStart = signalBucketStart + 15分钟
 
 只允许使用该精确桶、已结束、可用且价格合法的bar；不跨断层、不使用后续bar。初始BUY和换仓共用该策略，执行桶写入决策/批次，重启时只恢复同一桶。决策桶（`signalBucketStart`）必须显式持久化为`torn_stock_alpha_decision.decision_bar_start_time`，不得由执行桶反推冒充决策时点；批次的`signal_time`为该决策桶，`entry_time`/`exit_time`为执行桶。
 
+### 4.3.1 决策窗口（早间）
+
+α新决策与"已结束自然日快照"只允许在窗口内产生，窗口起点为`StockAlphaRuleDefinition.DECISION_WINDOW_START = 08:00`（`Asia/Shanghai` 墙钟，语义为"允许的最早已结束桶起点"）。
+
+```text
+08:00 桶（08:15:10 处理）→ 构建已结束自然日快照 + 落决策
+                          decision_bar_start_time = 08:00，execution_bar_start_time = 08:15
+08:15 桶（08:30:10 处理）→ 初始BUY / 原子换仓成交，写入PENDING通知审计
+同一分钟轮次尾部          → sendPendingNotices()，播报 ≈ 08:30–08:31
+跟随窗口                  → follow_until = entry_time + 60min = 08:15–09:15
+```
+
+- 判定宿主唯一：`StockAlphaExecutionBarPolicy#isDecisionWindowOpen(LocalDateTime)`；业务类不得内联时间比较或硬编码`08:00`。
+- 语义为"不早于"而非"等于"：当日快照瞬时未就绪或决策bar不可用时按桶重试，只顺延当日成交与播报，不丢失phase。
+- 窗口只约束"新建决策"与"已结束自然日快照构建"；已持久化决策的复用、消费、执行、结算与通知不受窗口约束，保证切换发版瞬间的在途决策不被饿死。
+- 执行桶关系不变：仍为决策桶的严格下一根15分钟bar；不跨桶追补。
+- 上游时序：Tornsy每日巡检 07:00 → 股票日报 08:10 → α窗口 08:00 起。
+
 ### 4.4 换仓原子性
 
 目标变化时在一个现有事务边界内完成：
@@ -197,6 +217,8 @@ torn_stock_alpha_decision
  failure_reason, rebalance_batch_id)
 ```
 
+已结束自然日快照的最早构建时刻由§4.3.1的窗口决定：生产首次有效触发点为次日的α决策窗口起点（08:00桶，08:15:10处理），晚于每日07:00的Tornsy巡检修复。`StockAlphaDailyCloseService`的"最近已结束自然日"语义与23:45首触发注释保持不变，构建时机由`VipStockAlertScheduler`的窗口守卫决定；超管预填入口（`预填股票α日线#日期`）不受窗口约束。
+
 表名、列名和索引以实际现有Schema核对为准；若现有模型已能无损承载，则不新增表。`decision_bar_start_time`在`1.6.1`迁移中追加为可空列，仅在首次落决策时冻结，不参与冲突更新，也不需要历史回填（部署前α决策表为空；如需兼容历史行，回填口径为`execution_bar_start_time - 15分钟`）。
 
 ---
@@ -224,7 +246,7 @@ pn.torn.goldeneye.torn.service.stocks.alert.alpha
 ├── notice
 │   └── StockAlphaNoticeRenderer.java        (α买卖正文唯一文案来源,纯静态)
 └── execution
-    ├── StockAlphaExecutionBarPolicy.java
+    ├── StockAlphaExecutionBarPolicy.java   (决策桶/执行桶/决策窗口时间的唯一算法与判定宿主)
     ├── StockAlphaBatchIdentity.java         (α批次业务身份唯一写入点)
     ├── StockAlphaEntryService.java
     └── StockAlphaRebalanceService.java
@@ -414,6 +436,17 @@ StockAlphaExecutionBarPolicyTest
 - 不做复杂Shadow全量矩阵；
 - 不做第二套平台的端到端测试；
 - 不用读取XML/YAML字符串断言代替真实SQL。
+### 9.5 早间决策窗口（一次性方案）的收敛要求
+
+窗口判定只允许一个主证据与两处接线证据，禁止重复矩阵：
+
+```text
+StockAlphaExecutionBarPolicyTest     // 窗口边界（07:45关 / 08:00开 / null关）唯一完整覆盖
+StockAlphaDecisionServiceTest        // 守卫位置语义：关窗不建决策，但已持久化决策仍被复用
+VipStockAlertSchedulerTest           // 单行接线：窗口外桶不构建α日线快照
+```
+
+不新增调度器/cron测试（禁止用注解断言代替行为验证）；不为`StockRoundTransactionService`新增窗口用例（其决策服务为mock）；不新增参数化多时段矩阵、回测用例与集成测试；现有α测试夹具（09:45/10:00）已落在窗口内，不得改写。
 
 ---
 
@@ -428,6 +461,9 @@ StockAlphaExecutionBarPolicyTest
 7. `TECHNICALLY_READY`后人工批准打开α新入场。
 8. 首条真实BUY发送并完成业务确认后，按批准开启日报。
 9. 真实目标变化形成配对`ALPHA_REBALANCE` SELL并完成业务确认。
+10. 早间决策窗口一次性方案：窗口常量与两处守卫（决策服务新建决策、调度器日线构建）与两个cron（Tornsy 07:00、股票日报 08:10）**同批发布**；发版建议避开每日08:00–09:35（α窗口执行与`entry_stale_at`敏感区）。窗口前的在途PENDING决策仍按原执行桶消费。
+11. 首个相位日采集一次性方案§8.2的只读证据（决策桶/执行桶/成交价/跟随窗口/播报时刻/日线构建时刻与bar一致性）并留档。
+12. 验收通过后删除一次性方案文件，结论并入§13。
 
 回退：关闭α新入场→保留存量管理和通知重试→核查α批次→另行人工批准旧版新入场；不得自动回退或改写已有α批次。
 
@@ -462,6 +498,14 @@ StockAlphaExecutionBarPolicyTest
 
 - 早期第三批、第五批和第六轮记录保留为历史审查上下文，不代表第六批当前状态；当前状态以本节和第六批一次性整改方案为准。
 - 早期测试计数、提交范围和“P1=0”结论不作为第六批整改完成证据。
+### 13.3 早间决策窗口方案（2026-09-18）
+
+- 一次性方案与验收标准：`.ai/knowledge/stocks/vip_stock_alert_alpha_morning_window_technical_plan_one_time.md`
+- 背景：首条α消息（批次`A20260917-9`/CNC）在00:31播报，跟随窗口00:15–01:15，成员无法跟买；根因是α决策锚定在自然日切换后的第一、二根15分钟桶。
+- 口径：α决策窗口起点常量08:00（08:00桶08:15:10落决策 → 08:15桶08:30:10成交 → 播报≈08:30）；Tornsy巡检08:45→07:00；股票日报08:30→08:10；先后顺序为巡检→日报→α。
+- 兼容：历史决策/批次/通知/快照零改写；窗口只约束新建决策与已结束自然日快照构建；在途PENDING决策仍按原执行桶消费；phase序列不回填；回放与预填入口不受影响。
+- 收益依据：早间07:00–13:00为平台（单笔0.51%–0.55%，桶间差异远小于±0.097pp标准误）；08:15执行桶单笔0.542%/单利年化均值16.2%，现状00:15为0.617%/19.7%；不存在比00:15更高的早间点，故以"可跟买"换取约0.06pp/笔。
+- 状态：待实施；完成一次性方案§8验收并留档后关闭。
 
 ---
 
@@ -481,6 +525,10 @@ StockAlphaExecutionBarPolicyTest
 - 预填无交易副作用；
 - 通知审计、单次发送状态和失败不回滚交易语义可追溯；
 - 聚焦测试、必要真实Mapper/事务测试和迁移验证通过；
+- α新决策与已结束自然日快照只允许在`DECISION_WINDOW_START`（08:00）起的已结束桶产生；窗口判定仅有`StockAlphaExecutionBarPolicy`一个宿主，且仅被`StockAlphaDecisionService`（新建决策）与`VipStockAlertScheduler`（日线构建）两处调用；
+- 窗口为"不早于"语义：切换发版瞬间的在途PENDING决策仍按原执行桶消费，不饿死、不重复消费同一phase；
+- Tornsy每日巡检为07:00且仍覆盖昨天完整自然日；股票日报为08:10；
+- 历史决策、批次、通知审计与日线快照零改写，无Schema迁移、无新增配置项；
 - 无未解决P0/P1。
 
 技术完成不等于真实BUY/SELL或业务验收完成；真实业务验收按一次性技术方案和业务验收文档单独确认。
