@@ -44,17 +44,28 @@ public class StockDailySummaryRenderer {
      */
     private static final String SUMMARY_TITLE_TEMPLATE = "【VIP股票组合日报｜%s】";
     /**
-     * α正式组合区块标题
+     * α正式组合区块标题模板(含槽位总数占位符)
      */
     private static final String ALPHA_SECTION_TITLE = "α 正式组合（新策略主仓 · %d槽）";
     /**
-     * 存量正式组合区块标题
+     * 存量正式组合区块标题模板(含槽位总数占位符)
      */
     private static final String LEGACY_SECTION_TITLE = "存量正式组合（只出不进 · %d槽）";
     /**
-     * α影子组合区块标题
+     * α影子组合区块标题模板(含槽位总数占位符)
      */
     private static final String ALPHA_SHADOW_SECTION_TITLE = "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · %d槽）";
+    /**
+     * 组合区块模板 - 首参数为已渲染标题,其余参数为该组合的统计值
+     */
+    private static final String SECTION_TEMPLATE = "%s%n"
+            + "- 槽位占用：%d / %d%n"
+            + "- 组合权益：%s%n"
+            + "- 可用现金：%s%n"
+            + "- 昨日买入：%d批 ／ 昨日卖出：%d批%n"
+            + "- 昨日已实现净收益：%s（收益率 %s）%n"
+            + "- 当前持仓：%s%n"
+            + "- 数据陈旧批次：%d";
     /**
      * 存量正式组合提示语
      */
@@ -102,32 +113,36 @@ public class StockDailySummaryRenderer {
     public String render(DailySummaryData data) {
         return String.format(SUMMARY_TITLE_TEMPLATE, data.summaryDate().format(SUMMARY_DATE_FORMATTER))
                 + System.lineSeparator() + System.lineSeparator()
-                + renderSection(ALPHA_SECTION_TITLE, data.alpha())
+                + renderSection(sectionTitle(ALPHA_SECTION_TITLE, data.alpha()), data.alpha())
                 + System.lineSeparator() + System.lineSeparator()
-                + renderSection(LEGACY_SECTION_TITLE, data.legacy())
+                + renderSection(sectionTitle(LEGACY_SECTION_TITLE, data.legacy()), data.legacy())
                 + System.lineSeparator() + System.lineSeparator()
                 + LEGACY_NOTICE
                 + System.lineSeparator() + System.lineSeparator()
-                + renderSection(ALPHA_SHADOW_SECTION_TITLE, data.alphaShadow());
+                + renderSection(sectionTitle(ALPHA_SHADOW_SECTION_TITLE, data.alphaShadow()), data.alphaShadow());
+    }
+
+    /**
+     * 渲染组合区块标题,填充该组合的槽位总数。
+     *
+     * @param titleTemplate 区块标题模板(含槽位总数占位符)
+     * @param summary       组合摘要
+     * @return 区块标题
+     */
+    private String sectionTitle(String titleTemplate, PortfolioSummary summary) {
+        return String.format(titleTemplate, summary.slotCount());
     }
 
     /**
      * 渲染单个组合区块。
      *
-     * @param titleTemplate 区块标题模板(含槽位总数占位符)
-     * @param summary       组合摘要
+     * @param title   已渲染的区块标题
+     * @param summary 组合摘要
      * @return 区块文本
      */
-    private String renderSection(String titleTemplate, PortfolioSummary summary) {
-        return String.format(titleTemplate + "%n"
-                        + "- 槽位占用：%d / %d%n"
-                        + "- 组合权益：%s%n"
-                        + "- 可用现金：%s%n"
-                        + "- 昨日买入：%d批 ／ 昨日卖出：%d批%n"
-                        + "- 昨日已实现净收益：%s（收益率 %s）%n"
-                        + "- 当前持仓：%s%n"
-                        + "- 数据陈旧批次：%d",
-                summary.slotCount(),
+    private String renderSection(String title, PortfolioSummary summary) {
+        return String.format(SECTION_TEMPLATE,
+                title,
                 summary.occupiedSlots(), summary.slotCount(),
                 formatEquity(summary),
                 formatMoney(summary.cashAndReserved()),
