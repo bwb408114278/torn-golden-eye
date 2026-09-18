@@ -820,7 +820,7 @@ class StockEntrySettlementServiceTest {
                     "公共成交组装不得覆盖α消息规则版本");
             assertEquals(11L, filled.getAlphaDecisionId(), "α批次成交后必须仍可回查来源决策");
             assertNotNull(filled.getFollowUntil(), "成交必须冻结跟随截止时间");
-            assertNotNull(filled.getFollowMaxPrice(), "成交必须冻结最高建议跟随价");
+            assertNotNull(filled.getFollowMaxPrice(), "成交必须冻结记录价格上限");
         }
 
         @Test

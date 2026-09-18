@@ -75,11 +75,11 @@ public class StockNoticeComposeService {
     /**
      * 买入消息标题模板
      */
-    private static final String BUY_TITLE_TEMPLATE = "【VIP股票买入｜批次 %s】";
+    private static final String BUY_TITLE_TEMPLATE = "【Stock组合记录｜建仓 %s】";
     /**
      * 卖出消息标题模板
      */
-    private static final String SELL_TITLE_TEMPLATE = "【VIP股票卖出｜批次 %s】";
+    private static final String SELL_TITLE_TEMPLATE = "【Stock组合记录｜平仓 %s】";
     /**
      * 数据异常关闭消息标题模板
      */
@@ -98,7 +98,7 @@ public class StockNoticeComposeService {
      * 组合买入消息文本
      * <p>
      * 使用枚举 {@code getChineseDisplay()} 将策略、风格、成熟度、风险转换为中文。
-     * 跟随截止时间和最高建议跟随价直接从批次冻结字段读取(followUntil/followMaxPrice),
+     * 记录有效期与记录价格上限直接从批次冻结字段读取(followUntil/followMaxPrice),
      * 不在组合时重新计算,确保审计快照与实际文本一致。
      * 组合槽位展示为 {@code batch.slotNo / 5}。
      * <p>
@@ -135,19 +135,19 @@ public class StockNoticeComposeService {
 
         return String.format(BUY_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +
-                "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
-                "买入策略：" + strategyChinese + "\n" +
-                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
+                "Stock：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
+                "模型规则：" + strategyChinese + "\n" +
+                "记录参考价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
                 "\n" +
-                "股票风格：" + styleChinese + "\n" +
+                "Stock风格：" + styleChinese + "\n" +
                 "成熟度：" + maturityChinese + "\n" +
                 "风险等级：" + riskChinese + "\n" +
-                "建议跟随截止：" + StockNoticeTextFormat.formatFollowUntil(followUntil) + "\n" +
-                "最高建议跟随价：$" + StockNoticeTextFormat.formatPrice(followMaxPrice) + "\n" +
-                "当前组合槽位：" + slotDisplay + "\n" +
+                "记录有效期至：" + StockNoticeTextFormat.formatFollowUntil(followUntil) + "\n" +
+                "记录价格上限：$" + StockNoticeTextFormat.formatPrice(followMaxPrice) + "\n" +
+                "虚拟槽位：" + slotDisplay + "\n" +
                 "\n" +
-                "本消息属于系统虚拟组合，系统不记录个人持仓。" + "\n" +
-                "超过跟随时间或最高建议跟随价后不建议追入。";
+                "本条为系统虚拟组合的内部记录，不指向任何真实账户操作，" + "\n" +
+                "不构成投资建议、买卖要约或跟单依据。";
     }
 
     /**
@@ -192,16 +192,15 @@ public class StockNoticeComposeService {
 
         return String.format(SELL_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +
-                "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
-                "原买入策略：" + strategyChinese + "\n" +
-                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
-                "系统参考卖价：$" + StockNoticeTextFormat.formatPrice(exitPrice) + "\n" +
-                "扣除0.1%卖出费后净收益：" + netReturnText + "\n" +
-                "系统持有时间：" + holdDuration + "\n" +
-                "关闭原因：" + closeTypeChinese + "\n" +
+                "Stock：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
+                "模型规则：" + strategyChinese + "\n" +
+                "记录参考价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
+                "记录结束价：$" + StockNoticeTextFormat.formatPrice(exitPrice) + "\n" +
+                "扣除0.1%费率后系统记录净变化：" + netReturnText + "\n" +
+                "记录持有区间：" + holdDuration + "\n" +
+                "记录结束原因：" + closeTypeChinese + "\n" +
                 "\n" +
-                "本卖出仅对应批次 " + batch.getBatchNo() + "。" + "\n" +
-                "未跟随该批次买入的成员无需操作。";
+                "本条为系统虚拟组合的内部记录，不构成投资建议。";
     }
 
     /**
@@ -230,17 +229,17 @@ public class StockNoticeComposeService {
 
         return String.format(DISASTER_CLOSE_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
                 "\n" +
-                "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
-                "原买入策略：" + strategyChinese + "\n" +
-                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
+                "Stock：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
+                "模型规则：" + strategyChinese + "\n" +
+                "记录参考价：$" + StockNoticeTextFormat.formatPrice(entryPrice) + "\n" +
                 "原退出信号已触发，但预期成交bar缺失。" + "\n" +
                 "原退出原因：" + originalExitReasonChinese + "\n" +
                 "预期成交时间：" + expectedExitText + "\n" +
                 "数据恢复后首个可用参考价：$" + StockNoticeTextFormat.formatPrice(exitPrice) + "\n" +
-                "扣除0.1%卖出费后系统批次收益：" + netReturnText + "\n" +
+                "扣除0.1%费率后系统记录净变化：" + netReturnText + "\n" +
                 "\n" +
-                "本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出。" + "\n" +
-                "未跟随原BUY的成员无需操作。";
+                "本次为系统风险/管理关闭，不代表在该价格形成了原规则的准时平仓。" + "\n" +
+                "未跟随原记录的成员无需操作。";
     }
 
     /**
@@ -458,9 +457,9 @@ public class StockNoticeComposeService {
      */
     private String composeAlphaRebalanceMessage(TornStockVirtualBatchDO batch) {
         if (StockBatchStatusEnum.CLOSED_ROTATION.getCode().equals(batch.getBatchStatus())) {
-            return "【VIP Alpha换仓｜原仓卖出】" + "\n" + composeSellMessage(batch);
+            return "【Stock组合记录｜换仓平仓】" + "\n" + composeSellMessage(batch);
         }
-        return "【VIP Alpha换仓｜新仓买入】" + "\n" + composeBuyMessage(batch, 1);
+        return "【Stock组合记录｜换仓建仓】" + "\n" + composeBuyMessage(batch, 1);
     }
 
     /**

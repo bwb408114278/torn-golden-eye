@@ -36,7 +36,7 @@ public class TornsyStockHistoryBackfillStrategyImpl extends BaseStockHistoryRang
 
     @Override
     public String getCommandDescription() {
-        return "按指定时间范围同步Tornsy股票分钟数据";
+        return "按指定时间范围同步Tornsy Stock分钟数据";
     }
 
     @Override
@@ -51,13 +51,13 @@ public class TornsyStockHistoryBackfillStrategyImpl extends BaseStockHistoryRang
 
     @Override
     protected String buildAcceptedMessage(LocalDateTime start, LocalDateTime end) {
-        return "Tornsy股票数据同步任务已受理，范围：[" + DateTimeUtils.convertToString(start)
+        return "Tornsy Stock数据同步任务已受理，范围：[" + DateTimeUtils.convertToString(start)
                 + ", " + DateTimeUtils.convertToString(end) + ")，请关注日志和数据验收结果。";
     }
 
     @Override
     protected String buildRejectedMessage(BackfillSubmission submission) {
-        return "Tornsy股票数据同步未受理：" + rejectReason(submission);
+        return "Tornsy Stock数据同步未受理：" + rejectReason(submission);
     }
 
     /**

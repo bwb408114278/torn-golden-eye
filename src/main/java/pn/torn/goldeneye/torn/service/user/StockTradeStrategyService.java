@@ -195,7 +195,7 @@ public class StockTradeStrategyService {
 
         if (feature.personality() == StockPersonalityEnum.DECLINER) {
             score += 10D;
-            reasons.add("阴跌型股票已出现确认信号，允许小仓位参与");
+            reasons.add("阴跌型Stock已出现确认信号，允许小仓位参与");
         } else if (feature.personality() != StockPersonalityEnum.STRONG) {
             score += 10D;
             reasons.add("非强势股出现低位反弹确认信号");
@@ -342,10 +342,10 @@ public class StockTradeStrategyService {
 
         if (feature.personality() == StockPersonalityEnum.DECLINER && feature.return1d() <= 0D) {
             score -= 22D;
-            reasons.add("阴跌型股票尚未出现1日反弹确认，容易长时间套牢");
+            reasons.add("阴跌型Stock尚未出现1日反弹确认，容易长时间套牢");
         } else if (feature.personality() == StockPersonalityEnum.WEAK && feature.return1d() <= 0D) {
             score -= 14D;
-            reasons.add("弱势股票尚未出现反弹确认，建议等待");
+            reasons.add("弱势Stock尚未出现反弹确认，建议等待");
         }
 
         if (feature.zScore30d() <= -3D && feature.return1d() < 0D) {

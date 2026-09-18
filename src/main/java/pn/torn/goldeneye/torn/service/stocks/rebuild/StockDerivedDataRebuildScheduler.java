@@ -145,7 +145,7 @@ public class StockDerivedDataRebuildScheduler {
 
     private String buildSuccessReceipt(StockDerivedDataRebuildResult result) {
         return """
-                【VIP股票派生数据重建完成】
+                【VIP Stock派生数据重建完成】
                 范围：[%s, %s)
                 耗时：%dms
                 处理桶数：%d
@@ -161,7 +161,7 @@ public class StockDerivedDataRebuildScheduler {
 
     private String buildFailureReceipt(StockDerivedDataRebuildResult result) {
         return """
-                【VIP股票派生数据重建失败】
+                【VIP Stock派生数据重建失败】
                 范围：[%s, %s)
                 耗时：%dms
                 已完成分片：%d
@@ -178,7 +178,7 @@ public class StockDerivedDataRebuildScheduler {
 
     private String buildExceptionReceipt(LocalDateTime start, LocalDateTime end, long elapsed, String error) {
         return """
-                【VIP股票派生数据重建失败】
+                【VIP Stock派生数据重建失败】
                 范围：[%s, %s)
                 耗时：%dms
                 已完成分片：0

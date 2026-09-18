@@ -88,7 +88,7 @@ class StockAlphaBatchIdentityItTest {
         assertEquals(StockBatchStatusEnum.OPEN.getCode(), readBack.getBatchStatus());
         assertEquals(1000L, readBack.getQuantity());
         assertNotNull(readBack.getFollowUntil(), "成交必须冻结跟随截止时间");
-        assertNotNull(readBack.getFollowMaxPrice(), "成交必须冻结最高建议跟随价");
+        assertNotNull(readBack.getFollowMaxPrice(), "成交必须冻结记录价格上限");
     }
 
     @Test

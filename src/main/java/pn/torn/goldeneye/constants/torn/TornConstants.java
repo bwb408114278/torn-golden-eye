@@ -110,7 +110,7 @@ public class TornConstants {
      */
     public static final String SOMEONE = "Someone";
     /**
-     * 订阅备注
+     * 订阅备注 - 仅由群公告等外部渠道说明, 不出现在机器人输出文案中
      */
     public static final String REMARK_SUBSCRIBE = "golden-eye subscribe";
     /**

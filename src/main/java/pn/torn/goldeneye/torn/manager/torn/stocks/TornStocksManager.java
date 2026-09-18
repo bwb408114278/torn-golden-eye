@@ -301,11 +301,11 @@ public class TornStocksManager {
 
         List<String> msgPriceList = new ArrayList<>();
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("过去1分钟内, 检测到股票大额交易");
+        stringBuilder.append("过去1分钟内, 检测到 Stock 大额成交");
         for (StocksChangeDO change : changeList) {
             change.calculateNetTrade();
             String msgPrice = change.getStocksShortname() + ": "
-                    + (change.isBuy() ? "买入: +" : "卖出: ")
+                    + (change.isBuy() ? "净买入: +" : "净卖出: ")
                     + NumberUtils.formatCompactNumber(change.getNetTradeValue())
                     + " 当前价格: " + change.getCurrentPrice();
             msgPriceList.add(msgPrice);
@@ -317,7 +317,7 @@ public class TornStocksManager {
                 .setFont(new Font("微软雅黑", Font.PLAIN, 30));
         msgList.add(ImageQqMsg.fromBase64(TextImageUtils.renderTextToBase64(stringBuilder.toString(), textConfig)));
         msgList.add(new TextQqMsg(DateTimeUtils.convertToString(regDateTime) +
-                " 股票大额交易\n" + String.join("\n", msgPriceList)));
+                " Stock 大额成交\n" + String.join("\n", msgPriceList)));
         BotHttpReqParam param = new GroupMsgHttpBuilder()
                 .setGroupId(projectProperty.getVipGroupId())
                 .addMsg(msgList)

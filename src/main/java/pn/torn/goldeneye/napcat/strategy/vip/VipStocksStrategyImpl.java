@@ -19,7 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * VIP股票推荐策略实现类
+ * Stock分析策略实现类
  *
  * @author Bai
  * @version 1.1.6
@@ -37,7 +37,7 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "让金眼开波算命蒙一下怎么炒股赚钱";
+        return "查看 Stock 模型分析结果（系统内部研究口径）";
     }
 
     @Override
@@ -53,7 +53,7 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
 
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
-        tableData.add(List.of(DateTimeUtils.convertToString(analyzeList.getFirst().analysisTime()) + " 炒股建议",
+        tableData.add(List.of(DateTimeUtils.convertToString(analyzeList.getFirst().analysisTime()) + " Stock 模型记录",
                 "", "", "", "", ""));
         tableConfig.addMerge(0, 0, 1, 6);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
@@ -61,7 +61,7 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
                 .setPadding(25)
                 .setFont(new Font("微软雅黑", Font.BOLD, 30)));
 
-        tableData.add(List.of("股票代码", "当前价格", "操作建议", "操作评分", "策略解释", "原因"));
+        tableData.add(List.of("Stock", "参考价", "系统动作", "系统评分", "规则说明", "依据"));
         tableConfig.setSubTitle(1, 6);
 
 
@@ -75,7 +75,7 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
                     String.join("\n", analyze.reasons())));
         }
 
-        tableData.add(List.of("投资有风险, 方案仅供参考!", "", "", "", "", ""));
+        tableData.add(List.of("以上为系统内部模型记录，不构成投资建议。", "", "", "", "", ""));
         int totalRow = 2 + analyzeList.size();
         tableConfig.addMerge(totalRow, 0, 1, 6);
         tableConfig.setCellStyle(totalRow, 0, new TableImageUtils.CellStyle()

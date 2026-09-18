@@ -2,7 +2,6 @@ package pn.torn.goldeneye.napcat.strategy.base;
 
 import jakarta.annotation.Resource;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
@@ -30,11 +29,10 @@ public abstract class BaseVipMsgStrategy extends BasePrivateMsgStrategy {
     public List<? extends QqMsgParam<?>> handle(QqRecMsgSender sender, String msg) {
         TornUserDO user = super.getTornUser(sender, "");
         if (!isVip(user)) {
-            return List.of(new TextQqMsg("未订阅VIP或已过期, 发送2Xan到3312605, 并备注"
-                    + TornConstants.REMARK_SUBSCRIBE + "支持一次订阅多月" +
-                    "\n如是加群功能申请QQ群, 金眼会自动通过入群申请" +
-                    "\n赚钱群: " + projectProperty.getVipGroupId() +
-                    "\n提醒群: " + projectProperty.getVipNoticeGroupId()));
+            return List.of(new TextQqMsg("当前QQ没有有效的订阅记录。"
+                    + "\n金眼的部分功能需要开通后使用，请先加入金眼交流群，开通方式见群公告。"
+                    + "\n金眼交流群：" + projectProperty.getVipEntryGroupId()
+                    + "\n提醒：金眼不会向任何人索要游戏账号、密码或游戏道具。"));
         }
 
         return handle(user, msg);

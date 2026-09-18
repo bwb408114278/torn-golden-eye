@@ -40,12 +40,12 @@ public final class StockAlphaNoticeRenderer {
     /**
      * 买入正文的Top1目标说明。
      */
-    private static final String TOP1_TARGET_DISPLAY = "当前为Top1目标：持仓位于全股票池Top3内则继续保持";
+    private static final String TOP1_TARGET_DISPLAY = "当前为Top1目标：虚拟持仓位于全部Stock的Top3内则继续保持";
 
     /**
      * 渲染α买入通知正文。
      * <p>
-     * 跟随截止时间与最高建议跟随价直接取批次冻结字段,缺失时按既有fail-closed语义抛出,
+     * 记录有效期与记录价格上限直接取批次冻结字段,缺失时按既有fail-closed语义抛出,
      * 禁止生成缺少跟随窗口的α买入通知。
      *
      * @param batch α买入批次(须含batchNo、stocksShortname、entryReferencePrice、followUntil、followMaxPrice)
@@ -59,15 +59,15 @@ public final class StockAlphaNoticeRenderer {
         if (followUntil == null || batch.getFollowMaxPrice() == null) {
             throw new IllegalStateException("买入批次跟随字段缺失,禁止生成通知: batchNo=" + batch.getBatchNo());
         }
-        return "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
-                "买入策略：" + STRATEGY_DISPLAY + BUY_FACTOR_DISPLAY + "\n" +
-                "系统参考买价：$" + StockNoticeTextFormat.formatPrice(batch.getEntryReferencePrice()) + "\n" +
+        return "Stock：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
+                "模型规则：" + STRATEGY_DISPLAY + BUY_FACTOR_DISPLAY + "\n" +
+                "记录参考价：$" + StockNoticeTextFormat.formatPrice(batch.getEntryReferencePrice()) + "\n" +
                 TOP1_TARGET_DISPLAY + "\n" +
-                "建议跟随截止：" + StockNoticeTextFormat.formatFollowUntil(followUntil) + "\n" +
-                "最高建议跟随价：$" + StockNoticeTextFormat.formatPrice(batch.getFollowMaxPrice()) + "\n" +
+                "记录有效期至：" + StockNoticeTextFormat.formatFollowUntil(followUntil) + "\n" +
+                "记录价格上限：$" + StockNoticeTextFormat.formatPrice(batch.getFollowMaxPrice()) + "\n" +
                 "\n" +
-                "本消息属于系统虚拟组合，系统不记录个人持仓。" + "\n" +
-                "超过跟随时间或最高建议跟随价后不建议追入。";
+                "本条为系统虚拟组合的内部记录，不指向任何真实账户操作，" + "\n" +
+                "不构成投资建议、买卖要约或跟单依据。";
     }
 
     /**
@@ -85,15 +85,14 @@ public final class StockAlphaNoticeRenderer {
         Objects.requireNonNull(batch.getBatchNo(), "批次编号不能为空");
         String closeReasonDisplay = REBALANCE_CLOSE_REASON_DISPLAY
                 + "（" + StockAlphaRuleDefinition.EXIT_REASON_REBALANCE + "）";
-        return "股票：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
+        return "Stock：" + StockNoticeTextFormat.nullSafeText(batch.getStocksShortname()) + "\n" +
                 "原买入批次：" + batch.getBatchNo() + "\n" +
-                "系统参考买价：" + StockNoticeTextFormat.formatPrice(batch.getEntryReferencePrice()) + "\n" +
-                "系统参考卖价：" + StockNoticeTextFormat.formatPrice(batch.getExitReferencePrice()) + "\n" +
-                "扣除0.1%卖出费后净收益：" + StockNoticeTextFormat.formatNetReturn(batch.getNetReturn()) + "\n" +
-                "系统持有时间：" + StockNoticeTextFormat.formatHoldDuration(batch.getEntryTime(), batch.getExitTime()) + "\n" +
-                "关闭原因：" + closeReasonDisplay + "\n" +
+                "记录参考价：" + StockNoticeTextFormat.formatPrice(batch.getEntryReferencePrice()) + "\n" +
+                "记录结束价：" + StockNoticeTextFormat.formatPrice(batch.getExitReferencePrice()) + "\n" +
+                "扣除0.1%费率后系统记录净变化：" + StockNoticeTextFormat.formatNetReturn(batch.getNetReturn()) + "\n" +
+                "记录持有区间：" + StockNoticeTextFormat.formatHoldDuration(batch.getEntryTime(), batch.getExitTime()) + "\n" +
+                "记录结束原因：" + closeReasonDisplay + "\n" +
                 "\n" +
-                "本卖出仅对应批次 " + batch.getBatchNo() + "，为α目标变化换仓，不是止盈、止损或到期退出。" + "\n" +
-                "未跟随该批次买入的成员无需操作。";
+                "本条为系统虚拟组合的内部记录，不构成投资建议。";
     }
 }

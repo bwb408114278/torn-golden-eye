@@ -260,7 +260,7 @@ public class TornsyStockHistoryBackfillScheduler {
 
     private String buildSuccessReceipt(LocalDateTime start, LocalDateTime end,
                                        TornsyStockHistoryBackfillService.BackfillSummary summary, long elapsed) {
-        return "【Tornsy股票历史回填完成】\n"
+        return "【Tornsy Stock历史回填完成】\n"
                 + "范围：[" + start + ", " + end + ")\n"
                 + "耗时：" + elapsed + "ms\n"
                 + "来源行数：" + summary.sourceRows() + "\n"
@@ -275,7 +275,7 @@ public class TornsyStockHistoryBackfillScheduler {
 
     private String buildFailedReceipt(LocalDateTime start, LocalDateTime end,
                                       TornsyStockHistoryBackfillService.BackfillSummary summary, long elapsed) {
-        return "【Tornsy股票历史回填失败】\n"
+        return "【Tornsy Stock历史回填失败】\n"
                 + "范围：[" + start + ", " + end + ")\n"
                 + "耗时：" + elapsed + "ms\n"
                 + "已完成分片：" + (summary.failedSlices()) + "个失败\n"
@@ -286,7 +286,7 @@ public class TornsyStockHistoryBackfillScheduler {
     }
 
     private String buildExceptionReceipt(LocalDateTime start, LocalDateTime end, long elapsed, String error) {
-        return "【Tornsy股票历史回填失败】\n"
+        return "【Tornsy Stock历史回填失败】\n"
                 + "范围：[" + start + ", " + end + ")\n"
                 + "耗时：" + elapsed + "ms\n"
                 + "错误摘要：" + (error == null ? "未知异常" : error) + "\n"

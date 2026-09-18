@@ -42,7 +42,7 @@ public class StockDailySummaryRenderer {
     /**
      * 摘要标题模板
      */
-    private static final String SUMMARY_TITLE_TEMPLATE = "【VIP股票组合日报｜%s】";
+    private static final String SUMMARY_TITLE_TEMPLATE = "【Stock组合日报｜%s】";
     /**
      * α正式组合区块标题模板(含槽位总数占位符)
      */
@@ -60,16 +60,20 @@ public class StockDailySummaryRenderer {
      */
     private static final String SECTION_TEMPLATE = "%s%n"
             + "- 槽位占用：%d / %d%n"
-            + "- 组合权益：%s%n"
+            + "- 组合净值：%s%n"
             + "- 可用现金：%s%n"
-            + "- 昨日买入：%d批 ／ 昨日卖出：%d批%n"
-            + "- 昨日已实现净收益：%s（收益率 %s）%n"
-            + "- 当前持仓：%s%n"
+            + "- 昨日建仓：%d批 ／ 昨日平仓：%d批%n"
+            + "- 昨日已实现净变化：%s（变动率 %s）%n"
+            + "- 当前虚拟持仓：%s%n"
             + "- 数据陈旧批次：%d";
     /**
      * 存量正式组合提示语
      */
     private static final String LEGACY_NOTICE = "提示：α 策略已接管新建仓位；存量正式组合按原规则退出，不再新增买入。";
+    /**
+     * 日报免责声明
+     */
+    private static final String DISCLAIMER = "本日报为系统内部虚拟组合记录，不构成投资建议。";
     /**
      * 金钱展示格式(千分位整数)
      */
@@ -112,6 +116,8 @@ public class StockDailySummaryRenderer {
      */
     public String render(DailySummaryData data) {
         return String.format(SUMMARY_TITLE_TEMPLATE, data.summaryDate().format(SUMMARY_DATE_FORMATTER))
+                + System.lineSeparator() + System.lineSeparator()
+                + DISCLAIMER
                 + System.lineSeparator() + System.lineSeparator()
                 + renderSection(sectionTitle(ALPHA_SECTION_TITLE, data.alpha()), data.alpha())
                 + System.lineSeparator() + System.lineSeparator()

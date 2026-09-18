@@ -57,7 +57,7 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "预填股票α日线快照，例如" + getCommand() + "(#2026-09-05)";
+        return "预填Stock α日线快照，例如" + getCommand() + "(#2026-09-05)";
     }
 
     @Override
@@ -78,17 +78,17 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
         }
         if (!maintenanceGate.tryAcquire()) {
             log.warn("股票α日线预填未受理, 原因=已有历史数据维护任务在执行中, endDate={}, groupId={}", endDate, groupId);
-            return super.buildTextMsg("已有历史数据维护任务在执行中，股票α日线预填本次未受理，请稍后重试");
+            return super.buildTextMsg("已有历史数据维护任务在执行中，Stock α日线预填本次未受理，请稍后重试");
         }
         try {
             stockBackfillExecutor.execute(() -> runPrefill(endDate, groupId));
         } catch (RejectedExecutionException e) {
             maintenanceGate.release();
             log.warn("股票α日线预填未受理, 原因=历史数据维护执行器已满, endDate={}, groupId={}", endDate, groupId);
-            return super.buildTextMsg("历史数据维护执行器已满，股票α日线预填本次未受理，请稍后重试");
+            return super.buildTextMsg("历史数据维护执行器已满，Stock α日线预填本次未受理，请稍后重试");
         }
         log.info("股票α日线预填任务已受理, endDate={}, groupId={}", endDate, groupId);
-        return super.buildTextMsg("股票α日线快照预填已受理并在后台执行，结束日期："
+        return super.buildTextMsg("Stock α日线快照预填已受理并在后台执行，结束日期："
                 + DateTimeUtils.convertToString(endDate) + "，完成后回执本群");
     }
 
@@ -108,11 +108,11 @@ public class StockAlphaDailyPrefillStrategyImpl extends BaseGroupMsgStrategy {
             String result = built > 0
                     ? "写入条数：" + built
                     : "无已结束有效日期可构建（窗口内日期已完整或无行情）";
-            sendReceipt(groupId, "【股票α日线预填完成】\n结束日期：" + DateTimeUtils.convertToString(endDate)
+            sendReceipt(groupId, "【Stock α日线预填完成】\n结束日期：" + DateTimeUtils.convertToString(endDate)
                     + "\n" + result + "\n耗时：" + (System.currentTimeMillis() - begin) + "ms");
         } catch (RuntimeException e) {
             log.error("股票α日线预填异常, endDate={}, groupId={}: {}", endDate, groupId, e.getMessage(), e);
-            sendReceipt(groupId, "【股票α日线预填失败】\n结束日期：" + DateTimeUtils.convertToString(endDate)
+            sendReceipt(groupId, "【Stock α日线预填失败】\n结束日期：" + DateTimeUtils.convertToString(endDate)
                     + "\n错误摘要：" + (e.getMessage() == null ? "未知异常" : e.getMessage())
                     + "\n可使用相同结束日期重新提交；已写入部分保持幂等。");
         } finally {
