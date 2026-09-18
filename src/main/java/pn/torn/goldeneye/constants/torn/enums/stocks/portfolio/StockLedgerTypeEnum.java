@@ -24,7 +24,12 @@ public enum StockLedgerTypeEnum {
      */
     VIP_ALPHA("VIP_ALPHA", "阿尔法组合"),
     /**
+     * 阿尔法影子组合 - 2槽×50亿的α相位分散影子账本,与正式α组合完全隔离且不投递通知
+     */
+    ALPHA_SHADOW("ALPHA_SHADOW", "阿尔法影子组合"),
+    /**
      * 候选影子组合 - 独立5槽×20亿的候选影子账本,与正式组合共享规则但完全隔离
+     * <p>历史行仍需可解析,仅停止写入。
      */
     SHADOW_FORMAL_CANDIDATE("SHADOW_FORMAL_CANDIDATE", "候选影子组合"),
     /**

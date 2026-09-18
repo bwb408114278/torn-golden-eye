@@ -16,7 +16,7 @@ import java.util.Arrays;
  * {@link #FAILED} 为自动重发实现之前的历史终态,不再产生新记录,仅保留读取兼容。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.24
  */
 @Getter
@@ -46,6 +46,13 @@ public enum StockNoticeStatusEnum {
      * 发送失败 - 自动重发实现之前的历史终态,不再产生新记录
      */
     FAILED("FAILED", "发送失败(历史终态)"),
+    /**
+     * 影子仅记录 - 影子轨道审计行的终态,只留痕不投递
+     * <p>
+     * 本状态不在任何可发送查询的取值集合内(见{@link #isClaimable(String)}与
+     * {@code existsSendableNotices}),因此影子通知永不进入投递链。
+     */
+    SHADOW_RECORDED("SHADOW_RECORDED", "影子仅记录"),
     ;
 
     /**

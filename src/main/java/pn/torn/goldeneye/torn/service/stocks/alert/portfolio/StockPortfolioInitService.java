@@ -16,15 +16,18 @@ import java.util.*;
 import java.util.stream.IntStream;
 
 /**
- * 股票组合初始化服务 - 验证并补救正式、候选影子与VIP Alpha组合的槽位
+ * 股票组合初始化服务 - 验证并补救正式、候选影子、VIP Alpha与α影子组合的槽位
  * <p>
  * 正式组合({@link StockPortfolioService#PORTFOLIO_CODE})与候选影子组合
  * ({@link StockPortfolioService#SHADOW_CANDIDATE_PORTFOLIO_CODE})各由
  * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#SLOT_COUNT} 个
  * 独立槽位组成; VIP Alpha组合({@link StockPortfolioService#VIP_ALPHA_PORTFOLIO_CODE})由
  * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_SLOT_COUNT} 个
- * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_INITIAL_CASH} 初始资金槽位组成。
- * 本服务在应用启动或运维校验场景下,检查三个组合槽位的完整性与金额正确性:
+ * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_INITIAL_CASH} 初始资金槽位组成;
+ * VIP Alpha影子组合({@link StockPortfolioService#VIP_ALPHA_SHADOW_PORTFOLIO_CODE})由
+ * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_SHADOW_SLOT_COUNT} 个
+ * {@value pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService#VIP_ALPHA_SHADOW_SLOT_CASH} 初始资金槽位组成。
+ * 本服务在应用启动或运维校验场景下,检查各组合槽位的完整性与金额正确性:
  * 槽位缺失时按标准参数补建,初始资金或账本口径异常时记录警告但不擅自修改业务数据。
  *
  * <h3>核心规则</h3>
@@ -62,12 +65,13 @@ public class StockPortfolioInitService {
      */
     private static final long INITIAL_LOCK_VERSION = 0L;
     /**
-     * 需要验证与初始化的组合编码(正式 + 候选影子)
+     * 需要验证与初始化的组合编码(正式 + 候选影子 + VIP Alpha + α影子)
      */
     private static final List<String> PORTFOLIO_CODES = List.of(
             StockPortfolioService.PORTFOLIO_CODE,
             StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE,
-            StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+            StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE,
+            StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE);
 
     private final TornStockPortfolioSlotDAO portfolioSlotDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
@@ -194,14 +198,40 @@ public class StockPortfolioInitService {
         return getSlotCount(StockPortfolioService.PORTFOLIO_CODE);
     }
 
+    /**
+     * 返回组合的标准槽位数量。
+     * <p>
+     * α影子组合必须先于默认分支判定:否则会被落到默认5槽口径,破坏"2槽×5B"的资金结构。
+     *
+     * @param portfolioCode 组合编码
+     * @return 该组合的标准槽位数量
+     */
     private int getExpectedSlotCount(String portfolioCode) {
-        return StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)
-                ? StockPortfolioService.VIP_ALPHA_SLOT_COUNT : StockPortfolioService.SLOT_COUNT;
+        if (StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)) {
+            return StockPortfolioService.VIP_ALPHA_SLOT_COUNT;
+        }
+        if (StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE.equals(portfolioCode)) {
+            return StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT;
+        }
+        return StockPortfolioService.SLOT_COUNT;
     }
 
+    /**
+     * 返回组合的标准每槽初始资金。
+     * <p>
+     * α影子组合必须先于默认分支判定:否则会被落到默认2B口径,破坏影子资金规格。
+     *
+     * @param portfolioCode 组合编码
+     * @return 该组合的标准每槽初始资金
+     */
     private BigDecimal getExpectedInitialCash(String portfolioCode) {
-        return StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)
-                ? StockPortfolioService.VIP_ALPHA_INITIAL_CASH : StockPortfolioService.INITIAL_CASH;
+        if (StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)) {
+            return StockPortfolioService.VIP_ALPHA_INITIAL_CASH;
+        }
+        if (StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE.equals(portfolioCode)) {
+            return StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_CASH;
+        }
+        return StockPortfolioService.INITIAL_CASH;
     }
 
     private List<Integer> expectedSlotNos(String portfolioCode) {
@@ -488,6 +518,9 @@ public class StockPortfolioInitService {
         }
         if (StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(portfolioCode)) {
             return StockLedgerTypeEnum.FORMAL.getCode();
+        }
+        if (StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE.equals(portfolioCode)) {
+            return StockLedgerTypeEnum.ALPHA_SHADOW.getCode();
         }
         return "";
     }

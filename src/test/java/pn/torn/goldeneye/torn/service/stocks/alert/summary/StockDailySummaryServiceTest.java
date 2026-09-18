@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
  * 股票日报数据质量测试，验证权益缺失时仍展示现金和缺失行情明细。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.17
  */
 @DisplayName("股票日报数据质量测试")
@@ -403,11 +403,10 @@ class StockDailySummaryServiceTest {
                                              pn.torn.goldeneye.configuration.property.ProjectProperty projectProperty,
                                              pn.torn.goldeneye.torn.manager.setting.SysSettingManager sysSettingManager) {
         PortfolioEquityCalculator equityCalculator = new PortfolioEquityCalculator(portfolioService);
-        DynamicSellResearchSummaryCalculator researchCalculator = new DynamicSellResearchSummaryCalculator();
         DailySummaryMetricsCalculator metricsCalculator = new DailySummaryMetricsCalculator();
         StockDailySummaryQueryService queryService = new StockDailySummaryQueryService(
                 slotDao, batchDao, signalEventDao, markDao, barDao, marketClock,
-                equityCalculator, researchCalculator, metricsCalculator);
+                equityCalculator, metricsCalculator);
         StockDailySummaryRenderer renderer = new StockDailySummaryRenderer();
         StockDailySummaryNoticeService noticeService = new StockDailySummaryNoticeService(
                 noticeAuditDAO, new StockNoticeSendRecorder(noticeAuditDAO), sendService, marketClock,

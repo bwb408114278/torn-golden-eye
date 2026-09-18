@@ -31,7 +31,7 @@ import static org.mockito.Mockito.mockStatic;
  * 股票批次成交结算服务测试，覆盖待买入批次成交/取消/过期和待卖出批次成交的核心逻辑。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.26
  */
 @DisplayName("股票批次成交结算服务测试")
@@ -995,7 +995,7 @@ class StockEntrySettlementServiceTest {
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches,
                                         List<TornStockPortfolioSlotDO> slots) {
         return new RoundSnapshot(
-                List.of(), List.of(), List.of(), activeBatches, List.of(), List.of(), slots, ROUND_TIME
+                List.of(), List.of(), List.of(), activeBatches, List.of(), slots, ROUND_TIME
         );
     }
 }

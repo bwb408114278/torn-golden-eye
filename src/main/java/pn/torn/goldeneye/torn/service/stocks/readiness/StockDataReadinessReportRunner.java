@@ -3,12 +3,14 @@ package pn.torn.goldeneye.torn.service.stocks.readiness;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.repository.dao.torn.stocks.readiness.StockDataReadinessQueryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.replay.StockReplayReadOnlyGuard;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -25,7 +27,7 @@ import java.util.*;
  * {@code READ ONLY + REPEATABLE READ} 快照内加载，生成真实 JSON/Markdown 审核报告。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @Slf4j
@@ -35,7 +37,7 @@ public class StockDataReadinessReportRunner {
 
     private final StockDataReadinessReportWriter writer;
     private final StockDataReadinessQueryDAO queryDao;
-    private final StockReplayReadOnlyGuard readOnlyGuard;
+    private final PlatformTransactionManager transactionManager;
     private final StockMarketClock marketClock;
 
     /**
@@ -51,8 +53,8 @@ public class StockDataReadinessReportRunner {
         }
         requireWholeMinute(startInclusive, "startInclusive");
         requireWholeMinute(endExclusive, "endExclusive");
-        StockDataReadinessSnapshot snapshot = readOnlyGuard.inReadOnlyTransaction(
-                status -> loadSnapshot(startInclusive, endExclusive));
+        StockDataReadinessSnapshot snapshot = inReadOnlySnapshot(
+                startInclusive, endExclusive);
         String runId = UUID.randomUUID().toString();
         LocalDateTime generatedAt = marketClock.now();
         String barBuildVersion = Stock15mBarBuildService.BUILD_VERSION;
@@ -70,6 +72,26 @@ public class StockDataReadinessReportRunner {
         } catch (Exception e) {
             throw new IllegalStateException("数据就绪报告生成失败", e);
         }
+    }
+
+    /**
+     * 在独立的 {@code READ ONLY + REPEATABLE READ} 事务内加载统计快照。
+     * <p>
+     * 使用 {@code REQUIRES_NEW} 传播:即使调用方已处于可写或 READ_COMMITTED 外层事务,
+     * 也会挂起外层事务并新建只读一致性快照事务,保证全部统计来自同一数据代际;
+     * 任何写操作都会被数据库只读事务拒绝。
+     *
+     * @param startInclusive 起始时间(含)
+     * @param endExclusive   结束时间(不含)
+     * @return 完整统计快照
+     */
+    private StockDataReadinessSnapshot inReadOnlySnapshot(LocalDateTime startInclusive,
+                                                          LocalDateTime endExclusive) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        template.setReadOnly(true);
+        template.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        return template.execute(status -> loadSnapshot(startInclusive, endExclusive));
     }
 
     /**
@@ -255,7 +277,6 @@ public class StockDataReadinessReportRunner {
      */
     public record ReportRunResult(
             Path path,
-            StockDataReadinessReport report
-    ) {
+            StockDataReadinessReport report) {
     }
 }

@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * α策略日线决策与phase消费记录。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Data
@@ -24,6 +24,14 @@ public class TornStockAlphaDecisionDO extends BaseDO {
      * 主键。
      */
     private Long id;
+    /**
+     * α相位轨道编码。
+     * <p>
+     * 多槽相位分散下"同一业务日同一phase"可同时存在于不同轨道,本字段是决策唯一键
+     * {@code (phase_track_code, decision_business_date, phase)} 的第一分量;
+     * 历史行由数据库默认值补齐为正式轨道{@code VIP_ALPHA#1}。
+     */
+    private String phaseTrackCode;
     /**
      * 决策业务日期。
      */
@@ -86,4 +94,23 @@ public class TornStockAlphaDecisionDO extends BaseDO {
      * 换仓批次ID。
      */
     private Long rebalanceBatchId;
+    /**
+     * 观察口径参考价(决策桶现价)。
+     * <p>
+     * 只写不读:与{@code signalReferencePrice}同源但来自{@code LATEST_PRICE}观察口径,
+     * 仅用于业务研究,生产目标、下单、通知与结算一律不消费本字段。
+     */
+    private BigDecimal altSignalReferencePrice;
+    /**
+     * 观察口径目标股票ID。
+     * <p>
+     * 只写不读:生产目标始终取{@code selectedStocksId},禁止任何生产代码读取本字段。
+     */
+    private Integer altSelectedStocksId;
+    /**
+     * 观察口径来源摘要。
+     * <p>
+     * 可按键序与观察口径排名重算复核,用于区分观察事实与生产事实。
+     */
+    private String altSourceSnapshotDigest;
 }

@@ -1,31 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockVirtualBatchMapper">
-    <!-- 按事件与账本锁定批次,用于重试时复用同一目标批次 -->
-    <select id="selectBySignalEventIdAndLedgerTypeForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
-        SELECT * FROM torn_stock_virtual_batch
-        WHERE signal_event_id = #{signalEventId}
-          AND ledger_type = #{ledgerType}
-          AND deleted = 0
-        ORDER BY id ASC
-        LIMIT 1
-        FOR UPDATE
-    </select>
-
-    <!-- 按股票+策略+版本锁定同股同策略活跃无限资金影子批次,用于积压/回放跨round复用 -->
-    <select id="selectActiveUnlimitedShadowByStockStrategyForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
-        SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type = 'UNLIMITED_SHADOW'
-          AND stocks_id = #{stocksId}
-          AND primary_strategy = #{primaryStrategy}
-          AND buy_rule_version = #{buyRuleVersion}
-          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
-          AND deleted = 0
-        ORDER BY id ASC
-        LIMIT 1
-        FOR UPDATE
-    </select>
-
     <!-- 按批次号锁定未删除批次,用于重试时复用同一批次 -->
     <select id="selectByBatchNoForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
@@ -69,21 +44,21 @@
         ON CONFLICT (batch_no) WHERE deleted = 0 DO NOTHING
     </insert>
 
-    <!-- 查询全部VIP Alpha活跃批次 -->
+    <!-- 按组合编码查询α轨道活跃批次(正式α使用FORMAL账本,α影子使用ALPHA_SHADOW账本) -->
     <select id="selectActiveAlphaBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type = 'FORMAL'
-          AND portfolio_code = 'VIP_ALPHA'
+        WHERE ledger_type IN ('FORMAL', 'ALPHA_SHADOW')
+          AND portfolio_code = #{portfolioCode}
           AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
           AND deleted = 0
         ORDER BY id ASC
     </select>
 
-    <!-- 查询全部VIP Alpha活跃批次并加事务行锁 -->
+    <!-- 按组合编码查询α轨道活跃批次并加事务行锁 -->
     <select id="selectActiveAlphaBatchesForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type = 'FORMAL'
-          AND portfolio_code = 'VIP_ALPHA'
+        WHERE ledger_type IN ('FORMAL', 'ALPHA_SHADOW')
+          AND portfolio_code = #{portfolioCode}
           AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
           AND deleted = 0
         ORDER BY id ASC
@@ -104,24 +79,6 @@
         SELECT * FROM torn_stock_virtual_batch
         WHERE ledger_type = 'FORMAL'
           AND portfolio_code = 'VIP_FORMAL'
-          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
-          AND deleted = 0
-        ORDER BY id ASC
-        FOR UPDATE
-    </select>
-
-    <!-- 查询全部活跃影子批次(无限资金+候选影子) -->
-    <select id="selectActiveShadowBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
-        SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type IN ('UNLIMITED_SHADOW', 'SHADOW_FORMAL_CANDIDATE')
-          AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
-          AND deleted = 0
-    </select>
-
-    <!-- 查询全部活跃影子批次并加事务行锁(无限资金+候选影子) -->
-    <select id="selectActiveShadowBatchesForUpdate" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
-        SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type IN ('UNLIMITED_SHADOW', 'SHADOW_FORMAL_CANDIDATE')
           AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
           AND deleted = 0
         ORDER BY id ASC
@@ -169,24 +126,11 @@
         ORDER BY id ASC
     </select>
 
-    <!-- 按信号事件ID批量查询拒绝观察批次 -->
-    <select id="selectRejectedObservationBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
-        SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type = 'REJECTED_OBSERVATION'
-          AND batch_status = 'CANCELLED'
-          AND deleted = 0
-          AND signal_event_id IN
-        <foreach collection="signalEventIds" item="signalEventId" open="(" separator="," close=")">
-            #{signalEventId}
-        </foreach>
-        ORDER BY signal_event_id ASC, id ASC
-    </select>
-
-    <!-- 判断是否存在正式、候选影子或无限资金影子活跃批次 -->
+    <!-- 判断是否存在正式或α影子活跃批次 -->
     <select id="existsActiveBatches" resultType="boolean">
         SELECT EXISTS (
             SELECT 1 FROM torn_stock_virtual_batch
-            WHERE ledger_type IN ('FORMAL', 'SHADOW_FORMAL_CANDIDATE', 'UNLIMITED_SHADOW')
+            WHERE ledger_type IN ('FORMAL', 'ALPHA_SHADOW')
               AND batch_status IN ('ENTRY_PENDING', 'OPEN', 'DATA_STALE', 'EXIT_PENDING', 'DATA_STALE_EXIT')
               AND deleted = 0
         )

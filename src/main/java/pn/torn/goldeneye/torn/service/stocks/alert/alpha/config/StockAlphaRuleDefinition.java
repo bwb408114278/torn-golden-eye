@@ -5,13 +5,14 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
 /**
  * α策略固定规则定义。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -64,6 +65,16 @@ public final class StockAlphaRuleDefinition {
      * 决策间隔天数。
      */
     public static final int DECISION_INTERVAL_DAYS = 5;
+    /**
+     * α决策窗口起点(允许的最早决策桶起点)。
+     * <p>
+     * 语义是"不早于"该时刻的桶起点,不是"等于"该时刻:当晚数据尚未就绪时逐桶重试(自愈),
+     * 只顺延成交与播报,不丢phase。窗口只约束"新建α决策"与"已结束自然日快照构建",
+     * 不约束已持久化决策的复用、消费、执行、结算与通知。
+     * <p>
+     * 本常量是窗口起点字面量的唯一来源,业务类禁止内联时间比较或复制第二套窗口策略。
+     */
+    public static final LocalTime DECISION_WINDOW_START = LocalTime.of(8, 0);
     /**
      * 计算α排名所需的最少共同有效日数量:20日收益需要前20个交易日加当前日。
      */

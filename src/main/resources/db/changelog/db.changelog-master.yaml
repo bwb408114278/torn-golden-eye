@@ -108,4 +108,6 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.6.3/racing.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.6.4/rw.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.6.5/stocks-alpha-dual-basis.yaml
 

@@ -155,14 +155,17 @@ public class TornsyStockHistoryBackfillScheduler {
     }
 
     /**
-     * 每日连续性巡检（每天 08:45，Asia/Shanghai）
+     * 每日连续性巡检（每天 07:00，Asia/Shanghai）
      * <p>
      * 检查昨天完整自然日 [昨天00:00, 今天00:00) 内每支有效股票的 distinct 自然分钟数；
      * 任意股票不足 {@value #DAILY_EXPECTED_MINUTES} 即判定缺口，投递专用执行器回填整个昨天窗口。
      * 无缺口直接结束：不请求 Tornsy、不写表、不重建 bar/feature。
      * 巡检失败不永久关闭，下一日仍会再次巡检。
+     * <p>
+     * 提前到 07:00 的原因：昨天自然日在 00:00 后即已完整，巡检越早，
+     * 越能为 08:00 起进入的α决策窗口留出数据修复余量。
      */
-    @Scheduled(cron = "0 45 8 * * ?", zone = "Asia/Shanghai")
+    @Scheduled(cron = "0 0 7 * * ?", zone = "Asia/Shanghai")
     public void inspectYesterdayAndBackfillIfNeeded() {
         if (!isProd()) {
             return;

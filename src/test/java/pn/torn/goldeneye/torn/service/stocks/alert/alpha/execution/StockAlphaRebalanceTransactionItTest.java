@@ -23,10 +23,12 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticeRebalanceAssociation;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeAuditWriter;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
 import pn.torn.goldeneye.utils.image.render.html.PlaywrightBrowserManager;
 
 import java.math.BigDecimal;
@@ -42,7 +44,7 @@ import static org.mockito.Mockito.*;
  * α换仓真实事务回滚集成测试。
  * <p>
  * 唯一业务测试方法在真实Spring事务中调用真实 {@link StockAlphaRebalanceService},通过
- * {@link StockShadowRecordWriter} 的测试替身注入换仓事务最后阶段(通知审计写入)失败,
+ * {@link StockNoticeAuditWriter} 的测试替身注入换仓事务最后阶段(通知审计写入)失败,
  * 证明换仓后段失败时原仓、槽位资金、决策、新仓和通知审计不会留下任何单侧事实。
  * <p>
  * 所有夹具写入与换仓写入都显式处于测试管理的 {@code @Transactional} + {@code @Rollback} 事务中,
@@ -75,6 +77,10 @@ class StockAlphaRebalanceTransactionItTest {
      * 决策业务日(隔离的远期日期,远离生产数据与轮次调度)。
      */
     private static final LocalDate DECISION_DATE = LocalDate.of(2099, 9, 5);
+    /**
+     * 决策相位轨道(正式α轨道)。
+     */
+    private static final StockAlphaPhaseTrack TRACK = StockAlphaTrackRegistry.productionTrack();
     /**
      * 决策phase。
      */
@@ -139,7 +145,7 @@ class StockAlphaRebalanceTransactionItTest {
     @Autowired
     private TornStockNoticeAuditDAO noticeAuditDAO;
     @MockitoSpyBean
-    private StockShadowRecordWriter noticeWriter;
+    private StockNoticeAuditWriter noticeWriter;
     @MockitoSpyBean
     private StockAlphaDecisionService decisionService;
     /**
@@ -197,7 +203,7 @@ class StockAlphaRebalanceTransactionItTest {
      * 调用数量的约束。
      */
     private void executeRebalance() {
-        rebalanceService.rebalance(DECISION_DATE, PHASE, PROCESSING_TIME, roundSnapshot());
+        rebalanceService.rebalance(TRACK, DECISION_DATE, PHASE, PROCESSING_TIME, roundSnapshot());
     }
 
     /**
@@ -257,7 +263,7 @@ class StockAlphaRebalanceTransactionItTest {
         assertEquals(1, decisionDAO.insertIgnoreConflict(pendingRebalanceDecision(originalBatchId)),
                 "α换仓决策必须真实落库");
         TornStockAlphaDecisionDO persisted =
-                decisionDAO.selectByBusinessKeyForUpdate(DECISION_DATE, PHASE);
+                decisionDAO.selectByBusinessKeyForUpdate(TRACK.trackCode(), DECISION_DATE, PHASE);
         assertNotNull(persisted, "α换仓决策必须可按业务键读回");
         return persisted.getId();
     }
@@ -384,6 +390,7 @@ class StockAlphaRebalanceTransactionItTest {
      */
     private TornStockAlphaDecisionDO pendingRebalanceDecision(Long originalBatchId) {
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
+        decision.setPhaseTrackCode(TRACK.trackCode());
         decision.setDecisionBusinessDate(DECISION_DATE);
         decision.setCommonDayIndex(60);
         decision.setPhase(PHASE);
@@ -404,10 +411,14 @@ class StockAlphaRebalanceTransactionItTest {
      * @return 轮次快照
      */
     private RoundSnapshot roundSnapshot() {
-        return new RoundSnapshot(
-                List.of(marketBar(ORIGINAL_STOCKS_ID, "ITSELL", SELL_PRICE),
-                        marketBar(REPLACEMENT_STOCKS_ID, "ITBUY", BUY_PRICE)),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), EXECUTION_BAR);
+        return new RoundSnapshot(List.of(marketBar(ORIGINAL_STOCKS_ID, "ITSELL", SELL_PRICE),
+                marketBar(REPLACEMENT_STOCKS_ID, "ITBUY", BUY_PRICE)),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                EXECUTION_BAR);
     }
 
     /**

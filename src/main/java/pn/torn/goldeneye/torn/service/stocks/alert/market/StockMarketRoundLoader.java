@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import java.time.LocalDateTime;
@@ -23,12 +25,13 @@ import java.util.List;
  *   <li>本轮特征: {@code feature15mDAO.selectByBarStartTime(roundTime)}</li>
  *   <li>当月已确认月度状态: {@code monthlyStateDAO.selectConfirmedByMonth(roundTime当月1日)}</li>
  *   <li>所有正式活跃批次: {@code virtualBatchDAO.selectActiveFormalBatches()}</li>
+ *   <li>所有α轨道活跃批次: 按注册表启用轨道逐个组合读取(FORMAL与ALPHA_SHADOW账本)</li>
  *   <li>所有信号边沿状态: {@code signalStateDAO.selectAll()}</li>
- *   <li>正式槽位状态: {@code portfolioSlotDAO.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE)}</li>
+ *   <li>正式与各α轨道槽位状态: {@code portfolioSlotDAO.selectAllByPortfolioCode(...)}</li>
  * </ol>
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.25
  */
 @Slf4j
@@ -67,6 +70,11 @@ public class StockMarketRoundLoader {
     private final TornStockPortfolioSlotDAO portfolioSlotDao;
 
     /**
+     * α相位轨道注册表
+     */
+    private final StockAlphaTrackRegistry trackRegistry;
+
+    /**
      * 一次批量加载本轮决策所需的全部数据快照,返回不可变RoundSnapshot值对象。
      * <p>
      * 全部数据通过各自的批量查询方法一次性读取,不产生N+1查询。
@@ -85,23 +93,19 @@ public class StockMarketRoundLoader {
                 monthlyStateDao.selectConfirmedByMonth(roundTime.toLocalDate().withDayOfMonth(1));
         List<TornStockVirtualBatchDO> activeBatches = new java.util.ArrayList<>(
                 virtualBatchDao.selectActiveFormalBatches());
-        activeBatches.addAll(virtualBatchDao.selectActiveAlphaBatches());
-        List<TornStockVirtualBatchDO> shadowBatches = virtualBatchDao.selectActiveShadowBatches();
-        List<TornStockSignalStateDO> signalStates = signalStateDao.selectAll();
         List<TornStockPortfolioSlotDO> formalSlots =
                 portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
-        List<TornStockPortfolioSlotDO> candidateShadowSlots =
-                portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
-        List<TornStockPortfolioSlotDO> alphaSlots =
-                portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
         List<TornStockPortfolioSlotDO> allSlots = new java.util.ArrayList<>(formalSlots);
-        allSlots.addAll(candidateShadowSlots);
-        allSlots.addAll(alphaSlots);
-        log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, formalBatches={}, shadowBatches={}, signalStates={}, formalSlots={}, candidateShadowSlots={}",
+        for (StockAlphaPhaseTrack track : trackRegistry.enabledTracks()) {
+            activeBatches.addAll(virtualBatchDao.selectActiveAlphaBatches(track.portfolioCode()));
+            allSlots.addAll(portfolioSlotDao.selectAllByPortfolioCode(track.portfolioCode()));
+        }
+        List<TornStockSignalStateDO> signalStates = signalStateDao.selectAll();
+        log.debug("本轮市场快照加载完成, bars={}, features={}, monthlyStates={}, activeBatches={}, "
+                        + "signalStates={}, slots={}",
                 bars.size(), features.size(), monthlyStates.size(),
-                activeBatches.size(), shadowBatches.size(), signalStates.size(),
-                formalSlots.size(), candidateShadowSlots.size());
-        return new RoundSnapshot(bars, features, monthlyStates, activeBatches, shadowBatches,
+                activeBatches.size(), signalStates.size(), allSlots.size());
+        return new RoundSnapshot(bars, features, monthlyStates, activeBatches,
                 signalStates, allSlots, roundTime);
     }
 
@@ -114,10 +118,9 @@ public class StockMarketRoundLoader {
      * @param bars          本轮全部股票15分钟bar
      * @param features      本轮全部股票15分钟策略特征
      * @param monthlyStates 当月已确认的月度风格状态
-     * @param activeBatches 所有正式与VIP Alpha活跃批次
-     * @param shadowBatches 所有活跃影子批次(UNLIMITED_SHADOW)
+     * @param activeBatches 所有正式与各α轨道活跃批次
      * @param signalStates  所有信号边沿状态
-     * @param slots         正式组合全部槽位状态
+     * @param slots         正式组合与各α轨道组合的全部槽位状态
      * @param roundTime     本轮bar开始时间
      */
     public record RoundSnapshot(
@@ -125,7 +128,6 @@ public class StockMarketRoundLoader {
             List<TornStockStrategyFeature15mDO> features,
             List<TornStockMonthlyStateDO> monthlyStates,
             List<TornStockVirtualBatchDO> activeBatches,
-            List<TornStockVirtualBatchDO> shadowBatches,
             List<TornStockSignalStateDO> signalStates,
             List<TornStockPortfolioSlotDO> slots,
             LocalDateTime roundTime) {

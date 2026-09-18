@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
@@ -15,9 +16,11 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfol
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaSlotPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,15 +28,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
  * α策略初始入场服务测试。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @DisplayName("α策略初始入场服务测试")
@@ -44,13 +46,17 @@ class StockAlphaEntryServiceTest {
      * 决策时点参考价,必须与执行bar价格不同才能证明信号参考价来自决策事实。
      */
     private static final BigDecimal DECISION_PRICE = new BigDecimal("9.90");
+    /**
+     * 本次初始入场所属的正式α相位轨道。
+     */
+    private static final StockAlphaPhaseTrack TRACK = StockAlphaTrackRegistry.productionTrack();
 
     @Mock
     private TornStockAlphaDecisionDAO decisionDAO;
     @Mock
     private TornStockVirtualBatchDAO virtualBatchDAO;
     @Mock
-    private StockShadowRecordWriter noticeWriter;
+    private TornStockPortfolioSlotDAO slotDAO;
     @Mock
     private StockAlphaDecisionService decisionService;
 
@@ -61,15 +67,16 @@ class StockAlphaEntryServiceTest {
         TornStockPortfolioSlotDO slot = slot();
         TornStockMarketBar15mDO bar = bar();
         TornStockVirtualBatchDO persisted = persistedBatch(decision, slot);
-        when(decisionDAO.selectPendingInitialEntryForUpdate(ROUND_TIME.toLocalDate().minusDays(1), 0, ROUND_TIME))
+        when(decisionDAO.selectPendingInitialEntryForUpdate(TRACK.trackCode(), ROUND_TIME.toLocalDate().minusDays(1), 0, ROUND_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(true);
         when(virtualBatchDAO.insertIgnoreConflict(any(TornStockVirtualBatchDO.class))).thenReturn(1);
         when(virtualBatchDAO.selectByBatchNoForUpdate(any())).thenReturn(persisted);
 
         StockAlphaEntryService service = new StockAlphaEntryService(
-                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService);
-        TornStockVirtualBatchDO result = service.createInitialEntry(
+                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService,
+                new StockAlphaSlotPolicy(slotDAO));
+        TornStockVirtualBatchDO result = service.createInitialEntry(TRACK,
                 ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
                 ROUND_TIME.plusMinutes(16));
 
@@ -98,17 +105,18 @@ class StockAlphaEntryServiceTest {
         TornStockAlphaDecisionDO decision = decision();
         TornStockPortfolioSlotDO slot = slot();
         TornStockMarketBar15mDO bar = bar();
-        when(decisionDAO.selectPendingInitialEntryForUpdate(any(), anyInt(), any())).thenReturn(decision);
+        when(decisionDAO.selectPendingInitialEntryForUpdate(anyString(), any(), anyInt(), any())).thenReturn(decision);
 
         StockAlphaEntryService service = new StockAlphaEntryService(
-                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService);
+                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService,
+                new StockAlphaSlotPolicy(slotDAO));
         RoundSnapshot snapshot = snapshot(slot, bar);
         LocalDate decisionDate = decision.getDecisionBusinessDate();
         int phase = decision.getPhase();
         LocalDateTime laterRoundTime = ROUND_TIME.plusMinutes(15);
         LocalDateTime actualProcessingTime = ROUND_TIME.plusMinutes(31);
 
-        assertThrows(IllegalStateException.class, () -> service.createInitialEntry(
+        assertThrows(IllegalStateException.class, () -> service.createInitialEntry(TRACK,
                 laterRoundTime, snapshot, decisionDate, phase, actualProcessingTime));
         verify(virtualBatchDAO, never()).insertIgnoreConflict(any(TornStockVirtualBatchDO.class));
         verify(decisionDAO, never()).updateById(decision);
@@ -120,13 +128,14 @@ class StockAlphaEntryServiceTest {
         TornStockAlphaDecisionDO decision = decision();
         TornStockPortfolioSlotDO slot = slot();
         TornStockMarketBar15mDO bar = bar();
-        when(decisionDAO.selectPendingInitialEntryForUpdate(ROUND_TIME.toLocalDate().minusDays(1), 0, ROUND_TIME))
+        when(decisionDAO.selectPendingInitialEntryForUpdate(TRACK.trackCode(), ROUND_TIME.toLocalDate().minusDays(1), 0, ROUND_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(false);
 
         StockAlphaEntryService service = new StockAlphaEntryService(
-                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService);
-        TornStockVirtualBatchDO result = service.createInitialEntry(
+                decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService,
+                new StockAlphaSlotPolicy(slotDAO));
+        TornStockVirtualBatchDO result = service.createInitialEntry(TRACK,
                 ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
                 ROUND_TIME.plusMinutes(16));
 
@@ -205,7 +214,12 @@ class StockAlphaEntryServiceTest {
     }
 
     private RoundSnapshot snapshot(TornStockPortfolioSlotDO slot, TornStockMarketBar15mDO bar) {
-        return new RoundSnapshot(List.of(bar), List.of(), List.of(), List.of(), List.of(), List.of(),
-                List.of(slot), ROUND_TIME);
+        return new RoundSnapshot(List.of(bar),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(slot),
+                ROUND_TIME);
     }
 }

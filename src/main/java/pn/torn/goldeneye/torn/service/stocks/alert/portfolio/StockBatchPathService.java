@@ -7,8 +7,10 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusE
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchExitService.ExitEvaluation;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchExitService.ExitEvaluation;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
@@ -18,10 +20,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
-import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDynamicSellResearchConstants;
 
 /**
  * 股票批次路径服务 - 更新开放批次持仓路径并评估退出条件
@@ -34,7 +32,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDynamicSellResea
  * 对每个OPEN批次调用退出评估，命中时置为EXIT_PENDING，并将实际决定与规则输入固化到BatchMark。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.07.25
  */
 @Slf4j
@@ -54,6 +52,16 @@ public class StockBatchPathService {
      * BigDecimal运算精度
      */
     private static final int MATH_SCALE = 18;
+    /**
+     * 动态SELL研究遥测决策冻结值: 未评估(公式冻结前固定)。
+     * <p>
+     * 本常量是生产写路径与日报读路径共用的唯一取值来源,禁止在多处散落字面量。
+     */
+    public static final String DYNAMIC_SHADOW_DECISION_NOT_EVALUATED = "NOT_EVALUATED";
+    /**
+     * 动态SELL研究遥测原因冻结值: 动态规则未冻结。
+     */
+    public static final String DYNAMIC_SHADOW_REASON_RULE_NOT_FROZEN = "DYNAMIC_RULE_NOT_FROZEN";
 
     private final StockBatchExitService batchExitService;
 
@@ -268,13 +276,12 @@ public class StockBatchPathService {
         boolean shouldExit = evaluation.shouldExit();
         mark.setFormalDecision(shouldExit ? FORMAL_DECISION_SELL : FORMAL_DECISION_HOLD);
         mark.setFormalReason(evaluation.reasonCode());
-        // 动态SELL研究遥测: 仅正式与候选影子槽位账本落库冻结值(研究范围边界与
-        // selectDynamicShadowResearchMarks的FORMAL/SHADOW_FORMAL_CANDIDATE一致),
-        // 无限资金影子与拒绝观察不写入,避免日报分母失真;该值仅用于覆盖统计,不触发任何卖出。
-        if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
-                || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(batch.getLedgerType())) {
-            mark.setDynamicShadowDecision(StockDynamicSellResearchConstants.DECISION_NOT_EVALUATED);
-            mark.setDynamicShadowReason(StockDynamicSellResearchConstants.REASON_RULE_NOT_FROZEN);
+        // 动态SELL研究遥测: 仅FORMAL槽位账本落库冻结值(研究范围边界与
+        // selectDynamicShadowResearchMarks的FORMAL账本一致),历史候选影子/无限资金影子/拒绝观察
+        // 批次不再产生新mark,避免日报分母失真;该值仅用于覆盖统计,不触发任何卖出。
+        if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
+            mark.setDynamicShadowDecision(DYNAMIC_SHADOW_DECISION_NOT_EVALUATED);
+            mark.setDynamicShadowReason(DYNAMIC_SHADOW_REASON_RULE_NOT_FROZEN);
         }
         mark.setFeatureSnapshot(buildFeatureSnapshot(batch, metrics.currentPrice(), feature));
         return mark;

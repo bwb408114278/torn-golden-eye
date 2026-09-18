@@ -12,11 +12,14 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.notice.StockAlphaNoticeAuditWriter;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaSlotPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticeRebalanceAssociation;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
-import pn.torn.goldeneye.torn.service.stocks.alert.shadow.StockShadowRecordWriter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -28,7 +31,7 @@ import java.util.Objects;
  * α策略原子换仓服务。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Slf4j
@@ -46,8 +49,9 @@ public class StockAlphaRebalanceService {
     private final TornStockPortfolioSlotDAO slotDAO;
     private final TornStockVirtualBatchDAO batchDAO;
     private final StockPortfolioService portfolioService;
-    private final StockShadowRecordWriter noticeWriter;
+    private final StockAlphaNoticeAuditWriter noticeWriter;
     private final StockAlphaDecisionService decisionService;
+    private final StockAlphaSlotPolicy slotPolicy;
 
     /**
      * 在同一事务内完成α原仓SELL与新仓BUY。
@@ -57,6 +61,7 @@ public class StockAlphaRebalanceService {
      * 更不抛出异常把轮次钉死在可重试失败状态。
      * 来源摘要与当前日线排名快照不一致时同样只标记不可复核并跳过,不产生任何单边事实。
      *
+     * @param track        目标相位轨道
      * @param decisionDate 决策日期
      * @param phase        决策阶段
      * @param now          当前校验时点
@@ -64,21 +69,22 @@ public class StockAlphaRebalanceService {
      * @return 换仓结果;未消费到同执行桶决策或来源不可复核时三个分量均为null
      */
     @Transactional(rollbackFor = Exception.class)
-    public RebalanceResult rebalance(LocalDate decisionDate, int phase, LocalDateTime now,
-                                     RoundSnapshot snapshot) {
+    public RebalanceResult rebalance(StockAlphaPhaseTrack track, LocalDate decisionDate, int phase,
+                                     LocalDateTime now, RoundSnapshot snapshot) {
         LocalDateTime roundTime = snapshot.roundTime();
-        TornStockAlphaDecisionDO decision = decisionDAO.selectByExecutionKeyForUpdate(decisionDate, phase, roundTime);
+        TornStockAlphaDecisionDO decision = decisionDAO.selectByExecutionKeyForUpdate(
+                track.trackCode(), decisionDate, phase, roundTime);
         if (decision == null) {
-            log.warn("α换仓未读到同执行桶的持久化决策,本次跳过换仓: decisionDate={}, phase={}, roundTime={}",
-                    decisionDate, phase, roundTime);
+            log.warn("α换仓未读到同执行桶的持久化决策,本次跳过换仓: trackCode={}, decisionDate={}, phase={}, roundTime={}",
+                    track.trackCode(), decisionDate, phase, roundTime);
             return new RebalanceResult(null, null, null);
         }
         if (isExecutedRebalance(decision)) {
             return new RebalanceResult(null, decision.getRebalanceBatchId(), decision.getExecutionBarStartTime());
         }
-        TornStockPortfolioSlotDO slot = lockAlphaSlot();
-        List<TornStockVirtualBatchDO> batches = batchDAO.selectActiveAlphaBatchesForUpdate();
-        TornStockVirtualBatchDO current = findOpenBatch(batches);
+        TornStockPortfolioSlotDO slot = slotPolicy.lockOccupied(track);
+        List<TornStockVirtualBatchDO> batches = batchDAO.selectActiveAlphaBatchesForUpdate(track.portfolioCode());
+        TornStockVirtualBatchDO current = findOpenBatch(batches, track);
         validateDecision(decision, decisionDate, phase, current, slot);
         if (!decisionService.isSourceReproducible(decision)) {
             markSourceNotReproducible(decision);
@@ -95,7 +101,8 @@ public class StockAlphaRebalanceService {
         validateBars(decision.getDecisionBarStartTime(), executionBarStart, now, sellBar, buyBar);
         current.setExitSignalTime(decision.getDecisionBarStartTime());
         current.setExpectedExitBarTime(sellBar.getBarStartTime());
-        TornStockVirtualBatchDO replacement = replace(current, decision, slot, sellBar, buyBar, executionBarStart);
+        TornStockVirtualBatchDO replacement = replace(track, current, decision, slot, sellBar, buyBar,
+                executionBarStart);
         // 原仓必须先在库中关闭再插入新仓: 活跃批次部分唯一索引按(组合, 槽位)唯一,
         // 否则换仓新仓插入会与库中仍为OPEN的原仓冲突;两次写入同处一个事务,失败仍整体回滚
         batchDAO.updateById(current);
@@ -106,7 +113,7 @@ public class StockAlphaRebalanceService {
         slotDAO.updateById(slot);
         NoticeRebalanceAssociation association = new NoticeRebalanceAssociation(
                 decision.getId(), current.getId(), persistedReplacement.getId());
-        noticeWriter.writeNoticeAudits(List.of(persistedReplacement), List.of(current), executionBarStart, association);
+        writeRebalanceAudits(track, persistedReplacement, current, executionBarStart, association);
         return new RebalanceResult(current.getId(), persistedReplacement.getId(), executionBarStart);
     }
 
@@ -117,18 +124,25 @@ public class StockAlphaRebalanceService {
     }
 
     /**
-     * 锁定唯一VIP_ALPHA槽位并校验其当前绑定。
+     * 按轨道写入换仓通知审计。
+     * <p>
+     * 正式α轨道写两条腿的PENDING审计并进入既有发送链,语义与搬迁前完全一致;
+     * 影子α轨道写一条只记录不投递的合并记录,永不进入可发送集合。
      *
-     * @return 已锁定槽位
+     * @param track             目标相位轨道
+     * @param replacement       换仓后的新仓批次
+     * @param original          换仓前的原仓批次
+     * @param executionBarStart 执行桶起点
+     * @param association       α换仓统一关联事实
      */
-    private TornStockPortfolioSlotDO lockAlphaSlot() {
-        List<TornStockPortfolioSlotDO> slots = slotDAO.selectAllByPortfolioCodeForUpdate(
-                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
-        if (slots.size() != StockPortfolioService.VIP_ALPHA_SLOT_COUNT
-                || !StockSlotStatusEnum.OCCUPIED.getCode().equals(slots.getFirst().getSlotStatus())) {
-            throw new IllegalStateException("VIP_ALPHA槽位不可用于原子换仓");
+    private void writeRebalanceAudits(StockAlphaPhaseTrack track, TornStockVirtualBatchDO replacement,
+                                      TornStockVirtualBatchDO original, LocalDateTime executionBarStart,
+                                      NoticeRebalanceAssociation association) {
+        if (StockAlphaTrackRegistry.productionTrack().equals(track)) {
+            noticeWriter.writeFormalRebalanceAudits(replacement, original, executionBarStart, association);
+            return;
         }
-        return slots.getFirst();
+        noticeWriter.writeShadowRebalanceAudit(replacement, original, executionBarStart, association);
     }
 
     /**
@@ -205,6 +219,7 @@ public class StockAlphaRebalanceService {
     /**
      * 执行原仓结算并构造新仓成交事实。
      *
+     * @param track             目标相位轨道
      * @param current           原仓批次
      * @param decision          决策记录
      * @param slot              α槽位
@@ -213,11 +228,12 @@ public class StockAlphaRebalanceService {
      * @param executionBarStart 执行bar起点
      * @return 新仓批次
      */
-    private TornStockVirtualBatchDO replace(TornStockVirtualBatchDO current, TornStockAlphaDecisionDO decision,
+    private TornStockVirtualBatchDO replace(StockAlphaPhaseTrack track, TornStockVirtualBatchDO current,
+                                            TornStockAlphaDecisionDO decision,
                                             TornStockPortfolioSlotDO slot, TornStockMarketBar15mDO sellBar,
                                             TornStockMarketBar15mDO buyBar, LocalDateTime executionBarStart) {
         BigDecimal sellProceeds = portfolioService.settleSlotBacked(current, slot, sellBar.getLastPrice(),
-                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+                track.portfolioCode());
         current.setSellProceeds(sellProceeds);
         current.setNetReturn(StockPortfolioService.calculateNetReturn(current.getEntryReferencePrice(), sellBar.getLastPrice()));
         current.setBatchStatus(StockBatchStatusEnum.CLOSED_ROTATION.getCode());
@@ -231,9 +247,11 @@ public class StockAlphaRebalanceService {
             throw new IllegalStateException("VIP_ALPHA槽位资金不足买入新仓");
         }
         TornStockVirtualBatchDO replacement = new TornStockVirtualBatchDO();
-        replacement.setBatchNo(buildReplacementBatchNo(decision));
-        replacement.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        replacement.setBatchNo(buildReplacementBatchNo(track, decision));
         StockAlphaBatchIdentity.applyAlphaIdentity(replacement);
+        // 轨道归属在共享身份冻结之后覆盖: 正式轨道保持VIP_ALPHA/FORMAL, 影子轨道为VIP_ALPHA_SHADOW/ALPHA_SHADOW
+        replacement.setPortfolioCode(track.portfolioCode());
+        replacement.setLedgerType(StockAlphaTrackRegistry.ledgerTypeOf(track));
         replacement.setStocksId(decision.getSelectedStocksId());
         replacement.setStocksShortname(buyBar.getStocksShortname());
         replacement.setMatchedStrategies("[\"ALPHA\"]");
@@ -279,11 +297,13 @@ public class StockAlphaRebalanceService {
     /**
      * 生成决策唯一的换仓批次编号。
      *
+     * @param track    目标相位轨道
      * @param decision α决策
      * @return 唯一批次编号
      */
-    private String buildReplacementBatchNo(TornStockAlphaDecisionDO decision) {
-        return "AR-" + decision.getDecisionBusinessDate() + "-" + decision.getPhase() + "-" + decision.getId();
+    private String buildReplacementBatchNo(StockAlphaPhaseTrack track, TornStockAlphaDecisionDO decision) {
+        String base = "AR-" + decision.getDecisionBusinessDate() + "-" + decision.getPhase() + "-" + decision.getId();
+        return StockAlphaTrackRegistry.productionTrack().equals(track) ? base : base + "-" + track.slotNo();
     }
 
     /**
@@ -310,15 +330,19 @@ public class StockAlphaRebalanceService {
     /**
      * 查找唯一开放α批次。
      *
-     * @param batches 活跃批次
+     * @param batches 该轨道的活跃批次
+     * @param track   目标相位轨道
      * @return 开放批次
      */
-    private TornStockVirtualBatchDO findOpenBatch(List<TornStockVirtualBatchDO> batches) {
+    private TornStockVirtualBatchDO findOpenBatch(List<TornStockVirtualBatchDO> batches,
+                                                  StockAlphaPhaseTrack track) {
         List<TornStockVirtualBatchDO> open = batches.stream()
-                .filter(StockPortfolioService::isAlphaBatch)
+                .filter(batch -> track.portfolioCode().equals(batch.getPortfolioCode()))
+                .filter(batch -> Integer.valueOf(track.slotNo()).equals(batch.getSlotNo()))
                 .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())).toList();
         if (open.size() != 1) {
-            throw new IllegalStateException("VIP_ALPHA当前持仓批次数量异常");
+            throw new IllegalStateException("α轨道当前持仓批次数量异常: track=" + track.trackCode()
+                    + ", open=" + open.size());
         }
         return open.getFirst();
     }

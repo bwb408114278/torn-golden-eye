@@ -11,6 +11,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDail
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDailySnapshotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -24,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * α策略快照与决策 Mapper 真实 PostgreSQL 测试。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Tag("shared-db")
@@ -32,6 +33,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 @Transactional
 @Rollback
 class TornStockAlphaPersistenceMapperTest {
+    /**
+     * 决策相位轨道编码。
+     */
+    private static final String TRACK_CODE = StockAlphaTrackRegistry.productionTrack().trackCode();
+    /**
+     * 决策业务日。
+     */
     private static final LocalDate BUSINESS_DATE = LocalDate.of(2099, 10, 1);
     private static final Integer STOCKS_ID = 99700001;
 
@@ -118,6 +126,7 @@ class TornStockAlphaPersistenceMapperTest {
         assertEquals(new BigDecimal("0.1200000000"), savedSnapshot.getR20());
 
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
+        decision.setPhaseTrackCode(TRACK_CODE);
         decision.setDecisionBusinessDate(BUSINESS_DATE);
         decision.setCommonDayIndex(60);
         decision.setPhase(0);
@@ -129,7 +138,7 @@ class TornStockAlphaPersistenceMapperTest {
         decision.setSelectedStocksId(STOCKS_ID);
         decision.setSourceSnapshotDigest("digest-updated");
         assertEquals(1, decisionDao.insertIgnoreConflict(decision));
-        TornStockAlphaDecisionDO savedDecision = decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 0);
+        TornStockAlphaDecisionDO savedDecision = decisionDao.selectByBusinessKeyForUpdate(TRACK_CODE, BUSINESS_DATE, 0);
         assertNotNull(savedDecision);
         assertEquals(STOCKS_ID, savedDecision.getSelectedStocksId());
         assertEquals("digest-updated", savedDecision.getSourceSnapshotDigest());
@@ -142,6 +151,7 @@ class TornStockAlphaPersistenceMapperTest {
         LocalDateTime executionBar = decisionBar.plusMinutes(15);
 
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
+        decision.setPhaseTrackCode(TRACK_CODE);
         decision.setDecisionBusinessDate(BUSINESS_DATE);
         decision.setCommonDayIndex(60);
         decision.setPhase(3);
@@ -153,7 +163,7 @@ class TornStockAlphaPersistenceMapperTest {
 
         assertEquals(1, decisionDao.insertIgnoreConflict(decision));
 
-        TornStockAlphaDecisionDO saved = decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 3);
+        TornStockAlphaDecisionDO saved = decisionDao.selectByBusinessKeyForUpdate(TRACK_CODE, BUSINESS_DATE, 3);
         assertNotNull(saved, "新列必须真实落库并按业务键读回");
         assertEquals(decisionBar, saved.getDecisionBarStartTime(), "决策桶必须与执行桶分离保存");
         assertEquals(executionBar, saved.getExecutionBarStartTime());
@@ -165,7 +175,7 @@ class TornStockAlphaPersistenceMapperTest {
         decision.setSourceSnapshotDigest("digest-decision-bar-updated");
         assertEquals(1, decisionDao.insertIgnoreConflict(decision));
 
-        TornStockAlphaDecisionDO unchanged = decisionDao.selectByBusinessKeyForUpdate(BUSINESS_DATE, 3);
+        TornStockAlphaDecisionDO unchanged = decisionDao.selectByBusinessKeyForUpdate(TRACK_CODE, BUSINESS_DATE, 3);
         assertNotNull(unchanged);
         assertEquals("digest-decision-bar-updated", unchanged.getSourceSnapshotDigest());
         assertEquals(decisionBar, unchanged.getDecisionBarStartTime(), "冲突路径不得改写已冻结的决策桶");

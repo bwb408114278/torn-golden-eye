@@ -7,11 +7,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import pn.torn.goldeneye.repository.dao.torn.stocks.readiness.StockDataReadinessQueryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.replay.StockReplayReadOnlyGuard;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
  * 数据就绪报告运行器单元测试。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @ExtendWith(MockitoExtension.class)
@@ -37,7 +37,9 @@ class StockDataReadinessReportRunnerTest {
     @Mock
     private StockDataReadinessQueryDAO queryDao;
     @Mock
-    private StockReplayReadOnlyGuard readOnlyGuard;
+    private PlatformTransactionManager transactionManager;
+    @Mock
+    private TransactionStatus transactionStatus;
     @Mock
     private StockMarketClock marketClock;
     @InjectMocks
@@ -53,7 +55,7 @@ class StockDataReadinessReportRunnerTest {
         assertThrows(IllegalArgumentException.class,
                 () -> runner.run(invalidStart, end));
 
-        verifyNoInteractions(readOnlyGuard, queryDao, writer);
+        verifyNoInteractions(transactionManager, queryDao, writer);
     }
 
     @Test
@@ -66,7 +68,7 @@ class StockDataReadinessReportRunnerTest {
         assertThrows(IllegalArgumentException.class,
                 () -> runner.run(start, invalidEnd));
 
-        verifyNoInteractions(readOnlyGuard, queryDao, writer);
+        verifyNoInteractions(transactionManager, queryDao, writer);
     }
 
     @Test
@@ -113,10 +115,7 @@ class StockDataReadinessReportRunnerTest {
         when(queryDao.selectVipStockSettings()).thenReturn(List.of(
                 new SettingValue("VIP_STOCK_ALERT_ENABLED", "true"),
                 new SettingValue("VIP_STOCK_RULE_MODE", "SHADOW")));
-        when(readOnlyGuard.inReadOnlyTransaction(any())).thenAnswer(invocation -> {
-            TransactionCallback<Object> callback = invocation.getArgument(0);
-            return callback.doInTransaction(null);
-        });
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
         when(writer.write(any(), any())).thenAnswer(invocation -> ((Path) invocation.getArgument(0))
                 .resolve("run-1-summary.json"));
 
@@ -124,7 +123,7 @@ class StockDataReadinessReportRunnerTest {
 
         assertNotNull(result.path());
         assertNotNull(result.report());
-        verify(readOnlyGuard, times(1)).inReadOnlyTransaction(any());
+        verify(transactionManager, times(1)).getTransaction(any());
         ArgumentCaptor<StockDataReadinessReport> reportCaptor = ArgumentCaptor.forClass(StockDataReadinessReport.class);
         verify(writer).write(any(), reportCaptor.capture());
         StockDataReadinessReport report = reportCaptor.getValue();

@@ -4,7 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
@@ -14,6 +17,9 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTargetPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaSlotPolicy;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
@@ -21,14 +27,17 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.Objects;
 
 /**
- * α策略初始入场服务，将已持久化的PENDING初始决策转换为VIP_ALPHA单槽待入场批次。
+ * α策略初始入场服务,将已持久化的PENDING初始决策转换为该轨道对应槽位的待入场批次。
+ * <p>
+ * 轨道决定决策归属、目标槽位、组合编码与账本类型:正式轨道保持VIP_ALPHA/FORMAL语义不变,
+ * 影子轨道写入VIP_ALPHA_SHADOW/ALPHA_SHADOW账本。槽位选择统一委托
+ * {@link StockAlphaSlotPolicy},本服务不得自行拼装槽位查询。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Slf4j
@@ -42,6 +51,7 @@ public class StockAlphaEntryService {
     private final TornStockVirtualBatchDAO virtualBatchDAO;
     private final StockPortfolioService portfolioService;
     private final StockAlphaDecisionService decisionService;
+    private final StockAlphaSlotPolicy slotPolicy;
 
     /**
      * 消费当前执行轮次对应的初始α决策。
@@ -50,6 +60,7 @@ public class StockAlphaEntryService {
      * 再校验当前轮次与持久化执行桶严格一致,不根据轮次时间反推任何决策事实。
      * 来源摘要与当前日线排名快照不一致时,本方法只标记不可复核并返回null,不写入批次、不扣减资金。
      *
+     * @param track                目标相位轨道
      * @param roundTime            当前执行桶
      * @param snapshot             当前轮次快照
      * @param decisionDate         决策日期
@@ -58,15 +69,16 @@ public class StockAlphaEntryService {
      * @return 初始入场批次；没有待消费决策或来源不可复核时返回null
      */
     @Transactional(rollbackFor = Exception.class)
-    public TornStockVirtualBatchDO createInitialEntry(LocalDateTime roundTime, RoundSnapshot snapshot,
-                                                      LocalDate decisionDate, int phase,
+    public TornStockVirtualBatchDO createInitialEntry(StockAlphaPhaseTrack track, LocalDateTime roundTime,
+                                                      RoundSnapshot snapshot, LocalDate decisionDate, int phase,
                                                       LocalDateTime actualProcessingTime) {
+        Objects.requireNonNull(track, "相位轨道不能为空");
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
         Objects.requireNonNull(snapshot, "轮次快照不能为空");
         Objects.requireNonNull(actualProcessingTime, "实际处理时刻不能为空");
         TornStockAlphaDecisionDO decision = decisionDAO.selectPendingInitialEntryForUpdate(
-                decisionDate, phase, roundTime);
-        TornStockVirtualBatchDO activeBatch = findActiveAlphaBatch(snapshot);
+                track.trackCode(), decisionDate, phase, roundTime);
+        TornStockVirtualBatchDO activeBatch = findActiveAlphaBatch(snapshot, track);
         if (isExecutedInitialDecision(decision)) {
             validateBatchAssociation(activeBatch, decision);
             return activeBatch;
@@ -84,10 +96,10 @@ public class StockAlphaEntryService {
             markExecuted(decision, activeBatch);
             return activeBatch;
         }
-        TornStockPortfolioSlotDO slot = findAvailableAlphaSlot(snapshot.slots());
+        TornStockPortfolioSlotDO slot = slotPolicy.requireAvailable(track, snapshot.slots());
         TornStockMarketBar15mDO bar = requireExecutionBar(snapshot, decision.getSelectedStocksId(), roundTime);
         validateFunds(slot, bar.getLastPrice());
-        TornStockVirtualBatchDO batch = buildBatch(decision, slot, bar, roundTime);
+        TornStockVirtualBatchDO batch = buildBatch(track, decision, slot, bar, roundTime);
         if (virtualBatchDAO.insertIgnoreConflict(batch) != 1) {
             throw new IllegalStateException("Alpha初始批次插入冲突: batchNo=" + batch.getBatchNo());
         }
@@ -95,8 +107,8 @@ public class StockAlphaEntryService {
         validatePersistedBatch(persisted, batch, decision, slot);
         portfolioService.reserveSlot(slot, slot.getAvailableCash(), persisted.getId());
         markExecuted(decision, persisted);
-        log.info("Alpha初始批次创建: decisionDate={}, stocksId={}, batchNo={}, slotNo={}",
-                decisionDate, persisted.getStocksId(), persisted.getBatchNo(), slot.getSlotNo());
+        log.info("Alpha初始批次创建: trackCode={}, decisionDate={}, stocksId={}, batchNo={}, slotNo={}",
+                track.trackCode(), decisionDate, persisted.getStocksId(), persisted.getBatchNo(), slot.getSlotNo());
         return persisted;
     }
 
@@ -158,33 +170,16 @@ public class StockAlphaEntryService {
     }
 
     /**
-     * 查找唯一VIP_ALPHA活跃批次。
+     * 查找轨道对应的活跃批次。
      *
      * @param snapshot 当前轮次快照
-     * @return 活跃批次；不存在时返回null
+     * @param track    目标相位轨道
+     * @return 该轨道的活跃批次；不存在时返回null
      */
-    private TornStockVirtualBatchDO findActiveAlphaBatch(RoundSnapshot snapshot) {
+    private TornStockVirtualBatchDO findActiveAlphaBatch(RoundSnapshot snapshot, StockAlphaPhaseTrack track) {
         return snapshot.activeBatches().stream()
-                .filter(StockPortfolioService::isAlphaBatch)
+                .filter(batch -> track.portfolioCode().equals(batch.getPortfolioCode()))
                 .findFirst().orElse(null);
-    }
-
-    /**
-     * 查找唯一Alpha槽位。
-     *
-     * @param slots 全部锁定槽位
-     * @return 可用槽位
-     */
-    private TornStockPortfolioSlotDO findAvailableAlphaSlot(List<TornStockPortfolioSlotDO> slots) {
-        List<TornStockPortfolioSlotDO> available = slots.stream()
-                .filter(slot -> StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE.equals(slot.getPortfolioCode()))
-                .filter(slot -> Integer.valueOf(1).equals(slot.getSlotNo()))
-                .filter(slot -> StockSlotStatusEnum.AVAILABLE.getCode().equals(slot.getSlotStatus()))
-                .toList();
-        if (available.size() != StockPortfolioService.VIP_ALPHA_SLOT_COUNT) {
-            throw new IllegalStateException("VIP_ALPHA槽位不可用或数量异常");
-        }
-        return available.getFirst();
     }
 
     /**
@@ -268,21 +263,23 @@ public class StockAlphaEntryService {
     /**
      * 创建Alpha初始待入场批次。
      *
+     * @param track     目标相位轨道
      * @param decision  α决策
      * @param slot      Alpha槽位
      * @param bar       执行bar
      * @param roundTime 执行时间
      * @return 未持久化批次
      */
-    private TornStockVirtualBatchDO buildBatch(TornStockAlphaDecisionDO decision,
+    private TornStockVirtualBatchDO buildBatch(StockAlphaPhaseTrack track, TornStockAlphaDecisionDO decision,
                                                TornStockPortfolioSlotDO slot,
                                                TornStockMarketBar15mDO bar,
                                                LocalDateTime roundTime) {
         TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
-        batch.setBatchNo("A" + decision.getDecisionBusinessDate().format(DateTimeFormatter.BASIC_ISO_DATE)
-                + "-" + decision.getPhase());
-        batch.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        batch.setBatchNo(buildBatchNo(track, decision));
         StockAlphaBatchIdentity.applyAlphaIdentity(batch);
+        // 轨道归属在共享身份冻结之后覆盖: 正式轨道保持VIP_ALPHA/FORMAL, 影子轨道为VIP_ALPHA_SHADOW/ALPHA_SHADOW
+        batch.setPortfolioCode(track.portfolioCode());
+        batch.setLedgerType(StockAlphaTrackRegistry.ledgerTypeOf(track));
         batch.setStocksId(decision.getSelectedStocksId());
         batch.setStocksShortname(bar.getStocksShortname());
         batch.setBatchStatus(StockBatchStatusEnum.ENTRY_PENDING.getCode());
@@ -304,6 +301,21 @@ public class StockAlphaEntryService {
         batch.setRiskRuleVersion(StockAlphaRuleDefinition.RISK_RULE_VERSION);
         batch.setResetObserved(false);
         return batch;
+    }
+
+    /**
+     * 生成轨道唯一的初始入场批次编号。
+     * <p>
+     * 影子轨道的批次编号必须携带轨道标识:两条轨道可以持有同一股票,批次编号不得冲突。
+     *
+     * @param track    目标相位轨道
+     * @param decision α决策
+     * @return 唯一批次编号
+     */
+    private String buildBatchNo(StockAlphaPhaseTrack track, TornStockAlphaDecisionDO decision) {
+        String base = "A" + decision.getDecisionBusinessDate().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + decision.getPhase();
+        return StockAlphaTrackRegistry.productionTrack().equals(track) ? base : base + "-" + track.slotNo();
     }
 
     /**

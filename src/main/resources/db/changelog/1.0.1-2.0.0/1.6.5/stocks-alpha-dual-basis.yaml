@@ -1,0 +1,44 @@
+databaseChangeLog:
+  - changeSet:
+      id: add_alt_basis_columns_to_stock_alpha_decision
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_alpha_decision
+            columns:
+              - column:
+                  name: alt_signal_reference_price
+                  type: DECIMAL(18,2)
+                  remarks: "观察口径参考价(决策桶现价),只写不读,不影响生产决策"
+              - column:
+                  name: alt_selected_stocks_id
+                  type: INT
+                  remarks: "观察口径目标股票ID,只写不读,生产目标始终取selected_stocks_id"
+              - column:
+                  name: alt_source_snapshot_digest
+                  type: VARCHAR(128)
+                  remarks: "观察口径来源摘要,可按键序重算复核"
+  - changeSet:
+      id: add_phase_track_code_to_stock_alpha_decision
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_alpha_decision
+            columns:
+              - column:
+                  name: phase_track_code
+                  type: VARCHAR(64)
+                  defaultValue: "VIP_ALPHA#1"
+                  remarks: "α相位轨道编码,多槽相位分散下决策归属的唯一键组成部分;历史行由默认值补齐为正式轨道"
+                  constraints:
+                    nullable: false
+        - sql:
+            sql: "DROP INDEX IF EXISTS uk_stock_alpha_decision_business"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_alpha_decision_track_business ON torn_stock_alpha_decision (phase_track_code, decision_business_date, phase) WHERE deleted = 0"
+  - changeSet:
+      id: add_alpha_shadow_slot_unique_index_to_stock_virtual_batch
+      author: Bai
+      changes:
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_alpha_shadow_slot ON torn_stock_virtual_batch (portfolio_code, slot_id) WHERE ledger_type = 'ALPHA_SHADOW' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"

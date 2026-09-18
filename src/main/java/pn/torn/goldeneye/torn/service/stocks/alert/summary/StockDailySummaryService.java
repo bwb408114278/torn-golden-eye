@@ -9,17 +9,17 @@ import pn.torn.goldeneye.constants.bot.BotConstants;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 /**
- * VIP股票每日摘要服务 - 每天08:30汇总正式组合与影子研究数据并发送中文摘要
+ * VIP股票每日摘要服务 - 每天08:10汇总正式组合与影子研究数据并发送中文摘要
  * <p>
- * 在生产环境下每日08:30(Asia/Shanghai)触发,摘要日期为发送日前一自然日。本类是纯编排入口,
+ * 在生产环境下每日08:10(Asia/Shanghai)触发,摘要日期为发送日前一自然日。本类是纯编排入口,
  * 不含查询、计算、渲染与通知实现:
  * <ol>
  *   <li>检查 {@link SettingConstants#KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED} 开关</li>
@@ -46,7 +46,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.07.25
  */
 @Slf4j
@@ -67,7 +67,7 @@ public class StockDailySummaryService {
     private final SysSettingManager sysSettingManager;
 
     /**
-     * 每日08:30执行摘要调度(Asia/Shanghai)。
+     * 每日08:10执行摘要调度(Asia/Shanghai)。
      * <p>
      * 执行前置检查:
      * <ol>
@@ -77,7 +77,7 @@ public class StockDailySummaryService {
      * 通过后通过 {@link StockMarketClock#summaryDate()} 计算摘要日期,委托查询服务构建摘要数据、
      * 渲染器构建文本、通知服务写入PENDING通知审计并发送至VIP群。任一步骤异常时记录日志不中断后续调度。
      */
-    @Scheduled(cron = "0 30 8 * * *", zone = "Asia/Shanghai")
+    @Scheduled(cron = "0 10 8 * * *", zone = "Asia/Shanghai")
     public void executeDailySummary() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;

@@ -3,17 +3,14 @@ package pn.torn.goldeneye.torn.service.stocks.alert.summary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockBatchMarkDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMarkDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator.EquityResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchPathService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.CandidateShadowSummary;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.DailySummaryData;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.FormalSummary;
@@ -22,18 +19,10 @@ import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryServ
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 /**
  * 股票日报查询服务 - 一次读取正式/候选影子/影子研究的只读数据并组装只读DTO
@@ -41,8 +30,8 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioServi
  * 本类只负责DAO读取与数据组装,计算部分委托给纯计算组件:
  * <ul>
  *   <li>{@link PortfolioEquityCalculator} - 正式/候选影子组合权益</li>
- *   <li>{@link DynamicSellResearchSummaryCalculator} - 动态SELL研究mark统计</li>
  *   <li>{@link DailySummaryMetricsCalculator} - 买卖、风险、拒绝等统计</li>
+ *   <li>动态SELL研究mark覆盖统计 - 由本类按生产写路径冻结值直接计数,不新增第二套计算组件</li>
  * </ul>
  * 正式与候选影子的开放仓位股票ID合并为一次 {@code selectLatestUsableByStocks} 批量查询,
  * 避免按持仓N+1;候选影子活跃/动作批次使用固定mapper SQL,不在Java中散落OR条件。
@@ -50,7 +39,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioServi
  * 两者时间基准不同,不得混淆。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.08.09
  */
 @Service
@@ -64,7 +53,6 @@ public class StockDailySummaryQueryService {
     private final TornStockMarketBar15mDAO bar15mDAO;
     private final StockMarketClock marketClock;
     private final PortfolioEquityCalculator equityCalculator;
-    private final DynamicSellResearchSummaryCalculator dynamicSellResearchCalculator;
     private final DailySummaryMetricsCalculator metricsCalculator;
 
     /**
@@ -147,12 +135,9 @@ public class StockDailySummaryQueryService {
 
         List<TornStockBatchMarkDO> researchMarks =
                 batchMarkDAO.selectDynamicShadowResearchMarks(dayStart, dayEnd);
-        DynamicSellResearchSummaryCalculator.DynamicSellResearchSummary researchSummary =
-                dynamicSellResearchCalculator.summarize(researchMarks);
 
         ShadowSummary shadow = new ShadowSummary(signalCount, shadowNewCount, fullRejectCount,
-                styleRejectCount, researchSummary.researchMarkCount(),
-                researchSummary.completeResearchMarkCount(), highRiskCount);
+                styleRejectCount, researchMarks.size(), countCompleteResearchMarks(researchMarks), highRiskCount);
 
         return new DailySummaryData(formal, candidateShadow, shadow);
     }
@@ -194,6 +179,27 @@ public class StockDailySummaryQueryService {
             }
         }
         return barByStock;
+    }
+
+    /**
+     * 统计完整研究mark数(decision与reason均为生产写路径冻结值)。
+     * <p>
+     * 取值来源为{@link StockBatchPathService}的两个冻结常量,与生产写路径同源,
+     * 保证日报覆盖率分母与分子口径一致。
+     *
+     * @param researchMarks 研究mark列表
+     * @return 完整研究mark数
+     */
+    private int countCompleteResearchMarks(List<TornStockBatchMarkDO> researchMarks) {
+        if (CollectionUtils.isEmpty(researchMarks)) {
+            return 0;
+        }
+        return (int) researchMarks.stream()
+                .filter(mark -> StockBatchPathService.DYNAMIC_SHADOW_DECISION_NOT_EVALUATED
+                        .equals(mark.getDynamicShadowDecision())
+                        && StockBatchPathService.DYNAMIC_SHADOW_REASON_RULE_NOT_FROZEN
+                        .equals(mark.getDynamicShadowReason()))
+                .count();
     }
 
     /**

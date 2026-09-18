@@ -36,7 +36,7 @@ import static org.mockito.Mockito.*;
  * 全范围派生数据重建服务单元测试。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @ExtendWith(MockitoExtension.class)
@@ -59,21 +59,18 @@ class StockDerivedDataRebuildServiceTest {
     private TornStockMarketRoundDAO roundDao;
     @Mock
     private StockMarketClock marketClock;
-    @Mock
-    private StockMonthlyStateRangeRebuildService monthlyStateRangeRebuildService;
-
     private StockDerivedDataRebuildService service;
 
     @BeforeEach
     void setUp() {
         service = new StockDerivedDataRebuildService(
                 stocksDao, stocksHistoryDao, bar15mDao, feature15mDao, roundDao,
-                new StockMarketRoundFactory(), marketClock, monthlyStateRangeRebuildService);
+                new StockMarketRoundFactory(), marketClock);
         lenient().when(marketClock.now()).thenReturn(NOW);
     }
 
     @Test
-    @DisplayName("成功路径_按分钟事实构建bar、标记REPAIRED_DATA_ONLY并调用月度范围重建")
+    @DisplayName("成功路径_按分钟事实构建bar并标记REPAIRED_DATA_ONLY")
     void rebuildRange_success_buildsBarAndMarksRound() {
         when(stocksDao.list()).thenReturn(List.of(stock()));
         when(stocksHistoryDao.selectHistoryPointsRange(any(), any())).thenAnswer(invocation -> {
@@ -110,7 +107,6 @@ class StockDerivedDataRebuildServiceTest {
         verify(roundDao, never()).updateById(any());
         verify(roundDao, never()).selectByRoundTime(any());
         verify(roundDao, never()).insertPendingRoundIgnoreConflict(any());
-        verify(monthlyStateRangeRebuildService).rebuild(START, END);
     }
 
     @Test
@@ -276,7 +272,6 @@ class StockDerivedDataRebuildServiceTest {
         assertTrue(roundCaptor.getValue().stream()
                 .allMatch(round -> !round.getRoundTime().isBefore(START)
                         && round.getRoundTime().isBefore(END)));
-        verify(monthlyStateRangeRebuildService).rebuild(START, END);
     }
 
     private TornStocksDO stock(int id, String shortname) {

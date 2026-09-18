@@ -13,6 +13,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExe
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseCalculator;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,7 +35,7 @@ import static org.mockito.Mockito.*;
  * 已存在决策复用原执行桶且不重算、非决策轮次不做重负载、来源摘要一致与不一致的复核结果。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.08
  */
 @DisplayName("α策略日线决策服务测试")
@@ -147,7 +148,7 @@ class StockAlphaDecisionServiceTest {
         assertEquals(61, result.commonDayCount());
         verify(dailyCloseService, never()).loadDailyCloses(any());
         verify(dailyCloseService, never()).persistRankings(any(), any(), any());
-        verify(decisionDAO, never()).selectByBusinessKeyForUpdate(any(), anyInt());
+        verify(decisionDAO, never()).selectByBusinessKeyForUpdate(any(), any(), anyInt());
         verify(decisionDAO, never()).insertIgnoreConflict(any(TornStockAlphaDecisionDO.class));
     }
 
@@ -193,6 +194,55 @@ class StockAlphaDecisionServiceTest {
                 "日线快照被后续重建导致排名变化后,决策必须判定为不可复核");
     }
 
+    @Test
+    @DisplayName("决策窗口关闭_不新建决策且不消费phase_已持久化决策仍被复用")
+    void decide_windowClosed_noDecisionCreated_persistedDecisionStillReused() {
+        LocalDateTime closedWindowTime = LocalDateTime.of(2026, 9, 6, 7, 45);
+        when(dailyCloseService.commonValidDates(DECISION_DATE)).thenReturn(commonDates(60));
+        StockAlphaDecisionService service = new StockAlphaDecisionService(dailyCloseService, decisionDAO);
+
+        StockAlphaDecisionService.DecisionResult blocked =
+                service.decide(DECISION_DATE, closedWindowTime, decisionBars());
+
+        assertFalse(blocked.ready(), "窗口未开启时不得创建新决策");
+        assertNull(blocked.targetStocksId(), "窗口未开启时不得产生目标股票");
+        verify(dailyCloseService, never()).loadDailyCloses(any());
+        verify(decisionDAO, never()).insertIgnoreConflict(any(TornStockAlphaDecisionDO.class));
+
+        TornStockAlphaDecisionDO persisted = persistedDecision();
+        when(decisionDAO.selectByBusinessKeyForUpdate(
+                StockAlphaTrackRegistry.productionTrack().trackCode(), DECISION_DATE, PHASE))
+                .thenReturn(persisted);
+
+        StockAlphaDecisionService.DecisionResult reused =
+                service.decide(DECISION_DATE, closedWindowTime, decisionBars());
+
+        assertTrue(reused.ready(), "窗口关闭时已持久化决策必须仍可复用");
+        assertEquals(EXECUTION_BAR, reused.executionBarStartTime(), "复用不得改写已持久化执行桶");
+        assertEquals(PHASE, reused.phase());
+        assertEquals(persisted.getSelectedStocksId(), reused.targetStocksId());
+        verify(decisionDAO, never()).insertIgnoreConflict(any(TornStockAlphaDecisionDO.class));
+    }
+
+    /**
+     * 构造一份已持久化的α决策,用于验证窗口关闭时的复用分支。
+     *
+     * @return 已持久化决策
+     */
+    private TornStockAlphaDecisionDO persistedDecision() {
+        TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
+        decision.setId(DECISION_ID);
+        decision.setPhaseTrackCode(StockAlphaTrackRegistry.productionTrack().trackCode());
+        decision.setDecisionBusinessDate(DECISION_DATE);
+        decision.setCommonDayIndex(60);
+        decision.setPhase(PHASE);
+        decision.setDecisionType(StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY.name());
+        decision.setSelectedStocksId(1001);
+        decision.setExecutionBarStartTime(EXECUTION_BAR);
+        decision.setExecutionStatus("PENDING");
+        return decision;
+    }
+
     /**
      * 执行首次决策并返回已落库的决策对象,后续轮次将以该对象作为"已持久化决策"被读取。
      *
@@ -225,7 +275,8 @@ class StockAlphaDecisionServiceTest {
     private void stubDecisionDay() {
         when(dailyCloseService.commonValidDates(DECISION_DATE)).thenReturn(commonDates(60));
         when(dailyCloseService.loadDailyCloses(DECISION_DATE)).thenReturn(completeWindow(0));
-        when(decisionDAO.selectByBusinessKeyForUpdate(DECISION_DATE, PHASE))
+        when(decisionDAO.selectByBusinessKeyForUpdate(
+                StockAlphaTrackRegistry.productionTrack().trackCode(), DECISION_DATE, PHASE))
                 .thenAnswer(invocation -> inserted[0]);
     }
 

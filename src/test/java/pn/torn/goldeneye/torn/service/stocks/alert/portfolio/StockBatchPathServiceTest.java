@@ -16,8 +16,9 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockBatchMa
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchExitService.ExitEvaluation;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchExitService.ExitEvaluation;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
@@ -28,15 +29,12 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
-import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDynamicSellResearchConstants;
 
 /**
  * 股票批次路径服务测试，覆盖开放批次路径更新(peak/trough/MFE/MAE)和退出条件评估的核心逻辑。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.07.26
  */
 @DisplayName("股票批次路径服务测试")
@@ -121,34 +119,10 @@ class StockBatchPathServiceTest {
 
         assertEquals(1, marks.size());
         TornStockBatchMarkDO mark = marks.getFirst();
-        assertEquals(StockDynamicSellResearchConstants.DECISION_NOT_EVALUATED, mark.getDynamicShadowDecision(),
+        assertEquals(StockBatchPathService.DYNAMIC_SHADOW_DECISION_NOT_EVALUATED, mark.getDynamicShadowDecision(),
                 "正式账本mark必须写入动态SELL研究冻结决策");
-        assertEquals(StockDynamicSellResearchConstants.REASON_RULE_NOT_FROZEN, mark.getDynamicShadowReason(),
+        assertEquals(StockBatchPathService.DYNAMIC_SHADOW_REASON_RULE_NOT_FROZEN, mark.getDynamicShadowReason(),
                 "正式账本mark必须写入动态SELL研究冻结原因");
-    }
-
-    @Test
-    @DisplayName("动态SELL研究遥测_候选影子账本mark写入冻结决策与原因")
-    void updatePathsAndEvaluateExits_candidateShadowLedger_writesDynamicShadowTelemetry() {
-        TornStockVirtualBatchDO batch = buildOpenBatch();
-        batch.setLedgerType(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode());
-        TornStockMarketBar15mDO bar = buildBar(true);
-        bar.setLastPrice(new BigDecimal("101.00"));
-        TornStockStrategyFeature15mDO feature = buildFeature();
-        ExitEvaluation noExit = new ExitEvaluation(false, null,
-                StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), "未命中任何退出规则");
-        when(batchExitService.evaluateExit(any(), any(), any(), any(), any(), any())).thenReturn(noExit);
-
-        RoundSnapshot snapshot = buildSnapshot(List.of(batch));
-        List<TornStockBatchMarkDO> marks = batchPathService.updatePathsAndEvaluateExits(
-                snapshot, Map.of(STOCKS_ID, bar), Map.of(STOCKS_ID, feature), ROUND_TIME);
-
-        assertEquals(1, marks.size());
-        TornStockBatchMarkDO mark = marks.getFirst();
-        assertEquals(StockDynamicSellResearchConstants.DECISION_NOT_EVALUATED, mark.getDynamicShadowDecision(),
-                "候选影子账本mark必须写入动态SELL研究冻结决策");
-        assertEquals(StockDynamicSellResearchConstants.REASON_RULE_NOT_FROZEN, mark.getDynamicShadowReason(),
-                "候选影子账本mark必须写入动态SELL研究冻结原因");
     }
 
     @Test
@@ -416,8 +390,12 @@ class StockBatchPathServiceTest {
     }
 
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches) {
-        return new RoundSnapshot(
-                List.of(), List.of(), List.of(), activeBatches, List.of(), List.of(), List.of(), ROUND_TIME
-        );
+        return new RoundSnapshot(List.of(),
+                List.of(),
+                List.of(),
+                activeBatches,
+                List.of(),
+                List.of(),
+                ROUND_TIME);
     }
 }
