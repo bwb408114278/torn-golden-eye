@@ -30,17 +30,17 @@ public class StockAlphaLatestPriceBasis implements StockAlphaPriceBasis {
     @Override
     public Map<Integer, List<BigDecimal>> closeSeries(StockAlphaBasisInput input) {
         if (input == null || input.decisionBars() == null || input.decisionBars().isEmpty()) {
-            return Map.of();
+            return null;
         }
         Map<Integer, List<BigDecimal>> closes = input.previousCloseSeries();
         if (closes.size() != StockAlphaRuleDefinition.MEMBER_COUNT) {
-            return Map.of();
+            return null;
         }
         for (Integer stocksId : StockAlphaRuleDefinition.stockUniverse()) {
             BigDecimal price = latestPrice(input.decisionBars().get(stocksId));
             List<BigDecimal> series = closes.get(stocksId);
             if (price == null || series == null) {
-                return Map.of();
+                return null;
             }
             series.add(price);
         }

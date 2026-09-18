@@ -59,13 +59,15 @@ class StockAlphaSlotPolicyTest {
                 StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST, slots);
         assertEquals(1, first.getSlotNo(), "偏移0的轨道必须精确选中1号槽位");
 
+        List<TornStockPortfolioSlotDO> missingSecondSlot = List.of(slots.getFirst());
+        List<TornStockPortfolioSlotDO> occupiedFirstSlot = List.of(
+                slot(1L, StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, 1, StockSlotStatusEnum.OCCUPIED));
+
         assertThrows(IllegalStateException.class, () -> slotPolicy.requireAvailable(
-                        StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND, List.of(slots.getFirst())),
+                        StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND, missingSecondSlot),
                 "轨道槽位缺失必须fail-closed");
         assertThrows(IllegalStateException.class, () -> slotPolicy.requireAvailable(
-                        StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST,
-                        List.of(slot(1L, StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, 1,
-                                StockSlotStatusEnum.OCCUPIED))),
+                        StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST, occupiedFirstSlot),
                 "槽位不可用时不得用于初始入场");
     }
 

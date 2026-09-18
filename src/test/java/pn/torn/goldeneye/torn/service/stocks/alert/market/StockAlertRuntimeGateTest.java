@@ -61,7 +61,7 @@ class StockAlertRuntimeGateTest {
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
 
         assertFalse(decision.shouldBuildRounds());
-        assertFalse(decision.manageExistingBatches());
+        assertFalse(decision.existsActiveBatches());
         assertFalse(decision.allowAlphaShadow());
         assertFalse(decision.allowNewEntry());
         assertFalse(decision.shouldSendPendingNotices());
@@ -81,7 +81,7 @@ class StockAlertRuntimeGateTest {
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
 
         assertTrue(decision.shouldBuildRounds(), "存在活跃批次必须继续构建存量管理所需轮次");
-        assertTrue(decision.manageExistingBatches());
+        assertTrue(decision.existsActiveBatches());
         assertFalse(decision.allowNewEntry(), "总开关关闭时新买入必须关闭");
     }
 
@@ -100,7 +100,7 @@ class StockAlertRuntimeGateTest {
 
         assertTrue(decision.shouldBuildRounds());
         assertFalse(decision.allowNewEntry(), "配置缺失必须按false处理,禁止从总开关推导为true");
-        assertTrue(decision.manageExistingBatches());
+        assertTrue(decision.existsActiveBatches());
     }
 
     @Test
@@ -117,7 +117,7 @@ class StockAlertRuntimeGateTest {
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
 
         assertEquals(StockRuleModeEnum.OFF, decision.ruleMode());
-        assertTrue(decision.manageExistingBatches(), "RULE_MODE=OFF不得阻断存量批次管理");
+        assertTrue(decision.existsActiveBatches(), "RULE_MODE=OFF不得阻断存量批次管理");
         assertFalse(decision.allowNewEntry(), "RULE_MODE=OFF禁止新买入");
     }
 
@@ -137,7 +137,7 @@ class StockAlertRuntimeGateTest {
         assertTrue(decision.shouldBuildRounds(), "α影子观察开启必须产生轮次与行情数据义务");
         assertTrue(decision.allowAlphaShadow());
         assertFalse(decision.allowNewEntry(), "α影子许可不得推导出正式新入场许可");
-        assertFalse(decision.manageExistingBatches());
+        assertFalse(decision.existsActiveBatches());
     }
 
     @Test
@@ -192,7 +192,7 @@ class StockAlertRuntimeGateTest {
 
         assertEquals(StockRuleModeEnum.SHADOW, decision.ruleMode());
         assertFalse(decision.allowNewEntry(), "SHADOW不得创建VIP_ALPHA正式批次");
-        assertTrue(decision.manageExistingBatches(), "SHADOW不得停止存量批次管理");
+        assertTrue(decision.existsActiveBatches(), "SHADOW不得停止存量批次管理");
     }
 
     @Test
@@ -210,7 +210,7 @@ class StockAlertRuntimeGateTest {
 
         assertEquals(StockRuleModeEnum.PROVISIONAL, decision.ruleMode());
         assertFalse(decision.allowNewEntry(), "PROVISIONAL没有小规模资金契约,不得使用10B/100%正式组合");
-        assertTrue(decision.manageExistingBatches());
+        assertTrue(decision.existsActiveBatches());
     }
 
     @Test
@@ -228,6 +228,6 @@ class StockAlertRuntimeGateTest {
         StockAlertRuntimeGate.RuntimeDecision decision = runtimeGate.evaluate();
 
         assertFalse(decision.allowNewEntry(), "Alpha readiness未通过不得新入场");
-        assertTrue(decision.manageExistingBatches(), "readiness不影响存量批次管理");
+        assertTrue(decision.existsActiveBatches(), "readiness不影响存量批次管理");
     }
 }

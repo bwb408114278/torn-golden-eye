@@ -1,10 +1,11 @@
-package pn.torn.goldeneye.torn.service.stocks.alert.signal;
+package pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockObservationResultEnum;
@@ -12,6 +13,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEve
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -19,7 +21,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 
 /**
  * 拒绝观察理论退出生命周期真实PostgreSQL集成测试。
@@ -33,12 +34,13 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildSe
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.08.06
  */
 @SpringBootTest
 @Tag("shared-db")
 @Transactional
+@Rollback
 @DisplayName("拒绝观察理论退出生命周期真实PostgreSQL集成测试")
 class TornStockSignalEventTheoreticalExitDataTest {
 

@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
+package pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
@@ -41,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @Tag("shared-db")
 @Transactional
+@Rollback
 @DisplayName("月度状态Mapper真实PostgreSQL集成测试")
 class TornStockMonthlyStateMapperTest {
 

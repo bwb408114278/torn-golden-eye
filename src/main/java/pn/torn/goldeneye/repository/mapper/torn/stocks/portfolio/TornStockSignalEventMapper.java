@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票信号事件数据库访问层
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.07.24
  */
 @Mapper
@@ -64,11 +64,4 @@ public interface TornStockSignalEventMapper extends BaseMapper<TornStockSignalEv
      * @return 实际更新行数
      */
     int updateObservationResultsByIds(@Param("events") List<TornStockSignalEventDO> events);
-
-    /**
-     * 判断是否存在未结算的拒绝观察事件。
-     *
-     * @return 存在未结算拒绝观察事件返回true;否则false
-     */
-    boolean existsPendingRejectedObservationEvents();
 }

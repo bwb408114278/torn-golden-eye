@@ -312,7 +312,6 @@ public class VipStockAlertScheduler {
             StockAlertRuntimeGate.RuntimeDecision decision) {
         return new StockAlertRuntimeGate.RuntimeDecision(
                 decision.shouldBuildRounds(),
-                decision.manageExistingBatches(),
                 false,
                 decision.allowAlphaShadow(),
                 decision.shouldSendPendingNotices(),

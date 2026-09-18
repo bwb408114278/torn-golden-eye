@@ -32,7 +32,7 @@ import java.util.Map;
  * 通知编号生成、载荷构造与哈希复核在本类收敛,调用方不得自行拼装审计行。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.25
  */
 @Slf4j
@@ -57,6 +57,18 @@ public class StockNoticeAuditWriter {
      */
     private static final DateTimeFormatter NOTICE_NO_FORMATTER =
             DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
+    /**
+     * 载荷字段: 入场参考价
+     */
+    private static final String PAYLOAD_KEY_ENTRY_REFERENCE_PRICE = "entryReferencePrice";
+    /**
+     * 载荷字段: 数量
+     */
+    private static final String PAYLOAD_KEY_QUANTITY = "quantity";
+    /**
+     * 载荷字段: 消息规则版本
+     */
+    private static final String PAYLOAD_KEY_MESSAGE_RULE_VERSION = "messageRuleVersion";
 
     private final TornStockNoticeAuditDAO noticeAuditDao;
     private final ProjectProperty projectProperty;
@@ -170,13 +182,13 @@ public class StockNoticeAuditWriter {
         payload.put("stocksId", replacement.getStocksId());
         payload.put("stocksShortname", replacement.getStocksShortname());
         payload.put("slotNo", replacement.getSlotNo());
-        payload.put("entryReferencePrice", replacement.getEntryReferencePrice());
-        payload.put("quantity", replacement.getQuantity());
+        payload.put(PAYLOAD_KEY_ENTRY_REFERENCE_PRICE, replacement.getEntryReferencePrice());
+        payload.put(PAYLOAD_KEY_QUANTITY, replacement.getQuantity());
         payload.put("investedCash", replacement.getInvestedCash());
         payload.put("entryTime", replacement.getEntryTime());
         payload.put("rebalanceDecisionId", association == null ? null : association.rebalanceDecisionId());
         payload.put("rebalanceAssociationId", association == null ? null : association.associationId());
-        payload.put("messageRuleVersion", replacement.getMessageRuleVersion());
+        payload.put(PAYLOAD_KEY_MESSAGE_RULE_VERSION, replacement.getMessageRuleVersion());
         return StockNoticePayloadCanonicalizer.canonicalize(JsonUtils.objToJson(payload));
     }
 
@@ -342,22 +354,22 @@ public class StockNoticeAuditWriter {
         if (StockNoticeTypeEnum.BUY == noticeType
                 || (StockNoticeTypeEnum.ALPHA_REBALANCE == noticeType
                 && StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))) {
-            payload.put("entryReferencePrice", batch.getEntryReferencePrice());
-            payload.put("quantity", batch.getQuantity());
+            payload.put(PAYLOAD_KEY_ENTRY_REFERENCE_PRICE, batch.getEntryReferencePrice());
+            payload.put(PAYLOAD_KEY_QUANTITY, batch.getQuantity());
             payload.put("investedCash", batch.getInvestedCash());
             payload.put("slotNo", batch.getSlotNo());
             payload.put("buyRuleVersion", batch.getBuyRuleVersion());
-            payload.put("messageRuleVersion", batch.getMessageRuleVersion());
+            payload.put(PAYLOAD_KEY_MESSAGE_RULE_VERSION, batch.getMessageRuleVersion());
         } else {
-            payload.put("entryReferencePrice", batch.getEntryReferencePrice());
+            payload.put(PAYLOAD_KEY_ENTRY_REFERENCE_PRICE, batch.getEntryReferencePrice());
             payload.put("exitReferencePrice", batch.getExitReferencePrice());
-            payload.put("quantity", batch.getQuantity());
+            payload.put(PAYLOAD_KEY_QUANTITY, batch.getQuantity());
             payload.put("netReturn", batch.getNetReturn());
             payload.put("sellProceeds", batch.getSellProceeds());
             payload.put("exitReason", batch.getExitReason());
             payload.put("exitTime", batch.getExitTime());
             payload.put("sellRuleVersion", batch.getSellRuleVersion());
-            payload.put("messageRuleVersion", batch.getMessageRuleVersion());
+            payload.put(PAYLOAD_KEY_MESSAGE_RULE_VERSION, batch.getMessageRuleVersion());
             if (StockBatchStatusEnum.ADMIN_CLOSED.getCode().equals(batch.getBatchStatus())) {
                 payload.put("formalReason", StockFormalReasonEnum.SELL_DATA_ADMIN_CLOSE.getCode());
                 payload.put("originalExitReason", batch.getOriginalExitReason() != null

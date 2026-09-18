@@ -185,8 +185,8 @@ public class StockAlphaDecisionService {
                     calculation.decisionDate(), phase, candidate.targetStocksId(), decisionTime, executionBar);
             return notReady(calculation, executionBar);
         }
-        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, phase, currentBatchId, decisionTime,
-                executionBar, decisionBar.price(), calculation.observation(), track.trackCode());
+        TornStockAlphaDecisionDO decision = toDecisionDO(candidate, currentBatchId, decisionTime,
+                decisionBar.price(), calculation.observation(), track.trackCode());
         dailyCloseService.persistRankings(calculation.decisionDate(), calculation.latestCloses(),
                 calculation.rankings());
         if (decisionDao.insertIgnoreConflict(decision) != 1) {
@@ -278,28 +278,25 @@ public class StockAlphaDecisionService {
     /**
      * 将决策结果转换为持久化对象。
      *
-     * @param result                待持久化的决策结果
-     * @param phase                 消费阶段
-     * @param currentBatchId        当前持仓批次ID;初始入场时为空
-     * @param decisionTime          决策时点,其对齐桶作为决策事实持久化
-     * @param executionBarStartTime 按决策时点推导的执行bar起点
-     * @param signalReferencePrice  决策时点参考价;缺失时执行阶段fail-closed
-     * @param observation           观察口径结果;为空时观察列写null且不影响生产事实
-     * @param trackCode             相位轨道编码,决策归属的唯一键分量
+     * @param result               待持久化的决策结果;消费阶段与执行bar起点直接取自该结果,避免同值多来源
+     * @param currentBatchId       当前持仓批次ID;初始入场时为空
+     * @param decisionTime         决策时点,其对齐桶作为决策事实持久化
+     * @param signalReferencePrice 决策时点参考价;缺失时执行阶段fail-closed
+     * @param observation          观察口径结果;为空时观察列写null且不影响生产事实
+     * @param trackCode            相位轨道编码,决策归属的唯一键分量
      * @return 决策持久化对象
      */
-    private TornStockAlphaDecisionDO toDecisionDO(DecisionResult result, int phase, Long currentBatchId,
-                                                  LocalDateTime decisionTime, LocalDateTime executionBarStartTime,
-                                                  BigDecimal signalReferencePrice, Observation observation,
-                                                  String trackCode) {
+    private TornStockAlphaDecisionDO toDecisionDO(DecisionResult result, Long currentBatchId,
+                                                  LocalDateTime decisionTime, BigDecimal signalReferencePrice,
+                                                  Observation observation, String trackCode) {
         TornStockAlphaDecisionDO decision = new TornStockAlphaDecisionDO();
         decision.setPhaseTrackCode(trackCode);
         decision.setDecisionBusinessDate(result.decisionDate());
         decision.setCommonDayIndex(result.commonDayCount());
-        decision.setPhase(phase);
+        decision.setPhase(result.phase());
         decision.setCurrentBatchId(currentBatchId);
         decision.setDecisionBarStartTime(StockAlphaExecutionBarPolicy.decisionBucket(decisionTime));
-        decision.setExecutionBarStartTime(executionBarStartTime);
+        decision.setExecutionBarStartTime(result.executionBarStartTime());
         decision.setDecisionType(result.event().name());
         decision.setSourceSnapshotDigest(buildSourceSnapshotDigest(result));
         decision.setSignalReferencePrice(signalReferencePrice);
@@ -443,6 +440,11 @@ public class StockAlphaDecisionService {
         try {
             StockAlphaPriceBasis basis = StockAlphaPriceBasisRegistry.observationBasis();
             List<StockAlphaRankingResult> rankings = rank(basisInput, basis);
+            if (rankings.isEmpty()) {
+                log.warn("α观察口径序列不完整,本次观察列写null且不影响生产决策: basisCode={}, rankingDates={}",
+                        basis.code(), basisInput.rankingDates().size());
+                return null;
+            }
             Integer targetStocksId = rankings.getFirst().stocksId();
             StockAlphaExecutionBarPolicy.DecisionBar bar = basisInput.decisionBars().get(targetStocksId);
             return new Observation(targetStocksId, bar.price(), buildObservationDigest(basis.code(), rankings));
@@ -492,10 +494,11 @@ public class StockAlphaDecisionService {
      *
      * @param basisInput 口径输入
      * @param basis      口径实现
-     * @return 排名向量
+     * @return 排名向量;口径无法形成完整序列(返回null)时返回空列表
      */
     private List<StockAlphaRankingResult> rank(StockAlphaBasisInput basisInput, StockAlphaPriceBasis basis) {
-        return StockAlphaRankingCalculator.calculate(basis.closeSeries(basisInput));
+        Map<Integer, List<BigDecimal>> closeSeries = basis.closeSeries(basisInput);
+        return closeSeries == null ? List.of() : StockAlphaRankingCalculator.calculate(closeSeries);
     }
 
     /**

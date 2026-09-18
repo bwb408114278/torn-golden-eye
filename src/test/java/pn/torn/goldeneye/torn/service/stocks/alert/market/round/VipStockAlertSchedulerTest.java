@@ -569,20 +569,20 @@ class VipStockAlertSchedulerTest {
      * 构建运行时判定结果。
      *
      * @param shouldBuildRounds        是否构建轮次
-     * @param manageExistingBatches    是否存在活跃存量批次需要继续管理
+     * @param existsActiveBatches      是否存在活跃存量批次
      * @param allowNewEntry            是否允许正式新入场
      * @param allowAlphaShadow         是否允许α影子轨道运行
      * @param shouldSendPendingNotices 是否应投递历史PENDING通知
      * @return 运行时判定结果
      */
     private StockAlertRuntimeGate.RuntimeDecision decision(boolean shouldBuildRounds,
-                                                           boolean manageExistingBatches,
+                                                           boolean existsActiveBatches,
                                                            boolean allowNewEntry,
                                                            boolean allowAlphaShadow,
                                                            boolean shouldSendPendingNotices) {
         return new StockAlertRuntimeGate.RuntimeDecision(
-                shouldBuildRounds, manageExistingBatches, allowNewEntry, allowAlphaShadow,
-                shouldSendPendingNotices, StockRuleModeEnum.SHADOW, manageExistingBatches);
+                shouldBuildRounds, allowNewEntry, allowAlphaShadow,
+                shouldSendPendingNotices, StockRuleModeEnum.SHADOW, existsActiveBatches);
     }
 
     /**

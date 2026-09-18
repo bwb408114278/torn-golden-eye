@@ -59,7 +59,8 @@ public class StockAlertRuntimeGate {
         boolean newEntryEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED);
         boolean formalNoticeEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED);
         boolean allowAlphaShadow = isEnabled(SettingConstants.KEY_VIP_STOCK_ALPHA_SHADOW_ENABLED);
-        StockRuleModeEnum ruleMode = resolveRuleMode();
+        StockRuleModeEnum ruleMode = StockRuleModeEnum.resolve(
+                sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE));
 
         boolean existsActiveBatches = virtualBatchDao.existsActiveBatches();
         boolean existsPendingNotices = noticeAuditDao.existsSendableNotices();
@@ -72,14 +73,13 @@ public class StockAlertRuntimeGate {
         boolean shouldSendPendingNotices = formalNoticeEnabled && existsPendingNotices;
 
         RuntimeDecision decision = new RuntimeDecision(
-                shouldBuildRounds, existsActiveBatches, allowNewEntry, allowAlphaShadow,
+                shouldBuildRounds, allowNewEntry, allowAlphaShadow,
                 shouldSendPendingNotices, ruleMode, existsActiveBatches);
         log.debug("股票提醒运行时门禁判定: alertEnabled={}, newEntryEnabled={}, alphaShadowEnabled={}, ruleMode={}, "
                         + "existsActiveBatches={}, existsPendingNotices={}, "
-                        + "shouldBuildRounds={}, manageExistingBatches={}, "
-                        + "allowNewEntry={}, allowAlphaShadow={}, shouldSendPendingNotices={}",
+                        + "shouldBuildRounds={}, allowNewEntry={}, allowAlphaShadow={}, shouldSendPendingNotices={}",
                 alertEnabled, newEntryEnabled, allowAlphaShadow, ruleMode.getCode(), existsActiveBatches,
-                existsPendingNotices, decision.shouldBuildRounds(), decision.manageExistingBatches(),
+                existsPendingNotices, decision.shouldBuildRounds(),
                 decision.allowNewEntry(), decision.allowAlphaShadow(), decision.shouldSendPendingNotices());
         return decision;
     }
@@ -96,37 +96,17 @@ public class StockAlertRuntimeGate {
     }
 
     /**
-     * 解析规则模式;缺失或非法默认SHADOW。
-     *
-     * @return 当前规则模式
-     */
-    private StockRuleModeEnum resolveRuleMode() {
-        String modeCode = sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE);
-        if (modeCode == null || modeCode.isBlank()) {
-            return StockRuleModeEnum.SHADOW;
-        }
-        try {
-            return StockRuleModeEnum.fromCode(modeCode);
-        } catch (IllegalArgumentException e) {
-            log.warn("规则模式编码无效,默认SHADOW: code={}", modeCode);
-            return StockRuleModeEnum.SHADOW;
-        }
-    }
-
-    /**
      * 运行时判定结果
      *
      * @param shouldBuildRounds        是否构建轮次(含存量管理或α影子观察所需轮次)
-     * @param manageExistingBatches    是否存在活跃存量批次需要继续管理
      * @param allowNewEntry            是否允许正式新入场(唯一正式许可:仅{@code FORMAL}模式成立)
      * @param allowAlphaShadow         是否允许α影子轨道运行(独立于正式新入场,影子不触真钱不投递)
      * @param shouldSendPendingNotices 是否应投递历史PENDING通知
      * @param ruleMode                 当前规则模式
-     * @param existsActiveBatches      查询到的活跃批次存在性(用于日志与测试断言)
+     * @param existsActiveBatches      是否存在活跃存量批次(兼作存量管理判定、日志与测试断言依据)
      */
     public record RuntimeDecision(
             boolean shouldBuildRounds,
-            boolean manageExistingBatches,
             boolean allowNewEntry,
             boolean allowAlphaShadow,
             boolean shouldSendPendingNotices,

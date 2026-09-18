@@ -161,7 +161,9 @@ public class StockRoundTransactionService {
 
         // 正式新入场许可:门禁已收敛为FORMAL-only,这里以同一规则再校验一次,
         // 禁止SHADOW/PROVISIONAL通过任何调用方创建VIP_ALPHA正式批次。
-        boolean formalNewEntryAllowed = allowNewEntry && resolveRuleMode() == StockRuleModeEnum.FORMAL;
+        StockRuleModeEnum ruleMode = StockRuleModeEnum.resolve(
+                sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE));
+        boolean formalNewEntryAllowed = allowNewEntry && ruleMode == StockRuleModeEnum.FORMAL;
 
         // 各α轨道初始入场: 正式轨道消费FORMAL-only许可,影子轨道由影子开关(轨道注册表)决定
         boolean entryAttempted = false;
@@ -222,7 +224,7 @@ public class StockRoundTransactionService {
      * @return 允许初始入场时返回true
      */
     private boolean isInitialEntryAllowed(StockAlphaPhaseTrack track, boolean formalNewEntryAllowed) {
-        return StockAlphaTrackRegistry.productionTrack().equals(track) ? formalNewEntryAllowed : true;
+        return !StockAlphaTrackRegistry.productionTrack().equals(track) || formalNewEntryAllowed;
     }
 
     /**
@@ -572,23 +574,4 @@ public class StockRoundTransactionService {
         return map;
     }
 
-    /**
-     * 从系统配置读取当前规则模式。
-     * <p>
-     * 配置缺失或解析失败时默认返回SHADOW(安全降级,禁止创建正式批次)。
-     *
-     * @return 当前规则模式
-     */
-    private StockRuleModeEnum resolveRuleMode() {
-        String modeCode = sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE);
-        if (modeCode == null || modeCode.isBlank()) {
-            return StockRuleModeEnum.SHADOW;
-        }
-        try {
-            return StockRuleModeEnum.fromCode(modeCode);
-        } catch (IllegalArgumentException e) {
-            log.warn("规则模式编码无效,默认SHADOW: code={}", modeCode);
-            return StockRuleModeEnum.SHADOW;
-        }
-    }
 }
