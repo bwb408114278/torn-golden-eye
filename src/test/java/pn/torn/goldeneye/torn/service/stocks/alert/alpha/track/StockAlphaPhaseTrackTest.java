@@ -72,7 +72,19 @@ class StockAlphaPhaseTrackTest {
                 StockAlphaTrackRegistry.ledgerTypeOf(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST),
                 "影子轨道必须使用ALPHA_SHADOW账本");
 
-        // 批次归属唯一宿主: 必须同时匹配组合编码与槽位序号,空批次与同组合其它槽位一律不属于本轨道
+        assertBatchOwnershipMatchesTrackPortfolioAndSlot();
+    }
+
+    /**
+     * 验证批次归属唯一宿主{@link StockAlphaPhaseTrack#owns}必须同时匹配组合编码与槽位序号:
+     * 空批次、同组合其它槽位与其它组合的批次一律不属于本轨道。
+     * <p>
+     * 与决策日/phase断言拆分为独立方法,避免单个测试方法的断言数量超过规范门禁。
+     */
+    private void assertBatchOwnershipMatchesTrackPortfolioAndSlot() {
+        StockAlphaPhaseTrack offsetZero = StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST;
+        StockAlphaPhaseTrack offsetTwo = StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND;
+
         assertFalse(offsetZero.owns(null), "空批次不属于任何轨道");
         assertTrue(offsetZero.owns(batchAt(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, 1)),
                 "同组合同槽位批次必须判定为本轨道批次");

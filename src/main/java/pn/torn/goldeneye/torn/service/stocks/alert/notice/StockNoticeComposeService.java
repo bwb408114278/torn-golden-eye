@@ -351,13 +351,13 @@ public class StockNoticeComposeService {
                 groups.add(List.of(item));
                 continue;
             }
-            List<NoticeWithBatch> group = associationGroups.get(associationId);
-            if (group == null) {
-                group = new ArrayList<>(2);
-                associationGroups.put(associationId, group);
-                groups.add(group);
-            }
-            group.add(item);
+            // 首次见到该换仓关联标识时才登记新组: 组的登记顺序必须与出现顺序一致,
+            // 因此仍在映射函数内把新组追加到有序结果列表
+            associationGroups.computeIfAbsent(associationId, key -> {
+                List<NoticeWithBatch> created = new ArrayList<>(2);
+                groups.add(created);
+                return created;
+            }).add(item);
         }
         return groups;
     }
