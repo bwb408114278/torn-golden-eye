@@ -115,7 +115,7 @@ public class StockNoticeComposeService {
         Objects.requireNonNull(batch, "批次不能为空");
         Objects.requireNonNull(batch.getBatchNo(), "批次编号不能为空");
 
-        if (StockPortfolioService.isAlphaBatch(batch)) {
+        if (StockPortfolioService.isAlphaLedger(batch)) {
             return String.format(BUY_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" + "\n"
                     + StockAlphaNoticeRenderer.renderBuy(batch);
         }
@@ -178,7 +178,7 @@ public class StockNoticeComposeService {
             return composeDisasterCloseMessage(batch);
         }
 
-        if (StockPortfolioService.isAlphaBatch(batch)) {
+        if (StockPortfolioService.isAlphaLedger(batch)) {
             return String.format(SELL_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" + "\n"
                     + StockAlphaNoticeRenderer.renderSell(batch);
         }

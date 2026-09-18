@@ -2,8 +2,9 @@ package pn.torn.goldeneye.torn.service.stocks.alert.alpha.track;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,24 +57,44 @@ class StockAlphaPhaseTrackTest {
             }
             assertTrue(hits <= 1, "同一共同有效日至多只有一条轨道决策: count=" + commonDayCount);
         }
-    }
 
-    @Test
-    @DisplayName("轨道注册表_编码查找与正式轨道恒启用语义")
-    void registry_lookupAndLedgerType() {
+        // 轨道注册表编码查找与账本类型: 正式轨道复用FORMAL账本,影子轨道使用ALPHA_SHADOW账本
         assertEquals(StockAlphaTrackRegistry.productionTrack(),
                 StockAlphaTrackRegistry.of(StockAlphaTrackRegistry.productionTrack().trackCode()));
         assertEquals(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND,
                 StockAlphaTrackRegistry.of(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND.trackCode()));
         assertThrows(IllegalArgumentException.class, () -> StockAlphaTrackRegistry.of("UNKNOWN#1"));
 
-        assertEquals(pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum.FORMAL.getCode(),
+        assertEquals(StockLedgerTypeEnum.FORMAL.getCode(),
                 StockAlphaTrackRegistry.ledgerTypeOf(StockAlphaTrackRegistry.productionTrack()),
                 "正式轨道必须复用FORMAL账本,正式仓账本语义零改动");
-        assertEquals(pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum.ALPHA_SHADOW.getCode(),
+        assertEquals(StockLedgerTypeEnum.ALPHA_SHADOW.getCode(),
                 StockAlphaTrackRegistry.ledgerTypeOf(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST),
                 "影子轨道必须使用ALPHA_SHADOW账本");
-        assertEquals(2, List.of(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST,
-                StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND).size(), "影子组合固定2条轨道");
+
+        // 批次归属唯一宿主: 必须同时匹配组合编码与槽位序号,空批次与同组合其它槽位一律不属于本轨道
+        assertFalse(offsetZero.owns(null), "空批次不属于任何轨道");
+        assertTrue(offsetZero.owns(batchAt(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, 1)),
+                "同组合同槽位批次必须判定为本轨道批次");
+        assertFalse(offsetZero.owns(batchAt(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, 2)),
+                "同组合其它槽位的批次不得判为本轨道批次");
+        assertFalse(offsetZero.owns(batchAt(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, 1)),
+                "其它组合的批次不属于本轨道");
+        assertTrue(offsetTwo.owns(batchAt(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, 2)),
+                "偏移2的轨道必须认领2号槽位批次");
+    }
+
+    /**
+     * 构造指定组合与槽位的批次,用于验证轨道归属判定。
+     *
+     * @param portfolioCode 组合编码
+     * @param slotNo        槽位序号
+     * @return 批次DO
+     */
+    private static TornStockVirtualBatchDO batchAt(String portfolioCode, int slotNo) {
+        TornStockVirtualBatchDO batch = new TornStockVirtualBatchDO();
+        batch.setPortfolioCode(portfolioCode);
+        batch.setSlotNo(slotNo);
+        return batch;
     }
 }

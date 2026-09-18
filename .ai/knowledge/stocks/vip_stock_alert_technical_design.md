@@ -5,10 +5,11 @@
 - 文档类型：长期技术架构与实现边界
 - 业务范围：α=0.04 首批股票提醒
 - 长期业务基线：`.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`
-- 当前一次性技术方案契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_convergence_technical_plan_one_time.md`（A/B/C/D 统一开发任务；完成§12验收后删除并把结论并入§13）
+- 统一一次性技术方案：`.ai/knowledge/stocks/vip_stock_alert_alpha_convergence_technical_plan_one_time.md`（A/B/C/D 统一开发任务；已完成开发与Review，遗留项见修复方案）
+- 当前一次性修复方案契约：`.ai/knowledge/stocks/vip_stock_alert_alpha_convergence_fix_one_time.md`（Review 打回项 F1–F5；完成§12验收后与统一方案一并删除，并把结论并入§13）
 - 业务验收依据：`.ai/knowledge/stocks/vip_stock_alert_business_review_conclusion_one_time.md`
 - 时区：`Asia/Shanghai`
-- 状态：第六批业务Review不通过；当前代码整改范围仅为`R-ALPHA-PRE-001`换仓通知组租约恢复/领取释放组状态同步及领取者安全收敛。`R-ALPHA-PRE-002`仅FORMAL允许VIP_ALPHA正式新入场、`R-ALPHA-PRE-003`通知链统一业务时钟属于已确认的代码层基本通过项，仅保留直接回归验证。`R-ALPHA-PRE-004`正式环境证据、`R-ALPHA-PRE-006`通知数据来源确认及真实BUY/SELL验收属于部署后门禁，不能写成代码已完成。
+- 状态：A/B/C/D统一方案已实施并提交（`39b41c6`…`9e7e6f4`）；Review结论为**不通过**，两个P0（α账本判定口径过窄、轨道级批次判定缺失）及若干P1/P2/P3由一次性修复方案`vip_stock_alert_alpha_convergence_fix_one_time.md`收敛，**修复通过前不得打开`VIP_STOCK_ALPHA_SHADOW_ENABLED`**。第六批业务Review的`R-ALPHA-PRE-001`换仓通知组租约恢复/领取释放组状态同步及领取者安全收敛仍为前置；`R-ALPHA-PRE-002`、`R-ALPHA-PRE-003`为代码层基本通过项；`R-ALPHA-PRE-004`正式环境证据、`R-ALPHA-PRE-006`通知数据来源确认及真实BUY/SELL验收属于部署后门禁。
 - 早间决策窗口（A）：α新决策与"已结束自然日快照"后移至`08:00`起的已结束桶，Tornsy巡检提前至07:00、股票日报提前至08:10；该变更以§4.3.1、§5.4和统一方案为基线。
 - 双信号快照（B）：决策时同时落"前一日23:45收盘"与"08:00现价"两套口径，**第二套只写不读**，生产下单与通知行为不变；契约见§4.6。
 - 多槽相位分散（C）：**只在影子组合`VIP_ALPHA_SHADOW`（2槽×5B、相位偏移0/2）观察，正式仓`VIP_ALPHA`零改动**；契约见§4.7、§5.1。
@@ -37,6 +38,9 @@
 15. 相位语义只允许一份实现（`StockAlphaPhaseTrack`与轨道注册表）：决策日、phase与槽位归属不得在业务类内重复计算；**各槽唯一变量是相位偏移**，出现第二个变量即打回。
 16. 多槽只落在影子组合；正式仓`VIP_ALPHA`的槽数、资金、账本、批次身份与通知模板在交付期间零改动。影子通知只落审计记录（`SHADOW_RECORDED`），**永不进入可发送集合**。
 17. 旧版信号评估、候选影子、无限资金影子、拒绝观察与回放研究链进入停用范围；停用后不得再写入对应账本，历史行与其枚举值保留以保证可解析。
+18. α账本语义（正式α与α影子）只有一份判定实现：`StockPortfolioService.isAlphaLedger`。凡决定「用哪套策略规则处理批次」的分支（退出评估、成交组装、文案渲染、通知过滤）必须使用它；`isAlphaBatch`只表示正式α组合身份，不得单独用于决定α语义。
+19. 轨道归属（批次是否属于某轨道）只有一份判定实现：`StockAlphaPhaseTrack#owns`，按`(portfolioCode, slotNo)`精确匹配；禁止组合级判定，同一组合的多条轨道必须能同时持有各自槽位的持仓。
+20. 已执行的迁移原则上不得修改；确需追加清理性DDL（如删除已退场链路的表）时，必须取得需求方书面授权并在§7.1与§13.5登记授权、理由与不可逆性。
 
 ---
 
@@ -78,7 +82,7 @@ src/main/java/pn/torn/goldeneye/torn/service/stocks/alert/notice/StockNoticeSend
 → 现有通知审计和发送服务
 ```
 
-旧版BUY候选链保留供历史、回放和存量兼容使用，但切换后不得从生产新入场路径产生新的正式旧版批次。不得把α塞入`StockBuySignalEvaluator`、`BuyStrategyMatcher`或三个旧策略类。
+旧版BUY候选链、月度门禁、拒绝观察与回放研究链已在D项**整体删除**（`alert/signal`、`alert/monthly`、`alert/observation`、`replay`），代码层不得恢复；`VIP_FORMAL`存量批次仍按创建时规则收尾（`StockBatchPathService`/`StockBatchExitService`保留）。不得把α塞入旧版策略解析器。
 
 ---
 
@@ -159,6 +163,8 @@ expectedExecutionBarStart = signalBucketStart + 15分钟
 
 α唯一正常策略SELL为`ALPHA_REBALANCE`。不得触发旧版固定止盈、固定止损、14天、RANGE或动态SELL。管理关闭属于独立管理事件，不得伪装成策略换仓。
 
+本条对α**正式与α影子同时生效**：判定宿主为`StockPortfolioService.isAlphaLedger(TornStockVirtualBatchDO)`。禁止用只认`FORMAL`+`VIP_ALPHA`的`isAlphaBatch`决定α语义——α影子的账本是`ALPHA_SHADOW`，用身份判定会让影子落入旧版固定退出。
+
 ### 4.6 双信号快照（B）
 
 决策时在**同一份**日线与排名实现上计算两套口径：
@@ -192,7 +198,8 @@ phaseOf(commonDayCount)       = (commonDayCount - WARMUP - phaseOffset) / 5
 
 - 决策归属由`torn_stock_alpha_decision.phase_track_code`显式承载，唯一键为`(phase_track_code, decision_business_date, phase)`；
 - 槽位选择唯一宿主为`StockAlphaSlotPolicy`，按`(portfolioCode, slotNo)`精确匹配，禁止"数量恰好为1"式硬编码；
-- 5槽**不设为目标形态**；影子收益高低**不得**作为采纳依据（只降波动类改动，见长期业务基线§14.7/§15.7）。
+- 5槽**不设为目标形态**；影子收益高低**不得**作为采纳依据（只降波动类改动，见长期业务基线§14.7/§15.7）；
+- **批次归属契约**：轨道=`(portfolioCode, slotNo)`；「某批次是否属于本轨道」的唯一宿主为`StockAlphaPhaseTrack#owns(TornStockVirtualBatchDO)`，禁止组合级`anyMatch(portfolioCode)`；同一组合的多条轨道必须能同时持有各自槽位的持仓（组合内每槽至多1条活跃批次，由活性唯一索引保证）。
 
 ---
 
@@ -305,7 +312,7 @@ pn.torn.goldeneye.torn.service.stocks.alert.alpha
 │   └── StockAlphaPriceBasisRegistry.java    (口径注册表)
 ├── notice
 │   ├── StockAlphaNoticeRenderer.java        (α买卖正文唯一文案来源,纯静态)
-│   └── StockAlphaNoticeAuditWriter.java     (α通知审计写入唯一宿主;D项从alert.shadow搬迁)
+│   └── StockAlphaNoticeAuditWriter.java     (α通知审计写入门面;D项从alert.shadow搬迁,按轨道分流)
 └── execution
     ├── StockAlphaExecutionBarPolicy.java   (决策桶/执行桶/决策窗口时间的唯一算法与判定宿主)
     ├── StockAlphaBatchIdentity.java         (α批次业务身份唯一写入点)
@@ -321,7 +328,7 @@ pn.torn.goldeneye.torn.service.stocks.alert.alpha
 - `decision`：phase消费和目标策略，持久化决策桶与执行桶；不直接执行旧版BUY。
 - `track`：相位轨道与槽位归属的唯一语义来源；只做纯计算与槽位选择，不写资金、不发送消息。
 - `basis`：价格口径的唯一实现来源；只构造收盘序列，不写库、不决定目标。
-- `notice`：α买卖正文与α通知审计写入的唯一来源；不承载发送、payload冻结、幂等职责，不构成第二套Alpha消息服务。
+- `notice`：α买卖正文与α通知审计写入的唯一来源；不承载发送、payload冻结、幂等职责，不构成第二套Alpha消息服务。D项搬迁落点为通用写入器`alert/notice/StockNoticeAuditWriter.java`（由`StockShadowRecordWriter`重命名以保留历史），α门面`alert/alpha/notice/StockAlphaNoticeAuditWriter.java`负责按轨道分流正式双腿与影子合并记录。
 - `execution`：统一执行bar、α身份写入、初始入场接线和原子换仓；复用公共资金/批次服务。
 
 ### 6.2 持久化文件
@@ -358,7 +365,7 @@ StockAlphaRebalanceService.java
 StockBatchPathService.java
 StockBatchExitService.java
 StockEntrySettlementService.java
-StockShadowRecordWriter.java（D项搬迁α审计职责后删除）
+StockNoticeAuditWriter.java（D项搬迁落点,由StockShadowRecordWriter重命名,位于alert/notice包）
 StockNoticeComposeService.java
 StockNoticeSendService.java
 TornStockNoticeAuditDO.java
@@ -366,6 +373,9 @@ TornStockAlphaDecisionDO.java
 TornStockAlphaDecisionMapper.xml
 StockDailySummaryQueryService.java
 StockDailySummaryRenderer.java
+StockDailySummaryService.java（日报摘要改版,已授权）
+DailySummaryMetricsCalculator.java（日报口径改版,已授权）
+StockDataReadinessReportRunner.java（D项回放守卫删除后的替代实现）
 ```
 
 修改原则：
@@ -381,17 +391,9 @@ StockDailySummaryRenderer.java
 
 ### 6.4 明确不修改
 
-除非编译接线或公共查询闭包确实要求，不修改：
+旧版策略类（`BuyStrategyMatcher.java`、`StockBuySignalEvaluator.java`、`DeepMeanReversionBuyStrategy.java`、`RangeLowerBuyStrategy.java`、`StrictReboundConfirmBuyStrategy.java`）以及`alert/signal`、`alert/monthly`、`alert/observation`、`replay`整包已在D项删除：**不得恢复，不得以任何形式重新引入**。
 
-```text
-BuyStrategyMatcher.java
-StockBuySignalEvaluator.java
-DeepMeanReversionBuyStrategy.java
-RangeLowerBuyStrategy.java
-StrictReboundConfirmBuyStrategy.java
-```
-
-不删除旧策略，不把α实现为旧策略接口，不顺手重构旧版。
+除一次性修复方案列明的文件外，不顺手重构旧版链路、通知链与批次/结算服务。
 
 ---
 
@@ -410,7 +412,10 @@ StrictReboundConfirmBuyStrategy.java
 7. `1.6.5`追加`torn_stock_alpha_decision`的B观察列（可空、只写不读）；
 8. `1.6.5`追加`phase_track_code`（`NOT NULL DEFAULT 'VIP_ALPHA#1'`，仅元数据列）并把唯一键改为`(phase_track_code, decision_business_date, phase)`；
 9. `VIP_ALPHA_SHADOW`（2槽×5B）由`StockPortfolioInitService`幂等初始化，不产生BUY/SELL；
-10. 在空库和已有历史批次库分别验证。
+10. `1.6.5`追加α影子活性唯一索引`uk_stock_virtual_batch_alpha_shadow_slot`（`(portfolio_code, slot_id)`，条件`ledger_type='ALPHA_SHADOW'`）；
+11. `1.6.5`删除已退场链路的表`torn_stock_signal_event`/`torn_stock_signal_state`/`torn_stock_monthly_state`：**不可逆，已于2026-09-18获需求方授权**（授权记录见§13.5），删除前已确认无剩余生产读写方；
+12. `1.6.5`的两个Schema changeset合并于同一文件`stocks-alpha-dual-basis.yaml`，`db.changelog-master.yaml`仅一条include；
+13. 在空库和已有历史批次库分别验证。
 
 每个表和字段必须有remarks，字符串/金额按项目YAML规范加引号。迁移不得产生BUY、SELL、持仓、成交或通知。
 
@@ -503,7 +508,8 @@ StockAlphaExecutionBarPolicyTest
 - 不测试getter/setter、私有方法和框架行为；
 - 不做复杂Shadow全量矩阵；
 - 不做第二套平台的端到端测试；
-- 不用读取XML/YAML字符串断言代替真实SQL。
+- 不用读取XML/YAML字符串断言代替真实SQL；
+- 不用「已删除字符串不存在」类断言证明删除（D项删除用编译+全量测试证明）；不用整篇渲染文本等值断言锁定输出（避免与文案提交耦合）。
 ### 9.5 早间决策窗口（一次性方案）的收敛要求
 
 窗口判定只允许一个主证据与两处接线证据，禁止重复矩阵：
@@ -526,6 +532,15 @@ StockAlphaSlotPolicyTest   // 按(portfolioCode, slotNo)精确匹配,数量不�
 
 不新增C的多槽端到端矩阵、不为D的删除写字符串断言测试（用编译+全量测试证明无残留）、不为影子通知新增发送链测试；B的观察口径测试只覆盖序列构造，不覆盖通知与结算。
 
+修复轮次（F1/F2）只新增两个主证据，其余断言并入既有方法：
+
+```text
+StockRoundTransactionServiceTest   // 同一组合下已持仓的轨道不得阻塞另一轨道入场(轨道级批次判定唯一宿主)
+StockBatchExitServiceTest          // α正式与α影子一律不得触发旧版固定退出(α账本判定唯一宿主)
+```
+
+并入项：`StockAlphaBatchIdentityItTest`（α影子成交后规则身份未被旧版覆盖）、`StockPortfolioServiceTest`（`isAlphaLedger`取值集合）；测试方法总数登记为T1–T10。
+
 ---
 
 ## 10. 开发、发布和回退顺序
@@ -545,7 +560,9 @@ StockAlphaSlotPolicyTest   // 按(portfolioCode, slotNo)精确匹配,数量不�
 13. D的组件删除必须在α通知审计写入器从`alert.shadow`搬迁完成后进行。
 14. 发版后打开`VIP_STOCK_DAILY_SUMMARY_ENABLED`，再采集A的行为级证据。
 15. 影子期≥1个月且≥2个完整换仓周期后采集C的证据；正式仓全程零改动。
-16. 验收通过后删除统一方案文件，结论并入§13。
+16. **修复轮次必须在发版前完成**：F1/F2代码修复→F3收敛→F4测试→F5文档→编译与全量测试通过；两个P0只影响影子，回退手段为关闭`VIP_STOCK_ALPHA_SHADOW_ENABLED`，不回退任何已产生的事实；
+17. 修复通过后打开`VIP_STOCK_ALPHA_SHADOW_ENABLED`开始影子观察，按修复方案§12.2采集F1/F2只读证据；
+18. 验收通过后删除统一方案与修复方案文件，结论并入§13。
 
 回退：关闭α新入场→保留存量管理和通知重试→核查α批次→另行人工批准旧版新入场；不得自动回退或改写已有α批次。
 
@@ -565,6 +582,8 @@ StockAlphaSlotPolicyTest   // 按(portfolioCode, slotNo)精确匹配,数量不�
 - 以影子期收益高低决定只降波动类改动的采纳；
 - 让影子通知进入可发送集合或向成员投递；
 - 复制第二份排名实现、第二套相位计算或第二套槽位选择；
+- 以组合级（不带`slotNo`）比较判定活跃批次或轨道归属；
+- 用`isAlphaBatch`（正式α身份）决定α语义，使α影子落入旧版退出、旧版规则版本或旧版文案；
 - 修改已执行的`1.6.1` changeSet。
 
 ---
@@ -601,7 +620,18 @@ StockAlphaSlotPolicyTest   // 按(portfolioCode, slotNo)精确匹配,数量不�
 - B：决策时同时落`PREVIOUS_CLOSE`与`LATEST_PRICE`两套口径，观察列只写不读。
 - C：仅在影子组合`VIP_ALPHA_SHADOW`（2槽×5B、偏移0/2）观察；正式仓零改动；相位语义唯一宿主。
 - D：候选影子、无限资金影子、拒绝观察、旧版信号链与回放链停用并删除；弃用规格入库`vip_stock_strategy_version_history.md`。
-- 状态：待实施。完成统一方案§12验收并留档后关闭。
+- 状态：**已实施**（提交`39b41c6`…`9e7e6f4`）；Review结论为不通过，遗留修复项见`.ai/knowledge/stocks/vip_stock_alert_alpha_convergence_fix_one_time.md`；修复通过并留档后关闭。
+
+### 13.5 收敛交付Review与修复轮次（2026-09-18）
+
+- Review范围：`7a414c7..9e7e6f4`（`604c271`敏感消息文案为独立任务，排除在本轮之外）。
+- Review结论：**不通过**。A（早间窗口）/B（双口径）/D（旧策略退场）与横向检查通过；C（多槽影子）不通过，存在两个P0：
+  1. **F1 α账本判定口径过窄**：`StockBatchExitService`、`StockVirtualBatchAssembler`、`StockNoticeComposeService`以`isAlphaBatch`决定α语义，而α影子账本为`ALPHA_SHADOW`，导致影子被旧版固定止盈/止损/14天/RANGE管理，且成交时规则身份被覆盖为旧版默认值。
+  2. **F2 轨道级批次判定缺失**：`StockRoundTransactionService#hasAlphaBatch`与`StockAlphaEntryService#findActiveAlphaBatch`只比`portfolioCode`，同组合的`VIP_ALPHA_SHADOW#2`被`#1`的持仓永久阻塞，2槽×5B退化为1槽。
+- 修复基线：α账本语义唯一宿主`StockPortfolioService#isAlphaLedger`；轨道归属唯一宿主`StockAlphaPhaseTrack#owns`；不新增包、Schema与配置项。
+- 需求方授权记录：①`1.6.5`的3个`dropTable`（信号事件/信号状态/月度状态）已授权，属不可逆清理；②旧影子仓清仓（`VIP_SHADOW_CANDIDATE`2 OPEN、`UNLIMITED_SHADOW`3 OPEN）已授权并已处理；③日报摘要改版（新版α策略区块与两版文案）已授权；④`604c271`敏感消息文案替换为独立任务，验收时排除在本轮diff之外。
+- 判定记录：`StockAlphaPriceBasisRegistry#of/#all`删除（零调用）；`StockAlphaTrackRegistry#of`保留（方案要求的公共入口）；`StockEntrySettlementService`的`UNLIMITED_SHADOW`等兼容分支、`REJECTED_OBSERVATION`枚举值与`StockBatchPathService`的只写遥测列均保留（历史行解析与mark结构需要）。
+- 关闭条件：修复方案§12全部通过、全量默认测试Failures=0、影子开启后F1/F2只读证据齐备并留档。
 
 ---
 
@@ -630,6 +660,9 @@ StockAlphaSlotPolicyTest   // 按(portfolioCode, slotNo)精确匹配,数量不�
 - 正式仓`VIP_ALPHA`在交付期间账本、持仓、批次、通知零改动；
 - 旧策略连续7天信号、批次、通知产出为0；被删组件无残留引用且全量测试通过；
 - 换仓通知审计写入不得依赖`alert.shadow`包（搬迁完成后该包才允许删除）；
+- α账本语义只用`StockPortfolioService#isAlphaLedger`判定，α影子不得被旧版固定退出规则或旧版规则版本处理；
+- 轨道归属只用`StockAlphaPhaseTrack#owns`判定，同一组合的多条轨道必须能同时持有各自槽位的持仓；
+- 影子批次的`exit_reason`只允许`ALPHA_REBALANCE`，四个规则版本必须为α值，审计状态只允许`SHADOW_RECORDED`；
 - 无未解决P0/P1。
 
 技术完成不等于真实BUY/SELL或业务验收完成；真实业务验收按一次性技术方案和业务验收文档单独确认。

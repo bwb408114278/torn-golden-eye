@@ -12,6 +12,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadinessGate;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.lenient;
@@ -42,8 +43,9 @@ class StockAlertRuntimeGateTest {
 
     @BeforeEach
     void setUp() {
+        // 影子开关的唯一判定宿主是轨道注册表: 测试用同一 SysSettingManager mock 提供开关取值,断言不变
         runtimeGate = new StockAlertRuntimeGate(sysSettingManager, virtualBatchDao, noticeAuditDao,
-                alphaReadinessGate);
+                alphaReadinessGate, new StockAlphaTrackRegistry(sysSettingManager));
         lenient().when(alphaReadinessGate.isReady()).thenReturn(true);
     }
 

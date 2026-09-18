@@ -244,7 +244,7 @@ public class StockAlphaRebalanceService {
         BigDecimal cash = slot.getAvailableCash();
         long quantity = StockPortfolioService.calculateQuantity(cash, buyBar.getLastPrice());
         if (quantity <= 0) {
-            throw new IllegalStateException("VIP_ALPHA槽位资金不足买入新仓");
+            throw new IllegalStateException(track.trackCode() + "槽位资金不足买入新仓");
         }
         TornStockVirtualBatchDO replacement = new TornStockVirtualBatchDO();
         replacement.setBatchNo(buildReplacementBatchNo(track, decision));
@@ -337,8 +337,7 @@ public class StockAlphaRebalanceService {
     private TornStockVirtualBatchDO findOpenBatch(List<TornStockVirtualBatchDO> batches,
                                                   StockAlphaPhaseTrack track) {
         List<TornStockVirtualBatchDO> open = batches.stream()
-                .filter(batch -> track.portfolioCode().equals(batch.getPortfolioCode()))
-                .filter(batch -> Integer.valueOf(track.slotNo()).equals(batch.getSlotNo()))
+                .filter(track::owns)
                 .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus())).toList();
         if (open.size() != 1) {
             throw new IllegalStateException("α轨道当前持仓批次数量异常: track=" + track.trackCode()

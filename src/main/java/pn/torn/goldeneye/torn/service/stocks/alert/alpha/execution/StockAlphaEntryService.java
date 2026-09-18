@@ -27,6 +27,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -171,15 +172,25 @@ public class StockAlphaEntryService {
 
     /**
      * 查找轨道对应的活跃批次。
+     * <p>
+     * 批次归属只由{@link StockAlphaPhaseTrack#owns}判定:仅按组合编码判定会把同组合其它槽位的批次
+     * 误判为本轨道的已有持仓,进而在关联校验中抛异常,把整个轮次事务钉死在可重试失败状态。
+     * 命中多条时fail-closed抛出,由调用方事务整体回滚。
      *
      * @param snapshot 当前轮次快照
      * @param track    目标相位轨道
      * @return 该轨道的活跃批次；不存在时返回null
+     * @throws IllegalStateException 该轨道活跃批次多于一条时抛出
      */
     private TornStockVirtualBatchDO findActiveAlphaBatch(RoundSnapshot snapshot, StockAlphaPhaseTrack track) {
-        return snapshot.activeBatches().stream()
-                .filter(batch -> track.portfolioCode().equals(batch.getPortfolioCode()))
-                .findFirst().orElse(null);
+        List<TornStockVirtualBatchDO> owned = snapshot.activeBatches().stream()
+                .filter(track::owns)
+                .toList();
+        if (owned.size() > 1) {
+            throw new IllegalStateException("α轨道活跃批次数量异常: track=" + track.trackCode()
+                    + ", owned=" + owned.size());
+        }
+        return owned.isEmpty() ? null : owned.getFirst();
     }
 
     /**

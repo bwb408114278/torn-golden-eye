@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
@@ -15,6 +16,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDe
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockVirtualBatchAssembler;
+import pn.torn.goldeneye.utils.image.render.html.PlaywrightBrowserManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -58,6 +60,14 @@ class StockAlphaBatchIdentityItTest {
      */
     private static final String LEGACY_BATCH_NO = "IT-LEGACY-IDENTITY-20990905-0";
     /**
+     * 隔离的α影子批次股票ID。
+     */
+    private static final Integer ALPHA_SHADOW_STOCKS_ID = 2099703;
+    /**
+     * 隔离的α影子批次编号。
+     */
+    private static final String ALPHA_SHADOW_BATCH_NO = "IT-ALPHA-SHADOW-IDENTITY-20990905-0";
+    /**
      * 决策桶起点。
      */
     private static final LocalDateTime DECISION_BAR = LocalDateTime.of(2099, 9, 5, 9, 45);
@@ -68,6 +78,14 @@ class StockAlphaBatchIdentityItTest {
 
     @Autowired
     private TornStockVirtualBatchDAO batchDAO;
+
+    /**
+     * 表格图片渲染浏览器与本交付的批次身份断言无关,且需要下载/启动外部Chromium;
+     * 测试上下文以替身替换,避免无关的外部浏览器进程阻断上下文加载,不改变批次真实Bean与真实DAO。
+     * 与同包{@code StockAlphaRebalanceTransactionItTest}使用同一处理方式。
+     */
+    @MockitoBean
+    private PlaywrightBrowserManager playwrightBrowserManager;
 
     @Test
     @DisplayName("真实PG_Alpha批次成交后组合主策略与四个α规则版本全部保持")
@@ -89,6 +107,20 @@ class StockAlphaBatchIdentityItTest {
         assertEquals(1000L, readBack.getQuantity());
         assertNotNull(readBack.getFollowUntil(), "成交必须冻结跟随截止时间");
         assertNotNull(readBack.getFollowMaxPrice(), "成交必须冻结记录价格上限");
+
+        // α影子与α正式同属α账本: 公共成交组装同样只补成交事实,不得覆盖其冻结身份
+        TornStockVirtualBatchDO alphaShadow = entryPendingAlphaShadowBatch();
+        assertEquals(1, batchDAO.insertIgnoreConflict(alphaShadow));
+        TornStockVirtualBatchDO persistedShadow = batchDAO.selectByBatchNoForUpdate(ALPHA_SHADOW_BATCH_NO);
+        assertNotNull(persistedShadow, "α影子批次必须真实落库并可按批次号读回");
+
+        StockVirtualBatchAssembler.applyFilledEntryFields(persistedShadow, entryFields());
+        assertAlphaShadowRuleIdentity(persistedShadow, "成交组装后");
+
+        batchDAO.updateById(persistedShadow);
+        TornStockVirtualBatchDO shadowReadBack = batchDAO.selectByBatchNoForUpdate(ALPHA_SHADOW_BATCH_NO);
+        assertNotNull(shadowReadBack, "α影子成交后必须可按批次号真实读回");
+        assertAlphaShadowRuleIdentity(shadowReadBack, "数据库读回");
     }
 
     @Test
@@ -131,6 +163,43 @@ class StockAlphaBatchIdentityItTest {
         assertEquals(StockAlphaRuleDefinition.MESSAGE_RULE_VERSION, batch.getMessageRuleVersion(),
                 stageAlias + "α消息规则版本必须保持");
         assertEquals(77L, batch.getAlphaDecisionId(), stageAlias + "α来源决策关联必须保持");
+    }
+
+    /**
+     * 断言α影子批次的账本身份与四个规则版本仍为冻结的α值。
+     *
+     * @param batch      批次
+     * @param stageAlias 断言阶段描述
+     */
+    private void assertAlphaShadowRuleIdentity(TornStockVirtualBatchDO batch, String stageAlias) {
+        assertEquals(StockLedgerTypeEnum.ALPHA_SHADOW.getCode(), batch.getLedgerType(),
+                stageAlias + "α影子账本类型必须保持ALPHA_SHADOW");
+        assertEquals(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, batch.getPortfolioCode(),
+                stageAlias + "α影子组合编码不得被覆盖为旧版默认值");
+        assertEquals(StockAlphaRuleDefinition.RULE_VERSION, batch.getBuyRuleVersion(),
+                stageAlias + "α影子买入规则版本不得被覆盖为旧版默认值");
+        assertEquals(StockAlphaRuleDefinition.SELL_RULE_VERSION, batch.getSellRuleVersion(),
+                stageAlias + "α影子卖出规则版本不得被覆盖为旧版默认值");
+        assertEquals(StockAlphaRuleDefinition.ALLOCATION_RULE_VERSION, batch.getAllocationRuleVersion(),
+                stageAlias + "α影子分配规则版本不得被覆盖为旧版默认值");
+        assertEquals(StockAlphaRuleDefinition.MESSAGE_RULE_VERSION, batch.getMessageRuleVersion(),
+                stageAlias + "α影子消息规则版本不得被覆盖为旧版默认值");
+    }
+
+    /**
+     * 构造已冻结α身份、归属α影子账本的ENTRY_PENDING批次。
+     *
+     * @return α影子待入场批次
+     */
+    private TornStockVirtualBatchDO entryPendingAlphaShadowBatch() {
+        TornStockVirtualBatchDO batch = baseEntryPendingBatch(ALPHA_SHADOW_BATCH_NO, ALPHA_SHADOW_STOCKS_ID);
+        StockAlphaBatchIdentity.applyAlphaIdentity(batch);
+        batch.setPortfolioCode(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE);
+        batch.setLedgerType(StockLedgerTypeEnum.ALPHA_SHADOW.getCode());
+        batch.setAlphaDecisionId(78L);
+        batch.setStyleRuleVersion(StockAlphaRuleDefinition.STYLE_RULE_VERSION);
+        batch.setRiskRuleVersion(StockAlphaRuleDefinition.RISK_RULE_VERSION);
+        return batch;
     }
 
     /**

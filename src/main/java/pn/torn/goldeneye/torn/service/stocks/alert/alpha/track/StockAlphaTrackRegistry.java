@@ -1,7 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.track;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
@@ -20,7 +19,6 @@ import java.util.List;
  * @version 1.6.5
  * @since 2026.09.18
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class StockAlphaTrackRegistry {
@@ -102,6 +100,9 @@ public class StockAlphaTrackRegistry {
 
     /**
      * 按轨道编码查找轨道。
+     * <p>
+     * 当前由测试与诊断入口使用,是方案§C-2要求的公共查找入口,保留不删除;
+     * 生产编排不按编码查找,轨道全部直接取用本注册表常量。
      *
      * @param trackCode 轨道编码
      * @return 对应轨道

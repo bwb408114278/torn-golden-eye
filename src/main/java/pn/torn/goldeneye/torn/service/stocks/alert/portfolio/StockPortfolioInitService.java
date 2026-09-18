@@ -190,7 +190,10 @@ public class StockPortfolioInitService {
     }
 
     /**
-     * 获取正式VIP组合的槽位数量(兼容入口)。
+     * 获取正式VIP组合的槽位数量。
+     * <p>
+     * 仅兼容入口与测试使用;生产路径一律按组合编码调用{@link #getSlotCount(String)},
+     * 不依赖正式组合的固定槽位数。
      *
      * @return 正式组合槽位数量;组合不存在槽位时返回0
      */

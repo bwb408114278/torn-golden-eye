@@ -5,12 +5,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockCloseTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockFormalReasonEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockLedgerTypeEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchExitService.ExitEvaluation;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -211,6 +213,33 @@ class StockBatchExitServiceTest {
         assertFalse(result.shouldExit(), "非区间策略不触发区间退出,不应退出");
     }
 
+    // ==================== α账本退出 ====================
+
+    @Test
+    @DisplayName("退出评估_α正式与α影子命中旧版目标退出价格_一律hold只允许ALPHA_REBALANCE")
+    void evaluateExit_alphaLedger_holdsForRebalanceOnly() {
+        LocalDateTime roundTime = LocalDateTime.now();
+        // 该价格在旧版规则下命中目标退出(netReturn >= +0.8%),α账本必须一律hold
+        BigDecimal currentPrice = calcPriceForNetReturn(ENTRY_PRICE, new BigDecimal("0.009"));
+        List<TornStockVirtualBatchDO> alphaBatches = List.of(
+                buildAlphaLedgerBatch(StockLedgerTypeEnum.FORMAL.getCode(),
+                        StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, roundTime),
+                buildAlphaLedgerBatch(StockLedgerTypeEnum.ALPHA_SHADOW.getCode(),
+                        StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, roundTime));
+
+        for (TornStockVirtualBatchDO alphaBatch : alphaBatches) {
+            ExitEvaluation result = exitService.evaluateExit(alphaBatch, currentPrice,
+                    null, null, null, roundTime);
+
+            assertFalse(result.shouldExit(), "α账本批次不得触发旧版固定退出: portfolioCode="
+                    + alphaBatch.getPortfolioCode() + ", ledgerType=" + alphaBatch.getLedgerType());
+            assertFalse(result.dataInsufficient(), "α账本批次必须以通用HOLD返回,不得进入不可评估路径");
+            assertEquals(StockFormalReasonEnum.HOLD_NO_EXIT_TRIGGERED.getCode(), result.reasonCode());
+            assertEquals("α正式与α影子仅允许ALPHA_REBALANCE目标变化退出", result.reason(),
+                    "α账本批次必须给出只允许ALPHA_REBALANCE的hold原因");
+        }
+    }
+
     // ==================== 无退出条件 ====================
 
     @Test
@@ -374,6 +403,22 @@ class StockBatchExitServiceTest {
         if (entryReferencePrice != null) {
             batch.setInvestedCash(entryReferencePrice.multiply(BigDecimal.valueOf(10000L)));
         }
+        return batch;
+    }
+
+    /**
+     * 构建α账本批次(α正式或α影子)。
+     *
+     * @param ledgerType    账本类型编码
+     * @param portfolioCode 组合编码
+     * @param entryTime     入场时间
+     * @return α账本OPEN批次
+     */
+    private TornStockVirtualBatchDO buildAlphaLedgerBatch(String ledgerType, String portfolioCode,
+                                                          LocalDateTime entryTime) {
+        TornStockVirtualBatchDO batch = buildOpenBatch(ENTRY_PRICE, entryTime, null);
+        batch.setLedgerType(ledgerType);
+        batch.setPortfolioCode(portfolioCode);
         return batch;
     }
 

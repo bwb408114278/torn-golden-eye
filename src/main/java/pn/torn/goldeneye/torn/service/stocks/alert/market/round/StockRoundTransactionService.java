@@ -230,8 +230,7 @@ public class StockRoundTransactionService {
      * @return 存在该轨道活跃批次时返回true
      */
     private boolean hasAlphaBatch(RoundSnapshot snapshot, StockAlphaPhaseTrack track) {
-        return snapshot.activeBatches().stream()
-                .anyMatch(batch -> track.portfolioCode().equals(batch.getPortfolioCode()));
+        return snapshot.activeBatches().stream().anyMatch(track::owns);
     }
 
     /**
@@ -357,9 +356,7 @@ public class StockRoundTransactionService {
      */
     private TornStockVirtualBatchDO findOpenAlphaBatch(RoundSnapshot snapshot, StockAlphaPhaseTrack track) {
         List<TornStockVirtualBatchDO> open = snapshot.activeBatches().stream()
-                .filter(Objects::nonNull)
-                .filter(batch -> track.portfolioCode().equals(batch.getPortfolioCode()))
-                .filter(batch -> Integer.valueOf(track.slotNo()).equals(batch.getSlotNo()))
+                .filter(track::owns)
                 .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))
                 .toList();
         if (open.size() > 1) {

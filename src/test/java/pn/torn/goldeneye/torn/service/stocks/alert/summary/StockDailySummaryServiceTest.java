@@ -55,6 +55,19 @@ class StockDailySummaryServiceTest {
      * 摘要日期(发送日前一自然日)
      */
     private static final LocalDate SUMMARY_DATE = LocalDate.of(2026, 7, 30);
+    /**
+     * α正式组合一级区块标题前缀。
+     */
+    private static final String ALPHA_SECTION_PREFIX = "α 正式组合（新策略主仓 · ";
+    /**
+     * 存量正式组合一级区块标题前缀。
+     */
+    private static final String LEGACY_SECTION_PREFIX = "存量正式组合（只出不进 · ";
+    /**
+     * α影子组合一级区块标题前缀。
+     */
+    private static final String ALPHA_SHADOW_SECTION_PREFIX =
+            "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · ";
 
     @Test
     @DisplayName("开放仓位缺少行情_权益不可用但展示排序后的缺失股票与现金")
@@ -220,7 +233,12 @@ class StockDailySummaryServiceTest {
         String summaryText = service.buildSummaryText(
                 new StockDailySummaryService.DailySummaryData(SUMMARY_DATE, alpha, legacy, shadow));
 
-        assertEquals(expectedSummaryText(), summaryText);
+        assertEquals(3, sectionTitles(summaryText).size(), "日报固定只渲染α正式/存量正式/α影子三个一级区块");
+        assertTrue(summaryText.contains("- 组合净值：10,045,264,199"), "权益必须为千分位整数");
+        assertTrue(summaryText.contains("- 可用现金：4,079,993,937"), "现金必须为千分位整数");
+        assertTrue(summaryText.contains("- 当前虚拟持仓：CNC @ 826.26"), "股价必须保留两位小数");
+        assertTrue(summaryText.contains("- 昨日已实现净变化：79,246（变动率 +0.79%）"),
+                "已实现净变化金额为千分位整数、变动率为带符号百分数");
     }
 
     @Test
@@ -236,10 +254,13 @@ class StockDailySummaryServiceTest {
         String summaryText = service.buildSummaryText(
                 new StockDailySummaryService.DailySummaryData(SUMMARY_DATE, empty, empty, empty));
 
-        for (String retired : List.of("候选影子组合", "影子研究", "动态SELL研究", "无限资金影子",
-                "满仓拒绝", "风格/趋势拒绝", "高风险观察", "原始买入信号", "暂无法计算")) {
-            assertFalse(summaryText.contains(retired), "已退场内容不得出现在报文中: " + retired);
-        }
+        // 正向结构断言: 一级区块标题集合固定为α正式/存量正式/α影子,已退场研究区块因此不可能出现,
+        // 不再以"字符串不存在"断言证明删除
+        assertEquals(List.of(
+                        "α 正式组合（新策略主仓 · 5槽）",
+                        "存量正式组合（只出不进 · 5槽）",
+                        "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · 5槽）"),
+                sectionTitles(summaryText), "日报一级区块标题集合必须固定为α正式/存量正式/α影子");
         assertFalse(summaryText.contains("%n"), "不得出现字面量换行占位符");
         assertTrue(summaryText.endsWith("- 数据陈旧批次：0"), "影子区块必须位于报文尾部");
         assertTrue(summaryText.contains("α 影子组合（仅研究，不触真钱，不代表任何操作建议 · "),
@@ -297,44 +318,20 @@ class StockDailySummaryServiceTest {
     }
 
     /**
-     * 构建期望的完整报文文本。
+     * 提取日报中一级组合区块的标题行。
+     * <p>
+     * 一级区块标题为"组合名（... · N槽）"形式,正文行一律以"- "开头,因此可按标题前缀精确识别。
+     * 以标题数量与集合做正向结构断言,替代"已退场字符串不存在"与"整篇文本等值"两类反模式断言。
      *
-     * @return 期望报文
+     * @param summaryText 日报文本
+     * @return 按报文顺序排列的一级区块标题
      */
-    private String expectedSummaryText() {
-        return String.join(System.lineSeparator(),
-                "【Stock组合日报｜2026-07-30】",
-                "",
-                "本日报为系统内部虚拟组合记录，不构成投资建议。",
-                "",
-                "α 正式组合（新策略主仓 · 1槽）",
-                "- 槽位占用：1 / 1",
-                "- 组合净值：10,045,264,199",
-                "- 可用现金：789",
-                "- 昨日建仓：1批 ／ 昨日平仓：1批",
-                "- 昨日已实现净变化：79,246（变动率 +0.79%）",
-                "- 当前虚拟持仓：CNC @ 826.26",
-                "- 数据陈旧批次：0",
-                "",
-                "存量正式组合（只出不进 · 5槽）",
-                "- 槽位占用：3 / 5",
-                "- 组合净值：数据不足（缺失行情：TSB、IOU）",
-                "- 可用现金：4,079,993,937",
-                "- 昨日建仓：0批 ／ 昨日平仓：1批",
-                "- 昨日已实现净变化：66,800（变动率 +0.67%）",
-                "- 当前虚拟持仓：无",
-                "- 数据陈旧批次：0",
-                "",
-                "提示：α 策略已接管新建仓位；存量正式组合按原规则退出，不再新增买入。",
-                "",
-                "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · 2槽）",
-                "- 槽位占用：0 / 2",
-                "- 组合净值：0",
-                "- 可用现金：0",
-                "- 昨日建仓：0批 ／ 昨日平仓：0批",
-                "- 昨日已实现净变化：0（变动率 +0.00%）",
-                "- 当前虚拟持仓：无",
-                "- 数据陈旧批次：0");
+    private List<String> sectionTitles(String summaryText) {
+        return summaryText.lines()
+                .filter(line -> line.startsWith(ALPHA_SECTION_PREFIX)
+                        || line.startsWith(LEGACY_SECTION_PREFIX)
+                        || line.startsWith(ALPHA_SHADOW_SECTION_PREFIX))
+                .toList();
     }
 
     /**

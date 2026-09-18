@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.track;
 
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 
 /**
@@ -49,5 +50,21 @@ public record StockAlphaPhaseTrack(
     public int phaseOf(int commonDayCount) {
         return (commonDayCount - StockAlphaRuleDefinition.WARMUP_COMMON_DAYS - phaseOffset)
                 / StockAlphaRuleDefinition.DECISION_INTERVAL_DAYS;
+    }
+
+    /**
+     * 判断批次是否归属于本轨道。
+     * <p>
+     * 轨道归属必须同时匹配组合编码与槽位序号:同一组合下的多条轨道共用组合编码,
+     * 只比组合会把其它轨道的批次误判为本轨道批次,导致空槽永远不再入场或取到错误持仓。
+     * 本方法是批次归属的唯一判定宿主,业务类不得自行拼装比较条件。
+     *
+     * @param batch 待判断批次;为空时返回false
+     * @return 组合编码与槽位序号均与本轨道一致时返回true
+     */
+    public boolean owns(TornStockVirtualBatchDO batch) {
+        return batch != null
+                && portfolioCode.equals(batch.getPortfolioCode())
+                && Integer.valueOf(slotNo).equals(batch.getSlotNo());
     }
 }

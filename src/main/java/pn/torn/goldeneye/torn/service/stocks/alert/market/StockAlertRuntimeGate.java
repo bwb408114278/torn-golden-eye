@@ -9,6 +9,7 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadinessGate;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 
 /**
  * 股票提醒运行时门禁 - 统一计算轮次构建、存量管理、正式新买入、α影子运行与通知投递判定
@@ -23,7 +24,8 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadin
  *   <li>正式新入场只允许 {@code FORMAL}:{@code SHADOW}/{@code PROVISIONAL} 不得借用{@code VIP_ALPHA}
  *       的10B、100%正式组合语义,也不得创建正式批次;</li>
  *   <li>α影子许可 {@code VIP_STOCK_ALPHA_SHADOW_ENABLED} 独立于新买入开关:影子开关打开即产生轮次与行情
- *       数据义务,使影子轨道能够从自己的相位起算点开始观察,同时不触真钱、不投递任何通知;</li>
+ *       数据义务,使影子轨道能够从自己的相位起算点开始观察,同时不触真钱、不投递任何通知。
+ *       该开关的唯一判定宿主为{@link StockAlphaTrackRegistry#isShadowEnabled()},本类不自行读取该开关;</li>
  *   <li>规则模式 OFF 只禁止买入研究事件与正式接纳,不阻断存量批次管理;</li>
  *   <li>历史PENDING通知投递独立于轮次开关,由正式消息开关单独决定。</li>
  * </ul>
@@ -46,6 +48,7 @@ public class StockAlertRuntimeGate {
     private final TornStockVirtualBatchDAO virtualBatchDao;
     private final TornStockNoticeAuditDAO noticeAuditDao;
     private final StockAlphaReadinessGate alphaReadinessGate;
+    private final StockAlphaTrackRegistry trackRegistry;
 
     /**
      * 计算当前运行时判定结果。
@@ -58,7 +61,7 @@ public class StockAlertRuntimeGate {
         boolean alertEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED);
         boolean newEntryEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED);
         boolean formalNoticeEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED);
-        boolean allowAlphaShadow = isEnabled(SettingConstants.KEY_VIP_STOCK_ALPHA_SHADOW_ENABLED);
+        boolean allowAlphaShadow = trackRegistry.isShadowEnabled();
         StockRuleModeEnum ruleMode = StockRuleModeEnum.resolve(
                 sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE));
 

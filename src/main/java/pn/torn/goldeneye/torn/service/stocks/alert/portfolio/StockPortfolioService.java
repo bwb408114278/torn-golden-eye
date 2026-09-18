@@ -128,7 +128,10 @@ public class StockPortfolioService {
     /**
      * 判断批次是否属于任一条α轨道账本(正式α或α影子)。
      * <p>
-     * 供编排与通知判定区分使用:{@link #isAlphaBatch(TornStockVirtualBatchDO)}仍只表示正式α,
+     * 本方法是"α语义 vs 旧版语义"的唯一判定入口:凡决定使用哪套策略规则处理批次的分支
+     * (退出评估、成交组装、文案渲染、通知过滤)必须使用本方法。
+     * {@link #isAlphaBatch(TornStockVirtualBatchDO)}只表示正式α组合身份,不得单独用于决定α语义:
+     * α影子的账本是{@code ALPHA_SHADOW},用身份判定会把影子落入旧版固定退出与旧版规则版本。
      * 正式仓的槽数、资金、账本与通知语义因此零改动。
      *
      * @param batch 待判断批次

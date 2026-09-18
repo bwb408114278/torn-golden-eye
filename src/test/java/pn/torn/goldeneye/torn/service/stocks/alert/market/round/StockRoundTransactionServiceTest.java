@@ -391,6 +391,56 @@ class StockRoundTransactionServiceTest {
         verify(alphaRebalanceService, never()).rebalance(any(), any(), anyInt(), any(), any());
     }
 
+    @Test
+    @DisplayName("影子双轨道_同组合1号轨道已持仓_2号轨道仍可独立初始入场")
+    void executeRound_shadowTrackWithPosition_doesNotBlockOtherShadowTrackEntry() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        // 1号影子轨道已持有1号槽位仓位,2号轨道为空仓
+        TornStockVirtualBatchDO shadowFirstPosition = alphaOpenBatch(71L, 6001, roundTime);
+        shadowFirstPosition.setLedgerType(StockLedgerTypeEnum.ALPHA_SHADOW.getCode());
+        shadowFirstPosition.setPortfolioCode(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE);
+        RoundSnapshot snapshot = alphaSnapshot(roundTime, List.of(usableBar(6001, roundTime)),
+                lockedSlots, List.of());
+
+        when(trackRegistry.enabledTracks()).thenReturn(List.of(
+                StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST,
+                StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND));
+        when(marketRoundDao.selectByRoundTimeForUpdate(roundTime)).thenReturn(new TornStockMarketRoundDO());
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(StockPortfolioService.PORTFOLIO_CODE))
+                .thenReturn(lockedSlots);
+        when(portfolioSlotDao.selectAllByPortfolioCodeForUpdate(
+                StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE)).thenReturn(List.of());
+        when(virtualBatchDao.selectActiveFormalBatchesForUpdate()).thenReturn(List.of());
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate(
+                StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE)).thenReturn(List.of(shadowFirstPosition));
+        when(batchPathService.updatePathsAndEvaluateExits(any(), any(), any(), eq(roundTime)))
+                .thenReturn(List.of());
+        when(sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE))
+                .thenReturn(StockRuleModeEnum.FORMAL.getCode());
+        // 默认决策未就绪: 已持仓的1号轨道本轮不换仓;2号轨道的初始入场决策在本轮执行桶消费
+        when(alphaDecisionService.decide(any(), any(), any(), any(), any(), anyMap()))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, false, 0, null, null,
+                        StockAlphaTargetPolicy.TargetEvent.DATA_INSUFFICIENT, null, roundTime.plusMinutes(15)));
+        when(alphaDecisionService.decide(eq(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND), eq(decisionDate),
+                any(), any(), eq(roundTime), anyMap()))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 60, null, 1001,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_INITIAL_ENTRY, 0, roundTime));
+        doReturn(new StockEntrySettlementService.EntrySettlementResult(List.of(), List.of()))
+                .when(entrySettlementService).processEntryPending(any(), any(), eq(roundTime), eq(roundTime));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaEntryService).createInitialEntry(eq(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_SECOND),
+                eq(roundTime), any(), eq(decisionDate), eq(0), eq(roundTime));
+        verify(alphaEntryService, never()).createInitialEntry(eq(StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST),
+                any(), any(), any(), anyInt(), any());
+        verify(alphaRebalanceService, never()).rebalance(any(), any(), anyInt(), any(), any());
+    }
+
     /**
      * 构造α编排测试使用的轮次快照,避免各场景重复构造空数据快照。
      *

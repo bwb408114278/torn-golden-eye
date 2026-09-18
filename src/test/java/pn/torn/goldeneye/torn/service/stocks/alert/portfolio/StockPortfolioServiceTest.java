@@ -74,6 +74,24 @@ class StockPortfolioServiceTest {
         assertTrue(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.FORMAL.getCode()));
         assertTrue(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode()));
         assertFalse(portfolioService.isSlotBackedLedger(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode()));
+
+        // α账本语义唯一宿主: 正式α与α影子同属α账本,旧版正式与无限资金影子均不属于
+        assertTrue(StockPortfolioService.isAlphaLedger(batch), "正式α必须属于α账本语义");
+
+        TornStockVirtualBatchDO alphaShadow = new TornStockVirtualBatchDO();
+        alphaShadow.setLedgerType(StockLedgerTypeEnum.ALPHA_SHADOW.getCode());
+        alphaShadow.setPortfolioCode(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE);
+        assertTrue(StockPortfolioService.isAlphaLedger(alphaShadow), "α影子必须属于α账本语义");
+
+        TornStockVirtualBatchDO legacyFormal = new TornStockVirtualBatchDO();
+        legacyFormal.setLedgerType(StockLedgerTypeEnum.FORMAL.getCode());
+        legacyFormal.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+        assertFalse(StockPortfolioService.isAlphaLedger(legacyFormal), "旧版正式组合不属于α账本语义");
+
+        TornStockVirtualBatchDO unlimitedShadow = new TornStockVirtualBatchDO();
+        unlimitedShadow.setLedgerType(StockLedgerTypeEnum.UNLIMITED_SHADOW.getCode());
+        unlimitedShadow.setPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
+        assertFalse(StockPortfolioService.isAlphaLedger(unlimitedShadow), "无限资金影子不属于α账本语义");
     }
 
     @Test
@@ -306,8 +324,8 @@ class StockPortfolioServiceTest {
     /**
      * 构建同股(1001)、同槽位形状、指定组合编码的待结算批次。
      *
-     * @param id       批次ID
-     * @param batchNo  批次编号
+     * @param id      批次ID
+     * @param batchNo 批次编号
      * @return 待结算批次
      */
     private TornStockVirtualBatchDO alphaSettlementBatch(Long id, String batchNo) {

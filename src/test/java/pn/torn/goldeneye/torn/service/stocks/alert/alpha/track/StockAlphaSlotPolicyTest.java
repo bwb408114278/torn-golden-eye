@@ -69,19 +69,16 @@ class StockAlphaSlotPolicyTest {
         assertThrows(IllegalStateException.class, () -> slotPolicy.requireAvailable(
                         StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST, occupiedFirstSlot),
                 "槽位不可用时不得用于初始入场");
-    }
 
-    @Test
-    @DisplayName("槽位锁定_换仓按轨道组合加行锁并校验占用状态")
-    void lockOccupied_locksByTrackPortfolio() {
+        // 换仓按轨道组合加行锁并校验占用状态
         when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenReturn(List.of(slot(11L, StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, 1,
                         StockSlotStatusEnum.OCCUPIED)));
 
-        TornStockPortfolioSlotDO slot = slotPolicy.lockOccupied(StockAlphaTrackRegistry.productionTrack());
+        TornStockPortfolioSlotDO locked = slotPolicy.lockOccupied(StockAlphaTrackRegistry.productionTrack());
 
-        assertEquals(11L, slot.getId());
-        assertEquals(1, slot.getSlotNo());
+        assertEquals(11L, locked.getId());
+        assertEquals(1, locked.getSlotNo());
     }
 
     /**

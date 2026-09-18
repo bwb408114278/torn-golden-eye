@@ -75,16 +75,11 @@ class StockAlphaPriceBasisTest {
                 "r20的回溯窗口必须整体平移一天");
         assertEquals(0, expectedPreviousR20.compareTo(r20Of(previousRankings)),
                 "现行口径r20窗口不得平移");
-    }
 
-    @Test
-    @DisplayName("观察口径_任一成员缺少正价决策bar时返回空映射且不抛异常阻断决策")
-    void latestPriceBasis_missingDecisionBar_returnsEmptyMap() {
-        StockAlphaBasisInput input = basisInput();
+        // 观察口径不完整时fail-closed返回空映射,且失败不得影响生产口径
         Map<Integer, DecisionBar> incomplete = new HashMap<>(input.decisionBars());
         incomplete.remove(StockAlphaRuleDefinition.stockUniverse().getFirst());
         StockAlphaBasisInput broken = new StockAlphaBasisInput(input.rankingDates(), input.daily(), incomplete);
-
         assertTrue(StockAlphaPriceBasisRegistry.observationBasis().closeSeries(broken).isEmpty(),
                 "成员不完整时观察口径必须fail-closed返回空映射");
         assertFalse(StockAlphaPriceBasisRegistry.productionBasis().closeSeries(broken).isEmpty(),

@@ -315,8 +315,8 @@ class StockEntrySettlementServiceTest {
             assertEquals(ENTRY_PRICE, filled.getInvestedCash());
             mocked.verify(() -> StockPortfolioService.indexSlotsById(any()));
             mocked.verify(() -> StockPortfolioService.checkEntryPriceDeviation(SIGNAL_PRICE, ENTRY_PRICE));
-            // 公共成交组装新增α身份判定: 影子批次必须判定为非α批次后才写入旧版默认规则版本
-            mocked.verify(() -> StockPortfolioService.isAlphaBatch(batch));
+            // 公共成交组装使用α账本判定: 影子批次必须判定为非α账本后才写入旧版默认规则版本
+            mocked.verify(() -> StockPortfolioService.isAlphaLedger(batch));
             mocked.verifyNoMoreInteractions();
         }
     }
@@ -856,7 +856,12 @@ class StockEntrySettlementServiceTest {
                 mocked.when(() -> StockPortfolioService.calculateQuantity(
                         any(BigDecimal.class), any(BigDecimal.class))).thenReturn(1000L);
                 mocked.when(() -> StockPortfolioService.indexSlotsById(any())).thenReturn(Map.of(1L, slot));
+                // α账本判定内部组合了身份判定: 三个静态判定都必须执行真实实现,否则α批次会静默落入旧版分支
                 mocked.when(() -> StockPortfolioService.isAlphaBatch(any(TornStockVirtualBatchDO.class)))
+                        .thenCallRealMethod();
+                mocked.when(() -> StockPortfolioService.isAlphaShadowBatch(any(TornStockVirtualBatchDO.class)))
+                        .thenCallRealMethod();
+                mocked.when(() -> StockPortfolioService.isAlphaLedger(any(TornStockVirtualBatchDO.class)))
                         .thenCallRealMethod();
 
                 RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));

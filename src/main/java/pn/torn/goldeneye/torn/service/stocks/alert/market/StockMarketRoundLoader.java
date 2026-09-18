@@ -3,14 +3,20 @@ package pn.torn.goldeneye.torn.service.stocks.alert.market;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.*;
 
 /**
  * 股票市场轮次快照加载器 - 事务外一次性批量读取本轮决策所需的全部数据
@@ -19,13 +25,16 @@ import java.util.List;
  * 正式/各α轨道槽位状态,严禁循环逐股票查询Mapper产生N+1问题。
  * 本加载器仅负责纯读取,不做任何业务判断或状态变更。
  * <p>
+ * 启用轨道按组合编码去重:同一组合的多条轨道共用组合编码,每个组合每轮只查询一次,
+ * 累加结果再按主键去重,保证快照中没有重复行。
+ * <p>
  * 加载内容:
  * <ol>
  *   <li>本轮bar: {@code bar15mDao.selectByBarStartTime(roundTime)}</li>
  *   <li>本轮特征: {@code feature15mDao.selectByBarStartTime(roundTime)}</li>
  *   <li>所有正式活跃批次: {@code virtualBatchDao.selectActiveFormalBatches()}</li>
- *   <li>所有α轨道活跃批次: 按注册表启用轨道逐个组合读取(FORMAL与ALPHA_SHADOW账本)</li>
- *   <li>正式与各α轨道槽位状态: {@code portfolioSlotDao.selectAllByPortfolioCode(...)}</li>
+ *   <li>所有α轨道活跃批次: 按启用轨道的组合编码去重后逐组合读取(FORMAL与ALPHA_SHADOW账本)</li>
+ *   <li>正式与各α轨道槽位状态: {@code portfolioSlotDao.selectAllByPortfolioCode(...)},每组合只查一次</li>
  * </ol>
  *
  * @author Bai
@@ -77,18 +86,66 @@ public class StockMarketRoundLoader {
                 Stock15mBarBuildService.BUILD_VERSION);
         List<TornStockStrategyFeature15mDO> features = feature15mDao.selectByBarStartTime(roundTime,
                 Stock15mFeatureBuildService.FEATURE_VERSION);
-        List<TornStockVirtualBatchDO> activeBatches = new java.util.ArrayList<>(
+        List<TornStockVirtualBatchDO> activeBatches = new ArrayList<>(
                 virtualBatchDao.selectActiveFormalBatches());
-        List<TornStockPortfolioSlotDO> formalSlots =
-                portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
-        List<TornStockPortfolioSlotDO> allSlots = new java.util.ArrayList<>(formalSlots);
-        for (StockAlphaPhaseTrack track : trackRegistry.enabledTracks()) {
-            activeBatches.addAll(virtualBatchDao.selectActiveAlphaBatches(track.portfolioCode()));
-            allSlots.addAll(portfolioSlotDao.selectAllByPortfolioCode(track.portfolioCode()));
+        List<TornStockPortfolioSlotDO> allSlots = new ArrayList<>(
+                portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE));
+        for (String portfolioCode : enabledPortfolioCodes()) {
+            activeBatches.addAll(virtualBatchDao.selectActiveAlphaBatches(portfolioCode));
+            allSlots.addAll(portfolioSlotDao.selectAllByPortfolioCode(portfolioCode));
         }
+        List<TornStockVirtualBatchDO> distinctBatches = distinctBatchesById(activeBatches);
+        List<TornStockPortfolioSlotDO> distinctSlots = distinctSlotsById(allSlots);
         log.debug("本轮市场快照加载完成, bars={}, features={}, activeBatches={}, slots={}",
-                bars.size(), features.size(), activeBatches.size(), allSlots.size());
-        return new RoundSnapshot(bars, features, activeBatches, allSlots, roundTime);
+                bars.size(), features.size(), distinctBatches.size(), distinctSlots.size());
+        return new RoundSnapshot(bars, features, distinctBatches, distinctSlots, roundTime);
+    }
+
+    /**
+     * 返回启用轨道涉及的组合编码,按首次出现顺序去重。
+     * <p>
+     * 同一组合的多条轨道(如两条影子轨道)共用组合编码,去重可保证每组合每轮只查询一次。
+     *
+     * @return 去重后的组合编码列表
+     */
+    private List<String> enabledPortfolioCodes() {
+        Set<String> portfolioCodes = new LinkedHashSet<>();
+        for (StockAlphaPhaseTrack track : trackRegistry.enabledTracks()) {
+            portfolioCodes.add(track.portfolioCode());
+        }
+        return new ArrayList<>(portfolioCodes);
+    }
+
+    /**
+     * 按主键去重活跃批次,保持首次出现顺序;无主键对象不参与索引。
+     *
+     * @param batches 多来源活跃批次
+     * @return 按主键去重后的活跃批次
+     */
+    private List<TornStockVirtualBatchDO> distinctBatchesById(List<TornStockVirtualBatchDO> batches) {
+        Map<Long, TornStockVirtualBatchDO> byId = new LinkedHashMap<>();
+        for (TornStockVirtualBatchDO batch : batches) {
+            if (batch != null && batch.getId() != null) {
+                byId.putIfAbsent(batch.getId(), batch);
+            }
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    /**
+     * 按主键去重槽位,保持首次出现顺序;无主键对象不参与索引。
+     *
+     * @param slots 多来源槽位
+     * @return 按主键去重后的槽位
+     */
+    private List<TornStockPortfolioSlotDO> distinctSlotsById(List<TornStockPortfolioSlotDO> slots) {
+        Map<Long, TornStockPortfolioSlotDO> byId = new LinkedHashMap<>();
+        for (TornStockPortfolioSlotDO slot : slots) {
+            if (slot != null && slot.getId() != null) {
+                byId.putIfAbsent(slot.getId(), slot);
+            }
+        }
+        return new ArrayList<>(byId.values());
     }
 
     /**
