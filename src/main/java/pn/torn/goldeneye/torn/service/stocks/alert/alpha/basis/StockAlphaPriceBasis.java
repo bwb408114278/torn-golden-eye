@@ -38,11 +38,11 @@ public interface StockAlphaPriceBasis {
      * 基于已结束自然日序列与本轮决策bar产出该口径的收盘序列。
      * <p>
      * 返回序列必须满足{@code StockAlphaRankingCalculator}的输入约束(固定股票池成员齐全、
-     * 每支股票至少21个正收盘价);无法产出完整序列时返回{@code null},由调用方按各自口径
+     * 每支股票至少21个正收盘价);无法产出完整序列时返回空映射,由调用方按各自口径
      * 决定是fail-closed还是仅写空观察列。
      *
      * @param input 口径输入
-     * @return 股票ID到按时间升序收盘价序列的映射;该口径无法形成完整序列时返回null
+     * @return 股票ID到按时间升序收盘价序列的映射;该口径无法形成完整序列时返回空映射
      */
     Map<Integer, List<BigDecimal>> closeSeries(StockAlphaBasisInput input);
 

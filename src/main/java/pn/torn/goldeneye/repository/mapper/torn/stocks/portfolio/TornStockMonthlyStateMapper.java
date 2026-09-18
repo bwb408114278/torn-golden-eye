@@ -27,18 +27,6 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
     List<TornStockMonthlyStateDO> selectConfirmedByMonth(@Param("effectiveMonth") LocalDate effectiveMonth);
 
     /**
-     * 范围批量查询已确认的月度状态(含起止月份)。
-     * <p>
-     * 供隔离回放一次性加载整个窗口的月度状态,禁止按月循环发SQL。
-     *
-     * @param startMonth 起始生效月份(含)
-     * @param endMonth   结束生效月份(含)
-     * @return 起止月份之间已确认的月度状态列表
-     */
-    List<TornStockMonthlyStateDO> selectConfirmedByMonthRange(@Param("startMonth") LocalDate startMonth,
-                                                              @Param("endMonth") LocalDate endMonth);
-
-    /**
      * 查询指定月份存在任意有效状态(stocks_id)集合,不按state_status过滤。
      * <p>
      * 用于月度初始化幂等过滤:同月每股票至多一行有效状态,只要已存在
@@ -61,24 +49,6 @@ public interface TornStockMonthlyStateMapper extends BaseMapper<TornStockMonthly
      * @return 实际插入行数
      */
     int insertDraftStatesIgnoreConflict(@Param("states") List<TornStockMonthlyStateDO> states);
-
-    /**
-     * 批量查询每支股票最近一个更早生效月份且已确认的月度状态(严格版本隔离)。
-     * <p>
-     * 用于月度迟滞计算:同一股票取{@code effective_month < targetMonth}、
-     * {@code state_status = CONFIRMED}且规则版本精确等于当前双版本的最近一条;
-     * DRAFT/RETIRED与其它规则版本(含V1)不参与,V2首月无更早V2 CONFIRMED时自然为空。
-     *
-     * @param stocksIds              股票ID列表
-     * @param targetMonth            目标生效月份(不含)
-     * @param personalityRuleVersion 风格规则版本(精确匹配)
-     * @param riskRuleVersion        风险规则版本(精确匹配)
-     * @return 每支股票至多一条同版本更早CONFIRMED月度状态(含metricSnapshot供读取raw字段)
-     */
-    List<TornStockMonthlyStateDO> selectPreviousConfirmedByStocks(@Param("stocksIds") List<Integer> stocksIds,
-                                                                  @Param("targetMonth") LocalDate targetMonth,
-                                                                  @Param("personalityRuleVersion") String personalityRuleVersion,
-                                                                  @Param("riskRuleVersion") String riskRuleVersion);
 
     /**
      * 条件批量重算当月未确认DRAFT月度状态。

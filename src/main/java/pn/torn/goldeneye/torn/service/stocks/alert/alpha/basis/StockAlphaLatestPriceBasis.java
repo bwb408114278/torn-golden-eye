@@ -14,7 +14,7 @@ import java.util.Map;
  * 回溯窗口整体平移一天。本实现只在{LATEST_PRICE}口径内使用决策bar价格,
  * 不污染{PREVIOUS_CLOSE}序列,也不写入日线快照表。
  * <p>
- * 任一股票池成员在本轮缺少正价决策bar时,序列无法构成完整横截面,本实现返回{@code null},
+ * 任一股票池成员在本轮缺少正价决策bar时,序列无法构成完整横截面,本实现返回空映射,
  * 由决策服务把观察列写空,绝不阻断生产决策。
  *
  * @author Bai
@@ -30,17 +30,17 @@ public class StockAlphaLatestPriceBasis implements StockAlphaPriceBasis {
     @Override
     public Map<Integer, List<BigDecimal>> closeSeries(StockAlphaBasisInput input) {
         if (input == null || input.decisionBars() == null || input.decisionBars().isEmpty()) {
-            return null;
+            return Map.of();
         }
         Map<Integer, List<BigDecimal>> closes = input.previousCloseSeries();
         if (closes.size() != StockAlphaRuleDefinition.MEMBER_COUNT) {
-            return null;
+            return Map.of();
         }
         for (Integer stocksId : StockAlphaRuleDefinition.stockUniverse()) {
             BigDecimal price = latestPrice(input.decisionBars().get(stocksId));
             List<BigDecimal> series = closes.get(stocksId);
             if (price == null || series == null) {
-                return null;
+                return Map.of();
             }
             series.add(price);
         }

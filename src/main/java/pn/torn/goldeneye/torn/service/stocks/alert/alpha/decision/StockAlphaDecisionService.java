@@ -13,15 +13,18 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExe
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseCalculator;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingCalculator;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
-import pn.torn.goldeneye.torn.service.stocks.alert.alpha.ranking.StockAlphaRankingResult;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockHashUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -39,7 +42,7 @@ import java.util.stream.Collectors;
  * 或与持久化执行桶不构成严格相邻关系时,本服务不落决策、不消费phase,交由后续轮次重试。</p>
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Slf4j
@@ -68,22 +71,6 @@ public class StockAlphaDecisionService {
                                  Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> decisionBars) {
         return decideInternal(StockAlphaTrackRegistry.productionTrack(), decisionDate, null, null,
                 decisionTime, decisionBars);
-    }
-
-    /**
-     * 按指定决策时点和持仓上下文生成或读取唯一α决策。
-     *
-     * @param decisionDate    决策日期
-     * @param currentStocksId 当前持仓股票ID
-     * @param currentBatchId  当前持仓批次ID
-     * @param decisionTime    决策时点;执行bar由该时点推导,不得直接传入执行bar
-     * @param decisionBars    决策时点各股票的bar事实,用于固化信号参考价
-     * @return 已持久化决策
-     */
-    public DecisionResult decide(LocalDate decisionDate, Integer currentStocksId, Long currentBatchId,
-                                 LocalDateTime decisionTime,
-                                 Map<Integer, StockAlphaExecutionBarPolicy.DecisionBar> decisionBars) {
-        return decide(trackOf(null), decisionDate, currentStocksId, currentBatchId, decisionTime, decisionBars);
     }
 
     /**
@@ -494,11 +481,11 @@ public class StockAlphaDecisionService {
      *
      * @param basisInput 口径输入
      * @param basis      口径实现
-     * @return 排名向量;口径无法形成完整序列(返回null)时返回空列表
+     * @return 排名向量;口径无法形成完整序列(返回空映射)时返回空列表
      */
     private List<StockAlphaRankingResult> rank(StockAlphaBasisInput basisInput, StockAlphaPriceBasis basis) {
         Map<Integer, List<BigDecimal>> closeSeries = basis.closeSeries(basisInput);
-        return closeSeries == null ? List.of() : StockAlphaRankingCalculator.calculate(closeSeries);
+        return closeSeries.isEmpty() ? List.of() : StockAlphaRankingCalculator.calculate(closeSeries);
     }
 
     /**

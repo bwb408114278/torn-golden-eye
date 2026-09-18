@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * α价格口径测试。
  * <p>
  * 只覆盖两套口径的输入序列契约:观察口径把决策桶现价追加为新增一天并整体平移回溯窗口,
- * 现行口径序列不受观察口径影响,观察口径序列不完整时 fail-closed 返回 null。
+ * 现行口径序列不受观察口径影响,观察口径序列不完整时 fail-closed 返回空映射。
  *
  * @author Bai
  * @version 1.6.5
@@ -78,16 +78,16 @@ class StockAlphaPriceBasisTest {
     }
 
     @Test
-    @DisplayName("观察口径_任一成员缺少正价决策bar时返回null且不抛异常阻断决策")
-    void latestPriceBasis_missingDecisionBar_returnsNull() {
+    @DisplayName("观察口径_任一成员缺少正价决策bar时返回空映射且不抛异常阻断决策")
+    void latestPriceBasis_missingDecisionBar_returnsEmptyMap() {
         StockAlphaBasisInput input = basisInput();
         Map<Integer, DecisionBar> incomplete = new HashMap<>(input.decisionBars());
         incomplete.remove(StockAlphaRuleDefinition.stockUniverse().getFirst());
         StockAlphaBasisInput broken = new StockAlphaBasisInput(input.rankingDates(), input.daily(), incomplete);
 
-        assertNull(StockAlphaPriceBasisRegistry.observationBasis().closeSeries(broken),
-                "成员不完整时观察口径必须fail-closed返回null");
-        assertNotNull(StockAlphaPriceBasisRegistry.productionBasis().closeSeries(broken),
+        assertTrue(StockAlphaPriceBasisRegistry.observationBasis().closeSeries(broken).isEmpty(),
+                "成员不完整时观察口径必须fail-closed返回空映射");
+        assertFalse(StockAlphaPriceBasisRegistry.productionBasis().closeSeries(broken).isEmpty(),
                 "观察口径失败不得影响现行口径");
     }
 

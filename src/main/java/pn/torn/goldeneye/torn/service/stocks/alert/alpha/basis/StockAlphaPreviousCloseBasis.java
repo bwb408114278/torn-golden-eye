@@ -22,6 +22,6 @@ public class StockAlphaPreviousCloseBasis implements StockAlphaPriceBasis {
 
     @Override
     public Map<Integer, List<BigDecimal>> closeSeries(StockAlphaBasisInput input) {
-        return input == null ? null : input.previousCloseSeries();
+        return input == null ? Map.of() : input.previousCloseSeries();
     }
 }

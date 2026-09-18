@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票信号事件持久层类
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.07.24
  */
 @Repository
@@ -40,27 +40,6 @@ public class TornStockSignalEventDAO extends ServiceImpl<TornStockSignalEventMap
      */
     public int insertIgnoreConflict(TornStockSignalEventDO event) {
         return baseMapper.insertIgnoreConflict(event);
-    }
-
-    /**
-     * 批量查询未结算拒绝观察事件。
-     *
-     * @param startTime 轮次起点(含)
-     * @param endTime   轮次终点(不含)
-     * @return 未结算拒绝观察事件
-     */
-    public List<TornStockSignalEventDO> selectPendingRejectedObservationEvents(
-            LocalDateTime startTime, LocalDateTime endTime) {
-        return baseMapper.selectPendingRejectedObservationEvents(startTime, endTime);
-    }
-
-    /**
-     * 批量查询全部未结算拒绝观察事件,用于停机补偿。
-     *
-     * @return 未结算拒绝观察事件
-     */
-    public List<TornStockSignalEventDO> selectAllPendingRejectedObservationEvents() {
-        return baseMapper.selectAllPendingRejectedObservationEvents();
     }
 
     /**

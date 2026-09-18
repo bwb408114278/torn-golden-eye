@@ -71,10 +71,6 @@ public class StockRoundTransactionService {
      */
     public static final String SELL_RULE_VERSION = StockRuleVersion.SELL;
     /**
-     * 仓位分配规则版本
-     */
-    public static final String ALLOCATION_RULE_VERSION = StockRuleVersion.ALLOCATION;
-    /**
      * 消息通知规则版本
      */
     public static final String MESSAGE_RULE_VERSION = StockRuleVersion.MESSAGE;
@@ -249,10 +245,10 @@ public class StockRoundTransactionService {
      * 本轮bar即决策时点bar,必须以带可用性字段的决策bar事实传给决策服务:
      * 不可用决策bar不得固化为信号参考价,也不得形成可执行的换仓决策。
      *
-     * @param track     目标相位轨道
-     * @param roundTime 轮次时间(决策时点;执行桶为下一根严格连续bar)
-     * @param now       当前校验时间
-     * @param snapshot  当前轮次快照
+     * @param track      目标相位轨道
+     * @param roundTime  轮次时间(决策时点;执行桶为下一根严格连续bar)
+     * @param now        当前校验时间
+     * @param snapshot   当前轮次快照
      * @param barByStock 本轮按股票ID索引的行情bar
      */
     private void processAlphaRebalance(StockAlphaPhaseTrack track, LocalDateTime roundTime, LocalDateTime now,
@@ -377,8 +373,8 @@ public class StockRoundTransactionService {
     /**
      * 合并正式组合与α轨道组合的槽位列表(保持顺序,按主键去重兜底)。
      *
-     * @param mergedSlots  已合并槽位
-     * @param trackSlots   新增槽位
+     * @param mergedSlots 已合并槽位
+     * @param trackSlots  新增槽位
      * @return 合并后的槽位列表
      */
     private List<TornStockPortfolioSlotDO> mergeSlots(List<TornStockPortfolioSlotDO> mergedSlots,
