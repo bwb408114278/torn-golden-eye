@@ -15,7 +15,7 @@ import java.util.List;
  * 所有方法均为只读聚合查询，供本地审核报告使用；不提供任何写方法。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @Repository
@@ -223,28 +223,6 @@ public class StockDataReadinessQueryDAO {
     }
 
     /**
-     * 查询范围内月度状态分组计数。
-     *
-     * @param start 起始时间（含）
-     * @param end   结束时间（不含）
-     * @return 月度状态计数
-     */
-    public List<MonthlyStateCount> selectMonthlyStateCounts(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectMonthlyStateCounts(start, end);
-    }
-
-    /**
-     * 查询 DRAFT 月度状态未完整原因汇总。
-     *
-     * @param start 起始时间（含）
-     * @param end   结束时间（不含）
-     * @return 未完整原因计数
-     */
-    public List<NameCount> selectMonthlyIncompleteReasonCounts(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectMonthlyIncompleteReasonCounts(start, end);
-    }
-
-    /**
      * 查询范围内轮次状态计数。
      *
      * @param start 起始时间（含）
@@ -276,19 +254,5 @@ public class StockDataReadinessQueryDAO {
      */
     public List<SettingValue> selectVipStockSettings() {
         return mapper.selectVipStockSettings();
-    }
-
-    /**
-     * 范围批量查询逐月逐股月度证据状态（含 raw/adjusted 完整性字段）。
-     * <p>
-     * 单条 SQL 按 effective_month、stocks_id 排序；V1 快照没有新键时
-     * raw/adjusted/exclusion 字段为 null，不得解释为 0 或 V2 合格。
-     *
-     * @param start 起始时间（含，取其所在月为起始月）
-     * @param end   结束时间（不含，取其前所在月为结束月）
-     * @return 逐月逐股月度证据状态列表
-     */
-    public List<MonthlyEvidenceStatus> selectMonthlyEvidenceStatuses(LocalDateTime start, LocalDateTime end) {
-        return mapper.selectMonthlyEvidenceStatuses(start, end);
     }
 }

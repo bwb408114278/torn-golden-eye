@@ -42,3 +42,22 @@ databaseChangeLog:
       changes:
         - sql:
             sql: "CREATE UNIQUE INDEX uk_stock_virtual_batch_alpha_shadow_slot ON torn_stock_virtual_batch (portfolio_code, slot_id) WHERE ledger_type = 'ALPHA_SHADOW' AND batch_status IN ('ENTRY_PENDING','OPEN','DATA_STALE','EXIT_PENDING','DATA_STALE_EXIT') AND slot_id IS NOT NULL AND deleted = 0"
+  # 旧版信号/月度链路已完全退场:写入方与读取方全部删除,表随代码一并废弃(不可逆)
+  - changeSet:
+      id: drop_retired_stock_signal_event_table
+      author: Bai
+      changes:
+        - dropTable:
+            tableName: torn_stock_signal_event
+  - changeSet:
+      id: drop_retired_stock_signal_state_table
+      author: Bai
+      changes:
+        - dropTable:
+            tableName: torn_stock_signal_state
+  - changeSet:
+      id: drop_retired_stock_monthly_state_table
+      author: Bai
+      changes:
+        - dropTable:
+            tableName: torn_stock_monthly_state

@@ -4,12 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -66,8 +64,6 @@ class StockDataReadinessReportWriterTest {
         Map<String, Long> rounds = new LinkedHashMap<>();
         rounds.put("REPAIRED_DATA_ONLY", 100L);
         rounds.put("COMPLETED", 50L);
-        Map<String, Long> monthIncomplete = new LinkedHashMap<>();
-        monthIncomplete.put("MONTHLY_EVIDENCE_INCOMPLETE", 2L);
         Map<String, String> settings = new LinkedHashMap<>();
         settings.put("VIP_STOCK_ALERT_ENABLED", "true");
         settings.put("VIP_STOCK_RULE_MODE", "SHADOW");
@@ -83,8 +79,6 @@ class StockDataReadinessReportWriterTest {
                 1000L, 0L, 0L, 0L, 0L, 0L, 0L,
                 100_800L, 900L, 800L, unusable, 100_000L,
                 750L, 0L, 0L, 700L, notReady,
-                List.of(new MonthlyStateCount(LocalDate.of(2026, 1, 1), "CONFIRMED", false, 30L)),
-                List.of(),
-                monthIncomplete, rounds, 1L, settings);
+                rounds, 1L, settings);
     }
 }

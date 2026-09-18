@@ -3,99 +3,22 @@ package pn.torn.goldeneye.torn.service.stocks.alert.portfolio;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchEntryFields;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeComposeService;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 /**
  * 虚拟批次字段组装器，将服务层事实转换为数据库批次字段。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.29
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public final class StockVirtualBatchAssembler {
-
-    /**
-     * 入场超时宽限分钟数。
-     */
-    private static final int ENTRY_STALE_GRACE_MINUTES = 35;
-
-    /**
-     * 应用信号阶段字段。
-     *
-     * @param batch  批次DO
-     * @param fields 信号字段
-     */
-    public static void applySignalFields(TornStockVirtualBatchDO batch,
-                                         TornStockVirtualBatchSignalFields fields) {
-        batch.setSignalReferencePrice(fields.getSignalReferencePrice());
-        batch.setSignalTime(fields.getSignalTime());
-        batch.setExpectedEntryBarTime(fields.getSignalTime() == null ? null
-                : fields.getSignalTime().plusMinutes(Stock15mBarBuildService.BUCKET_MINUTES));
-        batch.setEntryStaleAt(fields.getSignalTime() == null ? null
-                : fields.getSignalTime().plusMinutes(ENTRY_STALE_GRACE_MINUTES));
-        batch.setStylePrior(fields.getStylePrior());
-        batch.setStyleMaturity(fields.getStyleMaturity());
-        batch.setRiskLevel(fields.getRiskLevel());
-        batch.setStyleEffectiveMonth(fields.getStyleEffectiveMonth());
-        batch.setBuyRuleVersion(fields.getBuyRuleVersion());
-        batch.setStyleRuleVersion(StockRuleVersion.STYLE);
-        batch.setRiskRuleVersion(StockRuleVersion.RISK);
-        // Alpha批次已在入场/换仓阶段冻结Alpha规则身份,公共组装只补成交事实,不得覆盖为旧版默认值
-        if (!StockPortfolioService.isAlphaBatch(batch)) {
-            batch.setSellRuleVersion(StockRuleVersion.SELL);
-            batch.setAllocationRuleVersion(StockRuleVersion.ALLOCATION);
-            batch.setMessageRuleVersion(StockRuleVersion.MESSAGE);
-        }
-        batch.setResetObserved(false);
-    }
-
-    /**
-     * 根据正式候选的冻结月度状态构建信号字段。
-     *
-     * @param signalReferencePrice 信号参考价
-     * @param signalTime           信号时间
-     * @param monthlyState         月度状态，可为空
-     * @return 批次信号字段
-     */
-    public static TornStockVirtualBatchSignalFields buildSignalFields(
-            BigDecimal signalReferencePrice,
-            LocalDateTime signalTime,
-            TornStockMonthlyStateDO monthlyState) {
-        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
-        fields.setSignalReferencePrice(signalReferencePrice);
-        fields.setSignalTime(signalTime);
-        fields.setStylePrior(monthlyState == null ? null : monthlyState.getStrategyFitPrior());
-        fields.setStyleMaturity(monthlyState == null ? null : monthlyState.getMaturity());
-        fields.setRiskLevel(monthlyState == null ? null : monthlyState.getRiskLevel());
-        fields.setStyleEffectiveMonth(monthlyState == null ? null : monthlyState.getEffectiveMonth());
-        fields.setBuyRuleVersion(StockRuleVersion.BUY);
-        return fields;
-    }
-
-    /**
-     * 根据已保存信号事件构建批次信号字段。
-     *
-     * @param event 已保存的信号事件
-     * @return 批次信号字段
-     */
-    public static TornStockVirtualBatchSignalFields buildSignalFields(TornStockSignalEventDO event) {
-        TornStockVirtualBatchSignalFields fields = new TornStockVirtualBatchSignalFields();
-        fields.setSignalReferencePrice(event.getSignalReferencePrice());
-        fields.setSignalTime(event.getRoundTime());
-        fields.setStylePrior(event.getStylePrior());
-        fields.setStyleMaturity(event.getStyleMaturity());
-        fields.setRiskLevel(event.getRiskLevel());
-        fields.setStyleEffectiveMonth(event.getStyleEffectiveMonth());
-        fields.setBuyRuleVersion(event.getBuyRuleVersion());
-        return fields;
-    }
 
     /**
      * 应用成交入场字段。
@@ -130,7 +53,7 @@ public final class StockVirtualBatchAssembler {
     /**
      * 写入旧版正式组合的四个默认规则版本。
      * <p>
-     * 只供非α批次(正式组合、候选影子)使用;α批次的组合、主策略与四个规则版本由
+     * 只供非α批次(正式组合)使用;α批次的组合、主策略与四个规则版本由
      * {@code StockAlphaBatchIdentity}在入场/换仓阶段冻结,公共成交组装不得覆盖。
      *
      * @param batch 批次DO

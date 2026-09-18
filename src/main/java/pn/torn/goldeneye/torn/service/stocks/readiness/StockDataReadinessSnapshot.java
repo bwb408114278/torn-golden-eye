@@ -1,7 +1,5 @@
 package pn.torn.goldeneye.torn.service.stocks.readiness;
 
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyEvidenceStatus;
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.MonthlyStateCount;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
 
 import java.util.List;
@@ -34,9 +32,6 @@ import java.util.Map;
  * @param featureOrphanCount               feature orphan 数
  * @param strategyReadyFeatureCount        strategyReady=true 的 feature 数
  * @param notReadyFeatureReasonCounts      未就绪 feature 按原因分组
- * @param monthlyStateCounts               月度状态分组计数
- * @param monthlyEvidenceStatuses          逐月逐股月度证据状态(含raw/adjusted口径,V1快照新键为null)
- * @param monthlyIncompleteReasonCounts    DRAFT月度未完整原因汇总
  * @param roundStatusCounts                轮次状态计数
  * @param roundVersionMismatchCount        版本不一致轮次数
  * @param auditSettings                    当前 VIP_STOCK_* 开关只读值
@@ -66,11 +61,7 @@ public record StockDataReadinessSnapshot(
         long featureOrphanCount,
         long strategyReadyFeatureCount,
         Map<String, Long> notReadyFeatureReasonCounts,
-        List<MonthlyStateCount> monthlyStateCounts,
-        List<MonthlyEvidenceStatus> monthlyEvidenceStatuses,
-        Map<String, Long> monthlyIncompleteReasonCounts,
         Map<String, Long> roundStatusCounts,
         long roundVersionMismatchCount,
-        Map<String, String> auditSettings
-) {
+        Map<String, String> auditSettings) {
 }

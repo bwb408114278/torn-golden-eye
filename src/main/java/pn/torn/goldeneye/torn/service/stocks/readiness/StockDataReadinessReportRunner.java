@@ -7,7 +7,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.repository.dao.torn.stocks.readiness.StockDataReadinessQueryDAO;
-import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.NameCount;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.SettingValue;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverage;
+import pn.torn.goldeneye.repository.model.torn.stocks.readiness.StockMinuteCoverageSummary;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mFeatureBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
@@ -148,12 +151,6 @@ public class StockDataReadinessReportRunner {
         Map<String, Long> notReadyFeatureReasonCounts = toNameCountMap(
                 queryDao.selectNotReadyFeatureReasonCounts(startInclusive, endExclusive, featureVersion));
 
-        List<MonthlyStateCount> monthlyStateCounts =
-                queryDao.selectMonthlyStateCounts(startInclusive, endExclusive);
-        List<MonthlyEvidenceStatus> monthlyEvidenceStatuses =
-                queryDao.selectMonthlyEvidenceStatuses(startInclusive, endExclusive);
-        Map<String, Long> monthlyIncompleteReasonCounts = toNameCountMap(
-                queryDao.selectMonthlyIncompleteReasonCounts(startInclusive, endExclusive));
         Map<String, Long> roundStatusCounts = toNameCountMap(
                 queryDao.selectRoundStatusCounts(startInclusive, endExclusive)
                         .stream()
@@ -180,7 +177,7 @@ public class StockDataReadinessReportRunner {
                 theoreticalBucketCount, barCount, usableBarCount, unusableBarReasonCounts,
                 noMinuteFactBucketCount, featureCount, usableBarMissingFeatureCount,
                 featureOrphanCount, strategyReadyFeatureCount, notReadyFeatureReasonCounts,
-                monthlyStateCounts, monthlyEvidenceStatuses, monthlyIncompleteReasonCounts, roundStatusCounts,
+                roundStatusCounts,
                 roundVersionMismatchCount, auditSettings);
     }
 
@@ -242,23 +239,6 @@ public class StockDataReadinessReportRunner {
                     .append(snapshot.featureOrphanCount()).append(',')
                     .append(snapshot.strategyReadyFeatureCount()).append(',')
                     .append(snapshot.notReadyFeatureReasonCounts()).append('\n');
-            sb.append("months=").append(snapshot.monthlyStateCounts().stream()
-                            .sorted(Comparator.comparing(MonthlyStateCount::effectiveMonth)
-                                    .thenComparing(MonthlyStateCount::stateStatus)
-                                    .thenComparing(MonthlyStateCount::manualOverride))
-                            .toList()).append(',')
-                    .append(snapshot.monthlyEvidenceStatuses().stream()
-                            .sorted(Comparator.comparing(MonthlyEvidenceStatus::effectiveMonth)
-                                    .thenComparing(MonthlyEvidenceStatus::stocksId,
-                                            Comparator.nullsLast(Comparator.naturalOrder())))
-                            .map(s -> s.effectiveMonth() + ":" + s.stocksId() + ":" + s.stateStatus() + ":"
-                                    + s.personalityRuleVersion() + ":" + s.riskRuleVersion() + ":"
-                                    + s.rawUsableBarCoverage() + ":" + s.rawMaxMissingBucketGap() + ":"
-                                    + s.adjustedUsableBarCoverage() + ":" + s.adjustedMaxMissingBucketGap() + ":"
-                                    + s.excludedBucketCount() + ":" + s.excludedMinutes() + ":"
-                                    + s.appliedExclusionIdsJson() + ":" + s.incompleteReason())
-                            .toList()).append(',')
-                    .append(snapshot.monthlyIncompleteReasonCounts()).append('\n');
             sb.append("rounds=").append(snapshot.roundStatusCounts()).append(',')
                     .append(snapshot.roundVersionMismatchCount()).append('\n');
             sb.append("settings=").append(snapshot.auditSettings());

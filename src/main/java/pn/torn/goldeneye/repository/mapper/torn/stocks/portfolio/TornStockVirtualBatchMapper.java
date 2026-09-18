@@ -75,31 +75,16 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
                                                             @Param("endTime") LocalDateTime endTime);
 
     /**
-     * 查询影子账本指定时间范围内有信号或出场动作的批次。
+     * 查询指定组合编码的α轨道(正式α或α影子)指定时间范围内有入场或出场动作的批次。
      *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 影子批次
+     * @param portfolioCode 组合编码(正式α或α影子)
+     * @param startTime     时间范围起点(含)
+     * @param endTime       时间范围终点(不含)
+     * @return 该组合的动作批次列表
      */
-    List<TornStockVirtualBatchDO> selectShadowActionBatches(@Param("startTime") LocalDateTime startTime,
-                                                            @Param("endTime") LocalDateTime endTime);
-
-    /**
-     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)的活跃批次,固定SQL替代Java散落OR条件。
-     *
-     * @return 候选影子活跃批次列表
-     */
-    List<TornStockVirtualBatchDO> selectActiveCandidateShadowBatches();
-
-    /**
-     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)指定时间范围内有入场或出场动作的批次。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 候选影子动作批次列表
-     */
-    List<TornStockVirtualBatchDO> selectCandidateShadowActionBatches(@Param("startTime") LocalDateTime startTime,
-                                                                     @Param("endTime") LocalDateTime endTime);
+    List<TornStockVirtualBatchDO> selectAlphaActionBatches(@Param("portfolioCode") String portfolioCode,
+                                                           @Param("startTime") LocalDateTime startTime,
+                                                           @Param("endTime") LocalDateTime endTime);
 
     /**
      * 判断是否存在正式或α影子活跃批次。

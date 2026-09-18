@@ -3,40 +3,41 @@ package pn.torn.goldeneye.torn.service.stocks.alert.summary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.*;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.*;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMarketBar15mDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
+import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
+import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.PortfolioEquityCalculator.EquityResult;
-import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockBatchPathService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
-import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.CandidateShadowSummary;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.DailySummaryData;
-import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.FormalSummary;
-import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.ShadowSummary;
+import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.OpenPosition;
+import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.PortfolioSummary;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
- * 股票日报查询服务 - 一次读取正式/候选影子/影子研究的只读数据并组装只读DTO
+ * 股票日报查询服务 - 一次读取α正式组合、存量正式组合与α影子组合的只读数据并组装只读DTO
  * <p>
  * 本类只负责DAO读取与数据组装,计算部分委托给纯计算组件:
  * <ul>
- *   <li>{@link PortfolioEquityCalculator} - 正式/候选影子组合权益</li>
- *   <li>{@link DailySummaryMetricsCalculator} - 买卖、风险、拒绝等统计</li>
- *   <li>动态SELL研究mark覆盖统计 - 由本类按生产写路径冻结值直接计数,不新增第二套计算组件</li>
+ *   <li>{@link PortfolioEquityCalculator} - 各组合权益与缺失行情判定</li>
+ *   <li>{@link DailySummaryMetricsCalculator} - 昨日买卖、已实现净收益金额与投入成本</li>
  * </ul>
- * 正式与候选影子的开放仓位股票ID合并为一次 {@code selectLatestUsableByStocks} 批量查询,
- * 避免按持仓N+1;候选影子活跃/动作批次使用固定mapper SQL,不在Java中散落OR条件。
- * "昨日动作"批次按entryTime/exitTime落在摘要日内判定,"当前活跃仓"按批次状态判定,
- * 两者时间基准不同,不得混淆。
+ * 三段组合字段口径一致,<b>互不合计</b>:α正式组合与α影子组合按各自组合编码读取活跃批次与动作批次,
+ * 存量正式组合固定读取 {@code VIP_FORMAL}。"昨日动作"批次按entryTime/exitTime落在摘要日内判定,
+ * "当前活跃仓"按批次状态判定,两者时间基准不同,不得混淆。
+ * <p>
+ * 三段组合的开放仓位股票ID合并为一次 {@code selectLatestUsableByStocks} 批量查询,避免按持仓N+1。
  *
  * @author Bai
  * @version 1.6.5
@@ -48,115 +49,100 @@ public class StockDailySummaryQueryService {
 
     private final TornStockPortfolioSlotDAO portfolioSlotDAO;
     private final TornStockVirtualBatchDAO virtualBatchDAO;
-    private final TornStockSignalEventDAO signalEventDAO;
-    private final TornStockBatchMarkDAO batchMarkDAO;
     private final TornStockMarketBar15mDAO bar15mDAO;
     private final StockMarketClock marketClock;
     private final PortfolioEquityCalculator equityCalculator;
     private final DailySummaryMetricsCalculator metricsCalculator;
 
     /**
-     * 构建每日摘要数据,包含正式组合、候选影子组合与影子研究三部分。
-     * <p>
-     * 正式组合部分:查询VIP组合全部槽位与活跃正式批次,统计占用槽位、组合权益、
-     * 昨日买入/卖出批次、昨日已实现净收益、开放批次股票列表与数据陈旧批次数量。
-     * <br>候选影子部分:查询独立5槽账本槽位与活跃候选影子批次,单独统计占用槽位、
-     * 权益、昨日买卖与净收益,不与正式或无限资金影子合计。
-     * <br>影子研究部分:查询摘要日期范围内的信号事件,按portfolioDecision与rejectReason分组统计;
-     * 查询昨日影子批次统计高风险观察数量,并按 {@code torn_stock_batch_mark} 统计动态SELL研究状态。
+     * 构建每日摘要数据,包含α正式组合、存量正式组合与α影子组合三段。
      *
      * @param summaryDate 摘要日期(发送日前一自然日)
      * @return 摘要数据对象
      */
     public DailySummaryData buildSummaryData(LocalDate summaryDate) {
-        List<TornStockPortfolioSlotDO> formalSlots =
-                portfolioSlotDAO.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE);
-        List<TornStockVirtualBatchDO> formalActiveBatches = virtualBatchDAO.selectActiveFormalBatches();
-
-        List<TornStockPortfolioSlotDO> candidateSlots = portfolioSlotDAO.selectAllByPortfolioCode(
-                StockPortfolioService.SHADOW_CANDIDATE_PORTFOLIO_CODE);
-        List<TornStockVirtualBatchDO> candidateActiveBatches =
-                virtualBatchDAO.selectActiveCandidateShadowBatches();
-
         LocalDateTime generatedAt = marketClock.now();
-        List<TornStockVirtualBatchDO> formalOpenBatches =
-                equityCalculator.extractOpenPositionBatches(formalActiveBatches);
-        List<TornStockVirtualBatchDO> candidateOpenBatches =
-                equityCalculator.extractOpenPositionBatches(candidateActiveBatches);
-        Map<Integer, TornStockMarketBar15mDO> latestBarByStock =
-                loadLatestBars(formalOpenBatches, candidateOpenBatches, generatedAt);
-
-        EquityResult formalEquity = equityCalculator.calculateEquity(
-                formalSlots, formalActiveBatches, latestBarByStock, generatedAt);
-        EquityResult candidateEquity = equityCalculator.calculateEquity(
-                candidateSlots, candidateActiveBatches, latestBarByStock, generatedAt);
-
         LocalDateTime dayStart = summaryDate.atStartOfDay();
         LocalDateTime dayEnd = summaryDate.plusDays(1).atStartOfDay();
 
-        List<TornStockVirtualBatchDO> yesterdayFormalBatches =
-                dedupById(virtualBatchDAO.selectFormalActionBatches(dayStart, dayEnd));
-        int formalBuyCount = metricsCalculator.countBatchesInRange(
-                yesterdayFormalBatches, dayStart, dayEnd, true);
-        int formalSellCount = metricsCalculator.countBatchesInRange(
-                yesterdayFormalBatches, dayStart, dayEnd, false);
-        BigDecimal formalNetReturn = metricsCalculator.sumNetReturn(yesterdayFormalBatches, dayStart, dayEnd);
-        List<String> formalOpenStocks = metricsCalculator.extractOpenBatchStocks(formalActiveBatches);
-        int staleBatchCount = metricsCalculator.countStaleBatches(formalActiveBatches);
+        List<TornStockVirtualBatchDO> alphaBatches =
+                virtualBatchDAO.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
+        List<TornStockVirtualBatchDO> legacyBatches = virtualBatchDAO.selectActiveFormalBatches();
+        List<TornStockVirtualBatchDO> alphaShadowBatches =
+                virtualBatchDAO.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE);
 
-        FormalSummary formal = new FormalSummary(metricsCalculator.countOccupiedSlots(formalSlots),
-                formalEquity.equity(), formalEquity.cashAndReserved(), formalEquity.missingPriceStocks(),
-                formalEquity.priceAsOf(), formalBuyCount, formalSellCount, formalNetReturn,
-                formalOpenStocks, staleBatchCount, summaryDate);
+        SummaryContext context = new SummaryContext(dayStart, dayEnd, generatedAt,
+                loadLatestBars(List.of(alphaBatches, legacyBatches, alphaShadowBatches), generatedAt));
 
-        List<TornStockVirtualBatchDO> yesterdayCandidateBatches =
-                dedupById(virtualBatchDAO.selectCandidateShadowActionBatches(dayStart, dayEnd));
-        int candidateBuyCount = metricsCalculator.countBatchesInRange(
-                yesterdayCandidateBatches, dayStart, dayEnd, true);
-        int candidateSellCount = metricsCalculator.countBatchesInRange(
-                yesterdayCandidateBatches, dayStart, dayEnd, false);
-        BigDecimal candidateNetReturn = metricsCalculator.sumNetReturn(yesterdayCandidateBatches, dayStart, dayEnd);
-        List<String> candidateOpenStocks = metricsCalculator.extractOpenBatchStocks(candidateActiveBatches);
+        return new DailySummaryData(summaryDate,
+                buildPortfolio(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE,
+                        StockPortfolioService.VIP_ALPHA_SLOT_COUNT, context, alphaBatches,
+                        virtualBatchDAO.selectAlphaActionBatches(
+                                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, dayStart, dayEnd)),
+                buildPortfolio(StockPortfolioService.PORTFOLIO_CODE,
+                        StockPortfolioService.SLOT_COUNT, context, legacyBatches,
+                        virtualBatchDAO.selectFormalActionBatches(dayStart, dayEnd)),
+                buildPortfolio(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE,
+                        StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT, context, alphaShadowBatches,
+                        virtualBatchDAO.selectAlphaActionBatches(
+                                StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, dayStart, dayEnd)));
+    }
 
-        CandidateShadowSummary candidateShadow = new CandidateShadowSummary(
-                metricsCalculator.countOccupiedSlots(candidateSlots),
-                candidateEquity.equity(), candidateEquity.cashAndReserved(), candidateEquity.missingPriceStocks(),
-                candidateBuyCount, candidateSellCount, candidateNetReturn, candidateOpenStocks);
+    /**
+     * 构建单个组合的摘要数据。
+     *
+     * @param portfolioCode 组合编码
+     * @param slotCount     该组合的槽位总数
+     * @param context       本轮共享只读上下文
+     * @param activeBatches 该组合的活跃批次
+     * @param actionBatches 该组合昨日有入场或出场动作的批次
+     * @return 组合摘要
+     */
+    private PortfolioSummary buildPortfolio(String portfolioCode, int slotCount, SummaryContext context,
+                                            List<TornStockVirtualBatchDO> activeBatches,
+                                            List<TornStockVirtualBatchDO> actionBatches) {
+        List<TornStockPortfolioSlotDO> slots = portfolioSlotDAO.selectAllByPortfolioCode(portfolioCode);
+        EquityResult equity = equityCalculator.calculateEquity(
+                slots, activeBatches, context.latestBarByStock(), context.generatedAt());
+        return new PortfolioSummary(portfolioCode, slotCount,
+                metricsCalculator.countOccupiedSlots(slots),
+                equity.equity(), equity.cashAndReserved(), equity.missingPriceStocks(), equity.priceAsOf(),
+                metricsCalculator.countBatchesInRange(
+                        actionBatches, context.dayStart(), context.dayEnd(), true),
+                metricsCalculator.countBatchesInRange(
+                        actionBatches, context.dayStart(), context.dayEnd(), false),
+                metricsCalculator.sumRealizedProfit(actionBatches, context.dayStart(), context.dayEnd()),
+                metricsCalculator.sumInvestedCash(actionBatches, context.dayStart(), context.dayEnd()),
+                extractOpenPositions(activeBatches),
+                metricsCalculator.countStaleBatches(activeBatches));
+    }
 
-        List<TornStockSignalEventDO> signalEvents = querySignalEventsByTimeRange(dayStart, dayEnd);
-        int signalCount = metricsCalculator.countSignalEvents(signalEvents);
-        int shadowNewCount = metricsCalculator.countShadowDecisions(signalEvents);
-        int fullRejectCount = metricsCalculator.countNoAvailableSlotRejections(signalEvents);
-        int styleRejectCount = metricsCalculator.countStyleReject(signalEvents);
-
-        List<TornStockVirtualBatchDO> shadowBatches =
-                dedupById(virtualBatchDAO.selectShadowActionBatches(dayStart, dayEnd));
-        int highRiskCount = metricsCalculator.countHighRisk(shadowBatches);
-
-        List<TornStockBatchMarkDO> researchMarks =
-                batchMarkDAO.selectDynamicShadowResearchMarks(dayStart, dayEnd);
-
-        ShadowSummary shadow = new ShadowSummary(signalCount, shadowNewCount, fullRejectCount,
-                styleRejectCount, researchMarks.size(), countCompleteResearchMarks(researchMarks), highRiskCount);
-
-        return new DailySummaryData(formal, candidateShadow, shadow);
+    /**
+     * 提取开放仓位的展示事实(股票简称与入场参考价)。
+     *
+     * @param activeBatches 该组合的活跃批次
+     * @return 开放仓位列表;无开放仓位时为空列表
+     */
+    private List<OpenPosition> extractOpenPositions(List<TornStockVirtualBatchDO> activeBatches) {
+        return equityCalculator.extractOpenPositionBatches(activeBatches).stream()
+                .filter(batch -> batch.getStocksShortname() != null)
+                .map(batch -> new OpenPosition(batch.getStocksShortname(), batch.getEntryReferencePrice()))
+                .toList();
     }
 
     /**
      * 批量加载最新且处于新鲜度窗口内的bar,按股票ID索引避免N+1查询。
      * <p>
-     * 正式与候选影子开放仓位的股票ID合并为一次查询,保证每个摘要周期最多一次行情批量读取。
+     * 三段组合的开放仓位股票ID合并为一次查询,保证每个摘要周期最多一次行情批量读取。
      *
-     * @param formalOpenBatches    正式开放仓位
-     * @param candidateOpenBatches 候选影子开放仓位
-     * @param generatedAt          日报生成时点
+     * @param batchGroups 三段组合的活跃批次
+     * @param generatedAt 日报生成时点
      * @return 按股票ID索引的最新bar映射
      */
-    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars(
-            List<TornStockVirtualBatchDO> formalOpenBatches,
-            List<TornStockVirtualBatchDO> candidateOpenBatches,
-            LocalDateTime generatedAt) {
-        List<Integer> stocksIds = Stream.concat(formalOpenBatches.stream(), candidateOpenBatches.stream())
+    private Map<Integer, TornStockMarketBar15mDO> loadLatestBars(List<List<TornStockVirtualBatchDO>> batchGroups,
+                                                                 LocalDateTime generatedAt) {
+        List<Integer> stocksIds = batchGroups.stream()
+                .flatMap(List::stream)
                 .map(TornStockVirtualBatchDO::getStocksId)
                 .filter(Objects::nonNull)
                 .distinct()
@@ -182,60 +168,17 @@ public class StockDailySummaryQueryService {
     }
 
     /**
-     * 统计完整研究mark数(decision与reason均为生产写路径冻结值)。
-     * <p>
-     * 取值来源为{@link StockBatchPathService}的两个冻结常量,与生产写路径同源,
-     * 保证日报覆盖率分母与分子口径一致。
+     * 单次摘要构建的共享只读上下文。
      *
-     * @param researchMarks 研究mark列表
-     * @return 完整研究mark数
+     * @param dayStart         摘要日期起始(含)
+     * @param dayEnd           摘要日期结束(不含)
+     * @param generatedAt      日报生成时点
+     * @param latestBarByStock 按股票ID索引的最新可用bar
      */
-    private int countCompleteResearchMarks(List<TornStockBatchMarkDO> researchMarks) {
-        if (CollectionUtils.isEmpty(researchMarks)) {
-            return 0;
-        }
-        return (int) researchMarks.stream()
-                .filter(mark -> StockBatchPathService.DYNAMIC_SHADOW_DECISION_NOT_EVALUATED
-                        .equals(mark.getDynamicShadowDecision())
-                        && StockBatchPathService.DYNAMIC_SHADOW_REASON_RULE_NOT_FROZEN
-                        .equals(mark.getDynamicShadowReason()))
-                .count();
-    }
-
-    /**
-     * 查询指定时间范围内的全部信号事件。
-     * <p>
-     * 使用MyBatis-Plus lambdaQuery按roundTime范围过滤,避免逐轮次查询产生N+1。
-     *
-     * @param dayStart 摘要日期起始(含)
-     * @param dayEnd   摘要日期结束(不含)
-     * @return 信号事件列表
-     */
-    private List<TornStockSignalEventDO> querySignalEventsByTimeRange(
-            LocalDateTime dayStart, LocalDateTime dayEnd) {
-        return signalEventDAO.lambdaQuery()
-                .ge(TornStockSignalEventDO::getRoundTime, dayStart)
-                .lt(TornStockSignalEventDO::getRoundTime, dayEnd)
-                .list();
-    }
-
-    /**
-     * 按批次ID确定性去重,保证"昨日动作"批次在内存中不重复。
-     *
-     * @param batches 批次列表
-     * @return 去重后的批次列表(保留首个出现的记录)
-     */
-    private List<TornStockVirtualBatchDO> dedupById(List<TornStockVirtualBatchDO> batches) {
-        if (CollectionUtils.isEmpty(batches)) {
-            return List.of();
-        }
-        return batches.stream()
-                .filter(batch -> batch.getId() != null)
-                .collect(Collectors.toMap(
-                        TornStockVirtualBatchDO::getId,
-                        Function.identity(),
-                        (first, duplicate) -> first,
-                        LinkedHashMap::new))
-                .values().stream().toList();
+    private record SummaryContext(
+            LocalDateTime dayStart,
+            LocalDateTime dayEnd,
+            LocalDateTime generatedAt,
+            Map<Integer, TornStockMarketBar15mDO> latestBarByStock) {
     }
 }

@@ -995,7 +995,7 @@ class StockEntrySettlementServiceTest {
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches,
                                         List<TornStockPortfolioSlotDO> slots) {
         return new RoundSnapshot(
-                List.of(), List.of(), List.of(), activeBatches, List.of(), slots, ROUND_TIME
+                List.of(), List.of(), activeBatches, slots, ROUND_TIME
         );
     }
 }

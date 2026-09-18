@@ -112,9 +112,7 @@ class StockRoundTransactionServiceTest {
         List<TornStockPortfolioSlotDO> externalSlots = buildFiveFormalSlots(staleExitBatch);
         RoundSnapshot snapshot = new RoundSnapshot(List.of(usableBar(3001, roundTime)),
                 List.of(),
-                List.of(),
                 List.of(staleExitBatch),
-                List.of(),
                 externalSlots,
                 roundTime);
 
@@ -161,9 +159,7 @@ class StockRoundTransactionServiceTest {
         List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
         RoundSnapshot snapshot = new RoundSnapshot(List.of(usableBar(4001, roundTime)),
                 List.of(),
-                List.of(),
                 List.of(entryPendingBatch),
-                List.of(),
                 lockedSlots,
                 roundTime);
 
@@ -194,9 +190,7 @@ class StockRoundTransactionServiceTest {
         List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(staleExitBatch);
         RoundSnapshot snapshot = new RoundSnapshot(List.of(usableBar(3001, roundTime)),
                 List.of(),
-                List.of(),
                 List.of(staleExitBatch),
-                List.of(),
                 lockedSlots,
                 roundTime);
 
@@ -409,7 +403,7 @@ class StockRoundTransactionServiceTest {
     private RoundSnapshot alphaSnapshot(LocalDateTime roundTime, List<TornStockMarketBar15mDO> bars,
                                         List<TornStockPortfolioSlotDO> slots,
                                         List<TornStockVirtualBatchDO> activeBatches) {
-        return new RoundSnapshot(bars, List.of(), List.of(), activeBatches, List.of(), slots, roundTime);
+        return new RoundSnapshot(bars, List.of(), activeBatches, slots, roundTime);
     }
 
     /**

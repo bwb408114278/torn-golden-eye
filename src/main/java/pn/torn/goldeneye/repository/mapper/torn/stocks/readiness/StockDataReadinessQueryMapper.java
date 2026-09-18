@@ -14,7 +14,7 @@ import java.util.List;
  * 版本与范围条件；不在生产每分钟调度中调用。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @Mapper
@@ -173,26 +173,6 @@ public interface StockDataReadinessQueryMapper {
                                                       @Param("featureVersion") String featureVersion);
 
     /**
-     * 查询 DRAFT 月度状态未完整原因汇总。
-     *
-     * @param startInclusive 起始时间（含）
-     * @param endExclusive   结束时间（不含）
-     * @return 未完整原因计数
-     */
-    List<NameCount> selectMonthlyIncompleteReasonCounts(@Param("startInclusive") LocalDateTime startInclusive,
-                                                        @Param("endExclusive") LocalDateTime endExclusive);
-
-    /**
-     * 查询范围内月度状态分组计数。
-     *
-     * @param startInclusive 起始时间（含）
-     * @param endExclusive   结束时间（不含）
-     * @return 月度状态计数
-     */
-    List<MonthlyStateCount> selectMonthlyStateCounts(@Param("startInclusive") LocalDateTime startInclusive,
-                                                     @Param("endExclusive") LocalDateTime endExclusive);
-
-    /**
      * 查询范围内轮次状态计数。
      *
      * @param startInclusive 起始时间（含）
@@ -222,17 +202,4 @@ public interface StockDataReadinessQueryMapper {
      * @return 开关设置列表
      */
     List<SettingValue> selectVipStockSettings();
-
-    /**
-     * 范围批量查询逐月逐股月度证据状态(含 metric_snapshot 的 raw/adjusted 完整性字段)。
-     * <p>
-     * 单条 SQL 按 effective_month、stocks_id 排序返回指定月份范围内全部状态;
-     * V1 快照没有新键时 raw/adjusted/exclusion 字段为 null,不得解释为 0 或 V2 合格。
-     *
-     * @param startInclusive 起始时间（含，取其所在月为起始月）
-     * @param endExclusive   结束时间（不含，取其前所在月为结束月）
-     * @return 逐月逐股月度证据状态列表
-     */
-    List<MonthlyEvidenceStatus> selectMonthlyEvidenceStatuses(@Param("startInclusive") LocalDateTime startInclusive,
-                                                              @Param("endExclusive") LocalDateTime endExclusive);
 }

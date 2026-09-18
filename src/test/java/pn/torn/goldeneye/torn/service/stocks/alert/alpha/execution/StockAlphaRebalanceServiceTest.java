@@ -253,8 +253,6 @@ class StockAlphaRebalanceServiceTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(),
-                List.of(),
                 laterExecutionBar);
 
         StockAlphaRebalanceService.RebalanceResult result = service.rebalance(TRACK,
@@ -545,7 +543,7 @@ class StockAlphaRebalanceServiceTest {
      * @return 轮次快照
      */
     private RoundSnapshot snapshotAt(LocalDateTime roundTime, List<TornStockMarketBar15mDO> bars) {
-        return new RoundSnapshot(bars, List.of(), List.of(), List.of(), List.of(), List.of(), roundTime);
+        return new RoundSnapshot(bars, List.of(), List.of(), List.of(), roundTime);
     }
 
     private TornStockMarketBar15mDO bar(Integer stocksId, BigDecimal price) {

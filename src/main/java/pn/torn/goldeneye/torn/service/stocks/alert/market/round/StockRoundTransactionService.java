@@ -152,8 +152,7 @@ public class StockRoundTransactionService {
         Map<Integer, TornStockMarketBar15mDO> barByStock = indexBarsByStockId(snapshot.bars());
         Map<Integer, TornStockStrategyFeature15mDO> featureByStock = indexFeaturesByStockId(snapshot.features());
         RoundSnapshot mergedSnapshot = new RoundSnapshot(snapshot.bars(), snapshot.features(),
-                snapshot.monthlyStates(), allActiveBatches, snapshot.signalStates(),
-                lockedSlots, roundTime);
+                allActiveBatches, lockedSlots, roundTime);
 
         // 正式新入场许可:门禁已收敛为FORMAL-only,这里以同一规则再校验一次,
         // 禁止SHADOW/PROVISIONAL通过任何调用方创建VIP_ALPHA正式批次。
@@ -287,8 +286,8 @@ public class StockRoundTransactionService {
             activeBatches = mergeActiveBatches(activeBatches,
                     virtualBatchDao.selectActiveAlphaBatchesForUpdate(track.portfolioCode()));
         }
-        return new RoundSnapshot(snapshot.bars(), snapshot.features(), snapshot.monthlyStates(),
-                activeBatches, snapshot.signalStates(), snapshot.slots(), snapshot.roundTime());
+        return new RoundSnapshot(snapshot.bars(), snapshot.features(),
+                activeBatches, snapshot.slots(), snapshot.roundTime());
     }
 
     /**

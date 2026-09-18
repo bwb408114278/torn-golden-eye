@@ -416,8 +416,6 @@ class StockAlphaRebalanceTransactionItTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of(),
-                List.of(),
                 EXECUTION_BAR);
     }
 

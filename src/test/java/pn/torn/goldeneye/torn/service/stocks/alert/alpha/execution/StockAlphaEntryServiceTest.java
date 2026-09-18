@@ -217,8 +217,6 @@ class StockAlphaEntryServiceTest {
         return new RoundSnapshot(List.of(bar),
                 List.of(),
                 List.of(),
-                List.of(),
-                List.of(),
                 List.of(slot),
                 ROUND_TIME);
     }

@@ -276,9 +276,9 @@ public class StockBatchPathService {
         boolean shouldExit = evaluation.shouldExit();
         mark.setFormalDecision(shouldExit ? FORMAL_DECISION_SELL : FORMAL_DECISION_HOLD);
         mark.setFormalReason(evaluation.reasonCode());
-        // 动态SELL研究遥测: 仅FORMAL槽位账本落库冻结值(研究范围边界与
-        // selectDynamicShadowResearchMarks的FORMAL账本一致),历史候选影子/无限资金影子/拒绝观察
-        // 批次不再产生新mark,避免日报分母失真;该值仅用于覆盖统计,不触发任何卖出。
+        // 动态SELL研究遥测: 仅FORMAL槽位账本落库冻结值,历史候选影子/无限资金影子/拒绝观察批次
+        // 不再产生新mark。该遥测列当前无生产读取方(日报研究区块已退场),保留写入以维持既有mark
+        // 结构与历史可比性,任何情况下都不触发卖出。
         if (StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())) {
             mark.setDynamicShadowDecision(DYNAMIC_SHADOW_DECISION_NOT_EVALUATED);
             mark.setDynamicShadowReason(DYNAMIC_SHADOW_REASON_RULE_NOT_FROZEN);

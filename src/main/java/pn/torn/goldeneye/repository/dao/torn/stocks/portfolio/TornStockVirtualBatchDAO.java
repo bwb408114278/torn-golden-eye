@@ -89,36 +89,16 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     }
 
     /**
-     * 查询影子账本指定时间范围内有信号或出场动作的批次(历史研究数据只读)。
+     * 查询指定组合编码的α轨道(正式α或α影子)指定时间范围内有入场或出场动作的批次。
      *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 影子批次
+     * @param portfolioCode 组合编码(正式α或α影子)
+     * @param startTime     时间范围起点(含)
+     * @param endTime       时间范围终点(不含)
+     * @return 该组合的动作批次列表
      */
-    public List<TornStockVirtualBatchDO> selectShadowActionBatches(
-            LocalDateTime startTime, LocalDateTime endTime) {
-        return baseMapper.selectShadowActionBatches(startTime, endTime);
-    }
-
-    /**
-     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)的活跃批次(历史数据只读)。
-     *
-     * @return 候选影子活跃批次列表
-     */
-    public List<TornStockVirtualBatchDO> selectActiveCandidateShadowBatches() {
-        return baseMapper.selectActiveCandidateShadowBatches();
-    }
-
-    /**
-     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)指定时间范围内有入场或出场动作的批次(历史数据只读)。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 候选影子动作批次列表
-     */
-    public List<TornStockVirtualBatchDO> selectCandidateShadowActionBatches(
-            LocalDateTime startTime, LocalDateTime endTime) {
-        return baseMapper.selectCandidateShadowActionBatches(startTime, endTime);
+    public List<TornStockVirtualBatchDO> selectAlphaActionBatches(
+            String portfolioCode, LocalDateTime startTime, LocalDateTime endTime) {
+        return baseMapper.selectAlphaActionBatches(portfolioCode, startTime, endTime);
     }
 
     /**
