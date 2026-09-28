@@ -10,7 +10,7 @@
 - 时区：Asia/Shanghai
 - 关联文档：
   - `.ai/knowledge/stocks/vip_stock_virtual_portfolio_strategy.md`（长期业务基线，现行 α 策略唯一口径依据）
-  - `.ai/knowledge/stocks/vip_stock_alert_alpha_convergence_technical_plan_one_time.md`（本轮 A/B/C/D 统一技术方案；本文是该方案交付项 D 的交付物）
+  - 一次性方案文档已按生命周期删除；A/B/C/D 结论见 `.ai/knowledge/stocks/vip_stock_alert_technical_design.md` §13.4 / §13.5
 
 ---
 
@@ -33,8 +33,8 @@
 | 版本 | 名称 | 载体 | 状态 | 说明 |
 |---|---|---|---|---|
 | V1 | 旧版三类 BUY + 旧版五槽竞争 | `VIP_FORMAL` 5 槽 × 2B / `VIP_SHADOW_CANDIDATE` / `UNLIMITED_SHADOW` | **已退场** | 本文 §3 完整规格；2026-09-18 起停止新入场，随后清仓并删码 |
-| V2 | α=0.04 单槽 Top1 | `VIP_ALPHA` 1 槽 × 10B | **现行（早间窗口待实施）** | 以长期业务基线 §3–§5 为准 |
-| V3 | α 多槽相位分散（研究） | `VIP_ALPHA_SHADOW` 2 槽 × 5B | **待实施，仅影子观察** | 只降波动类改动，期望收益与 V2 相同；采纳与否由成员体验决定 |
+**现行（早间窗口已上线，见技术档 §13.4/§13.5.2）**
+| V3 | α 多槽相位分散（研究） | `VIP_ALPHA_SHADOW` 2 槽 × 5B | **已实施，影子观察未开启** |
 
 ---
 

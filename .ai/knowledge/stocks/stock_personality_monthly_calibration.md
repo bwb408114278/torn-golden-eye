@@ -5,9 +5,9 @@
 - 文档类型：业务规则与开发依据
 - 更新频率：每月一次
 - 证据范围：向前滚动365天；历史不足时使用全部可用历史
-- 适用功能：BUY策略资格、群批次、历史回放和风险观察
+- 适用功能：私聊 `Stock分析` 指令的成熟度/风险/风格档位（消费口径见 §13）；**不进入 α 任何决策路径**
 - 风格规则版本：`PERSONALITY_RULE_V1`
-- 风险规则版本：`RISK_RULE_V1_SHADOW`
+- 风险规则版本：`RISK_RULE_V1`（风险等级参与买入门槛，不再是仅观察）
 
 股票月度状态拆为三个独立概念：
 
@@ -52,7 +52,7 @@ evidenceStart = max(股票首个可用bar时间, evidenceEnd - 365天)
 ```text
 先补建证据窗口内的bar/feature
 → 再计算或重算目标月份DRAFT
-→ 再走人工确认或系统自动确认
+→ 再走系统自动确认
 → CONFIRMED后才允许该月份进入BUY资格
 ```
 
@@ -62,7 +62,7 @@ evidenceStart = max(股票首个可用bar时间, evidenceEnd - 365天)
 - 已有CONFIRMED、RETIRED或人工覆盖记录不得被冷启动重算覆盖；
 - 重算仍不完整时保持DRAFT及空风格/风险；
 - 系统自动确认必须由明确生产入口调用并记录`confirmedBy=SYSTEM`，不能仅存在无人调用的方法；
-- 人工确认继续要求真实操作者标识。
+- 本期不提供人工确认入口；月度状态只由系统自动确认（`confirmedBy=SYSTEM`）产生。
 
 每月正常流程同样要求先确认上月最后一个已结束可用bar已经补齐，再生成本月DRAFT。调度顺序、重启补偿和人工运维脚本都必须遵守该依赖。
 
@@ -279,14 +279,14 @@ rawPersonality = STEADY
 
 ### 6.1 previousPersonality
 
-读取同一股票、生效月份早于M的最近一条`CONFIRMED`月度状态：
+读取同一股票、生效月份早于M的最近一条**已生效**月度状态（系统自动确认后即生效）：
 
 ```text
 previousState = max(effectiveMonth < M AND stateStatus=CONFIRMED)
 previousPersonality = previousState.strategyFitPrior
 ```
 
-首个确认月份无上一条时为`null`。不得读取DRAFT、RETIRED或当前`sys_setting`代替。
+首个已生效月份无上一条时为`null`。不得读取DRAFT、RETIRED或当前`sys_setting`代替。
 
 ### 6.2 suggestedPersonality
 
@@ -401,11 +401,13 @@ rawRiskLevel = NONE:
 
 若上一确认月份为HIGH、当月raw为MEDIUM，保持HIGH；只有连续两个raw NONE才能完全解除。首月无previous时`riskLevel=rawRiskLevel`。
 
-首期`riskLevel`只记录、展示和进入观察，不改变`strategyFitPrior`，也不自动删除正式BUY。
+`riskLevel` 参与买入门槛与展示：`HIGH` 买入门槛 +10，`MEDIUM` 仅展示，`NONE` 无影响；风险等级不改变 `strategyFitPrior`。
 
 ---
 
-## 8. 人工覆盖和最终优先级
+## 8. 人工覆盖（本期不启用）
+
+> 本期不提供人工覆盖入口，`manualOverride` 恒为 `false`；本章字段语义与优先级规则仅作历史与字段定义保留。
 
 ### 8.1 字段语义
 
@@ -449,31 +451,19 @@ manualOverride = true
 - 证据起止时间；
 - 数据完整性。
 
-### 9.2 confirmDraftStates语义
+### 9.2 确认语义（本期只保留系统自动确认）
 
-首期同时支持人工确认和系统确认，但必须是两个明确入口：
+本期**只保留系统自动确认**，不提供人工确认入口：
 
 ```text
-人工确认：confirmDraftStates(effectiveMonth, confirmedBy)
 系统确认：autoConfirmDraftStates(effectiveMonth)
-```
-
-人工入口：
-
-- `confirmedBy`必须由调用方传入真实操作者标识；
-- 禁止为空、空白或固定`SYSTEM`；
-- 支持确认人工覆盖后的草稿。
-
-系统入口：
-
-```text
 confirmedBy = SYSTEM
 ```
 
 只允许在以下条件全部满足时自动确认：
 
 - 数据完整性通过；
-- `manualOverride=false`；
+- `manualOverride=false`（本期恒为 false）；
 - 所有必填指标与状态非空；
 - 规则版本等于当前冻结版本；
 - 不存在待人工复核标记；
@@ -532,7 +522,9 @@ hysteresisReason
 
 ---
 
-## 12. 开发验收
+## 12. 开发验收（上线前一次性验证）
+
+> 本清单为上线前一次性验证项；由一次性回补指令与上线验收执行，不进入日常月度流程。
 
 - [ ] evidenceEnd严格截止于生效月以前；
 - [ ] 成熟度按60/120/240/365天，不按1/7/30天bar数；
@@ -547,3 +539,58 @@ hysteresisReason
 - [ ] 不完整草稿不能确认；
 - [ ] 风格缺失/过期不得默认STEADY；
 - [ ] 开放批次固化当月状态，次月不回写。
+
+---
+
+## 13. 消费口径与运行规则（私聊指令）
+
+> 本章定义月度状态在私聊 `Stock分析` 指令中的使用方式；**不进入 α 任何决策路径**。
+
+### 13.1 风格档位
+
+`strategyFitPrior` 的六个取值与 `StockPersonalityEnum` 一一对应，直接作为评分档位使用（买入门槛、飞刀 Z 阈值、阴跌扣分、NARROW 的 Z×0.6），不再套用 §10 的策略适配矩阵。
+
+### 13.2 成熟度消费
+
+```text
+M0_UNMATURE  → 不推荐
+M1_EARLY     → 买入门槛 +10（与窗口数据不足的 +10 同构），并标注“历史不足”
+M2 及以上    → 无影响
+```
+
+### 13.3 风险消费
+
+```text
+HIGH    → 买入门槛 +10，并在推荐理由与表格中展示风险
+MEDIUM  → 仅展示，不改门槛
+NONE    → 无影响
+```
+
+与日内风险扣分（飞刀、持续阴跌 -30、DECLINER 未反弹 -22、WEAK 未反弹 -14、`zScore30d<=-3` 且仍下跌 -10）职责分离：**月度风险只改门槛与展示，日内扣分继续管当下价格结构，两者不重复扣分**。
+
+### 13.4 无当月生效行时的沿用规则
+
+- 只沿用**最近一期已生效**（非 DRAFT）的风格；
+- 输出必须留痕，例如 `使用 2026-09 风格（2026-10 未生成）`；
+- 连续 2 个月没有新月份 → 停止推荐并告警，防止退化为固定死值。
+
+### 13.5 一次性回补
+
+```text
+先补证据窗口内的 bar / feature
+→ 再按月正序计算月度状态（幂等、可重算）
+→ 不覆盖已生效月份
+→ 回补完成后与旧 sys_setting（STOCK_PERSONALITY）逐支对账
+```
+
+### 13.6 配置退役
+
+`sys_setting` 的 `STOCK_PERSONALITY` 不再作为事实源；风格缺失或过期时**不得默认 STEADY**。
+
+---
+
+## 14. 变更记录
+
+| 版本 | 日期 | 内容 |
+|---|---|---|
+| 本次 | 2026-09-23 | 复活为“仅系统自动确认”的精简版：新增 §13 消费口径与运行规则；§8／§9.2 人工入口停用；§6 previous 改读最近已生效月份；§7.4 风险改为参与买入门槛；§1 适用功能收敛为私聊 `Stock分析` 指令 |

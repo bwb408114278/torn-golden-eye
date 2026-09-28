@@ -83,7 +83,7 @@ TornStocksManager.spiderStockData()                 [每分钟第5秒]
   → torn_stocks（当前行情快照）
   → torn_stocks_history（分钟事实）
   → sendGreatTradeChangeMsg（大额交易消息）
-  → calcStockFeature（旧分钟特征）
+  → calcStockFeature（旧分钟特征；该链已随私聊指令 15m 化下线）
 
 VIP 独立派生链：
 torn_stocks_history
@@ -94,7 +94,7 @@ torn_stocks_history
   → StockHistoryRebuildService
 ```
 
-Tornsy 补数服务必须绕开 `TornStocksManager`：不得更新 `torn_stocks`，不得调用大额交易消息，不能推进旧分钟特征游标。
+不能推进旧分钟特征游标（该特征链已下线）。
 
 ### 2.3 当前重复数据预检
 
@@ -452,7 +452,7 @@ market_cap = 0
 investors = 0
 使用当前行情填历史字段
 调用 sendGreatTradeChangeMsg()
-调用 TornStocksManager.calcStockFeature()
+调用已下线的旧分钟特征入口（calcStockFeature）
 ```
 
 ### 7.3 幂等
