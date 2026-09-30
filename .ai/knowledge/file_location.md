@@ -21,7 +21,9 @@
 ```text
 ├── .ai/                                                                        # AI协作知识库与任务规范
 │   └── knowledge/                                                              # AI知识库
-│       ├── stocks/                                                             # Torn股票策略业务依据
+│       ├── oc/                                                                 # Torn OC相关知识库
+│       │   └── oc_delay_attribution_technical_design.md                        # OC延误归因（原因/时长/采样与验收基线）技术方案
+│       ├── stocks/                                                             # Torn股票股票相关知识库
 │       │   ├── data/                                                           # 长期机器可读研究摘要
 │       │   │   ├── stock_personality_2026_07.csv                               # 35支股票风格指标快照
 │       │   │   └── virtual_portfolio_validation_summary.json                   # 最终5槽策略、动态SELL、风格风险与证据等级摘要

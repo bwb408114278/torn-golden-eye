@@ -925,3 +925,11 @@ JAVA_HOME="C:\Program Files\Java\jdk-21" mvn.cmd test -Dtest="OcExistingTimeline
 7. AI技术专家更新本文实施状态、实现基线和验收记录。
 
 在以上条件满足前，开发人员不得自行宣布功能完成或删除一次性业务补充文档。
+
+---
+
+## 16. 基线更新（1.6.6）
+
+第 2.2 节第 4 条与第 2.3 节的字段表述以「时间线原始事实」为范围。自 1.6.6 起 `torn_faction_oc` 增加派生列 `delay_cause`，用于记录 OC 延误归因编码；它不是时间线原始事实，不参与快照加载、规划、匹配、价值比较与收益计算，也不改变第 5 节的 `readyTime` 递推口径。
+
+延误归因的口径、采样策略与验收基线见 `.ai/knowledge/oc/oc_delay_attribution_technical_design.md`。
