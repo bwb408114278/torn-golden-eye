@@ -13,6 +13,7 @@
 - 当前分支：实施时从 `main` 新建 `oc-reassign-db-driven`
 - 实施状态：未实施
 - 技术验收状态：待实施后Review
+- 收益模式基线修订（1.6.7）：本文第 2.1/2.2/5.4/7.1/7.2/7.4/7.5/8.3/16 章中"收益模式＝帮派行单值"的口径已被《OC大锅饭收益模式时间线技术方案（1.6.7）》修订（`.ai/knowledge/oc/oc_reassign_income_mode_timeline_technical_design.md`），冲突处以该文档为准
 
 > 本文是本需求唯一技术实施基线。开发人员只能按照本文修改代码、测试和运维步骤，不得自行扩大或缩小业务范围、改变收益统计口径、排除规则语义或指令权限模型，亦不得以当前实现反向覆盖本文。实施完成后由AI技术专家进行Review，并更新本文的实现基线、实施状态和验收记录。
 >
@@ -26,13 +27,13 @@
 
 将大锅饭的全部配置从Java常量迁移到数据库表：
 
-- 帮派级收益模式（系数/平分）可配置，收编 `TornOcWorkingHourService`、`OcBenefitQueryStrategyImpl`、推荐评分中硬编码的NOV/BSU特判；
+- 帮派级收益模式（系数/平分）可配置（1.6.7 起升级为按自然月分段的时间线，见《OC大锅饭收益模式时间线技术方案（1.6.7）》），收编 `TornOcWorkingHourService`、`OcBenefitQueryStrategyImpl`、推荐评分中硬编码的NOV/BSU特判；
 - 帮派大锅饭OC名单、普通收益排除规则（含生效时间）、补算扫描起点、大锅饭帮派集合全部由同一批数据行派生；
 - 删除 `TornConstants` 中 `ROTATION_OC_NAME`、`OC_BENEFIT_EXCLUSION_RULES`、`REASSIGN_OC_FACTION`、`PN_OC_REASSIGN_EFFECTIVE_FROM`、`NOV_OC_REASSIGN_EFFECTIVE_FROM` 及 `resolveIncomeStartTime` 中的帮派硬编码分支。
 
 ### 2.2 指令自助
 
-- `OC大锅饭开启 <帮派ID> <系数|平分>`：仅超管，帮派级开通；
+- `OC大锅饭开启 <帮派ID> <系数|平分> [yyyy-MM]`：仅超管；开通帮派并写入该自然月的模式段，缺省当月（1.6.7 起支持按月切换与同月覆盖）；
 - `OC大锅饭添加 [帮派ID] <OC名称> [生效日期]`：帮派OC指挥官可添加本帮派；超管可带帮派ID添加任意帮派；
 - `OC大锅饭名单 [帮派ID]`：查询当前配置。
 
@@ -185,7 +186,7 @@
 | 排除规则 | 同一批范围行逐行转 `FactionOcExclusion(factionId, [ocName], effectiveFrom)`；同帮派同 `effective_from` 的行在生成 `FactionOcExclusion` 时按生效时间分组归并（NULL一组、每个日期一组），保证与现常量结构等价 |
 | 大锅饭帮派集合 | 帮派表 enabled 的 faction_id 列表 |
 | 补算扫描起点 | 帮派范围行中非NULL `effective_from` 的最小值；全部为NULL时取 `execTime` 所在月份第一天（保持现行为） |
-| 收益模式 | 帮派行 `income_mode`；无帮派行时默认 COEFFICIENT（调用方先以帮派集合门禁，默认值仅兜底） |
+| 收益模式 | 1.6.7 起为模式时间线：取 `torn_setting_oc_reassign_mode` 中 `effective_month <= 目标月` 的最新段；无段时回落帮派行 `income_mode`，再兜底 COEFFICIENT（调用方先以帮派集合门禁） |
 
 ### 5.5 Liquibase要求
 
@@ -216,7 +217,7 @@ pn.torn.goldeneye.napcat.strategy.faction.crime.reassign # 大锅饭指令策略
 5. `repository/mapper/setting/TornSettingOcReassignOcMapper.java` — 同上；
 6. `repository/dao/setting/TornSettingOcReassignFactionDAO.java`；
 7. `repository/dao/setting/TornSettingOcReassignOcDAO.java`；
-8. `constants/torn/enums/TornOcIncomeModeEnum.java` — `COEFFICIENT("coefficient")`、`EQUAL("equal")`，含 `of(String)` 解析；
+8. `constants/torn/enums/TornOcIncomeModeEnum.java` — `COEFFICIENT("COEFFICIENT")`、`EQUAL("EQUAL")`（存储值大写），含 `of(String)` 与 `ofLabel(String)`；
 9. `torn/manager/setting/TornSettingOcReassignManager.java` — 派生门面（见7.1）；
 10. `torn/service/faction/oc/reassign/OcReassignConfigService.java` — 开启/添加/名单编排（见7.2）；
 11. `torn/service/faction/oc/reassign/OcReassignAddValidator.java` — 添加前置校验组件（见7.3）；
@@ -240,7 +241,9 @@ List<String> getRotationOcNames(long factionId)                 // 名单
 Map<Long, List<FactionOcExclusion>> getExclusionRules()         // 排除规则（含NULL/日期分组归并）
 List<Long> getReassignFactionList()                             // 帮派集合
 LocalDateTime resolveIncomeStartTime(long factionId, LocalDateTime execTime)  // 扫描起点
-TornOcIncomeModeEnum getIncomeMode(long factionId)              // 收益模式
+TornOcIncomeModeEnum getIncomeMode(long factionId)              // 当月收益模式（1.6.7 起为时间线口径）
+TornOcIncomeModeEnum getIncomeMode(long factionId, YearMonth month)     // 指定月模式（1.6.7 新增）
+List<OcIncomeModeSegment> getModeTimeline(long factionId)       // 模式时间线（1.6.7 新增，名单回执用）
 ```
 
 - `resolveIncomeStartTime` 保持纯函数风格：仅依赖已缓存列表与入参，不查库、不读系统时间；
@@ -248,10 +251,11 @@ TornOcIncomeModeEnum getIncomeMode(long factionId)              // 收益模式
 
 ### 7.2 OcReassignConfigService（编排，事务边界）
 
-`openFaction(factionId, mode)`：
+`openFaction(factionId, mode, effectiveMonth)`：
 
-1. 校验帮派存在于 `torn_setting_faction`；幂等：已有enabled帮派行则拒绝；
-2. 插入帮派行；驱逐门面缓存；回执。
+1. 校验帮派存在于 `torn_setting_faction`；生效月不得早于当月（过去月只读）；
+2. 帮派行不存在时插入（enabled=true）；已存在且停用时拒绝；已启用时按"同月覆盖"写入模式段（1.6.7 起）；
+3. 事务内同步帮派行 `income_mode` 为当月口径（回滚兜底，见 1.6.7 方案 7.2）；提交后驱逐门面缓存；回执。
 
 `addOc(factionId, ocName, effectiveDate)`（`@Transactional`）：
 
@@ -287,8 +291,8 @@ TornOcIncomeModeEnum getIncomeMode(long factionId)              // 收益模式
 
 **OcReassignOpenStrategyImpl**
 
-- 命令：`OC大锅饭开启 <帮派ID> <系数|平分>`；仅超管（照 `ManageDocStrategyImpl` 的SA门禁方式）；
-- 参数错误、帮派不存在、重复开通分别回执。
+- 命令：`OC大锅饭开启 <帮派ID> <系数|平分> [yyyy-MM]`；仅超管（照 `ManageDocStrategyImpl` 的SA门禁方式）；
+- 参数错误、帮派不存在、生效月早于当月分别回执；1.6.7 起"重复开通"不再是错误，而是对该月模式的设置/覆盖。
 
 **OcReassignAddStrategyImpl**
 
@@ -306,7 +310,8 @@ TornOcIncomeModeEnum getIncomeMode(long factionId)              // 收益模式
 ### 7.5 指令回执文案（逐字模板，半角标点）
 
 ```text
-# 开启成功
+# 以下"开启"与"名单"回执自 1.6.7 起按按月模式段口径输出，以《OC大锅饭收益模式时间线技术方案（1.6.7）》7.5 为准
+# 开启成功（1.6.2 基线）
 大锅饭已开启: PTA(9356) 模式=系数
 
 # 添加成功
@@ -360,8 +365,8 @@ TornOcIncomeModeEnum getIncomeMode(long factionId)              // 收益模式
 |---|---|
 | `TornOcRecommendManager` | `checkIsReassignRecommended` 两处常量改读门面；`calcReassignRecommendScore` 按门面模式取系数：EQUAL固定 `BigDecimal.ONE`，COEFFICIENT查系数表 |
 | `TornOcRecommendService`、`TornOcAssignService` | 名单改读门面 |
-| `TornOcWorkingHourService` | `isNoCoefficient` 硬编码改为门面 `getIncomeMode` 判等 `EQUAL` |
-| `OcBenefitQueryStrategyImpl` | `createDisplayConfig` 改按门面模式决定是否展示岗位系数列 |
+| `TornOcWorkingHourService` | `isNoCoefficient` 硬编码改为门面 `getIncomeMode` 判等 `EQUAL`（当月口径，1.6.7 不变） |
+| `OcBenefitQueryStrategyImpl` | `createDisplayConfig` 改按门面模式决定是否展示岗位系数列；1.6.7 起由 `TableDisplayConfig.of` 按查询月与明细行所属帮派集合判定 |
 | `TornSettingOcCoefficientManager` | 新增 `hasCompleteCoefficients` 公共方法，与 `getCoefficient` 共用解析私有方法 |
 
 ---
@@ -514,7 +519,7 @@ SELECT oc_name, enabled FROM torn_setting_faction_oc_plan WHERE faction_id = 117
 - 不修改收益计算公式、工时口径、飞书同步链路；
 - 不删除/迁移 `torn_faction_oc_benefit`，不新增写侧过滤；
 - 不做系数行、规划档案、链配置、岗位校准值的指令化或自动推断（spawn_pool为业务判断）；
-- 不引入数据库唯一约束、分布式锁、新依赖；
+- 不在既有两张大锅饭配置表上引入数据库唯一约束，不引入分布式锁与新依赖（1.6.7 新增的模式段表按该方案 5.1 建 `(faction_id, effective_month)` 唯一约束）；
 - 不统一 `OcPlanCatalogValidator` 的系数校验口径（后续建议）。
 
 ---

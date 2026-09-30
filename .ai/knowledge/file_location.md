@@ -22,7 +22,8 @@
 ├── .ai/                                                                        # AI协作知识库与任务规范
 │   └── knowledge/                                                              # AI知识库
 │       ├── oc/                                                                 # Torn OC相关知识库
-│       │   └── oc_delay_attribution_technical_design.md                        # OC延误归因（原因/时长/采样与验收基线）技术方案
+│       │   ├── oc_delay_attribution_technical_design.md                        # OC延误归因（原因/时长/采样与验收基线）技术方案
+│       │   └── oc_reassign_income_mode_timeline_technical_design.md            # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
 │       ├── stocks/                                                             # Torn股票股票相关知识库
 │       │   ├── data/                                                           # 长期机器可读研究摘要
 │       │   │   ├── stock_personality_2026_07.csv                               # 35支股票风格指标快照
