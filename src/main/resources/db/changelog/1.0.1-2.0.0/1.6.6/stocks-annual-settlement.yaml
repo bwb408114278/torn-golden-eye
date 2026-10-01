@@ -7,7 +7,7 @@ databaseChangeLog:
       changes:
         - createTable:
             tableName: torn_stock_portfolio_annual_settlement
-            remarks: "VIP股票α正式仓年度结算台账"
+            remarks: "VIP股票α正式仓年度结算台账(年末边界权益与累计提取利润科目)"
             columns:
               - column:
                   name: id
@@ -34,7 +34,7 @@ databaseChangeLog:
                   type: TIMESTAMP
                   constraints:
                     nullable: false
-                  remarks: "年度边界时点=次年1月1日00:00"
+                  remarks: "年度边界时点=次年1月1日00:00(Asia/Shanghai)"
               - column:
                   name: boundary_bar_start_time
                   type: TIMESTAMP
@@ -111,7 +111,7 @@ databaseChangeLog:
               - column:
                   name: degrade_reason
                   type: VARCHAR(512)
-                  remarks: "降级或阻断原因"
+                  remarks: "降级或阻断原因(可解释)"
               - column:
                   name: notice_id
                   type: BIGINT

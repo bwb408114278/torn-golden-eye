@@ -85,17 +85,6 @@
         FOR UPDATE
     </select>
 
-    <!-- 查询正式账本指定时间范围内有入场或出场动作的批次 -->
-    <select id="selectFormalActionBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
-        SELECT * FROM torn_stock_virtual_batch
-        WHERE ledger_type = 'FORMAL'
-          AND portfolio_code = 'VIP_FORMAL'
-          AND deleted = 0
-          AND ((entry_time <![CDATA[>=]]> #{startTime} AND entry_time <![CDATA[<]]> #{endTime})
-            OR (exit_time <![CDATA[>=]]> #{startTime} AND exit_time <![CDATA[<]]> #{endTime}))
-        ORDER BY id ASC
-    </select>
-
     <!-- 查询指定组合编码的α轨道(正式α或α影子)指定时间范围内有入场或出场动作的批次 -->
     <select id="selectAlphaActionBatches" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO">
         SELECT * FROM torn_stock_virtual_batch

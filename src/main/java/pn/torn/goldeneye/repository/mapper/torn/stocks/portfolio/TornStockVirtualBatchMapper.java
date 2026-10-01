@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票虚拟交易批次数据库访问层
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Mapper
@@ -63,16 +63,6 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
      * @return 已锁定的正式活跃批次列表
      */
     List<TornStockVirtualBatchDO> selectActiveFormalBatchesForUpdate();
-
-    /**
-     * 查询正式账本指定时间范围内有入场或出场动作的批次。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 正式批次
-     */
-    List<TornStockVirtualBatchDO> selectFormalActionBatches(@Param("startTime") LocalDateTime startTime,
-                                                            @Param("endTime") LocalDateTime endTime);
 
     /**
      * 查询指定组合编码的α轨道(正式α或α影子)指定时间范围内有入场或出场动作的批次。

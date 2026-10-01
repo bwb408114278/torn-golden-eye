@@ -142,13 +142,14 @@ public class StockAnnualSettlementRenderer {
      * @param extractedAmount          本年账面利润
      * @param cumulativeExtractedAfter 累计账面利润
      */
-    public record AnnualReportData(int settleYear,
-                                   boolean partialYear,
-                                   LocalDate rangeStartDate,
-                                   int coverageDays,
-                                   BigDecimal yearReturn,
-                                   BigDecimal annualizedReturn,
-                                   BigDecimal extractedAmount,
-                                   BigDecimal cumulativeExtractedAfter) {
+    public record AnnualReportData(
+            int settleYear,
+            boolean partialYear,
+            LocalDate rangeStartDate,
+            int coverageDays,
+            BigDecimal yearReturn,
+            BigDecimal annualizedReturn,
+            BigDecimal extractedAmount,
+            BigDecimal cumulativeExtractedAfter) {
     }
 }

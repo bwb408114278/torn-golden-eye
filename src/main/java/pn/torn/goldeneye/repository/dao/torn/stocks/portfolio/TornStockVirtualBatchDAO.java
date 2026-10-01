@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票虚拟交易批次持久层类
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Repository
@@ -74,18 +74,6 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
      */
     public List<TornStockVirtualBatchDO> selectActiveFormalBatchesForUpdate() {
         return baseMapper.selectActiveFormalBatchesForUpdate();
-    }
-
-    /**
-     * 查询正式账本指定时间范围内有入场或出场动作的批次。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 正式批次
-     */
-    public List<TornStockVirtualBatchDO> selectFormalActionBatches(
-            LocalDateTime startTime, LocalDateTime endTime) {
-        return baseMapper.selectFormalActionBatches(startTime, endTime);
     }
 
     /**

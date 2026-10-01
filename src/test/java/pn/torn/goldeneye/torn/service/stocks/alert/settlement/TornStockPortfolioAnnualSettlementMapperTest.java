@@ -112,9 +112,9 @@ class TornStockPortfolioAnnualSettlementMapperTest {
     /**
      * 填入满足提取恒等式的已结算金额。
      *
-     * @param row              台账行
-     * @param closingEquity    年末边界权益
-     * @param extractedAmount  本年提取额
+     * @param row             台账行
+     * @param closingEquity   年末边界权益
+     * @param extractedAmount 本年提取额
      */
     private void fillSettledAmounts(TornStockPortfolioAnnualSettlementDO row, BigDecimal closingEquity,
                                     BigDecimal extractedAmount) {

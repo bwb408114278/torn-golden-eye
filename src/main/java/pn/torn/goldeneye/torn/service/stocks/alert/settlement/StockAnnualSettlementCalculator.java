@@ -132,14 +132,15 @@ public class StockAnnualSettlementCalculator {
      * @param settleYear                被结算的自然年
      * @param boundaryTime              年度边界时点(次年1月1日00:00)
      */
-    public record SettlementInput(BigDecimal initialCash,
-                                  BigDecimal cumulativeExtractedBefore,
-                                  BigDecimal closingEquity,
-                                  BigDecimal closingCash,
-                                  BigDecimal closingReserved,
-                                  LocalDate rangeStartDate,
-                                  int settleYear,
-                                  LocalDateTime boundaryTime) {
+    public record SettlementInput(
+            BigDecimal initialCash,
+            BigDecimal cumulativeExtractedBefore,
+            BigDecimal closingEquity,
+            BigDecimal closingCash,
+            BigDecimal closingReserved,
+            LocalDate rangeStartDate,
+            int settleYear,
+            LocalDateTime boundaryTime) {
     }
 
     /**

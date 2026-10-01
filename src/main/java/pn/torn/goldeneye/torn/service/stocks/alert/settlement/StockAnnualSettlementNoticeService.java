@@ -234,26 +234,27 @@ public class StockAnnualSettlementNoticeService {
      * @param annualizedReturn          年化折算(不适用时为null)
      * @param openPositionStocks        边界开放持仓股票简称列表
      */
-    public record AnnualSettlementNoticePayload(int settleYear,
-                                                LocalDateTime boundaryTime,
-                                                LocalDateTime boundaryBarStartTime,
-                                                String boundaryBarDigest,
-                                                LocalDate summaryDate,
-                                                Long settlementId,
-                                                String ruleVersion,
-                                                BigDecimal initialCash,
-                                                BigDecimal openingEquity,
-                                                BigDecimal closingCash,
-                                                BigDecimal closingReserved,
-                                                BigDecimal closingMarketValue,
-                                                BigDecimal closingEquity,
-                                                BigDecimal cumulativeExtractedBefore,
-                                                BigDecimal extractedAmount,
-                                                BigDecimal cumulativeExtractedAfter,
-                                                BigDecimal yearReturn,
-                                                int coverageDays,
-                                                boolean partialYear,
-                                                BigDecimal annualizedReturn,
-                                                List<String> openPositionStocks) {
+    public record AnnualSettlementNoticePayload(
+            int settleYear,
+            LocalDateTime boundaryTime,
+            LocalDateTime boundaryBarStartTime,
+            String boundaryBarDigest,
+            LocalDate summaryDate,
+            Long settlementId,
+            String ruleVersion,
+            BigDecimal initialCash,
+            BigDecimal openingEquity,
+            BigDecimal closingCash,
+            BigDecimal closingReserved,
+            BigDecimal closingMarketValue,
+            BigDecimal closingEquity,
+            BigDecimal cumulativeExtractedBefore,
+            BigDecimal extractedAmount,
+            BigDecimal cumulativeExtractedAfter,
+            BigDecimal yearReturn,
+            int coverageDays,
+            boolean partialYear,
+            BigDecimal annualizedReturn,
+            List<String> openPositionStocks) {
     }
 }

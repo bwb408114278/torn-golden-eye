@@ -93,16 +93,19 @@ class StockAnnualSettlementCalculatorTest {
     @Test
     @DisplayName("本年度基准非正_拒绝以非法基准计算收益率")
     void calculate_nonPositiveOpeningEquity_throwsIllegalArgument() {
-        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(new SettlementInput(INITIAL_CASH,
-                new BigDecimal("-10000000000.00"), new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO,
-                LocalDate.of(2026, 9, 17), 2026, BOUNDARY_TIME)));
+        SettlementInput input = new SettlementInput(INITIAL_CASH, new BigDecimal("-10000000000.00"),
+                new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.of(2026, 9, 17), 2026,
+                BOUNDARY_TIME);
+
+        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(input));
     }
 
     @Test
     @DisplayName("区间起点缺失_拒绝计算覆盖率")
     void calculate_missingRangeStart_throwsIllegalArgument() {
-        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(new SettlementInput(INITIAL_CASH,
-                BigDecimal.ZERO, new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, null, 2026,
-                BOUNDARY_TIME)));
+        SettlementInput input = new SettlementInput(INITIAL_CASH, BigDecimal.ZERO, new BigDecimal("100.00"),
+                BigDecimal.ZERO, BigDecimal.ZERO, null, 2026, BOUNDARY_TIME);
+
+        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(input));
     }
 }
