@@ -128,13 +128,14 @@ class StockAlphaHoldNoticeServiceTest {
      * @return 定稿通知全文
      */
     private String expectedHoldText() {
-        return "【α股票提醒 · 继续持有】\n" +
-                "\n" +
-                "决策日：2026-09-30（08:00 决策 → 08:15 执行桶）\n" +
-                "当前持仓：CNC（仍在 Top3 内，Top1 未变化）\n" +
-                "处理：本期不换仓，继续持有原批次。\n" +
-                "\n" +
-                "未持有该标的的成员无需操作。";
+        return """
+                【α股票提醒 · 继续持有】
+                
+                决策日：2026-09-30（08:00 决策 → 08:15 执行桶）
+                当前持仓：CNC（仍在 Top3 内，Top1 未变化）
+                处理：本期不换仓，继续持有原批次。
+                
+                未持有该标的的成员无需操作。""";
     }
 
     private TornStockVirtualBatchDO openBatch() {
