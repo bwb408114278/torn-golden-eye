@@ -1,0 +1,24 @@
+databaseChangeLog:
+  # α决策日继续持有通知的幂等键分量:相位轨道编码。
+  # 该通知的幂等键为(decision_business_date=summary_date, phase_track_code=track_code),
+  # 仅ALPHA_HOLD正文自包含通知写入本列,其余通知类型保持NULL。
+  - changeSet:
+      id: add_track_code_to_stock_notice_audit
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_stock_notice_audit
+            columns:
+              - column:
+                  name: track_code
+                  type: VARCHAR(32)
+                  remarks: "α相位轨道编码(仅ALPHA_HOLD继续持有通知使用,幂等键分量)"
+
+  # 继续持有通知业务唯一键:同一决策业务日、同一相位轨道只允许一条审计行,
+  # 决策日重放与轮次重试均复用既有行,不重复建行、不重复发送。
+  - changeSet:
+      id: add_alpha_hold_notice_unique_index
+      author: Bai
+      changes:
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_notice_audit_alpha_hold ON torn_stock_notice_audit (summary_date, track_code) WHERE notice_type = 'ALPHA_HOLD' AND deleted = 0"

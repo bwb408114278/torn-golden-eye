@@ -65,6 +65,23 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
     }
 
     /**
+     * 按摘要日期、通知类型与α相位轨道编码读取唯一通知审计行。
+     *
+     * @param summaryDate 摘要日期(α继续持有通知为决策业务日)
+     * @param noticeType  通知类型编码
+     * @param trackCode   α相位轨道编码
+     * @return 通知审计行;不存在时返回null
+     */
+    public TornStockNoticeAuditDO selectBySummaryDateTypeAndTrack(LocalDate summaryDate, String noticeType,
+                                                                  String trackCode) {
+        if (summaryDate == null || noticeType == null || noticeType.isBlank()
+                || trackCode == null || trackCode.isBlank()) {
+            return null;
+        }
+        return baseMapper.selectBySummaryDateTypeAndTrack(summaryDate, noticeType, trackCode);
+    }
+
+    /**
      * 原子领取一批通知。
      *
      * @param noticeIds   通知ID列表

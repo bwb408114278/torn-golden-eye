@@ -112,4 +112,6 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.6.5/stocks-alpha-dual-basis.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.6.6/stocks-annual-settlement.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.6.6/stocks-alpha-hold-notice.yaml
 

@@ -35,6 +35,10 @@ public enum StockNoticeTypeEnum {
      * 年度报告 - 每年1月1日结算上一自然年后发送
      */
     ANNUAL_SETTLEMENT("ANNUAL_SETTLEMENT", "年度结算年报"),
+    /**
+     * 阿尔法继续持有通知 - 决策日目标未变化时发出,独立发送且不并入日报
+     */
+    ALPHA_HOLD("ALPHA_HOLD", "阿尔法继续持有通知"),
     ;
 
     /**

@@ -193,6 +193,10 @@
 │   │   │           │       ├── Stock15mBarBuildService.java                    # 15分钟bar构建
 │   │   │           │       ├── Stock15mFeatureBuildService.java                # 15分钟策略特征构建
 │   │   │           │       ├── StockDailySummaryService.java                   # 每日权益摘要
+│   │   │           │       ├── alpha/                                          # α相位轨道决策、执行与通知
+│   │   │           │       │   └── notice/                                     # α通知文案与审计写入
+│   │   │           │       │       ├── StockAlphaHoldNoticeService.java        # α决策日继续持有通知审计写入
+│   │   │           │       │       └── StockAlphaNoticeRenderer.java           # α买卖/换仓/继续持有正文渲染
 │   │   │           │       └── notice/                                         # 通知组装与发送
 │   │   │           │           └── StockNoticeSendService.java                 # NapCat消息投递
 │   │   │           └── user/                                                   # 用户相关功能
@@ -200,10 +204,13 @@
 │   │   └── resources/                                                          # 资源文件
 │   │       ├── db/changelog/                                                   # Liquibase的数据库修改日志
 │   │       │   └── 1.0.1-2.0.0/                                                # 1.0.1到2.0.0版本的改动
-│   │       │       └── 1.2.0/                                                  # 1.2.0后的版本改动
-│   │       │           ├── faction.yaml                                        # 帮派相关改动
-│   │       │           ├── setting.yaml                                        # 配置相关改动
-│   │       │           └── stocks-portfolio.yaml                               # VIP股票组合建表与索引改动
+│   │       │       ├── 1.2.0/                                                  # 1.2.0后的版本改动
+│   │       │       │   ├── faction.yaml                                        # 帮派相关改动
+│   │       │       │   ├── setting.yaml                                        # 配置相关改动
+│   │       │       │   └── stocks-portfolio.yaml                               # VIP股票组合建表与索引改动
+│   │       │       └── 1.6.6/                                                  # 年度结算与α继续持有通知改动
+│   │       │           ├── stocks-alpha-hold-notice.yaml                       # α继续持有通知轨道列与幂等索引
+│   │       │           └── stocks-annual-settlement.yaml                       # 年度结算台账与年报通知幂等索引
 │   │       └── mapper/                                                         # Mapper文件
 │   │           ├── faction/                                                    # 帮派相关
 │   │           │   └── oc/                                                     # OC相关

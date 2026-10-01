@@ -67,6 +67,21 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
                                                       @Param("noticeType") String noticeType);
 
     /**
+     * 按摘要日期、通知类型与α相位轨道编码读取唯一通知审计行。
+     * <p>
+     * α继续持有通知以{@code (summary_date, track_code)}为幂等键:同一决策业务日的同一轨道
+     * 重放或轮次重试时先回读既有行复用其通知ID与冻结正文,避免唯一索引冲突中断轮次事务。
+     *
+     * @param summaryDate 摘要日期(该通知为决策业务日)
+     * @param noticeType  通知类型编码
+     * @param trackCode   α相位轨道编码
+     * @return 通知审计行;不存在时返回null
+     */
+    TornStockNoticeAuditDO selectBySummaryDateTypeAndTrack(@Param("summaryDate") LocalDate summaryDate,
+                                                           @Param("noticeType") String noticeType,
+                                                           @Param("trackCode") String trackCode);
+
+    /**
      * 原子领取一批通知:置为SENDING、写入领取标识与领取时间并累计一次发送尝试。
      * <p>
      * 只有 {@code PENDING}/{@code FAILED_RETRYABLE} 且未达尝试上限的通知可被领取;

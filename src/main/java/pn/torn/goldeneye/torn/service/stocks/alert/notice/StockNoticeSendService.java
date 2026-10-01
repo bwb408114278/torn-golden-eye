@@ -459,7 +459,7 @@ public class StockNoticeSendService {
     /**
      * 判断通知是否必须关联虚拟交易批次。
      * <p>
-     * 正文自包含的无批次通知(每日摘要、年度结算年报)不关联批次,创建时载荷中已固化最终正文;
+     * 正文自包含的无批次通知(每日摘要、年度结算年报、α继续持有通知)不关联批次,创建时载荷中已固化最终正文;
      * 其余通知类型(含未知类型)一律要求有效批次,避免未知类型通知绕过批次校验被判为可发送。
      * 该白名单必须与 {@link StockNoticeTypeEnum} 中"正文自包含"的类型同步,否则此类通知会被
      * {@code markMissingBatchNoticesFinal} 直接置为FAILED_FINAL而永久失去自动重发能力。
@@ -470,7 +470,8 @@ public class StockNoticeSendService {
     private boolean requiresBatch(TornStockNoticeAuditDO notice) {
         String noticeType = notice.getNoticeType();
         return !StockNoticeTypeEnum.DAILY_SUMMARY.getCode().equals(noticeType)
-                && !StockNoticeTypeEnum.ANNUAL_SETTLEMENT.getCode().equals(noticeType);
+                && !StockNoticeTypeEnum.ANNUAL_SETTLEMENT.getCode().equals(noticeType)
+                && !StockNoticeTypeEnum.ALPHA_HOLD.getCode().equals(noticeType);
     }
 
     /**

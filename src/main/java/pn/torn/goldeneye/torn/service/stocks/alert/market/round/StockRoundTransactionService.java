@@ -19,6 +19,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTarg
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaEntryService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaRebalanceService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.notice.StockAlphaHoldNoticeService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
@@ -52,13 +53,13 @@ import java.util.*;
  *   <li>处理上一轮待买入批次(成交/取消/过期)</li>
  *   <li>处理上一轮待卖出批次(成交并释放槽位)</li>
  *   <li>更新开放批次峰谷、MFE/MAE、回撤,评估退出条件并写入逐轮mark</li>
- *   <li>各α轨道:消费同执行桶的目标变化决策并原子换仓</li>
+ *   <li>各α轨道:消费同执行桶的目标变化决策并原子换仓;目标未变化时在同一执行桶写继续持有通知</li>
  *   <li>为已成交买入/卖出写入PENDING通知审计</li>
  *   <li>批量保存批次、槽位与mark,更新轮次为COMPLETED</li>
  * </ol>
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.07.25
  */
 @Slf4j
@@ -84,6 +85,7 @@ public class StockRoundTransactionService {
     private final StockAlphaEntryService alphaEntryService;
     private final StockAlphaDecisionService alphaDecisionService;
     private final StockAlphaRebalanceService alphaRebalanceService;
+    private final StockAlphaHoldNoticeService alphaHoldNoticeService;
     private final StockBatchPathService batchPathService;
     private final StockNoticeAuditWriter noticeAuditWriter;
     private final StockAlphaTrackRegistry trackRegistry;
@@ -260,6 +262,7 @@ public class StockRoundTransactionService {
                 roundTime.toLocalDate().minusDays(1), current.getStocksId(), current.getId(), roundTime,
                 decisionBarFacts(barByStock, roundTime));
         if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_CHANGED) {
+            recordHeldNotice(track, decision, current, roundTime);
             return;
         }
         if (!roundTime.equals(decision.executionBarStartTime())) {
@@ -287,6 +290,30 @@ public class StockRoundTransactionService {
         }
         return new RoundSnapshot(snapshot.bars(), snapshot.features(),
                 activeBatches, snapshot.slots(), snapshot.roundTime());
+    }
+
+    /**
+     * 在执行桶内写入α继续持有通知。
+     * <p>
+     * 触发条件必须同时满足:决策已就绪、目标事件为{@code ALPHA_TARGET_HELD}(持仓仍在Top3内,
+     * 本期不换仓)、且本轮轮次正是该决策持久化的执行桶。决策桶本身只落决策,不在决策桶发通知;
+     * 执行桶之后的轮次不再重复触发,同一{@code (决策业务日, 轨道)}由通知审计唯一键兜底,
+     * 因此本条与换仓通知使用同一时间因果规则,不提前也不跨桶追补。
+     *
+     * @param track     目标相位轨道
+     * @param decision  本轮决策结果
+     * @param current   该轨道当前开放持仓批次
+     * @param roundTime 轮次时间
+     */
+    private void recordHeldNotice(StockAlphaPhaseTrack track, StockAlphaDecisionService.DecisionResult decision,
+                                  TornStockVirtualBatchDO current, LocalDateTime roundTime) {
+        if (!decision.ready()
+                || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_HELD
+                || !roundTime.equals(decision.executionBarStartTime())) {
+            return;
+        }
+        alphaHoldNoticeService.recordHoldNotice(track, decision.decisionDate(), decision.phase(),
+                decision.executionBarStartTime(), current);
     }
 
     /**

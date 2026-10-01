@@ -462,6 +462,34 @@ class StockNoticeSendServiceTest {
     }
 
     @Test
+    @DisplayName("α继续持有通知_正文自包含_不因批次读取不到而被终态失败且按创建时正文发送")
+    void sendPendingNotices_alphaHoldWithoutBatchRow_sentFromPayloadMessageText() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO hold = new TornStockNoticeAuditDO();
+        hold.setId(23L);
+        hold.setBatchId(61L);
+        hold.setNoticeType("ALPHA_HOLD");
+        hold.setSendStatus("PENDING");
+        hold.setPayloadSnapshot("{\"noticeType\":\"ALPHA_HOLD\",\"trackCode\":\"VIP_ALPHA#1\","
+                + "\"decisionBusinessDate\":\"2026-09-30\",\"groupId\":10001,"
+                + "\"messageText\":\"继续持有正文\"}");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(hold));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao, never()).markFinalByIds(any(), any(), any());
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot).sendRequest(paramCaptor.capture(), eq(String.class));
+        assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("继续持有正文"),
+                "α继续持有通知为正文自包含类型,必须按创建时固化的正文发送");
+        verify(noticeAuditDao).markSentByIds(eq(List.of(23L)), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
     @DisplayName("α换仓两腿关联组_Bot成功时按完整关联组领取、两腿同时SENT且只调用一次Bot")
     void sendPendingNotices_alphaRebalanceBothLegs_bothMarkedSent() {
         when(sysSettingManager.getSettingValue(any())).thenReturn("true");

@@ -6,7 +6,9 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtual
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeTextFormat;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 
 /**
@@ -15,12 +17,14 @@ import java.util.Objects;
  * <p>本类只做纯静态文案渲染,不发送、不落审计、不做幂等:α初始入场与α原子换仓继续复用既有
  * BUY/SELL/ALPHA_REBALANCE通知类型与同一组合、冻结、发送、幂等链,标题由
  * {@code StockNoticeComposeService}统一添加,本类只输出正文。
+ * <p>α继续持有通知为正文自包含的独立通知(不参与批次组合、不参与{@code rebalanceAssociationId}组),
+ * 标题与正文都由{@link #renderHold(String, LocalDate)}一次性输出,创建时即冻结为最终投递文本。
  *
  * <p>α正文必须可识别α买卖身份(α=0.04、20日反转主因子、1日反弹权重、Top1目标),
  * 且不得出现旧版五槽、旧版质量分、旧版三类BUY策略名与风格/成熟度/风险等级行。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.09.09
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -41,6 +45,14 @@ public final class StockAlphaNoticeRenderer {
      * 买入正文的Top1目标说明。
      */
     private static final String TOP1_TARGET_DISPLAY = "当前为Top1目标：虚拟持仓位于全部Stock的Top3内则继续保持";
+    /**
+     * 继续持有通知标题(正文自包含通知,标题不在{@code StockNoticeComposeService}中添加)。
+     */
+    public static final String HOLD_TITLE = "【α股票提醒 · 继续持有】";
+    /**
+     * 继续持有通知的决策业务日展示格式。
+     */
+    private static final DateTimeFormatter HOLD_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     /**
      * 渲染α买入通知正文。
@@ -68,6 +80,28 @@ public final class StockAlphaNoticeRenderer {
                 "\n" +
                 "本条为系统虚拟组合的内部记录，不指向任何真实账户操作，" + "\n" +
                 "不构成投资建议、买卖要约或跟单依据。";
+    }
+
+    /**
+     * 渲染α继续持有通知全文(标题+正文)。
+     * <p>
+     * 触发语义为α决策日目标未变化(持仓仍在Top3内,未产生{@code ALPHA_REBALANCE}):
+     * 本条只说明本期不换仓,不是换仓腿,不参与{@code rebalanceAssociationId}组,也不占用两腿成组校验。
+     * 文本在通知创建时即固化为最终投递正文,发送链只复用冻结文本,不重新渲染。
+     *
+     * @param stocksShortname      当前持仓股票简称
+     * @param decisionBusinessDate 决策业务日(排名窗口最后共同有效日)
+     * @return 继续持有通知全文(含标题)
+     */
+    public static String renderHold(String stocksShortname, LocalDate decisionBusinessDate) {
+        Objects.requireNonNull(decisionBusinessDate, "决策业务日不能为空");
+        return HOLD_TITLE + "\n" +
+                "\n" +
+                "决策日：" + decisionBusinessDate.format(HOLD_DATE_FORMATTER) + "（08:00 决策 → 08:15 执行桶）\n" +
+                "当前持仓：" + StockNoticeTextFormat.nullSafeText(stocksShortname) + "（仍在 Top3 内，Top1 未变化）\n" +
+                "处理：本期不换仓，继续持有原批次。\n" +
+                "\n" +
+                "未持有该标的的成员无需操作。";
     }
 
     /**

@@ -22,6 +22,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaTarg
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaEntryService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaRebalanceService;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.notice.StockAlphaHoldNoticeService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTrack;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
@@ -47,7 +48,7 @@ import static org.mockito.Mockito.*;
  * 股票轮次事务编排测试，验证正式存量结算、灾难关闭与α轨道决策/入场的调用顺序与幂等边界。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.07.17
  */
 @ExtendWith(MockitoExtension.class)
@@ -78,6 +79,8 @@ class StockRoundTransactionServiceTest {
     @Mock
     private StockAlphaRebalanceService alphaRebalanceService;
     @Mock
+    private StockAlphaHoldNoticeService alphaHoldNoticeService;
+    @Mock
     private StockNoticeAuditWriter noticeAuditWriter;
     @Mock
     private StockAlphaTrackRegistry trackRegistry;
@@ -98,8 +101,8 @@ class StockRoundTransactionServiceTest {
         transactionService = new StockRoundTransactionService(
                 marketRoundDao, virtualBatchDao, portfolioSlotDao, batchMarkDao,
                 entrySettlementService, alphaEntryService, alphaDecisionService,
-                alphaRebalanceService, batchPathService, noticeAuditWriter, trackRegistry,
-                sysSettingManager, new StockMarketRoundFactory(), new StockMarketClock());
+                alphaRebalanceService, alphaHoldNoticeService, batchPathService, noticeAuditWriter,
+                trackRegistry, sysSettingManager, new StockMarketRoundFactory(), new StockMarketClock());
     }
 
     @Test
@@ -345,6 +348,52 @@ class StockRoundTransactionServiceTest {
                 anyMap());
         verify(alphaRebalanceService).rebalance(eq(TRACK), eq(decisionDate), eq(1), eq(roundTime), any());
         verify(alphaEntryService, never()).createInitialEntry(any(), any(), any(), any(), anyInt(), any());
+        verify(alphaHoldNoticeService, never()).recordHoldNotice(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("已有Alpha持仓且决策日目标保持_在持久化执行桶写继续持有通知且不换仓")
+    void executeRound_alphaTargetHeld_writesHoldNoticeInExecutionBar() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = alphaSnapshot(roundTime, List.of(), lockedSlots, List.of());
+        stubAlphaRound(roundTime, lockedSlots);
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(alphaBatch));
+        when(alphaDecisionService.decide(eq(TRACK), eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap()))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 65, null, 5001,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_HELD, 1, roundTime));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaHoldNoticeService).recordHoldNotice(eq(TRACK), eq(decisionDate), eq(1), eq(roundTime),
+                same(alphaBatch));
+        verify(alphaRebalanceService, never()).rebalance(any(), any(), anyInt(), any(), any());
+    }
+
+    @Test
+    @DisplayName("已有Alpha持仓且目标保持但执行桶为下一根bar_本期不发继续持有通知")
+    void executeRound_alphaTargetHeldBeforeExecutionBar_doesNotWriteHoldNotice() {
+        LocalDateTime roundTime = LocalDateTime.of(2026, 8, 1, 10, 0);
+        LocalDate decisionDate = roundTime.toLocalDate().minusDays(1);
+        TornStockVirtualBatchDO alphaBatch = alphaOpenBatch(61L, 5001, roundTime);
+        List<TornStockPortfolioSlotDO> lockedSlots = buildFiveFormalSlots(new TornStockVirtualBatchDO());
+        RoundSnapshot snapshot = alphaSnapshot(roundTime, List.of(), lockedSlots, List.of());
+        stubAlphaRound(roundTime, lockedSlots);
+        when(virtualBatchDao.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(alphaBatch));
+        when(alphaDecisionService.decide(eq(TRACK), eq(decisionDate), eq(5001), eq(61L), eq(roundTime), anyMap()))
+                .thenReturn(new StockAlphaDecisionService.DecisionResult(
+                        decisionDate, true, 65, null, 5001,
+                        StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_HELD, 1, roundTime.plusMinutes(15)));
+
+        transactionService.executeRound(roundTime, snapshot, true, roundTime);
+
+        verify(alphaHoldNoticeService, never()).recordHoldNotice(any(), any(), any(), any(), any());
+        verify(alphaRebalanceService, never()).rebalance(any(), any(), anyInt(), any(), any());
     }
 
     @Test
