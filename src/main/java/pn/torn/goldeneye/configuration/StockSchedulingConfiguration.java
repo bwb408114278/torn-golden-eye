@@ -21,7 +21,7 @@ import java.util.concurrent.RejectedExecutionException;
  * 调度器的其余 {@code @Scheduled} 任务（非实时、非 VIP、非回填入口）。
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.6.6
  * @since 2026.08.14
  */
 @Slf4j
@@ -54,6 +54,21 @@ public class StockSchedulingConfiguration {
         scheduler.setPoolSize(1);
         scheduler.setThreadNamePrefix("stock-vip-round-scheduler-");
         scheduler.setWaitForTasksToCompleteOnShutdown(false);
+        return scheduler;
+    }
+
+    /**
+     * α年度结算专用调度器（单线程、独立，年度结算不与15分钟轮次争用 vipStockRoundScheduler）。
+     *
+     * @return α年度结算调度器 Bean
+     */
+    @Bean
+    public ThreadPoolTaskScheduler stockAnnualSettlementScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("stock-annual-settlement-scheduler-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(false);
+        scheduler.setAwaitTerminationSeconds(0);
         return scheduler;
     }
 

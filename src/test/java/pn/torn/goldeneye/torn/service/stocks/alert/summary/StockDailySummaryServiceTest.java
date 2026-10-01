@@ -33,19 +33,19 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * 股票日报测试，覆盖三段组合数据组装、数值格式与新报文结构。
+ * 股票日报测试，覆盖两段组合数据组装、数值格式与新报文结构。
  * <p>
  * 验证要点:
  * <ul>
- *   <li>权益缺失时仍展示现金与排序后的缺失行情明细,并降级为"数据不足";</li>
+ *   <li>权益缺失时展示排序后的缺失行情明细,并降级为"数据不足";</li>
  *   <li>权益估值只使用新鲜行情,priceAsOf取实际参与估值行情的最早结束时间;</li>
- *   <li>α正式组合/存量正式组合/α影子组合按各自组合编码独立读取与统计,互不合计;</li>
- *   <li>报文固定格式:金钱千分位整数、股价2位小数、收益率带符号百分数、影子区块位于报文尾部;</li>
- *   <li>已退场的信号事件/无限资金影子/候选影子组合/动态SELL研究不再出现在报文中。</li>
+ *   <li>α正式组合与α影子组合按各自组合编码独立读取与统计,互不合计;</li>
+ *   <li>报文固定格式:金额X.XXb、股价2位小数、收益率带符号百分数、α影子区块位于报文尾部;</li>
+ *   <li>已退场的存量正式组合不再出现在报文中,且不再展示可用现金行。</li>
  * </ul>
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.07.17
  */
 @DisplayName("股票日报测试")
@@ -58,19 +58,14 @@ class StockDailySummaryServiceTest {
     /**
      * α正式组合一级区块标题前缀。
      */
-    private static final String ALPHA_SECTION_PREFIX = "α 正式组合（新策略主仓 · ";
-    /**
-     * 存量正式组合一级区块标题前缀。
-     */
-    private static final String LEGACY_SECTION_PREFIX = "存量正式组合（只出不进 · ";
+    private static final String ALPHA_SECTION_PREFIX = "α 正式组合（";
     /**
      * α影子组合一级区块标题前缀。
      */
-    private static final String ALPHA_SHADOW_SECTION_PREFIX =
-            "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · ";
+    private static final String ALPHA_SHADOW_SECTION_PREFIX = "α 影子组合（仅研究 · ";
 
     @Test
-    @DisplayName("开放仓位缺少行情_权益不可用但展示排序后的缺失股票与现金")
+    @DisplayName("开放仓位缺少行情_权益不可用但展示排序后的缺失股票")
     void buildSummaryData_missingOpenPositionPrice_returnsDataInsufficientEquity() {
         TornStockPortfolioSlotDAO slotDao = mock(TornStockPortfolioSlotDAO.class);
         TornStockVirtualBatchDAO batchDao = mock(TornStockVirtualBatchDAO.class);
@@ -78,22 +73,22 @@ class StockDailySummaryServiceTest {
         stubEmptyQueries(slotDao, batchDao);
         StockDailySummaryService service = service(slotDao, batchDao, barDao, fixedMarketClock());
 
-        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE)).thenReturn(List.of(
-                slot(1L, new BigDecimal("100.00"), new BigDecimal("20.00"))));
-        when(batchDao.selectActiveFormalBatches()).thenReturn(List.of(
-                openBatch(2, "MUN", 1L), openBatch(1, "TCC", 1L)));
+        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(slot(11L, new BigDecimal("100.00"), new BigDecimal("20.00"))));
+        when(batchDao.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(
+                openBatch(2, "MUN", 11L), openBatch(1, "TCC", 11L)));
         when(barDao.selectLatestUsableByStocks(anyList(), any(), any(),
                 eq(Stock15mBarBuildService.BUILD_VERSION)))
                 .thenReturn(List.of(usableBar(2, new BigDecimal("10.00"))));
 
         StockDailySummaryService.DailySummaryData data = service.buildSummaryData(SUMMARY_DATE);
 
-        assertNull(data.legacy().equity());
-        assertEquals(new BigDecimal("120.00"), data.legacy().cashAndReserved());
-        assertEquals(List.of("TCC"), data.legacy().missingPriceStocks());
-        assertEquals(StockPortfolioService.PORTFOLIO_CODE, data.legacy().portfolioCode());
-        assertEquals(StockPortfolioService.SLOT_COUNT, data.legacy().slotCount());
-        assertEquals(1, data.legacy().occupiedSlots());
+        assertNull(data.alpha().equity());
+        assertEquals(new BigDecimal("120.00"), data.alpha().cashAndReserved());
+        assertEquals(List.of("TCC"), data.alpha().missingPriceStocks());
+        assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, data.alpha().portfolioCode());
+        assertEquals(StockPortfolioService.VIP_ALPHA_SLOT_COUNT, data.alpha().slotCount());
+        assertEquals(1, data.alpha().occupiedSlots());
     }
 
     @Test
@@ -105,15 +100,15 @@ class StockDailySummaryServiceTest {
         StockDailySummaryService service = service(slotDao, batchDao,
                 mock(TornStockMarketBar15mDAO.class), fixedMarketClock());
 
-        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE)).thenReturn(List.of(
-                slot(1L, new BigDecimal("100.00"), new BigDecimal("20.00"))));
+        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(slot(11L, new BigDecimal("100.00"), new BigDecimal("20.00"))));
 
         StockDailySummaryService.DailySummaryData data = service.buildSummaryData(SUMMARY_DATE);
 
-        assertEquals(new BigDecimal("120.00"), data.legacy().equity());
-        assertEquals(new BigDecimal("120.00"), data.legacy().cashAndReserved());
-        assertEquals(List.of(), data.legacy().missingPriceStocks());
-        assertEquals(List.of(), data.legacy().openPositions());
+        assertEquals(new BigDecimal("120.00"), data.alpha().equity());
+        assertEquals(new BigDecimal("120.00"), data.alpha().cashAndReserved());
+        assertEquals(List.of(), data.alpha().missingPriceStocks());
+        assertEquals(List.of(), data.alpha().openPositions());
     }
 
     @Test
@@ -125,9 +120,10 @@ class StockDailySummaryServiceTest {
         stubEmptyQueries(slotDao, batchDao);
         StockDailySummaryService service = service(slotDao, batchDao, barDao, fixedMarketClock());
 
-        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE)).thenReturn(List.of(
-                slot(1L, new BigDecimal("100.00"), BigDecimal.ZERO)));
-        when(batchDao.selectActiveFormalBatches()).thenReturn(List.of(openBatch(1, "TCC", 1L)));
+        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(slot(11L, new BigDecimal("100.00"), BigDecimal.ZERO)));
+        when(batchDao.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
+                .thenReturn(List.of(openBatch(1, "TCC", 11L)));
         TornStockMarketBar15mDO staleBar = usableBar(1, new BigDecimal("10.00"));
         staleBar.setBarEndTime(LocalDateTime.of(2026, 7, 31, 9, 45));
         when(barDao.selectLatestUsableByStocks(anyList(), any(), any(),
@@ -136,9 +132,9 @@ class StockDailySummaryServiceTest {
 
         StockDailySummaryService.DailySummaryData data = service.buildSummaryData(SUMMARY_DATE);
 
-        assertNull(data.legacy().equity());
-        assertEquals(List.of("TCC"), data.legacy().missingPriceStocks());
-        assertNull(data.legacy().priceAsOf());
+        assertNull(data.alpha().equity());
+        assertEquals(List.of("TCC"), data.alpha().missingPriceStocks());
+        assertNull(data.alpha().priceAsOf());
     }
 
     @Test
@@ -150,11 +146,11 @@ class StockDailySummaryServiceTest {
         stubEmptyQueries(slotDao, batchDao);
         StockDailySummaryService service = service(slotDao, batchDao, barDao, fixedMarketClock());
 
-        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.PORTFOLIO_CODE)).thenReturn(List.of(
-                slot(1L, new BigDecimal("100.00"), BigDecimal.ZERO),
-                slot(2L, new BigDecimal("100.00"), BigDecimal.ZERO)));
-        when(batchDao.selectActiveFormalBatches()).thenReturn(List.of(
-                openBatch(1, "TCC", 1L), openBatch(2, "MUN", 2L)));
+        when(slotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(
+                slot(11L, new BigDecimal("100.00"), BigDecimal.ZERO),
+                slot(12L, new BigDecimal("100.00"), BigDecimal.ZERO)));
+        when(batchDao.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(
+                openBatch(1, "TCC", 11L), openBatch(2, "MUN", 12L)));
         TornStockMarketBar15mDO earlierBar = usableBar(1, new BigDecimal("10.00"));
         earlierBar.setBarEndTime(LocalDateTime.of(2026, 7, 31, 10, 0));
         TornStockMarketBar15mDO laterBar = usableBar(2, new BigDecimal("10.00"));
@@ -165,13 +161,13 @@ class StockDailySummaryServiceTest {
 
         StockDailySummaryService.DailySummaryData data = service.buildSummaryData(SUMMARY_DATE);
 
-        assertEquals(LocalDateTime.of(2026, 7, 31, 10, 0), data.legacy().priceAsOf());
-        assertEquals(List.of(), data.legacy().missingPriceStocks());
+        assertEquals(LocalDateTime.of(2026, 7, 31, 10, 0), data.alpha().priceAsOf());
+        assertEquals(List.of(), data.alpha().missingPriceStocks());
     }
 
     @Test
-    @DisplayName("三段组合_按各自组合编码独立读取且昨日买卖与持仓互不合计")
-    void buildSummaryData_threePortfolios_areIsolatedByPortfolioCode() {
+    @DisplayName("两段组合_按各自组合编码独立读取且昨日买卖与持仓互不合计")
+    void buildSummaryData_twoPortfolios_areIsolatedByPortfolioCode() {
         TornStockPortfolioSlotDAO slotDao = mock(TornStockPortfolioSlotDAO.class);
         TornStockVirtualBatchDAO batchDao = mock(TornStockVirtualBatchDAO.class);
         TornStockMarketBar15mDAO barDao = mock(TornStockMarketBar15mDAO.class);
@@ -201,71 +197,66 @@ class StockDailySummaryServiceTest {
         assertEquals(1, data.alpha().openPositions().size());
         assertEquals("CNC", data.alpha().openPositions().getFirst().stocksShortname());
 
-        assertEquals(0, data.legacy().yesterdaySellCount(), "存量正式组合昨日无动作不得继承α统计");
-        assertEquals(0, data.legacy().openPositions().size());
-        assertEquals(0, new BigDecimal("0.00").compareTo(data.legacy().yesterdayProfit()));
-
         assertEquals(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, data.alphaShadow().portfolioCode());
         assertEquals(StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT, data.alphaShadow().slotCount());
         assertEquals(0, data.alphaShadow().occupiedSlots());
+        assertEquals(0, data.alphaShadow().yesterdaySellCount(), "影子组合昨日无动作不得继承α统计");
+        assertEquals(0, data.alphaShadow().openPositions().size());
+        assertEquals(0, new BigDecimal("0.00").compareTo(data.alphaShadow().yesterdayProfit()));
     }
 
     @Test
-    @DisplayName("报文格式_三段区块顺序固定且金额千分位整数_股价2位小数_收益率带符号")
-    void buildSummaryText_rendersThreeSectionsWithFixedNumberFormat() {
+    @DisplayName("报文格式_两段区块顺序固定且金额X.XXb_股价2位小数_收益率带符号")
+    void buildSummaryText_rendersTwoSectionsWithFixedNumberFormat() {
         StockDailySummaryService service = service(mock(TornStockPortfolioSlotDAO.class),
                 mock(TornStockVirtualBatchDAO.class), mock(TornStockMarketBar15mDAO.class), fixedMarketClock());
 
         StockDailySummaryService.PortfolioSummary alpha = summary(
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SLOT_COUNT,
                 1, new BigDecimal("10045264199"), new BigDecimal("789"), List.of(),
-                1, 1, new BigDecimal("79246"), new BigDecimal("10000000"),
+                1, 1, new BigDecimal("1250000000"), new BigDecimal("10000000000"),
                 List.of(new StockDailySummaryService.OpenPosition("CNC", new BigDecimal("826.26"))));
-        StockDailySummaryService.PortfolioSummary legacy = summary(
-                StockPortfolioService.PORTFOLIO_CODE, StockPortfolioService.SLOT_COUNT,
-                3, null, new BigDecimal("4079993937"), List.of("TSB", "IOU"),
-                0, 1, new BigDecimal("66800"), new BigDecimal("10000000"), List.of());
         StockDailySummaryService.PortfolioSummary shadow = summary(
                 StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT,
                 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of(),
                 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
 
         String summaryText = service.buildSummaryText(
-                new StockDailySummaryService.DailySummaryData(SUMMARY_DATE, alpha, legacy, shadow));
+                new StockDailySummaryService.DailySummaryData(SUMMARY_DATE, alpha, shadow));
 
-        assertEquals(3, sectionTitles(summaryText).size(), "日报固定只渲染α正式/存量正式/α影子三个一级区块");
-        assertTrue(summaryText.contains("- 组合净值：10,045,264,199"), "权益必须为千分位整数");
-        assertTrue(summaryText.contains("- 可用现金：4,079,993,937"), "现金必须为千分位整数");
-        assertTrue(summaryText.contains("- 当前虚拟持仓：CNC @ 826.26"), "股价必须保留两位小数");
-        assertTrue(summaryText.contains("- 昨日已实现净变化：79,246（变动率 +0.79%）"),
-                "已实现净变化金额为千分位整数、变动率为带符号百分数");
+        assertEquals(2, sectionTitles(summaryText).size(), "日报固定只渲染α正式/α影子两个一级区块");
+        assertTrue(summaryText.contains("- 组合净值：10.05b"), "权益必须为X.XXb");
+        assertTrue(summaryText.contains("- 昨日买入：1 笔 ／ 昨日卖出：1 笔"), "昨日买卖必须按笔展示");
+        assertTrue(summaryText.contains("- 昨日已实现盈亏：1.25b（+12.50%）"),
+                "已实现盈亏为X.XXb、收益率为带符号百分数");
+        assertTrue(summaryText.contains("- 当前持仓：CNC @ 826.26"), "股价必须保留两位小数");
+        assertFalse(summaryText.contains("- 可用现金："), "日报不再展示可用现金行");
     }
 
     @Test
-    @DisplayName("报文内容_已退场研究区块全部消失且影子区块位于报文尾部")
+    @DisplayName("报文内容_存量正式区块消失且影子区块位于报文尾部")
     void buildSummaryText_retiredSectionsAreAbsent() {
         StockDailySummaryService service = service(mock(TornStockPortfolioSlotDAO.class),
                 mock(TornStockVirtualBatchDAO.class), mock(TornStockMarketBar15mDAO.class), fixedMarketClock());
-        StockDailySummaryService.PortfolioSummary empty = summary(
-                StockPortfolioService.PORTFOLIO_CODE, StockPortfolioService.SLOT_COUNT,
+        StockDailySummaryService.PortfolioSummary alpha = summary(
+                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SLOT_COUNT,
+                0, new BigDecimal("120"), new BigDecimal("120"), List.of(),
+                0, 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
+        StockDailySummaryService.PortfolioSummary shadow = summary(
+                StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT,
                 0, new BigDecimal("120"), new BigDecimal("120"), List.of(),
                 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
 
         String summaryText = service.buildSummaryText(
-                new StockDailySummaryService.DailySummaryData(SUMMARY_DATE, empty, empty, empty));
+                new StockDailySummaryService.DailySummaryData(SUMMARY_DATE, alpha, shadow));
 
-        // 正向结构断言: 一级区块标题集合固定为α正式/存量正式/α影子,已退场研究区块因此不可能出现,
-        // 不再以"字符串不存在"断言证明删除
+        // 正向结构断言: 一级区块标题集合固定为α正式/α影子,存量正式与已退场研究区块因此不可能出现。
         assertEquals(List.of(
-                        "α 正式组合（新策略主仓 · 5槽）",
-                        "存量正式组合（只出不进 · 5槽）",
-                        "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · 5槽）"),
-                sectionTitles(summaryText), "日报一级区块标题集合必须固定为α正式/存量正式/α影子");
+                        "α 正式组合（1槽）",
+                        "α 影子组合（仅研究 · 2槽）"),
+                sectionTitles(summaryText), "日报一级区块标题集合必须固定为α正式/α影子");
         assertFalse(summaryText.contains("%n"), "不得出现字面量换行占位符");
         assertTrue(summaryText.endsWith("- 数据陈旧批次：0"), "影子区块必须位于报文尾部");
-        assertTrue(summaryText.contains("α 影子组合（仅研究，不触真钱，不代表任何操作建议 · "),
-                "影子区块必须带有仅研究免责标题");
-        assertTrue(summaryText.contains("提示：α 策略已接管新建仓位；存量正式组合按原规则退出，不再新增买入。"));
     }
 
     @Test
@@ -320,7 +311,7 @@ class StockDailySummaryServiceTest {
     /**
      * 提取日报中一级组合区块的标题行。
      * <p>
-     * 一级区块标题为"组合名（... · N槽）"形式,正文行一律以"- "开头,因此可按标题前缀精确识别。
+     * 一级区块标题为"组合名（...）"形式,正文行一律以"- "开头,因此可按标题前缀精确识别。
      * 以标题数量与集合做正向结构断言,替代"已退场字符串不存在"与"整篇文本等值"两类反模式断言。
      *
      * @param summaryText 日报文本
@@ -329,7 +320,6 @@ class StockDailySummaryServiceTest {
     private List<String> sectionTitles(String summaryText) {
         return summaryText.lines()
                 .filter(line -> line.startsWith(ALPHA_SECTION_PREFIX)
-                        || line.startsWith(LEGACY_SECTION_PREFIX)
                         || line.startsWith(ALPHA_SHADOW_SECTION_PREFIX))
                 .toList();
     }
@@ -343,11 +333,11 @@ class StockDailySummaryServiceTest {
      * @param equity             权益;null表示数据不足
      * @param cashAndReserved    可用现金与预留资金
      * @param missingPriceStocks 缺失行情股票
-     * @param buyCount           昨日买入批数
-     * @param sellCount          昨日卖出批数
-     * @param profit             昨日已实现净收益金额
+     * @param buyCount           昨日买入笔数
+     * @param sellCount          昨日卖出笔数
+     * @param profit             昨日已实现盈亏金额
      * @param invested           昨日投入成本
-     * @param openPositions      开放仓位
+     * @param openPositions      当前持仓
      * @return 组合摘要
      */
     private StockDailySummaryService.PortfolioSummary summary(String portfolioCode, int slotCount,
@@ -432,9 +422,7 @@ class StockDailySummaryServiceTest {
     private void stubEmptyQueries(TornStockPortfolioSlotDAO slotDao, TornStockVirtualBatchDAO batchDao) {
         when(slotDao.selectAllByPortfolioCode(anyString())).thenReturn(List.of());
         when(batchDao.selectActiveAlphaBatches(anyString())).thenReturn(List.of());
-        when(batchDao.selectActiveFormalBatches()).thenReturn(List.of());
         when(batchDao.selectAlphaActionBatches(anyString(), any(), any())).thenReturn(List.of());
-        when(batchDao.selectFormalActionBatches(any(), any())).thenReturn(List.of());
     }
 
     /**

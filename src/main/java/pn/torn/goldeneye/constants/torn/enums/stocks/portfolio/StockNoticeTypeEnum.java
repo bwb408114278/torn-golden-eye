@@ -9,7 +9,7 @@ import java.util.Arrays;
  * 股票通知类型枚举 - 组合事件通知的分类
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Getter
@@ -31,6 +31,10 @@ public enum StockNoticeTypeEnum {
      * 每日摘要 - 每日组合汇总
      */
     DAILY_SUMMARY("DAILY_SUMMARY", "每日摘要"),
+    /**
+     * 年度报告 - 每年1月1日结算上一自然年后发送
+     */
+    ANNUAL_SETTLEMENT("ANNUAL_SETTLEMENT", "年度结算年报"),
     ;
 
     /**

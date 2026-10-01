@@ -26,21 +26,21 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 股票日报查询服务 - 一次读取α正式组合、存量正式组合与α影子组合的只读数据并组装只读DTO
+ * 股票日报查询服务 - 一次读取α正式组合与α影子组合的只读数据并组装只读DTO
  * <p>
  * 本类只负责DAO读取与数据组装,计算部分委托给纯计算组件:
  * <ul>
  *   <li>{@link PortfolioEquityCalculator} - 各组合权益与缺失行情判定</li>
  *   <li>{@link DailySummaryMetricsCalculator} - 昨日买卖、已实现净收益金额与投入成本</li>
  * </ul>
- * 三段组合字段口径一致,<b>互不合计</b>:α正式组合与α影子组合按各自组合编码读取活跃批次与动作批次,
- * 存量正式组合固定读取 {@code VIP_FORMAL}。"昨日动作"批次按entryTime/exitTime落在摘要日内判定,
- * "当前活跃仓"按批次状态判定,两者时间基准不同,不得混淆。
+ * 两段组合字段口径一致,<b>互不合计</b>:按各自组合编码读取活跃批次与动作批次。
+ * "昨日动作"批次按entryTime/exitTime落在摘要日内判定,"当前活跃仓"按批次状态判定,
+ * 两者时间基准不同,不得混淆。存量正式组合已随旧版退场,不再参与日报。
  * <p>
- * 三段组合的开放仓位股票ID合并为一次 {@code selectLatestUsableByStocks} 批量查询,避免按持仓N+1。
+ * 两段组合的开放仓位股票ID合并为一次 {@code selectLatestUsableByStocks} 批量查询,避免按持仓N+1。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.08.09
  */
 @Service
@@ -55,7 +55,7 @@ public class StockDailySummaryQueryService {
     private final DailySummaryMetricsCalculator metricsCalculator;
 
     /**
-     * 构建每日摘要数据,包含α正式组合、存量正式组合与α影子组合三段。
+     * 构建每日摘要数据,包含α正式组合与α影子组合两段。
      *
      * @param summaryDate 摘要日期(发送日前一自然日)
      * @return 摘要数据对象
@@ -67,21 +67,17 @@ public class StockDailySummaryQueryService {
 
         List<TornStockVirtualBatchDO> alphaBatches =
                 virtualBatchDAO.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE);
-        List<TornStockVirtualBatchDO> legacyBatches = virtualBatchDAO.selectActiveFormalBatches();
         List<TornStockVirtualBatchDO> alphaShadowBatches =
                 virtualBatchDAO.selectActiveAlphaBatches(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE);
 
         SummaryContext context = new SummaryContext(dayStart, dayEnd, generatedAt,
-                loadLatestBars(List.of(alphaBatches, legacyBatches, alphaShadowBatches), generatedAt));
+                loadLatestBars(List.of(alphaBatches, alphaShadowBatches), generatedAt));
 
         return new DailySummaryData(summaryDate,
                 buildPortfolio(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE,
                         StockPortfolioService.VIP_ALPHA_SLOT_COUNT, context, alphaBatches,
                         virtualBatchDAO.selectAlphaActionBatches(
                                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, dayStart, dayEnd)),
-                buildPortfolio(StockPortfolioService.PORTFOLIO_CODE,
-                        StockPortfolioService.SLOT_COUNT, context, legacyBatches,
-                        virtualBatchDAO.selectFormalActionBatches(dayStart, dayEnd)),
                 buildPortfolio(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE,
                         StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT, context, alphaShadowBatches,
                         virtualBatchDAO.selectAlphaActionBatches(
@@ -133,9 +129,9 @@ public class StockDailySummaryQueryService {
     /**
      * 批量加载最新且处于新鲜度窗口内的bar,按股票ID索引避免N+1查询。
      * <p>
-     * 三段组合的开放仓位股票ID合并为一次查询,保证每个摘要周期最多一次行情批量读取。
+     * 两段组合的开放仓位股票ID合并为一次查询,保证每个摘要周期最多一次行情批量读取。
      *
-     * @param batchGroups 三段组合的活跃批次
+     * @param batchGroups 两段组合的活跃批次
      * @param generatedAt 日报生成时点
      * @return 按股票ID索引的最新bar映射
      */

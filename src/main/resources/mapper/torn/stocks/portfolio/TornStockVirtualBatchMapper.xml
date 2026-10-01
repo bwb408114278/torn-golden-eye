@@ -116,4 +116,12 @@
               AND deleted = 0
         )
     </select>
+
+    <!-- 查询指定组合编码最早一笔批次的入场时间,用于推导首个不完整年度的区间起点 -->
+    <select id="selectEarliestEntryTime" resultType="java.time.LocalDateTime">
+        SELECT MIN(entry_time) FROM torn_stock_virtual_batch
+        WHERE portfolio_code = #{portfolioCode}
+          AND entry_time IS NOT NULL
+          AND deleted = 0
+    </select>
 </mapper>

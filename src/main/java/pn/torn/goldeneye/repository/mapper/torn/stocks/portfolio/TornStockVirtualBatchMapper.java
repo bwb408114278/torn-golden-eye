@@ -92,4 +92,15 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
      * @return 存在活跃批次返回true;否则false
      */
     boolean existsActiveBatches();
+
+    /**
+     * 查询指定组合编码最早一笔批次的入场时间。
+     * <p>
+     * 年度结算用它推导首个不完整年度的区间起点:首笔α批次入场时间即该组合真实开始运行的时刻,
+     * 没有入场批次时返回null,由调用方回退到槽位创建时间。
+     *
+     * @param portfolioCode 组合编码
+     * @return 最早入场时间;无入场批次时返回null
+     */
+    LocalDateTime selectEarliestEntryTime(@Param("portfolioCode") String portfolioCode);
 }

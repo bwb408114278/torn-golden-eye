@@ -6,6 +6,7 @@ import pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockNotice
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticePayloadFinalizeCommand;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -16,7 +17,7 @@ import java.util.List;
  * 必须由上层进入组级恢复或人工核验路径,而不是在本层被静默转为0行成功语义。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Repository
@@ -47,6 +48,20 @@ public class TornStockNoticeAuditDAO extends ServiceImpl<TornStockNoticeAuditMap
             return List.of();
         }
         return baseMapper.selectByRebalanceAssociationId(rebalanceAssociationId);
+    }
+
+    /**
+     * 按摘要日期与通知类型读取唯一通知审计行。
+     *
+     * @param summaryDate 摘要日期(被结算年最后一日)
+     * @param noticeType  通知类型编码
+     * @return 通知审计行;不存在时返回null
+     */
+    public TornStockNoticeAuditDO selectBySummaryDateAndType(LocalDate summaryDate, String noticeType) {
+        if (summaryDate == null || noticeType == null || noticeType.isBlank()) {
+            return null;
+        }
+        return baseMapper.selectBySummaryDateAndType(summaryDate, noticeType);
     }
 
     /**

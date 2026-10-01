@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * VIP股票每日摘要服务 - 每天08:10汇总α主仓、存量正式组合与α影子组合并发送中文摘要
+ * VIP股票每日摘要服务 - 每天08:10汇总α正式组合与α影子组合并发送中文摘要
  * <p>
  * 在生产环境下每日08:10(Asia/Shanghai)触发,摘要日期为发送日前一自然日。本类是纯编排入口,
  * 不含查询、计算、渲染与通知实现:
@@ -25,21 +25,20 @@ import java.util.List;
  *   <li>检查 {@link SettingConstants#KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED} 开关</li>
  *   <li>检查生产环境({@link BotConstants#ENV_PROD})</li>
  *   <li>通过 {@link StockMarketClock#summaryDate()} 计算摘要日期</li>
- *   <li>委托 {@link StockDailySummaryQueryService#buildSummaryData} 收集三段组合只读数据</li>
+ *   <li>委托 {@link StockDailySummaryQueryService#buildSummaryData} 收集两段组合只读数据</li>
  *   <li>委托 {@link StockDailySummaryRenderer} 构建中文摘要文本</li>
  *   <li>委托 {@link StockDailySummaryNoticeService} 写入PENDING通知审计并发送至VIP群,更新发送状态</li>
  * </ol>
- * 摘要按组合分三段,字段口径完全一致(占用槽位、组合权益、可用现金、昨日买卖批数、
- * 昨日已实现净收益金额与收益率、当前持仓入场价、数据陈旧批次):
+ * 摘要按组合分两段,字段口径完全一致(占用槽位、组合净值、昨日买卖笔数、
+ * 昨日已实现盈亏金额与收益率、当前持仓入场价、数据陈旧批次):
  * <ol>
- *   <li>α 正式组合({@code VIP_ALPHA}) - 新策略主仓;</li>
- *   <li>存量正式组合({@code VIP_FORMAL}) - 只出不进,仅按原规则退出;</li>
+ *   <li>α 正式组合({@code VIP_ALPHA}) - 正式主仓;</li>
  *   <li>α 影子组合({@code VIP_ALPHA_SHADOW}) - 仅研究,不触真钱、不代表任何操作建议。</li>
  * </ol>
- * 已退场的信号事件统计、无限资金影子、候选影子组合、拒绝观察与动态SELL研究不再出现在日报中。
+ * 已退场的存量正式组合、信号事件统计、无限资金影子、候选影子组合、拒绝观察与动态SELL研究不再出现在日报中。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.07.25
  */
 @Slf4j
@@ -98,9 +97,9 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 构建每日摘要数据,包含α正式组合、存量正式组合与α影子组合三段只读数据。
+     * 构建每日摘要数据,包含α正式组合与α影子组合两段只读数据。
      * <p>
-     * 委托 {@link StockDailySummaryQueryService#buildSummaryData} 一次性读取三段组合的
+     * 委托 {@link StockDailySummaryQueryService#buildSummaryData} 一次性读取两段组合的
      * 槽位、活跃批次、昨日动作批次与行情,每段独立计算权益与统计,互不合计。
      *
      * @param summaryDate 摘要日期(发送日前一自然日)
@@ -125,17 +124,15 @@ public class StockDailySummaryService {
     // ==================== 值对象 ====================
 
     /**
-     * 每日摘要数据 - 聚合α正式组合、存量正式组合与α影子组合三段摘要。
+     * 每日摘要数据 - 聚合α正式组合与α影子组合两段摘要。
      *
      * @param summaryDate 摘要日期
      * @param alpha       α正式组合摘要
-     * @param legacy      存量正式组合摘要(只出不进)
      * @param alphaShadow α影子组合摘要(仅研究)
      */
     public record DailySummaryData(
             LocalDate summaryDate,
             PortfolioSummary alpha,
-            PortfolioSummary legacy,
             PortfolioSummary alphaShadow) {
     }
 

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockPortfolioAnnualSettlementMapper">
+    <!-- 冲突安全插入年度结算台账行,与部分唯一索引uk_stock_annual_settlement_business同语义,
+         并发或重复触发时只有一行,影响行数0表示已存在 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_stock_portfolio_annual_settlement
+            (portfolio_code, settle_year, boundary_time, rule_version, settlement_status,
+             degrade_reason, last_attempt_at, deleted, create_time, update_time)
+        VALUES
+            (#{settlement.portfolioCode}, #{settlement.settleYear}, #{settlement.boundaryTime}, #{settlement.ruleVersion},
+             #{settlement.settlementStatus}, #{settlement.degradeReason}, #{settlement.lastAttemptAt},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (portfolio_code, settle_year, rule_version) WHERE deleted = 0 DO NOTHING
+    </insert>
+
+    <!-- 按业务唯一键查询年度结算台账行 -->
+    <select id="selectByBusinessKey"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioAnnualSettlementDO">
+        SELECT * FROM torn_stock_portfolio_annual_settlement
+        WHERE portfolio_code = #{portfolioCode}
+          AND settle_year = #{settleYear}
+          AND rule_version = #{ruleVersion}
+          AND deleted = 0
+    </select>
+
+    <!-- 查询指定年度之前最近一个已结算台账行,用于累计提取科目的连续性 -->
+    <select id="selectLatestSettledBefore"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioAnnualSettlementDO">
+        SELECT * FROM torn_stock_portfolio_annual_settlement
+        WHERE portfolio_code = #{portfolioCode}
+          AND rule_version = #{ruleVersion}
+          AND settlement_status = 'SETTLED'
+          AND settle_year &lt; #{settleYear}
+          AND deleted = 0
+        ORDER BY settle_year DESC
+        LIMIT 1
+    </select>
+
+    <!-- 回写已结算金额与派生字段;degrade_reason显式清空,避免残留历史降级原因 -->
+    <update id="updateSettledById">
+        UPDATE torn_stock_portfolio_annual_settlement
+        SET boundary_bar_start_time = #{settlement.boundaryBarStartTime},
+            boundary_bar_digest = #{settlement.boundaryBarDigest},
+            initial_cash = #{settlement.initialCash},
+            opening_equity = #{settlement.openingEquity},
+            closing_cash = #{settlement.closingCash},
+            closing_reserved = #{settlement.closingReserved},
+            closing_market_value = #{settlement.closingMarketValue},
+            closing_equity = #{settlement.closingEquity},
+            cumulative_extracted_before = #{settlement.cumulativeExtractedBefore},
+            extracted_amount = #{settlement.extractedAmount},
+            cumulative_extracted_after = #{settlement.cumulativeExtractedAfter},
+            year_return = #{settlement.yearReturn},
+            coverage_days = #{settlement.coverageDays},
+            partial_year = #{settlement.partialYear},
+            annualized_return = #{settlement.annualizedReturn},
+            open_position_count = #{settlement.openPositionCount},
+            settlement_status = #{settlement.settlementStatus},
+            degrade_reason = NULL,
+            last_attempt_at = #{businessNow},
+            update_time = #{businessNow}
+        WHERE id = #{settlement.id}
+          AND deleted = 0
+    </update>
+
+    <!-- 回写降级或阻断状态:只写状态、原因与尝试时间,绝不写任何金额字段 -->
+    <update id="updateDegradedById">
+        UPDATE torn_stock_portfolio_annual_settlement
+        SET settlement_status = #{settlement.settlementStatus},
+            degrade_reason = #{settlement.degradeReason},
+            last_attempt_at = #{businessNow},
+            update_time = #{businessNow}
+        WHERE id = #{settlement.id}
+          AND deleted = 0
+    </update>
+
+    <!-- 回填年度报告通知审计行ID与通知状态快照 -->
+    <update id="updateNoticeById">
+        UPDATE torn_stock_portfolio_annual_settlement
+        SET notice_id = #{noticeId},
+            notice_status = #{noticeStatus},
+            update_time = #{businessNow}
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+</mapper>

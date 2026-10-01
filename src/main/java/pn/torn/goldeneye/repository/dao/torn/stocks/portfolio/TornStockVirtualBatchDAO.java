@@ -112,4 +112,14 @@ public class TornStockVirtualBatchDAO extends ServiceImpl<TornStockVirtualBatchM
     public boolean existsActiveBatches() {
         return baseMapper.existsActiveBatches();
     }
+
+    /**
+     * 查询指定组合编码最早一笔批次的入场时间。
+     *
+     * @param portfolioCode 组合编码
+     * @return 最早入场时间;无入场批次时返回null
+     */
+    public LocalDateTime selectEarliestEntryTime(String portfolioCode) {
+        return baseMapper.selectEarliestEntryTime(portfolioCode);
+    }
 }

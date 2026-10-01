@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -112,6 +112,12 @@ public class SettingConstants {
      * VIP股票每日摘要开关
      */
     public static final String KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED = "VIP_STOCK_DAILY_SUMMARY_ENABLED";
+    /**
+     * VIP股票年度结算与年度报告开关(缺失配置按false处理)
+     * <p>
+     * 只控制年度结算调度入口;年度报告消息不受{@link #KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED}约束。
+     */
+    public static final String KEY_VIP_STOCK_ANNUAL_SETTLEMENT_ENABLED = "VIP_STOCK_ANNUAL_SETTLEMENT_ENABLED";
     /**
      * VIP股票规则模式(OFF/SHADOW/PROVISIONAL/FORMAL)
      */

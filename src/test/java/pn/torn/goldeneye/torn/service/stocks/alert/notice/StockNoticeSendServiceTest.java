@@ -33,7 +33,7 @@ import static org.mockito.Mockito.*;
  * 失败自动重发、统一业务时钟与α换仓关联组原子闭包。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.28
  */
 @DisplayName("股票通知发送服务测试")
@@ -432,6 +432,33 @@ class StockNoticeSendServiceTest {
         assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("每日摘要正文"),
                 "无批次通知必须按创建时正文发送");
         verify(noticeAuditDao).markSentByIds(eq(List.of(21L)), anyString(), eq(BUSINESS_NOW));
+    }
+
+    @Test
+    @DisplayName("年度报告无关联批次_按创建时正文发送且不因缺批次终态失败")
+    void sendPendingNotices_annualSettlementWithoutBatch_sentFromPayloadMessageText() {
+        when(sysSettingManager.getSettingValue(any())).thenReturn("true");
+        TornStockNoticeAuditDO annual = new TornStockNoticeAuditDO();
+        annual.setId(22L);
+        annual.setBatchId(null);
+        annual.setNoticeType("ANNUAL_SETTLEMENT");
+        annual.setSendStatus("PENDING");
+        annual.setPayloadSnapshot("{\"noticeType\":\"ANNUAL_SETTLEMENT\",\"settleYear\":2026,"
+                + "\"groupId\":10001,\"messageText\":\"年度报告正文\"}");
+        when(noticeAuditDao.selectSendableNotices()).thenReturn(List.of(annual));
+        when(noticeAuditDao.finalizePayload(any(), any(LocalDateTime.class))).thenReturn(1);
+        when(projectProperty.getVipGroupId()).thenReturn(10001L);
+        when(bot.sendRequest(any(BotHttpReqParam.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"status\":\"ok\",\"retcode\":0}"));
+
+        service().sendPendingNotices();
+
+        verify(noticeAuditDao, never()).markFinalByIds(any(), any(), any());
+        ArgumentCaptor<BotHttpReqParam> paramCaptor = ArgumentCaptor.forClass(BotHttpReqParam.class);
+        verify(bot).sendRequest(paramCaptor.capture(), eq(String.class));
+        assertTrue(String.valueOf(paramCaptor.getValue().body()).contains("年度报告正文"),
+                "年度报告无关联批次,必须按创建时固化的正文发送,不得判为批次不存在");
+        verify(noticeAuditDao).markSentByIds(eq(List.of(22L)), anyString(), eq(BUSINESS_NOW));
     }
 
     @Test

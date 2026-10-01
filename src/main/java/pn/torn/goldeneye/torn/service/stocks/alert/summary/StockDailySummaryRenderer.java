@@ -1,6 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.summary;
 
 import org.springframework.stereotype.Component;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeTextFormat;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.DailySummaryData;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.OpenPosition;
 import pn.torn.goldeneye.torn.service.stocks.alert.summary.StockDailySummaryService.PortfolioSummary;
@@ -18,18 +19,19 @@ import java.util.stream.Collectors;
  * 股票日报渲染器 - 将 {@link DailySummaryData} 纯函数化为中文摘要文本
  * <p>
  * 本类不依赖Spring注入、DAO、时钟或序列号,只消费只读摘要数据并产生固定格式中文文本。
- * 报文按α正式组合、存量正式组合、提示语、α影子组合的顺序拼接,三段组合字段口径一致。
+ * 报文按α正式组合、α影子组合的顺序拼接,两段组合字段口径一致;存量正式组合已随旧版退场,
+ * 不再出现在日报中。
  * <p>
  * 数值格式固定:
  * <ul>
- *   <li>金钱(权益、现金、已实现净收益金额) -&gt; 千分位整数,{@link RoundingMode#HALF_UP};</li>
+ *   <li>金额(组合净值、昨日已实现盈亏) -&gt; X.XXb,统一由 {@link StockNoticeTextFormat#formatBillion} 输出;</li>
  *   <li>股价(入场参考价) -&gt; 千分位保留2位小数;</li>
- *   <li>收益率 -&gt; 百分数保留2位小数并带正负号。</li>
+ *   <li>收益率 -&gt; 百分数保留2位小数并带正负号,统一由 {@link StockNoticeTextFormat#formatNetReturn} 输出。</li>
  * </ul>
  * 换行使用 {@link System#lineSeparator()},不触发任何查询或持久化。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.6.6
  * @since 2026.08.09
  */
 @Component
@@ -46,46 +48,29 @@ public class StockDailySummaryRenderer {
     /**
      * α正式组合区块标题模板(含槽位总数占位符)
      */
-    private static final String ALPHA_SECTION_TITLE = "α 正式组合（新策略主仓 · %d槽）";
-    /**
-     * 存量正式组合区块标题模板(含槽位总数占位符)
-     */
-    private static final String LEGACY_SECTION_TITLE = "存量正式组合（只出不进 · %d槽）";
+    private static final String ALPHA_SECTION_TITLE = "α 正式组合（%d槽）";
     /**
      * α影子组合区块标题模板(含槽位总数占位符)
      */
-    private static final String ALPHA_SHADOW_SECTION_TITLE = "α 影子组合（仅研究，不触真钱，不代表任何操作建议 · %d槽）";
+    private static final String ALPHA_SHADOW_SECTION_TITLE = "α 影子组合（仅研究 · %d槽）";
     /**
      * 组合区块模板 - 首参数为已渲染标题,其余参数为该组合的统计值
      */
     private static final String SECTION_TEMPLATE = "%s%n"
             + "- 槽位占用：%d / %d%n"
             + "- 组合净值：%s%n"
-            + "- 可用现金：%s%n"
-            + "- 昨日建仓：%d批 ／ 昨日平仓：%d批%n"
-            + "- 昨日已实现净变化：%s（变动率 %s）%n"
-            + "- 当前虚拟持仓：%s%n"
+            + "- 昨日买入：%d 笔 ／ 昨日卖出：%d 笔%n"
+            + "- 昨日已实现盈亏：%s（%s）%n"
+            + "- 当前持仓：%s%n"
             + "- 数据陈旧批次：%d";
-    /**
-     * 存量正式组合提示语
-     */
-    private static final String LEGACY_NOTICE = "提示：α 策略已接管新建仓位；存量正式组合按原规则退出，不再新增买入。";
     /**
      * 日报免责声明
      */
     private static final String DISCLAIMER = "本日报为系统内部虚拟组合记录，不构成投资建议。";
     /**
-     * 金钱展示格式(千分位整数)
-     */
-    private static final String MONEY_PATTERN = "#,##0";
-    /**
      * 股价展示格式(千分位2位小数)
      */
     private static final String PRICE_PATTERN = "#,##0.00";
-    /**
-     * 收益率展示格式(百分数2位小数、带正负号)
-     */
-    private static final String RATE_PATTERN = "+0.00%;-0.00%";
     /**
      * 收益率计算精度
      */
@@ -121,10 +106,6 @@ public class StockDailySummaryRenderer {
                 + System.lineSeparator() + System.lineSeparator()
                 + renderSection(sectionTitle(ALPHA_SECTION_TITLE, data.alpha()), data.alpha())
                 + System.lineSeparator() + System.lineSeparator()
-                + renderSection(sectionTitle(LEGACY_SECTION_TITLE, data.legacy()), data.legacy())
-                + System.lineSeparator() + System.lineSeparator()
-                + LEGACY_NOTICE
-                + System.lineSeparator() + System.lineSeparator()
                 + renderSection(sectionTitle(ALPHA_SHADOW_SECTION_TITLE, data.alphaShadow()), data.alphaShadow());
     }
 
@@ -151,9 +132,8 @@ public class StockDailySummaryRenderer {
                 title,
                 summary.occupiedSlots(), summary.slotCount(),
                 formatEquity(summary),
-                formatMoney(summary.cashAndReserved()),
                 summary.yesterdayBuyCount(), summary.yesterdaySellCount(),
-                formatMoney(summary.yesterdayProfit()), formatRate(summary),
+                StockNoticeTextFormat.formatBillion(summary.yesterdayProfit()), formatRate(summary),
                 formatOpenPositions(summary.openPositions()),
                 summary.staleBatchCount());
     }
@@ -166,7 +146,7 @@ public class StockDailySummaryRenderer {
      */
     private String formatEquity(PortfolioSummary summary) {
         if (summary.equity() != null) {
-            return formatMoney(summary.equity());
+            return StockNoticeTextFormat.formatBillion(summary.equity());
         }
         return EQUITY_INSUFFICIENT + "（缺失行情：" + String.join(SEPARATOR, summary.missingPriceStocks()) + "）";
     }
@@ -182,10 +162,10 @@ public class StockDailySummaryRenderer {
     private String formatRate(PortfolioSummary summary) {
         BigDecimal invested = summary.yesterdayInvested();
         if (invested == null || invested.signum() == 0) {
-            return newFormatter(RATE_PATTERN).format(BigDecimal.ZERO);
+            return StockNoticeTextFormat.formatNetReturn(BigDecimal.ZERO);
         }
-        return newFormatter(RATE_PATTERN)
-                .format(summary.yesterdayProfit().divide(invested, RATE_SCALE, RoundingMode.HALF_UP));
+        return StockNoticeTextFormat.formatNetReturn(
+                summary.yesterdayProfit().divide(invested, RATE_SCALE, RoundingMode.HALF_UP));
     }
 
     /**
@@ -204,36 +184,14 @@ public class StockDailySummaryRenderer {
     }
 
     /**
-     * 格式化金钱为千分位整数。
-     *
-     * @param value 金额
-     * @return 展示文本
-     */
-    private String formatMoney(BigDecimal value) {
-        return newFormatter(MONEY_PATTERN).format(value == null ? BigDecimal.ZERO : value);
-    }
-
-    /**
      * 格式化股价为千分位2位小数。
      *
      * @param value 价格
      * @return 展示文本
      */
     private String formatPrice(BigDecimal value) {
-        return newFormatter(PRICE_PATTERN).format(value == null ? BigDecimal.ZERO : value);
-    }
-
-    /**
-     * 构建带美式千分位与HALF_UP舍入的格式化器。
-     * <p>
-     * {@link DecimalFormat} 非线程安全,每次格式化独立构建,不在单例组件内共享可变格式器。
-     *
-     * @param pattern 格式模板
-     * @return 格式化器
-     */
-    private DecimalFormat newFormatter(String pattern) {
-        DecimalFormat formatter = new DecimalFormat(pattern, DecimalFormatSymbols.getInstance(Locale.US));
+        DecimalFormat formatter = new DecimalFormat(PRICE_PATTERN, DecimalFormatSymbols.getInstance(Locale.US));
         formatter.setRoundingMode(RoundingMode.HALF_UP);
-        return formatter;
+        return formatter.format(value == null ? BigDecimal.ZERO : value);
     }
 }

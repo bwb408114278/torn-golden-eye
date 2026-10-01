@@ -17,7 +17,7 @@ import java.time.format.DateTimeFormatter;
  * 方法体由{@code StockNoticeComposeService}的既有私有方法原样迁移,输出文本逐字不变。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.09.09
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -50,6 +50,22 @@ public final class StockNoticeTextFormat {
      * 正数符号前缀
      */
     private static final String POSITIVE_SIGN = "+";
+    /**
+     * 十亿(1e9)金额换算系数
+     */
+    private static final BigDecimal BILLION = new BigDecimal("1000000000");
+    /**
+     * b单位金额保留小数位
+     */
+    private static final int BILLION_SCALE_DIGITS = 2;
+    /**
+     * b单位金额后缀
+     */
+    private static final String BILLION_SUFFIX = "b";
+    /**
+     * 金额缺失时的展示文本
+     */
+    private static final String AMOUNT_MISSING_TEXT = "0.00b";
 
     /**
      * 格式化价格为保留 {@value #PRICE_SCALE_DIGITS} 位小数的字符串。
@@ -112,6 +128,22 @@ public final class StockNoticeTextFormat {
      */
     public static String formatFollowUntil(LocalDateTime followUntil) {
         return followUntil == null ? "未知" : followUntil.format(FOLLOW_UNTIL_FORMATTER);
+    }
+
+    /**
+     * 格式化金额为以十亿为单位的 X.XXb 文本。
+     * <p>
+     * 金额展示的唯一实现:日报与年度报告的组合净值、已实现盈亏、账面利润等一律经本方法输出,
+     * 禁止各渲染类自行换算b单位。负数保留"-"号,不足1b的金额显示为"0.00b",入参为null时同样返回"0.00b"。
+     *
+     * @param amount 金额(单位:元),可为空
+     * @return 格式化后的金额文本
+     */
+    public static String formatBillion(BigDecimal amount) {
+        if (amount == null) {
+            return AMOUNT_MISSING_TEXT;
+        }
+        return amount.divide(BILLION, BILLION_SCALE_DIGITS, RoundingMode.HALF_UP).toPlainString() + BILLION_SUFFIX;
     }
 
     /**
