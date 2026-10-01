@@ -16,7 +16,7 @@ import java.util.List;
  * 获取指令手册
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.6.5
  * @since 2025.08.15
  */
 @Component
@@ -45,7 +45,7 @@ public class DocStrategyImpl extends SmthMsgStrategy {
                 .filter(strategy -> strategy.getRoleType() == null)
                 .toList();
 
-        StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
+        StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数, |为选项间隔\n");
         appendCommandDesc(applicationContext.getBean(BindKeyStrategyImpl.class), helpText);
 
         groupStrategyList.forEach(strategy -> appendCommandDesc(strategy, helpText));

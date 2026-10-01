@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 
 import java.time.LocalDateTime;
@@ -14,7 +15,7 @@ import java.time.LocalDateTime;
  * 只负责传递事实或调用本类,不得各自复制一套时间或质量判断。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -63,6 +64,23 @@ public final class StockAlphaExecutionBarPolicy {
             throw new IllegalArgumentException("α执行bar起点不是精确15分钟桶: " + executionBarStart);
         }
         return executionBarStart;
+    }
+
+    /**
+     * 判断决策时点是否已进入α决策窗口。
+     * <p>
+     * 窗口语义是"不早于"{@link StockAlphaRuleDefinition#DECISION_WINDOW_START}:当晚数据未就绪时
+     * 逐桶重试(自愈),只顺延成交与播报,不丢phase;窗口只约束"新建α决策"与"已结束自然日快照构建",
+     * 不约束已持久化决策的复用、消费、执行、结算与通知。
+     * <p>
+     * 本方法是窗口判定的唯一宿主:业务类不得内联时间比较,也不得新增第二套窗口策略接口/枚举/继承。
+     *
+     * @param roundTime 决策时点(已结束桶起点)
+     * @return 决策时点不早于窗口起点时返回true;为空或早于窗口起点时返回false
+     */
+    public static boolean isDecisionWindowOpen(LocalDateTime roundTime) {
+        return roundTime != null
+                && !roundTime.toLocalTime().isBefore(StockAlphaRuleDefinition.DECISION_WINDOW_START);
     }
 
     /**

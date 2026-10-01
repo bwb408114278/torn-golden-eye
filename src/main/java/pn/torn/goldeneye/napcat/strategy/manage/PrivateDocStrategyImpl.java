@@ -5,7 +5,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 import pn.torn.goldeneye.configuration.property.ProjectProperty;
 import pn.torn.goldeneye.constants.bot.BotCommands;
-import pn.torn.goldeneye.constants.torn.TornConstants;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.BaseMsgStrategy;
@@ -52,10 +51,9 @@ public class PrivateDocStrategyImpl extends BasePrivateMsgStrategy {
         StringBuilder helpText = new StringBuilder("可用指令列表，以g#开头，括号内为可选参数\n");
         privateStrategyList.forEach(strategy -> appendCommandDesc(strategy, helpText));
 
-        helpText.append("\n如需订阅VIP功能, 发送2Xan到3312605, 并备注" + TornConstants.REMARK_SUBSCRIBE)
-                .append("\n然后申请QQ群, 金眼会自动通过入群申请(内测中, 当前为优惠价格, 支持一次订阅多月)")
-                .append("\n赚钱群（物价预测、炒股）: ").append(projectProperty.getVipGroupId())
-                .append("\n提醒群（EN药Booster等）: ").append(projectProperty.getVipNoticeGroupId());
+        helpText.append("\n金眼交流群：").append(projectProperty.getVipEntryGroupId())
+                .append("（开通与使用说明见群公告）")
+                .append("\n提醒：金眼不会向任何人索要游戏账号、密码或游戏道具。");
 
         TornUserDO user = super.getTornUser(sender, "");
         helpText.append(buildVipRemainDesc(user));

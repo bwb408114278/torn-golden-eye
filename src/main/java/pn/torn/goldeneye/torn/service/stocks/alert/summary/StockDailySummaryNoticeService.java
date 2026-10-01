@@ -10,15 +10,11 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAud
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.round.VipStockAlertScheduler;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeBotSender;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendRecorder;
-import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.*;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +25,7 @@ import java.util.Map;
  * 日报摘要文本在渲染完成后交由本服务落审计并发送:
  * <ol>
  *   <li>构建DAILY_SUMMARY类型的通知审计DO,填充摘要日期、VIP群组ID、载荷快照与PENDING状态,
- *       通知编号格式为 "D" + yyyyMMddHHmmssSSS + "S"(Summary首字符)</li>
+ *       通知编号格式为 "D" + 毫秒时间戳 + "S"(Summary首字符),时间戳实现唯一收敛在{@link StockNoticeNoGenerator}</li>
  *   <li>载荷哈希基于完整摘要载荷快照的规范化JSON({@link StockNoticePayloadCanonicalizer#sha256})</li>
  *   <li>经 {@link StockNoticeSendService#sendSingleMessageResult} 发送(HTTP 2xx且body非空视为成功),
  *       发送前以 {@link StockNoticeSendRecorder} 完成数据库级领取与payload冻结</li>
@@ -40,7 +36,7 @@ import java.util.Map;
  * 时间一律使用注入的 {@link StockMarketClock},禁止使用真实墙钟。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.08.09
  */
 @Slf4j
@@ -60,16 +56,6 @@ public class StockDailySummaryNoticeService {
      * 通知编号前缀
      */
     private static final String NOTICE_NO_PREFIX = "D";
-    /**
-     * 通知编号时间戳格式
-     */
-    private static final String NOTICE_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmmssSSS";
-    /**
-     * 通知编号格式化器
-     */
-    private static final DateTimeFormatter NOTICE_NO_FORMATTER =
-            DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
-
     private final TornStockNoticeAuditDAO noticeAuditDAO;
     private final StockNoticeSendRecorder noticeSendRecorder;
     private final StockNoticeSendService noticeSendService;
@@ -85,7 +71,7 @@ public class StockDailySummaryNoticeService {
      */
     public TornStockNoticeAuditDO savePendingNotice(LocalDate summaryDate, String summaryText) {
         TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-        notice.setNoticeNo(generateNoticeNo());
+        notice.setNoticeNo(StockNoticeNoGenerator.generate(marketClock.now(), NOTICE_NO_PREFIX, "S"));
         notice.setNoticeType(StockNoticeTypeEnum.DAILY_SUMMARY.getCode());
         notice.setSummaryDate(summaryDate);
         notice.setGroupId(projectProperty.getVipGroupId());
@@ -140,18 +126,6 @@ public class StockDailySummaryNoticeService {
             log.warn("VIP股票每日摘要-发送失败, noticeNo={}, reason={}",
                     notice.getNoticeNo(), sendResult.failureReason());
         }
-    }
-
-    /**
-     * 生成通知编号。
-     * <p>
-     * 格式: "D" + yyyyMMddHHmmssSSS + "S"
-     *
-     * @return 通知编号
-     */
-    private String generateNoticeNo() {
-        String timestamp = marketClock.now().format(NOTICE_NO_FORMATTER);
-        return NOTICE_NO_PREFIX + timestamp + "S";
     }
 
     /**

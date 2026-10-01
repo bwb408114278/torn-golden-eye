@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.config.StockAlphaRuleDefinition;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -12,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * α策略执行bar策略测试。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @DisplayName("α策略执行bar策略测试")
@@ -20,6 +21,20 @@ class StockAlphaExecutionBarPolicyTest {
     private static final LocalDateTime DECISION = LocalDateTime.of(2026, 9, 5, 9, 45);
     private static final LocalDateTime EXECUTION_BAR = LocalDateTime.of(2026, 9, 5, 10, 0);
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 9, 5, 10, 16);
+
+    @Test
+    @DisplayName("决策窗口_07:45未开启_08:00开启_空值不开启")
+    void isDecisionWindowOpen_beforeWindowClosed_atWindowOpen() {
+        assertEquals(8, StockAlphaRuleDefinition.DECISION_WINDOW_START.getHour(),
+                "α决策窗口起点常量的小时必须是08");
+        assertEquals(0, StockAlphaRuleDefinition.DECISION_WINDOW_START.getMinute(),
+                "α决策窗口起点常量的分钟必须是00");
+        assertFalse(StockAlphaExecutionBarPolicy.isDecisionWindowOpen(LocalDateTime.of(2026, 9, 5, 7, 45)),
+                "窗口前一桶不得创建新决策");
+        assertTrue(StockAlphaExecutionBarPolicy.isDecisionWindowOpen(LocalDateTime.of(2026, 9, 5, 8, 0)),
+                "窗口起点桶必须进入决策窗口");
+        assertFalse(StockAlphaExecutionBarPolicy.isDecisionWindowOpen(null), "空决策时点不得进入决策窗口");
+    }
 
     @Test
     @DisplayName("执行桶映射_决策时点映射到下一根严格连续整15分钟桶")

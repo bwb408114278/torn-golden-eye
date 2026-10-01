@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tornsy 股票历史人工范围回填策略测试
+ * Tornsy Stock 历史人工范围回填策略测试
  * <p>
  * 验证超管策略声明（指令、描述、{@code isNeedSa=true}）、合法 {@code start#end}
  * 提交调度器并回复已受理、参数错误走既有格式错误响应、调度器拒绝时回复可区分原因。
@@ -32,7 +32,7 @@ import static org.mockito.Mockito.*;
  * @since 2026.08.15
  */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("Tornsy股票历史人工范围回填策略测试")
+@DisplayName("Tornsy Stock历史人工范围回填策略测试")
 class TornsyStockHistoryBackfillStrategyImplTest {
 
     @Mock
@@ -45,7 +45,7 @@ class TornsyStockHistoryBackfillStrategyImplTest {
     @DisplayName("策略声明 -> 指令/描述/超管权限正确")
     void strategyDeclaration_correct() {
         assertEquals(BotCommands.TORNSY_STOCK_HISTORY_SYNC, strategy.getCommand());
-        assertEquals("按指定时间范围同步Tornsy股票分钟数据", strategy.getCommandDescription());
+        assertEquals("按指定时间范围同步Tornsy Stock分钟数据", strategy.getCommandDescription());
         assertTrue(strategy.isNeedSa(), "人工范围回填必须为超管指令");
         assertNull(strategy.getRoleType());
     }
@@ -65,7 +65,7 @@ class TornsyStockHistoryBackfillStrategyImplTest {
                 LocalDateTime.of(2026, 7, 1, 0, 0, 0),
                 LocalDateTime.of(2026, 7, 2, 0, 0, 0),
                 10000L);
-        assertTrue(reply.startsWith("Tornsy股票数据同步任务已受理"), "合法范围必须回复已受理, 实际: " + reply);
+        assertTrue(reply.startsWith("Tornsy Stock数据同步任务已受理"), "合法范围必须回复已受理, 实际: " + reply);
         assertTrue(reply.contains("[2026-07-01 00:00:00, 2026-07-02 00:00:00)"), "已受理回复需包含固定范围: " + reply);
     }
 
@@ -118,7 +118,7 @@ class TornsyStockHistoryBackfillStrategyImplTest {
         when(scheduler.submitManualBackfill(any(LocalDateTime.class), any(LocalDateTime.class), anyLong()))
                 .thenReturn(submission);
         String reply = handleMsg("2026-07-01 00:00:00#2026-07-02 00:00:00");
-        assertTrue(reply.startsWith("Tornsy股票数据同步未受理"), "拒绝回复需以未受理开头, 实际: " + reply);
+        assertTrue(reply.startsWith("Tornsy Stock数据同步未受理"), "拒绝回复需以未受理开头, 实际: " + reply);
         assertTrue(reply.contains(reasonKey), "拒绝回复需包含原因[" + reasonKey + "], 实际: " + reply);
     }
 

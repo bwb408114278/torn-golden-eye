@@ -11,7 +11,9 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchEntryFields;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader.RoundSnapshot;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -19,9 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketRoundLoader;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.round.StockRoundTransactionService;
 
 /**
  * 股票入场结算服务 - 处理待买入批次(ENTRY_PENDING)与待卖出批次(EXIT_PENDING)的成交与取消
@@ -421,7 +420,7 @@ public class StockEntrySettlementService {
      * <p>
      * 正常SELL前置条件:
      * <ul>
-     *   <li>ledgerType=FORMAL或SHADOW_FORMAL_CANDIDATE</li>
+     *   <li>ledgerType属于{@code isSlotBackedLedger}集合: FORMAL / VIP_ALPHA / SHADOW_FORMAL_CANDIDATE / ALPHA_SHADOW</li>
      *   <li>batchStatus=EXIT_PENDING</li>
      *   <li>exitSignalTime != null</li>
      *   <li>expectedExitBarTime != null</li>
@@ -459,7 +458,7 @@ public class StockEntrySettlementService {
      * <p>
      * 灾难关闭前置条件:
      * <ul>
-     *   <li>ledgerType=FORMAL或SHADOW_FORMAL_CANDIDATE</li>
+     *   <li>ledgerType属于{@code isSlotBackedLedger}集合: FORMAL / VIP_ALPHA / SHADOW_FORMAL_CANDIDATE / ALPHA_SHADOW</li>
      *   <li>batchStatus=DATA_STALE_EXIT</li>
      *   <li>exitSignalTime != null</li>
      *   <li>expectedExitBarTime != null</li>
@@ -866,7 +865,6 @@ public class StockEntrySettlementService {
      */
     public record EntrySettlementResult(
             List<TornStockVirtualBatchDO> filledBatches,
-            List<TornStockVirtualBatchDO> cancelledBatches
-    ) {
+            List<TornStockVirtualBatchDO> cancelledBatches) {
     }
 }

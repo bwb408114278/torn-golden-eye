@@ -19,7 +19,7 @@ public class StocksDividendBuildStrategyImpl extends BaseStocksDividendStrategy 
 
     @Override
     public String getCommandDescription() {
-        return "计算分红股最高收益配置方式，g#" + BotCommands.STOCK_DIVIDEND_CALC + "#资金";
+        return "计算分红收益最优的Stock配置方式，g#" + BotCommands.STOCK_DIVIDEND_CALC + "#资金";
     }
 
     @Override

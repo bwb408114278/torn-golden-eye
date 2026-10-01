@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 配置常量
  *
  * @author Bai
- * @version 1.2.12
+ * @version 1.6.6
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -113,7 +113,19 @@ public class SettingConstants {
      */
     public static final String KEY_VIP_STOCK_DAILY_SUMMARY_ENABLED = "VIP_STOCK_DAILY_SUMMARY_ENABLED";
     /**
+     * VIP股票年度结算与年度报告开关(缺失配置按false处理)
+     * <p>
+     * 只控制年度结算调度入口;年度报告消息不受{@link #KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED}约束。
+     */
+    public static final String KEY_VIP_STOCK_ANNUAL_SETTLEMENT_ENABLED = "VIP_STOCK_ANNUAL_SETTLEMENT_ENABLED";
+    /**
      * VIP股票规则模式(OFF/SHADOW/PROVISIONAL/FORMAL)
      */
     public static final String KEY_VIP_STOCK_RULE_MODE = "VIP_STOCK_RULE_MODE";
+    /**
+     * VIP股票α影子组合开关(仅控制VIP_ALPHA_SHADOW多槽相位分散影子运行;缺失配置按false处理)
+     * <p>
+     * 独立于{@link #KEY_VIP_STOCK_NEW_ENTRY_ENABLED}:影子运行不触真钱、不向成员投递任何通知。
+     */
+    public static final String KEY_VIP_STOCK_ALPHA_SHADOW_ENABLED = "VIP_STOCK_ALPHA_SHADOW_ENABLED";
 }

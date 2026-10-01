@@ -1,0 +1,534 @@
+{
+ "normalPN": [
+  [
+   "用户",
+   [
+    {
+     "cls": "BindKeyStrategyImpl",
+     "cmd": "绑Key",
+     "desc": "私聊金眼g#绑Key#你的Key，成功金眼会回复消息",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "ActivityCompareStrategyImpl",
+     "cmd": "活跃度对比",
+     "desc": "对比两个帮派（默认为所在帮派）的活跃度，支持截止日期参数",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "TornUserBsSnapshotStrategyImpl",
+     "cmd": "战力增长",
+     "desc": "变强了,也变秃了",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "MasterQueueStrategyImpl",
+     "cmd": "师父排队",
+     "desc": "查询自己当前师父排队的顺序",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "ActivityHeatmapStrategyImpl",
+     "cmd": "活跃度",
+     "desc": "查询活跃度热力图，支持帮派/用户两种查询方式",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "资产",
+   [
+    {
+     "cls": "FactionGiveFundsStrategyImpl",
+     "cmd": "牛马取钱榜",
+     "desc": "优质牛马公示, 特此画饼奖励",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "FactionItemUsedStrategyImpl",
+     "cmd": "物资毁灭者",
+     "desc": "让我看看谁是帮派蛀虫",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "AuctionHistoryStrategyImpl",
+     "cmd": "拍卖历史",
+     "desc": "查询RW装备拍卖成交历史",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "OC",
+   [
+    {
+     "cls": "OcIdleRankStrategyImpl",
+     "cmd": "OC空转榜",
+     "desc": "查询最近30天OC空转榜，格式g#OC空转榜(#帮派ID)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcLuckyRankStrategyImpl",
+     "cmd": "OC欧皇榜",
+     "desc": "查询近90天OC欧皇，格式g#OC欧皇榜(#帮派ID，0为总榜)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcMemberStrategyImpl",
+     "cmd": "OC替补",
+     "desc": "获取空闲成员，例g#OC替补#8(#肌肉)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcQueryStrategyImpl",
+     "cmd": "OC查询",
+     "desc": "查询执行中的OC，格式g#OC查询#级别1,级别2",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcRateQueryStrategyImpl",
+     "cmd": "OC成功率",
+     "desc": "获取OC成功率，例g#OC成功率(#用户ID)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcRecommendStrategyImpl",
+     "cmd": "OC推荐",
+     "desc": "选择金蝶Team, 选择成功",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcUnluckyRankStrategyImpl",
+     "cmd": "OC非酋榜",
+     "desc": "查询近90天OC非酋，格式g#OC非酋榜(#帮派ID，0为总榜)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcBenefitQueryStrategyImpl",
+     "cmd": "OC收益",
+     "desc": "查询OC收益，例g#OC收益(#用户ID)(#yyyy-MM)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcReassignListStrategyImpl",
+     "cmd": "OC大锅饭名单",
+     "desc": "查询帮派大锅饭名单, 例",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcBenefitRankStrategyImpl",
+     "cmd": "OC收益榜",
+     "desc": "查询月度OC收益榜，例g#OC收益榜(#帮派ID|同期)(#yyyy-MM)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "RW",
+   [
+    {
+     "cls": "FactionRwAttackPeriodStrategyImpl",
+     "cmd": "RW攻击频率",
+     "desc": "RW对冲窗口攻击频率分析",
+     "needSa": false,
+     "role": null,
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwAttackStrategyImpl",
+     "cmd": "RW战神",
+     "desc": "你就是下一个对冲之王",
+     "needSa": false,
+     "role": null,
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwReviveRankStrategyImpl",
+     "cmd": "RW神医榜",
+     "desc": "神医的恩情还不完！",
+     "needSa": false,
+     "role": null,
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwStatWindowStrategyImpl",
+     "cmd": "RW对冲窗口",
+     "desc": "查询RW对冲窗口",
+     "needSa": false,
+     "role": null,
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwCriticalStrategyImpl",
+     "cmd": "RW磁铁头",
+     "desc": "到底是谁的头跟磁铁一样吸子弹啊",
+     "needSa": false,
+     "role": null,
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwContributionStrategyImpl",
+     "cmd": "RW贡献榜",
+     "desc": "统计最近RW真赛成员贡献",
+     "needSa": false,
+     "role": null,
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    }
+   ]
+  ],
+  [
+   "Stock",
+   [
+    {
+     "cls": "StocksDividendBuildStrategyImpl",
+     "cmd": "Stock分红购买",
+     "desc": "计算分红收益最优的Stock配置方式，g#Stock分红购买#资金",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "StocksDividendBuyStrategyImpl",
+     "cmd": "Stock分红追加",
+     "desc": "分红收益最优的Stock纯买版，g#Stock分红追加#资金",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "赛车",
+   [
+    {
+     "cls": "PcRaceResultStrategyImpl",
+     "cmd": "PC结果",
+     "desc": "查询SMTHPC赛车榜单，格式g#PC结果#日期或赛事ID",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "PcRaceScoreStrategyImpl",
+     "cmd": "PC成绩",
+     "desc": "查询SMTHPC个人成绩，格式g#PC成绩#用户ID或@某人",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ]
+ ],
+ "manageSA": [
+  [
+   "资产",
+   [
+    {
+     "cls": "GiveFundsSyncStrategyImpl",
+     "cmd": "帮派取钱记录",
+     "desc": "强制刷新帮派取钱记录，慎用（格式不告诉你）",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "ItemUsedSyncStrategyImpl",
+     "cmd": "帮派物品记录",
+     "desc": "强制刷新帮派物品使用记录，慎用（格式不告诉你）",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "AttackSyncStrategyImpl",
+     "cmd": "帮派战斗记录",
+     "desc": "强制刷新帮派战斗记录，慎用（格式不告诉你）",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "OC",
+   [
+    {
+     "cls": "OcAssignStrategyImpl",
+     "cmd": "OC分配",
+     "desc": "看看是谁在摸鱼不加OC",
+     "needSa": false,
+     "role": "OC_COMMANDER",
+     "custom": ""
+    },
+    {
+     "cls": "OcNewTeamStrategyImpl",
+     "cmd": "OC新队",
+     "desc": "计算可开几个OC新队, 三模式: 保守/均衡/收益",
+     "needSa": false,
+     "role": "OC_COMMANDER",
+     "custom": ""
+    },
+    {
+     "cls": "OcCheckStrategyImpl",
+     "cmd": "OC校准",
+     "desc": "强制刷新当前执行中OC",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcReassignOpenStrategyImpl",
+     "cmd": "OC大锅饭开启",
+     "desc": "开启帮派大锅饭, 例",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "OcReassignAddStrategyImpl",
+     "cmd": "OC大锅饭添加",
+     "desc": "添加OC进大锅饭名单, 例",
+     "needSa": false,
+     "role": "OC_COMMANDER",
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "RW",
+   [
+    {
+     "cls": "FactionRwDisbandStrategyImpl",
+     "cmd": "RW解散时间",
+     "desc": "解散睡觉!明早偷袭!",
+     "needSa": false,
+     "role": "WAR_COMMANDER",
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwEndStrategyImpl",
+     "cmd": "RW真赛结束",
+     "desc": "手动结束RW，停止消息提醒和数据抓取",
+     "needSa": false,
+     "role": "WAR_COMMANDER",
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwExpendStrategyImpl",
+     "cmd": "RW消耗",
+     "desc": "看看这群人到底多能吃",
+     "needSa": false,
+     "role": "QUARTERMASTER",
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwGatheringStrategyImpl",
+     "cmd": "RW集合时间",
+     "desc": "到点了!起床集合!",
+     "needSa": false,
+     "role": "WAR_COMMANDER",
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwStrategyImpl",
+     "cmd": "RW真赛登记",
+     "desc": "将当前RW标记为真赛, 开始抓取数据",
+     "needSa": false,
+     "role": "WAR_COMMANDER",
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    },
+    {
+     "cls": "FactionRwUploadStrategyImpl",
+     "cmd": "RW上传",
+     "desc": "上传RW对冲结果到飞书",
+     "needSa": false,
+     "role": "LEADER",
+     "custom": "List.of(projectProperty.getGroupId(), BotConstants.GROUP_CCRC_ID, BotConstants.GROUP_SH_ID, BotConstants.GROUP_HP_ID, BotConstants.GROUP_BSU_ID)"
+    }
+   ]
+  ],
+  [
+   "Stock",
+   [
+    {
+     "cls": "StocksFeatureBuildStrategyImpl",
+     "cmd": "计算Stock特征值",
+     "desc": "补齐未计算的Stock特征值",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "TornsyStockHistoryBackfillStrategyImpl",
+     "cmd": "同步TornsyStock数据",
+     "desc": "按指定时间范围同步Tornsy Stock分钟数据",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "StockDerivedDataRebuildStrategyImpl",
+     "cmd": "重建Stock派生数据",
+     "desc": "按指定时间范围重建VIP Stock派生数据",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "StockAlphaDailyPrefillStrategyImpl",
+     "cmd": "预填Stockα日线",
+     "desc": "预填Stock α日线快照，例如(#2026-09-05)",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ],
+  [
+   "管理",
+   [
+    {
+     "cls": "CancelBlockChatStrategyImpl",
+     "cmd": "开始聊天",
+     "desc": "金眼开始发送消息",
+     "needSa": false,
+     "role": "OC_COMMANDER",
+     "custom": ""
+    },
+    {
+     "cls": "AuctionSyncStrategyImpl",
+     "cmd": "拍卖记录同步",
+     "desc": "强制刷新拍卖记录，慎用（格式不告诉你）",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "CurrentTaskStrategyImpl",
+     "cmd": "当前任务",
+     "desc": "获取当前待运行的定时任务",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "RefreshCacheStrategyImpl",
+     "cmd": "刷新缓存",
+     "desc": "刷新缓存",
+     "needSa": true,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "SetBlockChatStrategyImpl",
+     "cmd": "停止聊天",
+     "desc": "金眼停止发送消息",
+     "needSa": false,
+     "role": "OC_COMMANDER",
+     "custom": ""
+    }
+   ]
+  ]
+ ],
+ "privateChat": [
+  [
+   "用户",
+   [
+    {
+     "cls": "VipNoticeCancelStrategyImpl",
+     "cmd": "提醒取消",
+     "desc": "取消群里提醒的的类型",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "VipNoticePauseStrategyImpl",
+     "cmd": "提醒暂停",
+     "desc": "暂停Energy或躺飞提醒，适用于叠E、真赛",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "VipNoticeResumeStrategyImpl",
+     "cmd": "提醒恢复",
+     "desc": "恢复Energy或躺飞提醒",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "VipNoticeSetStrategyImpl",
+     "cmd": "提醒设置",
+     "desc": "设置群里提醒的的类型(药、EN等)",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "BindKeyStrategyImpl",
+     "cmd": "绑Key",
+     "desc": "私聊金眼g#绑Key#你的Key，成功金眼会回复消息",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    },
+    {
+     "cls": "VipStocksStrategyImpl",
+     "cmd": "Stock分析",
+     "desc": "查看 Stock 模型分析结果（系统内部研究口径）",
+     "needSa": false,
+     "role": null,
+     "custom": ""
+    }
+   ]
+  ]
+ ],
+ "counts": {
+  "pn": 28,
+  "pta": 22,
+  "priv": 6,
+  "sa": 23,
+  "leader": 11,
+  "war": 4,
+  "oc": 5,
+  "qm": 1
+ }
+}

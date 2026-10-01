@@ -26,13 +26,14 @@ import java.util.stream.Collectors;
  *   <li>{@link #loadDailyCloses(LocalDate)}: 正式决策读取,只读,只消费成员完整的共同有效自然日,
  *       无行情自然日不参与统计,共同有效日不足时fail-closed返回空结果。</li>
  *   <li>{@link #buildDailyClosesForEndedDay(LocalDateTime)}: 单个已结束自然日的快照构建,
- *       首次触发点为自然日最后一个15分钟桶(23:45),未完整时后续轮次继续重试。</li>
+ *       生产首次<strong>有效</strong>触发点为次日α窗口起点(08:00桶),00:00–07:45各桶由调度器按窗口规则跳过;
+ *       未完整时后续窗口内轮次继续重试。</li>
  *   <li>{@link #buildDailyCloses(LocalDate)}: 预填与缺口修复,只对已结束自然日批量写入,
  *       不创建无交易日伪快照,也不把未结束自然日的部分bar冻结为日终事实。</li>
  * </ol>
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Slf4j
@@ -137,8 +138,10 @@ public class StockAlphaDailyCloseService {
      * <p>
      * 生产触发语义固定如下,不得再收窄为单一桶:
      * <ol>
-     *   <li>自然日最后一个15分钟桶(23:45)所在轮次是该自然日的第一次构建触发点;</li>
-     *   <li>该自然日快照仍未完整时,后续每个已结束轮次继续以同一"最近已结束自然日"为界重试,
+     *   <li>本方法自身以"最近已结束自然日"为界,首个可行的调用时点是自然日最后一个15分钟桶(23:45);
+     *       生产实际首次<b>有效</b>触发点为次日α窗口起点(08:00桶),00:00–07:45各桶由调度器
+     *       按 {@code StockAlphaExecutionBarPolicy#isDecisionWindowOpen(LocalDateTime)} 跳过;</li>
+     *   <li>该自然日快照仍未完整时,后续每个窗口内已结束轮次继续以同一"最近已结束自然日"为界重试,
      *       直到补齐或自然日推进;</li>
      *   <li>已结束自然日快照完整时,不读取bar、不写入;</li>
      *   <li>只有已结束自然日参与构建,绝不构建尚未结束的当前自然日。</li>

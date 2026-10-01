@@ -9,7 +9,7 @@ import java.util.*;
  * Torn拍卖行常量
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.6.5
  * @since 2026.01.20
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -46,22 +46,19 @@ public class TornAuctionConstants {
         BONUS_ALAIS_MAP.put("爆伤", BONUS_DEADEYE);
         BONUS_ALAIS_MAP.put("暴伤", BONUS_DEADEYE);
         BONUS_ALAIS_MAP.put("缴械", "Disarm");
-        BONUS_ALAIS_MAP.put("Emp", "Empower");
         BONUS_ALAIS_MAP.put("斩杀", "Execute");
+        BONUS_ALAIS_MAP.put("处决", "Execute");
         BONUS_ALAIS_MAP.put("暴击", BONUS_EXPOSE);
         BONUS_ALAIS_MAP.put("爆击", BONUS_EXPOSE);
         BONUS_ALAIS_MAP.put("经验", "Proficience");
         BONUS_ALAIS_MAP.put("格挡", "Parry");
-        BONUS_ALAIS_MAP.put("Pen", BONUS_PENETRATE);
         BONUS_ALAIS_MAP.put("Mug", "Plunder");
-        BONUS_ALAIS_MAP.put("Power", BONUS_POWERFUL);
         BONUS_ALAIS_MAP.put("力量", BONUS_POWERFUL);
-        BONUS_ALAIS_MAP.put("Pun", BONUS_PUNCTURE);
         BONUS_ALAIS_MAP.put("回E", "Revitalize");
-        BONUS_ALAIS_MAP.put("Spec", "Specialist");
         BONUS_ALAIS_MAP.put("Hos", BONUS_STRICKEN);
         BONUS_ALAIS_MAP.put("Hosp", BONUS_STRICKEN);
         BONUS_ALAIS_MAP.put("面子", "Warlord");
+        BONUS_ALAIS_MAP.put("吸血", "Bloodlust");
     }
 
     /**
@@ -69,47 +66,51 @@ public class TornAuctionConstants {
      */
     private static void buildItemAliasMap() {
         ITEM_ALAIS_MAP.put("Uzi", "9mm Uzi");
-        ITEM_ALAIS_MAP.put("Arma", "ArmaLite M-15A4");
         ITEM_ALAIS_MAP.put("阿玛", "ArmaLite M-15A4");
         ITEM_ALAIS_MAP.put("MP9", "BT MP9");
         ITEM_ALAIS_MAP.put("中国湖", "China Lake");
-        ITEM_ALAIS_MAP.put("Cobra", "Cobra Derringer");
         ITEM_ALAIS_MAP.put("钻石刀", "Diamond Bladed Knife");
         ITEM_ALAIS_MAP.put("DBK", "Diamond Bladed Knife");
         ITEM_ALAIS_MAP.put("SA", "Enfield SA-80");
         ITEM_ALAIS_MAP.put("气锤", "Jackhammer");
         ITEM_ALAIS_MAP.put("RPG", "RPG Launcher");
         ITEM_ALAIS_MAP.put("火箭炮", "RPG Launcher");
-        ITEM_ALAIS_MAP.put("SIG", "SIG 552");
         ITEM_ALAIS_MAP.put("TAR", "Tavor TAR-21");
         ITEM_ALAIS_MAP.put("海军刀", "Naval Cutlass");
         ITEM_ALAIS_MAP.put("双节棍", "Metal Nunchaku");
         ITEM_ALAIS_MAP.put("双截棍", "Metal Nunchaku");
+        ITEM_ALAIS_MAP.put("KDC", "Kodachi");
+        ITEM_ALAIS_MAP.put("R套", "Riot");
         ITEM_ALAIS_MAP.put("R头", "Riot Helmet");
         ITEM_ALAIS_MAP.put("R甲", "Riot Body");
         ITEM_ALAIS_MAP.put("R手", "Riot Gloves");
         ITEM_ALAIS_MAP.put("R腿", "Riot Pants");
         ITEM_ALAIS_MAP.put("R脚", "Riot Boots");
+        ITEM_ALAIS_MAP.put("A套", "Assault");
         ITEM_ALAIS_MAP.put("A头", "Assault Helmet");
         ITEM_ALAIS_MAP.put("A甲", "Assault Body");
         ITEM_ALAIS_MAP.put("A手", "Assault Gloves");
         ITEM_ALAIS_MAP.put("A腿", "Assault Pants");
         ITEM_ALAIS_MAP.put("A脚", "Assault Boots");
+        ITEM_ALAIS_MAP.put("V套", "Vanguard");
         ITEM_ALAIS_MAP.put("V头", "Vanguard Respirator");
         ITEM_ALAIS_MAP.put("V甲", "Vanguard Body");
         ITEM_ALAIS_MAP.put("V手", "Vanguard Gloves");
         ITEM_ALAIS_MAP.put("V腿", "Vanguard Pants");
         ITEM_ALAIS_MAP.put("V脚", "Vanguard Boots");
+        ITEM_ALAIS_MAP.put("先锋套", "Vanguard");
         ITEM_ALAIS_MAP.put("先锋头", "Vanguard Respirator");
         ITEM_ALAIS_MAP.put("先锋甲", "Vanguard Body");
         ITEM_ALAIS_MAP.put("先锋手", "Vanguard Gloves");
         ITEM_ALAIS_MAP.put("先锋腿", "Vanguard Pants");
         ITEM_ALAIS_MAP.put("先锋脚", "Vanguard Boots");
+        ITEM_ALAIS_MAP.put("血牛套", "Marauder");
         ITEM_ALAIS_MAP.put("血牛头", "Marauder Face Mask");
         ITEM_ALAIS_MAP.put("血牛甲", "Marauder Body");
         ITEM_ALAIS_MAP.put("血牛手", "Marauder Gloves");
         ITEM_ALAIS_MAP.put("血牛腿", "Marauder Pants");
         ITEM_ALAIS_MAP.put("血牛脚", "Marauder Boots");
+        ITEM_ALAIS_MAP.put("哨兵套", "Sentinel");
         ITEM_ALAIS_MAP.put("哨兵头", "Sentinel Helmet");
         ITEM_ALAIS_MAP.put("哨兵甲", "Sentinel Apron");
         ITEM_ALAIS_MAP.put("哨兵手", "Sentinel Gloves");

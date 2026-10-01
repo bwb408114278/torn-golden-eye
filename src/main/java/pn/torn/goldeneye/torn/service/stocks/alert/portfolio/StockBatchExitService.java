@@ -91,8 +91,8 @@ public class StockBatchExitService {
         Objects.requireNonNull(currentPrice, "当前价格不能为空");
         Objects.requireNonNull(roundTime, "轮次时间不能为空");
 
-        if (StockPortfolioService.isAlphaBatch(batch)) {
-            return hold("VIP Alpha仅允许ALPHA_REBALANCE目标变化退出");
+        if (StockPortfolioService.isAlphaLedger(batch)) {
+            return hold("α正式与α影子仅允许ALPHA_REBALANCE目标变化退出");
         }
 
         BigDecimal entryReferencePrice = batch.getEntryReferencePrice();

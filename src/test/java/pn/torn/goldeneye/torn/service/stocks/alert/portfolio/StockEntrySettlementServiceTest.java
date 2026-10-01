@@ -31,7 +31,7 @@ import static org.mockito.Mockito.mockStatic;
  * 股票批次成交结算服务测试，覆盖待买入批次成交/取消/过期和待卖出批次成交的核心逻辑。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.07.26
  */
 @DisplayName("股票批次成交结算服务测试")
@@ -315,8 +315,8 @@ class StockEntrySettlementServiceTest {
             assertEquals(ENTRY_PRICE, filled.getInvestedCash());
             mocked.verify(() -> StockPortfolioService.indexSlotsById(any()));
             mocked.verify(() -> StockPortfolioService.checkEntryPriceDeviation(SIGNAL_PRICE, ENTRY_PRICE));
-            // 公共成交组装新增α身份判定: 影子批次必须判定为非α批次后才写入旧版默认规则版本
-            mocked.verify(() -> StockPortfolioService.isAlphaBatch(batch));
+            // 公共成交组装使用α账本判定: 影子批次必须判定为非α账本后才写入旧版默认规则版本
+            mocked.verify(() -> StockPortfolioService.isAlphaLedger(batch));
             mocked.verifyNoMoreInteractions();
         }
     }
@@ -820,7 +820,7 @@ class StockEntrySettlementServiceTest {
                     "公共成交组装不得覆盖α消息规则版本");
             assertEquals(11L, filled.getAlphaDecisionId(), "α批次成交后必须仍可回查来源决策");
             assertNotNull(filled.getFollowUntil(), "成交必须冻结跟随截止时间");
-            assertNotNull(filled.getFollowMaxPrice(), "成交必须冻结最高建议跟随价");
+            assertNotNull(filled.getFollowMaxPrice(), "成交必须冻结记录价格上限");
         }
 
         @Test
@@ -856,7 +856,12 @@ class StockEntrySettlementServiceTest {
                 mocked.when(() -> StockPortfolioService.calculateQuantity(
                         any(BigDecimal.class), any(BigDecimal.class))).thenReturn(1000L);
                 mocked.when(() -> StockPortfolioService.indexSlotsById(any())).thenReturn(Map.of(1L, slot));
+                // α账本判定内部组合了身份判定: 三个静态判定都必须执行真实实现,否则α批次会静默落入旧版分支
                 mocked.when(() -> StockPortfolioService.isAlphaBatch(any(TornStockVirtualBatchDO.class)))
+                        .thenCallRealMethod();
+                mocked.when(() -> StockPortfolioService.isAlphaShadowBatch(any(TornStockVirtualBatchDO.class)))
+                        .thenCallRealMethod();
+                mocked.when(() -> StockPortfolioService.isAlphaLedger(any(TornStockVirtualBatchDO.class)))
                         .thenCallRealMethod();
 
                 RoundSnapshot snapshot = buildSnapshot(List.of(batch), List.of(slot));
@@ -995,7 +1000,7 @@ class StockEntrySettlementServiceTest {
     private RoundSnapshot buildSnapshot(List<TornStockVirtualBatchDO> activeBatches,
                                         List<TornStockPortfolioSlotDO> slots) {
         return new RoundSnapshot(
-                List.of(), List.of(), List.of(), activeBatches, List.of(), List.of(), slots, ROUND_TIME
+                List.of(), List.of(), activeBatches, slots, ROUND_TIME
         );
     }
 }

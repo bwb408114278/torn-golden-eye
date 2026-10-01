@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
  * {@link StockNoticeBotSender}、{@link StockRebalanceNoticeSender} 承担。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.25
  */
 @Slf4j
@@ -459,14 +459,19 @@ public class StockNoticeSendService {
     /**
      * 判断通知是否必须关联虚拟交易批次。
      * <p>
-     * 只有每日摘要类通知正文自包含、不关联批次;其余通知类型(含未知类型)一律要求有效批次,
-     * 避免未知类型通知绕过批次校验被判为可发送。
+     * 正文自包含的无批次通知(每日摘要、年度结算年报、α继续持有通知)不关联批次,创建时载荷中已固化最终正文;
+     * 其余通知类型(含未知类型)一律要求有效批次,避免未知类型通知绕过批次校验被判为可发送。
+     * 该白名单必须与 {@link StockNoticeTypeEnum} 中"正文自包含"的类型同步,否则此类通知会被
+     * {@code markMissingBatchNoticesFinal} 直接置为FAILED_FINAL而永久失去自动重发能力。
      *
      * @param notice 通知审计
-     * @return 需要关联批次返回true;每日摘要返回false
+     * @return 需要关联批次返回true;正文自包含的无批次通知返回false
      */
     private boolean requiresBatch(TornStockNoticeAuditDO notice) {
-        return !StockNoticeTypeEnum.DAILY_SUMMARY.getCode().equals(notice.getNoticeType());
+        String noticeType = notice.getNoticeType();
+        return !StockNoticeTypeEnum.DAILY_SUMMARY.getCode().equals(noticeType)
+                && !StockNoticeTypeEnum.ANNUAL_SETTLEMENT.getCode().equals(noticeType)
+                && !StockNoticeTypeEnum.ALPHA_HOLD.getCode().equals(noticeType);
     }
 
     /**

@@ -121,8 +121,8 @@ public class VipSubscribeManager {
 
         if (!warningQqList.isEmpty()) {
             List<AtQqMsg> atList = warningQqList.stream().map(AtQqMsg::new).toList();
-            TextQqMsg warningMsg = new TextQqMsg("\n大佬们的订阅即将在5天内到期, 如果还满意请发送2Xan到3312605并备注"
-                    + TornConstants.REMARK_SUBSCRIBE + "进行续费\n如不需要续费到期后机器人会自动将大佬移出群聊, 欢迎留下您宝贵的改进意见");
+            TextQqMsg warningMsg = new TextQqMsg("\n以下成员的订阅将在5天内到期，续订方式见金眼交流群公告。"
+                    + "\n到期后会自动退出群聊，如需继续使用请提前办理。");
             BotHttpReqParam param = new GroupMsgHttpBuilder()
                     .setGroupId(projectProperty.getVipGroupId())
                     .addMsg(atList).addMsg(warningMsg).build();

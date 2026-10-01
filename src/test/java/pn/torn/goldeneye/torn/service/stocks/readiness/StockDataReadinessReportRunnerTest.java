@@ -7,11 +7,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import pn.torn.goldeneye.repository.dao.torn.stocks.readiness.StockDataReadinessQueryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.readiness.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
-import pn.torn.goldeneye.torn.service.stocks.replay.StockReplayReadOnlyGuard;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
  * 数据就绪报告运行器单元测试。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @ExtendWith(MockitoExtension.class)
@@ -37,7 +37,9 @@ class StockDataReadinessReportRunnerTest {
     @Mock
     private StockDataReadinessQueryDAO queryDao;
     @Mock
-    private StockReplayReadOnlyGuard readOnlyGuard;
+    private PlatformTransactionManager transactionManager;
+    @Mock
+    private TransactionStatus transactionStatus;
     @Mock
     private StockMarketClock marketClock;
     @InjectMocks
@@ -53,7 +55,7 @@ class StockDataReadinessReportRunnerTest {
         assertThrows(IllegalArgumentException.class,
                 () -> runner.run(invalidStart, end));
 
-        verifyNoInteractions(readOnlyGuard, queryDao, writer);
+        verifyNoInteractions(transactionManager, queryDao, writer);
     }
 
     @Test
@@ -66,7 +68,7 @@ class StockDataReadinessReportRunnerTest {
         assertThrows(IllegalArgumentException.class,
                 () -> runner.run(start, invalidEnd));
 
-        verifyNoInteractions(readOnlyGuard, queryDao, writer);
+        verifyNoInteractions(transactionManager, queryDao, writer);
     }
 
     @Test
@@ -94,18 +96,6 @@ class StockDataReadinessReportRunnerTest {
         when(queryDao.selectStrategyReadyFeatureCount(start, end, "1.0.0")).thenReturn(700L);
         when(queryDao.selectNotReadyFeatureReasonCounts(start, end, "1.0.0")).thenReturn(List.of(
                 new NameCount("INSUFFICIENT_HISTORY", 10L)));
-        when(queryDao.selectMonthlyStateCounts(start, end)).thenReturn(List.of());
-        when(queryDao.selectMonthlyEvidenceStatuses(start, end)).thenReturn(List.of(
-                new MonthlyEvidenceStatus(1, "TST", java.time.LocalDate.of(2026, 1, 1),
-                        "CONFIRMED", "PERSONALITY_RULE_V2_OUTAGE_EXCLUSION",
-                        "RISK_RULE_V2_OUTAGE_EXCLUSION",
-                        0.994351, 450L, 0.999468, 45L, 29L, 435L,
-                        "[\"TORN_MARKET_OUTAGE_20260214_0801_1515\"]", null),
-                new MonthlyEvidenceStatus(2, "OLD", java.time.LocalDate.of(2026, 1, 1),
-                        "CONFIRMED", "PERSONALITY_RULE_V1", "RISK_RULE_V1_SHADOW",
-                        null, null, null, null, null, null, null, null)));
-        when(queryDao.selectMonthlyIncompleteReasonCounts(start, end)).thenReturn(List.of(
-                new NameCount("MONTHLY_EVIDENCE_INCOMPLETE", 2L)));
         when(queryDao.selectRoundStatusCounts(start, end)).thenReturn(List.of(
                 new RoundStatusCount("REPAIRED_DATA_ONLY", 100L),
                 new RoundStatusCount("COMPLETED", 50L)));
@@ -113,10 +103,7 @@ class StockDataReadinessReportRunnerTest {
         when(queryDao.selectVipStockSettings()).thenReturn(List.of(
                 new SettingValue("VIP_STOCK_ALERT_ENABLED", "true"),
                 new SettingValue("VIP_STOCK_RULE_MODE", "SHADOW")));
-        when(readOnlyGuard.inReadOnlyTransaction(any())).thenAnswer(invocation -> {
-            TransactionCallback<Object> callback = invocation.getArgument(0);
-            return callback.doInTransaction(null);
-        });
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
         when(writer.write(any(), any())).thenAnswer(invocation -> ((Path) invocation.getArgument(0))
                 .resolve("run-1-summary.json"));
 
@@ -124,7 +111,7 @@ class StockDataReadinessReportRunnerTest {
 
         assertNotNull(result.path());
         assertNotNull(result.report());
-        verify(readOnlyGuard, times(1)).inReadOnlyTransaction(any());
+        verify(transactionManager, times(1)).getTransaction(any());
         ArgumentCaptor<StockDataReadinessReport> reportCaptor = ArgumentCaptor.forClass(StockDataReadinessReport.class);
         verify(writer).write(any(), reportCaptor.capture());
         StockDataReadinessReport report = reportCaptor.getValue();
@@ -138,16 +125,5 @@ class StockDataReadinessReportRunnerTest {
         assertFalse(report.manifestHash().isBlank(), "manifestHash不得为空");
         assertEquals("1.0.0", report.barBuildVersion());
         assertEquals("1.0.0", report.featureVersion());
-        // V2月度证据行必须写入同一报告: V1行无新键时保持null,不得解释为0或V2合格
-        assertEquals(2, report.snapshot().monthlyEvidenceStatuses().size());
-        MonthlyEvidenceStatus v2Row = report.snapshot().monthlyEvidenceStatuses().get(0);
-        assertEquals(Double.valueOf(0.994351), v2Row.rawUsableBarCoverage());
-        assertEquals(Long.valueOf(450L), v2Row.rawMaxMissingBucketGap());
-        assertEquals(Long.valueOf(45L), v2Row.adjustedMaxMissingBucketGap());
-        assertEquals(Long.valueOf(29L), v2Row.excludedBucketCount());
-        MonthlyEvidenceStatus v1Row = report.snapshot().monthlyEvidenceStatuses().get(1);
-        assertNull(v1Row.rawUsableBarCoverage(), "V1快照无新键时raw字段必须为null");
-        assertNull(v1Row.adjustedUsableBarCoverage(), "V1快照无新键时adjusted字段必须为null");
-        assertNull(v1Row.excludedBucketCount(), "V1快照无新键时排除字段必须为null");
     }
 }

@@ -22,7 +22,7 @@ import java.time.LocalDateTime;
  * 同一次数据库语义内写入两腿,禁止只更新其中一腿后用日志掩盖差异。普通通知的组级字段固定为null。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Data
@@ -42,7 +42,8 @@ public class TornStockNoticeAuditDO extends BaseDO {
      */
     private Long batchId;
     /**
-     * 通知类型(如SIGNAL_BUY/SELL_ALERT/DAILY_SUMMARY)
+     * 通知类型(取值与 {@code StockNoticeTypeEnum} 一致:BUY、SELL、ALPHA_REBALANCE、DAILY_SUMMARY、
+     * ALPHA_HOLD、ANNUAL_SETTLEMENT)
      */
     private String noticeType;
     /**
@@ -53,6 +54,12 @@ public class TornStockNoticeAuditDO extends BaseDO {
      * 摘要日期(日报类通知归属的自然日)
      */
     private LocalDate summaryDate;
+    /**
+     * α相位轨道编码(仅ALPHA_HOLD继续持有通知填充,为该通知幂等键{@code (summaryDate, trackCode)}的分量)。
+     * <p>
+     * 其余通知类型固定为null:该列只服务继续持有通知的业务唯一键,不参与批次与换仓语义。
+     */
+    private String trackCode;
     /**
      * 接收群组ID(通知投递的目标群组)
      */

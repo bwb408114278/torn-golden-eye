@@ -19,7 +19,7 @@ public class StocksDividendBuyStrategyImpl extends BaseStocksDividendStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "分红股最高收益纯买版，g#" + BotCommands.STOCK_DIVIDEND_BUY + "#资金";
+        return "分红收益最优的Stock纯买版，g#" + BotCommands.STOCK_DIVIDEND_BUY + "#资金";
     }
 
     @Override
@@ -29,6 +29,6 @@ public class StocksDividendBuyStrategyImpl extends BaseStocksDividendStrategy {
 
     @Override
     protected String isBestNowMsg() {
-        return "资金不足以购买能获得分红的股票";
+        return "资金不足以购买能获得分红的Stock";
     }
 }

@@ -62,6 +62,10 @@ class StockPortfolioInitServiceTest {
     void setUp() {
         lenient().when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
                 .thenReturn(List.of(buildVipAlphaSlot(1)));
+        // α影子组合参与启动校验: 默认给出一组完整槽位, 使各用例只聚焦被改造的组合
+        lenient().when(portfolioSlotDao.selectAllByPortfolioCode(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE))
+                .thenReturn(IntStream.rangeClosed(1, StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT)
+                        .mapToObj(this::buildAlphaShadowSlot).toList());
     }
 
     // ==================== verifyAndInitSlots ====================
@@ -370,6 +374,20 @@ class StockPortfolioInitServiceTest {
         TornStockPortfolioSlotDO slot = buildStandardSlot(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, slotNo);
         slot.setInitialCash(StockPortfolioService.VIP_ALPHA_INITIAL_CASH);
         slot.setAvailableCash(StockPortfolioService.VIP_ALPHA_INITIAL_CASH);
+        return slot;
+    }
+
+    /**
+     * 构建α影子组合标准初始槽位(每槽50亿)。
+     *
+     * @param slotNo 槽位序号
+     * @return 标准初始槽位DO
+     */
+    private TornStockPortfolioSlotDO buildAlphaShadowSlot(int slotNo) {
+        TornStockPortfolioSlotDO slot =
+                buildStandardSlot(StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, slotNo);
+        slot.setInitialCash(StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_CASH);
+        slot.setAvailableCash(StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_CASH);
         return slot;
     }
 

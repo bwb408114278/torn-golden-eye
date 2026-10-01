@@ -30,6 +30,37 @@
         ORDER BY id ASC
     </select>
 
+    <!-- 按摘要日期与通知类型读取唯一通知审计行:年度报告以(summary_date, notice_type)为幂等键,
+         重跑时先回读既有行复用其通知ID与冻结正文 -->
+    <select id="selectBySummaryDateAndType" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
+        SELECT id, notice_no, batch_id, notice_type, scheduled_round_time, summary_date, group_id,
+               payload_hash, payload_snapshot, send_status, send_attempt_count, claim_token, claim_time,
+               attempted_at, sent_at, error_message, message_rule_version, rebalance_group_status,
+               rebalance_group_error, deleted, create_time, update_time
+        FROM torn_stock_notice_audit
+        WHERE deleted = 0
+          AND summary_date = #{summaryDate}
+          AND notice_type = #{noticeType}
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <!-- 按摘要日期、通知类型与轨道编码读取唯一通知审计行:α继续持有通知以(summary_date, track_code)为幂等键,
+         重放或轮次重试时先回读既有行复用其通知ID与冻结正文 -->
+    <select id="selectBySummaryDateTypeAndTrack" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO">
+        SELECT id, notice_no, batch_id, notice_type, scheduled_round_time, summary_date, track_code, group_id,
+               payload_hash, payload_snapshot, send_status, send_attempt_count, claim_token, claim_time,
+               attempted_at, sent_at, error_message, message_rule_version, rebalance_group_status,
+               rebalance_group_error, deleted, create_time, update_time
+        FROM torn_stock_notice_audit
+        WHERE deleted = 0
+          AND summary_date = #{summaryDate}
+          AND notice_type = #{noticeType}
+          AND track_code = #{trackCode}
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
     <!-- 原子领取一批通知:仅PENDING/FAILED_RETRYABLE且未达上限可领取,领取即累计一次发送尝试。
          时间一律由应用层传入统一businessNow,不使用数据库CURRENT_TIMESTAMP。 -->
     <update id="claimByIds">

@@ -98,13 +98,13 @@ public class BotCommands {
 
     // ====================其他功能相关====================
     /**
-     * 股票分红购买
+     * Stock分红购买
      */
-    public static final String STOCK_DIVIDEND_CALC = "股票分红购买";
+    public static final String STOCK_DIVIDEND_CALC = "Stock分红购买";
     /**
-     * 股票分红追加
+     * Stock分红追加
      */
-    public static final String STOCK_DIVIDEND_BUY = "股票分红追加";
+    public static final String STOCK_DIVIDEND_BUY = "Stock分红追加";
     /**
      * 战力提升
      */
@@ -196,21 +196,21 @@ public class BotCommands {
      */
     public static final String AUCTION_SYNC = "拍卖记录同步";
     /**
-     * 股市特征值
+     * 计算Stock特征值
      */
-    public static final String STOCK_FEATURE_SYNC = "计算股市特征值";
+    public static final String STOCK_FEATURE_SYNC = "计算Stock特征值";
     /**
-     * 同步Tornsy股票数据
+     * 同步TornsyStock数据
      */
-    public static final String TORNSY_STOCK_HISTORY_SYNC = "同步Tornsy股票数据";
+    public static final String TORNSY_STOCK_HISTORY_SYNC = "同步TornsyStock数据";
     /**
-     * 重建股票派生数据
+     * 重建Stock派生数据
      */
-    public static final String DERIVED_STOCK_DATA_REBUILD = "重建股票派生数据";
+    public static final String DERIVED_STOCK_DATA_REBUILD = "重建Stock派生数据";
     /**
-     * 预填股票α日线
+     * 预填Stockα日线
      */
-    public static final String ALPHA_STOCK_DAILY_PREFILL = "预填股票α日线";
+    public static final String ALPHA_STOCK_DAILY_PREFILL = "预填Stockα日线";
     /**
      * 绑Key
      */
@@ -234,9 +234,9 @@ public class BotCommands {
      */
     public static final String VIP_NOTICE_RESUME = "提醒恢复";
     /**
-     * 炒股推荐
+     * Stock分析
      */
-    public static final String VIP_STOCK_RECOMMEND = "炒股推荐";
+    public static final String VIP_STOCK_RECOMMEND = "Stock分析";
 
     // ====================活跃度热力图====================
     /**

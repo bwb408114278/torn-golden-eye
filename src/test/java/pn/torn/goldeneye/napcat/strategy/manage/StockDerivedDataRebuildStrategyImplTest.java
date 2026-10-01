@@ -18,14 +18,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * 重建 VIP 股票派生数据指令策略测试。
+ * 重建 VIP Stock 派生数据指令策略测试。
  *
  * @author Bai
  * @version 1.4.2
  * @since 2026.08.23
  */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("重建VIP股票派生数据指令策略测试")
+@DisplayName("重建VIP Stock派生数据指令策略测试")
 class StockDerivedDataRebuildStrategyImplTest {
 
     @Mock
@@ -38,7 +38,7 @@ class StockDerivedDataRebuildStrategyImplTest {
     @DisplayName("策略声明_指令/描述/超管权限正确")
     void strategyDeclaration_correct() {
         assertEquals(BotCommands.DERIVED_STOCK_DATA_REBUILD, strategy.getCommand());
-        assertEquals("按指定时间范围重建VIP股票派生数据", strategy.getCommandDescription());
+        assertEquals("按指定时间范围重建VIP Stock派生数据", strategy.getCommandDescription());
         assertTrue(strategy.isNeedSa(), "派生重建必须为超管指令");
         assertNull(strategy.getRoleType());
     }
@@ -58,7 +58,7 @@ class StockDerivedDataRebuildStrategyImplTest {
                 LocalDateTime.of(2026, 7, 1, 0, 0, 0),
                 LocalDateTime.of(2026, 7, 2, 0, 0, 0),
                 12345L);
-        assertTrue(reply.startsWith("VIP股票派生数据重建任务已受理"));
+        assertTrue(reply.startsWith("VIP Stock派生数据重建任务已受理"));
         assertTrue(reply.contains("[2026-07-01 00:00:00, 2026-07-02 00:00:00)"));
     }
 
@@ -70,7 +70,7 @@ class StockDerivedDataRebuildStrategyImplTest {
 
         String reply = handleMsg(12345L, "2026-07-01 00:00:00#2026-07-02 00:00:00");
 
-        assertTrue(reply.startsWith("VIP股票派生数据重建未受理"));
+        assertTrue(reply.startsWith("VIP Stock派生数据重建未受理"));
         assertTrue(reply.contains("已有历史数据维护任务在执行中"));
     }
 

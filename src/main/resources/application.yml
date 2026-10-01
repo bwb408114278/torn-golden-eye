@@ -69,6 +69,7 @@ project:
   groupId: 782024117
   vipGroupId: 909796613
   vipNoticeGroupId: 941914067
+  vipEntryGroupId: 1126058948
   scanVipToken: ${SCAN_VIP_TOKEN}
   adminId:
     - 408114278

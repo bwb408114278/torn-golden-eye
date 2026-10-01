@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Param;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockNoticeAuditDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.NoticePayloadFinalizeCommand;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -23,7 +24,7 @@ import java.util.List;
  * 不再由SQL隐式使用 {@code CURRENT_TIMESTAMP},避免应用、容器与数据库时区不一致。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Mapper
@@ -51,6 +52,34 @@ public interface TornStockNoticeAuditMapper extends BaseMapper<TornStockNoticeAu
      * @return 该关联组全部未删除通知(按ID升序);不存在时返回空列表
      */
     List<TornStockNoticeAuditDO> selectByRebalanceAssociationId(@Param("rebalanceAssociationId") String rebalanceAssociationId);
+
+    /**
+     * 按摘要日期与通知类型读取唯一通知审计行。
+     * <p>
+     * 年度报告以{@code (summary_date, notice_type)}为幂等键:重跑时先回读既有行复用其通知ID与冻结正文,
+     * 避免因唯一索引冲突中断年度结算事务。
+     *
+     * @param summaryDate 摘要日期(被结算年最后一日)
+     * @param noticeType  通知类型编码
+     * @return 通知审计行;不存在时返回null
+     */
+    TornStockNoticeAuditDO selectBySummaryDateAndType(@Param("summaryDate") LocalDate summaryDate,
+                                                      @Param("noticeType") String noticeType);
+
+    /**
+     * 按摘要日期、通知类型与α相位轨道编码读取唯一通知审计行。
+     * <p>
+     * α继续持有通知以{@code (summary_date, track_code)}为幂等键:同一决策业务日的同一轨道
+     * 重放或轮次重试时先回读既有行复用其通知ID与冻结正文,避免唯一索引冲突中断轮次事务。
+     *
+     * @param summaryDate 摘要日期(该通知为决策业务日)
+     * @param noticeType  通知类型编码
+     * @param trackCode   α相位轨道编码
+     * @return 通知审计行;不存在时返回null
+     */
+    TornStockNoticeAuditDO selectBySummaryDateTypeAndTrack(@Param("summaryDate") LocalDate summaryDate,
+                                                           @Param("noticeType") String noticeType,
+                                                           @Param("trackCode") String trackCode);
 
     /**
      * 原子领取一批通知:置为SENDING、写入领取标识与领取时间并累计一次发送尝试。

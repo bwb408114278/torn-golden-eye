@@ -33,7 +33,7 @@ public class StockDerivedDataRebuildStrategyImpl extends BaseStockHistoryRangeSt
 
     @Override
     public String getCommandDescription() {
-        return "按指定时间范围重建VIP股票派生数据";
+        return "按指定时间范围重建VIP Stock派生数据";
     }
 
     @Override
@@ -50,13 +50,13 @@ public class StockDerivedDataRebuildStrategyImpl extends BaseStockHistoryRangeSt
     protected String buildAcceptedMessage(LocalDateTime start, LocalDateTime end) {
         LocalDateTime alignedStart = Stock15mBarBuildService.alignToBucket(start);
         LocalDateTime alignedEnd = Stock15mBarBuildService.alignToBucket(end);
-        return "VIP股票派生数据重建任务已受理，范围：[" + DateTimeUtils.convertToString(alignedStart)
+        return "VIP Stock派生数据重建任务已受理，范围：[" + DateTimeUtils.convertToString(alignedStart)
                 + ", " + DateTimeUtils.convertToString(alignedEnd) + ")，请关注日志和最终回执。";
     }
 
     @Override
     protected String buildRejectedMessage(DerivedRebuildSubmission submission) {
-        return "VIP股票派生数据重建未受理：" + switch (submission) {
+        return "VIP Stock派生数据重建未受理：" + switch (submission) {
             case NOT_PROD -> "当前非生产环境";
             case INVALID_RANGE -> "时间范围无效，起始时间需早于结束时间";
             case TOO_RECENT -> "结束时间过新，需早于当前时间30分钟的稳定截止";

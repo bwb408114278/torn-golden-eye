@@ -12,37 +12,11 @@ import java.util.List;
  * Torn股票虚拟交易批次数据库访问层
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.6
  * @since 2026.07.24
  */
 @Mapper
 public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtualBatchDO> {
-
-    /**
-     * 按来源事件和账本类型查询并锁定批次。
-     *
-     * @param signalEventId 来源信号事件ID
-     * @param ledgerType    账本类型
-     * @return 已存在的批次;不存在时返回null
-     */
-    TornStockVirtualBatchDO selectBySignalEventIdAndLedgerTypeForUpdate(@Param("signalEventId") Long signalEventId,
-                                                                        @Param("ledgerType") String ledgerType);
-
-    /**
-     * 按股票+主策略+版本锁定同股同策略活跃无限资金影子批次。
-     * <p>
-     * 部分唯一索引 {@code uk_stock_virtual_batch_shadow_stock_strat_ver} 约束同股同策略
-     * 同版本仅存在一条活跃无限资金影子批次; 积压/回放在同一墙钟分钟处理多个历史round时,
-     * 同股同策略的第二个round必须复用已存在批次而非新建, 否则触发唯一约束异常。
-     *
-     * @param stocksId        股票ID
-     * @param primaryStrategy 主策略编码
-     * @param buyRuleVersion  买入规则版本
-     * @return 已存在的同股同策略活跃无限资金影子批次;不存在时返回null
-     */
-    TornStockVirtualBatchDO selectActiveUnlimitedShadowByStockStrategyForUpdate(@Param("stocksId") Integer stocksId,
-                                                                                @Param("primaryStrategy") String primaryStrategy,
-                                                                                @Param("buyRuleVersion") String buyRuleVersion);
 
     /**
      * 按批次编号锁定批次。
@@ -61,18 +35,20 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
     int insertIgnoreConflict(@Param("batch") TornStockVirtualBatchDO batch);
 
     /**
-     * 查询全部VIP Alpha活跃批次。
+     * 按组合编码查询α轨道活跃批次(FORMAL与ALPHA_SHADOW账本)。
      *
-     * @return VIP Alpha活跃批次列表
+     * @param portfolioCode α轨道组合编码
+     * @return 该轨道的活跃批次列表
      */
-    List<TornStockVirtualBatchDO> selectActiveAlphaBatches();
+    List<TornStockVirtualBatchDO> selectActiveAlphaBatches(@Param("portfolioCode") String portfolioCode);
 
     /**
-     * 查询全部VIP Alpha活跃批次并加事务行锁。
+     * 按组合编码查询α轨道活跃批次并加事务行锁(FORMAL与ALPHA_SHADOW账本)。
      *
-     * @return 已锁定的VIP Alpha活跃批次列表
+     * @param portfolioCode α轨道组合编码
+     * @return 已锁定的该轨道活跃批次列表
      */
-    List<TornStockVirtualBatchDO> selectActiveAlphaBatchesForUpdate();
+    List<TornStockVirtualBatchDO> selectActiveAlphaBatchesForUpdate(@Param("portfolioCode") String portfolioCode);
 
     /**
      * 查询全部正式活跃批次。
@@ -89,69 +65,32 @@ public interface TornStockVirtualBatchMapper extends BaseMapper<TornStockVirtual
     List<TornStockVirtualBatchDO> selectActiveFormalBatchesForUpdate();
 
     /**
-     * 查询全部活跃影子批次(UNLIMITED_SHADOW)
+     * 查询指定组合编码的α轨道(正式α或α影子)指定时间范围内有入场或出场动作的批次。
      *
-     * @return 影子活跃批次列表
+     * @param portfolioCode 组合编码(正式α或α影子)
+     * @param startTime     时间范围起点(含)
+     * @param endTime       时间范围终点(不含)
+     * @return 该组合的动作批次列表
      */
-    List<TornStockVirtualBatchDO> selectActiveShadowBatches();
+    List<TornStockVirtualBatchDO> selectAlphaActionBatches(@Param("portfolioCode") String portfolioCode,
+                                                           @Param("startTime") LocalDateTime startTime,
+                                                           @Param("endTime") LocalDateTime endTime);
 
     /**
-     * 查询全部无限资金影子活跃批次并加事务行锁。
-     *
-     * @return 已锁定的影子活跃批次列表
-     */
-    List<TornStockVirtualBatchDO> selectActiveShadowBatchesForUpdate();
-
-
-    /**
-     * 查询正式账本指定时间范围内有入场或出场动作的批次。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 正式批次
-     */
-    List<TornStockVirtualBatchDO> selectFormalActionBatches(@Param("startTime") LocalDateTime startTime,
-                                                            @Param("endTime") LocalDateTime endTime);
-
-    /**
-     * 查询影子账本指定时间范围内有信号或出场动作的批次。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 影子批次
-     */
-    List<TornStockVirtualBatchDO> selectShadowActionBatches(@Param("startTime") LocalDateTime startTime,
-                                                            @Param("endTime") LocalDateTime endTime);
-
-    /**
-     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)的活跃批次,固定SQL替代Java散落OR条件。
-     *
-     * @return 候选影子活跃批次列表
-     */
-    List<TornStockVirtualBatchDO> selectActiveCandidateShadowBatches();
-
-    /**
-     * 查询候选影子账本(SHADOW_FORMAL_CANDIDATE)指定时间范围内有入场或出场动作的批次。
-     *
-     * @param startTime 时间范围起点(含)
-     * @param endTime   时间范围终点(不含)
-     * @return 候选影子动作批次列表
-     */
-    List<TornStockVirtualBatchDO> selectCandidateShadowActionBatches(@Param("startTime") LocalDateTime startTime,
-                                                                     @Param("endTime") LocalDateTime endTime);
-
-    /**
-     * 按信号事件ID批量查询拒绝观察批次。
-     *
-     * @param signalEventIds 信号事件ID列表
-     * @return 拒绝观察批次
-     */
-    List<TornStockVirtualBatchDO> selectRejectedObservationBatches(@Param("signalEventIds") List<Long> signalEventIds);
-
-    /**
-     * 判断是否存在正式或无限资金影子活跃批次。
+     * 判断是否存在正式或α影子活跃批次。
      *
      * @return 存在活跃批次返回true;否则false
      */
     boolean existsActiveBatches();
+
+    /**
+     * 查询指定组合编码最早一笔批次的入场时间。
+     * <p>
+     * 年度结算用它推导首个不完整年度的区间起点:首笔α批次入场时间即该组合真实开始运行的时刻,
+     * 没有入场批次时返回null,由调用方回退到槽位创建时间。
+     *
+     * @param portfolioCode 组合编码
+     * @return 最早入场时间;无入场批次时返回null
+     */
+    LocalDateTime selectEarliestEntryTime(@Param("portfolioCode") String portfolioCode);
 }

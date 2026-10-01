@@ -31,14 +31,14 @@ import java.util.stream.Collectors;
  * 阶段一新增批处理门面：按自然日分片从 {@code torn_stocks_history} 读取全市场真实分钟事实，
  * 批量 UPSERT 15m bar；再按股票顺序扫描当前版本 bar，使用 {@link Stock15mFeatureCalculator}
  * 顺序计算并批量 UPSERT feature；最后把实际存在分钟事实的桶轮次标为
- * {@code REPAIRED_DATA_ONLY}（保留 COMPLETED/FAILED_FINAL），并调用月度范围重建服务。
+ * {@code REPAIRED_DATA_ONLY}（保留 COMPLETED/FAILED_FINAL）。
  * <p>
  * 本服务不修改 {@code torn_stocks_history}，不调用 {@code StockRoundTransactionService}，
  * 不创建/修改 signal_event、virtual_batch、batch_mark、notice_audit、槽位、资金、冷却或复位状态。
  * 失败时返回带失败分片的 {@link StockDerivedDataRebuildResult}，已完成部分保留，可同范围幂等重跑。
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.6.5
  * @since 2026.08.23
  */
 @Slf4j
@@ -62,7 +62,6 @@ public class StockDerivedDataRebuildService {
     private final TornStockMarketRoundDAO roundDao;
     private final StockMarketRoundFactory roundFactory;
     private final StockMarketClock marketClock;
-    private final StockMonthlyStateRangeRebuildService monthlyStateRangeRebuildService;
 
     /**
      * 执行全范围派生数据重建。
@@ -116,9 +115,6 @@ public class StockDerivedDataRebuildService {
 
             // 4.5 数据修复 round：仅实际存在分钟事实的桶
             int dataOnlyRounds = markRoundsDataRepaired(actualBuckets, barCountByBucket, featureCountByBucket);
-
-            // 5.3 月度状态范围重算
-            monthlyStateRangeRebuildService.rebuild(start, end);
 
             long elapsedMillis = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
             long skippedEmpty = bucketCount(start, end) - actualBuckets.size();

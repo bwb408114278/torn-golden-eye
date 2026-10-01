@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * α策略决策持久层。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.09.05
  */
 @Repository
@@ -24,12 +24,14 @@ public class TornStockAlphaDecisionDAO extends ServiceImpl<TornStockAlphaDecisio
      * 不读取完整历史窗口、不重新排名、不改写执行桶;不存在时才允许生成新决策。
      * 禁止用本方法跨执行桶消费决策。
      *
+     * @param phaseTrackCode       相位轨道编码
      * @param decisionBusinessDate 决策自然日
      * @param phase                phase编号
      * @return 决策记录;不存在时返回null
      */
-    public TornStockAlphaDecisionDO selectByBusinessKeyForUpdate(LocalDate decisionBusinessDate, Integer phase) {
-        return baseMapper.selectByBusinessKeyForUpdate(decisionBusinessDate, phase);
+    public TornStockAlphaDecisionDO selectByBusinessKeyForUpdate(String phaseTrackCode,
+                                                                 LocalDate decisionBusinessDate, Integer phase) {
+        return baseMapper.selectByBusinessKeyForUpdate(phaseTrackCode, decisionBusinessDate, phase);
     }
 
     /**
@@ -37,28 +39,34 @@ public class TornStockAlphaDecisionDAO extends ServiceImpl<TornStockAlphaDecisio
      * <p>
      * 执行阶段以"决策业务键+持久化执行桶"锁定,执行桶不一致时返回null,由调用方fail-closed跳过。
      *
+     * @param phaseTrackCode        相位轨道编码
      * @param decisionBusinessDate  决策自然日
      * @param phase                 phase编号
      * @param executionBarStartTime 持久化执行bar起点
      * @return 决策记录;执行桶不一致时返回null
      */
-    public TornStockAlphaDecisionDO selectByExecutionKeyForUpdate(LocalDate decisionBusinessDate, Integer phase,
+    public TornStockAlphaDecisionDO selectByExecutionKeyForUpdate(String phaseTrackCode,
+                                                                  LocalDate decisionBusinessDate, Integer phase,
                                                                   LocalDateTime executionBarStartTime) {
-        return baseMapper.selectByExecutionKeyForUpdate(decisionBusinessDate, phase, executionBarStartTime);
+        return baseMapper.selectByExecutionKeyForUpdate(phaseTrackCode, decisionBusinessDate, phase,
+                executionBarStartTime);
     }
 
     /**
      * 按决策日期、phase和执行桶锁定待消费的初始入场决策。
      *
+     * @param phaseTrackCode        相位轨道编码
      * @param decisionBusinessDate  决策自然日
      * @param phase                 phase编号
      * @param executionBarStartTime 执行bar起点
      * @return 待消费初始决策
      */
-    public TornStockAlphaDecisionDO selectPendingInitialEntryForUpdate(LocalDate decisionBusinessDate,
+    public TornStockAlphaDecisionDO selectPendingInitialEntryForUpdate(String phaseTrackCode,
+                                                                       LocalDate decisionBusinessDate,
                                                                        Integer phase,
                                                                        LocalDateTime executionBarStartTime) {
-        return baseMapper.selectPendingInitialEntryForUpdate(decisionBusinessDate, phase, executionBarStartTime);
+        return baseMapper.selectPendingInitialEntryForUpdate(phaseTrackCode, decisionBusinessDate, phase,
+                executionBarStartTime);
     }
 
     /**

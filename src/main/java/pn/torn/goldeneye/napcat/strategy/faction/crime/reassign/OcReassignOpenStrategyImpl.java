@@ -21,7 +21,7 @@ import java.util.List;
  * <p>仅超管可用，为指定帮派开通大锅饭并设定收益模式（系数/平分）。</p>
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.5
  * @since 2026.09.14
  */
 @Component
@@ -52,7 +52,7 @@ public class OcReassignOpenStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "开启帮派大锅饭(仅超管), 例" + USAGE_EXAMPLE;
+        return "开启帮派大锅饭, 例" + USAGE_EXAMPLE;
     }
 
     @Override

@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  * 的批量收益补算（防重入由批量收益服务保证）。</p>
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.6.5
  * @since 2026.09.14
  */
 @Component
@@ -44,7 +44,7 @@ public class OcReassignAddStrategyImpl extends BaseGroupMsgStrategy {
      * 指令用法示例（可选帮派ID前缀仅超管、可选生效日期默认当月1日）
      */
     private static final String USAGE_EXAMPLE =
-            "g#" + BotCommands.OC_REASSIGN_ADD + "(#帮派ID)#OC名称(#yyyy-MM-dd)";
+            "g#" + BotCommands.OC_REASSIGN_ADD + "#OC名称";
 
     private final OcReassignConfigService reassignConfigService;
     private final TornSettingFactionManager settingFactionManager;

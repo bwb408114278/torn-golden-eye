@@ -32,7 +32,7 @@ public class StocksFeatureBuildStrategyImpl extends BaseGroupMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "补齐未计算的股票特征值";
+        return "补齐未计算的Stock特征值";
     }
 
     @Override
@@ -51,6 +51,6 @@ public class StocksFeatureBuildStrategyImpl extends BaseGroupMsgStrategy {
         LocalDateTime startTime = DateTimeUtils.convertToDateTime(msgArray[0]);
         LocalDateTime endTime = DateTimeUtils.convertToDateTime(msgArray[1]);
         featureBuildService.rebuildBetween(startTime, endTime);
-        return super.buildTextMsg("同步股票特征完成");
+        return super.buildTextMsg("同步Stock特征完成");
     }
 }

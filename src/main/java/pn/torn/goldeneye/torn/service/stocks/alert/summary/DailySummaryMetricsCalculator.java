@@ -2,26 +2,26 @@ package pn.torn.goldeneye.torn.service.stocks.alert.summary;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockBatchStatusEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
-import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockSignalEventDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockVirtualBatchDO;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
- * 每日摘要统计计算器 - 纯计算买卖、风险、拒绝等汇总指标
+ * 每日摘要统计计算器 - 纯计算槽位、昨日买卖与已实现收益汇总指标
  * <p>
- * 本类只消费信号事件/批次/槽位列表并返回统计数,不访问DAO、不触达通知或渲染,
- * 是查询服务的纯计算组件。买卖批次按entryTime/exitTime落在摘要日期范围内统计,
- * 净收益为卖出批次netReturn之和;拒绝/高风险等口径与原始信号事件编码一一对应。
+ * 本类只消费槽位与批次列表并返回统计值,不访问DAO、不触达通知或渲染,是查询服务的纯计算组件。
+ * 买卖批次按entryTime/exitTime落在摘要日期范围内统计;已实现净收益以
+ * {@code 卖出收入 - 投入成本} 的金额口径汇总,收益率由金额与投入成本在渲染层派生,
+ * 不得再用批次上的 {@code netReturn} 比率冒充"净收益"。
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.6.5
  * @since 2026.08.09
  */
 @Component
@@ -65,44 +65,33 @@ public class DailySummaryMetricsCalculator {
     }
 
     /**
-     * 汇总昨日卖出批次的净收益。
+     * 汇总昨日卖出批次的已实现净收益金额。
      *
      * @param batches  昨日有动作的批次
      * @param dayStart 摘要日期起始(含)
      * @param dayEnd   摘要日期结束(不含)
-     * @return 净收益合计;无卖出批次时返回 {@link BigDecimal#ZERO}
+     * @return 已实现净收益金额合计;无卖出批次时返回 {@link BigDecimal#ZERO}
      */
-    public BigDecimal sumNetReturn(List<TornStockVirtualBatchDO> batches,
-                                   LocalDateTime dayStart, LocalDateTime dayEnd) {
-        if (CollectionUtils.isEmpty(batches)) {
-            return BigDecimal.ZERO;
-        }
-        return batches.stream()
-                .filter(batch -> {
-                    LocalDateTime exitTime = batch.getExitTime();
-                    return exitTime != null && !exitTime.isBefore(dayStart) && exitTime.isBefore(dayEnd);
-                })
-                .map(TornStockVirtualBatchDO::getNetReturn)
-                .filter(Objects::nonNull)
+    public BigDecimal sumRealizedProfit(List<TornStockVirtualBatchDO> batches,
+                                        LocalDateTime dayStart, LocalDateTime dayEnd) {
+        return yesterdayExitBatches(batches, dayStart, dayEnd)
+                .map(batch -> proceeds(batch).subtract(investedCash(batch)))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
-     * 提取OPEN状态批次的股票简称列表。
+     * 汇总昨日卖出批次的投入成本,供渲染层派生收益率。
      *
-     * @param activeBatches 活跃批次
-     * @return 股票简称列表;无开放批次时返回空列表
+     * @param batches  昨日有动作的批次
+     * @param dayStart 摘要日期起始(含)
+     * @param dayEnd   摘要日期结束(不含)
+     * @return 投入成本合计;无卖出批次时返回 {@link BigDecimal#ZERO}
      */
-    public List<String> extractOpenBatchStocks(List<TornStockVirtualBatchDO> activeBatches) {
-        if (CollectionUtils.isEmpty(activeBatches)) {
-            return Collections.emptyList();
-        }
-        return activeBatches.stream()
-                .filter(batch -> StockBatchStatusEnum.OPEN.getCode().equals(batch.getBatchStatus()))
-                .map(TornStockVirtualBatchDO::getStocksShortname)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+    public BigDecimal sumInvestedCash(List<TornStockVirtualBatchDO> batches,
+                                      LocalDateTime dayStart, LocalDateTime dayEnd) {
+        return yesterdayExitBatches(batches, dayStart, dayEnd)
+                .map(this::investedCash)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
@@ -122,85 +111,41 @@ public class DailySummaryMetricsCalculator {
     }
 
     /**
-     * 统计信号事件总数。
+     * 筛选出场时刻落在摘要日内的批次。
      *
-     * @param signalEvents 信号事件列表
-     * @return 事件数;入参为空时返回0
+     * @param batches  昨日有动作的批次
+     * @param dayStart 摘要日期起始(含)
+     * @param dayEnd   摘要日期结束(不含)
+     * @return 摘要日内卖出的批次流
      */
-    public int countSignalEvents(List<TornStockSignalEventDO> signalEvents) {
-        return CollectionUtils.isEmpty(signalEvents) ? 0 : signalEvents.size();
+    private Stream<TornStockVirtualBatchDO> yesterdayExitBatches(List<TornStockVirtualBatchDO> batches,
+                                                                 LocalDateTime dayStart, LocalDateTime dayEnd) {
+        if (CollectionUtils.isEmpty(batches)) {
+            return Stream.empty();
+        }
+        return batches.stream().filter(batch -> {
+            LocalDateTime exitTime = batch.getExitTime();
+            return exitTime != null && !exitTime.isBefore(dayStart) && exitTime.isBefore(dayEnd);
+        });
     }
 
     /**
-     * 按组合决策统计信号事件数。
+     * 取批次卖出收入,缺失按0处理。
      *
-     * @param signalEvents 信号事件列表
-     * @return 匹配的事件数
+     * @param batch 批次
+     * @return 卖出收入
      */
-    public int countShadowDecisions(List<TornStockSignalEventDO> signalEvents) {
-        if (CollectionUtils.isEmpty(signalEvents)) {
-            return 0;
-        }
-        return (int) signalEvents.stream()
-                .filter(event -> StockPortfolioDecisionEnum.SHADOW.getCode().equals(event.getPortfolioDecision()))
-                .count();
+    private BigDecimal proceeds(TornStockVirtualBatchDO batch) {
+        return batch.getSellProceeds() == null ? BigDecimal.ZERO : batch.getSellProceeds();
     }
 
     /**
-     * 按拒绝原因统计信号事件数。
+     * 取批次投入成本,缺失按0处理。
      *
-     * @param signalEvents 信号事件列表
-     * @return 匹配的事件数
+     * @param batch 批次
+     * @return 投入成本
      */
-    public int countNoAvailableSlotRejections(List<TornStockSignalEventDO> signalEvents) {
-        if (CollectionUtils.isEmpty(signalEvents)) {
-            return 0;
-        }
-        return (int) signalEvents.stream()
-                .filter(event -> StockCancelReasonEnum.NO_AVAILABLE_SLOT.getCode().equals(event.getRejectReason()))
-                .count();
-    }
-
-    /**
-     * 统计风格/趋势拒绝的信号事件数。
-     * <p>
-     * 包含两种情形:
-     * <ul>
-     *   <li>rejectReason = STYLE_NOT_READY</li>
-     *   <li>portfolioDecision = REJECTED 且 rejectReason 非 NO_AVAILABLE_SLOT</li>
-     * </ul>
-     *
-     * @param signalEvents 信号事件列表
-     * @return 风格/趋势拒绝事件数
-     */
-    public int countStyleReject(List<TornStockSignalEventDO> signalEvents) {
-        if (CollectionUtils.isEmpty(signalEvents)) {
-            return 0;
-        }
-        return (int) signalEvents.stream()
-                .filter(event -> {
-                    String reason = event.getRejectReason();
-                    if (StockCancelReasonEnum.STYLE_NOT_READY.getCode().equals(reason)) {
-                        return true;
-                    }
-                    return StockPortfolioDecisionEnum.REJECTED.getCode().equals(event.getPortfolioDecision())
-                            && !StockCancelReasonEnum.NO_AVAILABLE_SLOT.getCode().equals(reason);
-                })
-                .count();
-    }
-
-    /**
-     * 统计高风险观察数(riskLevel=HIGH)。
-     *
-     * @param shadowBatches 影子批次列表
-     * @return 高风险观察数
-     */
-    public int countHighRisk(List<TornStockVirtualBatchDO> shadowBatches) {
-        if (CollectionUtils.isEmpty(shadowBatches)) {
-            return 0;
-        }
-        return (int) shadowBatches.stream()
-                .filter(batch -> StockRiskLevelEnum.HIGH.getCode().equals(batch.getRiskLevel()))
-                .count();
+    private BigDecimal investedCash(TornStockVirtualBatchDO batch) {
+        return batch.getInvestedCash() == null ? BigDecimal.ZERO : batch.getInvestedCash();
     }
 }

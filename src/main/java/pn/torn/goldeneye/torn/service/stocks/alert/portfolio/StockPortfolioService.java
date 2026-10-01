@@ -54,6 +54,10 @@ public class StockPortfolioService {
      */
     public static final String VIP_ALPHA_PORTFOLIO_CODE = "VIP_ALPHA";
     /**
+     * 组合编码 - VIP Alpha影子组合(多槽相位分散的影子账本,与正式α完全隔离)
+     */
+    public static final String VIP_ALPHA_SHADOW_PORTFOLIO_CODE = "VIP_ALPHA_SHADOW";
+    /**
      * 槽位数量
      */
     public static final int SLOT_COUNT = 5;
@@ -62,6 +66,10 @@ public class StockPortfolioService {
      */
     public static final int VIP_ALPHA_SLOT_COUNT = 1;
     /**
+     * VIP Alpha影子组合槽位数量
+     */
+    public static final int VIP_ALPHA_SHADOW_SLOT_COUNT = 2;
+    /**
      * 每槽初始资金(20亿)
      */
     public static final BigDecimal INITIAL_CASH = new BigDecimal("2000000000.00");
@@ -69,6 +77,10 @@ public class StockPortfolioService {
      * VIP Alpha组合每槽初始资金(100亿)
      */
     public static final BigDecimal VIP_ALPHA_INITIAL_CASH = new BigDecimal("10000000000.00");
+    /**
+     * VIP Alpha影子组合每槽初始资金(50亿)
+     */
+    public static final BigDecimal VIP_ALPHA_SHADOW_SLOT_CASH = new BigDecimal("5000000000.00");
     /**
      * 卖出费率(0.1%手续费,实得99.9%)
      */
@@ -100,6 +112,33 @@ public class StockPortfolioService {
     public static boolean isAlphaBatch(TornStockVirtualBatchDO batch) {
         return batch != null && StockLedgerTypeEnum.FORMAL.getCode().equals(batch.getLedgerType())
                 && VIP_ALPHA_PORTFOLIO_CODE.equals(batch.getPortfolioCode());
+    }
+
+    /**
+     * 判断批次是否属于α影子组合。
+     *
+     * @param batch 待判断批次
+     * @return 账本为ALPHA_SHADOW且组合为VIP_ALPHA_SHADOW时返回true
+     */
+    public static boolean isAlphaShadowBatch(TornStockVirtualBatchDO batch) {
+        return batch != null && StockLedgerTypeEnum.ALPHA_SHADOW.getCode().equals(batch.getLedgerType())
+                && VIP_ALPHA_SHADOW_PORTFOLIO_CODE.equals(batch.getPortfolioCode());
+    }
+
+    /**
+     * 判断批次是否属于任一条α轨道账本(正式α或α影子)。
+     * <p>
+     * 本方法是"α语义 vs 旧版语义"的唯一判定入口:凡决定使用哪套策略规则处理批次的分支
+     * (退出评估、成交组装、文案渲染、通知过滤)必须使用本方法。
+     * {@link #isAlphaBatch(TornStockVirtualBatchDO)}只表示正式α组合身份,不得单独用于决定α语义:
+     * α影子的账本是{@code ALPHA_SHADOW},用身份判定会把影子落入旧版固定退出与旧版规则版本。
+     * 正式仓的槽数、资金、账本与通知语义因此零改动。
+     *
+     * @param batch 待判断批次
+     * @return 属于正式α或α影子账本时返回true
+     */
+    public static boolean isAlphaLedger(TornStockVirtualBatchDO batch) {
+        return isAlphaBatch(batch) || isAlphaShadowBatch(batch);
     }
 
     /**
@@ -344,6 +383,7 @@ public class StockPortfolioService {
      */
     public boolean isSlotBackedLedger(String ledgerType) {
         return StockLedgerTypeEnum.FORMAL.getCode().equals(ledgerType)
+                || StockLedgerTypeEnum.ALPHA_SHADOW.getCode().equals(ledgerType)
                 || StockLedgerTypeEnum.SHADOW_FORMAL_CANDIDATE.getCode().equals(ledgerType);
     }
 

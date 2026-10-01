@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="pn.torn.goldeneye.repository.mapper.torn.stocks.portfolio.TornStockPortfolioAnnualSettlementMapper">
+    <!-- 冲突安全插入年度结算台账行,与部分唯一索引uk_stock_annual_settlement_business同语义,
+         并发或重复触发时只有一行,影响行数0表示已存在 -->
+    <insert id="insertIgnoreConflict">
+        INSERT INTO torn_stock_portfolio_annual_settlement
+            (portfolio_code, settle_year, boundary_time, rule_version, settlement_status,
+             degrade_reason, last_attempt_at, deleted, create_time, update_time)
+        VALUES
+            (#{settlement.portfolioCode}, #{settlement.settleYear}, #{settlement.boundaryTime}, #{settlement.ruleVersion},
+             #{settlement.settlementStatus}, #{settlement.degradeReason}, #{settlement.lastAttemptAt},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (portfolio_code, settle_year, rule_version) WHERE deleted = 0 DO NOTHING
+    </insert>
+
+    <!-- 按业务唯一键查询年度结算台账行 -->
+    <select id="selectByBusinessKey"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioAnnualSettlementDO">
+        SELECT * FROM torn_stock_portfolio_annual_settlement
+        WHERE portfolio_code = #{portfolioCode}
+          AND settle_year = #{settleYear}
+          AND rule_version = #{ruleVersion}
+          AND deleted = 0
+    </select>
+
+    <!-- 查询指定年度之前最近一个已结算台账行,用于累计提取科目的连续性 -->
+    <select id="selectLatestSettledBefore"
+            resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioAnnualSettlementDO">
+        SELECT * FROM torn_stock_portfolio_annual_settlement
+        WHERE portfolio_code = #{portfolioCode}
+          AND rule_version = #{ruleVersion}
+          AND settlement_status = 'SETTLED'
+          AND settle_year &lt; #{settleYear}
+          AND deleted = 0
+        ORDER BY settle_year DESC
+        LIMIT 1
+    </select>
+
+    <!-- 已结算行落库:首次插入,或把既有降级行补齐为SETTLED。金额列只在本语句出现,避免两处维护同一字段集;
+         create_time与notice_id/notice_status不在DO UPDATE中,首次写入时间与通知回填关系不被覆盖;
+         degrade_reason显式置NULL,转为已结算必须清空历史降级原因 -->
+    <insert id="upsertSettled">
+        INSERT INTO torn_stock_portfolio_annual_settlement
+            (portfolio_code, settle_year, boundary_time, boundary_bar_start_time, boundary_bar_digest,
+             initial_cash, opening_equity, closing_cash, closing_reserved, closing_market_value, closing_equity,
+             cumulative_extracted_before, extracted_amount, cumulative_extracted_after, year_return,
+             coverage_days, partial_year, annualized_return, open_position_count,
+             settlement_status, degrade_reason, last_attempt_at, rule_version, deleted, create_time, update_time)
+        VALUES
+            (#{settlement.portfolioCode}, #{settlement.settleYear}, #{settlement.boundaryTime},
+             #{settlement.boundaryBarStartTime}, #{settlement.boundaryBarDigest},
+             #{settlement.initialCash}, #{settlement.openingEquity}, #{settlement.closingCash},
+             #{settlement.closingReserved}, #{settlement.closingMarketValue}, #{settlement.closingEquity},
+             #{settlement.cumulativeExtractedBefore}, #{settlement.extractedAmount},
+             #{settlement.cumulativeExtractedAfter}, #{settlement.yearReturn},
+             #{settlement.coverageDays}, #{settlement.partialYear}, #{settlement.annualizedReturn},
+             #{settlement.openPositionCount},
+             #{settlement.settlementStatus}, NULL, #{businessNow}, #{settlement.ruleVersion}, 0,
+             #{businessNow}, #{businessNow})
+        ON CONFLICT (portfolio_code, settle_year, rule_version) WHERE deleted = 0
+        DO UPDATE SET
+            boundary_time = EXCLUDED.boundary_time,
+            boundary_bar_start_time = EXCLUDED.boundary_bar_start_time,
+            boundary_bar_digest = EXCLUDED.boundary_bar_digest,
+            initial_cash = EXCLUDED.initial_cash,
+            opening_equity = EXCLUDED.opening_equity,
+            closing_cash = EXCLUDED.closing_cash,
+            closing_reserved = EXCLUDED.closing_reserved,
+            closing_market_value = EXCLUDED.closing_market_value,
+            closing_equity = EXCLUDED.closing_equity,
+            cumulative_extracted_before = EXCLUDED.cumulative_extracted_before,
+            extracted_amount = EXCLUDED.extracted_amount,
+            cumulative_extracted_after = EXCLUDED.cumulative_extracted_after,
+            year_return = EXCLUDED.year_return,
+            coverage_days = EXCLUDED.coverage_days,
+            partial_year = EXCLUDED.partial_year,
+            annualized_return = EXCLUDED.annualized_return,
+            open_position_count = EXCLUDED.open_position_count,
+            settlement_status = EXCLUDED.settlement_status,
+            degrade_reason = NULL,
+            last_attempt_at = EXCLUDED.last_attempt_at,
+            update_time = EXCLUDED.update_time
+    </insert>
+
+    <!-- 回写降级或阻断状态:只写状态、原因与尝试时间,绝不写任何金额字段;
+         状态守卫保证已结算行不会被降级覆盖,影响行数为0表示未命中 -->
+    <update id="updateDegradedById">
+        UPDATE torn_stock_portfolio_annual_settlement
+        SET settlement_status = #{settlement.settlementStatus},
+            degrade_reason = #{settlement.degradeReason},
+            last_attempt_at = #{businessNow},
+            update_time = #{businessNow}
+        WHERE id = #{settlement.id}
+          AND deleted = 0
+          AND settlement_status &lt;&gt; 'SETTLED'
+    </update>
+
+    <!-- 回填年度报告通知审计行ID与通知状态快照 -->
+    <update id="updateNoticeById">
+        UPDATE torn_stock_portfolio_annual_settlement
+        SET notice_id = #{noticeId},
+            notice_status = #{noticeStatus},
+            update_time = #{businessNow}
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+</mapper>

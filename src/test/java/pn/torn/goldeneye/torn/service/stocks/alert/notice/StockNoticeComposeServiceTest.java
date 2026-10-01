@@ -58,17 +58,17 @@ class StockNoticeComposeServiceTest {
             String text = service.composeBuyMessage(batch, 2);
 
             assertNotNull(text);
-            assertTrue(text.contains("批次 B-2026-001"), "应包含批次号");
-            assertTrue(text.contains("股票：测试股票A"), "应包含股票简称");
-            assertTrue(text.contains("买入策略："), "应包含买入策略");
-            assertTrue(text.contains("系统参考买价：$100.00"), "应包含系统参考买价");
-            assertTrue(text.contains("股票风格："), "应包含股票风格");
+            assertTrue(text.contains("建仓 B-2026-001"), "应包含批次号");
+            assertTrue(text.contains("Stock：测试股票A"), "应包含股票简称");
+            assertTrue(text.contains("模型规则："), "应包含模型规则");
+            assertTrue(text.contains("记录参考价：$100.00"), "应包含记录参考价");
+            assertTrue(text.contains("Stock风格："), "应包含Stock风格");
             assertTrue(text.contains("成熟度："), "应包含成熟度");
             assertTrue(text.contains("风险等级："), "应包含风险等级");
-            assertTrue(text.contains("建议跟随截止："), "应包含建议跟随截止时间");
-            assertTrue(text.contains("最高建议跟随价：$"), "应包含最高建议跟随价");
-            assertTrue(text.contains("当前组合槽位："), "应包含当前组合槽位");
-            assertTrue(text.contains("本消息属于系统虚拟组合"), "应包含虚拟组合声明");
+            assertTrue(text.contains("记录有效期至："), "应包含记录有效期");
+            assertTrue(text.contains("记录价格上限：$"), "应包含记录价格上限");
+            assertTrue(text.contains("虚拟槽位："), "应包含虚拟槽位");
+            assertTrue(text.contains("本条为系统虚拟组合的内部记录"), "应包含虚拟组合声明");
         }
 
         @Test
@@ -79,9 +79,9 @@ class StockNoticeComposeServiceTest {
             String text = service.composeBuyMessage(batch, 1);
 
             assertTrue(text.contains(StockBuyStrategyEnum.RANGE_LOWER_BUY.getChineseDisplay()),
-                    "买入策略应映射为中文: 区间下沿买入");
+                    "模型规则应映射为中文: 区间下沿买入");
             assertTrue(text.contains(StockStrategyFitEnum.RANGING.getChineseDisplay()),
-                    "股票风格应映射为中文: 区间震荡");
+                    "Stock风格应映射为中文: 区间震荡");
             assertTrue(text.contains(StockMaturityEnum.M3_SEASONED.getChineseDisplay()),
                     "成熟度应映射为中文: 较成熟");
             assertTrue(text.contains(StockRiskLevelEnum.MEDIUM.getChineseDisplay()),
@@ -102,7 +102,7 @@ class StockNoticeComposeServiceTest {
 
             String text = service.composeBuyMessage(batch, 1);
 
-            assertTrue(text.contains("最高建议跟随价：$" + expected),
+            assertTrue(text.contains("记录价格上限：$" + expected),
                     "最高跟随价应等于 entryPrice × 1.0015 = " + expected);
         }
 
@@ -113,7 +113,7 @@ class StockNoticeComposeServiceTest {
 
             String text = service.composeBuyMessage(batch, 3);
 
-            assertTrue(text.contains("当前组合槽位：2 / 5"),
+            assertTrue(text.contains("虚拟槽位：2 / 5"),
                     "槽位显示格式应为 'batch.slotNo / 5' (批次槽位2/总数5)");
         }
     }
@@ -133,15 +133,15 @@ class StockNoticeComposeServiceTest {
             String text = service.composeSellMessage(batch);
 
             assertNotNull(text);
-            assertTrue(text.contains("批次 B-2026-001"), "应包含原买入批次号");
-            assertTrue(text.contains("股票：测试股票A"), "应包含股票简称");
-            assertTrue(text.contains("原买入策略："), "应包含原买入策略");
-            assertTrue(text.contains("系统参考买价：$100.00"), "应包含系统参考买价");
-            assertTrue(text.contains("系统参考卖价：$"), "应包含系统参考卖价");
-            assertTrue(text.contains("扣除0.1%卖出费后净收益："), "应包含净收益");
-            assertTrue(text.contains("系统持有时间："), "应包含系统持有时间");
-            assertTrue(text.contains("关闭原因："), "应包含关闭原因");
-            assertTrue(text.contains("本卖出仅对应批次 B-2026-001"), "应包含本卖出仅对应批次声明");
+            assertTrue(text.contains("平仓 B-2026-001"), "应包含原买入批次号");
+            assertTrue(text.contains("Stock：测试股票A"), "应包含股票简称");
+            assertTrue(text.contains("模型规则："), "应包含模型规则");
+            assertTrue(text.contains("记录参考价：$100.00"), "应包含记录参考价");
+            assertTrue(text.contains("记录结束价：$"), "应包含记录结束价");
+            assertTrue(text.contains("扣除0.1%费率后系统记录净变化："), "应包含净收益");
+            assertTrue(text.contains("记录持有区间："), "应包含记录持有区间");
+            assertTrue(text.contains("记录结束原因："), "应包含记录结束原因");
+            assertTrue(text.contains("本条为系统虚拟组合的内部记录"), "应包含虚拟组合免责声明");
         }
 
         @Test
@@ -194,7 +194,7 @@ class StockNoticeComposeServiceTest {
 
             String text = service.composeSellMessage(batch);
 
-            assertTrue(text.contains("系统持有时间：3天5小时"),
+            assertTrue(text.contains("记录持有区间：3天5小时"),
                     "持有时间应格式化为 '3天5小时'");
         }
 
@@ -213,11 +213,11 @@ class StockNoticeComposeServiceTest {
             assertTrue(text.contains("原退出信号已触发，但预期成交bar缺失"), "应说明预期成交bar缺失");
             assertTrue(text.contains("原退出原因：达到目标收益"), "应保留原退出原因");
             assertTrue(text.contains("数据恢复后首个可用参考价：$100.80"), "应展示恢复后首个可用参考价");
-            assertTrue(text.contains("本次为系统风险/管理关闭，不代表在该价格形成了原策略的准时卖出"),
+            assertTrue(text.contains("本次为系统风险/管理关闭，不代表在该价格形成了原规则的准时平仓"),
                     "应说明不代表原策略准时卖出");
-            assertTrue(text.contains("未跟随原BUY的成员无需操作"), "应包含未跟随无需操作声明");
-            assertFalse(text.contains("系统参考卖价"), "灾难关闭消息不应伪装成普通策略卖出");
-            assertFalse(text.contains("本卖出仅对应批次"), "灾难关闭消息不应使用普通SELL模板");
+            assertTrue(text.contains("未跟随原记录的成员无需操作"), "应包含未跟随无需操作声明");
+            assertFalse(text.contains("记录结束价"), "灾难关闭消息不应伪装成普通策略卖出");
+            assertFalse(text.contains("本条为系统虚拟组合的内部记录"), "灾难关闭消息不应使用普通SELL模板");
             assertFalse(text.contains("止盈"), "灾难关闭消息不得使用止盈文案");
         }
 
@@ -284,18 +284,18 @@ class StockNoticeComposeServiceTest {
 
             String text = service.composeBuyMessage(batch, 2);
 
-            assertTrue(text.contains("批次 AR-2026-09-05-0-11"), "应包含α批次号");
+            assertTrue(text.contains("建仓 AR-2026-09-05-0-11"), "应包含α批次号");
             assertTrue(text.contains("α=0.04 反转主策略"), "应包含α主策略展示名");
             assertTrue(text.contains("20日反转96% + 1日反弹4%"), "应包含20日反转主因子与1日反弹权重");
             assertTrue(text.contains("当前为Top1目标"), "应包含Top1目标口径");
-            assertTrue(text.contains("建议跟随截止：2026-09-05 10:00"), "应包含跟随截止时间");
-            assertTrue(text.contains("最高建议跟随价：$10.02"), "应包含最高建议跟随价");
-            assertTrue(text.contains("本消息属于系统虚拟组合，系统不记录个人持仓"),
+            assertTrue(text.contains("记录有效期至：2026-09-05 10:00"), "应包含跟随截止时间");
+            assertTrue(text.contains("记录价格上限：$10.02"), "应包含记录价格上限");
+            assertTrue(text.contains("本条为系统虚拟组合的内部记录"),
                     "应包含系统不记录个人持仓声明");
             assertFalse(text.contains("/ 5"), "α消息不得展示旧版五槽语义");
             assertFalse(text.contains("qualityScore"), "α消息不得展示旧版质量分");
-            assertFalse(text.contains("当前组合槽位"), "α消息不得展示旧版组合槽位行");
-            assertFalse(text.contains("股票风格"), "α消息不得展示旧版风格行");
+            assertFalse(text.contains("虚拟槽位"), "α消息不得展示旧版组合槽位行");
+            assertFalse(text.contains("Stock风格"), "α消息不得展示旧版风格行");
             assertFalse(text.contains("成熟度"), "α消息不得展示旧版成熟度行");
             assertFalse(text.contains("风险等级"), "α消息不得展示旧版风险等级行");
             assertFalse(text.contains(StockBuyStrategyEnum.RANGE_LOWER_BUY.getChineseDisplay()),
@@ -309,26 +309,24 @@ class StockNoticeComposeServiceTest {
 
             String text = service.composeSellMessage(batch);
 
-            assertTrue(text.contains("批次 A20260904-0"), "应包含原BUY批次号");
+            assertTrue(text.contains("平仓 A20260904-0"), "应包含原BUY批次号");
             assertTrue(text.contains("原买入批次：A20260904-0"), "应引用被换出的原买入批次");
-            assertTrue(text.contains("系统参考买价：100.00"), "Alpha SELL应按新版模板展示系统参考买价");
-            assertTrue(text.contains("系统参考卖价：110.00"), "Alpha SELL应按新版模板展示系统参考卖价");
-            assertTrue(text.contains("扣除0.1%卖出费后净收益：+9.80%"), "应包含扣费后净收益");
-            assertTrue(text.contains("系统持有时间：3天5小时"), "应包含系统持有时间");
-            assertTrue(text.contains("关闭原因：Alpha目标发生变化（ALPHA_REBALANCE）"),
-                    "关闭原因必须为Alpha目标发生变化并带ALPHA_REBALANCE");
-            assertTrue(text.contains("本卖出仅对应批次 A20260904-0"), "应说明仅对应原批次");
-            assertTrue(text.contains("为α目标变化换仓，不是止盈、止损或到期退出"),
-                    "必须显式区分α换仓与止盈/止损/到期退出");
-            assertFalse(text.contains("关闭原因：达到目标收益"), "α换仓关闭原因不得为旧版目标退出");
-            assertFalse(text.contains("关闭原因：风险退出"), "α换仓关闭原因不得为旧版风险退出");
-            assertFalse(text.contains("关闭原因：区间恢复退出"), "α换仓关闭原因不得为旧版区间退出");
-            assertFalse(text.contains("关闭原因：达到最长持有时间"), "α换仓关闭原因不得为旧版到期退出");
-            assertFalse(text.contains("原买入策略"), "α换仓SELL不得进入旧版策略解析展示");
+            assertTrue(text.contains("记录参考价：100.00"), "Alpha SELL应按新版模板展示记录参考价");
+            assertTrue(text.contains("记录结束价：110.00"), "Alpha SELL应按新版模板展示记录结束价");
+            assertTrue(text.contains("扣除0.1%费率后系统记录净变化：+9.80%"), "应包含扣费后系统记录净变化");
+            assertTrue(text.contains("记录持有区间：3天5小时"), "应包含记录持有区间");
+            assertTrue(text.contains("记录结束原因：Alpha目标发生变化（ALPHA_REBALANCE）"),
+                    "结束原因必须为Alpha目标发生变化并带ALPHA_REBALANCE");
+            assertTrue(text.contains("本条为系统虚拟组合的内部记录"), "α换仓SELL应包含虚拟组合免责声明");
+            assertFalse(text.contains("记录结束原因：达到目标收益"), "α换仓结束原因不得为旧版目标退出");
+            assertFalse(text.contains("记录结束原因：风险退出"), "α换仓结束原因不得为旧版风险退出");
+            assertFalse(text.contains("记录结束原因：区间恢复退出"), "α换仓结束原因不得为旧版区间退出");
+            assertFalse(text.contains("记录结束原因：达到最长持有时间"), "α换仓结束原因不得为旧版到期退出");
+            assertFalse(text.contains("模型规则"), "α换仓SELL不得进入旧版策略解析展示");
         }
 
         @Test
-        @DisplayName("Alpha换仓同轮两腿_合并为一条消息且原仓卖出在前两腿齐全")
+        @DisplayName("Alpha换仓同轮两腿_合并为一条消息且换仓平仓在前两腿齐全")
         void composeAndMergeNotices_alphaRebalance_pairInSingleMessageSellFirst() {
             TornStockVirtualBatchDO soldBatch = buildAlphaSellBatch();
             TornStockVirtualBatchDO boughtBatch = buildAlphaBuyBatch();
@@ -341,13 +339,13 @@ class StockNoticeComposeServiceTest {
             assertEquals(1, result.size(), "同轮SELL+BUY两腿必须落在同一条换仓消息内");
             ComposedMessage message = result.getFirst();
             assertEquals(List.of(31L, 32L), message.noticeIds(),
-                    "换仓消息noticeIds应为原仓卖出在前、新仓买入在后,单侧不得丢失");
+                    "换仓消息noticeIds应为换仓平仓在前、换仓建仓在后,单侧不得丢失");
             String text = message.text();
-            assertTrue(text.contains("【VIP Alpha换仓｜原仓卖出】"), "应包含原仓卖出腿");
-            assertTrue(text.contains("【VIP Alpha换仓｜新仓买入】"), "应包含新仓买入腿");
-            assertTrue(text.indexOf("原仓卖出") < text.indexOf("新仓买入"), "原仓卖出腿必须排在新仓买入腿之前");
-            assertTrue(text.contains("关闭原因：Alpha目标发生变化"), "应包含α换仓关闭原因");
-            assertTrue(text.contains("当前为Top1目标"), "新仓买入腿必须可识别α身份");
+            assertTrue(text.contains("【Stock组合记录｜换仓平仓】"), "应包含换仓平仓腿");
+            assertTrue(text.contains("【Stock组合记录｜换仓建仓】"), "应包含换仓建仓腿");
+            assertTrue(text.indexOf("换仓平仓") < text.indexOf("换仓建仓"), "换仓平仓腿必须排在换仓建仓腿之前");
+            assertTrue(text.contains("记录结束原因：Alpha目标发生变化"), "应包含α换仓关闭原因");
+            assertTrue(text.contains("当前为Top1目标"), "换仓建仓腿必须可识别α身份");
         }
 
         @Test
@@ -375,10 +373,10 @@ class StockNoticeComposeServiceTest {
             assertEquals(List.of(33L, 34L), result.get(1).noticeIds(),
                     "第二次换仓必须保持SELL腿在前、BUY腿在后");
             for (ComposedMessage message : result) {
-                assertTrue(message.text().contains("【VIP Alpha换仓｜原仓卖出】"),
-                        "每条换仓消息必须包含原仓卖出腿");
-                assertTrue(message.text().contains("【VIP Alpha换仓｜新仓买入】"),
-                        "每条换仓消息必须包含新仓买入腿");
+                assertTrue(message.text().contains("【Stock组合记录｜换仓平仓】"),
+                        "每条换仓消息必须包含换仓平仓腿");
+                assertTrue(message.text().contains("【Stock组合记录｜换仓建仓】"),
+                        "每条换仓消息必须包含换仓建仓腿");
             }
         }
     }
@@ -431,7 +429,7 @@ class StockNoticeComposeServiceTest {
                     "风险卖出内容应排在普通卖出之前");
             // 末条为买入消息
             ComposedMessage buyMessage = result.get(1);
-            assertTrue(buyMessage.text().contains("买入策略"), "末条应为买入消息");
+            assertTrue(buyMessage.text().contains("模型规则"), "末条应为买入消息");
             assertEquals(List.of(1L), buyMessage.noticeIds(), "末条noticeIds应为买入通知ID");
         }
 
@@ -527,7 +525,7 @@ class StockNoticeComposeServiceTest {
     }
 
     /**
-     * 构建α新仓买入批次测试数据(OPEN状态)。
+     * 构建α换仓建仓批次测试数据(OPEN状态)。
      *
      * @return 预设字段的α买入批次DO
      */
@@ -554,7 +552,7 @@ class StockNoticeComposeServiceTest {
     }
 
     /**
-     * 构建α换仓原仓卖出批次测试数据(已换仓关闭)。
+     * 构建α换仓平仓批次测试数据(已换仓关闭)。
      *
      * @return 预设字段的α卖出批次DO
      */

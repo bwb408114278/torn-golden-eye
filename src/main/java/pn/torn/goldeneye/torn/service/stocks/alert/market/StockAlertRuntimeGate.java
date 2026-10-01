@@ -6,13 +6,13 @@ import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.SettingConstants;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRuleModeEnum;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockNoticeAuditDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockSignalEventDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.torn.manager.setting.SysSettingManager;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadinessGate;
+import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 
 /**
- * 股票提醒运行时门禁 - 统一计算轮次构建、存量管理、研究义务、新买入与通知投递判定
+ * 股票提醒运行时门禁 - 统一计算轮次构建、存量管理、正式新买入、α影子运行与通知投递判定
  * <p>
  * 定时调度入口与启动补偿必须复用本服务,避免双套判断导致总开关关闭时遗弃存量持仓。
  * <p>
@@ -21,15 +21,17 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaReadin
  *   <li>总开关 {@code VIP_STOCK_ALERT_ENABLED} 关闭时,只要存在活跃批次,仍应构建存量管理所需轮次
  *       (退出、恢复、灾难关闭、冷却),仅禁止新买入;</li>
  *   <li>新买入开关 {@code VIP_STOCK_NEW_ENTRY_ENABLED} 缺失或为false按false处理,禁止从总开关推导为true;</li>
- *   <li>正式新入场只允许 {@code FORMAL}:{@code SHADOW}/{@code PROVISIONAL} 只允许研究、快照与Shadow记录,
- *       不得借用{@code VIP_ALPHA}的10B、100%正式组合语义,也不得创建正式批次;</li>
- *   <li>规则模式 OFF 只禁止买入研究事件、Shadow新批次和正式接纳,不阻断存量批次管理;</li>
- *   <li>存在未结算拒绝观察时,即使新买入关闭且无活跃持仓,仍应构建观察窗口bar并结算研究义务;</li>
+ *   <li>正式新入场只允许 {@code FORMAL}:{@code SHADOW}/{@code PROVISIONAL} 不得借用{@code VIP_ALPHA}
+ *       的10B、100%正式组合语义,也不得创建正式批次;</li>
+ *   <li>α影子许可 {@code VIP_STOCK_ALPHA_SHADOW_ENABLED} 独立于新买入开关:影子开关打开即产生轮次与行情
+ *       数据义务,使影子轨道能够从自己的相位起算点开始观察,同时不触真钱、不投递任何通知。
+ *       该开关的唯一判定宿主为{@link StockAlphaTrackRegistry#isShadowEnabled()},本类不自行读取该开关;</li>
+ *   <li>规则模式 OFF 只禁止买入研究事件与正式接纳,不阻断存量批次管理;</li>
  *   <li>历史PENDING通知投递独立于轮次开关,由正式消息开关单独决定。</li>
  * </ul>
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.6.5
  * @since 2026.08.02
  */
 @Slf4j
@@ -45,8 +47,8 @@ public class StockAlertRuntimeGate {
     private final SysSettingManager sysSettingManager;
     private final TornStockVirtualBatchDAO virtualBatchDao;
     private final TornStockNoticeAuditDAO noticeAuditDao;
-    private final TornStockSignalEventDAO signalEventDao;
     private final StockAlphaReadinessGate alphaReadinessGate;
+    private final StockAlphaTrackRegistry trackRegistry;
 
     /**
      * 计算当前运行时判定结果。
@@ -59,14 +61,14 @@ public class StockAlertRuntimeGate {
         boolean alertEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_ALERT_ENABLED);
         boolean newEntryEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_NEW_ENTRY_ENABLED);
         boolean formalNoticeEnabled = isEnabled(SettingConstants.KEY_VIP_STOCK_FORMAL_NOTICE_ENABLED);
-        StockRuleModeEnum ruleMode = resolveRuleMode();
+        boolean allowAlphaShadow = trackRegistry.isShadowEnabled();
+        StockRuleModeEnum ruleMode = StockRuleModeEnum.resolve(
+                sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE));
 
         boolean existsActiveBatches = virtualBatchDao.existsActiveBatches();
         boolean existsPendingNotices = noticeAuditDao.existsSendableNotices();
-        boolean existsPendingRejectedObservationEvents =
-                signalEventDao.existsPendingRejectedObservationEvents();
 
-        boolean shouldBuildRounds = alertEnabled || existsActiveBatches || existsPendingRejectedObservationEvents;
+        boolean shouldBuildRounds = alertEnabled || existsActiveBatches || allowAlphaShadow;
         // 正式新入场是"总开关 ∧ 新入场开关 ∧ 规则模式为FORMAL ∧ Alpha readiness"的合取:
         // SHADOW/PROVISIONAL 没有独立的小规模资金、槽位和消息契约,不得借用VIP_ALPHA的10B、100%正式语义。
         boolean allowNewEntry = alertEnabled && newEntryEnabled
@@ -74,18 +76,14 @@ public class StockAlertRuntimeGate {
         boolean shouldSendPendingNotices = formalNoticeEnabled && existsPendingNotices;
 
         RuntimeDecision decision = new RuntimeDecision(
-                shouldBuildRounds, existsActiveBatches, existsPendingRejectedObservationEvents,
-                allowNewEntry, shouldSendPendingNotices, ruleMode, existsActiveBatches,
-                existsPendingRejectedObservationEvents);
-        log.debug("股票提醒运行时门禁判定: alertEnabled={}, newEntryEnabled={}, ruleMode={}, "
-                        + "existsActiveBatches={}, existsPendingNotices={}, existsRejectedObservation={}, "
-                        + "shouldBuildRounds={}, manageExistingBatches={}, manageResearchObligations={}, "
-                        + "allowNewEntry={}, shouldSendPendingNotices={}",
-                alertEnabled, newEntryEnabled, ruleMode.getCode(), existsActiveBatches,
-                existsPendingNotices, existsPendingRejectedObservationEvents,
-                decision.shouldBuildRounds(), decision.manageExistingBatches(),
-                decision.manageResearchObligations(), decision.allowNewEntry(),
-                decision.shouldSendPendingNotices());
+                shouldBuildRounds, allowNewEntry, allowAlphaShadow,
+                shouldSendPendingNotices, ruleMode, existsActiveBatches);
+        log.debug("股票提醒运行时门禁判定: alertEnabled={}, newEntryEnabled={}, alphaShadowEnabled={}, ruleMode={}, "
+                        + "existsActiveBatches={}, existsPendingNotices={}, "
+                        + "shouldBuildRounds={}, allowNewEntry={}, allowAlphaShadow={}, shouldSendPendingNotices={}",
+                alertEnabled, newEntryEnabled, allowAlphaShadow, ruleMode.getCode(), existsActiveBatches,
+                existsPendingNotices, decision.shouldBuildRounds(),
+                decision.allowNewEntry(), decision.allowAlphaShadow(), decision.shouldSendPendingNotices());
         return decision;
     }
 
@@ -101,43 +99,21 @@ public class StockAlertRuntimeGate {
     }
 
     /**
-     * 解析规则模式;缺失或非法默认SHADOW。
-     *
-     * @return 当前规则模式
-     */
-    private StockRuleModeEnum resolveRuleMode() {
-        String modeCode = sysSettingManager.getSettingValue(SettingConstants.KEY_VIP_STOCK_RULE_MODE);
-        if (modeCode == null || modeCode.isBlank()) {
-            return StockRuleModeEnum.SHADOW;
-        }
-        try {
-            return StockRuleModeEnum.fromCode(modeCode);
-        } catch (IllegalArgumentException e) {
-            log.warn("规则模式编码无效,默认SHADOW: code={}", modeCode);
-            return StockRuleModeEnum.SHADOW;
-        }
-    }
-
-    /**
      * 运行时判定结果
      *
-     * @param shouldBuildRounds                是否构建轮次(含存量管理或拒绝观察义务所需轮次)
-     * @param manageExistingBatches            是否存在活跃存量批次需要继续管理
-     * @param manageResearchObligations        是否存在未结算拒绝观察需要继续结算研究义务
-     * @param allowNewEntry                    是否允许正式新入场(唯一正式许可:仅{@code FORMAL}模式成立)
-     * @param shouldSendPendingNotices         是否应投递历史PENDING通知
-     * @param ruleMode                         当前规则模式
-     * @param existsActiveBatches              查询到的活跃批次存在性(用于日志与测试断言)
-     * @param existsPendingRejectedObservation 查询到的未结算拒绝观察存在性(用于日志与测试断言)
+     * @param shouldBuildRounds        是否构建轮次(含存量管理或α影子观察所需轮次)
+     * @param allowNewEntry            是否允许正式新入场(唯一正式许可:仅{@code FORMAL}模式成立)
+     * @param allowAlphaShadow         是否允许α影子轨道运行(独立于正式新入场,影子不触真钱不投递)
+     * @param shouldSendPendingNotices 是否应投递历史PENDING通知
+     * @param ruleMode                 当前规则模式
+     * @param existsActiveBatches      是否存在活跃存量批次(兼作存量管理判定、日志与测试断言依据)
      */
     public record RuntimeDecision(
             boolean shouldBuildRounds,
-            boolean manageExistingBatches,
-            boolean manageResearchObligations,
             boolean allowNewEntry,
+            boolean allowAlphaShadow,
             boolean shouldSendPendingNotices,
             StockRuleModeEnum ruleMode,
-            boolean existsActiveBatches,
-            boolean existsPendingRejectedObservation) {
+            boolean existsActiveBatches) {
     }
 }

@@ -34,6 +34,10 @@ public class ProjectProperty {
      */
     private long vipNoticeGroupId;
     /**
+     * 免费入口群ID
+     */
+    private long vipEntryGroupId;
+    /**
      * 扫描的Token
      */
     private String scanVipToken;
