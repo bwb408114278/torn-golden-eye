@@ -13,12 +13,12 @@ import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaPhaseTr
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.track.StockAlphaTrackRegistry;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockRuleVersion;
+import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeNoGenerator;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticePayloadCanonicalizer;
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -41,6 +41,10 @@ import java.util.Objects;
  * {@code uk_stock_notice_audit_alpha_hold}兜底;重放或轮次重试时先回读既有行直接复用,
  * 不重复建行、不重复发送,也不覆盖首次固化的正文。
  * <p>
+ * 审计行不写入{@code batch_id}:批次事实固化在载荷中,批次维度唯一键
+ * {@code uk_stock_notice_audit_batch_type}只服务买卖腿与换仓腿;同一批次会在多个决策日继续持有,
+ * 占用批次维度必然触发确定性重复键并回滚整个执行桶轮次。
+ * <p>
  * 通知在轮次事务内写入、事务提交后才发送,与既有买卖通知与换仓通知同一边界。
  *
  * @author Bai
@@ -56,16 +60,6 @@ public class StockAlphaHoldNoticeService {
      * 通知编号前缀(与批次N、日报D、年报A区分)。
      */
     private static final String NOTICE_NO_PREFIX = "H";
-    /**
-     * 通知编号时间戳格式。
-     */
-    private static final String NOTICE_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmmssSSS";
-    /**
-     * 通知编号格式化器。
-     */
-    private static final DateTimeFormatter NOTICE_NO_FORMATTER =
-            DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
-
     private final TornStockNoticeAuditDAO noticeAuditDAO;
     private final ProjectProperty projectProperty;
     private final StockMarketClock marketClock;
@@ -99,7 +93,6 @@ public class StockAlphaHoldNoticeService {
                 decisionBusinessDate);
         TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
         notice.setNoticeNo(generateNoticeNo(track));
-        notice.setBatchId(currentBatch.getId());
         notice.setNoticeType(StockNoticeTypeEnum.ALPHA_HOLD.getCode());
         notice.setSummaryDate(decisionBusinessDate);
         notice.setTrackCode(track.trackCode());
@@ -121,14 +114,14 @@ public class StockAlphaHoldNoticeService {
     /**
      * 生成通知编号。
      * <p>
-     * 格式: "H" + yyyyMMddHHmmssSSS + "-" + 轨道编码。时间戳保证跨日跨轨道行互不相同,
+     * 格式: "H" + 毫秒时间戳 + "-" + 轨道编码(时间戳实现唯一收敛在{@link StockNoticeNoGenerator})。时间戳保证跨日跨轨道行互不相同,
      * 轨道后缀保证同一毫秒内多轨道各自成行,不与批次N、日报D、年报A编号冲突。
      *
      * @param track 目标相位轨道
      * @return 通知编号
      */
     private String generateNoticeNo(StockAlphaPhaseTrack track) {
-        return NOTICE_NO_PREFIX + marketClock.now().format(NOTICE_NO_FORMATTER) + "-" + track.trackCode();
+        return StockNoticeNoGenerator.generate(marketClock.now(), NOTICE_NO_PREFIX, "-" + track.trackCode());
     }
 
     /**

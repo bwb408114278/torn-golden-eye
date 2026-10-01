@@ -49,13 +49,13 @@ public class StockAnnualSettlementCalculator {
     /**
      * 计算年度结算的全部金额与区间派生量。
      *
-     * @param input 结算输入(初始资金、累计已提取、年末边界权益、边界现金与预留、区间起点、被结算年与边界时点)
+     * @param input 结算输入(初始资金、累计已提取、年末边界权益、边界现金与预留、首笔入场日、被结算年与边界时点)
      * @return 结算结果;金额均为2位小数,比率为18位小数
-     * @throws IllegalArgumentException 本年度基准非正(累计提取与初始资金组合异常)或区间起点为空时抛出
+     * @throws IllegalArgumentException 本年度基准非正(累计提取与初始资金组合异常)或首笔入场日为空时抛出
      */
     public SettlementResult calculate(SettlementInput input) {
-        if (input.rangeStartDate() == null) {
-            throw new IllegalArgumentException("年度结算区间起点为空,无法计算覆盖率");
+        if (input.firstEntryDate() == null) {
+            throw new IllegalArgumentException("年度结算首笔入场日为空,无法计算覆盖率");
         }
         BigDecimal initialCash = money(input.initialCash());
         BigDecimal cumulativeBefore = money(input.cumulativeExtractedBefore());
@@ -74,7 +74,10 @@ public class StockAnnualSettlementCalculator {
         BigDecimal yearReturn = closingEquity.divide(openingEquity, RATE_SCALE_DIGITS, RoundingMode.HALF_UP)
                 .subtract(ONE);
 
-        int coverageDays = (int) ChronoUnit.DAYS.between(input.rangeStartDate(), input.boundaryTime().toLocalDate());
+        // 结算区间只能落在被结算自然年内:首笔入场日早于被结算年1月1日时按1月1日钳制,避免重复计入已结算年度
+        LocalDate yearStart = LocalDate.of(input.settleYear(), 1, 1);
+        LocalDate coverageStartDate = input.firstEntryDate().isBefore(yearStart) ? yearStart : input.firstEntryDate();
+        int coverageDays = (int) ChronoUnit.DAYS.between(coverageStartDate, input.boundaryTime().toLocalDate());
         boolean partialYear = coverageDays < daysOfYear(input.settleYear());
         BigDecimal annualizedReturn = partialYear ? annualize(yearReturn, coverageDays) : null;
         return new SettlementResult(openingEquity, closingMarketValue, extractedAmount, cumulativeAfter,
@@ -128,7 +131,7 @@ public class StockAnnualSettlementCalculator {
      * @param closingEquity             年末边界权益(来自既有权益口径)
      * @param closingCash               边界可用现金合计
      * @param closingReserved           边界预留资金合计
-     * @param rangeStartDate            区间起点(首笔α批次入场日;缺失时回退槽位创建日)
+     * @param firstEntryDate            首笔α批次入场日;早于被结算年1月1日时按被结算年1月1日钳制
      * @param settleYear                被结算的自然年
      * @param boundaryTime              年度边界时点(次年1月1日00:00)
      */
@@ -138,7 +141,7 @@ public class StockAnnualSettlementCalculator {
             BigDecimal closingEquity,
             BigDecimal closingCash,
             BigDecimal closingReserved,
-            LocalDate rangeStartDate,
+            LocalDate firstEntryDate,
             int settleYear,
             LocalDateTime boundaryTime) {
     }

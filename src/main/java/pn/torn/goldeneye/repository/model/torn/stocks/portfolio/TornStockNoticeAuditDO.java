@@ -42,7 +42,8 @@ public class TornStockNoticeAuditDO extends BaseDO {
      */
     private Long batchId;
     /**
-     * 通知类型(如SIGNAL_BUY/SELL_ALERT/DAILY_SUMMARY)
+     * 通知类型(取值与 {@code StockNoticeTypeEnum} 一致:BUY、SELL、ALPHA_REBALANCE、DAILY_SUMMARY、
+     * ALPHA_HOLD、ANNUAL_SETTLEMENT)
      */
     private String noticeType;
     /**

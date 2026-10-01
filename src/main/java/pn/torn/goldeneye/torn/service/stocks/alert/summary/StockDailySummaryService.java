@@ -137,13 +137,12 @@ public class StockDailySummaryService {
     }
 
     /**
-     * 单个组合的摘要数据 - 三段组合共用同一字段口径。
+     * 单个组合的摘要数据 - α正式组合与α影子组合共用同一字段口径。
      *
      * @param portfolioCode      组合编码
      * @param slotCount          该组合的槽位总数
      * @param occupiedSlots      占用槽位数(非AVAILABLE)
      * @param equity             完整组合权益;任一开放仓位缺行情时为null
-     * @param cashAndReserved    可用现金与待买预留资金,不代表完整权益
      * @param missingPriceStocks 缺失有效行情的股票简称,按股票ID升序
      * @param priceAsOf          完整权益实际使用行情中的最早结束时点;行情不足时为null
      * @param yesterdayBuyCount  昨日买入批次数
@@ -158,7 +157,6 @@ public class StockDailySummaryService {
             int slotCount,
             int occupiedSlots,
             BigDecimal equity,
-            BigDecimal cashAndReserved,
             List<String> missingPriceStocks,
             LocalDateTime priceAsOf,
             int yesterdayBuyCount,

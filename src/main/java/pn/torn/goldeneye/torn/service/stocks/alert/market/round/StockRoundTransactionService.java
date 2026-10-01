@@ -307,9 +307,13 @@ public class StockRoundTransactionService {
      */
     private void recordHeldNotice(StockAlphaPhaseTrack track, StockAlphaDecisionService.DecisionResult decision,
                                   TornStockVirtualBatchDO current, LocalDateTime roundTime) {
-        if (!decision.ready()
-                || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_HELD
-                || !roundTime.equals(decision.executionBarStartTime())) {
+        if (!decision.ready() || decision.event() != StockAlphaTargetPolicy.TargetEvent.ALPHA_TARGET_HELD) {
+            return;
+        }
+        if (!roundTime.equals(decision.executionBarStartTime())) {
+            log.info("α继续持有通知-本轮不是该决策的执行桶,跳过且不跨桶追补: trackCode={}, decisionDate={},"
+                            + " executionBarStartTime={}, roundTime={}",
+                    track.trackCode(), decision.decisionDate(), decision.executionBarStartTime(), roundTime);
             return;
         }
         alphaHoldNoticeService.recordHoldNotice(track, decision.decisionDate(), decision.phase(),

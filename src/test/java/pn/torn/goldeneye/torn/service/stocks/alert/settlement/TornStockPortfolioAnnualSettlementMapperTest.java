@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * α年度结算台账Mapper真实PostgreSQL集成测试,覆盖业务唯一键幂等与数据库层守恒约束。
+ * α年度结算台账Mapper真实PostgreSQL集成测试,覆盖单语句UPSERT、降级行补齐与数据库层守恒约束。
  * <p>
  * 测试数据全部落在测试专用年度(2099)并由 {@link Rollback} 回滚,不触碰任何生产年度台账行。
  *
@@ -58,55 +58,122 @@ class TornStockPortfolioAnnualSettlementMapperTest {
     private PlaywrightBrowserManager playwrightBrowserManager;
 
     @Test
-    @DisplayName("真实PG_业务唯一键幂等插入且已结算金额可回读")
-    void insertIgnoreConflict_idempotentAndSettledAmountsReadable() {
-        assertEquals(1, settlementDao.insertIgnoreConflict(pendingRow()), "首次插入必须落一行");
-        assertEquals(0, settlementDao.insertIgnoreConflict(pendingRow()), "同业务唯一键重复插入必须被忽略");
+    @DisplayName("真实PG_单语句UPSERT首次落库且已结算金额可回读")
+    void upsertSettled_firstWrite_persistsAmounts() {
+        assertEquals(1, settlementDao.upsertSettled(settledRow(), TEST_BUSINESS_NOW), "首次UPSERT必须落一行");
 
-        TornStockPortfolioAnnualSettlementDO persisted = settlementDao.selectByBusinessKey(
-                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, TEST_SETTLE_YEAR,
-                StockAnnualSettlementService.RULE_VERSION);
-        assertNotNull(persisted);
-        assertEquals(StockAnnualSettlementStatusEnum.PENDING_BOUNDARY.getCode(), persisted.getSettlementStatus());
-
-        fillSettledAmounts(persisted, new BigDecimal("10000000000.00"), BigDecimal.ZERO);
-        assertEquals(1, settlementDao.updateSettledById(persisted, TEST_BUSINESS_NOW));
-
-        TornStockPortfolioAnnualSettlementDO settled = settlementDao.selectByBusinessKey(
-                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, TEST_SETTLE_YEAR,
-                StockAnnualSettlementService.RULE_VERSION);
+        TornStockPortfolioAnnualSettlementDO settled = readBack();
+        assertNotNull(settled.getId());
         assertEquals(StockAnnualSettlementStatusEnum.SETTLED.getCode(), settled.getSettlementStatus());
-        assertNull(settled.getDegradeReason(), "转为已结算必须清空降级原因");
+        assertNull(settled.getDegradeReason(), "已结算行不得残留降级原因");
         assertEquals(0, new BigDecimal("10000000000.00").compareTo(settled.getClosingEquity()));
         assertEquals(0, BigDecimal.ZERO.compareTo(settled.getExtractedAmount()));
+        assertEquals(365, settled.getCoverageDays());
+    }
+
+    @Test
+    @DisplayName("真实PG_既有降级行UPSERT后翻转为已结算且清空降级原因")
+    void upsertSettled_existingDegradedRow_flipsToSettled() {
+        assertEquals(1, settlementDao.insertIgnoreConflict(
+                degradedRow("边界行情缺失: TCC")), "降级行必须能落库且不带金额");
+
+        assertEquals(1, settlementDao.upsertSettled(settledRow(), TEST_BUSINESS_NOW),
+                "同业务唯一键必须命中DO UPDATE而不是放弃");
+
+        TornStockPortfolioAnnualSettlementDO settled = readBack();
+        assertEquals(StockAnnualSettlementStatusEnum.SETTLED.getCode(), settled.getSettlementStatus(),
+                "降级后重试必须收敛为已结算");
+        assertNull(settled.getDegradeReason(), "转为已结算必须清空历史降级原因");
+        assertEquals(0, new BigDecimal("10000000000.00").compareTo(settled.getClosingEquity()));
+        assertEquals(365, settled.getCoverageDays());
     }
 
     @Test
     @DisplayName("真实PG_已结算行缺少金额时被守恒CHECK约束拒绝")
-    void updateSettled_missingAmounts_rejectedByCheckConstraint() {
-        settlementDao.insertIgnoreConflict(pendingRow());
-        TornStockPortfolioAnnualSettlementDO persisted = settlementDao.selectByBusinessKey(
-                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, TEST_SETTLE_YEAR,
-                StockAnnualSettlementService.RULE_VERSION);
-        persisted.setSettlementStatus(StockAnnualSettlementStatusEnum.SETTLED.getCode());
+    void upsertSettled_missingAmounts_rejectedByCheckConstraint() {
+        TornStockPortfolioAnnualSettlementDO row = degradedRow("边界行情缺失: TCC");
+        row.setSettlementStatus(StockAnnualSettlementStatusEnum.SETTLED.getCode());
 
         assertThrows(DataIntegrityViolationException.class,
-                () -> settlementDao.updateSettledById(persisted, TEST_BUSINESS_NOW),
+                () -> settlementDao.upsertSettled(row, TEST_BUSINESS_NOW),
                 "SETTLED行字段不齐必须被ck_annual_settlement_settled_fields拒绝");
     }
 
     @Test
     @DisplayName("真实PG_提取恒等式被数据库约束兜底")
-    void updateSettled_brokenExtractionIdentity_rejectedByCheckConstraint() {
-        settlementDao.insertIgnoreConflict(pendingRow());
-        TornStockPortfolioAnnualSettlementDO persisted = settlementDao.selectByBusinessKey(
-                StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, TEST_SETTLE_YEAR,
-                StockAnnualSettlementService.RULE_VERSION);
-        fillSettledAmounts(persisted, new BigDecimal("10000000000.00"), new BigDecimal("100000000.00"));
+    void upsertSettled_brokenExtractionIdentity_rejectedByCheckConstraint() {
+        TornStockPortfolioAnnualSettlementDO row = pendingRow();
+        fillSettledAmounts(row, new BigDecimal("10000000000.00"), new BigDecimal("100000000.00"));
 
         assertThrows(DataIntegrityViolationException.class,
-                () -> settlementDao.updateSettledById(persisted, TEST_BUSINESS_NOW),
+                () -> settlementDao.upsertSettled(row, TEST_BUSINESS_NOW),
                 "提取额与权益不满足恒等式必须被ck_annual_settlement_extraction_identity拒绝");
+    }
+
+    @Test
+    @DisplayName("真实PG_已结算行不接受降级回写且金额与状态不变")
+    void updateDegraded_settledRow_returnsZeroAndKeepsAmounts() {
+        assertEquals(1, settlementDao.upsertSettled(settledRow(), TEST_BUSINESS_NOW));
+        TornStockPortfolioAnnualSettlementDO settled = readBack();
+
+        TornStockPortfolioAnnualSettlementDO degraded = new TornStockPortfolioAnnualSettlementDO();
+        degraded.setId(settled.getId());
+        degraded.setSettlementStatus(StockAnnualSettlementStatusEnum.DEGRADED_NOT_PROVABLE.getCode());
+        degraded.setDegradeReason("降级不得覆盖已结算行");
+
+        assertEquals(0, settlementDao.updateDegradedById(degraded, TEST_BUSINESS_NOW.plusMinutes(1)),
+                "状态守卫必须让已结算行的降级回写返回0");
+
+        TornStockPortfolioAnnualSettlementDO after = readBack();
+        assertEquals(StockAnnualSettlementStatusEnum.SETTLED.getCode(), after.getSettlementStatus());
+        assertNull(after.getDegradeReason());
+        assertEquals(0, new BigDecimal("10000000000.00").compareTo(after.getClosingEquity()));
+        assertEquals(365, after.getCoverageDays());
+    }
+
+    @Test
+    @DisplayName("真实PG_冲突安全插入仍幂等且降级路径不写金额")
+    void insertIgnoreConflict_idempotentAndKeepsDegradePath() {
+        assertEquals(1, settlementDao.insertIgnoreConflict(pendingRow()), "首次插入必须落一行");
+        assertEquals(0, settlementDao.insertIgnoreConflict(pendingRow()), "同业务唯一键重复插入必须被忽略");
+
+        TornStockPortfolioAnnualSettlementDO persisted = readBack();
+        assertEquals(StockAnnualSettlementStatusEnum.PENDING_BOUNDARY.getCode(), persisted.getSettlementStatus());
+        assertNull(persisted.getClosingEquity(), "降级或阻断路径绝不写金额列");
+    }
+
+    /**
+     * 按业务唯一键回读测试年度台账行。
+     *
+     * @return 台账行
+     */
+    private TornStockPortfolioAnnualSettlementDO readBack() {
+        return settlementDao.selectByBusinessKey(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE,
+                TEST_SETTLE_YEAR, StockAnnualSettlementService.RULE_VERSION);
+    }
+
+    /**
+     * 构建金额与派生量齐全的已结算台账行(满足数据库层守恒约束)。
+     *
+     * @return 已结算台账行
+     */
+    private TornStockPortfolioAnnualSettlementDO settledRow() {
+        TornStockPortfolioAnnualSettlementDO row = pendingRow();
+        fillSettledAmounts(row, new BigDecimal("10000000000.00"), BigDecimal.ZERO);
+        return row;
+    }
+
+    /**
+     * 构建带降级原因的台账行。
+     *
+     * @param reason 降级原因
+     * @return 降级台账行
+     */
+    private TornStockPortfolioAnnualSettlementDO degradedRow(String reason) {
+        TornStockPortfolioAnnualSettlementDO row = pendingRow();
+        row.setSettlementStatus(StockAnnualSettlementStatusEnum.DEGRADED_PRICE_MISSING.getCode());
+        row.setDegradeReason(reason);
+        return row;
     }
 
     /**

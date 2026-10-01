@@ -669,7 +669,7 @@ StockBatchExitServiceTest          // α正式与α影子一律不得触发旧�
 | 项 | 现象 | 处理方向 | 状态 |
 |---|---|---|---|
 | S1 | 旧策略已全部退场，但日报仍渲染"存量正式组合（只出不进 · N槽）"区块与其提示语 | `StockDailySummaryRenderer#render` 现固定拼接 α 正式 / **存量正式** / α 影子三段。**已确认整改**：删除存量段与 `LEGACY_NOTICE`、**删除「可用现金」行**；**α 影子段保留**、标题精简为 `α 影子组合（仅研究 · 2槽）`；其余金额统一 `X.XXb`。**文案已通过，见 §13.6.2** | 已确认，文案已通过（2026-09-24） |
-| S2 | α 决策日继续持仓时没有任何消息，成员无法区分"本周无动作"与"系统异常" | 新增 α 持仓通知（决策日且未触发 `ALPHA_REBALANCE` 时发出）。幂等键按 `(decisionBusinessDate, trackCode)` 唯一；**独立发送、不并入日报（用户确认）**；**文案已通过，见 §13.6.2** | 已确认进 1.6.6，文案已通过（2026-09-24） |
+| S2 | α 决策日继续持仓时没有任何消息，成员无法区分"本周无动作"与"系统异常" | 新增 α 持仓通知（决策日且未触发 `ALPHA_REBALANCE` 时发出）。幂等键按 `(decisionBusinessDate, trackCode)` 唯一，审计行**不写入 `batch_id`**（批次维度唯一键只服务买卖腿与换仓腿，批次事实固化在载荷中）；**独立发送、不并入日报（用户确认）**；**文案已通过，见 §13.6.2** | 已确认进 1.6.6，文案已通过（2026-09-24） |
 | S3 | α 影子仓自 2026-09-19 上线后始终未产生任何批次 | **根因已定位**：`VIP_STOCK_ALPHA_SHADOW_ENABLED` 从未被任何 Liquibase changeset 写入 `sys_setting`（`src/main/resources` 内 0 命中）。`StockAlphaTrackRegistry#isShadowEnabled` 以 `true.equalsIgnoreCase(value)` 判定，缺失即 false，故 `enabledTracks()` 只返回 `VIP_ALPHA`。**处理方式：仅运维改库 + 刷新缓存，不进入 1.6.6 代码实施项**（步骤见 §13.6.1） | 已定位，运维处理 |
 
 #### 13.6.1 S3 运维处置（不进本方案代码范围）
@@ -737,6 +737,20 @@ UPDATE sys_setting SET setting_value = 'true', update_time = CURRENT_TIMESTAMP
 - 幂等：按 `(decisionBusinessDate, trackCode)` 唯一，重放不重复发送。
 - 频率：每 5 个共同有效自然日一次，约每周一条；**独立发送（用户确认），不并入日报**（日报 08:10、本条 ≈08:30）。
 - 与既有换仓通知的边界：本条**不是**换仓腿，不参与 `rebalanceAssociationId` 组，不占用两腿成组校验。
+#### 13.6.3 1.6.6 Review 修复记录（2026-10-01）
+
+首次 Review 判定本批次不通过。问题与闭环结论如下，一次性修复方案见 `.ai/knowledge/stocks/vip_stock_annual_settlement_and_hold_notice_review_fix_plan.md`（方案通过验收后按生命周期关闭）。
+
+| 编号 | 等级 | 问题 | 闭环结论 |
+|---|---|---|---|
+| FIX-A1 | P0 | 年度结算 Gate B 以「槽位 `update_time < boundaryTime`」判定，而轮次事务每轮无条件回写槽位（`batchSaveChanges` 先于 `completeRound`），Gate A 通过即必然导致 Gate B 失败，年度结算永不产出 | 锚点改为边界轮次完成时刻，可证窗口为 `[boundaryRound.completedAt, 下一轮次首次写槽位)`；见年度结算方案 §4.2 |
+| FIX-A2 | P0 | 已结算行 INSERT 只写状态列，金额列缺省违反 `ck_annual_settlement_settled_fields`，事务整体回滚 | 落库改为单语句 `INSERT ... ON CONFLICT ... DO UPDATE`，金额列只在该语句出现 |
+| FIX-A3 | P0 | 台账行已存在时「插入冲突即放弃」，降级行重试永远不会补齐金额 | 同一 UPSERT 同时承担首次落库与降级行补齐；删除「冲突即返回」分支 |
+| FIX-A4 | P1 | 结算区间起点恒取首笔入场日，第 2 年起覆盖天数跨年度累计（会显示「完整年度（471 天）」） | 区间起点改为 `max(首笔入场日, 被结算年 1 月 1 日)`，钳制只在 `StockAnnualSettlementCalculator` 实现一次 |
+| FIX-H1 | P0 | 继续持有通知写入 `batch_id`，与 `uk_stock_notice_audit_batch_type` 冲突，同一批次跨两个决策日必然 duplicate key 并回滚轮次 | 审计行不再写入 `batch_id`，幂等键只由 `(summary_date, notice_type, track_code)` 决定 |
+| FIX-A5/A6、H2 | P2 | 降级回写可覆盖已结算行；结算入口无「可证窗口」判定；继续持有通知跳过分支无日志 | 已一并收敛：降级回写加状态守卫、窗口外落 `MANUAL_REVIEW`、跳过分支输出 INFO 日志 |
+
+遗留建议（P3，不阻断）：自包含通知发送编排在日报与年报各有一份实现，建议后续抽取公共组件；`renderHold` 的执行桶文案写死 08:15，影子轨道实际为 14:15，后续按 `executionBarStartTime` 渲染；「决策日已消费相位但审计行缺失」的漏发对账需单独立项。
 
 ---
 

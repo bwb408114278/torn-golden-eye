@@ -102,7 +102,7 @@ public class StockDailySummaryQueryService {
                 slots, activeBatches, context.latestBarByStock(), context.generatedAt());
         return new PortfolioSummary(portfolioCode, slotCount,
                 metricsCalculator.countOccupiedSlots(slots),
-                equity.equity(), equity.cashAndReserved(), equity.missingPriceStocks(), equity.priceAsOf(),
+                equity.equity(), equity.missingPriceStocks(), equity.priceAsOf(),
                 metricsCalculator.countBatchesInRange(
                         actionBatches, context.dayStart(), context.dayEnd(), true),
                 metricsCalculator.countBatchesInRange(

@@ -84,7 +84,6 @@ class StockDailySummaryServiceTest {
         StockDailySummaryService.DailySummaryData data = service.buildSummaryData(SUMMARY_DATE);
 
         assertNull(data.alpha().equity());
-        assertEquals(new BigDecimal("120.00"), data.alpha().cashAndReserved());
         assertEquals(List.of("TCC"), data.alpha().missingPriceStocks());
         assertEquals(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, data.alpha().portfolioCode());
         assertEquals(StockPortfolioService.VIP_ALPHA_SLOT_COUNT, data.alpha().slotCount());
@@ -106,7 +105,6 @@ class StockDailySummaryServiceTest {
         StockDailySummaryService.DailySummaryData data = service.buildSummaryData(SUMMARY_DATE);
 
         assertEquals(new BigDecimal("120.00"), data.alpha().equity());
-        assertEquals(new BigDecimal("120.00"), data.alpha().cashAndReserved());
         assertEquals(List.of(), data.alpha().missingPriceStocks());
         assertEquals(List.of(), data.alpha().openPositions());
     }
@@ -213,12 +211,12 @@ class StockDailySummaryServiceTest {
 
         StockDailySummaryService.PortfolioSummary alpha = summary(
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SLOT_COUNT,
-                1, new BigDecimal("10045264199"), new BigDecimal("789"), List.of(),
+                1, new BigDecimal("10045264199"), List.of(),
                 1, 1, new BigDecimal("1250000000"), new BigDecimal("10000000000"),
                 List.of(new StockDailySummaryService.OpenPosition("CNC", new BigDecimal("826.26"))));
         StockDailySummaryService.PortfolioSummary shadow = summary(
                 StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT,
-                0, BigDecimal.ZERO, BigDecimal.ZERO, List.of(),
+                0, BigDecimal.ZERO, List.of(),
                 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
 
         String summaryText = service.buildSummaryText(
@@ -240,11 +238,11 @@ class StockDailySummaryServiceTest {
                 mock(TornStockVirtualBatchDAO.class), mock(TornStockMarketBar15mDAO.class), fixedMarketClock());
         StockDailySummaryService.PortfolioSummary alpha = summary(
                 StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SLOT_COUNT,
-                0, new BigDecimal("120"), new BigDecimal("120"), List.of(),
+                0, new BigDecimal("120"), List.of(),
                 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
         StockDailySummaryService.PortfolioSummary shadow = summary(
                 StockPortfolioService.VIP_ALPHA_SHADOW_PORTFOLIO_CODE, StockPortfolioService.VIP_ALPHA_SHADOW_SLOT_COUNT,
-                0, new BigDecimal("120"), new BigDecimal("120"), List.of(),
+                0, new BigDecimal("120"), List.of(),
                 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
 
         String summaryText = service.buildSummaryText(
@@ -331,7 +329,6 @@ class StockDailySummaryServiceTest {
      * @param slotCount          槽位总数
      * @param occupiedSlots      占用槽位
      * @param equity             权益;null表示数据不足
-     * @param cashAndReserved    可用现金与预留资金
      * @param missingPriceStocks 缺失行情股票
      * @param buyCount           昨日买入笔数
      * @param sellCount          昨日卖出笔数
@@ -342,13 +339,11 @@ class StockDailySummaryServiceTest {
      */
     private StockDailySummaryService.PortfolioSummary summary(String portfolioCode, int slotCount,
                                                               int occupiedSlots, BigDecimal equity,
-                                                              BigDecimal cashAndReserved,
                                                               List<String> missingPriceStocks,
                                                               int buyCount, int sellCount, BigDecimal profit,
                                                               BigDecimal invested, List<StockDailySummaryService.OpenPosition> openPositions) {
         return new StockDailySummaryService.PortfolioSummary(portfolioCode, slotCount, occupiedSlots, equity,
-                cashAndReserved, missingPriceStocks, null, buyCount, sellCount, profit, invested,
-                openPositions, 0);
+                missingPriceStocks, null, buyCount, sellCount, profit, invested, openPositions, 0);
     }
 
     /**

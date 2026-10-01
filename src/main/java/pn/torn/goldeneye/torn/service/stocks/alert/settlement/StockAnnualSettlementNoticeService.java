@@ -16,7 +16,6 @@ import pn.torn.goldeneye.utils.JsonUtils;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +26,7 @@ import java.util.Map;
  * 与每日摘要同一自包含通知范式,复用既有审计、领取、冻结与自动重发链,不建设第二套消息平台:
  * <ol>
  *   <li>构建ANNUAL_SETTLEMENT类型的通知审计DO,填充被结算年最后一日、VIP群组ID、完整业务载荷与PENDING状态,
- *       通知编号格式为 "A" + yyyyMMddHHmmssSSS(与摘要前缀D区分)</li>
+ *       通知编号格式为 "A" + 毫秒时间戳(与摘要前缀D区分),时间戳实现唯一收敛在{@link StockNoticeNoGenerator}</li>
  *   <li>以{@code (summary_date, notice_type)}为幂等键:重跑时先回读既有通知行复用其ID与冻结正文,
  *       不重复建行、不重新渲染,避免唯一索引冲突中断年度结算事务</li>
  *   <li>经 {@link StockNoticeSendService#sendSingleMessageResult} 发送,发送前以
@@ -51,16 +50,6 @@ public class StockAnnualSettlementNoticeService {
      * 通知编号前缀(与每日摘要的D区分)
      */
     private static final String NOTICE_NO_PREFIX = "A";
-    /**
-     * 通知编号时间戳格式
-     */
-    private static final String NOTICE_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmmssSSS";
-    /**
-     * 通知编号格式化器
-     */
-    private static final DateTimeFormatter NOTICE_NO_FORMATTER =
-            DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
-
     private final TornStockNoticeAuditDAO noticeAuditDAO;
     private final StockNoticeSendRecorder noticeSendRecorder;
     private final StockNoticeSendService noticeSendService;
@@ -73,11 +62,13 @@ public class StockAnnualSettlementNoticeService {
      * 同一被结算年度只允许一条年度报告审计行:调用方在结算事务内先回读,已存在则直接复用,
      * 不存在才建行,保证重复执行不产生第二条通知,也不覆盖首次固化的正文。
      *
-     * @param payload    年度报告业务载荷
-     * @param reportText 年度报告正文
+     * @param payload     年度报告业务载荷
+     * @param reportText  年度报告正文
+     * @param businessNow 本次结算的业务时间(通知编号时间戳取值)
      * @return 通知审计DO(含主键ID)
      */
-    public TornStockNoticeAuditDO saveOrReusePendingNotice(AnnualSettlementNoticePayload payload, String reportText) {
+    public TornStockNoticeAuditDO saveOrReusePendingNotice(AnnualSettlementNoticePayload payload, String reportText,
+                                                           LocalDateTime businessNow) {
         TornStockNoticeAuditDO existing = noticeAuditDAO.selectBySummaryDateAndType(
                 payload.summaryDate(), StockNoticeTypeEnum.ANNUAL_SETTLEMENT.getCode());
         if (existing != null) {
@@ -86,7 +77,7 @@ public class StockAnnualSettlementNoticeService {
             return existing;
         }
         TornStockNoticeAuditDO notice = new TornStockNoticeAuditDO();
-        notice.setNoticeNo(generateNoticeNo());
+        notice.setNoticeNo(StockNoticeNoGenerator.generate(businessNow, NOTICE_NO_PREFIX, ""));
         notice.setNoticeType(StockNoticeTypeEnum.ANNUAL_SETTLEMENT.getCode());
         notice.setSummaryDate(payload.summaryDate());
         notice.setGroupId(projectProperty.getVipGroupId());
@@ -159,17 +150,6 @@ public class StockAnnualSettlementNoticeService {
         }
         String frozenText = StockNoticePayloadReader.readMessageText(notice);
         return frozenText != null ? frozenText : reportText;
-    }
-
-    /**
-     * 生成通知编号。
-     * <p>
-     * 格式: "A" + yyyyMMddHHmmssSSS
-     *
-     * @return 通知编号
-     */
-    private String generateNoticeNo() {
-        return NOTICE_NO_PREFIX + marketClock.now().format(NOTICE_NO_FORMATTER);
     }
 
     /**

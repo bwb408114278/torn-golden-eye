@@ -55,22 +55,22 @@ public class TornStockPortfolioAnnualSettlementDAO
     }
 
     /**
-     * 回写已结算台账行的全部金额与派生字段
+     * 已结算台账行落库:首次插入,或把既有降级行补齐为已结算
      *
-     * @param settlement  已结算台账行(必须携带主键)
+     * @param settlement  已结算台账行(金额与派生字段必须齐全)
      * @param businessNow 业务时间
-     * @return 实际更新行数
+     * @return 受影响行数(正常为1)
      */
-    public int updateSettledById(TornStockPortfolioAnnualSettlementDO settlement, LocalDateTime businessNow) {
-        return baseMapper.updateSettledById(settlement, businessNow);
+    public int upsertSettled(TornStockPortfolioAnnualSettlementDO settlement, LocalDateTime businessNow) {
+        return baseMapper.upsertSettled(settlement, businessNow);
     }
 
     /**
-     * 回写降级或阻断状态,不写任何金额字段
+     * 回写降级或阻断状态,不写任何金额字段;已结算行不会被降级覆盖
      *
      * @param settlement  降级台账行(必须携带主键、状态与原因)
      * @param businessNow 业务时间
-     * @return 实际更新行数
+     * @return 实际更新行数(0表示台账行已结算或被清除)
      */
     public int updateDegradedById(TornStockPortfolioAnnualSettlementDO settlement, LocalDateTime businessNow) {
         return baseMapper.updateDegradedById(settlement, businessNow);

@@ -101,7 +101,19 @@ class StockAnnualSettlementCalculatorTest {
     }
 
     @Test
-    @DisplayName("区间起点缺失_拒绝计算覆盖率")
+    @DisplayName("第2年起_区间起点按被结算年1月1日钳制且不重复计入已结算年度")
+    void calculate_secondYear_clampsCoverageStartToSettleYear() {
+        SettlementResult result = calculator.calculate(new SettlementInput(INITIAL_CASH, BigDecimal.ZERO,
+                new BigDecimal("10500000000.00"), new BigDecimal("10500000000.00"), BigDecimal.ZERO,
+                LocalDate.of(2026, 9, 17), 2027, LocalDateTime.of(2028, 1, 1, 0, 0)));
+
+        assertEquals(365, result.coverageDays(), "首笔入场日早于被结算年时必须从被结算年1月1日起算");
+        assertFalse(result.partialYear());
+        assertNull(result.annualizedReturn(), "完整年度的区间收益即年化口径");
+    }
+
+    @Test
+    @DisplayName("首笔入场日缺失_拒绝计算覆盖率")
     void calculate_missingRangeStart_throwsIllegalArgument() {
         SettlementInput input = new SettlementInput(INITIAL_CASH, BigDecimal.ZERO, new BigDecimal("100.00"),
                 BigDecimal.ZERO, BigDecimal.ZERO, null, 2026, BOUNDARY_TIME);

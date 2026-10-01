@@ -54,21 +54,24 @@ public interface TornStockPortfolioAnnualSettlementMapper extends BaseMapper<Tor
                                                                    @Param("settleYear") Integer settleYear);
 
     /**
-     * 回写已结算台账行的全部金额与派生字段
+     * 已结算台账行落库:首次插入,或把既有降级行补齐为已结算。
+     * <p>
+     * 执行 {@code INSERT ... ON CONFLICT (portfolio_code, settle_year, rule_version) WHERE deleted = 0 DO UPDATE},
+     * 全部金额列只在本语句出现;冲突时补齐既有降级行而不是放弃本次提取,并清空历史降级原因。
      *
-     * @param settlement  已结算台账行(必须携带主键)
+     * @param settlement  已结算台账行(金额与派生字段必须齐全)
      * @param businessNow 业务时间
-     * @return 实际更新行数
+     * @return 受影响行数(正常为1)
      */
-    int updateSettledById(@Param("settlement") TornStockPortfolioAnnualSettlementDO settlement,
-                          @Param("businessNow") LocalDateTime businessNow);
+    int upsertSettled(@Param("settlement") TornStockPortfolioAnnualSettlementDO settlement,
+                      @Param("businessNow") LocalDateTime businessNow);
 
     /**
-     * 回写降级或阻断状态,不写任何金额字段
+     * 回写降级或阻断状态,不写任何金额字段;已结算行不会被降级覆盖。
      *
      * @param settlement  降级台账行(必须携带主键、状态与原因)
      * @param businessNow 业务时间
-     * @return 实际更新行数
+     * @return 实际更新行数(0表示台账行已结算或被清除)
      */
     int updateDegradedById(@Param("settlement") TornStockPortfolioAnnualSettlementDO settlement,
                            @Param("businessNow") LocalDateTime businessNow);

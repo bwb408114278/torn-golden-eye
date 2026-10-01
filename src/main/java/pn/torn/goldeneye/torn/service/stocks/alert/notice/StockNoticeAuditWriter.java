@@ -14,7 +14,6 @@ import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioServi
 import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,18 +44,9 @@ public class StockNoticeAuditWriter {
      */
     private static final String NOTICE_NO_PREFIX = "N";
     /**
-     * 通知编号时间戳格式
-     */
-    private static final String NOTICE_NO_TIMESTAMP_PATTERN = "yyyyMMddHHmmssSSS";
-    /**
      * 通知编号batchId后缀取模基数
      */
     private static final int BATCH_ID_MODULUS = 1000000;
-    /**
-     * 通知编号格式化器
-     */
-    private static final DateTimeFormatter NOTICE_NO_FORMATTER =
-            DateTimeFormatter.ofPattern(NOTICE_NO_TIMESTAMP_PATTERN);
     /**
      * 载荷字段: 入场参考价
      */
@@ -295,17 +285,17 @@ public class StockNoticeAuditWriter {
     /**
      * 生成通知编号。
      * <p>
-     * 格式: "N" + yyyyMMddHHmmssSSS + batchId后6位 + noticeType首字符
+     * 格式: "N" + 毫秒时间戳 + batchId后6位 + noticeType首字符(时间戳实现唯一收敛在{@link StockNoticeNoGenerator})
      *
      * @param batch      关联批次
      * @param noticeType 通知类型
      * @return 通知编号
      */
     private String generateNoticeNo(TornStockVirtualBatchDO batch, StockNoticeTypeEnum noticeType) {
-        String timestamp = marketClock.now().format(NOTICE_NO_FORMATTER);
         String batchSuffix = batch.getId() != null
                 ? String.valueOf(batch.getId() % BATCH_ID_MODULUS) : "0";
-        return NOTICE_NO_PREFIX + timestamp + batchSuffix + noticeType.getCode().charAt(0);
+        return StockNoticeNoGenerator.generate(marketClock.now(), NOTICE_NO_PREFIX,
+                batchSuffix + noticeType.getCode().charAt(0));
     }
 
     /**

@@ -32,7 +32,8 @@ import java.util.stream.Collectors;
  * <p>流程:
  * <ol>
  *   <li>幂等短路:同一 {@code (portfolio_code, settle_year, rule_version)} 已SETTLED或处于终态时直接返回;</li>
- *   <li>Gate A 边界桶轮次必须COMPLETED;Gate B 边界之后零资金变动(批次动作区间为空且槽位未被写入);
+ *   <li>可证窗口:业务时间必须落在边界时点起15分钟内,出窗落MANUAL_REVIEW且不自动补结;</li>
+ *   <li>Gate A 边界桶轮次必须COMPLETED;Gate B 边界之后无新α资金事实且边界轮次完成后槽位未被再写入;
  *       Gate C 边界行情齐备且权益可算(缺失行情时绝不伪造结算);</li>
  *   <li>累计提取连续性:上一年度未结算时fail-closed为BLOCKED_PRIOR_YEAR,不允许跳年;</li>
  *   <li>单一短事务内落台账金额并创建年度报告PENDING通知行;领取、冻结与发送由调用方在事务提交后执行。</li>
@@ -58,6 +59,10 @@ public class StockAnnualSettlementService {
      * 降级原因截断后缀
      */
     private static final String TRUNCATED_SUFFIX = "...";
+    /**
+     * 可证窗口长度(分钟):边界时点起,至新年度第一桶轮次开始写入槽位之前。
+     */
+    private static final long PROVABLE_WINDOW_MINUTES = Stock15mBarBuildService.BUCKET_MINUTES;
 
     private final TornStockPortfolioAnnualSettlementDAO settlementDAO;
     private final TornStockPortfolioSlotDAO slotDAO;
@@ -92,16 +97,24 @@ public class StockAnnualSettlementService {
         if (isFinished(target, existing)) {
             return null;
         }
+        LocalDateTime windowEnd = boundaryTime.plusMinutes(PROVABLE_WINDOW_MINUTES);
+        if (businessNow.isBefore(boundaryTime) || !businessNow.isBefore(windowEnd)) {
+            degrade(target, existing, StockAnnualSettlementStatusEnum.MANUAL_REVIEW,
+                    "已离开年度结算可证窗口: businessNow=" + businessNow
+                            + ", window=[" + boundaryTime + "," + windowEnd + ")");
+            return null;
+        }
 
         List<TornStockPortfolioSlotDO> slots = slotDAO.selectAllByPortfolioCode(portfolioCode);
         if (slots.isEmpty()) {
             degrade(target, existing, StockAnnualSettlementStatusEnum.MANUAL_REVIEW, "正式仓槽位不存在,无法结算");
             return null;
         }
-        if (!passBoundaryRoundGate(target, existing)) {
+        TornStockMarketRoundDO boundaryRound = requireCompletedBoundaryRound(target, existing);
+        if (boundaryRound == null) {
             return null;
         }
-        if (!passNoPostBoundaryChangeGate(target, existing, slots)) {
+        if (!passNoPostBoundaryChangeGate(target, existing, slots, boundaryRound)) {
             return null;
         }
 
@@ -116,20 +129,20 @@ public class StockAnnualSettlementService {
             return null;
         }
 
-        LocalDate rangeStart = resolveRangeStart(portfolioCode, slots);
-        if (rangeStart == null || !rangeStart.isBefore(boundaryTime.toLocalDate())) {
+        LocalDate firstEntryDate = resolveFirstEntryDate(portfolioCode, slots);
+        if (firstEntryDate == null || !firstEntryDate.isBefore(boundaryTime.toLocalDate())) {
             degrade(target, existing, StockAnnualSettlementStatusEnum.MANUAL_REVIEW,
-                    "年度结算区间起点非法: rangeStart=" + rangeStart);
+                    "年度结算首笔入场日非法: firstEntryDate=" + firstEntryDate);
             return null;
         }
-        BigDecimal cumulativeBefore = resolveCumulativeBefore(target, existing, rangeStart);
+        BigDecimal cumulativeBefore = resolveCumulativeBefore(target, existing, firstEntryDate.getYear());
         if (cumulativeBefore == null) {
             return null;
         }
 
         SettlementResult result = calculator.calculate(new SettlementInput(StockPortfolioService.VIP_ALPHA_INITIAL_CASH,
                 cumulativeBefore, equityResult.equity(), sumAvailableCash(slots), sumReservedCash(slots),
-                rangeStart, settleYear, boundaryTime));
+                firstEntryDate, settleYear, boundaryTime));
         TornStockPortfolioAnnualSettlementDO computed = buildSettledRow(target, result, equityResult,
                 openPositions.size(), boundaryBarStart, boundaryBars, cumulativeBefore);
         computed.setClosingCash(sumAvailableCash(slots));
@@ -163,33 +176,43 @@ public class StockAnnualSettlementService {
 
     /**
      * Gate A:边界桶轮次必须已COMPLETED,否则该年度最后一桶的策略事实可能尚未全部落库。
+     * <p>
+     * 通过时返回该边界轮次供Gate B复用其完成时刻,不重复查询;Gate B不能以{@code boundaryTime}为锚点:
+     * 轮次事务在{@code completeRound}之前无条件回写槽位,槽位{@code update_time}必然不早于边界时点。
      *
      * @param target   结算目标
      * @param existing 既有台账行,可为空
-     * @return 通过返回true;未通过时已落降级状态并返回false
+     * @return 已完成的边界轮次;未通过时已落降级状态并返回null
      */
-    private boolean passBoundaryRoundGate(SettlementTarget target, TornStockPortfolioAnnualSettlementDO existing) {
+    private TornStockMarketRoundDO requireCompletedBoundaryRound(SettlementTarget target,
+                                                                 TornStockPortfolioAnnualSettlementDO existing) {
         TornStockMarketRoundDO round = roundDAO.selectByRoundTime(target.boundaryBarStart());
         String roundStatus = round == null ? null : round.getRoundStatus();
-        if (StockRoundStatusEnum.COMPLETED.getCode().equals(roundStatus)) {
-            return true;
+        if (round != null && StockRoundStatusEnum.COMPLETED.getCode().equals(roundStatus)) {
+            return round;
         }
         degrade(target, existing, StockAnnualSettlementStatusEnum.PENDING_BOUNDARY,
                 "边界桶轮次未完成: boundaryBarStart=" + target.boundaryBarStart() + ", roundStatus=" + roundStatus);
-        return false;
+        return null;
     }
 
     /**
      * Gate B:边界之后不得发生任何资金变动,否则读到的状态已不是边界状态。
+     * <p>
+     * B1 排除新年度第一桶的资金动作(边界后24小时内无新的α批次动作);
+     * B2 排除"边界之前已确认、边界之后才结算"的资金动作:这类写入不产生新的entry_time或exit_time,
+     * 只有槽位写入事实能证明边界状态未被破坏,因此锚点是边界轮次的完成时刻而不是边界时点。
      *
-     * @param target   结算目标
-     * @param existing 既有台账行,可为空
-     * @param slots    正式仓槽位
+     * @param target        结算目标
+     * @param existing      既有台账行,可为空
+     * @param slots         正式仓槽位
+     * @param boundaryRound 已完成的边界桶轮次
      * @return 通过返回true;未通过时已落降级状态并返回false
      */
     private boolean passNoPostBoundaryChangeGate(SettlementTarget target,
                                                  TornStockPortfolioAnnualSettlementDO existing,
-                                                 List<TornStockPortfolioSlotDO> slots) {
+                                                 List<TornStockPortfolioSlotDO> slots,
+                                                 TornStockMarketRoundDO boundaryRound) {
         List<TornStockVirtualBatchDO> actionBatches = batchDAO.selectAlphaActionBatches(target.portfolioCode(),
                 target.boundaryTime(), target.boundaryTime().plusDays(1));
         if (!actionBatches.isEmpty()) {
@@ -199,24 +222,37 @@ public class StockAnnualSettlementService {
                     "边界后已发生资金变动: 批次=" + batchNos);
             return false;
         }
-        boolean slotWrittenAfterBoundary = slots.stream().anyMatch(slot -> slot.getUpdateTime() != null
-                && !slot.getUpdateTime().isBefore(target.boundaryTime()));
-        if (slotWrittenAfterBoundary) {
+        LocalDateTime boundaryRoundCompletedAt = boundaryRound.getCompletedAt();
+        if (boundaryRoundCompletedAt == null) {
             degrade(target, existing, StockAnnualSettlementStatusEnum.DEGRADED_NOT_PROVABLE,
-                    "槽位在年度边界后被写入,边界状态不可证");
+                    "边界桶轮次缺少完成时间,边界状态不可证");
+            return false;
+        }
+        TornStockPortfolioSlotDO rewritten = slots.stream()
+                .filter(slot -> slot.getUpdateTime() != null
+                        && slot.getUpdateTime().isAfter(boundaryRoundCompletedAt))
+                .findFirst().orElse(null);
+        if (rewritten != null) {
+            degrade(target, existing, StockAnnualSettlementStatusEnum.DEGRADED_NOT_PROVABLE,
+                    "边界轮次完成后槽位被再次写入: slotNo=" + rewritten.getSlotNo()
+                            + ", updateTime=" + rewritten.getUpdateTime()
+                            + ", boundaryRoundCompletedAt=" + boundaryRoundCompletedAt);
             return false;
         }
         return true;
     }
 
     /**
-     * 解析年度结算区间起点:首笔α批次入场日,缺失时回退槽位创建日。
+     * 解析首笔α批次入场日(缺失时回退槽位创建日)。
+     * <p>
+     * 只返回原始首笔入场日,不做年度钳制:按被结算年钳制只写在
+     * {@link StockAnnualSettlementCalculator},年度连续性判定也继续使用该原始年度。
      *
      * @param portfolioCode 组合编码
      * @param slots         正式仓槽位
-     * @return 区间起点;两者皆缺失时返回null
+     * @return 首笔入场日;两者皆缺失时返回null
      */
-    private LocalDate resolveRangeStart(String portfolioCode, List<TornStockPortfolioSlotDO> slots) {
+    private LocalDate resolveFirstEntryDate(String portfolioCode, List<TornStockPortfolioSlotDO> slots) {
         LocalDateTime earliestEntryTime = batchDAO.selectEarliestEntryTime(portfolioCode);
         if (earliestEntryTime != null) {
             return earliestEntryTime.toLocalDate();
@@ -228,20 +264,20 @@ public class StockAnnualSettlementService {
     /**
      * 解析本次结算前的累计已提取,并保证台账年度连续。
      *
-     * @param target     结算目标
-     * @param existing   既有台账行,可为空
-     * @param rangeStart 区间起点
+     * @param target         结算目标
+     * @param existing       既有台账行,可为空
+     * @param firstEntryYear 首笔α批次入场日的自然年(不做年度钳制)
      * @return 累计已提取;上一年度未结算或年度断链时返回null(已落BLOCKED_PRIOR_YEAR)
      */
     private BigDecimal resolveCumulativeBefore(SettlementTarget target,
                                                TornStockPortfolioAnnualSettlementDO existing,
-                                               LocalDate rangeStart) {
+                                               int firstEntryYear) {
         TornStockPortfolioAnnualSettlementDO prior = settlementDAO.selectLatestSettledBefore(
                 target.portfolioCode(), RULE_VERSION, target.settleYear());
         if (prior == null) {
-            if (target.settleYear() > rangeStart.getYear()) {
+            if (target.settleYear() > firstEntryYear) {
                 degrade(target, existing, StockAnnualSettlementStatusEnum.BLOCKED_PRIOR_YEAR,
-                        "上一年度未结算: settleYear=" + target.settleYear() + ", 首个应结算年度=" + rangeStart.getYear());
+                        "上一年度未结算: settleYear=" + target.settleYear() + ", 首个应结算年度=" + firstEntryYear);
                 return null;
             }
             return BigDecimal.ZERO;
@@ -377,41 +413,40 @@ public class StockAnnualSettlementService {
     }
 
     /**
-     * 在单一事务内落库已结算台账行并创建年度报告PENDING通知行。
+     * 在单一事务内以单语句UPSERT落库已结算台账行并创建年度报告PENDING通知行。
+     * <p>
+     * 冲突时补齐既有降级行而不是放弃本次提取;落库后按业务唯一键回读,金额与派生量以数据库行为准,
+     * 回读失败时不建通知,避免产出与台账不一致的年报。
      *
      * @param target             结算目标
      * @param computed           已结算台账行
      * @param openPositionStocks 边界开放持仓股票简称
-     * @return 待投递的年度报告;并发下台账行已被其他执行者创建时返回null
+     * @return 待投递的年度报告;金额写入后无法回读时为null
      */
     private AnnualSettlementOutcome persistSettled(SettlementTarget target,
                                                    TornStockPortfolioAnnualSettlementDO computed,
                                                    List<String> openPositionStocks) {
-        if (computed.getId() == null) {
-            if (settlementDAO.insertIgnoreConflict(computed) == 0) {
-                log.warn("VIP股票年度结算-台账行已被创建,放弃本次写入且不重复提取: portfolioCode={}, settleYear={}",
-                        target.portfolioCode(), target.settleYear());
-                return null;
-            }
-            TornStockPortfolioAnnualSettlementDO inserted = settlementDAO.selectByBusinessKey(
-                    target.portfolioCode(), target.settleYear(), RULE_VERSION);
-            computed.setId(inserted == null ? null : inserted.getId());
+        settlementDAO.upsertSettled(computed, target.businessNow());
+        TornStockPortfolioAnnualSettlementDO settled = settlementDAO.selectByBusinessKey(
+                target.portfolioCode(), target.settleYear(), RULE_VERSION);
+        if (settled == null || settled.getId() == null) {
+            log.error("VIP股票年度结算-金额写入后无法回读,不建年报通知: portfolioCode={}, settleYear={}",
+                    target.portfolioCode(), target.settleYear());
+            return null;
         }
-        settlementDAO.updateSettledById(computed, target.businessNow());
-
-        LocalDate rangeStart = target.boundaryTime().toLocalDate().minusDays(computed.getCoverageDays());
-        String reportText = renderer.render(new AnnualReportData(computed.getSettleYear(),
-                Boolean.TRUE.equals(computed.getPartialYear()), rangeStart, computed.getCoverageDays(),
-                computed.getYearReturn(), computed.getAnnualizedReturn(), computed.getExtractedAmount(),
-                computed.getCumulativeExtractedAfter()));
+        LocalDate coverageStartDate = target.boundaryTime().toLocalDate().minusDays(settled.getCoverageDays());
+        String reportText = renderer.render(new AnnualReportData(settled.getSettleYear(),
+                Boolean.TRUE.equals(settled.getPartialYear()), coverageStartDate, settled.getCoverageDays(),
+                settled.getYearReturn(), settled.getAnnualizedReturn(), settled.getExtractedAmount(),
+                settled.getCumulativeExtractedAfter()));
         TornStockNoticeAuditDO notice = noticeService.saveOrReusePendingNotice(
-                buildNoticePayload(computed, openPositionStocks), reportText);
-        settlementDAO.updateNoticeById(computed.getId(), notice.getId(), notice.getSendStatus(),
+                buildNoticePayload(settled, openPositionStocks), reportText, target.businessNow());
+        settlementDAO.updateNoticeById(settled.getId(), notice.getId(), notice.getSendStatus(),
                 target.businessNow());
         log.info("VIP股票年度结算-已结算: portfolioCode={}, settleYear={}, closingEquity={}, extractedAmount={},"
                         + " cumulativeExtractedAfter={}, noticeId={}",
-                target.portfolioCode(), target.settleYear(), computed.getClosingEquity(),
-                computed.getExtractedAmount(), computed.getCumulativeExtractedAfter(), notice.getId());
+                target.portfolioCode(), target.settleYear(), settled.getClosingEquity(),
+                settled.getExtractedAmount(), settled.getCumulativeExtractedAfter(), notice.getId());
         return new AnnualSettlementOutcome(notice, reportText);
     }
 
@@ -436,6 +471,9 @@ public class StockAnnualSettlementService {
 
     /**
      * 落降级或阻断状态:只写状态、原因与尝试时间,绝不写任何金额字段。
+     * <p>
+     * 回写带 {@code settlement_status <> SETTLED} 守卫:已结算行不得被降级覆盖,
+     * 影响行数为0时只告警,不改变既有台账事实。
      *
      * @param target   结算目标
      * @param existing 既有台账行,可为空
@@ -468,7 +506,12 @@ public class StockAnnualSettlementService {
         }
         row.setSettlementStatus(status.getCode());
         row.setDegradeReason(degradeReason);
-        settlementDAO.updateDegradedById(row, target.businessNow());
+        int updated = settlementDAO.updateDegradedById(row, target.businessNow());
+        if (updated == 0) {
+            log.warn("VIP股票年度结算-降级状态未写入,台账行已是已结算或被清除: settlementId={}, settlementStatus={}",
+                    row.getId(), status.getCode());
+            return;
+        }
         logDegrade(target, status, degradeReason);
     }
 

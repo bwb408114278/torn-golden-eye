@@ -3,11 +3,11 @@
 > 文档类型：技术设计（实施基线；本轮只输出方案，不含代码实施）
 > 适用项目：Golden-Eye（JDK21 / SpringBoot 3.5 / PostgreSQL 17 / Liquibase / MyBatis-Plus）
 本轮迁移目录 **`1.0.1-2.0.0/1.6.6`（已确认，计划开发版本 1.6.6）**；见 §3.5
-> 状态：设计草案，业务规则已冻结（见 §1.3），尚未实施；功能开关默认 `false`
+> 状态：设计基线（1.6.6 已实施；本版按一次性修复方案修正 Gate B 锚点、落库 UPSERT、区间钳制与可证窗口，见 §12 v0.2）；功能开关默认 `false`
 > 风险等级：L3（金额、资金守恒、数据迁移、幂等、调度与生产发布切换）
 > 时区：`Asia/Shanghai`（所有自然日、边界时点、调度 cron 均按该时区）
 > 关联文档：见 §11
-> 最后更新：待评审后填写（YYYY.MM.DD）
+> 最后更新：2026.10.01
 
 ---
 
@@ -163,7 +163,7 @@
 | `extracted_amount` | DECIMAL(18,2) | NULL | 本年提取额 `W_y`（可为负） |
 | `cumulative_extracted_after` | DECIMAL(18,2) | NULL | 累计已提取 `C_y` |
 | `year_return` | DECIMAL(18,10) | NULL | 年度收益率 `R_y = E_y / B_y − 1` |
-| `coverage_days` | INT | NULL | 区间自然日数 `N` |
+| `coverage_days` | INT | NULL | 该年度被记账覆盖的自然日数 `N`（区间按 §5.3 钳制在被结算自然年内） |
 | `partial_year` | BOOLEAN | NOT NULL, default false | 是否不完整年度（试运行） |
 | `annualized_return` | DECIMAL(18,10) | NULL | 年化折算（仅展示；不适用时 NULL） |
 | `open_position_count` | INT | NULL | 边界开放持仓批次数 |
@@ -298,9 +298,11 @@ boundaryBarStart  = boundaryTime.minusMinutes(BUCKET_MINUTES)          // = sett
 | 门禁 | 判定（全部使用既有查询） | 不通过后果 |
 |---|---|---|
 | **Gate A：边界桶轮次已完成** | `TornStockMarketRoundDAO.selectByRoundTime(boundaryBarStart)` 存在且 `round_status = StockRoundStatusEnum.COMPLETED` | 该年度最后一桶的策略事实可能尚未全部落库（例如 23:45 桶触发的 SELL 结算发生在次日 00:00:10 的轮次）→ 不结算，`PENDING_BOUNDARY`，窗口内重试 |
-| **Gate B：边界后零资金变动（可证性）** | `TornStockVirtualBatchDAO.selectAlphaActionBatches(VIP_ALPHA, boundaryTime, boundaryTime.plusDays(1))` 为空（该 SQL 覆盖 `entry_time` 或 `exit_time` 落在区间内的批次），且该组合槽位行 `update_time < boundaryTime`（无边界后写入） | 读到的槽位/批次状态已不是边界状态 → **不得用当前权益冒充**，`DEGRADED_NOT_PROVABLE` + 告警，转人工（Q3） |
+| **Gate B：边界状态可证（无边界后写入）** | 两个条件同时成立：**B1** `TornStockVirtualBatchDAO.selectAlphaActionBatches(VIP_ALPHA, boundaryTime, boundaryTime.plusDays(1))` 为空（该 SQL 覆盖 `entry_time` 或 `exit_time` 落在区间内的批次）；**B2** Gate A 的 `boundaryRound.completedAt` 非空，且该组合每个槽位满足 `update_time == null || !update_time.isAfter(boundaryRound.completedAt)` | 读到的槽位/批次状态已不是边界状态 → **不得用当前权益冒充**，`DEGRADED_NOT_PROVABLE` + 告警，转人工（Q3） |
 | **Gate C：边界行情齐备** | 对该组合全部开放持仓股票，加载 `bar_start_time = boundaryBarStart`、`build_version = Stock15mBarBuildService.BUILD_VERSION`、`deleted = 0` 的 bar（既有 `selectByBarStartTime` / `selectUsableByStocksAndTimeRange`），过滤 `usable = true` 且 `lastPrice > 0` | 沿用 `PortfolioEquityCalculator` 降级：`equity = null` 且 `missingPriceStocks` 非空 → **绝不伪造结算**（R3），`DEGRADED_PRICE_MISSING`，窗口内重试 |
 
+> **Gate B 的锚点必须是边界轮次完成时刻，不能是 `boundaryTime`**：轮次事务在 `batchSaveChanges` 中无条件执行 `portfolioSlotDao.updateBatchById(快照槽位)`，`update_time` 由 `DbMetaObjectHandler#updateFill` 写为真实时钟，随后同一事务的 `completeRound` 才写 `completed_at`。23:45 桶轮次要到次日 00:00:10 才处理完成，其槽位写入时刻必然不早于 `boundaryTime`；若以 `boundaryTime` 为锚，Gate A 与 Gate B 互斥，任何年度都会终止在 `DEGRADED_NOT_PROVABLE`。以边界轮次完成时刻为锚后，可证窗口即 `[boundaryRound.completedAt, 下一轮次首次写槽位)`，与 §8.1 的 00:00–00:15 调度窗口一致。
+>
 > Gate C 必须显式"按桶取数"，不能复用 `selectLatestUsableByStocks`：该方法以 `bar_start_time <= cutoffTime` 为上界，在 00:00 后的调用点，`cutoffTime`（= `currentEndedBucket − 15min`）会排除 23:45 桶。这是已核实的取数差异，本方案必须显式处理。
 >
 > 权益计算仍调用 `PortfolioEquityCalculator.calculateEquity(slots, activeBatches, boundaryBarByStock, boundaryTime)`，`generatedAt` 传入 `boundaryTime`，使新鲜度窗口恰好为 `[boundaryTime − 30min, boundaryTime]`：23:45 桶（`barEndTime = boundaryTime`）被接受，边界后的 bar 被拒绝。
@@ -311,7 +313,7 @@ boundaryBarStart  = boundaryTime.minusMinutes(BUCKET_MINUTES)          // = sett
 1) 解析入参：portfolioCode = StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE（硬编码唯一；不得由调用方传入任意组合）
 2) 计算 settleYear / boundaryTime / boundaryBarStart
 3) 幂等短路：已存在 (portfolioCode, settleYear, ruleVersion) 且 settlement_status = 'SETTLED' → 直接返回，不重算、不重复提取、不重复建通知
-4) Gate A → Gate B → Gate C（任一不通过 → upsert 降级状态行 + degrade_reason，结束并告警；不写任何金额）
+4) 可证窗口判定：businessNow 必须落在 [boundaryTime, boundaryTime + 15 分钟)（离窗落 MANUAL_REVIEW 并结束，不写任何金额）；随后 Gate A → Gate B → Gate C（任一不通过 → upsert 降级状态行 + degrade_reason，结束并告警；不写任何金额）
 5) 读取只读事实：
    - slots          = TornStockPortfolioSlotDAO.selectAllByPortfolioCode('VIP_ALPHA')
    - activeBatches  = TornStockVirtualBatchDAO.selectActiveAlphaBatches('VIP_ALPHA')
@@ -324,9 +326,11 @@ boundaryBarStart  = boundaryTime.minusMinutes(BUCKET_MINUTES)          // = sett
    - 不存在且 settleYear > 已知首年 → settlement_status = 'BLOCKED_PRIOR_YEAR'，结束
    - 存在 → cumulativeBefore = priorRow.cumulative_extracted_after；否则 0.00
 8) 计算基准与提取（§5）：openingEquity、extractedAmount、cumulativeAfter、yearReturn、coverageDays、partialYear、annualizedReturn
-9) 幂等落库：INSERT ... ON CONFLICT (portfolio_code, settle_year, rule_version) WHERE deleted = 0 DO NOTHING
-   - 影响行数 = 0 → 已存在（并发或重复触发）：不再重复提取，只做状态回读与日志
-   - 影响行数 = 1 → 同一事务内 UPDATE 该行为金额齐全的 SETTLED 行
+9) 幂等落库：单语句 INSERT ... ON CONFLICT (portfolio_code, settle_year, rule_version) WHERE deleted = 0 DO UPDATE
+   - 首次落库：插入金额齐全的行并直接置 SETTLED（金额列与派生量在同一语句写入）
+   - 已存在行（并发触发，或此前落过 PENDING_BOUNDARY/DEGRADED_*）：DO UPDATE 补齐全部金额列、置 SETTLED、清空 degrade_reason
+   - 该语句是唯一写金额列的语句；不得拆成"先 INSERT 状态行、事后再 UPDATE 金额"——INSERT 时金额缺省会被 ck_annual_settlement_settled_fields 拒绝并回滚整个事务
+   - 落库后按业务唯一键回读主键，用于回填 notice_id
 10) 同一事务内创建年报 PENDING 通知审计行（§6.3，幂等由唯一索引兜底），回填 notice_id
 11) 事务提交后（事务外）领取 → 冻结 payload → 发送 → 回写终态（复用既有链）
 ```
@@ -341,10 +345,10 @@ boundaryBarStart  = boundaryTime.minusMinutes(BUCKET_MINUTES)          // = sett
 | 触发场景 | 结论 |
 |---|---|
 | 同一窗口内每分钟重试（§8.1） | 第一轮成功后，后续轮次在第 3 步幂等短路，不重算不重复提取 |
-| 双实例/并发触发 | 唯一索引 `uk_stock_annual_settlement_business` + `ON CONFLICT DO NOTHING`：只有一行，另一实例影响行数为 0 后放弃写入 |
+| 双实例/并发触发 | 唯一索引 `uk_stock_annual_settlement_business` + `ON CONFLICT DO UPDATE`：只有一行，后到者以相同口径补齐金额，不重复提取 |
 | 通知重复 | 唯一索引 `uk_stock_notice_audit_annual_settlement`（partial）；即使并发建行也只有一行；发送侧再由 `claimByIds`（PENDING→SENDING 原子领取）保证"只调用 Bot 一次" |
 | 跨进程/重启后重跑 | 同上；`SETTLED` 行存在即视为已结算，不因重启重复提取 |
-| 降级后重试 | 仅 `PENDING_BOUNDARY` / `DEGRADED_PRICE_MISSING` 允许在可证窗口内重试；重试走同一幂等键，成功后更新为 `SETTLED` 并补齐金额 |
+| 降级后重试 | 仅 `PENDING_BOUNDARY` / `DEGRADED_PRICE_MISSING` 允许在可证窗口内重试；重试走同一幂等键，`DO UPDATE` 把该行补齐为 `SETTLED` 并清空 `degrade_reason`，金额不得因重试改变 |
 
 ### 4.5 事务与并发
 
@@ -412,8 +416,9 @@ boundaryBarStart  = boundaryTime.minusMinutes(BUCKET_MINUTES)          // = sett
 
 ```text
 已确认：首笔 α 批次入场时间
-N           = ChronoUnit.DAYS.between(startDate, boundaryTime.toLocalDate())
-partialYear = N < 该年度自然日总数(365/366)
+coverageStartDate = max(首笔 α 批次入场日, 被结算年 1 月 1 日)   // 区间只能落在被结算自然年内
+N                 = ChronoUnit.DAYS.between(coverageStartDate, boundaryTime.toLocalDate())
+partialYear       = N < 该年度自然日总数(365/366)
 E_0         = I                                                        // 首次建仓前权益恰为 I（槽位初始 availableCash = I、无持仓）
 R_interval  = E_y / I − 1 = W_y / I
 ACT/365（已确认）
@@ -486,8 +491,8 @@ private boolean requiresBatch(TornStockNoticeAuditDO notice) {
 区间收益：{+X.XX%}
 年化折算：{+X.XX%}（试运行，仅供参考）
 
-本年账面利润：{+X.XXb}
-累计账面利润：{+X.XXb}
+本年账面利润：{X.XXb}
+累计账面利润：{X.XXb}
 
 本报告为系统内部虚拟组合记录，不构成投资建议；账面利润为记账口径，资金仍在槽内继续复利。
 ```
@@ -525,7 +530,9 @@ public static String formatBillion(BigDecimal amount) {
 |---|---|---|---|---|
 | 边界桶轮次未完成（Gate A） | `selectByRoundTime(boundaryBarStart)` 非 `COMPLETED` | `PENDING_BOUNDARY` | 窗口内每 2 分钟重试（§8.1）；出窗转 `MANUAL_REVIEW` | 出窗后需要 |
 | 边界行情缺失/非法/不可用（Gate C） | `PortfolioEquityCalculator` 返回 `equity == null`（`missingPriceStocks` 非空） | `DEGRADED_PRICE_MISSING`，**金额列全 NULL** | 窗口内重试；出窗转 `MANUAL_REVIEW` | 出窗后需要（R3：绝不伪造） |
-| 边界后已发生资金变动（Gate B） | `selectAlphaActionBatches` 非空，或槽位 `update_time ≥ boundaryTime` | `DEGRADED_NOT_PROVABLE` | **不自动重试**（状态已不可证） | 必须（Q3） |
+| 边界状态不可证（Gate B） | `selectAlphaActionBatches` 非空，或 `boundaryRound.completedAt` 为空，或槽位 `update_time > boundaryRound.completedAt` | `DEGRADED_NOT_PROVABLE` | **不自动重试**（状态已不可证） | 必须（Q3） |
+| 离开可证窗口（业务时间超出 `boundaryTime + 15 分钟`） | 结算入口的业务时间判定 | `MANUAL_REVIEW` | 不自动重试 | 必须（Q3） |
+| 降级回写未命中（台账已是 `SETTLED`） | `updateDegradedById` 影响行数 = 0 | 保留既有已结算行 | 不重试 | 否 |
 | 上一年度未结算 | 无 `settle_year = y−1` 的 `SETTLED` 行 | `BLOCKED_PRIOR_YEAR` | 待上一年度结算后由后续触发重算 | 需要关注（Q4） |
 | 台账唯一键冲突（并发/重复触发） | `ON CONFLICT DO NOTHING` 影响 0 行 | 保持既有行 | 只做状态回读 + 日志，**不重复提取** | 否 |
 | 通知建行冲突 | `uk_stock_notice_audit_annual_settlement` 冲突 | 复用既有行 | 回读 `notice_id` 并尝试投递 | 否 |
@@ -567,7 +574,7 @@ public ThreadPoolTaskScheduler stockAnnualSettlementScheduler() {
 |---|---|---|
 | 主入口（每年 1 月 1 日） | `0 5 0 1 1 *` | 00:05：既在 23:45 桶轮次（00:00:10 触发）之后，又在新年度第一个可成交桶（00:00 桶 → 00:15:10 轮次）之前 |
 | 窗口内补偿 | `0 7,9,11,13 0 1 1 *` | 00:07/09/11/13：仅在 Gate 未通过时继续尝试；已 `SETTLED` 时秒级幂等短路 |
-| 启动补偿 | `@EventListener(ApplicationReadyEvent)` | 仅当处于同一"可证窗口"内才尝试（复用 `BotConstants.ENV_PROD` 生产环境判定）；出窗直接 `MANUAL_REVIEW`，**不自动补结** |
+| 启动补偿 | `@EventListener(ApplicationReadyEvent)` | 调度器只判断「当天是年度边界当日」，可证窗口由结算服务判定（`boundaryTime` 起 15 分钟内）；窗口外落 `MANUAL_REVIEW`，**不自动补结**（生产环境判定复用 `BotConstants.ENV_PROD`） |
 | 开关 | `KEY_VIP_STOCK_ANNUAL_SETTLEMENT_ENABLED` | 非 `true` 直接返回；非生产环境直接返回 |
 
 设计要点：
@@ -610,7 +617,9 @@ public ThreadPoolTaskScheduler stockAnnualSettlementScheduler() {
 
 - 判定 1：`closing_equity = closing_cash + closing_reserved + closing_market_value`（精度 `scale=2`，无余差）；
 - 判定 2：`closing_equity = initial_cash + cumulative_extracted_after`；
-- 判定 3：`extracted_amount = closing_equity − cumulative_extracted_before − initial_cash` 且 `cumulative_extracted_after = cumulative_extracted_before + extracted_amount`（数据库 CHECK `ck_annual_settlement_extraction_identity` 兜底）。
+- 判定 3：`extracted_amount = closing_equity − cumulative_extracted_before − initial_cash` 且 `cumulative_extracted_after = cumulative_extracted_before + extracted_amount`（数据库 CHECK `ck_annual_settlement_extraction_identity` 兜底）；
+- 判定 4：`coverage_days` 不得大于该自然年天数（区间已按 §5.3 钳制在被结算自然年内）；
+- 判定 5：既有降级行在条件恢复后重试必须翻转为 `SETTLED`、金额与首次可证值一致且 `degrade_reason` 为 NULL；已 `SETTLED` 行不得被降级回写覆盖。
 
 ```sql
 SELECT settle_year, closing_equity,
@@ -782,6 +791,7 @@ FROM torn_stock_portfolio_slot s WHERE s.portfolio_code = 'VIP_ALPHA';
 | 版本 | 日期 | 变更人 | 变更内容 |
 |---|---|---|---|
 | v0.1 | 待评审 | — | 首版技术设计：冻结 R1–R9；确定边界定义（12-31 23:45 桶）、三道门禁、追加式结算台账与"累计提取利润"科目载体、提取恒等式、`requiresBatch` 白名单扩展（P0）、`X.XXb` 格式化与年报渲染模板、00:05 / 00:07–00:13 调度窗口与发布/回滚顺序、11 项验收；待确认事项见 §1.5 |
+| v0.2 | 2026.10.01 | Review 修复：Gate B 锚点改为边界轮次完成时刻（§4.2）；落库改为单语句 UPSERT、冲突不再放弃（§4.3/§4.4）；区间起点按被结算年钳制（§5.3）；降级回写不得覆盖已结算行、离窗落 `MANUAL_REVIEW`（§7/§8.1）；年报模板金额改为 `{X.XXb}`（§6.4） |
 
 ---
 

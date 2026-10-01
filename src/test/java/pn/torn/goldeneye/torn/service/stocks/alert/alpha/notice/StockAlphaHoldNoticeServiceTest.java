@@ -67,7 +67,7 @@ class StockAlphaHoldNoticeServiceTest {
         assertEquals(StockNoticeTypeEnum.ALPHA_HOLD.getCode(), saved.getNoticeType());
         assertEquals(DECISION_DATE, saved.getSummaryDate(), "幂等键第一分量必须为决策业务日");
         assertEquals(StockAlphaTrackRegistry.VIP_ALPHA.trackCode(), saved.getTrackCode(), "幂等键第二分量必须为轨道编码");
-        assertEquals(batch.getId(), saved.getBatchId(), "应固化当前持仓批次");
+        assertNull(saved.getBatchId(), "审计行不写batch_id:批次维度唯一键只服务买卖与换仓腿");
         assertEquals(VIP_GROUP_ID, saved.getGroupId());
         assertEquals(StockNoticeStatusEnum.PENDING.getCode(), saved.getSendStatus(), "正式轨道必须进入可发送链");
         assertEquals(0, saved.getSendAttemptCount());
