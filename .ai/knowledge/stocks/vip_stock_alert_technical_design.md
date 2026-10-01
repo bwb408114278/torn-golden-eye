@@ -739,7 +739,7 @@ UPDATE sys_setting SET setting_value = 'true', update_time = CURRENT_TIMESTAMP
 - 与既有换仓通知的边界：本条**不是**换仓腿，不参与 `rebalanceAssociationId` 组，不占用两腿成组校验。
 #### 13.6.3 1.6.6 Review 修复记录（2026-10-01）
 
-首次 Review 判定本批次不通过。问题与闭环结论如下，一次性修复方案见 `.ai/knowledge/stocks/vip_stock_annual_settlement_and_hold_notice_review_fix_plan.md`（方案通过验收后按生命周期关闭）。
+首次 Review 判定本批次不通过，修复后于 2026-10-01 复评通过：阻断项全部闭环，修复方案按一次性文档生命周期关闭并删除，问题与结论由本节承载。
 
 | 编号 | 等级 | 问题 | 闭环结论 |
 |---|---|---|---|
