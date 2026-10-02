@@ -158,6 +158,10 @@
 │   │   │       │   │   ├── crime/                                                      # Crime相关模型
 │   │   │       │   │   │   ├── TornFactionCrimeRequireItemVO.java                      # OC岗位需要物品响应参数
 │   │   │       │   │   │   └── TornFactionCrimeSlotVO.java                             # 帮派OC岗位响应参数
+│   │   │       │   │   ├── oc/                                                         # OC相关模型
+│   │   │       │   │   │   └── delay/                                                  # OC延误归因模型
+│   │   │       │   │   │       ├── OcDelayCauseEntry.java                              # 单成员延误归因条目
+│   │   │       │   │   │       └── OcDelayReasonEnum.java                              # OC延误原因枚举
 │   │   │       │   │   └── revive/                                                     # 复活相关模型
 │   │   │       │   │       ├── TornFactionReviveVO.java                                # 帮派复活数据响应参数
 │   │   │       │   │       └── TornFactionReviveDTO.java                               # 帮派复活请求参数
@@ -170,6 +174,9 @@
 │   │   │           │   └── TornRwDataService.java                                      # RW数据逻辑
 │   │   │           ├── faction/                                                        # 帮派相关功能
 │   │   │           │   └── oc/                                                         # Crime相关功能
+│   │   │           │       ├── delay/                                                  # OC延误归因（原因判定与编解码）
+│   │   │           │       │   ├── OcDelayCauseRecorder.java                           # 延误归因编解码与段结算
+│   │   │           │       │   └── OcDelayReasonResolver.java                          # 单成员延误原因判定
 │   │   │           │       ├── recommend/                                              # OC推荐功能
 │   │   │           │       │   └── TornOcRecommendService.java                         # OC推荐逻辑层
 │   │   │           │       ├── planning/                                               # OC新队规划（8个子包）
@@ -182,7 +189,7 @@
 │   │   │           │       │   ├── evidence/                                           # 收益证据计算与经济价值比较
 │   │   │           │       │   └── policy/                                             # 模式选点策略
 │   │   │           │       ├── TornFactionOcBenefitService.java                        # 帮派OC收益逻辑层
-│   │   │           │       └── TornOcCompleteNoticeService.java                        # OC完成通知逻辑层
+│   │   │           │       └── TornOcCompleteNoticeService.java                        # OC完成通知与延误归因逻辑层
 │   │   │           ├── stocks/                                                         # VIP股票虚拟组合与消息提醒
 │   │   │           │   └── alert/                                                      # 股票提醒核心服务
 │   │   │           │       ├── alpha/                                                  # α相位轨道决策、执行与通知
@@ -218,9 +225,11 @@
 │   │       │       │   ├── faction.yaml                                                # 帮派相关改动
 │   │       │       │   ├── setting.yaml                                                # 配置相关改动
 │   │       │       │   └── stocks-portfolio.yaml                                       # VIP股票组合建表与索引改动
-│   │       │       └── 1.6.6/                                                          # 年度结算与α继续持有通知改动
-│   │       │           ├── stocks-alpha-hold-notice.yaml                               # α继续持有通知轨道列与幂等索引
-│   │       │           └── stocks-annual-settlement.yaml                               # 年度结算台账与年报通知幂等索引
+│   │       │       ├── 1.6.6/                                                          # 1.6.6版本改动
+│   │       │       │   ├── stocks-alpha-hold-notice.yaml                               # α继续持有通知轨道列与幂等索引
+│   │       │       │   └── stocks-annual-settlement.yaml                               # 年度结算台账与年报通知幂等索引
+│   │       │       └── 1.6.7/                                                          # 1.6.7版本改动
+│   │       │           └── oc-delay-cause.yaml                                         # OC延误归因delay_cause加列
 │   │       └── mapper/                                                                 # Mapper文件
 │   │           ├── faction/                                                            # 帮派相关
 │   │           │   └── oc/                                                             # OC相关
@@ -248,9 +257,13 @@
 │               └── service/                                                            # 业务逻辑层
 │                   ├── faction/                                                        # 帮派相关功能
 │                   │   └── oc                                                          # Crime相关功能
+│                   │       ├── delay/                                                  # OC延误归因测试
+│                   │       │   ├── OcDelayCauseRecorderTest.java                       # 延误归因编解码与段结算测试
+│                   │       │   └── OcDelayReasonResolverTest.java                      # 单成员延误原因判定测试
 │                   │       ├── recommend/                                              # OC推荐功能
 │                   │       │   └── TornOcRecommendServiceTest.java                     # OC推荐功能测试
-│                   │       └── TornFactionOcBenefitServiceTest.java                    # 帮派OC收益功能测试
+│                   │       ├── TornFactionOcBenefitServiceTest.java                    # 帮派OC收益功能测试
+│                   │       └── TornOcCompleteNoticeServiceTest.java                    # OC完成通知与延误归因测试
 │                   └── stocks/                                                         # 股票相关功能
 │                       └── alert/                                                      # VIP股票提醒测试
 │                           ├── alpha/                                                  # α相位轨道测试

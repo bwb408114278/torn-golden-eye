@@ -24,6 +24,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
@@ -34,19 +35,25 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.torn.model.faction.oc.delay.OcDelayCauseEntry;
+import pn.torn.goldeneye.torn.model.faction.oc.delay.OcDelayReasonEnum;
+import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
+import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayCauseRecorder;
+import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayReasonResolver;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * OC完成通知逻辑层
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.7
  * @since 2025.11.26
  */
 @Slf4j
@@ -65,12 +72,24 @@ public class TornOcCompleteNoticeService {
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
     private final TornUserDAO userDao;
+    private final OcDelayReasonResolver delayReasonResolver;
+    private final OcDelayCauseRecorder delayCauseRecorder;
+    // 帮派ID → 上次成员状态采样时间；重启后为空调度，最坏多采一次
+    private final Map<Long, LocalDateTime> delaySampleTimeMap = new ConcurrentHashMap<>();
     // 时间窗口: 3分钟内完成的OC合并通知
     private static final int TIME_WINDOW_MINUTES = 3;
     // OC可接受延误阈值，超过该分钟数才提醒指挥官
     private static final int OC_ACCEPTABLE_DELAY_MINUTES = 5;
     // 延误提醒中只展示到分钟的时间格式
     private static final DateTimeFormatter OC_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    // 成员状态采样间隔：延误时长以分钟计，5分钟粒度已足够识别主责，同时显著降低成员接口调用量
+    private static final int DELAY_SAMPLE_INTERVAL_MINUTES = 5;
+    // 计划执行分钟后需再等待的分钟数，用于确认Torn本轮的执行窗口已经错过
+    private static final int DELAY_CONFIRM_MINUTES = 1;
+    // 延误原因行前缀，只在单个OC的第一条成员原因行出现
+    private static final String DELAY_REASON_PREFIX = "原因：";
+    // 没有任何阻塞条目时的原因行
+    private static final String DELAY_REASON_UNKNOWN_LINE = DELAY_REASON_PREFIX + "未知";
 
     public void init() {
         List<Long> noticeFactionIdList = new ArrayList<>();
@@ -225,10 +244,7 @@ public class TornOcCompleteNoticeService {
                 warnings.add(new AtQqMsg(user.getQqId()));
             }
 
-            String itemName = itemsManager.getMap().containsKey(itemReq.getId())
-                    ? itemsManager.getMap().get(itemReq.getId()).getItemName()
-                    : "#" + itemReq.getId();
-            warnings.add(new TextQqMsg("OC需要道具: " + itemName + "，请购买\n"));
+            warnings.add(new TextQqMsg("OC需要道具: " + buildItemName(itemReq.getId()) + "，请购买\n"));
         }
 
         return warnings;
@@ -244,41 +260,44 @@ public class TornOcCompleteNoticeService {
      */
     private List<QqMsgParam<?>> buildStatusWarnings(long factionId, List<Long> userIdList,
                                                     Map<Long, TornUserDO> userMap) {
-        Map<Long, String> badStatusMap = findBadStatusMap(factionId, userIdList);
+        Map<Long, TornUserStatusVO> statusMap = queryMemberStatusMap(factionId, new HashSet<>(userIdList));
         List<QqMsgParam<?>> warnings = new ArrayList<>();
-        for (Map.Entry<Long, String> entry : badStatusMap.entrySet()) {
+        for (Map.Entry<Long, TornUserStatusVO> entry : statusMap.entrySet()) {
+            String state = entry.getValue().getState();
+            if (!TornUserStatusEnum.isOcNotExecutable(state)) {
+                continue;
+            }
+
             TornUserDO user = userMap.get(entry.getKey());
             if (user != null && !user.getQqId().equals(0L)) {
                 warnings.add(new AtQqMsg(user.getQqId()));
             }
-            warnings.add(new TextQqMsg(buildStatusTip(user, entry.getKey(), entry.getValue())));
+            warnings.add(new TextQqMsg(buildStatusTip(user, entry.getKey(), state)));
         }
         return warnings;
     }
 
     /**
-     * 查询帮派成员中状态异常（不可执行OC）的OC参与成员
+     * 查询帮派成员中目标成员的当前状态；一次帮派成员接口覆盖全部目标成员。
      *
-     * @param factionId  帮派ID
-     * @param userIdList 参与OC的用户ID列表
-     * @return Key为用户ID，Value为异常状态码
+     * @param factionId 帮派ID
+     * @param userIdSet 目标成员ID集合
+     * @return Key为成员ID，Value为成员状态；接口无数据时返回空Map
      */
-    private Map<Long, String> findBadStatusMap(long factionId, List<Long> userIdList) {
+    private Map<Long, TornUserStatusVO> queryMemberStatusMap(long factionId, Set<Long> userIdSet) {
         TornFactionMemberListVO resp = tornApi.sendRequest(
                 new TornFactionMemberDTO(factionId), TornFactionMemberListVO.class);
         if (resp == null || CollectionUtils.isEmpty(resp.getMembers())) {
             return Map.of();
         }
 
-        Set<Long> ocUserIdSet = new HashSet<>(userIdList);
-        Map<Long, String> badStatusMap = new HashMap<>();
+        Map<Long, TornUserStatusVO> statusMap = new HashMap<>();
         for (TornFactionMemberVO member : resp.getMembers()) {
-            if (ocUserIdSet.contains(member.getId()) && member.getStatus() != null
-                    && TornUserStatusEnum.isOcNotExecutable(member.getStatus().getState())) {
-                badStatusMap.put(member.getId(), member.getStatus().getState());
+            if (userIdSet.contains(member.getId()) && member.getStatus() != null) {
+                statusMap.put(member.getId(), member.getStatus());
             }
         }
-        return badStatusMap;
+        return statusMap;
     }
 
     /**
@@ -371,8 +390,9 @@ public class TornOcCompleteNoticeService {
                 .filter(oc -> !completeStatuses.contains(oc.getStatus()))
                 .toList();
 
-        // 已完成的OC立即发送通知
+        // 已完成的OC先用实际执行时间结算延误归因，再发送通知
         if (!completedOcs.isEmpty()) {
+            settleDelayCause(completedOcs);
             List<Long> completedOcIds = completedOcs.stream().map(TornFactionOcDO::getId).toList();
             List<TornFactionOcSlotDO> completedSlots = ocSlotDao.lambdaQuery()
                     .in(TornFactionOcSlotDO::getOcId, completedOcIds).list();
@@ -384,9 +404,128 @@ public class TornOcCompleteNoticeService {
             sendOcCompleteNotice(faction, completedUserIds, completedOcs);
         }
 
-        // 未完成的继续轮询
+        // 未完成的继续轮询，并顺带采样延误归因
         if (!pendingOcs.isEmpty()) {
+            sampleDelayCause(faction, pendingOcs);
             scheduleOcCompleteCheck(faction);
+        }
+    }
+
+    /**
+     * 采样pending OC的成员阻塞状态，并合并进OC的延误归因编码。
+     * <p>
+     * 同一帮派每{@value #DELAY_SAMPLE_INTERVAL_MINUTES}分钟最多采样一次；只采样计划执行分钟
+     * 已经过去至少{@value #DELAY_CONFIRM_MINUTES}分钟的pending OC，避免把Torn自身的执行排期
+     * 误判成阻塞。每个帮派本轮只调用一次成员接口、只查一次岗位快照；采样异常只记录告警，
+     * 不影响完成检测与完成通知链路。
+     *
+     * @param faction    帮派配置
+     * @param pendingOcs 本轮仍未完成的OC列表
+     */
+    private void sampleDelayCause(TornSettingFactionDO faction, List<TornFactionOcDO> pendingOcs) {
+        try {
+            LocalDateTime sampleTime = LocalDateTime.now();
+            List<TornFactionOcDO> sampleableOcs = filterSampleableOcs(pendingOcs, sampleTime);
+            if (sampleableOcs.isEmpty() || !isDelaySampleAllowed(faction.getId(), sampleTime)) {
+                return;
+            }
+
+            List<TornFactionOcSlotDO> slotList = ocSlotDao.queryListByOc(sampleableOcs);
+            Set<Long> sampleUserIdSet = slotList.stream()
+                    .map(TornFactionOcSlotDO::getUserId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+            if (sampleUserIdSet.isEmpty()) {
+                return;
+            }
+
+            // 先记录采样时刻再调接口，接口异常时也按已采样节流，避免失败自旋放大调用量
+            delaySampleTimeMap.put(faction.getId(), sampleTime);
+            Map<Long, TornUserStatusVO> statusMap = queryMemberStatusMap(faction.getId(), sampleUserIdSet);
+            updateDelayCause(sampleableOcs, slotList, statusMap, sampleTime);
+        } catch (Exception e) {
+            log.warn("OC延误归因采样异常，跳过本轮采样, factionId={}", faction.getId(), e);
+        }
+    }
+
+    // 逐OC合并本轮采样结果，岗位按OC分组避免成员跨OC错配
+    private void updateDelayCause(List<TornFactionOcDO> ocList, List<TornFactionOcSlotDO> slotList,
+                                  Map<Long, TornUserStatusVO> statusMap, LocalDateTime sampleTime) {
+        Map<Long, List<TornFactionOcSlotDO>> slotMapByOc = slotList.stream()
+                .filter(slot -> slot.getOcId() != null)
+                .collect(Collectors.groupingBy(TornFactionOcSlotDO::getOcId));
+        for (TornFactionOcDO oc : ocList) {
+            Map<Long, OcDelayReasonResolver.OcDelayReason> samples = buildDelaySamples(
+                    slotMapByOc.getOrDefault(oc.getId(), List.of()), statusMap);
+            saveDelayCause(oc, delayCauseRecorder.merge(oc.getDelayCause(), samples, sampleTime));
+        }
+    }
+
+    // 仅在归因编码变化时写库，并同步内存DO供同批次渲染使用
+    private void saveDelayCause(TornFactionOcDO oc, String delayCause) {
+        if (Objects.equals(delayCause, oc.getDelayCause())) {
+            return;
+        }
+
+        ocDao.lambdaUpdate()
+                .set(TornFactionOcDO::getDelayCause, delayCause)
+                .eq(TornFactionOcDO::getId, oc.getId())
+                .update();
+        oc.setDelayCause(delayCause);
+    }
+
+    // 判定该OC全部槽位成员本轮是否阻塞；未命中的成员不出现在结果中，视为本轮未阻塞
+    private Map<Long, OcDelayReasonResolver.OcDelayReason> buildDelaySamples(
+            List<TornFactionOcSlotDO> slots, Map<Long, TornUserStatusVO> statusMap) {
+        Map<Long, OcDelayReasonResolver.OcDelayReason> samples = new HashMap<>();
+        for (TornFactionOcSlotDO slot : slots) {
+            if (slot.getUserId() == null) {
+                continue;
+            }
+
+            delayReasonResolver.resolve(statusMap.get(slot.getUserId()),
+                            slot.getRequiredItemId(), slot.getRequiredItemAvailable())
+                    .ifPresent(reason -> samples.put(slot.getUserId(), reason));
+        }
+
+        return samples;
+    }
+
+    // 只采样计划执行分钟已过去至少DELAY_CONFIRM_MINUTES分钟的OC，避免把Torn自身排期误判成阻塞
+    private List<TornFactionOcDO> filterSampleableOcs(List<TornFactionOcDO> pendingOcs,
+                                                      LocalDateTime sampleTime) {
+        return pendingOcs.stream()
+                .filter(oc -> oc.getReadyTime() != null)
+                .filter(oc -> !OcPreparationTimeCalculator.calculatePlannedTime(oc.getReadyTime())
+                        .plusMinutes(DELAY_CONFIRM_MINUTES).isAfter(sampleTime))
+                .toList();
+    }
+
+    // 同一帮派每DELAY_SAMPLE_INTERVAL_MINUTES分钟最多采样一次
+    private boolean isDelaySampleAllowed(long factionId, LocalDateTime sampleTime) {
+        LocalDateTime lastSampleTime = delaySampleTimeMap.get(factionId);
+        return lastSampleTime == null
+                || !sampleTime.isBefore(lastSampleTime.plusMinutes(DELAY_SAMPLE_INTERVAL_MINUTES));
+    }
+
+    /**
+     * 用实际执行时间封闭全部未闭合阻塞段并写库，供同批次完成通知渲染。
+     * <p>
+     * 结算异常只记录告警，完成通知继续使用库中已有编码。
+     *
+     * @param completedOcs 本轮已完成的OC列表
+     */
+    private void settleDelayCause(List<TornFactionOcDO> completedOcs) {
+        try {
+            for (TornFactionOcDO oc : completedOcs) {
+                if (oc.getExecutedTime() == null) {
+                    continue;
+                }
+
+                saveDelayCause(oc, delayCauseRecorder.settle(oc.getDelayCause(), oc.getExecutedTime()));
+            }
+        } catch (Exception e) {
+            log.warn("OC延误归因结算异常，完成通知将使用已有编码", e);
         }
     }
 
@@ -440,7 +579,7 @@ public class TornOcCompleteNoticeService {
         }
 
         // 明显延误提醒：合并到当前完成通知，不单独发送消息，展示在推荐表格图片下方
-        msgList.addAll(buildDelayNotice(faction, ocList));
+        msgList.addAll(buildDelayNotice(faction, ocList, userMap));
 
         // 发送
         BotHttpReqParam param = new GroupMsgHttpBuilder()
@@ -499,9 +638,11 @@ public class TornOcCompleteNoticeService {
      *
      * @param faction 帮派配置
      * @param ocList  本次完成的OC列表
+     * @param userMap 成员ID → 用户映射
      * @return 延误提醒消息参数列表
      */
-    private List<QqMsgParam<?>> buildDelayNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
+    private List<QqMsgParam<?>> buildDelayNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
+                                                 Map<Long, TornUserDO> userMap) {
         List<OcDelayInfo> delayedOcs = new ArrayList<>();
         Set<Long> seenOcIds = new HashSet<>();
         for (TornFactionOcDO oc : ocList) {
@@ -518,9 +659,11 @@ public class TornOcCompleteNoticeService {
         }
 
         List<QqMsgParam<?>> delayMsgs = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
-        List<String> detailLines = delayedOcs.stream()
-                .map(this::buildDelayDetail)
-                .toList();
+        List<String> detailLines = new ArrayList<>();
+        for (OcDelayInfo delayInfo : delayedOcs) {
+            detailLines.add(buildDelayDetail(delayInfo));
+            detailLines.addAll(buildDelayReasonLines(delayInfo.oc(), userMap));
+        }
         delayMsgs.add(new TextQqMsg("\n以下OC完成时存在明显延误，请关注：\n\n"
                 + String.join("\n", detailLines) + "\n"));
         return delayMsgs;
@@ -537,6 +680,71 @@ public class TornOcCompleteNoticeService {
         return name + "：计划" + delayInfo.plannedTime().format(OC_TIME_FORMATTER)
                 + "完成，实际" + delayInfo.actualTime().format(OC_TIME_FORMATTER)
                 + "完成，延误约" + delayInfo.delayMinutes() + "分钟";
+    }
+
+    /**
+     * 构建单个OC的延误原因行，每个阻塞过的成员一行、按净阻塞累计降序。
+     *
+     * @param oc      延误OC
+     * @param userMap 成员ID → 用户映射
+     * @return 原因行；没有任何阻塞条目时返回单行「原因：未知」
+     */
+    private List<String> buildDelayReasonLines(TornFactionOcDO oc, Map<Long, TornUserDO> userMap) {
+        List<OcDelayCauseEntry> entries = delayCauseRecorder.decode(oc.getDelayCause());
+        if (entries.isEmpty()) {
+            return List.of(DELAY_REASON_UNKNOWN_LINE);
+        }
+
+        long executedMinute = OcDelayCauseRecorder.toMinuteBucket(oc.getExecutedTime());
+        List<OcDelayCauseEntry> sortedEntries = entries.stream()
+                .sorted(Comparator.comparingLong((OcDelayCauseEntry entry) -> entry.totalMinutes(executedMinute))
+                        .reversed()
+                        .thenComparingLong(OcDelayCauseEntry::userId))
+                .toList();
+        int maxDelayMinutes = sortedEntries.getFirst().totalMinutes(executedMinute);
+        List<String> reasonLines = sortedEntries.stream()
+                .map(entry -> buildReasonText(entry, userMap.get(entry.userId()), executedMinute, maxDelayMinutes))
+                .collect(Collectors.toCollection(ArrayList::new));
+        reasonLines.set(0, DELAY_REASON_PREFIX + reasonLines.getFirst());
+        return reasonLines;
+    }
+
+    /**
+     * 拼装单个成员的原因文案。
+     *
+     * @param entry           归因条目
+     * @param user            成员信息；查不到时为null
+     * @param executedMinute  完成时刻的分钟桶
+     * @param maxDelayMinutes 本OC中最大的净阻塞累计分钟，用于标记最终阻塞
+     * @return 形如「昵称[ID] 缺道具(道具名，延误约N分钟，最终阻塞)」的一行文案
+     */
+    private String buildReasonText(OcDelayCauseEntry entry, TornUserDO user, long executedMinute,
+                                   int maxDelayMinutes) {
+        int totalMinutes = entry.totalMinutes(executedMinute);
+        List<String> parts = new ArrayList<>();
+        if (entry.itemId() != null) {
+            parts.add(buildItemReasonText(entry.reason(), entry.itemId()));
+        }
+        parts.add("延误约" + totalMinutes + "分钟");
+        if (totalMinutes == maxDelayMinutes) {
+            parts.add("最终阻塞");
+        }
+
+        String name = user != null ? user.getNickname() : String.valueOf(entry.userId());
+        return name + "[" + entry.userId() + "] " + entry.reason().getLabel()
+                + "(" + String.join("，", parts) + ")";
+    }
+
+    // 主原因为缺道具时道具名直接写出，其余原因的道具是补充信息，加「另缺」前缀
+    private String buildItemReasonText(OcDelayReasonEnum reason, int itemId) {
+        String itemName = buildItemName(itemId);
+        return reason == OcDelayReasonEnum.ITEM ? itemName : "另缺 " + itemName;
+    }
+
+    // 查询道具展示名，查不到时降级为#ID
+    private String buildItemName(int itemId) {
+        Map<Integer, TornItemsDO> itemMap = itemsManager.getMap();
+        return itemMap.containsKey(itemId) ? itemMap.get(itemId).getItemName() : "#" + itemId;
     }
 
     /**

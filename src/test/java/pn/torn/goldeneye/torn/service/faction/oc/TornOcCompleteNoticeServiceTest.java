@@ -32,6 +32,7 @@ import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingFactionDO;
+import pn.torn.goldeneye.repository.model.torn.TornItemsDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
@@ -42,7 +43,10 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
 import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.torn.model.faction.oc.delay.OcDelayReasonEnum;
 import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
+import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayCauseRecorder;
+import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayReasonResolver;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.lang.reflect.Method;
@@ -62,7 +66,7 @@ import static org.mockito.Mockito.*;
  * Torn OC完成通知服务测试
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.6.7
  * @since 2026.07.20
  */
 @ExtendWith(MockitoExtension.class)
@@ -92,6 +96,9 @@ class TornOcCompleteNoticeServiceTest {
     @Mock
     private TornUserDAO userDao;
 
+    private final OcDelayReasonResolver delayReasonResolver = new OcDelayReasonResolver();
+    private final OcDelayCauseRecorder delayCauseRecorder = new OcDelayCauseRecorder();
+
     private TornOcCompleteNoticeService noticeService;
     private AtomicReference<List<TornFactionOcDO>> ocDaoListRef;
 
@@ -100,7 +107,7 @@ class TornOcCompleteNoticeServiceTest {
         ocDaoListRef = new AtomicReference<>(List.of());
         noticeService = new TornOcCompleteNoticeService(bot, tornApi, taskService,
                 assignService, ocRefreshManager, itemsManager, msgManager, settingFactionManager,
-                ocDao, ocSlotDao, ocUserDao, userDao);
+                ocDao, ocSlotDao, ocUserDao, userDao, delayReasonResolver, delayCauseRecorder);
     }
 
     @Test
@@ -504,6 +511,89 @@ class TornOcCompleteNoticeServiceTest {
                 any(Runnable.class), any(LocalDateTime.class));
     }
 
+    @Test
+    @DisplayName("延误归因采样：同一帮派5分钟内只调用一次成员状态接口")
+    void shouldSampleDelayCauseOnceWithinFiveMinutes() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO planningOc = buildPlanningOc(501L, 8, "Clinical Precision",
+                LocalDateTime.now().minusMinutes(10));
+
+        mockInitScheduling(faction, List.of());
+        mockOcLambdaUpdate();
+        when(ocDao.queryNoticedNotCompleteByFaction(faction.getId())).thenReturn(List.of(planningOc));
+        when(ocSlotDao.queryListByOc(anyCollection()))
+                .thenReturn(List.of(buildSlot(planningOc.getId(), user.getId())));
+        when(tornApi.sendRequest(any(TornFactionMemberDTO.class), eq(TornFactionMemberListVO.class)))
+                .thenReturn(buildMemberListResp(user.getId(), TornUserStatusEnum.HOSPITAL.getCode()));
+        noticeService.init();
+
+        runCompleteCheckTask(faction, List.of(planningOc), List.of(), List.of());
+        runCompleteCheckTask(faction, List.of(planningOc), List.of(), List.of());
+
+        verify(tornApi, times(1)).sendRequest(any(TornFactionMemberDTO.class), eq(TornFactionMemberListVO.class));
+        assertTrue(planningOc.getDelayCause().contains(user.getId() + "|HOSPITAL"), planningOc.getDelayCause());
+    }
+
+    @Test
+    @DisplayName("延误归因：完成时用执行时间结算并渲染原因行与最终阻塞标记")
+    void shouldSettleAndRenderDelayReasonLines() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO itemUser = buildUser(1001L, "张三", 2001L);
+        TornUserDO travelUser = buildUser(1002L, "李四", 2002L);
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20), LocalDateTime.of(2026, 8, 1, 20, 30));
+        OcDelayReasonResolver.OcDelayReason itemReason =
+                new OcDelayReasonResolver.OcDelayReason(OcDelayReasonEnum.ITEM, 1430);
+        OcDelayReasonResolver.OcDelayReason travelReason =
+                new OcDelayReasonResolver.OcDelayReason(OcDelayReasonEnum.TRAVEL, null);
+        String itemSample = delayCauseRecorder.merge(null, Map.of(itemUser.getId(), itemReason),
+                LocalDateTime.of(2026, 8, 1, 20, 0));
+        completedOc.setDelayCause(delayCauseRecorder.merge(itemSample,
+                Map.of(itemUser.getId(), itemReason, travelUser.getId(), travelReason),
+                LocalDateTime.of(2026, 8, 1, 20, 20)));
+
+        mockInitScheduling(faction, List.of());
+        mockOcLambdaUpdate();
+        when(ocDao.queryNoticedNotCompleteByFaction(faction.getId())).thenReturn(List.of(completedOc));
+        when(itemsManager.getMap()).thenReturn(Map.of(1430, buildItem(1430, "Reaper's Key")));
+        noticeService.init();
+
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), itemUser.getId()),
+                        buildSlot(completedOc.getId(), travelUser.getId())),
+                List.of(itemUser, travelUser));
+
+        assertEquals("1001|ITEM|1430|0|30;1002|TRAVEL|0|0|10", completedOc.getDelayCause());
+        String delayText = completionTexts().stream()
+                .filter(text -> text.contains("以下OC完成时存在明显延误"))
+                .findFirst().orElseThrow();
+        assertTrue(delayText.contains("原因：张三[1001] 缺道具(Reaper's Key，延误约30分钟，最终阻塞)"), delayText);
+        assertTrue(delayText.contains("李四[1002] 旅行(延误约10分钟)"), delayText);
+        assertTrue(delayText.indexOf("张三[1001]") < delayText.indexOf("李四[1002]"), delayText);
+    }
+
+    @Test
+    @DisplayName("延误归因：没有阻塞记录时原因行输出未知")
+    void shouldRenderUnknownReason_whenNoDelayCauseRecorded() {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO completedOc = buildCompletedOc(501L, 8, "Clinical Precision",
+                LocalDateTime.of(2026, 8, 1, 20, 20), LocalDateTime.of(2026, 8, 1, 20, 30));
+
+        mockInitScheduling(faction, List.of());
+        when(ocDao.queryNoticedNotCompleteByFaction(faction.getId())).thenReturn(List.of(completedOc));
+        noticeService.init();
+
+        runCompleteCheckTask(faction, List.of(completedOc),
+                List.of(buildSlot(completedOc.getId(), user.getId())), List.of(user));
+
+        String delayText = completionTexts().stream()
+                .filter(text -> text.contains("以下OC完成时存在明显延误"))
+                .findFirst().orElseThrow();
+        assertTrue(delayText.contains("原因：未知"), delayText);
+    }
+
     static Stream<Arguments> blankOrInvalidCommanderConfigs() {
         return Stream.of(Arguments.of(""), Arguments.of("abc"));
     }
@@ -624,11 +714,20 @@ class TornOcCompleteNoticeServiceTest {
                 .thenReturn(new TornFactionOcVO());
         when(tornApi.sendRequest(any(TornFactionMemberDTO.class), eq(TornFactionMemberListVO.class)))
                 .thenReturn(memberResp);
+        mockOcLambdaUpdate();
+    }
+
+    /**
+     * 模拟OC更新链（延误归因按 id 条件写库与既有批量标记共用）。
+     */
+    private void mockOcLambdaUpdate() {
         when(ocDao.lambdaUpdate()).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            LambdaUpdateChainWrapper<TornFactionOcDO> wrapper = mock(LambdaUpdateChainWrapper.class);
+            LambdaUpdateChainWrapper<TornFactionOcDO> wrapper =
+                    mock(LambdaUpdateChainWrapper.class, withSettings().lenient());
             when(wrapper.set(any(), any())).thenReturn(wrapper);
             when(wrapper.in(any(), anyCollection())).thenReturn(wrapper);
+            when(wrapper.eq(any(), any())).thenReturn(wrapper);
             when(wrapper.update()).thenReturn(true);
             return wrapper;
         });
@@ -823,11 +922,37 @@ class TornOcCompleteNoticeServiceTest {
      * 构建OC参与用户
      */
     private TornUserDO buildUser() {
+        return buildUser(1001L, "测试用户", 2001L);
+    }
+
+    /**
+     * 按指定身份构建用户
+     *
+     * @param userId   用户ID
+     * @param nickname 昵称
+     * @param qqId     QQ号
+     * @return 用户数据
+     */
+    private TornUserDO buildUser(Long userId, String nickname, Long qqId) {
         TornUserDO user = new TornUserDO();
-        user.setId(1001L);
-        user.setNickname("测试用户");
-        user.setQqId(2001L);
+        user.setId(userId);
+        user.setNickname(nickname);
+        user.setQqId(qqId);
         return user;
+    }
+
+    /**
+     * 构建道具数据
+     *
+     * @param itemId   道具ID
+     * @param itemName 道具名称
+     * @return 道具数据
+     */
+    private TornItemsDO buildItem(int itemId, String itemName) {
+        TornItemsDO item = new TornItemsDO();
+        item.setId(itemId);
+        item.setItemName(itemName);
+        return item;
     }
 
     /**
