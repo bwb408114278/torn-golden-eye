@@ -770,8 +770,8 @@ HTML/Chromium 当前 OC 状态表格：
 
 ---
 
-## 14. 基线更新（1.6.6）
+## 14. 基线更新（1.6.7）
 
-第 2.3 节第 5 条「不改变……完成通知……的业务语义」描述的是 1.6.0 图片化变更自身的影响范围。自 1.6.6 起，OC 完成通知在既有延误明细行下追加成员维度的延误原因行（`torn_faction_oc.delay_cause`）；延误归因的口径、采样策略与验收基线见 `.ai/knowledge/oc/oc_delay_attribution_technical_design.md`。
+第 2.3 节第 5 条「不改变……完成通知……的业务语义」描述的是 1.6.0 图片化变更自身的影响范围。自 1.6.7 起，OC 完成通知在既有延误明细行下追加成员维度的延误原因行（`torn_faction_oc.delay_cause`）；延误归因的口径、采样策略与验收基线见 `.ai/knowledge/oc/oc_delay_attribution_technical_design.md`。
 
 本次更新不涉及槽位快照字段、图片渲染、标题格式与 Emoji 状态解析，第 3～13 章结论继续有效。

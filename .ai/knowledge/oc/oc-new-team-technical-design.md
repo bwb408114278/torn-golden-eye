@@ -928,8 +928,8 @@ JAVA_HOME="C:\Program Files\Java\jdk-21" mvn.cmd test -Dtest="OcExistingTimeline
 
 ---
 
-## 16. 基线更新（1.6.6）
+## 16. 基线更新（1.6.7）
 
-第 2.2 节第 4 条与第 2.3 节的字段表述以「时间线原始事实」为范围。自 1.6.6 起 `torn_faction_oc` 增加派生列 `delay_cause`，用于记录 OC 延误归因编码；它不是时间线原始事实，不参与快照加载、规划、匹配、价值比较与收益计算，也不改变第 5 节的 `readyTime` 递推口径。
+第 2.2 节第 4 条与第 2.3 节的字段表述以「时间线原始事实」为范围。自 1.6.7 起 `torn_faction_oc` 增加派生列 `delay_cause`，用于记录 OC 延误归因编码；它不是时间线原始事实，不参与快照加载、规划、匹配、价值比较与收益计算，也不改变第 5 节的 `readyTime` 递推口径。
 
 延误归因的口径、采样策略与验收基线见 `.ai/knowledge/oc/oc_delay_attribution_technical_design.md`。

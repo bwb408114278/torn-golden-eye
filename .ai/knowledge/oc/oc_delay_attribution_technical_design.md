@@ -4,8 +4,8 @@
 
 - 文档类型：技术方案 知识库
 - 适用项目：Golden-Eye
-- 适用版本：1.6.6
-- 最后更新：2026.09.30
+- 适用版本：1.6.7
+- 最后更新：2026.10.02
 - 维护人：Bai
 - 状态：有效（待实施，同时作为实施后的验收与 Review 基线）
 
@@ -180,6 +180,8 @@ SQL/Schema 变更按 L2 要求用真实库行为验证（迁移可回滚、加�
   对所有仍有开放段的条目: accumulated += (e - segmentStart); segmentStart = 0
 ```
 
+**响应不可用**：成员状态响应为 `null`、响应成员列表为空、或一个目标成员都没命中时，视为本轮取不到可用数据——**放弃本轮采样**（不合并、不写库，已闭合段与未闭合段原样保留）；采样节流照常推进，避免接口故障期间每分钟重试放大调用量。
+
 ### 5.3 存储编码
 
 `torn_faction_oc.delay_cause`，`TEXT`，可空。每个成员一个条目，条目用 `;` 分隔，字段用 `|` 分隔：
@@ -216,9 +218,12 @@ torn/model/faction/oc/delay/
 torn/service/faction/oc/delay/
     OcDelayReasonResolver.java  单成员单次采样的原因判定（纯函数）
     OcDelayCauseRecorder.java   编码/解码、采样合并、完成结算（无 IO）
+    OcDelayCauseService.java    采样节流与取数、合并写库、完成结算、原因行渲染（编排协作类）
 ```
 
-编排（调接口、写库、渲染）仍留在 `TornOcCompleteNoticeService`。
+编排拆分：OC 调度、完成检测轮询、完成通知与「即将结束」预告的消息装配留在 `TornOcCompleteNoticeService`；
+延误归因的采样、结算与原因行渲染由 `OcDelayCauseService` 承担，成员状态与道具名取数入口由两者共用，
+避免两处判定与展示口径漂移。
 
 ---
 
@@ -233,8 +238,8 @@ torn/service/faction/oc/delay/
  * OC 延误原因。
  *
  * @author Bai
- * @version 1.6.6
- * @since 2026.09.30
+ * @version 1.6.7
+ * @since 2026.10.02
  */
 @Getter
 @RequiredArgsConstructor
@@ -409,11 +414,15 @@ private final Map<Long, LocalDateTime> delaySampleTimeMap = new ConcurrentHashMa
 | `checkOcCompleted` | `pendingOcs` 非空时调用 `sampleDelayCause(faction, pendingOcs)`；`completedOcs` 非空时先调用 `settleDelayCause(completedOcs)` 再发送通知 |
 | 新增 `sampleDelayCause(faction, pendingOcs)` | 按 §2.3 过滤可采样 OC、按帮派节流；查一次 slots + 一次成员状态；逐 OC 合并并**仅在编码变化时** `UPDATE`；整体 try/catch 记 `log.warn` 后返回，不影响完成检测链 |
 | 新增 `settleDelayCause(completedOcs)` | 用 `executedTime` 结算并写库（一次/OC），把结算结果回填到 DO，供同批次渲染 |
-| 重构 `findBadStatusMap` → `queryMemberStatusMap(factionId, userIdSet)` | 返回 `Map<Long, TornUserStatusVO>`（只保留目标成员）；`buildStatusWarnings` 改为在其结果上过滤 `isOcNotExecutable`，**保持"即将结束"预告行为不变**，并为采样复用同一次调用方式 |
+| 重构 `findBadStatusMap` → `queryMemberStatusMap(factionId, userIdSet)` | 返回 `Optional<Map<Long, TornUserStatusVO>>`（只保留目标成员；接口无数据或未命中任何目标成员时为空，与「全员正常」区分）；`buildStatusWarnings` 改为在其结果上过滤 `isOcNotExecutable`，**保持"即将结束"预告行为不变**，并为采样复用同一次调用方式；采样侧遇空值记 `warn` 并放弃本轮合并 |
 | `buildDelayNotice` | 增加 `userMap` 入参；每个延误 OC 输出"明细行 + 原因行" |
 | 新增 `buildDelayReasonLines(oc, userMap)` | 读取 `oc.getDelayCause()`，无条目返回单行 `原因：未知`；否则按净阻塞累计降序生成 `昵称[ID] 原因(…延误约N分钟…)` |
 | 新增 `buildReasonText(entry)` | 拼装主原因、补充道具名（`itemsManager.getMap()`）、最终阻塞标记 |
 | `sendOcCompleteNotice` | 把已有的 `userMap` 传给 `buildDelayNotice` |
+
+1.6.7 结构拆分：上表中延误归因相关的方法（`sampleDelayCause`、`settleDelayCause`、`queryMemberStatusMap`、
+`buildDelayReasonLines`、`buildItemName` 及其私有协作方法）实现位于 `torn/service/faction/oc/delay/OcDelayCauseService`；
+`TornOcCompleteNoticeService` 只保留调度、预告、完成通知装配与延误明细拼装，并委托该服务完成采样、结算与原因行渲染。
 
 约束：
 
@@ -423,7 +432,7 @@ private final Map<Long, LocalDateTime> delaySampleTimeMap = new ConcurrentHashMa
 
 ### 6.3 Liquibase
 
-新增 `src/main/resources/db/changelog/1.0.1-2.0.0/1.6.6/oc-delay-cause.yaml`：
+新增 `src/main/resources/db/changelog/1.0.1-2.0.0/1.6.7/oc-delay-cause.yaml`：
 
 ```yaml
 databaseChangeLog:
@@ -451,7 +460,7 @@ databaseChangeLog:
 
 ```yaml
   - include:
-      file: db/changelog/1.0.1-2.0.0/1.6.6/oc-delay-cause.yaml
+      file: db/changelog/1.0.1-2.0.0/1.6.7/oc-delay-cause.yaml
 ```
 
 ---
@@ -499,6 +508,7 @@ databaseChangeLog:
 15. 迁移为可空加列，可回滚；加列后既有 OC 查询、规划、收益链路不受影响。
 16. `delay_cause` 不被既有同步链路（`updateAvailableOcData` / `updateCompleteData`）覆盖或清空。
 17. 服务重启后归因仍能从库中续算，不因内存丢失而重算。
+18. 成员状态响应不可用（`null` / 无成员 / 未命中目标成员）时放弃本轮采样且不写库，既有已闭合段与未闭合段保持不变。
 
 ---
 
@@ -506,8 +516,8 @@ databaseChangeLog:
 
 | 文档 | 冲突点 | 处理 |
 |---|---|---|
-| `.ai/knowledge/table-image-rendering-1.6.0-technical-design.md` | 第 2.3 节声明"不改变……完成通知……的业务语义" | 追加基线说明：该约束描述的是 1.6.0 图片化的变更范围；1.6.6 起完成通知新增延误原因行，归因口径以本文档为准 |
-| `.ai/knowledge/oc/oc-new-team-technical-design.md` | 第 2.2 节列出 OC 数据表字段事实 | 追加基线说明：1.6.6 起 `torn_faction_oc` 增加派生列 `delay_cause`，不属于时间线原始事实，规划与收益链路不读取 |
+| `.ai/knowledge/table-image-rendering-technical-design.md` | 第 2.3 节声明"不改变……完成通知……的业务语义" | 追加基线说明：该约束描述的是 1.6.0 图片化的变更范围；1.6.7 起完成通知新增延误原因行，归因口径以本文档为准 |
+| `.ai/knowledge/oc/oc-new-team-technical-design.md` | 第 2.2 节列出 OC 数据表字段事实 | 追加基线说明：1.6.7 起 `torn_faction_oc` 增加派生列 `delay_cause`，不属于时间线原始事实，规划与收益链路不读取 |
 | `.ai/knowledge/file_location.md` | 文件索引未包含新增类 | 补充 `model/faction/oc/delay` 与 `service/faction/oc/delay` 下的新文件 |
 
 ---
@@ -538,3 +548,70 @@ databaseChangeLog:
 3. 第 7 章列出的测试通过；
 4. 无未闭环的 P0/P1；
 5. 未发现本次改动引入的数据、安全或可用性风险。
+
+---
+
+## 13. Review 结论（实现版本 1.6.7）
+
+Review 范围：功能实现、代码规范、性能瓶颈；结论：**有条件通过**——功能与性能无阻塞缺陷，1 项 P1 与 2 项 P2 修正后可判定验收通过。
+
+### 13.1 本轮复核证据
+
+| 项 | 证据 |
+|---|---|
+| 编译 | JDK 21 下编译 851 个主源文件通过 |
+| 测试 | 相关 3 个测试类实际执行 40/40 通过（`OcDelayCauseRecorderTest` 6、`OcDelayReasonResolverTest` 14、`TornOcCompleteNoticeServiceTest` 20）；Mockito 在本机沙箱下需 `-Djdk.attach.allowAttachSelf=true` |
+| 迁移 | 真实库事务内加列→回滚：12342 行历史数据全部为 `NULL`，既有显式列查询不受影响，`dropColumn` 回滚成功；`db.changelog-master.yaml` 共 53 个 include，末项指向真实存在的 `1.6.7/oc-delay-cause.yaml` |
+| 计划时间唯一来源 | 全 `src` 中仅 `OcPreparationTimeCalculator` 存在 `plusMinutes(1)`，通知与采样链路均经该计算器 |
+| 写库路径 | `torn_faction_oc` 既有写路径（`updateAvailableOcData`、`updateCompleteData`、`hasNoticed` 批量更新）与新增 `saveDelayCause` 全部为显式 `.set(...)`，不存在整行覆盖，`delay_cause` 不会被同步链路清空 |
+| 无 N+1 | 每轮采样固定 1 次 `GET /faction/{id}/members` 加 1 次 `queryListByOc`；写库仅在编码变化时发生 |
+
+§8 的 17 条验收项逐条核对：口径 1–7、实现 8–14、迁移与数据 15–17 全部通过。
+
+### 13.2 未通过项（修正后方可验收）
+
+**P1-1　成员接口无数据被当作「全员无阻塞」，审计列被静默截断**
+
+`TornApiImpl.executeWithRetry` 在 Key 池为空或 HTTP 重试 3 次仍失败时返回 `null`（`TornApiImpl.java:130-144`、`192-197`）。此时 `queryMemberStatusMap` 返回 `Map.of()`（`TornOcCompleteNoticeService.java:291`），`sampleDelayCause` 仍照常合并（`:444-445`），`OcDelayCauseRecorder.merge` 会把所有开放段按采样时刻闭合（`OcDelayCauseRecorder.java:89-95`）：一次真实阻塞被拆成两段，两段之间约 5 分钟不计入累计，`delay_cause` 中留下一次并不存在的「解除」。
+
+影响：只会少算，不会冤枉成员，但该列永久保留供审计与罚款核对，静默截断使审计值失真且事后无法识别。修正：区分「接口无数据」与「全员无阻塞」——`queryMemberStatusMap` 改为返回 `Optional<Map<...>>`（或在 `sampleDelayCause` 中判定响应不可用），无数据时记 `log.warn` 并放弃本轮合并；同时在 §5.2 补一条「响应不可用即放弃本轮采样」的规则，并补 1 个用例：接口返回 `null` 时既有开放段保持不变且不写库。
+
+**P2-1　版本号在文档与实现之间不一致**
+
+实现侧统一为 1.6.7（`pom.xml`、`build/docker-compose.yml`、changelog 目录 `1.6.7/`、类 `@version`），文档侧仍为 1.6.6：本文档元信息（第 7 行）、§6.1 Javadoc 片段（236-237 行）、§6.3 迁移路径（426、454 行）、§9 基线表（509-511 行），以及两份长期方案新增章标题（`table-image-rendering-technical-design.md:773`、`oc-new-team-technical-design.md:931`）。按 §6.3 查找迁移文件会指向不存在的目录。修正：统一改为 1.6.7。
+
+**P2-2　基线表引用了已改名的文档**
+
+§9（第 509 行）指向 `.ai/knowledge/table-image-rendering-1.6.0-technical-design.md`，该文件已更名为 `table-image-rendering-technical-design.md`；`racing/pc-race-technical-design.md:931` 的同一引用随之失效。修正：指向现名。
+
+### 13.3 建议项（不阻塞验收）
+
+1. `OcDelayCauseRecorder` 同时保留 `FIELD_SEPARATOR` 与 `FIELD_SEPARATOR_REGEX`（`:30-38`），可用单个 `Pattern` 承载，去掉重复常量。
+2. `filterSampleableOcs` 直接调用 `OcPreparationTimeCalculator`（`:499`），同类其他位置走私有包装 `calculatePlannedTime`（`:599`），建议统一入口。
+3. 私有方法注释风格不一：`sampleDelayCause` 与 `settleDelayCause` 有完整 Javadoc，`updateDelayCause`、`saveDelayCause`、`buildDelaySamples` 等只有 `//`。
+4. `totalMinutes == maxDelayMinutes`（`:729`）在最大值为 0 时同样输出「最终阻塞」（采样与完成落在同一分钟）；建议加 `maxDelayMinutes > 0` 前置条件。
+5. 采样节流的判定与写入非原子（`isDelaySampleAllowed` 加 `put`，`:443`、`:505-509`）；同一帮派单轮执行超过 1 分钟而重入时会重复采样并丢更新，用 `ConcurrentHashMap.compute` 收敛即可。
+6. `shouldSampleDelayCauseOnceWithinFiveMinutes` 依赖服务内的真实时钟，跨 5 分钟边界时理论上会失败；后续若要稳态化，把采样时刻作为参数注入。
+7. 「成员被移出岗位后条目保留至结算」依赖既定业务前提（成员不会中途退出 OC），当前实现与该前提一致，无需改动，仅记录。
+
+### 13.4 结论
+
+功能实现与 §2 口径一致，性能无瓶颈（每帮派每 5 分钟 1 次成员接口、1 次槽位查询，写库仅在编码变化时），编译、测试与迁移证据充分。修正 P1-1、P2-1、P2-2 后判定验收通过。
+
+### 13.5 复验结论（修复后，2026.10.02）
+
+P1-1、P2-1、P2-2 全部闭环，判定**验收通过**。
+
+| 复核项 | 证据 |
+|---|---|
+| 编译 | JDK 21 编译主源与测试源通过，`BUILD SUCCESS` |
+| 测试 | 相关 3 个测试类实际执行 **43/43 通过**（`OcDelayCauseRecorderTest` 6、`OcDelayReasonResolverTest` 14、`TornOcCompleteNoticeServiceTest` 23，含新增 1 个参数化方法覆盖 3 种不可用形态） |
+| 用例有效性（变异验证） | 临时把 `queryMemberStatusMap` 还原为修复前语义（取不到数据即 `Optional.of(空Map)`）后，新用例 3/3 失败（`expected 1001\|HOSPITAL\|0\|29848971\|0`，`actual 1001\|HOSPITAL\|0\|0\|7`），证明该用例真实覆盖「错误闭合开放段」而非空跑；还原后 43/43 全绿 |
+| P1-1 | `queryMemberStatusMap` 返回 `Optional`，`null`／成员列表为空／未命中目标成员三种形态均放弃本轮采样；节流在调接口前落定，接口故障期间无自旋；`buildStatusWarnings` 以 `orElseGet(Map::of)` 取默认值，「即将结束」预告行为与文案不变 |
+| P2-1 | 实现侧与文档侧版本号统一为 1.6.7（元信息、§6.1.1 片段、§6.3 迁移路径、§9 基线表，以及两份长期方案的基线更新章标题与正文） |
+| P2-2 | §9 与 `racing/pc-race-technical-design.md` 的资料引用均指向现名 `table-image-rendering-technical-design.md` |
+| 结构拆分 | `TornOcCompleteNoticeService` 由 792 行收敛至 569 行，只保留调度、预告、完成通知装配与延误明细拼装；采样、结算与原因行渲染迁至 `torn/service/faction/oc/delay/OcDelayCauseService`（283 行）。成员状态与道具名取数入口全仓库唯一，采样仍为每轮 1 次成员接口加 1 次岗位查询，接口调用量与写库时机与拆分前一致 |
+| 代码规范 | 两个改动文件无未使用 import；新类具备中文 Javadoc 与 `@version`/`@since`；`file_location.md` 已收录新类且注释列对齐 |
+| 收敛 | 未新增测试类，只新增 1 个参数化用例；延误归因既有用例继续在完成通知测试类内走真实协作对象，未复制夹具 |
+
+§13.3 的 7 条建议项不属于本次验收范围，按各自排期另行处理。一次性修复方案已归档删除，本次改动等待运维手动部署。

@@ -47,6 +47,7 @@ import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
 import pn.torn.goldeneye.torn.model.faction.oc.delay.OcDelayReasonEnum;
 import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
 import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayCauseRecorder;
+import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayCauseService;
 import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayReasonResolver;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
@@ -106,9 +107,11 @@ class TornOcCompleteNoticeServiceTest {
     @BeforeEach
     void setUp() {
         ocDaoListRef = new AtomicReference<>(List.of());
+        OcDelayCauseService delayCauseService = new OcDelayCauseService(tornApi, ocDao, ocSlotDao,
+                itemsManager, delayReasonResolver, delayCauseRecorder);
         noticeService = new TornOcCompleteNoticeService(bot, tornApi, taskService,
-                assignService, ocRefreshManager, itemsManager, msgManager, settingFactionManager,
-                ocDao, ocSlotDao, ocUserDao, userDao, delayReasonResolver, delayCauseRecorder);
+                assignService, ocRefreshManager, msgManager, settingFactionManager,
+                ocDao, ocSlotDao, ocUserDao, userDao, delayCauseService);
     }
 
     @Test
@@ -595,8 +598,46 @@ class TornOcCompleteNoticeServiceTest {
         assertTrue(delayText.contains("原因：未知"), delayText);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unavailableMemberStatusCases")
+    @DisplayName("延误归因：成员状态不可用时放弃本轮采样，不闭合已记录的阻塞段")
+    void shouldKeepDelayCause_whenMemberStatusUnavailable(String displayName,
+                                                          TornFactionMemberListVO memberResp) {
+        TornSettingFactionDO faction = buildFaction();
+        TornUserDO user = buildUser();
+        TornFactionOcDO planningOc = buildPlanningOc(501L, 8, "Clinical Precision",
+                LocalDateTime.now().minusMinutes(10));
+        String openCause = delayCauseRecorder.merge(null,
+                Map.of(user.getId(), new OcDelayReasonResolver.OcDelayReason(
+                        OcDelayReasonEnum.HOSPITAL, null)),
+                LocalDateTime.now().minusMinutes(7));
+        planningOc.setDelayCause(openCause);
+
+        mockInitScheduling(faction, List.of());
+        mockOcLambdaUpdate();
+        when(ocDao.queryNoticedNotCompleteByFaction(faction.getId())).thenReturn(List.of(planningOc));
+        when(ocSlotDao.queryListByOc(anyCollection()))
+                .thenReturn(List.of(buildSlot(planningOc.getId(), user.getId())));
+        when(tornApi.sendRequest(any(TornFactionMemberDTO.class), eq(TornFactionMemberListVO.class)))
+                .thenReturn(memberResp);
+        noticeService.init();
+
+        runCompleteCheckTask(faction, List.of(planningOc), List.of(), List.of());
+
+        assertEquals(openCause, planningOc.getDelayCause());
+        verify(ocDao, never()).lambdaUpdate();
+    }
+
     static Stream<Arguments> blankOrInvalidCommanderConfigs() {
         return Stream.of(Arguments.of(""), Arguments.of("abc"));
+    }
+
+    static Stream<Arguments> unavailableMemberStatusCases() {
+        return Stream.of(
+                Arguments.of("接口无响应", null),
+                Arguments.of("响应无成员", new TornFactionMemberListVO()),
+                Arguments.of("响应成员均非目标成员",
+                        buildMemberListResp(9999L, TornUserStatusEnum.HOSPITAL.getCode())));
     }
 
     /**
@@ -720,9 +761,11 @@ class TornOcCompleteNoticeServiceTest {
 
     /**
      * 模拟OC更新链（延误归因按 id 条件写库与既有批量标记共用）。
+     *
+     * <p>用宽松桩：断言“本轮未写库”的用例也会调用本方法，此时该链不会被触发。</p>
      */
     private void mockOcLambdaUpdate() {
-        when(ocDao.lambdaUpdate()).thenAnswer(invocation -> {
+        lenient().when(ocDao.lambdaUpdate()).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             LambdaUpdateChainWrapper<TornFactionOcDO> wrapper =
                     mock(LambdaUpdateChainWrapper.class, withSettings().strictness(Strictness.LENIENT));
@@ -959,7 +1002,7 @@ class TornOcCompleteNoticeServiceTest {
     /**
      * 构建帮派成员接口响应
      */
-    private TornFactionMemberListVO buildMemberListResp(long userId, String state) {
+    private static TornFactionMemberListVO buildMemberListResp(long userId, String state) {
         TornUserStatusVO status = new TornUserStatusVO();
         status.setState(state);
         status.setDescription("desc");
