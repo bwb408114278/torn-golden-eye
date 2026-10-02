@@ -928,4 +928,4 @@ TABLE_IMAGE_RENDER_INTEGRATION=true mvn -q test -Dtest=HtmlTableImageRendererInt
 - `src/main/java/pn/torn/goldeneye/napcat/strategy/base/BaseMsgStrategy.java`
 - `src/main/java/pn/torn/goldeneye/utils/DateTimeUtils.java`
 - `.ai/knowledge/java_coding_style.md`
-- `.ai/knowledge/table-image-rendering-1.6.0-technical-design.md`
+- `.ai/knowledge/table-image-rendering-technical-design.md`

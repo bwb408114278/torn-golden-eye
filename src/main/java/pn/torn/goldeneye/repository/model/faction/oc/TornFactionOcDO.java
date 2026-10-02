@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * Torn OC表
  *
  * @author Bai
- * @version 1.3.6
+ * @version 1.6.7
  * @since 2025.07.29
  */
 @Data
@@ -71,4 +71,8 @@ public class TornFactionOcDO extends BaseDO implements TornFactionOc {
      * 是否已通知
      */
     private Boolean hasNoticed;
+    /**
+     * OC延误归因编码：每名阻塞成员以 ; 分隔，字段为 userId|原因|道具ID|当前段起始分钟|已累计分钟。
+     */
+    private String delayCause;
 }

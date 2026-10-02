@@ -1,0 +1,20 @@
+databaseChangeLog:
+  # OC延误归因：记录每名成员造成延误的原因与净阻塞时长，供完成通知展示与事后审计。
+  # 该列只由完成检测循环写入，既有OC同步链路不读取也不清空它。
+  - changeSet:
+      id: add_oc_delay_cause
+      author: Bai
+      changes:
+        - addColumn:
+            tableName: torn_faction_oc
+            columns:
+              - column:
+                  name: delay_cause
+                  type: TEXT
+                  remarks: "延误归因编码：成员以 ; 分隔，字段为 userId|原因|道具ID|当前段起始分钟|已累计分钟；无阻塞时为空"
+                  constraints:
+                    nullable: true
+      rollback:
+        - dropColumn:
+            tableName: torn_faction_oc
+            columnName: delay_cause

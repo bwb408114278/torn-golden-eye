@@ -28,12 +28,10 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.TornFactionOcRefreshManager;
 import pn.torn.goldeneye.torn.manager.faction.crime.msg.TornFactionOcMsgManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionManager;
-import pn.torn.goldeneye.torn.manager.torn.TornItemsManager;
 import pn.torn.goldeneye.torn.model.faction.crime.*;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberDTO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberListVO;
-import pn.torn.goldeneye.torn.model.faction.member.TornFactionMemberVO;
+import pn.torn.goldeneye.torn.model.user.TornUserStatusVO;
+import pn.torn.goldeneye.torn.service.faction.oc.delay.OcDelayCauseService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 
 import java.time.LocalDateTime;
@@ -44,9 +42,12 @@ import java.util.stream.Collectors;
 
 /**
  * OC完成通知逻辑层
+ * <p>
+ * 负责OC任务调度、完成检测轮询、完成通知与「即将结束」预告的消息装配；
+ * 延误归因的采样、结算与原因行渲染委托给 {@link OcDelayCauseService}。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.6.7
  * @since 2025.11.26
  */
 @Slf4j
@@ -58,13 +59,13 @@ public class TornOcCompleteNoticeService {
     private final DynamicTaskService taskService;
     private final TornOcAssignService assignService;
     private final TornFactionOcRefreshManager ocRefreshManager;
-    private final TornItemsManager itemsManager;
     private final TornFactionOcMsgManager msgManager;
     private final TornSettingFactionManager settingFactionManager;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
     private final TornUserDAO userDao;
+    private final OcDelayCauseService delayCauseService;
     // 时间窗口: 3分钟内完成的OC合并通知
     private static final int TIME_WINDOW_MINUTES = 3;
     // OC可接受延误阈值，超过该分钟数才提醒指挥官
@@ -225,10 +226,7 @@ public class TornOcCompleteNoticeService {
                 warnings.add(new AtQqMsg(user.getQqId()));
             }
 
-            String itemName = itemsManager.getMap().containsKey(itemReq.getId())
-                    ? itemsManager.getMap().get(itemReq.getId()).getItemName()
-                    : "#" + itemReq.getId();
-            warnings.add(new TextQqMsg("OC需要道具: " + itemName + "，请购买\n"));
+            warnings.add(new TextQqMsg("OC需要道具: " + delayCauseService.buildItemName(itemReq.getId()) + "，请购买\n"));
         }
 
         return warnings;
@@ -244,41 +242,22 @@ public class TornOcCompleteNoticeService {
      */
     private List<QqMsgParam<?>> buildStatusWarnings(long factionId, List<Long> userIdList,
                                                     Map<Long, TornUserDO> userMap) {
-        Map<Long, String> badStatusMap = findBadStatusMap(factionId, userIdList);
+        Map<Long, TornUserStatusVO> statusMap = delayCauseService.queryMemberStatusMap(factionId, new HashSet<>(userIdList))
+                .orElseGet(Map::of);
         List<QqMsgParam<?>> warnings = new ArrayList<>();
-        for (Map.Entry<Long, String> entry : badStatusMap.entrySet()) {
+        for (Map.Entry<Long, TornUserStatusVO> entry : statusMap.entrySet()) {
+            String state = entry.getValue().getState();
+            if (!TornUserStatusEnum.isOcNotExecutable(state)) {
+                continue;
+            }
+
             TornUserDO user = userMap.get(entry.getKey());
             if (user != null && !user.getQqId().equals(0L)) {
                 warnings.add(new AtQqMsg(user.getQqId()));
             }
-            warnings.add(new TextQqMsg(buildStatusTip(user, entry.getKey(), entry.getValue())));
+            warnings.add(new TextQqMsg(buildStatusTip(user, entry.getKey(), state)));
         }
         return warnings;
-    }
-
-    /**
-     * 查询帮派成员中状态异常（不可执行OC）的OC参与成员
-     *
-     * @param factionId  帮派ID
-     * @param userIdList 参与OC的用户ID列表
-     * @return Key为用户ID，Value为异常状态码
-     */
-    private Map<Long, String> findBadStatusMap(long factionId, List<Long> userIdList) {
-        TornFactionMemberListVO resp = tornApi.sendRequest(
-                new TornFactionMemberDTO(factionId), TornFactionMemberListVO.class);
-        if (resp == null || CollectionUtils.isEmpty(resp.getMembers())) {
-            return Map.of();
-        }
-
-        Set<Long> ocUserIdSet = new HashSet<>(userIdList);
-        Map<Long, String> badStatusMap = new HashMap<>();
-        for (TornFactionMemberVO member : resp.getMembers()) {
-            if (ocUserIdSet.contains(member.getId()) && member.getStatus() != null
-                    && TornUserStatusEnum.isOcNotExecutable(member.getStatus().getState())) {
-                badStatusMap.put(member.getId(), member.getStatus().getState());
-            }
-        }
-        return badStatusMap;
     }
 
     /**
@@ -371,8 +350,9 @@ public class TornOcCompleteNoticeService {
                 .filter(oc -> !completeStatuses.contains(oc.getStatus()))
                 .toList();
 
-        // 已完成的OC立即发送通知
+        // 已完成的OC先用实际执行时间结算延误归因，再发送通知
         if (!completedOcs.isEmpty()) {
+            delayCauseService.settleDelayCause(completedOcs);
             List<Long> completedOcIds = completedOcs.stream().map(TornFactionOcDO::getId).toList();
             List<TornFactionOcSlotDO> completedSlots = ocSlotDao.lambdaQuery()
                     .in(TornFactionOcSlotDO::getOcId, completedOcIds).list();
@@ -384,8 +364,9 @@ public class TornOcCompleteNoticeService {
             sendOcCompleteNotice(faction, completedUserIds, completedOcs);
         }
 
-        // 未完成的继续轮询
+        // 未完成的继续轮询，并顺带采样延误归因
         if (!pendingOcs.isEmpty()) {
+            delayCauseService.sampleDelayCause(faction, pendingOcs);
             scheduleOcCompleteCheck(faction);
         }
     }
@@ -440,7 +421,7 @@ public class TornOcCompleteNoticeService {
         }
 
         // 明显延误提醒：合并到当前完成通知，不单独发送消息，展示在推荐表格图片下方
-        msgList.addAll(buildDelayNotice(faction, ocList));
+        msgList.addAll(buildDelayNotice(faction, ocList, userMap));
 
         // 发送
         BotHttpReqParam param = new GroupMsgHttpBuilder()
@@ -499,9 +480,11 @@ public class TornOcCompleteNoticeService {
      *
      * @param faction 帮派配置
      * @param ocList  本次完成的OC列表
+     * @param userMap 成员ID → 用户映射
      * @return 延误提醒消息参数列表
      */
-    private List<QqMsgParam<?>> buildDelayNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList) {
+    private List<QqMsgParam<?>> buildDelayNotice(TornSettingFactionDO faction, List<TornFactionOcDO> ocList,
+                                                 Map<Long, TornUserDO> userMap) {
         List<OcDelayInfo> delayedOcs = new ArrayList<>();
         Set<Long> seenOcIds = new HashSet<>();
         for (TornFactionOcDO oc : ocList) {
@@ -518,9 +501,11 @@ public class TornOcCompleteNoticeService {
         }
 
         List<QqMsgParam<?>> delayMsgs = new ArrayList<>(buildAtMsg(faction.getOcCommanderIds()));
-        List<String> detailLines = delayedOcs.stream()
-                .map(this::buildDelayDetail)
-                .toList();
+        List<String> detailLines = new ArrayList<>();
+        for (OcDelayInfo delayInfo : delayedOcs) {
+            detailLines.add(buildDelayDetail(delayInfo));
+            detailLines.addAll(delayCauseService.buildDelayReasonLines(delayInfo.oc(), userMap));
+        }
         delayMsgs.add(new TextQqMsg("\n以下OC完成时存在明显延误，请关注：\n\n"
                 + String.join("\n", detailLines) + "\n"));
         return delayMsgs;
