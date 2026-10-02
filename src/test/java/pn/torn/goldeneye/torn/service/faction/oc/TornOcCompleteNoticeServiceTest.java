@@ -13,6 +13,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 import pn.torn.goldeneye.base.bot.Bot;
 import pn.torn.goldeneye.base.bot.BotHttpReqParam;
 import pn.torn.goldeneye.base.torn.TornApi;
@@ -724,7 +725,7 @@ class TornOcCompleteNoticeServiceTest {
         when(ocDao.lambdaUpdate()).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             LambdaUpdateChainWrapper<TornFactionOcDO> wrapper =
-                    mock(LambdaUpdateChainWrapper.class, withSettings().lenient());
+                    mock(LambdaUpdateChainWrapper.class, withSettings().strictness(Strictness.LENIENT));
             when(wrapper.set(any(), any())).thenReturn(wrapper);
             when(wrapper.in(any(), anyCollection())).thenReturn(wrapper);
             when(wrapper.eq(any(), any())).thenReturn(wrapper);
