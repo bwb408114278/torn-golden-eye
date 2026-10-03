@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import pn.torn.goldeneye.base.exception.BizException;
+import pn.torn.goldeneye.configuration.socket.handler.BaseMessageHandler;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
 import pn.torn.goldeneye.napcat.receive.parser.QqCommandMessage;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
@@ -205,36 +206,73 @@ class ActivityHeatmapStrategyImplTest {
     @Test
     @DisplayName("用户模式 at 目标按 QQ 解析绑定用户并以其 Torn userId 查询个人热力图")
     void handle_userModeAtTarget_queriesByBoundTornUserId() {
-        TornUserDO boundUser = new TornUserDO();
-        boundUser.setId(BOUND_TORN_USER_ID);
-        when(userManager.getUserByQq(AT_TARGET_QQ)).thenReturn(boundUser);
-        when(heatmapService.queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class)))
-                .thenReturn(noDataPersonalHeatmap());
+        stubAtTargetBoundUser();
 
         List<? extends QqMsgParam<?>> result = strategy.handle(GROUP_ID, sender(),
-                "用户#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ));
+                dispatchParam("用户#", atMarker()));
 
         assertEquals(ActivityHeatmapService.NO_DATA_MESSAGE, replyText(result));
         verify(userManager).getUserByQq(AT_TARGET_QQ);
-        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class));
+        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
+        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
+        assertEquals(ActivityCaliberEnum.TYPICAL_WEEK, captor.getValue().caliber(), "at 单独时行为不变");
+        assertEquals(28, captor.getValue().totalDays());
+    }
+
+    @Test
+    @DisplayName("用户模式 at 目标携带日期时按该日单日范围查询")
+    void handle_userModeAtTargetWithDate_passesSingleDayRange() {
+        stubAtTargetBoundUser();
+
+        strategy.handle(GROUP_ID, sender(), dispatchParam("用户##2026-08-01", atMarker()));
+
+        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
+        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
+        assertEquals(ActivityCaliberEnum.SINGLE_DAY, captor.getValue().caliber());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().startDate());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
+    }
+
+    @Test
+    @DisplayName("用户模式 at 目标只携带口径时以今天为锚点解析窗口")
+    void handle_userModeAtTargetWithCaliberOnly_usesTodayAsAnchor() {
+        stubAtTargetBoundUser();
+
+        strategy.handle(GROUP_ID, sender(), dispatchParam("用户##单周", atMarker()));
+
+        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
+        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
+        LocalDate today = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
+        assertEquals(ActivityCaliberEnum.SINGLE_WEEK, captor.getValue().caliber());
+        assertEquals(today.minusDays(6), captor.getValue().startDate());
+        assertEquals(today, captor.getValue().endDate());
+    }
+
+    @Test
+    @DisplayName("at 卡片后自动补空格时目标段同样归位")
+    void handle_userModeAtTargetWithSpaceSegment_passesSingleDayRange() {
+        stubAtTargetBoundUser();
+
+        strategy.handle(GROUP_ID, sender(), dispatchParam("用户# #2026-08-01", atMarker()));
+
+        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
+        verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
+        assertEquals(ActivityCaliberEnum.SINGLE_DAY, captor.getValue().caliber());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
     }
 
     @Test
     @DisplayName("用户模式 at 目标携带日期与口径参数时范围仍正确传递")
     void handle_userModeAtTargetWithCaliber_passesRange() {
-        TornUserDO boundUser = new TornUserDO();
-        boundUser.setId(BOUND_TORN_USER_ID);
-        when(userManager.getUserByQq(AT_TARGET_QQ)).thenReturn(boundUser);
-        when(heatmapService.queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class)))
-                .thenReturn(noDataPersonalHeatmap());
+        stubAtTargetBoundUser();
 
-        strategy.handle(GROUP_ID, sender(),
-                "用户#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ) + "#2026-08-01#半月");
+        strategy.handle(GROUP_ID, sender(), dispatchParam("用户##2026-08-01#半月", atMarker()));
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
         assertEquals(ActivityCaliberEnum.HALF_MONTH, captor.getValue().caliber());
         assertEquals(LocalDate.of(2026, 7, 18), captor.getValue().startDate());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
     }
 
     @Test
@@ -242,6 +280,18 @@ class ActivityHeatmapStrategyImplTest {
     void handle_factionModeAtTarget_rejectedWithoutHeatmapQuery() {
         List<? extends QqMsgParam<?>> result = strategy.handle(GROUP_ID, sender(),
                 "帮派#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ));
+
+        assertTrue(replyText(result).contains("查询格式举例"), "帮派模式 at 应返回格式介绍参数错误");
+        verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
+        verify(heatmapService, never()).queryPersonalHeatmap(anyLong(), any(ActivityQueryRange.class));
+        verify(userManager, never()).getUserByQq(anyLong());
+    }
+
+    @Test
+    @DisplayName("帮派模式 at 目标携带日期时同样返回参数错误且不访问任何数据源")
+    void handle_factionModeAtTargetWithDate_rejectedWithoutHeatmapQuery() {
+        List<? extends QqMsgParam<?>> result = strategy.handle(GROUP_ID, sender(),
+                dispatchParam("帮派##2026-08-01", atMarker()));
 
         assertTrue(replyText(result).contains("查询格式举例"), "帮派模式 at 应返回格式介绍参数错误");
         verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
@@ -278,6 +328,20 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     @Test
+    @DisplayName("at 与数字混用并携带日期时保持参数有误且不调用任何热力图服务")
+    void handle_userModeAtAndNumericMixedWithDate_rejectedWithoutHeatmapQuery() {
+        String mixedTarget = BOUND_TORN_USER_ID + atMarker() + "#2026-08-01";
+        QqRecMsgSender sender = sender();
+
+        BizException exception = assertThrows(BizException.class,
+                () -> strategy.handle(GROUP_ID, sender, "用户#" + mixedTarget));
+
+        assertEquals("参数有误", exception.getMsg());
+        verify(heatmapService, never()).queryFactionHeatmap(anyLong(), any(ActivityQueryRange.class));
+        verify(heatmapService, never()).queryPersonalHeatmap(anyLong(), any(ActivityQueryRange.class));
+    }
+
+    @Test
     @DisplayName("非法 at 标记返回参数有误且不调用任何热力图服务")
     void handle_invalidAtMarker_rejectedWithoutHeatmapQuery() {
         QqRecMsgSender sender = sender();
@@ -300,6 +364,44 @@ class ActivityHeatmapStrategyImplTest {
         QqRecMsgSender sender = new QqRecMsgSender();
         sender.setUserId(SENDER_QQ);
         return sender;
+    }
+
+    /**
+     * 用生产装配逻辑产出策略参数：{@code BotMessageDispatcher} 把命令文本按 {@code split("#", 3)}
+     * 取第三段，{@code BaseMessageHandler#resolveParam} 再把 at 标记追加在其末尾。
+     * <p>
+     * 直接调用同一实现，保证用例输入与线上产物一致：at 之后还有日期或口径时，标记会落在
+     * 尾部参数之后（缺陷现象的真实输入）。
+     *
+     * @param plainTail 命令第三段原文，at 之后的段落也在其中
+     * @param atMarker  内部 at 标记；无 at 时为空串
+     * @return 策略参数
+     */
+    private String dispatchParam(String plainTail, String atMarker) {
+        BaseMessageHandler handler = new BaseMessageHandler() {
+        };
+        Object msgArray = new String[]{"g", "活跃度", plainTail};
+        return ReflectionTestUtils.invokeMethod(handler, "resolveParam", msgArray, atMarker, strategy);
+    }
+
+    /**
+     * at 目标的内部标记
+     *
+     * @return 指向 {@link #AT_TARGET_QQ} 的 at 标记
+     */
+    private static String atMarker() {
+        return QqCommandMessage.buildAtMarker(AT_TARGET_QQ);
+    }
+
+    /**
+     * 桩定 at 目标 QQ 已绑定 Torn 用户，并让个人热力图返回无数据
+     */
+    private void stubAtTargetBoundUser() {
+        TornUserDO boundUser = new TornUserDO();
+        boundUser.setId(BOUND_TORN_USER_ID);
+        when(userManager.getUserByQq(AT_TARGET_QQ)).thenReturn(boundUser);
+        when(heatmapService.queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), any(ActivityQueryRange.class)))
+                .thenReturn(noDataPersonalHeatmap());
     }
 
     private TornUserDO senderBoundUser(Long factionId) {

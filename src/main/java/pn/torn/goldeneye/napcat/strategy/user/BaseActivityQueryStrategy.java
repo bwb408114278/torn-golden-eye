@@ -16,7 +16,7 @@ import java.util.Optional;
 /**
  * 活跃度查询类指令基类
  * <p>
- * 统一处理参数空判、{@code #}分段数上限与尾部参数解析，任一环节非法均回复
+ * 统一处理参数空判、at 标记归位、{@code #}分段数上限与尾部参数解析，任一环节非法均回复
  * 派生类的格式介绍；派生类通过{@link #queryTailStartIndex(String[])}声明业务段边界，
  * 需要不同尾部形态时覆写{@link #resolveRange(List, LocalDate)}，
  * 并在{@link #handleQuery(QqRecMsgSender, String[], ActivityQueryRange)}中实现目标解析与查询分发。
@@ -42,7 +42,7 @@ public abstract class BaseActivityQueryStrategy extends SmthMsgStrategy {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
 
-        String[] msgArray = msg.split("#");
+        String[] msgArray = splitParam(msg);
         if (msgArray.length < 1 || msgArray.length > MAX_SEGMENT_COUNT) {
             return super.buildTextMsg(buildFormatIntroMsg());
         }
@@ -86,8 +86,8 @@ public abstract class BaseActivityQueryStrategy extends SmthMsgStrategy {
      * @param range    已解析的查询日期范围
      * @return 回复消息
      */
-    protected abstract List<QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
-                                                       ActivityQueryRange range);
+    protected abstract List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
+                                                                 ActivityQueryRange range);
 
     /**
      * 构建格式介绍消息
@@ -108,5 +108,34 @@ public abstract class BaseActivityQueryStrategy extends SmthMsgStrategy {
             return List.of();
         }
         return Arrays.asList(msgArray).subList(fromIndex, msgArray.length);
+    }
+
+    /**
+     * 分段并把分发层追加在末尾的 at 标记还原到目标段位置。
+     * <p>
+     * 分发层按“业务参数 + at 标记”拼接（{@code BaseMessageHandler#resolveParam}），隐含假设 at 是
+     * 参数的最后一个语义段；当 at 之后还有日期或口径时，标记会被拼到尾部参数之后，目标段因此变成
+     * 空段或空白段。at 目标固定占用类型段之后的目标段，把标记放回该空段即可，尾部参数顺序不变。
+     *
+     * @param msg 策略参数
+     * @return 归一化后的分段数组
+     */
+    private static String[] splitParam(String msg) {
+        int markerIndex = indexOfAtMarker(msg);
+        if (markerIndex < 0) {
+            return msg.split("#");
+        }
+        String marker = msg.substring(markerIndex);
+        String[] headSegments = msg.substring(0, markerIndex).split("#");
+        if (headSegments.length == 1) {
+            // “用户#”：尾随空段被 split 丢弃，目标段需要补回
+            return new String[]{headSegments[0], marker};
+        }
+        if (!headSegments[1].isBlank()) {
+            // 数字 ID 与 at 混用等既有非法形态：保持原样交给既有校验拒绝
+            return msg.split("#");
+        }
+        headSegments[1] = marker;
+        return headSegments;
     }
 }

@@ -65,11 +65,11 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
     }
 
     @Override
-    protected List<QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
-                                              ActivityQueryRange range) {
+    protected List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
+                                                        ActivityQueryRange range) {
         String type = msgArray[0].trim();
         if (!"帮派".equals(type) && !"用户".equals(type)) {
-            return List.copyOf(super.buildTextMsg(buildFormatIntroMsg()));
+            return super.buildTextMsg(buildFormatIntroMsg());
         }
 
         String targetText = resolveTargetText(msgArray);
@@ -80,7 +80,7 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
             return handleAtTarget(sender, type, targetText, range);
         }
         if (!isValidTargetId(targetText)) {
-            return List.copyOf(super.buildTextMsg(buildFormatIntroMsg()));
+            return super.buildTextMsg(buildFormatIntroMsg());
         }
 
         long id = Long.parseLong(targetText.trim());
@@ -117,8 +117,8 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
      * @param range  已解析的查询日期范围
      * @return 回复消息
      */
-    private List<QqMsgParam<?>> handleNoTarget(QqRecMsgSender sender, String type,
-                                               ActivityQueryRange range) {
+    private List<? extends QqMsgParam<?>> handleNoTarget(QqRecMsgSender sender, String type,
+                                                         ActivityQueryRange range) {
         if ("用户".equals(type)) {
             TornUserDO user = super.getTornUser(sender, "");
             return buildPersonalHeatmapReply(user.getId(), range);
@@ -126,7 +126,7 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
 
         long factionId = super.getTornFactionIdBySender(sender);
         if (factionId <= 0) {
-            return List.copyOf(super.buildTextMsg(NOT_IN_FACTION_MSG));
+            return super.buildTextMsg(NOT_IN_FACTION_MSG);
         }
         return buildFactionHeatmapReply(factionId, range);
     }
@@ -141,10 +141,10 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
      * @param range      已解析的查询日期范围
      * @return 回复消息
      */
-    private List<QqMsgParam<?>> handleAtTarget(QqRecMsgSender sender, String type,
-                                               String targetText, ActivityQueryRange range) {
+    private List<? extends QqMsgParam<?>> handleAtTarget(QqRecMsgSender sender, String type,
+                                                         String targetText, ActivityQueryRange range) {
         if (!"用户".equals(type)) {
-            return List.copyOf(super.buildTextMsg(buildFormatIntroMsg()));
+            return super.buildTextMsg(buildFormatIntroMsg());
         }
 
         TornUserDO user = super.getTornUser(sender, targetText);
@@ -158,12 +158,12 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
      * @param range     查询日期范围
      * @return 回复消息
      */
-    private List<QqMsgParam<?>> buildFactionHeatmapReply(long factionId, ActivityQueryRange range) {
+    private List<? extends QqMsgParam<?>> buildFactionHeatmapReply(long factionId, ActivityQueryRange range) {
         FactionActivityHeatmapVO heatmap = heatmapService.queryFactionHeatmap(factionId, range);
         if (heatmap.isHasData()) {
-            return List.copyOf(super.buildImageMsg(HeatmapImageRenderer.renderFactionAsBase64(heatmap)));
+            return super.buildImageMsg(HeatmapImageRenderer.renderFactionAsBase64(heatmap));
         }
-        return List.copyOf(super.buildTextMsg(ActivityHeatmapService.NO_DATA_MESSAGE));
+        return super.buildTextMsg(ActivityHeatmapService.NO_DATA_MESSAGE);
     }
 
     /**
@@ -173,12 +173,12 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
      * @param range  查询日期范围
      * @return 回复消息
      */
-    private List<QqMsgParam<?>> buildPersonalHeatmapReply(long userId, ActivityQueryRange range) {
+    private List<? extends QqMsgParam<?>> buildPersonalHeatmapReply(long userId, ActivityQueryRange range) {
         PersonalActivityHeatmapVO heatmap = heatmapService.queryPersonalHeatmap(userId, range);
         if (heatmap.isHasData()) {
-            return List.copyOf(super.buildImageMsg(HeatmapImageRenderer.renderPersonalAsBase64(heatmap)));
+            return super.buildImageMsg(HeatmapImageRenderer.renderPersonalAsBase64(heatmap));
         }
-        return List.copyOf(super.buildTextMsg(ActivityHeatmapService.NO_DATA_MESSAGE));
+        return super.buildTextMsg(ActivityHeatmapService.NO_DATA_MESSAGE);
     }
 
     /**
