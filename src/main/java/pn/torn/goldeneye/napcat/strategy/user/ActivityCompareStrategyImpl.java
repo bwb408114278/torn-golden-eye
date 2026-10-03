@@ -8,8 +8,8 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
-import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityQueryRangeParser;
+import pn.torn.goldeneye.torn.service.activity.render.HeatmapImageRenderer;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.time.LocalDate;

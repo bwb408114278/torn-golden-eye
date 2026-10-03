@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.activity;
+package pn.torn.goldeneye.torn.service.activity.render;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -7,6 +7,7 @@ import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.BaseActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
+import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 
 import javax.imageio.ImageIO;
 import java.awt.*;

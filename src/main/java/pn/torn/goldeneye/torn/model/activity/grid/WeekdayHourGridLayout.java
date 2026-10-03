@@ -20,8 +20,6 @@ public record WeekdayHourGridLayout() implements ActivityGridLayout {
     public static final WeekdayHourGridLayout INSTANCE = new WeekdayHourGridLayout();
 
     private static final int ROWS = 7;
-    private static final int COLS = 24;
-    private static final int SLOTS_PER_HOUR = 4;
     private static final String[] ROW_LABELS = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
 
     @Override
@@ -30,23 +28,13 @@ public record WeekdayHourGridLayout() implements ActivityGridLayout {
     }
 
     @Override
-    public int cols() {
-        return COLS;
-    }
-
-    @Override
     public String rowLabel(int row) {
         return ROW_LABELS[row];
     }
 
     @Override
-    public String colLabel(int col) {
-        return String.valueOf(col);
-    }
-
-    @Override
-    public Position position(LocalDate date, int slot) {
-        return new Position(rowOf(date), slot / SLOTS_PER_HOUR);
+    public int rowOf(LocalDate date, int slot) {
+        return rowOf(date);
     }
 
     /**

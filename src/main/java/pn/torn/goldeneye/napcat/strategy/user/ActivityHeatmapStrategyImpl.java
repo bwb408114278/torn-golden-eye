@@ -10,7 +10,7 @@ import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
-import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
+import pn.torn.goldeneye.torn.service.activity.render.HeatmapImageRenderer;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;

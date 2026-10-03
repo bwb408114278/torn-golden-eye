@@ -16,8 +16,6 @@ import java.time.LocalDate;
 public record SingleDayGridLayout(LocalDate date) implements ActivityGridLayout {
 
     private static final int ROWS = 4;
-    private static final int COLS = 24;
-    private static final int SLOTS_PER_HOUR = 4;
     private static final String[] ROW_LABELS = {":00", ":15", ":30", ":45"};
 
     @Override
@@ -26,22 +24,12 @@ public record SingleDayGridLayout(LocalDate date) implements ActivityGridLayout 
     }
 
     @Override
-    public int cols() {
-        return COLS;
-    }
-
-    @Override
     public String rowLabel(int row) {
         return ROW_LABELS[row];
     }
 
     @Override
-    public String colLabel(int col) {
-        return String.valueOf(col);
-    }
-
-    @Override
-    public Position position(LocalDate slotDate, int slot) {
-        return new Position(slot % SLOTS_PER_HOUR, slot / SLOTS_PER_HOUR);
+    public int rowOf(LocalDate slotDate, int slot) {
+        return slot % SLOTS_PER_HOUR;
     }
 }

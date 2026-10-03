@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.activity;
+package pn.torn.goldeneye.torn.service.activity.render;
 
 import pn.torn.goldeneye.torn.model.activity.BaseActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;

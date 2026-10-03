@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.activity;
+package pn.torn.goldeneye.torn.service.activity.render;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;

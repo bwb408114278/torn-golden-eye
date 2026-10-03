@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.activity;
+package pn.torn.goldeneye.torn.service.activity.render;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -14,7 +14,7 @@ import java.awt.*;
  * 禁止在实施时重新选色，无数据格不进入渐变函数。
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.7.0
  * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -72,7 +72,7 @@ public final class HeatmapColorScale {
     /**
      * 个人活跃比例和帮派在线比例共用渐变色板
      */
-    static final Color[] ACTIVITY_GRADIENT = {
+    private static final Color[] ACTIVITY_GRADIENT = {
             new Color(68, 1, 84),
             new Color(70, 50, 126),
             new Color(54, 92, 141),
@@ -95,7 +95,7 @@ public final class HeatmapColorScale {
     /**
      * 帮派对比渐变色板（B蓝 -> 灰 -> A紫）
      */
-    static final Color[] COMPARISON_GRADIENT = {
+    private static final Color[] COMPARISON_GRADIENT = {
             new Color(33, 102, 172),
             new Color(67, 147, 195),
             new Color(146, 197, 222),
@@ -128,7 +128,7 @@ public final class HeatmapColorScale {
      * 帮派图渐变锚点主色（Viridis 强对比锚点，与 {@link #FACTION_ANCHORS} 一一对应），
      * 平均有效活跃人数在相邻锚点间线性插值
      */
-    static final Color[] FACTION_GRADIENT = {
+    private static final Color[] FACTION_GRADIENT = {
             new Color(68, 1, 84),
             new Color(59, 82, 139),
             new Color(33, 145, 140),
@@ -296,7 +296,7 @@ public final class HeatmapColorScale {
      * @param t  插值因子 [0,1]
      * @return 插值色
      */
-    static Color lerpColor(Color c1, Color c2, double t) {
+    public static Color lerpColor(Color c1, Color c2, double t) {
         int r = (int) Math.round(c1.getRed() + (c2.getRed() - c1.getRed()) * t);
         int g = (int) Math.round(c1.getGreen() + (c2.getGreen() - c1.getGreen()) * t);
         int b = (int) Math.round(c1.getBlue() + (c2.getBlue() - c1.getBlue()) * t);

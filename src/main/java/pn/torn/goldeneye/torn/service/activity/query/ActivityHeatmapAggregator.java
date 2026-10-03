@@ -247,11 +247,12 @@ public final class ActivityHeatmapAggregator {
         /**
          * 处理一个已观测槽。
          *
-         * @param day      槽所属日快照
-         * @param slot     采样槽序号（0-95）
-         * @param position 该槽的落格坐标
+         * @param day  槽所属日快照
+         * @param slot 采样槽序号（0-95）
+         * @param row  落格行号
+         * @param col  落格列号
          */
-        void accept(D day, int slot, ActivityGridLayout.Position position);
+        void accept(D day, int slot, int row, int col);
     }
 
     /**
@@ -267,7 +268,7 @@ public final class ActivityHeatmapAggregator {
         for (D day : days) {
             for (int slot = 0; slot < SLOTS_PER_DAY; slot++) {
                 if (isBitSet(day.observedBitmap(), slot)) {
-                    consumer.accept(day, slot, grid.position(day.date(), slot));
+                    consumer.accept(day, slot, grid.rowOf(day.date(), slot), grid.colOf(slot));
                 }
             }
         }
@@ -287,9 +288,7 @@ public final class ActivityHeatmapAggregator {
         double[][] idleSum = newDoubleMatrix(grid);
         boolean[] observedRows = new boolean[grid.rows()];
 
-        forEachObservedSlot(days, grid, (day, slot, position) -> {
-            int row = position.row();
-            int col = position.col();
+        forEachObservedSlot(days, grid, (day, slot, row, col) -> {
             observedSum[row][col]++;
             observedRows[row] = true;
             if (isBitSet(day.activeBitmap(), slot)) {
@@ -319,9 +318,7 @@ public final class ActivityHeatmapAggregator {
         int[][] observedCount = newIntMatrix(grid);
         boolean[] observedRows = new boolean[grid.rows()];
 
-        forEachObservedSlot(days, grid, (day, slot, position) -> {
-            int row = position.row();
-            int col = position.col();
+        forEachObservedSlot(days, grid, (day, slot, row, col) -> {
             observedCount[row][col]++;
             observedRows[row] = true;
             activeSum[row][col] += slotValue(day.activeCounts(), slot);
@@ -581,7 +578,7 @@ public final class ActivityHeatmapAggregator {
     // ==================== Bitmap 位序工具（MSB-first） ====================
 
     /**
-     * 统计双方 observed Bitmap 在指定小时内的共同采样槽数
+     * 统计双方 observed Bitmap 在指定小时内同时置位的共同采样槽数（MSB-first 位序）
      *
      * @param faction1Observed 帮派A observed Bitmap
      * @param faction2Observed 帮派B observed Bitmap
@@ -589,22 +586,10 @@ public final class ActivityHeatmapAggregator {
      * @return 共同采样槽数
      */
     public static int countCommonSamples(byte[] faction1Observed, byte[] faction2Observed, int hour) {
-        return countBothSetSamples(faction1Observed, faction2Observed, hour);
-    }
-
-    /**
-     * 统计指定小时内两个 Bitmap 同时置位的槽数（MSB-first 位序）
-     *
-     * @param firstBitmap  第一个 Bitmap
-     * @param secondBitmap 第二个 Bitmap
-     * @param hour         小时 (0-23)
-     * @return 同时置位的槽数
-     */
-    private static int countBothSetSamples(byte[] firstBitmap, byte[] secondBitmap, int hour) {
         int count = 0;
         int firstSlot = hour * SAMPLES_PER_HOUR;
         for (int slot = firstSlot; slot < firstSlot + SAMPLES_PER_HOUR; slot++) {
-            if (isBitSet(firstBitmap, slot) && isBitSet(secondBitmap, slot)) {
+            if (isBitSet(faction1Observed, slot) && isBitSet(faction2Observed, slot)) {
                 count++;
             }
         }

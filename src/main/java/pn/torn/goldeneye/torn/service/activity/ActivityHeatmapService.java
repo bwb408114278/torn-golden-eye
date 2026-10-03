@@ -96,7 +96,8 @@ public class ActivityHeatmapService {
         vo.setObservedSamples(matrix.observedSamples());
         vo.setIdleRatio(matrix.idleRatio());
         vo.setSubtitle(buildCaliberSubtitlePrefix(range)
-                + "格内：平均有效活跃人数｜颜色：有效活跃人数渐变，Idle 越多越暗｜有效采样覆盖率: "
+                + "格内：平均有效活跃人数" + SUBTITLE_SEPARATOR + "颜色：有效活跃人数渐变，Idle 越多越暗"
+                + SUBTITLE_SEPARATOR + "有效采样覆盖率: "
                 + formatPercent(calculateCoverage(matrix.totalObservedSlots(), range)));
         fillCommonMetadata(vo, matrix.totalObservedSlots(), matrix.actualDays(),
                 matrix.observedRowCount(), matrix.legacyIncluded(), range, true);

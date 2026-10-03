@@ -11,7 +11,7 @@ import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;
  * 颜色使用平均有效活跃人数的固定 5 档强对比色板，并按{@code idleRatio}连续暗化。
  *
  * @author Bai
- * @version 1.6.6
+ * @version 1.7.0
  * @since 2026.07.21
  */
 @Data

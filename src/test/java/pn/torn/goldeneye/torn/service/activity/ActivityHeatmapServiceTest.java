@@ -335,6 +335,38 @@ class ActivityHeatmapServiceTest {
         assertTrue(vo.getSubtitle().startsWith("口径：单日（15 分钟）"));
     }
 
+    // ==================== 当日不完整提示 ====================
+
+    @Test
+    @DisplayName("窗口包含今天时提示当日数据尚未完整，且排在 legacy 提示之前")
+    void queryPersonalHeatmap_windowEndingToday_noticeTodayIncomplete() {
+        LocalDate today = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
+        when(userDailyDao.selectByUserAndDateRange(USER_ID, today, today))
+                .thenReturn(List.of(buildUserDaily(today, observedBits(48), evenSlots(48), new int[]{})),
+                        List.of());
+
+        PersonalActivityHeatmapVO archived = service.queryPersonalHeatmap(USER_ID, singleDayRange(today));
+
+        assertTrue(archived.isHasData());
+        assertFalse(archived.isLegacyDataIncluded());
+        assertEquals("当日数据尚未完整", archived.getNoticeMessage(), "V3 日包窗口含今天，只提示当日数据不完整");
+
+        List<byte[]> v3Stage = nulls(3);
+        List<byte[]> v2Stage = nulls(3);
+        v2Stage.set(0, observedBits(4));
+        v2Stage.set(1, observedBits(4));
+        stubPipelineGet(v3Stage, v2Stage);
+
+        PersonalActivityHeatmapVO legacy = service.queryPersonalHeatmap(USER_ID, singleDayRange(today));
+
+        assertTrue(legacy.isHasData());
+        assertTrue(legacy.isLegacyDataIncluded());
+        assertEquals("当日数据尚未完整；部分历史采样未区分 Idle，仅供趋势参考", legacy.getNoticeMessage());
+        assertTrue(legacy.getNoticeMessage().indexOf("当日数据尚未完整")
+                        < legacy.getNoticeMessage().indexOf("部分历史采样未区分 Idle"),
+                "当日不完整提示应排在 legacy 提示之前");
+    }
+
     // ==================== Bitmap 位序工具（MSB-first） ====================
 
     @Test

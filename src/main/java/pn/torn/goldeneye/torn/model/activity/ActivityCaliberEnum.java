@@ -29,7 +29,7 @@ public enum ActivityCaliberEnum {
     /**
      * 典型周：窗口为以锚点日为最后一天的近 28 天，同一(星期, 小时)的槽累计进同一格，故格值为窗口均值。
      */
-    TYPICAL_WEEK("典型周", 28, "1 小时（窗口均值）");
+    TYPICAL_WEEK("典型周", 28, "1 小时，取窗口均值");
 
     private final String keyword;
     private final int windowDays;
