@@ -15,10 +15,11 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
+import pn.torn.goldeneye.torn.model.activity.ActivityCaliberEnum;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
-import pn.torn.goldeneye.torn.model.activity.ActivityQueryRangeModeEnum;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
+import pn.torn.goldeneye.torn.model.activity.grid.WeekdayHourGridLayout;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
 
@@ -35,10 +36,10 @@ import static org.mockito.Mockito.*;
  *
  * <p>覆盖“用户”模式 at 目标到绑定用户 Torn userId 的转换、“帮派”模式对 at 目标的拒绝、
  * 数字目标、目标缺省查自己/所属帮派、at 未绑定、at 与数字混用、非法标记的参数边界，
- * 以及截止日期参数的范围传递与非法日期拒绝。</p>
+ * 以及「日期 + 口径」尾部参数的范围传递与非法参数拒绝。</p>
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.7.0
  * @since 2026.07.21
  */
 @ExtendWith(MockitoExtension.class)
@@ -85,14 +86,14 @@ class ActivityHeatmapStrategyImplTest {
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.DEFAULT, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.TYPICAL_WEEK, captor.getValue().caliber());
         assertEquals(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE), captor.getValue().endDate());
         assertEquals(28, captor.getValue().totalDays());
     }
 
     @Test
-    @DisplayName("截止日期参数应以 [endDate-27, endDate] 范围传递给查询服务")
-    void handle_untilDateParam_passesAnchoredRange() {
+    @DisplayName("只给日期时按该日单日传递范围")
+    void handle_dateOnlyParam_passesSingleDayRange() {
         when(heatmapService.queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class)))
                 .thenReturn(noDataFactionHeatmap());
 
@@ -100,9 +101,25 @@ class ActivityHeatmapStrategyImplTest {
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).queryFactionHeatmap(eq(BOUND_FACTION_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.SINGLE_DAY, captor.getValue().caliber());
         assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
-        assertEquals(LocalDate.of(2026, 7, 5), captor.getValue().startDate());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().startDate());
+    }
+
+    @Test
+    @DisplayName("日期 + 口径透传为对应窗口，书写顺序不限")
+    void handle_dateAndCaliberParam_passesCaliberRange() {
+        when(heatmapService.queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class)))
+                .thenReturn(noDataFactionHeatmap());
+
+        strategy.handle(GROUP_ID, sender(), "帮派#" + BOUND_FACTION_ID + "#单周#2026-08-01");
+
+        ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
+        verify(heatmapService).queryFactionHeatmap(eq(BOUND_FACTION_ID), captor.capture());
+        assertEquals(ActivityCaliberEnum.SINGLE_WEEK, captor.getValue().caliber());
+        assertEquals(LocalDate.of(2026, 7, 26), captor.getValue().startDate());
+        assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
+        assertEquals(7, captor.getValue().totalDays());
     }
 
     @Test
@@ -146,8 +163,8 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     @Test
-    @DisplayName("目标缺省与截止日期组合时按缺省目标加截至范围查询")
-    void handle_noTargetWithUntilDate_queriesSenderTargetWithRange() {
+    @DisplayName("目标缺省与尾部参数组合时按缺省目标加口径范围查询")
+    void handle_noTargetWithDate_queriesSenderTargetWithSingleDayRange() {
         when(userManager.getUserByQq(SENDER_QQ)).thenReturn(senderBoundUser(BOUND_FACTION_ID));
         when(heatmapService.queryFactionHeatmap(eq(BOUND_FACTION_ID), any(ActivityQueryRange.class)))
                 .thenReturn(noDataFactionHeatmap());
@@ -156,7 +173,7 @@ class ActivityHeatmapStrategyImplTest {
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).queryFactionHeatmap(eq(BOUND_FACTION_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.SINGLE_DAY, captor.getValue().caliber());
         assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
     }
 
@@ -203,8 +220,8 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     @Test
-    @DisplayName("用户模式 at 目标携带截止日期参数时范围仍正确传递")
-    void handle_userModeAtTargetWithUntilDate_passesRange() {
+    @DisplayName("用户模式 at 目标携带日期与口径参数时范围仍正确传递")
+    void handle_userModeAtTargetWithCaliber_passesRange() {
         TornUserDO boundUser = new TornUserDO();
         boundUser.setId(BOUND_TORN_USER_ID);
         when(userManager.getUserByQq(AT_TARGET_QQ)).thenReturn(boundUser);
@@ -212,11 +229,12 @@ class ActivityHeatmapStrategyImplTest {
                 .thenReturn(noDataPersonalHeatmap());
 
         strategy.handle(GROUP_ID, sender(),
-                "用户#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ) + "#2026-08-01");
+                "用户#" + QqCommandMessage.buildAtMarker(AT_TARGET_QQ) + "#2026-08-01#半月");
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).queryPersonalHeatmap(eq(BOUND_TORN_USER_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.HALF_MONTH, captor.getValue().caliber());
+        assertEquals(LocalDate.of(2026, 7, 18), captor.getValue().startDate());
     }
 
     @Test
@@ -292,13 +310,15 @@ class ActivityHeatmapStrategyImplTest {
     }
 
     private PersonalActivityHeatmapVO noDataPersonalHeatmap() {
-        PersonalActivityHeatmapVO heatmap = PersonalActivityHeatmapVO.empty("用户 [54321] 活跃度热力图");
+        PersonalActivityHeatmapVO heatmap = PersonalActivityHeatmapVO.empty(
+                "用户 [54321] 活跃度热力图", WeekdayHourGridLayout.INSTANCE);
         heatmap.setHasData(false);
         return heatmap;
     }
 
     private FactionActivityHeatmapVO noDataFactionHeatmap() {
-        FactionActivityHeatmapVO heatmap = FactionActivityHeatmapVO.empty("帮派 [20465] 活跃度热力图");
+        FactionActivityHeatmapVO heatmap = FactionActivityHeatmapVO.empty(
+                "帮派 [20465] 活跃度热力图", WeekdayHourGridLayout.INSTANCE);
         heatmap.setHasData(false);
         return heatmap;
     }

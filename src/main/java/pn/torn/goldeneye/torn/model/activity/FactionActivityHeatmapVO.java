@@ -2,15 +2,16 @@ package pn.torn.goldeneye.torn.model.activity;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;
 
 /**
  * 帮派活跃度热力图数据
  * <p>
- * 格内主数值为平均有效活跃人数，颜色使用平均有效活跃人数的固定 5 档强对比色板，
- * 并按{@code idleRatio}连续暗化。
+ * 格内主数值为平均有效活跃人数，矩阵维度为 {@code rows × cols}（由口径网格决定）；
+ * 颜色使用平均有效活跃人数的固定 5 档强对比色板，并按{@code idleRatio}连续暗化。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.6.6
  * @since 2026.07.21
  */
 @Data
@@ -25,15 +26,15 @@ public class FactionActivityHeatmapVO extends BaseActivityHeatmapVO {
      */
     private String subtitle;
     /**
-     * 7×24 平均有效活跃人数矩阵 [dayOfWeek][hour]（字段名沿用 V2 以减小接线修改）
+     * 平均有效活跃人数矩阵 [row][col]（字段名沿用 V2 以减小接线修改）
      */
     private double[][] averageOnlineCount;
     /**
-     * 7×24 有效观测采样数矩阵 [dayOfWeek][hour]，0 表示该格无数据
+     * 有效观测采样数矩阵 [row][col]，0 表示该格无数据
      */
     private int[][] observedSamples;
     /**
-     * 7×24 idle-only 占比矩阵 [dayOfWeek][hour]，值域 [0,1]，
+     * idle-only 占比矩阵 [row][col]，值域 [0,1]，
      * 计算口径 {@code averageIdleCount / (averageActiveCount + averageIdleCount)}，分母为 0 时为 0；
      * V2 legacy 格无法区分 Idle，固定为 0
      */
@@ -43,13 +44,16 @@ public class FactionActivityHeatmapVO extends BaseActivityHeatmapVO {
      * 创建空帮派热力图
      *
      * @param title 标题
+     * @param grid  口径网格，决定矩阵维度
+     * @return 矩阵已按网格分配的空热力图
      */
-    public static FactionActivityHeatmapVO empty(String title) {
+    public static FactionActivityHeatmapVO empty(String title, ActivityGridLayout grid) {
         FactionActivityHeatmapVO vo = new FactionActivityHeatmapVO();
         vo.title = title;
-        vo.averageOnlineCount = new double[7][24];
-        vo.observedSamples = new int[7][24];
-        vo.idleRatio = new double[7][24];
+        vo.setGrid(grid);
+        vo.averageOnlineCount = new double[grid.rows()][grid.cols()];
+        vo.observedSamples = new int[grid.rows()][grid.cols()];
+        vo.idleRatio = new double[grid.rows()][grid.cols()];
         return vo;
     }
 }

@@ -13,9 +13,9 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.send.msg.param.TextQqMsg;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.user.TornUserManager;
+import pn.torn.goldeneye.torn.model.activity.ActivityCaliberEnum;
 import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
-import pn.torn.goldeneye.torn.model.activity.ActivityQueryRangeModeEnum;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
 import pn.torn.goldeneye.torn.service.activity.TornActivityCollectService;
 
@@ -31,10 +31,10 @@ import static org.mockito.Mockito.*;
  * 活跃度对比指令测试。
  *
  * <p>覆盖单帮派（缺省A方为所在帮派）与双帮派形态、双方相同时的提示文案、
- * 截止日期参数的范围传递，以及非法参数与未加入帮派的边界。</p>
+ * 截至日期参数的范围传递、口径写法不进入对比图，以及非法参数与未加入帮派的边界。</p>
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.7.0
  * @since 2026.08.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -73,7 +73,7 @@ class ActivityCompareStrategyImplTest {
         assertEquals(ActivityHeatmapService.NO_DATA_MESSAGE, replyText(result));
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).compareFactions(eq(OWN_FACTION_ID), eq(TARGET_FACTION_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.DEFAULT, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.TYPICAL_WEEK, captor.getValue().caliber());
         assertEquals(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE), captor.getValue().endDate());
     }
 
@@ -102,7 +102,7 @@ class ActivityCompareStrategyImplTest {
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).compareFactions(eq(FACTION_A_ID), eq(FACTION_B_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.TYPICAL_WEEK, captor.getValue().caliber());
         assertEquals(LocalDate.of(2026, 8, 1), captor.getValue().endDate());
         assertEquals(LocalDate.of(2026, 7, 5), captor.getValue().startDate());
     }
@@ -118,7 +118,16 @@ class ActivityCompareStrategyImplTest {
 
         ArgumentCaptor<ActivityQueryRange> captor = ArgumentCaptor.forClass(ActivityQueryRange.class);
         verify(heatmapService).compareFactions(eq(OWN_FACTION_ID), eq(TARGET_FACTION_ID), captor.capture());
-        assertEquals(ActivityQueryRangeModeEnum.UNTIL, captor.getValue().mode());
+        assertEquals(ActivityCaliberEnum.TYPICAL_WEEK, captor.getValue().caliber());
+    }
+
+    @Test
+    @DisplayName("对比图不接受口径写法：单帮派与双帮派形态都返回格式说明")
+    void handle_caliberParam_returnsFormatIntroWithoutCompare() {
+        assertFormatIntro(TARGET_FACTION_ID + "#2026-08-01#单周");
+        assertFormatIntro(FACTION_A_ID + "#" + FACTION_B_ID + "#2026-08-01#单周");
+
+        verify(heatmapService, never()).compareFactions(anyLong(), anyLong(), any(ActivityQueryRange.class));
     }
 
     @Test

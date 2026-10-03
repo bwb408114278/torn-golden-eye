@@ -1,5 +1,7 @@
 package pn.torn.goldeneye.torn.model.activity;
 
+import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;
+
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -13,15 +15,24 @@ import java.util.List;
  *
  * @param startDate 起始日期（含）
  * @param endDate   结束日期（含），不晚于今天
- * @param mode      范围解析模式
+ * @param caliber   统计口径，决定窗口长度与网格形状
  * @author Bai
- * @version 1.5.0
+ * @version 1.7.0
  * @since 2026.08.28
  */
 public record ActivityQueryRange(
         LocalDate startDate,
         LocalDate endDate,
-        ActivityQueryRangeModeEnum mode) {
+        ActivityCaliberEnum caliber) {
+
+    /**
+     * 按口径与窗口起始日推导网格布局。
+     *
+     * @return 本次查询使用的网格布局
+     */
+    public ActivityGridLayout grid() {
+        return ActivityGridLayout.of(caliber, startDate);
+    }
 
     /**
      * 计算范围内自然日总数（闭区间）。

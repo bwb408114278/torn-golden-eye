@@ -5,10 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.torn.model.activity.*;
+import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityDaySnapshot;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityHeatmapAggregator;
 import pn.torn.goldeneye.torn.service.activity.query.ActivityHeatmapDataLoader;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -20,7 +23,7 @@ import java.util.List;
  * 不调用 Torn API。
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.7.0
  * @since 2026.07.07
  */
 @Slf4j
@@ -35,6 +38,9 @@ public class ActivityHeatmapService {
 
     private static final String HEATMAP_TITLE_SUFFIX = "] 活跃度热力图";
     private static final String LEGACY_NOTICE = "部分历史采样未区分 Idle，仅供趋势参考";
+    private static final String TODAY_INCOMPLETE_NOTICE = "当日数据尚未完整";
+    private static final String NOTICE_SEPARATOR = "；";
+    private static final String SUBTITLE_SEPARATOR = "｜";
     private static final int SLOTS_PER_DAY = 96;
     private static final int MIN_SAMPLE_DAYS_NOTICE = 7;
     private static final int FULL_DOW_COUNT = 7;
@@ -53,17 +59,19 @@ public class ActivityHeatmapService {
      */
     public PersonalActivityHeatmapVO queryPersonalHeatmap(long userId, ActivityQueryRange range) {
         validateQueryTarget(userId);
-        PersonalActivityHeatmapVO vo = PersonalActivityHeatmapVO.empty(buildPersonalTitle(userId));
+        ActivityGridLayout grid = range.grid();
+        PersonalActivityHeatmapVO vo = PersonalActivityHeatmapVO.empty(buildPersonalTitle(userId), grid);
         vo.setTotalDays(range.totalDays());
 
         ActivityHeatmapAggregator.PersonalMatrix matrix = ActivityHeatmapAggregator.aggregatePersonal(
-                dataLoader.loadUserDays(userId, range));
+                dataLoader.loadUserDays(userId, range), grid);
         vo.setActiveRate(matrix.activeRate());
         vo.setObservedSamples(matrix.observedSamples());
         vo.setIdleRatio(matrix.idleRatio());
-        vo.setSubtitle("有效采样覆盖率: " + formatPercent(calculateCoverage(matrix.totalObservedSlots(), range)));
+        vo.setSubtitle(buildCaliberSubtitlePrefix(range)
+                + "有效采样覆盖率: " + formatPercent(calculateCoverage(matrix.totalObservedSlots(), range)));
         fillCommonMetadata(vo, matrix.totalObservedSlots(), matrix.actualDays(),
-                matrix.observedDowCount(), matrix.legacyIncluded(), range);
+                matrix.observedRowCount(), matrix.legacyIncluded(), range, true);
         return vo;
     }
 
@@ -78,18 +86,20 @@ public class ActivityHeatmapService {
      */
     public FactionActivityHeatmapVO queryFactionHeatmap(long factionId, ActivityQueryRange range) {
         validateQueryTarget(factionId);
-        FactionActivityHeatmapVO vo = FactionActivityHeatmapVO.empty(buildFactionTitle(factionId));
+        ActivityGridLayout grid = range.grid();
+        FactionActivityHeatmapVO vo = FactionActivityHeatmapVO.empty(buildFactionTitle(factionId), grid);
         vo.setTotalDays(range.totalDays());
 
         ActivityHeatmapAggregator.FactionMatrix matrix = ActivityHeatmapAggregator.aggregateFaction(
-                dataLoader.loadFactionDays(factionId, range));
+                dataLoader.loadFactionDays(factionId, range), grid);
         vo.setAverageOnlineCount(matrix.averageActiveCount());
         vo.setObservedSamples(matrix.observedSamples());
         vo.setIdleRatio(matrix.idleRatio());
-        vo.setSubtitle("格内：平均有效活跃人数｜颜色：有效活跃人数渐变，Idle 越多越暗｜有效采样覆盖率: "
+        vo.setSubtitle(buildCaliberSubtitlePrefix(range)
+                + "格内：平均有效活跃人数｜颜色：有效活跃人数渐变，Idle 越多越暗｜有效采样覆盖率: "
                 + formatPercent(calculateCoverage(matrix.totalObservedSlots(), range)));
         fillCommonMetadata(vo, matrix.totalObservedSlots(), matrix.actualDays(),
-                matrix.observedDowCount(), matrix.legacyIncluded(), range);
+                matrix.observedRowCount(), matrix.legacyIncluded(), range, true);
         return vo;
     }
 
@@ -125,7 +135,7 @@ public class ActivityHeatmapService {
                 + "｜仅对比有效活跃人数；Idle 不计入对比｜共同采样覆盖率: "
                 + formatPercent(calculateCoverage(matrix.totalCommonObservedSlots(), range)));
         fillCommonMetadata(vo, matrix.totalCommonObservedSlots(), matrix.actualDays(),
-                matrix.observedDowCount(), matrix.legacyIncluded(), range);
+                matrix.observedDowCount(), matrix.legacyIncluded(), range, false);
         return vo;
     }
 
@@ -139,43 +149,88 @@ public class ActivityHeatmapService {
      * @param vo                 目标 VO
      * @param totalObservedSlots observed 槽总数
      * @param actualDays         存在采样的自然日数量
-     * @param observedDowCount   存在采样的星期行数量
+     * @param observedRowCount   存在采样的网格行数量
      * @param legacyIncluded     是否包含 V2 legacy 采样
      * @param range              查询日期范围
+     * @param todayNoticeEnabled 是否允许追加"当日数据尚未完整"；对比图文案保持既有形态故传 false
      */
     private void fillCommonMetadata(BaseActivityHeatmapVO vo,
-                                    int totalObservedSlots, int actualDays, int observedDowCount,
-                                    boolean legacyIncluded, ActivityQueryRange range) {
+                                    int totalObservedSlots, int actualDays, int observedRowCount,
+                                    boolean legacyIncluded, ActivityQueryRange range,
+                                    boolean todayNoticeEnabled) {
         vo.setCoverage(calculateCoverage(totalObservedSlots, range));
         vo.setHasData(totalObservedSlots > 0);
         vo.setLegacyDataIncluded(legacyIncluded);
         if (!vo.isHasData()) {
             return;
         }
+        vo.setNoticeMessage(buildNoticeMessage(
+                range, actualDays, observedRowCount, legacyIncluded, todayNoticeEnabled));
+    }
 
-        String partialCoverageNotice = buildPartialCoverageNotice(actualDays, observedDowCount);
-        if (partialCoverageNotice != null && legacyIncluded) {
-            vo.setNoticeMessage(partialCoverageNotice + "；" + LEGACY_NOTICE);
-        } else if (partialCoverageNotice != null) {
-            vo.setNoticeMessage(partialCoverageNotice);
-        } else if (legacyIncluded) {
-            vo.setNoticeMessage(LEGACY_NOTICE);
+    /**
+     * 拼接副标题第二行提示，顺序为"数据不完整 → legacy"
+     *
+     * @param range              查询日期范围
+     * @param actualDays         存在采样的自然日数量
+     * @param observedRowCount   存在采样的网格行数量
+     * @param legacyIncluded     是否包含 V2 legacy 采样
+     * @param todayNoticeEnabled 是否允许追加"当日数据尚未完整"
+     * @return 提示文案；无任何提示时返回 null
+     */
+    private static String buildNoticeMessage(ActivityQueryRange range, int actualDays,
+                                             int observedRowCount, boolean legacyIncluded,
+                                             boolean todayNoticeEnabled) {
+        List<String> notices = new ArrayList<>(3);
+        if (range.caliber() == ActivityCaliberEnum.TYPICAL_WEEK) {
+            String partialCoverageNotice = buildPartialCoverageNotice(actualDays, observedRowCount);
+            if (partialCoverageNotice != null) {
+                notices.add(partialCoverageNotice);
+            }
         }
+        if (todayNoticeEnabled && isWindowEndingToday(range)) {
+            notices.add(TODAY_INCOMPLETE_NOTICE);
+        }
+        if (legacyIncluded) {
+            notices.add(LEGACY_NOTICE);
+        }
+        return notices.isEmpty() ? null : String.join(NOTICE_SEPARATOR, notices);
+    }
+
+    /**
+     * 判断窗口是否包含今天：锚点即窗口最后一天且不晚于今天，故等价于锚点就是今天
+     *
+     * @param range 查询日期范围
+     * @return true 表示窗口包含今天
+     */
+    private static boolean isWindowEndingToday(ActivityQueryRange range) {
+        return range.endDate().isEqual(LocalDate.now(TornActivityCollectService.HEATMAP_ZONE));
+    }
+
+    /**
+     * 构建副标题第一行的口径与窗口前缀
+     *
+     * @param range 查询日期范围
+     * @return 形如 {@code 口径：单日（15 分钟）｜2026-08-01 ~ 2026-08-01｜} 的前缀
+     */
+    private static String buildCaliberSubtitlePrefix(ActivityQueryRange range) {
+        return "口径：" + range.caliber().keyword() + "（" + range.caliber().cellSpanLabel() + "）"
+                + SUBTITLE_SEPARATOR + range.startDate() + " ~ " + range.endDate() + SUBTITLE_SEPARATOR;
     }
 
     /**
      * 构建部分覆盖提示；覆盖满足门槛时返回 null
      *
      * @param actualDays       存在采样的自然日数量
-     * @param observedDowCount 存在采样的星期行数量
+     * @param observedRowCount 存在采样的网格行数量
      * @return 提示文案，无提示时返回 null
      */
-    private static String buildPartialCoverageNotice(int actualDays, int observedDowCount) {
+    private static String buildPartialCoverageNotice(int actualDays, int observedRowCount) {
         if (actualDays < MIN_SAMPLE_DAYS_NOTICE) {
             return "该时间范围仅覆盖 " + actualDays + " 个采样日，热力图仅供参考";
         }
-        if (observedDowCount < FULL_DOW_COUNT) {
-            return "该时间范围覆盖不完整（已覆盖 " + observedDowCount + "/7 个星期），热力图仅供参考";
+        if (observedRowCount < FULL_DOW_COUNT) {
+            return "该时间范围覆盖不完整（已覆盖 " + observedRowCount + "/7 个星期），热力图仅供参考";
         }
         return null;
     }

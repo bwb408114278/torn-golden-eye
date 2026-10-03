@@ -2,8 +2,8 @@ package pn.torn.goldeneye.torn.service.activity.query;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import pn.torn.goldeneye.torn.model.activity.ActivityCaliberEnum;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
-import pn.torn.goldeneye.torn.model.activity.ActivityQueryRangeModeEnum;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -12,50 +12,113 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 活跃度热力图日期参数解析纯函数
+ * 活跃度热力图尾部参数解析纯函数
  * <p>
- * 两个 Bot Strategy 唯一允许的日期参数解析点。输入为指令中目标段之后的尾部参数段：
- * 空列表解析为最近 28 天（DEFAULT）；单个截止日期段解析为以该日为结束日的
- * 28 天锚定范围（UNTIL），不支持起始日期与时间部分。
- * 日期严格为{@code yyyy-MM-dd}（ISO_LOCAL_DATE），不接受时间、时区、Epoch、相对日期或空白；
- * 截止日期不得晚于今天，未来日期拒绝。段数不符或日期非法均返回空。
+ * 普通热力图与对比图两个 Bot Strategy 唯一允许的尾部参数解析点。普通形态接受「日期」与「口径」
+ * 各至多一段，按内容形态判定，与书写顺序无关；对比图只有最近 28 天一种视图，用户用截至日期
+ * 选窗口末端，因此单独提供不接受口径的解析入口。日期严格为{@code yyyy-MM-dd}（ISO_LOCAL_DATE），
+ * 不接受时间、时区、Epoch、相对日期或空白；锚点日期不得晚于今天。窗口一律为
+ * {@code [锚点 - (窗口天数 - 1), 锚点]}，推导只写一份。
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.7.0
  * @since 2026.08.28
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ActivityQueryRangeParser {
 
     /**
-     * 无日期参数与截止日期锚定的默认跨度（自然日，闭区间）
+     * 普通热力图尾部允许的最大参数段数（日期与口径各一段）
      */
-    static final int DEFAULT_RANGE_DAYS = 28;
+    static final int MAX_TAIL_SEGMENT_COUNT = 2;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ISO_LOCAL_DATE;
 
     /**
-     * 解析指令尾部参数段为查询范围。
+     * 解析普通热力图的尾部参数段。
+     * <p>
+     * 缺省规则：完全无参数为典型周近 28 天；只给日期为该日单日；只给口径以今天为锚点；
+     * 锚点晚于今天、同类参数重复、超过两段或出现未定义关键字一律返回空。
      *
-     * @param tailSegments 目标段之后的参数段列表（可为 null 或空）
+     * @param tailSegments 业务段之后的参数段列表（可为 null 或空）
      * @param today        {@code Asia/Shanghai} 的今天
-     * @return 合法时返回查询范围；段数不符、日期非法或为未来时返回空
+     * @return 合法时返回查询范围；参数非法时返回空
      */
     public static Optional<ActivityQueryRange> parse(List<String> tailSegments, LocalDate today) {
         if (tailSegments == null || tailSegments.isEmpty()) {
-            return Optional.of(new ActivityQueryRange(
-                    today.minusDays(DEFAULT_RANGE_DAYS - 1L), today, ActivityQueryRangeModeEnum.DEFAULT));
+            return Optional.of(rangeOf(ActivityCaliberEnum.TYPICAL_WEEK, today));
+        }
+        if (tailSegments.size() > MAX_TAIL_SEGMENT_COUNT) {
+            return Optional.empty();
+        }
+
+        LocalDate anchorDate = null;
+        ActivityCaliberEnum caliber = null;
+        for (String segment : tailSegments) {
+            Optional<ActivityCaliberEnum> matchedCaliber = ActivityCaliberEnum.fromKeyword(segment);
+            if (matchedCaliber.isPresent()) {
+                if (caliber != null) {
+                    return Optional.empty();
+                }
+                caliber = matchedCaliber.get();
+                continue;
+            }
+            LocalDate date = parseStrictDate(segment);
+            if (date == null || anchorDate != null) {
+                return Optional.empty();
+            }
+            anchorDate = date;
+        }
+
+        if (anchorDate == null) {
+            return Optional.of(rangeOf(caliber, today));
+        }
+        if (anchorDate.isAfter(today)) {
+            return Optional.empty();
+        }
+        ActivityCaliberEnum resolvedCaliber = caliber != null ? caliber : ActivityCaliberEnum.SINGLE_DAY;
+        return Optional.of(rangeOf(resolvedCaliber, anchorDate));
+    }
+
+    /**
+     * 解析对比图的尾部参数段。
+     * <p>
+     * 对比图只有最近 28 天一种视图，用户用截至日期选窗口末端，因此接受 0 或 1 个截至日期；
+     * 出现口径关键字、多段或非法日期返回空，新的「日期 + 口径」形态不会把口径引入对比图。
+     *
+     * @param tailSegments 业务段之后的参数段列表（可为 null 或空）
+     * @param today        {@code Asia/Shanghai} 的今天
+     * @return 合法时返回以截至日期为锚点的 28 天范围；参数非法时返回空
+     */
+    public static Optional<ActivityQueryRange> parseUntilDate(List<String> tailSegments, LocalDate today) {
+        if (tailSegments == null || tailSegments.isEmpty()) {
+            return Optional.of(rangeOf(ActivityCaliberEnum.TYPICAL_WEEK, today));
         }
         if (tailSegments.size() != 1) {
             return Optional.empty();
         }
 
-        LocalDate endDate = parseStrictDate(tailSegments.get(0));
-        if (endDate == null || endDate.isAfter(today)) {
+        String segment = tailSegments.getFirst();
+        if (ActivityCaliberEnum.fromKeyword(segment).isPresent()) {
             return Optional.empty();
         }
-        return Optional.of(new ActivityQueryRange(
-                endDate.minusDays(DEFAULT_RANGE_DAYS - 1L), endDate, ActivityQueryRangeModeEnum.UNTIL));
+        LocalDate anchorDate = parseStrictDate(segment);
+        if (anchorDate == null || anchorDate.isAfter(today)) {
+            return Optional.empty();
+        }
+        return Optional.of(rangeOf(ActivityCaliberEnum.TYPICAL_WEEK, anchorDate));
+    }
+
+    /**
+     * 按口径与锚点日期推导窗口，锚点日期是窗口的最后一天。
+     *
+     * @param caliber    统计口径
+     * @param anchorDate 锚点日期（窗口最后一天）
+     * @return 查询范围
+     */
+    private static ActivityQueryRange rangeOf(ActivityCaliberEnum caliber, LocalDate anchorDate) {
+        return new ActivityQueryRange(
+                anchorDate.minusDays(caliber.windowDays() - 1L), anchorDate, caliber);
     }
 
     /**
