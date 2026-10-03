@@ -65,10 +65,12 @@ class ActivityGridLayoutTest {
         assertEquals(15, grid.rows());
         assertEquals(24, grid.cols());
         assertEquals("10-06", grid.rowLabel(14));
+        LocalDate beforeWindow = START.minusDays(1);
+        LocalDate afterWindow = START.plusDays(15);
         assertThrows(IllegalArgumentException.class,
-                () -> grid.position(LocalDate.of(2026, 9, 21), 0));
+                () -> grid.position(beforeWindow, 0));
         assertThrows(IllegalArgumentException.class,
-                () -> grid.position(LocalDate.of(2026, 10, 7), 0));
+                () -> grid.position(afterWindow, 0));
     }
 
     @Test

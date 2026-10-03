@@ -86,8 +86,8 @@ public abstract class BaseActivityQueryStrategy extends SmthMsgStrategy {
      * @param range    已解析的查询日期范围
      * @return 回复消息
      */
-    protected abstract List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
-                                                                 ActivityQueryRange range);
+    protected abstract List<QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
+                                                       ActivityQueryRange range);
 
     /**
      * 构建格式介绍消息

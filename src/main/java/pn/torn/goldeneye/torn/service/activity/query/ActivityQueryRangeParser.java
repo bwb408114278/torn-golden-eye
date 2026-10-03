@@ -52,32 +52,29 @@ public final class ActivityQueryRangeParser {
             return Optional.empty();
         }
 
-        LocalDate anchorDate = null;
-        ActivityCaliberEnum caliber = null;
+        Optional<ActivityCaliberEnum> caliber = Optional.empty();
+        Optional<LocalDate> anchorDate = Optional.empty();
         for (String segment : tailSegments) {
             Optional<ActivityCaliberEnum> matchedCaliber = ActivityCaliberEnum.fromKeyword(segment);
             if (matchedCaliber.isPresent()) {
-                if (caliber != null) {
+                if (caliber.isPresent()) {
                     return Optional.empty();
                 }
-                caliber = matchedCaliber.get();
+                caliber = matchedCaliber;
                 continue;
             }
-            LocalDate date = parseStrictDate(segment);
-            if (date == null || anchorDate != null) {
+            Optional<LocalDate> parsedDate = parseStrictDate(segment);
+            if (parsedDate.isEmpty() || anchorDate.isPresent()) {
                 return Optional.empty();
             }
-            anchorDate = date;
+            anchorDate = parsedDate;
         }
 
-        if (anchorDate == null) {
-            return Optional.of(rangeOf(caliber, today));
+        if (anchorDate.isEmpty()) {
+            // 没有日期段时每段都必须是口径段，因此只给口径即以今天为锚点
+            return caliber.map(value -> rangeOf(value, today));
         }
-        if (anchorDate.isAfter(today)) {
-            return Optional.empty();
-        }
-        ActivityCaliberEnum resolvedCaliber = caliber != null ? caliber : ActivityCaliberEnum.SINGLE_DAY;
-        return Optional.of(rangeOf(resolvedCaliber, anchorDate));
+        return resolveWindow(caliber, anchorDate.orElseThrow(), today);
     }
 
     /**
@@ -102,11 +99,25 @@ public final class ActivityQueryRangeParser {
         if (ActivityCaliberEnum.fromKeyword(segment).isPresent()) {
             return Optional.empty();
         }
-        LocalDate anchorDate = parseStrictDate(segment);
-        if (anchorDate == null || anchorDate.isAfter(today)) {
+        return parseStrictDate(segment)
+                .filter(anchorDate -> !anchorDate.isAfter(today))
+                .map(anchorDate -> rangeOf(ActivityCaliberEnum.TYPICAL_WEEK, anchorDate));
+    }
+
+    /**
+     * 组合已解析出的日期与口径：口径缺省为该日单日，锚点不得晚于今天。
+     *
+     * @param caliber    已命中的口径；未命中时为空
+     * @param anchorDate 锚点日期（窗口最后一天）
+     * @param today      {@code Asia/Shanghai} 的今天
+     * @return 合法时返回查询范围；锚点为未来时返回空
+     */
+    private static Optional<ActivityQueryRange> resolveWindow(Optional<ActivityCaliberEnum> caliber,
+                                                              LocalDate anchorDate, LocalDate today) {
+        if (anchorDate.isAfter(today)) {
             return Optional.empty();
         }
-        return Optional.of(rangeOf(ActivityCaliberEnum.TYPICAL_WEEK, anchorDate));
+        return Optional.of(rangeOf(caliber.orElse(ActivityCaliberEnum.SINGLE_DAY), anchorDate));
     }
 
     /**
@@ -122,19 +133,19 @@ public final class ActivityQueryRangeParser {
     }
 
     /**
-     * 严格解析 yyyy-MM-dd 日期，任何格式偏差（含空白、时间、时区）返回 null
+     * 严格解析 yyyy-MM-dd 日期，任何格式偏差（含空白、时间、时区）返回空
      *
      * @param text 日期文本
-     * @return 解析结果，非法时返回 null
+     * @return 解析结果，非法时返回空
      */
-    private static LocalDate parseStrictDate(String text) {
+    private static Optional<LocalDate> parseStrictDate(String text) {
         if (text == null) {
-            return null;
+            return Optional.empty();
         }
         try {
-            return LocalDate.parse(text, DATE_FMT);
+            return Optional.of(LocalDate.parse(text, DATE_FMT));
         } catch (DateTimeParseException e) {
-            return null;
+            return Optional.empty();
         }
     }
 }

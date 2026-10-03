@@ -72,11 +72,11 @@ public class ActivityCompareStrategyImpl extends BaseActivityQueryStrategy {
     }
 
     @Override
-    protected List<? extends QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
-                                                        ActivityQueryRange range) {
+    protected List<QqMsgParam<?>> handleQuery(QqRecMsgSender sender, String[] msgArray,
+                                              ActivityQueryRange range) {
         String firstText = msgArray[0].trim();
         if (!NumberUtils.isLong(firstText)) {
-            return super.buildTextMsg(buildFormatIntroMsg());
+            return List.copyOf(super.buildTextMsg(buildFormatIntroMsg()));
         }
 
         long firstId = Long.parseLong(firstText);
@@ -88,20 +88,20 @@ public class ActivityCompareStrategyImpl extends BaseActivityQueryStrategy {
         } else {
             factionAId = super.getTornFactionIdBySender(sender);
             if (factionAId <= 0) {
-                return super.buildTextMsg(NOT_IN_FACTION_MSG);
+                return List.copyOf(super.buildTextMsg(NOT_IN_FACTION_MSG));
             }
             factionBId = firstId;
         }
 
         if (factionAId == factionBId) {
-            return super.buildTextMsg(SELF_COMPARE_MSG);
+            return List.copyOf(super.buildTextMsg(SELF_COMPARE_MSG));
         }
 
         ActivityComparisonHeatmapVO heatmap = heatmapService.compareFactions(factionAId, factionBId, range);
         if (heatmap.isHasData()) {
-            return super.buildImageMsg(HeatmapImageRenderer.renderComparisonAsBase64(heatmap));
+            return List.copyOf(super.buildImageMsg(HeatmapImageRenderer.renderComparisonAsBase64(heatmap)));
         }
-        return super.buildTextMsg(ActivityHeatmapService.NO_DATA_MESSAGE);
+        return List.copyOf(super.buildTextMsg(ActivityHeatmapService.NO_DATA_MESSAGE));
     }
 
     /**
