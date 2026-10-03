@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.activity;
+package pn.torn.goldeneye.torn.service.activity.render;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -6,8 +6,6 @@ import pn.torn.goldeneye.torn.model.activity.ActivityCaliberEnum;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;
-import pn.torn.goldeneye.torn.service.activity.render.HeatmapColorScale;
-import pn.torn.goldeneye.torn.service.activity.render.HeatmapImageRenderer;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -17,8 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 热力图颜色渐变、暗化与渲染测试
@@ -91,6 +88,22 @@ class HeatmapImageRendererTest {
         assertTrue(HeatmapColorScale.normalizeComparisonDiff(10, 0) >= -1.0);
     }
 
+    @Test
+    @DisplayName("所有 ACTIVITY_GRADIENT 锚点颜色文字可读性验证")
+    void shouldAllActivityGradientAnchorsHaveReadableText() {
+        for (Color c : HeatmapColorScale.ACTIVITY_GRADIENT) {
+            assertReadableText(c, "锚点色");
+        }
+    }
+
+    @Test
+    @DisplayName("所有 COMPARISON_GRADIENT 锚点颜色文字可读性验证")
+    void shouldAllComparisonGradientAnchorsHaveReadableText() {
+        for (Color c : HeatmapColorScale.COMPARISON_GRADIENT) {
+            assertReadableText(c, "对比锚点色");
+        }
+    }
+
     // ==================== 帮派图 5 锚点渐变主色 ====================
 
     @Test
@@ -128,6 +141,20 @@ class HeatmapImageRendererTest {
         assertEquals(HeatmapColorScale.factionMainColor(100), HeatmapColorScale.factionLegendColor(1.5));
     }
 
+    @Test
+    @DisplayName("所有帮派锚点与锚点中点主色及最大暗化色文字可读性验证")
+    void shouldAllFactionAnchorAndMidColorsHaveReadableText() {
+        for (Color c : HeatmapColorScale.FACTION_GRADIENT) {
+            assertReadableText(c, "帮派锚点主色");
+            assertReadableText(HeatmapColorScale.darken(c, 1), "帮派最大暗化色");
+        }
+        for (int i = 0; i < HeatmapColorScale.FACTION_GRADIENT.length - 1; i++) {
+            Color mid = HeatmapColorScale.lerpColor(HeatmapColorScale.FACTION_GRADIENT[i],
+                    HeatmapColorScale.FACTION_GRADIENT[i + 1], 0.5);
+            assertReadableText(mid, "帮派锚点中点色");
+        }
+    }
+
     // ==================== Idle 连续暗化 ====================
 
     @Test
@@ -141,11 +168,42 @@ class HeatmapImageRendererTest {
     }
 
     @Test
+    @DisplayName("idleRatio=50% 时按 ×0.775 连续暗化（档0 → 53,1,65）")
+    void shouldDarkenContinuouslyAtHalfIdle() {
+        assertEquals(new Color(53, 1, 65), HeatmapColorScale.factionColor(0, 0.5));
+
+        for (Color main : HeatmapColorScale.FACTION_GRADIENT) {
+            Color darkened = HeatmapColorScale.darken(main, 0.5);
+            assertEquals((int) Math.round(main.getRed() * 0.775), darkened.getRed());
+            assertEquals((int) Math.round(main.getGreen() * 0.775), darkened.getGreen());
+            assertEquals((int) Math.round(main.getBlue() * 0.775), darkened.getBlue());
+        }
+    }
+
+    @Test
+    @DisplayName("idleRatio=0 使用完整主色；超出 [0,1] 被 clamp")
+    void shouldKeepMainColorAtZeroIdleAndClampOverflow() {
+        assertEquals(HeatmapColorScale.FACTION_GRADIENT[0], HeatmapColorScale.darken(
+                HeatmapColorScale.FACTION_GRADIENT[0], 0));
+        assertEquals(HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[1], 1),
+                HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[1], 1.5));
+        assertEquals(HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[2], 0),
+                HeatmapColorScale.darken(HeatmapColorScale.FACTION_GRADIENT[2], -0.5));
+    }
+
+    @Test
     @DisplayName("个人图暗化：idleRatio=0 等于原比例色，主色不改变档位语义")
     void shouldDarkenPersonalActivityColorOnlyByIdleRatio() {
         assertEquals(HeatmapColorScale.activityColor(0.5),
                 HeatmapColorScale.darkenedActivityColor(0.5, 0));
         assertEquals(new Color(139, 127, 20), HeatmapColorScale.darkenedActivityColor(1.0, 1.0));
+    }
+
+    @Test
+    @DisplayName("无数据深灰格必须与首锚点主色区分")
+    void shouldKeepEmptyColorDistinctFromFirstAnchor() {
+        assertNotEquals(HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.FACTION_GRADIENT[0]);
+        assertNotEquals(HeatmapColorScale.EMPTY_COLOR, HeatmapColorScale.factionColor(0, 1));
     }
 
     // ==================== 固定夹具 PNG（人工视觉复核，不提交） ====================
@@ -283,5 +341,15 @@ class HeatmapImageRendererTest {
             }
         }
         return vo;
+    }
+
+    /**
+     * 断言背景色与文字色有足够对比度
+     */
+    private static void assertReadableText(Color background, String label) {
+        Color textColor = HeatmapColorScale.textColorFor(background);
+        double bgLum = background.getRed() * 0.299 + background.getGreen() * 0.587 + background.getBlue() * 0.114;
+        double textLum = textColor.getRed() * 0.299 + textColor.getGreen() * 0.587 + textColor.getBlue() * 0.114;
+        assertTrue(Math.abs(bgLum - textLum) > 50, label + " " + background + " 文字对比度不足");
     }
 }

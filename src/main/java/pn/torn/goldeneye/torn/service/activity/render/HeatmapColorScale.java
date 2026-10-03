@@ -72,7 +72,7 @@ public final class HeatmapColorScale {
     /**
      * 个人活跃比例和帮派在线比例共用渐变色板
      */
-    private static final Color[] ACTIVITY_GRADIENT = {
+    static final Color[] ACTIVITY_GRADIENT = {
             new Color(68, 1, 84),
             new Color(70, 50, 126),
             new Color(54, 92, 141),
@@ -95,7 +95,7 @@ public final class HeatmapColorScale {
     /**
      * 帮派对比渐变色板（B蓝 -> 灰 -> A紫）
      */
-    private static final Color[] COMPARISON_GRADIENT = {
+    static final Color[] COMPARISON_GRADIENT = {
             new Color(33, 102, 172),
             new Color(67, 147, 195),
             new Color(146, 197, 222),
@@ -128,7 +128,7 @@ public final class HeatmapColorScale {
      * 帮派图渐变锚点主色（Viridis 强对比锚点，与 {@link #FACTION_ANCHORS} 一一对应），
      * 平均有效活跃人数在相邻锚点间线性插值
      */
-    private static final Color[] FACTION_GRADIENT = {
+    static final Color[] FACTION_GRADIENT = {
             new Color(68, 1, 84),
             new Color(59, 82, 139),
             new Color(33, 145, 140),
