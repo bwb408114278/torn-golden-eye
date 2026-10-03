@@ -1,6 +1,8 @@
 package pn.torn.goldeneye.torn.model.activity;
 
 import lombok.Data;
+import pn.torn.goldeneye.torn.model.activity.grid.ActivityGridLayout;
+import pn.torn.goldeneye.torn.model.activity.grid.WeekdayHourGridLayout;
 
 /**
  * 活跃度热力图三种图片的共同元数据
@@ -10,7 +12,7 @@ import lombok.Data;
  * 部分覆盖与legacy提示放入{@code noticeMessage}由副标题第二行表达。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.7.0
  * @since 2026.08.28
  */
 @Data
@@ -35,4 +37,8 @@ public class BaseActivityHeatmapVO {
      * 查询结果是否包含 V2 legacy 采样（Idle 占比未知，强制 idleRatio=0）
      */
     private boolean legacyDataIncluded;
+    /**
+     * 网格布局；未显式设置网格的图（对比图）与空图都沿用既有 7×24 视图，渲染路径因此不需要判空分支
+     */
+    private ActivityGridLayout grid = WeekdayHourGridLayout.INSTANCE;
 }

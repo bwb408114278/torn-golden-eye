@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.activity;
+package pn.torn.goldeneye.torn.service.activity.render;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -14,7 +14,7 @@ import java.awt.*;
  * 禁止在实施时重新选色，无数据格不进入渐变函数。
  *
  * @author Bai
- * @version 1.5.1
+ * @version 1.7.0
  * @since 2026.07.21
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -296,7 +296,7 @@ public final class HeatmapColorScale {
      * @param t  插值因子 [0,1]
      * @return 插值色
      */
-    static Color lerpColor(Color c1, Color c2, double t) {
+    public static Color lerpColor(Color c1, Color c2, double t) {
         int r = (int) Math.round(c1.getRed() + (c2.getRed() - c1.getRed()) * t);
         int g = (int) Math.round(c1.getGreen() + (c2.getGreen() - c1.getGreen()) * t);
         int b = (int) Math.round(c1.getBlue() + (c2.getBlue() - c1.getBlue()) * t);

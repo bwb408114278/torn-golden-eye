@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.10.01
+- 最后更新：2026.10.03
 - 维护人：Bai
 - 状态：有效
 
@@ -154,6 +154,14 @@
 │   │   │       │   └── setting/                                                        # 配置相关功能
 │   │   │       │       └── SysSettingManager.java                                      # 系统配置公共逻辑、缓存
 │   │   │       ├── model/                                                              # Torn相关模型
+│   │   │       │   ├── activity/                                                       # 活跃度热力图模型
+│   │   │       │   │   ├── ActivityCaliberEnum.java                                    # 热力图统计口径(单日/单周/半月/典型周)
+│   │   │       │   │   ├── ActivityQueryRange.java                                     # 查询日期范围(含口径→网格入口)
+│   │   │       │   │   └── grid/                                                       # 口径网格布局子包(槽→行列映射,sealed)
+│   │   │       │   │       ├── ActivityGridLayout.java                                 # 布局接口、Position与唯一布局工厂
+│   │   │       │   │       ├── DayStripGridLayout.java                                 # 单周/半月N行日期×24小时列
+│   │   │       │   │       ├── SingleDayGridLayout.java                                # 单日4行刻钟位×24小时列
+│   │   │       │   │       └── WeekdayHourGridLayout.java                              # 典型周与对比图7行星期×24小时列
 │   │   │       │   ├── faction/                                                        # 帮派相关模型
 │   │   │       │   │   ├── crime/                                                      # Crime相关模型
 │   │   │       │   │   │   ├── TornFactionCrimeRequireItemVO.java                      # OC岗位需要物品响应参数

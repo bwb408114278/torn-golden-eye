@@ -5,12 +5,13 @@
 - 文档类型：当前功能设计、实现与验收说明
 - 适用项目：Golden-Eye
 - 适用版本：1.5.0 及以上
-- 最后更新：2026.08.29
+- 最后更新：2026.10.03
 - 维护人：Bai
-- 状态：已实施，技术验收通过，待运维手动部署
+- 状态：V3 已实施验收；1.7.0 查询口径扩展已实施并复评
 - 实施基线：`a2adbc8..49bf811`
 - 文档定位：本文件合并 V2 历史设计、V3 实施契约和两轮修复验收结论，是活动热力图功能唯一有效的设计、开发、Review、部署后验收依据。
 - 版本语义：V2 是 Redis TTL 内可读取的 legacy 数据版本；V3 是当前采集、查询、归档和展示版本。本文中的“当前实现”均指 `49bf811` 的 V3 实现及其 V2 兼容边界。
+- 口径扩展：1.7.0 起用户图与帮派图支持「单日 / 单周 / 半月 / 典型周」四种统计口径；指令、窗口、网格、格值口径、文案与实现归属全部见本文 3.1 / 3.4 / 3.5 / 6.2 / 6.3，本文是唯一契约来源；该次变更的开发依据是任务级一次性文档，长期有效内容已并入本文，一次性文档已按文档生命周期在验收闭环后删除。
 
 ---
 
@@ -18,7 +19,7 @@
 
 在保留既有“15 分钟 Torn 帮派成员采集 → Redis 槽数据 → BufferedImage PNG → NapCat 图片消息”主链路的前提下，完成以下四项能力：
 
-1. 支持以一个明确日期参数查询历史范围：`从#日期` 或 `截至#日期`；
+1. 支持以一个明确日期参数查询历史范围：`从#日期` 或 `截至#日期`（1.7.0 起普通热力图改为「日期 + 口径」两段式，见 3.1）；
 2. 将 `torn_setting_faction` 中的有效配置帮派与 HoF Gold+ 帮派合并采集；
 3. 将长期 `Idle` 从主活跃度中降级为独立辅助证据，并仅以背景暗化表达，不增加单元格数字；
 4. 以日终压缩归档支持超过 Redis 30 天 TTL 的 V3 历史查询，避免将每个 15 分钟成员采样逐行落 PostgreSQL。
@@ -35,6 +36,18 @@
 
 V2 的“Idle 计入活跃”是当时的历史口径，不可被 V3 的颜色、比例或人数规则重新解释。V2 兼容只保证旧数据在自然过期前可读，不承诺其统计精度与 V3 相同。
 
+#### 1.1.1 1.7.0 口径扩展的变化点
+
+相对 1.5.0 基线，本次只有下列变化，且全部已写入本文：
+
+1. 普通热力图的尾部参数改为「日期 + 口径」两段，按内容形态判定，普通热力图的 `从` / `截至` 关键字废除；
+2. 新增单日 / 单周 / 半月 / 典型周四种口径及其窗口、网格与格值口径；
+3. 缺省规则：仅给日期 → 单日；仅给口径 → 以今天为锚点；两者都不给 → 典型周；
+4. 单段日期语义由「截至该日的近 28 天」改为「该日单日」，完整窗口由口径唯一决定；
+5. 单日 / 单周 / 半月不做采样日不足提示；窗口包含今天时附加「当日数据尚未完整」；
+6. 副标题第一行以口径与窗口起止开头；
+7. 活跃度对比图不在本次范围内，其指令、窗口、网格与差值算法均不改动（见 3.1 的偏差说明）。
+
 ### 1.2 当前明确不做
 
 - 不查询 Torn API 来响应热力图指令；查询端仍只读 Redis 和 PostgreSQL 归档。
@@ -42,6 +55,9 @@ V2 的“Idle 计入活跃”是当时的历史口径，不可被 V3 的颜色�
 - 不回填、纠正或反推历史 V2 中已合并的 `Online/Idle` 数据。
 - 不把 V2 全量迁移到新归档表；V2 仅在 Redis TTL 存续期间兼容读取，过期后不伪造历史。
 - 不新增用户可配置的颜色、阈值、TTL、归档开关或管理指令。
+- 不新增用户可配置的颗粒度与窗口长度；查询口径是固定集合，由指令关键字选择。
+- 不为低采样数格（例如某小时只采到 1 个槽却显示 100%）增加额外标记；该现象由副标题的覆盖率说明承担。
+- 活跃度对比图不在本次范围内，其指令与行为不改动。
 - 不建设任意时分秒筛选、跨时区筛选、图表导出、对比 Idle 人数或新的前端页面。
 - 不延长 Redis 原始采样 TTL；长期数据只由日终压缩归档承担。
 
@@ -88,11 +104,17 @@ V2 的“Idle 计入活跃”是当时的历史口径，不可被 V3 的颜色�
 ```text
 g#活跃度#帮派#{factionId}
 g#活跃度#用户#{userId}
-g#活跃度#帮派#{factionId}#从#{yyyy-MM-dd}
-g#活跃度#用户#{userId}#从#{yyyy-MM-dd}
-g#活跃度#帮派#{factionId}#截至#{yyyy-MM-dd}
-g#活跃度#用户#{userId}#截至#{yyyy-MM-dd}
+g#活跃度#帮派#{factionId}#{日期}
+g#活跃度#用户#{userId}#{日期}
+g#活跃度#帮派#{factionId}#{口径}
+g#活跃度#用户#{userId}#{口径}
+g#活跃度#帮派#{factionId}#{日期}#{口径}
+g#活跃度#用户#{userId}#{日期}#{口径}
+g#活跃度#用户#@目标
+g#活跃度#用户#@目标#{日期}#{口径}
 ```
+
+`@目标` 是 QQ at 卡片，只有「用户」模式接受，且**占用目标段位置**：日期与口径照常跟在目标段之后，与数字 ID 目标的规则完全一致。
 
 #### 帮派对比图
 
@@ -104,20 +126,45 @@ g#活跃度对比#{targetFactionId}#截至#{yyyy-MM-dd}
 
 对比图的帮派 A 仍是发送人绑定 Torn 用户所在帮派，帮派 B 是 `targetFactionId`；原有“不能对比自身帮派”的提示保持不变。
 
-| 参数形态 | 解析范围（均为 `Asia/Shanghai` 自然日闭区间） |
-|---|---|
-| 无日期参数 | `[今天 - 27 天, 今天]`，兼容现有最近 28 天语义 |
-| `从#yyyy-MM-dd` | `[startDate, 今天]` |
-| `截至#yyyy-MM-dd` | `[endDate - 27 天, endDate]` |
+> 已知偏差（1.7.0 记录，待单独一轮校正）：上面这个指令块停留在 `从` / `截至` 形态，与当前代码实际接受的形态早已不一致——当前代码为：缺省对比发送人所在帮派与目标帮派，给出两个帮派 ID 时对比任意两个帮派，并可带一个裸日期。活跃度对比图不在口径扩展范围内，本轮不改动其指令、窗口、网格与差值算法；校正该块与格式说明另开一轮。
+
+#### 尾部参数（普通热力图）
+
+普通热力图（用户图 / 帮派图）指令尾部最多两段参数，语义固定为「日期」与「口径」，按内容形态判定，与书写顺序无关。
+
+| 输入组合 | 锚点日期 | 口径 | 说明 |
+|---|---|---|---|
+| 无日期、无口径 | — | 典型周 | 等价最近 28 天，保持既有形态 |
+| 仅日期 | 该日期 | 单日 | 给出具体日期时的缺省口径 |
+| 仅口径 | 今天 | 该口径 | 缺省锚点为今天 |
+| 日期 + 口径 | 该日期 | 该口径 | 顺序不限 |
+
+**口径**由指令关键字选择，唯一决定窗口长度、网格行列含义、格的时间跨度与格值算法；**锚点日期**是窗口的最后一天，**槽**是采集的最小单位（一个自然日 96 个 15 分钟槽），**格**是行列交叉处聚合一类槽的方块，**无数据格**是该格覆盖的槽全部未被成功采集——它与“已采集但离线”是两种事实。
+
+普通热力图（用户图与帮派图）支持的口径固定为下列四种：
+
+| 口径 | 指令关键字 | 窗口天数 | 行（Y） | 行标签 | 列（X） | 列标签 | 格数 | 格的时间跨度 |
+|---|---|---|---|---|---|---|---|---|
+| 单日 | `单日` | 1 | 4：刻钟位 | `:00` `:15` `:30` `:45` | 24：小时 | `0`–`23` | 96 | 15 分钟 |
+| 单周 | `单周` | 7 | 7：具体日期 | `MM-dd` | 24：小时 | `0`–`23` | 168 | 1 小时 |
+| 半月 | `半月` | 15 | 15：具体日期 | `MM-dd` | 24：小时 | `0`–`23` | 360 | 1 小时 |
+| 典型周 | `典型周` | 28 | 7：星期 | 周一–周日 | 24：小时 | `0`–`23` | 168 | 1 小时，取窗口均值 |
+
+单日之所以是“行 = 刻钟位、列 = 小时”，是因为一天 96 个槽必须落进 24 列的宽度里：列取绝对小时，行取该小时内的第几个刻钟，任何格子都能直接读出 `列14 + 行:15 = 14:15`，不需要换算。
+
+格值口径见 3.5。
+
+窗口一律为「锚点日期为最后一天、向前回看固定天数」的 `Asia/Shanghai` 自然日闭区间。
 
 #### 校验规则
 
 1. 日期严格为 `yyyy-MM-dd`，不得接受时间、时区、Epoch、相对日期或空白替代值。
-2. 只允许一个范围关键字，且只能是 `从` 或 `截至`；两个关键字同时出现、重复出现、关键字错误、参数段数不符均返回格式说明。
-3. 起始/结束日期不得晚于 `Asia/Shanghai` 的今天；未来日期拒绝，不自动截断到今天。
-4. `从` 日期不设置人为最大跨度。归档查询按目标对象和日期索引读取，个人为单用户日包、帮派为单帮派日包；Redis 原始数据只读取查询范围与最近30天窗口的交集，绝不为 TTL 前且无归档的理论缺失日构造 Redis key 或命令；不扫描全表。
-5. 原“用户模式支持 at 用户”只适用于没有日期以外附加歧义的目标段：`用户#@目标#从#日期` 合法；`帮派` 模式仍拒绝 at 目标；at 标记和数字 ID 混用继续返回既有参数错误。
-6. 范围解析是两个 Strategy 共用的纯组件；不得分别在两个 Strategy 中复制 `split`、日期解析和边界计算。
+2. 锚点日期不得晚于 `Asia/Shanghai` 的今天；未来日期拒绝，不自动截断到今天。
+3. 尾部同类参数重复、段数超过 2、出现未定义关键字，均返回格式说明，不做猜测性解析。
+4. 归档查询按目标对象和日期索引读取，个人为单用户日包、帮派为单帮派日包；Redis 原始数据只读取查询范围与最近 30 天窗口的交集，绝不为 TTL 前且无归档的理论缺失日构造 Redis key 或命令；不扫描全表。
+5. 原“用户模式支持 at 用户”只适用于目标段：at 卡片与数字 ID 同为目标段的取值形态，其后照常可跟日期与口径（`用户#@目标#日期#口径` 合法，两段顺序不限）；`帮派` 模式仍拒绝 at 目标；at 标记和数字 ID 混用继续返回既有参数错误。
+6. 尾部参数解析是两个 Strategy 共用的纯组件；不得在 Strategy 中复制 `split`、日期解析、口径判定和边界计算。
+7. 单段日期不再表示“截至该日的近 28 天”，而是该日单日；完整窗口由口径唯一决定。
 
 ### 3.2 V3 证据判定
 
@@ -209,16 +256,48 @@ renderColor = round(mainColorChannel × brightnessMultiplier)
 
 旧 V2 的“少于 7 天即拒绝整张图”规则废止。只要范围内存在至少一个有效 observed 槽，就必须返回图片；缺失格显示 `—`，覆盖提示放在副标题。
 
+副标题第一行固定以 `口径：{中文口径}（{格的时间跨度}）｜{窗口起止}` 开头，再接各图原有的指标说明。同一张 7×24 的图在不同口径下含义不同，图片必须自证口径。
+
+口径对用户图与帮派图同时生效，差异只在格值语义与色板：用户格为有效活跃比例，帮派格为平均有效活跃人数；网格形状、行列标签、分母规则、无数据判定与文案规则两者一致。
+
+日包缺失的语义按对象区分：个人缺行可能是"该用户当天不在任何被追踪帮派中"，帮派缺行则只能是"该帮派当天未被成功采集"；因此"仅覆盖 N 个采样日"对帮派更接近采集缺失，对个人更接近未被观测，两者都不作为纠错依据。
+
 | 场景 | 行为 / 文案 |
 |---|---|
 | 范围内无任何有效 observed 槽 | 仅返回文本：`该时间范围暂无活跃度采样数据` |
-| 有数据，但有效采样自然日少于 7 | 出图；副标题附加：`该时间范围仅覆盖 {actualDays} 个采样日，热力图仅供参考` |
-| 有数据，且覆盖星期行不足 7 | 出图；副标题附加：`该时间范围覆盖不完整（已覆盖 {observedDowCount}/7 个星期），热力图仅供参考` |
-| 同时满足前两种部分覆盖情况 | 优先显示“仅覆盖 {actualDays} 个采样日”文案，避免两条低价值重复提示 |
+| 窗口包含今天 | 出图；副标题第二行附加：`当日数据尚未完整` |
+| 典型周且有效采样自然日少于 7 | 出图；副标题附加：`该时间范围仅覆盖 {actualDays} 个采样日，热力图仅供参考` |
+| 典型周且覆盖星期行不足 7 | 出图；副标题附加：`该时间范围覆盖不完整（已覆盖 {observedRowCount}/7 个星期），热力图仅供参考` |
+| 典型周同时满足前两种部分覆盖情况 | 优先显示“仅覆盖 {actualDays} 个采样日”文案，避免两条低价值重复提示 |
 | 单格无 observed | 深灰格内显示：`—` |
+| 锚点早于归档起点或该日无采集 | 该日所有格留空（`—`），不报错、不截断、不做越界提示 |
 | 查询结果含 V2 legacy 采样 | 副标题附加：`部分历史采样未区分 Idle，仅供趋势参考` |
 
-渲染器必须支持副标题按换行分两行绘制：第一行为原有指标/覆盖率说明，第二行仅放“数据不完整”或“legacy”提示。两种提示都存在时按“数据不完整 → legacy”顺序拼接在第二行；布局高度随之明确增加，禁止文本重叠或截断。
+单日 / 单周 / 半月不做“采样日不足”提示：窗口内的缺失日期在图上就是一整行空白，用户可直接看到；而“当天还没过完”在图上与“未采集”无法区分，必须用文案说明。
+
+聚合结果中的星期行计数更名 `observedRowCount`（含义为有观测的行数）：典型周下等于星期覆盖数，单周/半月下等于有数据的日期数。
+
+渲染器必须支持副标题按换行分两行绘制：第一行为口径与指标/覆盖率说明，第二行仅放“数据不完整”或“legacy”提示。两种提示都存在时按“数据不完整 → legacy”顺序拼接在第二行；布局高度随之明确增加，禁止文本重叠或截断。
+
+---
+
+### 3.5 口径与格值口径
+
+口径的窗口与网格见 3.1；本节定义所有口径共用的格值算法。对每个格 c：
+
+```
+observed(c)       = 落在该格的、被成功采集的槽数
+用户图 值(c)       = 该格内有效活跃槽数 / observed(c)
+用户图 idle占比(c) = 该格内 idle-only 槽数 / (有效活跃槽数 + idle-only 槽数)
+帮派图 值(c)       = 该格内所有 observed 槽的有效活跃人数之和 / observed(c)
+帮派图 idle占比(c) = 该格内所有 observed 槽的 idle 人数之和 / (活跃人数之和 + idle 人数之和)
+observed(c) == 0 → 无数据格（深灰，格内显示 —）
+```
+
+- 分母一律是 observed，不是窗口理论槽数，也不是成员数。
+- 单日口径下每个格只覆盖 1 个槽：用户图的“值”只有 0 / 100% 两种取值，帮派图则是该 15 分钟的在线上限内人数；两者共用同一套分母规则与同一条渲染路径，不做插值或平滑。
+- V2 legacy 快照无法区分 Idle，其格的 idle 占比固定为 0，并触发既有 legacy 提示。
+- 该算法对用户图与帮派图生效，两者共用同一套分母规则。
 
 ---
 
@@ -431,19 +510,29 @@ pn.torn.goldeneye
 └── torn
     ├── model.activity
     │   ├── ActivityEvidence                         # 修改：V3 active/idle 证据结果
-    │   ├── ActivityQueryRange                       # 新增：不可变日期范围 record
-    │   ├── ActivityQueryRangeMode                   # 新增：DEFAULT/FROM/UNTIL 枚举
-    │   ├── BaseActivityHeatmapVO                    # 新增：三种图片共同元数据
-    │   ├── PersonalActivityHeatmapVO                # 修改：新增 idleRatio 矩阵，继承共同元数据
-    │   ├── FactionActivityHeatmapVO                 # 修改：新增 idleRatio 矩阵，继承共同元数据
-    │   └── ActivityComparisonHeatmapVO              # 修改：继承共同元数据
+    │   ├── ActivityQueryRange                       # 修改：不可变日期范围 record，携带口径并提供 grid()
+    │   ├── ActivityCaliberEnum                       # 新增：单日/单周/半月/典型周口径枚举（原 ActivityQueryRangeMode 作废）
+    │   ├── BaseActivityHeatmapVO                    # 修改：新增网格布局字段，收敛三种图片共同元数据
+    │   ├── PersonalActivityHeatmapVO                # 修改：按网格分配矩阵，保留 idleRatio
+    │   ├── FactionActivityHeatmapVO                 # 修改：按网格分配矩阵，保留 idleRatio
+    │   ├── ActivityComparisonHeatmapVO              # 不修改：继承基类默认网格，对比图零行为变化
+    │   └── grid                                      # 新增子包：网格布局策略族
+    │       ├── ActivityGridLayout                    # 槽→行列映射接口与布局工厂
+    │       ├── SingleDayGridLayout                   # 单日 4×24
+    │       ├── DayStripGridLayout                    # 单周 / 半月 N×24
+    │       └── WeekdayHourGridLayout                 # 典型周 7×24
     └── service.activity
         ├── ActivityEvidenceClassifier               # 修改：V3 互斥证据分类
         ├── ActivityRedisKeys                        # 修改：明确 V2 legacy 与 V3 key 构造
         ├── TornActivityCollectService               # 修改：V3 采集、来源并集、归档索引写入
-        ├── HeatmapColorScale                        # 修改：个人暗化 + 帮派 5 档/暗化颜色函数
-        ├── HeatmapImageRenderer                     # 修改：副标题两行、帮派/个人暗化绘制、帮派图例
         ├── ActivityHeatmapService                   # 修改：保留三个公开查询门面与 VO 组装
+        ├── render                                   # 新增子包：渲染族（只负责“怎么画”）
+        │   ├── HeatmapImageRenderer                 # 迁移+修改：画布、标题、副标题与编排，唯一跨包入口
+        │   ├── HeatmapGridPainter                   # 新增：时间轴、行标签、三种格子绘制
+        │   ├── HeatmapLegendPainter                 # 新增：三种图例与渐变条
+        │   ├── HeatmapLayout                        # 新增：尺寸、纵向位置与网格引用的几何事实
+        │   ├── HeatmapRenderStyle                   # 新增：字体、提示色、图例刻度、格内符号
+        │   └── HeatmapColorScale                    # 迁移：个人暗化 + 帮派 5 档/暗化颜色函数
         ├── query
         │   ├── ActivityQueryRangeParser             # 新增：命令参数 → ActivityQueryRange，纯函数
         │   ├── ActivityHeatmapDataLoader            # 新增：V3 archive / V3 Redis / V2 Redis 的单日优先级加载
@@ -459,8 +548,47 @@ pn.torn.goldeneye
 - `ActivityHeatmapDataLoader` 统一封装三版本数据源优先级、Redis Pipeline、归档 DAO 读取和 legacy 标记；个人、帮派、对比分别调用同一加载边界，不在 Service 内复制读 Redis 逻辑。
 - V2 帮派 legacy 的 Pipeline 三项顺序固定为 `online-count → member-count → observed`；key 构造、结果解包和 `FactionDay` 构造必须使用同一顺序。V2 未携带 Idle，因此只读兼容时 `legacyV2=true`、`idleCounts=null`、聚合 `idleRatio=0`，不得借由 V3 数据结构重解释旧值。
 - `ActivityHeatmapAggregator` 只处理已加载的日快照和矩阵计算，不依赖 Spring、Redis、数据库、当前时间或消息对象；个人/帮派/对比都复用其按 observed 槽聚合的底层位序工具。
+- 渲染族集中在 `service.activity.render`：布局几何、网格绘制、图例绘制、样式各归一类，渲染入口只做编排与文案；`HeatmapLayout`、`HeatmapRenderStyle` 等包内类型不得为复用提升为 public。
+- 渲染族的可见性边界：只有 `HeatmapImageRenderer` 与 `HeatmapColorScale` 为 public；色板数组、几何与样式类型一律包内可见，颜色与可读性测试与被测类同包（`service.activity.render`），**不得为测试把色板数组放宽为 public**。渲染入口复用 `ActivityHeatmapService.NO_DATA_MESSAGE` 文案常量是单向依赖，服务侧不得反向引用渲染包。
 - `HeatmapColorScale` 是所有颜色映射、暗化和文字颜色的唯一来源；渲染器不能内嵌 RGB、暗化系数或人数档位。
+- 口径元数据与网格选择分离：`ActivityCaliberEnum` 只回答指令关键字、窗口天数与格的时间跨度文案，不承载行列数、标签或颜色；网格形状只由 `grid` 子包回答。
+- 槽 → 行列映射（`rowOf` / `colOf`）、行标签与星期序号只允许出现在 `grid` 接口与三个实现；聚合器或渲染器出现行列算术即为重复实现。
+- 矩阵维度只允许来自 `grid.rows()` / `grid.cols()` 或数组自身长度；新增或修改代码不得出现 `new double[7][24]` 形态的字面量（对比图 `ActivityComparisonHeatmapVO` 为既定例外）。
+- 基类 `BaseActivityHeatmapVO.grid` 的默认值是 `WeekdayHourGridLayout.INSTANCE`：对比图与空图天然携带合法网格，渲染路径不需要判空，对比图因此不需要第二套行列常量。
+- 渲染器不得保留行列常量或「周一–周日」字面量；时间轴、行标签、网格线、三种格子与图例渐变条宽度一律取自 VO 携带的 `grid`。
+- 聚合器只保留槽级遍历 `forEachObservedSlot` 一个循环，行列以基本类型传入（热循环不构造坐标对象），用户图与帮派图只提供各自的分子规则；比例、均值、idle 占比与共同观测标记按数组自身长度遍历。
+- 位序读取只允许 `ActivityHeatmapAggregator.isBitSet` 一处实现，MSB-first 语义不得在别处重复书写。
 - `ActivityDailyArchiveService` 只处理 V3；不得为了 legacy 兼容在该服务实现 V2 全库扫描、RDB 读取或 Torn API 补采。
+- 尾部段切分与非法参数回复统一由 `BaseActivityQueryStrategy` 负责；派生类只覆写 `resolveRange` 选择尾部形态，不复制分段、日期解析与边界计算。
+
+### 6.3 查询链路与网格布局族
+
+普通热力图（用户图 / 帮派图）的查询链路固定为：
+
+```text
+Bot 指令
+  └─ BaseActivityQueryStrategy      分段、尾部段切分与非法回复
+       ├─ ActivityQueryRangeParser  普通形态：日期 + 口径；对比形态：单个截至日期
+       └─ ActivityHeatmapService
+            ├─ range.grid()                 口径 → ActivityGridLayout（唯一入口）
+            ├─ ActivityHeatmapDataLoader    按日范围加载日快照（不改）
+            ├─ ActivityHeatmapAggregator    按 layout 落格聚合
+            └─ VO{grid, 矩阵, 标题, 副标题}
+                 └─ HeatmapImageRenderer    按 grid 行列数渲染
+```
+
+网格布局族以 `sealed interface ActivityGridLayout` 封闭“槽 → (行, 列)”的三种形态，聚合器与渲染器只面向 `rows / cols / rowLabel / colLabel / rowOf / colOf` 编程：
+
+| 实现 | 行 | `rowOf(date, slot)` | 行标签 | 说明 |
+|---|---|---|---|---|
+| `SingleDayGridLayout` | 4 | `slot % 4` | `:00` `:15` `:30` `:45` | 不使用传入日期定位，日期只用于文案 |
+| `DayStripGridLayout` | 窗口天数 | 日期距起始日的天数 | `MM-dd` | 单周与半月共用，只差天数；窗口外日期拒绝 |
+| `WeekdayHourGridLayout` | 7 | 星期序号（星期一为 0） | 周一–周日 | `INSTANCE` 同时是对比图默认网格与对比聚合的矩阵维度来源 |
+
+- 列数、列标签、列号与格坐标的组装对四个口径完全一致，只在接口里写一次；新增口径必须在该接口的穷举工厂里显式给出布局，否则无法编译。
+- 一个自然日 96 个槽落进 24 列的原因与读法见 3.1；典型周把窗口内同一 (星期, 小时) 的槽累计进同一格，因此它的格值是窗口均值。
+- 布局族封闭在 `model.activity.grid`：单周与半月共用 `DayStripGridLayout`，不为同一形态写两份映射。
+- 长窗口（半月 15 行）图片偏高时，只允许调整 `DayStripGridLayout` 的列粒度；聚合契约、格值口径与色板不受影响。
 
 ---
 
@@ -499,19 +627,23 @@ SQL 约束：范围读取必须显式列出字段，按 `activity_date ASC` 返�
 
 | 操作 | 文件 | 修改责任 |
 |---|---|---|
-| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/ActivityQueryRangeMode.java` | 固定范围模式枚举 |
-| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/ActivityQueryRange.java` | `startDate/endDate/mode` 不可变 record；校验由 parser 完成 |
-| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/BaseActivityHeatmapVO.java` | 收敛 `totalDays/coverage/hasData/noticeMessage/legacyDataIncluded` 共同字段 |
-| 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/PersonalActivityHeatmapVO.java` | 继承共同元数据，保留 activeRate/observedSamples，新增 `idleRatio[7][24]`，值域 `[0,1]`，legacy 格固定为 `0` |
-| 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/FactionActivityHeatmapVO.java` | 继承共同元数据，保留 averageOnlineCount 字段名以减小接线修改，但其业务 Javadoc 改为“平均有效活跃人数”；新增 `idleRatio[7][24]`，值域 `[0,1]`，legacy 格固定为 `0` |
+| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/ActivityCaliberEnum.java` | 单日/单周/半月/典型周口径枚举：指令关键字、窗口天数、格的时间跨度文案（原 `ActivityQueryRangeMode.java` 删除） |
+| 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/ActivityQueryRange.java` | `startDate/endDate/caliber` 不可变 record，`grid()` 为“范围 → 网格布局”的唯一入口；校验由 parser 完成 |
+| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/grid/ActivityGridLayout.java` | 槽→(行,列) 映射接口与布局工厂，三个口径布局共用 |
+| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/grid/SingleDayGridLayout.java` | 单日 4 行刻钟位 × 24 小时列 |
+| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/grid/DayStripGridLayout.java` | 单周 / 半月 N 行日期 × 24 小时列 |
+| 新增 | `src/main/java/pn/torn/goldeneye/torn/model/activity/grid/WeekdayHourGridLayout.java` | 典型周 7 行星期 × 24 小时列 |
+| 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/BaseActivityHeatmapVO.java` | 新增 `grid` 字段（默认 `WeekdayHourGridLayout.INSTANCE`）；收敛 `totalDays/coverage/hasData/noticeMessage/legacyDataIncluded` 共同字段 |
+| 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/PersonalActivityHeatmapVO.java` | 继承共同元数据，保留 activeRate/observedSamples，`idleRatio` 按 `grid.rows() × grid.cols()` 分配，值域 `[0,1]`，legacy 格固定为 `0` |
+| 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/FactionActivityHeatmapVO.java` | 继承共同元数据，保留 averageOnlineCount 字段名以减小接线修改，但其业务 Javadoc 改为“平均有效活跃人数”；`idleRatio` 按 `grid.rows() × grid.cols()` 分配，值域 `[0,1]`，legacy 格固定为 `0`；`@version` 统一 1.7.0 |
 | 修改 | `src/main/java/pn/torn/goldeneye/torn/model/activity/ActivityComparisonHeatmapVO.java` | 继承共同元数据；现有数字语义改为平均有效活跃人数 |
-| 新增 | `src/main/java/pn/torn/goldeneye/torn/service/activity/query/ActivityQueryRangeParser.java` | 一次实现普通/对比参数尾部的日期解析与格式化帮助 |
+| 修改 | `src/main/java/pn/torn/goldeneye/torn/service/activity/query/ActivityQueryRangeParser.java` | 尾部参数纯函数：普通热力图按「日期 + 口径」解析，对比图沿用既有单一截至日期形态，产出 `ActivityQueryRange` |
 | 新增 | `src/main/java/pn/torn/goldeneye/torn/service/activity/query/ActivityDaySnapshot.java` | 仅作为 loader/aggregator 内部日数据传输，不暴露到 Bot 层 |
 | 新增 | `src/main/java/pn/torn/goldeneye/torn/service/activity/query/ActivityHeatmapDataLoader.java` | 批量加载 archive/V3 Redis/V2 Redis，按日优先级消重，返回 legacy 标记 |
 | 新增 | `src/main/java/pn/torn/goldeneye/torn/service/activity/query/ActivityHeatmapAggregator.java` | 个人、帮派与共同 observed 对比聚合，显式 MSB-first 位序 |
-| 修改 | `src/main/java/pn/torn/goldeneye/torn/service/activity/ActivityHeatmapService.java` | 保留 `queryPersonalHeatmap/queryFactionHeatmap/compareFactions` 门面，参数变为 `ActivityQueryRange`；组合 loader/aggregator/标题/文案/VO |
-| 修改 | `src/main/java/pn/torn/goldeneye/napcat/strategy/user/ActivityHeatmapStrategyImpl.java` | 兼容旧格式，委派共用 parser，更新格式说明；不改变 at 用户绑定规则 |
-| 修改 | `src/main/java/pn/torn/goldeneye/napcat/strategy/user/ActivityCompareStrategyImpl.java` | 兼容旧格式，委派共用 parser，更新格式说明 |
+| 修改 | `src/main/java/pn/torn/goldeneye/torn/service/activity/ActivityHeatmapService.java` | 保留三个查询门面；个人图与帮派图经 `range.grid()` 取得网格后组合 loader/aggregator，副标题加口径前缀、提示按口径分流；对比图沿用默认网格，聚合与文案不改动 |
+| 修改 | `src/main/java/pn/torn/goldeneye/napcat/strategy/user/ActivityHeatmapStrategyImpl.java` | 兼容无参形态，委派共用 parser；更新四种口径与“仅日期即单日”的格式说明；不改变 at 用户绑定规则 |
+| 修改 | `src/main/java/pn/torn/goldeneye/napcat/strategy/user/ActivityCompareStrategyImpl.java` | 沿用既有形态（单帮派 / 双帮派 + 可选截至日期）；仅因范围对象字段变化与尾部形态路由做机械接线，格式说明与行为不变 |
 
 `ActivityHeatmapService` 的公开 API 与两个 Strategy 同步修改即可；仓库内不存在其他调用方时，不保留仅为兼容编译而存在的 `days` 重载。
 
@@ -519,8 +651,14 @@ SQL 约束：范围读取必须显式列出字段，按 `activity_date ASC` 返�
 
 | 操作 | 文件 | 修改责任 |
 |---|---|---|
-| 修改 | `src/main/java/pn/torn/goldeneye/torn/service/activity/HeatmapColorScale.java` | 固定帮派 5 档主色、按 `idleRatio` 计算 `1 - 0.45 × idleRatio` 的连续暗化函数、个人连续色暗化函数、统一文字颜色判断 |
-| 修改 | `src/main/java/pn/torn/goldeneye/torn/service/activity/HeatmapImageRenderer.java` | 支持两行副标题；个人/帮派按 `idleRatio` 连续暗化；帮派图例改为 `0/25/50/75/100+`；对比图副标题补充 Idle 不参与对比 |
+| 修改 | `render/HeatmapColorScale.java` | 固定帮派 5 档主色、按 `idleRatio` 计算 `1 - 0.45 × idleRatio` 的连续暗化函数、个人连续色暗化函数、统一文字颜色判断 |
+| 修改 | `render/HeatmapImageRenderer.java` | 渲染入口：画布、标题、两行副标题与编排；行列数与轴标签改读 VO 携带的网格布局，统一支持 4×24 / 7×24 / 15×24 |
+| 新增 | `render/HeatmapGridPainter.java` | 时间轴、行标签、网格线与个人/帮派/对比三种格子的绘制；对比图 P95 差值着色算法沿用既有实现 |
+| 新增 | `render/HeatmapLegendPainter.java` | 个人连续比例、帮派 `0/25/50/75/100+`、对比发散三种图例与渐变条 |
+| 新增 | `render/HeatmapLayout.java` | 尺寸常量、副标题行数推导的纵向位置、网格引用的几何事实 |
+| 新增 | `render/HeatmapRenderStyle.java` | 字体、提示色、图例刻度与格内符号等样式常量 |
+
+图片宽度恒为 944px；高度为 4 行 292、7 行 400、15 行 688，副标题存在第二行时各 +20；纵向位置由 `HeatmapLayout` 按副标题行数推导，各绘制方法不各自持有 Y 坐标常量。
 
 不得修改 `ActivityComparisonHeatmapVO` 的 P95 差值着色公式、对比图双方共同 observed 槽语义、图片 base64 编码方式或字体选择，除非为两行副标题的统一布局所必需。
 
@@ -581,18 +719,19 @@ SQL 约束：范围读取必须显式列出字段，按 `activity_date ASC` 返�
 ### 9.1 保留并修改的快速测试
 
 | 测试文件 | 主证据职责 | 本次最小调整 |
-|---|---|---|
-| `src/test/java/pn/torn/goldeneye/torn/service/activity/ActivityEvidenceClassifierTest.java` | V3 证据互斥性 | 更新旧 Idle=active 预期，覆盖 6 个关键分类即可 |
-| `src/test/java/pn/torn/goldeneye/torn/service/activity/TornActivityCollectServiceTest.java` | 采集单槽写入事实与失败语义 | 更新 active/idle 并集与配置来源合并的主路径；保留现有重入/拒绝测试 |
-| `src/test/java/pn/torn/goldeneye/torn/service/activity/ActivityHeatmapServiceTest.java` | observed 分母、legacy/V3 加载优先级、部分数据展示 | 移除“必须 7 天才可出图”的旧断言；不重复测试 renderer 像素 |
-| `src/test/java/pn/torn/goldeneye/torn/service/activity/HeatmapImageRendererTest.java` | 固定颜色、暗化与可读性 | 增加 5 档主/暗色边界；保留对比图色板回归 |
-| `src/test/java/pn/torn/goldeneye/napcat/strategy/user/ActivityHeatmapStrategyImplTest.java` | 原指令与 at 用户接线 | 增加一条日期参数传递断言，保留既有 at 边界 |
+| `src/test/java/pn/torn/goldeneye/torn/service/activity/ActivityEvidenceClassifierTest.java` | V3 证据互斥性 | 保持现状 |
+| `src/test/java/pn/torn/goldeneye/torn/service/activity/TornActivityCollectServiceTest.java` | 采集单槽写入事实与失败语义 | 保持现状 |
+| `src/test/java/pn/torn/goldeneye/torn/service/activity/ActivityHeatmapServiceTest.java` | observed 分母、legacy/V3 加载优先级、部分数据展示、单日口径按槽落格 | 保留既有断言，替换已下线的小时制位序工具测试 |
+| `src/test/java/pn/torn/goldeneye/torn/service/activity/HeatmapImageRendererTest.java` | 固定颜色、暗化与可读性、三种网格夹具图 | 保留色板断言，不重复断言 Service 聚合 |
+| `src/test/java/pn/torn/goldeneye/napcat/strategy/user/ActivityHeatmapStrategyImplTest.java` | 原指令与 at 用户接线 | 参数传递断言由 mode 改为 caliber |
+| `src/test/java/pn/torn/goldeneye/napcat/strategy/user/ActivityCompareStrategyImplTest.java` | 对比指令既有形态回归 | mode 断言改为 caliber；新增一条“帮派 + 日期 + 口径”仍返回格式说明 |
 
 ### 9.2 新增的聚焦测试
 
 | 测试文件 | 必须覆盖 | 明确不覆盖 |
 |---|---|---|
-| `src/test/java/pn/torn/goldeneye/torn/service/activity/query/ActivityQueryRangeParserTest.java` | 默认、从、截至、未来、格式错误、重复关键字 | 不测试 renderer、Redis、数据库 |
+| `src/test/java/pn/torn/goldeneye/torn/service/activity/query/ActivityQueryRangeParserTest.java` | 无参/仅日期/仅口径/日期+口径（含逆序）、未来日期、未知关键字、同类重复 | 不测试 renderer、Redis、数据库 |
+| `src/test/java/pn/torn/goldeneye/torn/model/activity/grid/ActivityGridLayoutTest.java` | 三种网格的行列数与轴标签、单日 `(slot%4, slot/4)` 落格、日期行序号、窗口外日期拒绝 | 不测试聚合与渲染 |
 | `src/test/java/pn/torn/goldeneye/torn/service/activity/archive/ActivityDailyArchiveServiceTest.java` | 各非空索引侧完整后 marker 最后写入、失败不写 marker、ZSET 候选驱动补偿、启动/定时共享防重入 | 不用 mock 模拟 PostgreSQL UPSERT 细节 |
 | `src/test/java/pn/torn/goldeneye/repository/mapper/activity/ActivityDailyArchiveMapperTest.java` | 真实 PostgreSQL 用户/帮派日包 UPSERT 与范围读取 | 不建大规模历史数据、并发矩阵或性能基准 |
 
@@ -661,3 +800,30 @@ JAVA_HOME="C:\\Program Files\\Java\\jdk-21" mvn.cmd compile -q -DskipTests -Dmav
 - 真实共享 PostgreSQL Mapper / Spring / Liquibase：`ActivityDailyArchiveMapperTest` 3 tests，0 failures，0 errors；三个活动归档 changeSet 的已执行路径均为 `1.5.0/activity-heatmap-v3.yaml`。
 - 第二轮独立 Review 确认 V2 帮派 Pipeline 构造、解包与 legacy `FactionDay` 的顺序一致；日终归档根据 DAO 实际 UPSERT 行数决定 marker，不会将短写入伪认为完整。
 - 当前全量 Maven 仍受非活动热力图的 OC/股票测试历史失败影响，不作为本功能通过结论的反向证据；运维部署前后验收范围按上一条未完成的生产只读检查执行。
+
+---
+
+## 11. 1.7.0 查询口径扩展的实施与验收记录
+
+### 11.1 实施范围与交付
+
+- 交付范围：活跃度**用户图**与**帮派图**支持四种口径；**对比图零行为变化**（仅共用基类默认网格与渲染入口）。
+- 实现归属与逐文件职责见 6.1 / 6.2 / 6.3 / 7.3 / 7.4；本文是口径扩展的唯一契约来源。该次变更的开发依据是任务级一次性文档，长期有效内容已并入本文，一次性文档已按文档生命周期在验收闭环后删除，全部验收结论由 11.2 承载。
+- 不涉及数据库、Redis Key、采集频率与归档任务的改动；回滚即还原代码分支。
+
+### 11.2 Review 结论（功能实现 / 代码规范 / 性能瓶颈）
+
+| 维度 | 结论 | 依据 |
+|---|---|---|
+| 功能实现 | 通过 | 四口径的解析与缺省规则、4×24 / 7×24 / 15×24 网格、单日 0% / 100% 与无数据格、副标题口径前缀、窗口含今天的提示、对比图既有形态与格式说明不变；典型周格值与改造前逐格一致 |
+| 代码规范 | 通过（复评） | 渲染族归属（`service.activity.render`）、网格族重复常量与列算术、聚合器同义方法合并（`countBothSetSamples` 已删）、文案常量复用、`@version` 与文档同步全部闭环；颜色与可读性断言在测试类与被测类同包后原样恢复，色板数组保持包内可见（非 public） |
+| 性能瓶颈 | 无 | 窗口上限 28 天、单图最多 28 × 96 个已观测槽、矩阵最大 15 × 24；槽级热循环不构造坐标对象；矩阵按数组自身长度遍历 |
+
+测试证据：本次涉及 6 个测试类共 **76 例**全绿（尾部解析 11、网格布局 4、服务聚合 16、渲染 20、两个 Strategy 接线 16 + 9），渲染夹具断言 944 × 292 / 400 / 688 / 420。本机沙箱下 Mockito inline mock maker 无法自 attach，需显式加 `-javaagent` 指向 `mockito-core-5.20.0.jar`，属环境限制而非代码缺陷。
+
+代码规范例外：`BaseActivityQueryStrategy.handleQuery` 及其派生类返回 `List<QqMsgParam<?>>`（窄化用 `List.copyOf`）是 Sonar 通配符返回类型规则要求的既定写法，不作为重复包装复评。
+
+### 11.3 遗留项（不属本轮范围）
+
+1. 3.1 的对比图指令块与当前代码形态不一致（见该节偏差说明）；校正指令块与格式说明另开一轮。
+2. 对比图格内文字在双方人数都为三位数时（如 `888/888`，实测 41px）超出 36px 格宽；该问题改造前即存在，本轮不修。

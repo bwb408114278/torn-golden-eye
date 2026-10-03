@@ -38,16 +38,20 @@ import static org.mockito.Mockito.*;
  * Redis Pipeline 通过顺序队列桩表达"缺失 Key 保留 null 占位"。
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.7.0
  * @since 2026.07.10
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("活跃度热力图服务测试")
 class ActivityHeatmapServiceTest {
 
-    private static final LocalDate RANGE_START = LocalDate.of(2026, 8, 20);
-    private static final LocalDate RANGE_END = LocalDate.of(2026, 8, 28);
-    private static final LocalDate MIDDLE_DATE = LocalDate.of(2026, 8, 24);
+    /**
+     * 夹具范围锚定在真实今天之前：Redis 原始数据只保留最近 30 天，
+     * 固定历史日期会让"V3 Redis → V2 Redis"回退路径整段落在窗口外而无法被验证。
+     */
+    private static final LocalDate RANGE_END = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE).minusDays(1);
+    private static final LocalDate RANGE_START = RANGE_END.minusDays(8);
+    private static final LocalDate MIDDLE_DATE = RANGE_START.plusDays(4);
     private static final long USER_ID = 54321L;
     private static final long FACTION_ID = 20465L;
     private static final long FACTION2_ID = 30465L;
@@ -78,7 +82,7 @@ class ActivityHeatmapServiceTest {
     @DisplayName("V3 归档日包优先于 Redis：activeRate 以 observed 为分母，idleRatio 按 I/(A+I) 聚合")
     void queryPersonalHeatmap_archivedV3Day_aggregatesRateAndIdleRatio() {
         when(userDailyDao.selectByUserAndDateRange(USER_ID, RANGE_START, RANGE_END))
-                .thenReturn(List.of(buildUserDaily(MIDDLE_DATE, (byte) 0xF0, new int[]{0, 1}, new int[]{2})));
+                .thenReturn(List.of(buildUserDaily(MIDDLE_DATE, bitmap((byte) 0xF0), new int[]{0, 1}, new int[]{2})));
         stubPipelineGet(nulls(8 * 3), nulls(8 * 3));
 
         PersonalActivityHeatmapVO vo = service.queryPersonalHeatmap(USER_ID, range());
@@ -143,7 +147,8 @@ class ActivityHeatmapServiceTest {
         // 结束日锚定真实今天，保证 30 天 Redis 窗口完整交集，不受用例运行日期影响
         LocalDate rangeEnd = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
         LocalDate oldDate = LocalDate.of(1970, 1, 1);
-        ActivityQueryRange longRange = new ActivityQueryRange(oldDate, rangeEnd, ActivityQueryRangeModeEnum.UNTIL);
+        ActivityQueryRange longRange = new ActivityQueryRange(
+                oldDate, rangeEnd, ActivityCaliberEnum.TYPICAL_WEEK);
         when(userDailyDao.selectByUserAndDateRange(USER_ID, oldDate, rangeEnd)).thenReturn(List.of());
         stubPipelineGet(nulls(30 * 3), nulls(30 * 3));
 
@@ -267,7 +272,7 @@ class ActivityHeatmapServiceTest {
     @DisplayName("同一日期优先取 V3 归档值，不与 Redis 重复累计")
     void loadUserDays_archiveDayWinsOverRedis() {
         when(userDailyDao.selectByUserAndDateRange(USER_ID, RANGE_START, RANGE_END))
-                .thenReturn(List.of(buildUserDaily(MIDDLE_DATE, (byte) 0x80, new int[]{0}, new int[]{})));
+                .thenReturn(List.of(buildUserDaily(MIDDLE_DATE, bitmap((byte) 0x80), new int[]{0}, new int[]{})));
         List<byte[]> v3Stage = nulls(8 * 3);
         List<byte[]> v2Stage = nulls(8 * 3);
         stubPipelineGet(v3Stage, v2Stage);
@@ -289,46 +294,88 @@ class ActivityHeatmapServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.compareFactions(0, FACTION2_ID, range));
     }
 
+    // ==================== 单日口径端到端聚合 ====================
+
+    @Test
+    @DisplayName("单日口径用户图：96 个槽落入 4×24，0% 格与无数据格可区分")
+    void queryPersonalHeatmap_singleDay_mapsQuarterSlotsIntoFourRows() {
+        LocalDate day = MIDDLE_DATE;
+        when(userDailyDao.selectByUserAndDateRange(USER_ID, day, day))
+                .thenReturn(List.of(buildUserDaily(day, observedBits(48), evenSlots(48), new int[]{})));
+
+        PersonalActivityHeatmapVO vo = service.queryPersonalHeatmap(USER_ID, singleDayRange(day));
+
+        assertTrue(vo.isHasData());
+        assertEquals(4, vo.getActiveRate().length, "单日网格为 4 行刻钟位");
+        assertEquals(24, vo.getActiveRate()[0].length, "单日网格为 24 列小时");
+        assertEquals(1.0, vo.getActiveRate()[0][0], 1e-9, "slot0 已观测且活跃");
+        assertEquals(0.0, vo.getActiveRate()[1][0], 1e-9, "slot1 已观测但未活跃，只有 0%");
+        assertEquals(1, vo.getObservedSamples()[1][0], "0% 格仍是已观测格");
+        assertEquals(0, vo.getObservedSamples()[0][12], "slot48 未观测，是无数据格");
+        assertEquals(0.0, vo.getActiveRate()[0][12], 1e-9, "无数据格与 0% 格靠 observedSamples 区分");
+        assertEquals(0.5, vo.getCoverage(), 1e-9, "48/96 个 observed 槽");
+        assertTrue(vo.getSubtitle().startsWith("口径：单日（15 分钟）"), "副标题以口径与窗口开头");
+        assertNull(vo.getNoticeMessage(), "单日口径不做采样日提示，窗口不含今天");
+    }
+
+    @Test
+    @DisplayName("单日口径帮派图：格值为该刻钟的在线人数")
+    void queryFactionHeatmap_singleDay_cellIsOnlineCountOfQuarter() {
+        LocalDate day = MIDDLE_DATE;
+        when(factionDailyDao.selectByFactionAndDateRange(FACTION_ID, day, day))
+                .thenReturn(List.of(buildQuarterFactionDaily(day)));
+
+        FactionActivityHeatmapVO vo = service.queryFactionHeatmap(FACTION_ID, singleDayRange(day));
+
+        assertTrue(vo.isHasData());
+        assertEquals(4, vo.getAverageOnlineCount().length);
+        assertEquals(24, vo.getAverageOnlineCount()[0].length);
+        assertEquals(7.0, vo.getAverageOnlineCount()[3][1], 1e-9, "slot7 即 1:45 的在线人数");
+        assertEquals(0, vo.getObservedSamples()[0][12], "slot48 未观测，为无数据格");
+        assertTrue(vo.getSubtitle().startsWith("口径：单日（15 分钟）"));
+    }
+
+    // ==================== 当日不完整提示 ====================
+
+    @Test
+    @DisplayName("窗口包含今天时提示当日数据尚未完整，且排在 legacy 提示之前")
+    void queryPersonalHeatmap_windowEndingToday_noticeTodayIncomplete() {
+        LocalDate today = LocalDate.now(TornActivityCollectService.HEATMAP_ZONE);
+        when(userDailyDao.selectByUserAndDateRange(USER_ID, today, today))
+                .thenReturn(List.of(buildUserDaily(today, observedBits(48), evenSlots(48), new int[]{})),
+                        List.of());
+
+        PersonalActivityHeatmapVO archived = service.queryPersonalHeatmap(USER_ID, singleDayRange(today));
+
+        assertTrue(archived.isHasData());
+        assertFalse(archived.isLegacyDataIncluded());
+        assertEquals("当日数据尚未完整", archived.getNoticeMessage(), "V3 日包窗口含今天，只提示当日数据不完整");
+
+        List<byte[]> v3Stage = nulls(3);
+        List<byte[]> v2Stage = nulls(3);
+        v2Stage.set(0, observedBits(4));
+        v2Stage.set(1, observedBits(4));
+        stubPipelineGet(v3Stage, v2Stage);
+
+        PersonalActivityHeatmapVO legacy = service.queryPersonalHeatmap(USER_ID, singleDayRange(today));
+
+        assertTrue(legacy.isHasData());
+        assertTrue(legacy.isLegacyDataIncluded());
+        assertEquals("当日数据尚未完整；部分历史采样未区分 Idle，仅供趋势参考", legacy.getNoticeMessage());
+        assertTrue(legacy.getNoticeMessage().indexOf("当日数据尚未完整")
+                        < legacy.getNoticeMessage().indexOf("部分历史采样未区分 Idle"),
+                "当日不完整提示应排在 legacy 提示之前");
+    }
+
     // ==================== Bitmap 位序工具（MSB-first） ====================
 
     @Test
-    @DisplayName("按 Redis Bitmap 的 MSB-first 位序统计每小时活跃采样数")
-    void shouldCountHourlySamplesWithRedisBitOrder() {
-        byte[] bitmap = new byte[12];
-        setBit(bitmap, 0);
-        setBit(bitmap, 3);
-        setBit(bitmap, 4);
-        setBit(bitmap, 31);
-        setBit(bitmap, 32);
-        setBit(bitmap, 95);
-
-        assertEquals(2, ActivityHeatmapAggregator.countSamples(bitmap, 0));
-        assertEquals(1, ActivityHeatmapAggregator.countSamples(bitmap, 1));
-        assertEquals(1, ActivityHeatmapAggregator.countSamples(bitmap, 7));
-        assertEquals(1, ActivityHeatmapAggregator.countSamples(bitmap, 8));
-        assertEquals(1, ActivityHeatmapAggregator.countSamples(bitmap, 23));
-    }
-
-    @Test
-    @DisplayName("缺失或截断的 Bitmap 按未活跃处理")
-    void shouldTreatMissingBitmapBitsAsInactive() {
-        assertEquals(0, ActivityHeatmapAggregator.countSamples(null, 0));
-        assertEquals(0, ActivityHeatmapAggregator.countSamples(new byte[0], 0));
-        assertEquals(1, ActivityHeatmapAggregator.countSamples(new byte[]{(byte) 0x80}, 0));
-        assertEquals(0, ActivityHeatmapAggregator.countSamples(new byte[]{(byte) 0x80}, 2));
+    @DisplayName("缺失或截断的 Bitmap 按未命中处理")
+    void shouldTreatMissingBitmapBitsAsNotSet() {
         assertFalse(ActivityHeatmapAggregator.isBitSet(null, 0));
-    }
-
-    @Test
-    @DisplayName("证据 Bitmap 仅在 observed 置位槽内计入 active/idle 分子")
-    void shouldCountEvidenceSamplesOnlyWithinObservedSlots() {
-        byte[] observed = new byte[12];
-        byte[] active = new byte[12];
-        setBit(observed, 0);
-        setBit(active, 0);
-        setBit(active, 1);
-
-        assertEquals(1, ActivityHeatmapAggregator.countActiveSamples(observed, active, 0));
+        assertFalse(ActivityHeatmapAggregator.isBitSet(new byte[0], 0));
+        assertTrue(ActivityHeatmapAggregator.isBitSet(new byte[]{(byte) 0x80}, 0));
+        assertFalse(ActivityHeatmapAggregator.isBitSet(new byte[]{(byte) 0x80}, 2));
     }
 
     @Test
@@ -349,22 +396,17 @@ class ActivityHeatmapServiceTest {
                 faction1Counts, faction1Observed, faction2Observed, 0));
     }
 
-    @Test
-    @DisplayName("帮派人数聚合应只累计 observed 置位的槽")
-    void shouldSumFactionValuesOnlyAtObservedSlots() {
-        byte[] observed = new byte[12];
-        byte[] counts = new byte[96];
-        setBit(observed, 1);
-        counts[0] = 40;
-        counts[1] = 20;
-
-        assertEquals(20, ActivityHeatmapAggregator.sumObservedSlotValues(counts, observed, 0));
-    }
-
     // ==================== 测试工具 ====================
 
     private static ActivityQueryRange range() {
-        return new ActivityQueryRange(RANGE_START, RANGE_END, ActivityQueryRangeModeEnum.UNTIL);
+        return new ActivityQueryRange(RANGE_START, RANGE_END, ActivityCaliberEnum.TYPICAL_WEEK);
+    }
+
+    /**
+     * 单日口径范围：窗口仅锚点日一天
+     */
+    private static ActivityQueryRange singleDayRange(LocalDate date) {
+        return new ActivityQueryRange(date, date, ActivityCaliberEnum.SINGLE_DAY);
     }
 
     /**
@@ -382,12 +424,12 @@ class ActivityHeatmapServiceTest {
         return dayOfWeek == DayOfWeek.SUNDAY ? 6 : dayOfWeek.getValue() - 1;
     }
 
-    private static TornActivityUserDailyDO buildUserDaily(LocalDate date, byte observedByte,
+    private static TornActivityUserDailyDO buildUserDaily(LocalDate date, byte[] observedBitmap,
                                                           int[] activeSlots, int[] idleSlots) {
         TornActivityUserDailyDO row = new TornActivityUserDailyDO();
         row.setUserId(USER_ID);
         row.setActivityDate(date);
-        row.setObservedBitmap(bitmap(observedByte));
+        row.setObservedBitmap(observedBitmap);
         byte[] active = new byte[12];
         for (int slot : activeSlots) {
             setBit(active, slot);
@@ -423,6 +465,43 @@ class ActivityHeatmapServiceTest {
         byte[] data = new byte[12];
         data[0] = (byte) firstByte;
         return data;
+    }
+
+    /**
+     * 构造单日口径帮派日包：前 48 槽已观测，槽值即槽序号
+     */
+    private static TornActivityFactionDailyDO buildQuarterFactionDaily(LocalDate date) {
+        TornActivityFactionDailyDO row = new TornActivityFactionDailyDO();
+        row.setFactionId(FACTION_ID);
+        row.setActivityDate(date);
+        row.setObservedBitmap(observedBits(48));
+        byte[] activeCounts = new byte[96];
+        for (int slot = 0; slot < 48; slot++) {
+            activeCounts[slot] = (byte) slot;
+        }
+        row.setActiveCounts(activeCounts);
+        row.setIdleCounts(new byte[96]);
+        row.setMemberCounts(new byte[96]);
+        row.setDataVersion("V3");
+        return row;
+    }
+
+    /**
+     * 构造前 count 个槽全部置位的 Bitmap
+     */
+    private static byte[] observedBits(int count) {
+        byte[] data = new byte[12];
+        for (int slot = 0; slot < count; slot++) {
+            setBit(data, slot);
+        }
+        return data;
+    }
+
+    /**
+     * 构造前 count 个槽中的偶数槽序号
+     */
+    private static int[] evenSlots(int count) {
+        return java.util.stream.IntStream.range(0, count).filter(slot -> slot % 2 == 0).toArray();
     }
 
     /**

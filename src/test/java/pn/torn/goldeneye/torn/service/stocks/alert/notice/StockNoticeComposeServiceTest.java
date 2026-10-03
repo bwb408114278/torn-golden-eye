@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * </ul>
  *
  * @author Bai
- * @version 1.2.14
+ * @version 1.7.0
  * @since 2026.07.25
  */
 @DisplayName("股票通知组合服务测试")
@@ -303,25 +303,21 @@ class StockNoticeComposeServiceTest {
         }
 
         @Test
-        @DisplayName("Alpha换仓SELL文案_引用原批次且关闭原因为Alpha目标发生变化")
+        @DisplayName("Alpha换仓平仓兜底文案_引用原批次且买入价与卖出价分行")
         void composeSellMessage_alphaBatch_identifiesRebalanceReason() {
             TornStockVirtualBatchDO batch = buildAlphaSellBatch();
 
             String text = service.composeSellMessage(batch);
 
             assertTrue(text.contains("平仓 A20260904-0"), "应包含原BUY批次号");
-            assertTrue(text.contains("原买入批次：A20260904-0"), "应引用被换出的原买入批次");
-            assertTrue(text.contains("记录参考价：100.00"), "Alpha SELL应按新版模板展示记录参考价");
-            assertTrue(text.contains("记录结束价：110.00"), "Alpha SELL应按新版模板展示记录结束价");
+            assertTrue(text.contains("平仓 ALPHA原仓（原批次 A20260904-0）"), "应引用被换出的原买入批次");
+            assertTrue(text.contains("记录参考价 100.00\n记录结束价 110.00"),
+                    "买入价与卖出价必须各占一行,不得合并到同一行");
             assertTrue(text.contains("扣除0.1%费率后系统记录净变化：+9.80%"), "应包含扣费后系统记录净变化");
             assertTrue(text.contains("记录持有区间：3天5小时"), "应包含记录持有区间");
-            assertTrue(text.contains("记录结束原因：Alpha目标发生变化（ALPHA_REBALANCE）"),
-                    "结束原因必须为Alpha目标发生变化并带ALPHA_REBALANCE");
             assertTrue(text.contains("本条为系统虚拟组合的内部记录"), "α换仓SELL应包含虚拟组合免责声明");
-            assertFalse(text.contains("记录结束原因：达到目标收益"), "α换仓结束原因不得为旧版目标退出");
-            assertFalse(text.contains("记录结束原因：风险退出"), "α换仓结束原因不得为旧版风险退出");
-            assertFalse(text.contains("记录结束原因：区间恢复退出"), "α换仓结束原因不得为旧版区间退出");
-            assertFalse(text.contains("记录结束原因：达到最长持有时间"), "α换仓结束原因不得为旧版到期退出");
+            assertFalse(text.contains("记录结束原因"), "换仓原因由标题承载,平仓段不再输出原因行");
+            assertFalse(text.contains("原买入批次：A20260904-0"), "原批次号只出现一次,不得与正文重复");
             assertFalse(text.contains("模型规则"), "α换仓SELL不得进入旧版策略解析展示");
         }
 
@@ -330,8 +326,8 @@ class StockNoticeComposeServiceTest {
         void composeAndMergeNotices_alphaRebalance_pairInSingleMessageSellFirst() {
             TornStockVirtualBatchDO soldBatch = buildAlphaSellBatch();
             TornStockVirtualBatchDO boughtBatch = buildAlphaBuyBatch();
-            TornStockNoticeAuditDO sellNotice = buildNotice(31L, 501L, "ALPHA_REBALANCE");
-            TornStockNoticeAuditDO buyNotice = buildNotice(32L, 502L, "ALPHA_REBALANCE");
+            TornStockNoticeAuditDO sellNotice = buildRebalanceNotice(31L, 501L, "ALPHA_REBALANCE:11");
+            TornStockNoticeAuditDO buyNotice = buildRebalanceNotice(32L, 502L, "ALPHA_REBALANCE:11");
 
             List<ComposedMessage> result = service.composeAndMergeNotices(
                     List.of(buyNotice, sellNotice), Map.of(501L, soldBatch, 502L, boughtBatch));
@@ -341,11 +337,20 @@ class StockNoticeComposeServiceTest {
             assertEquals(List.of(31L, 32L), message.noticeIds(),
                     "换仓消息noticeIds应为换仓平仓在前、换仓建仓在后,单侧不得丢失");
             String text = message.text();
-            assertTrue(text.contains("【Stock组合记录｜换仓平仓】"), "应包含换仓平仓腿");
-            assertTrue(text.contains("【Stock组合记录｜换仓建仓】"), "应包含换仓建仓腿");
-            assertTrue(text.indexOf("换仓平仓") < text.indexOf("换仓建仓"), "换仓平仓腿必须排在换仓建仓腿之前");
-            assertTrue(text.contains("记录结束原因：Alpha目标发生变化"), "应包含α换仓关闭原因");
-            assertTrue(text.contains("当前为Top1目标"), "换仓建仓腿必须可识别α身份");
+            assertTrue(text.startsWith("【α换仓】ALPHA原仓 → ALPHA新仓"),
+                    "换仓标题应一次给出原仓与新仓,实际: " + text);
+            assertTrue(text.contains("平仓 ALPHA原仓（原批次 A20260904-0）"), "应包含换仓平仓腿");
+            assertTrue(text.contains("建仓 ALPHA新仓（批次 AR-2026-09-05-0-11）"), "应包含换仓建仓腿");
+            assertTrue(text.indexOf("平仓 ALPHA原仓") < text.indexOf("建仓 ALPHA新仓"),
+                    "换仓平仓腿必须排在换仓建仓腿之前");
+            assertTrue(text.contains("记录参考价：$10.00") && text.contains("记录价格上限：$10.02"),
+                    "换仓建仓腿必须保留跟随窗口,实际: " + text);
+            assertTrue(text.contains("记录参考价 100.00\n记录结束价 110.00"),
+                    "被换出原仓的买入价与卖出价必须各占一行");
+            assertFalse(text.contains("（续）"), "单组换仓不是续报,不得追加续报后缀");
+            assertFalse(text.contains("---"), "两腿合一卡片不得使用动作组分隔符");
+            assertFalse(text.contains("当前为Top1目标"), "换仓建仓腿不得复述固定Top1口径");
+            assertFalse(text.contains("α=0.04"), "换仓消息不得复述固定策略因子");
         }
 
         @Test
@@ -373,10 +378,14 @@ class StockNoticeComposeServiceTest {
             assertEquals(List.of(33L, 34L), result.get(1).noticeIds(),
                     "第二次换仓必须保持SELL腿在前、BUY腿在后");
             for (ComposedMessage message : result) {
-                assertTrue(message.text().contains("【Stock组合记录｜换仓平仓】"),
+                assertTrue(message.text().startsWith("【α换仓】"),
+                        "每条换仓消息必须以α换仓卡片标题开头");
+                assertTrue(message.text().contains("平仓 ALPHA原仓"),
                         "每条换仓消息必须包含换仓平仓腿");
-                assertTrue(message.text().contains("【Stock组合记录｜换仓建仓】"),
+                assertTrue(message.text().contains("建仓 ALPHA新仓"),
                         "每条换仓消息必须包含换仓建仓腿");
+                assertFalse(message.text().contains("（续）"),
+                        "同一关联组的两腿合为一条卡片,不得被续报后缀切开");
             }
         }
     }

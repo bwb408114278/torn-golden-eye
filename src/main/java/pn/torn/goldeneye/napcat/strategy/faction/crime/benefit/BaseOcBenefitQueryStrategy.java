@@ -2,7 +2,6 @@ package pn.torn.goldeneye.napcat.strategy.faction.crime.benefit;
 
 import org.springframework.util.StringUtils;
 import pn.torn.goldeneye.napcat.receive.msg.QqRecMsgSender;
-import pn.torn.goldeneye.napcat.receive.parser.QqCommandMessage;
 import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.napcat.strategy.base.SmthMsgStrategy;
 
@@ -170,24 +169,6 @@ public abstract class BaseOcBenefitQueryStrategy extends SmthMsgStrategy {
     private static String extractTrailingAtMarker(String msg) {
         int markerIndex = indexOfAtMarker(msg);
         return markerIndex < 0 ? "" : msg.substring(markerIndex);
-    }
-
-    /**
-     * 定位参数中首个内部at标记（含非法at标记）的起始下标。
-     *
-     * @param msg 指令参数文本
-     * @return 首个标记起始下标；无标记时为-1
-     */
-    private static int indexOfAtMarker(String msg) {
-        int atIndex = msg.indexOf(QqCommandMessage.AT_MARKER_PREFIX);
-        int invalidIndex = msg.indexOf(QqCommandMessage.INVALID_AT_MARKER);
-        if (atIndex < 0) {
-            return invalidIndex;
-        }
-        if (invalidIndex < 0) {
-            return atIndex;
-        }
-        return Math.min(atIndex, invalidIndex);
     }
 
     /**

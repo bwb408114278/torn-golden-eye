@@ -36,9 +36,12 @@ import java.util.*;
  * α批次正文经 {@link StockAlphaNoticeRenderer} 渲染,标题仍由本类统一添加,保证α消息可识别
  * α买卖身份且不进入旧版三类BUY解析器、不展示旧版质量分与五槽语义;α初始入场与α换仓仍走
  * BUY/SELL/ALPHA_REBALANCE既有通知类型与同一组合、冻结、发送、幂等链,不新增第二套消息服务或消息产品。
+ * <p>α换仓两腿(同一{@code rebalanceAssociationId})组合为一条"【α换仓】原仓 → 新仓"卡片,
+ * 不再逐腿重复标题与免责声明,也不追加续报后缀:续报后缀只表示同类型动作超过
+ * {@value #MAX_ACTIONS_PER_MESSAGE} 个被拆分,单组换仓不是续报。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.7.0
  * @since 2026.07.25
  */
 @Slf4j
@@ -85,6 +88,22 @@ public class StockNoticeComposeService {
      */
     private static final String DISASTER_CLOSE_TITLE_TEMPLATE = "【系统虚拟组合｜数据异常关闭】#%s";
 
+    /**
+     * α换仓两腿合一消息标题模板(原仓简称 → 新仓简称)
+     */
+    private static final String REBALANCE_TITLE_TEMPLATE = "【α换仓】%s → %s";
+    /**
+     * α换仓平仓腿单腿消息标题模板(防御路径:关联组不可解释时仍保证α身份可识别)
+     */
+    private static final String REBALANCE_SELL_ONLY_TITLE_TEMPLATE = "【α换仓｜平仓】%s";
+    /**
+     * α换仓建仓腿单腿消息标题模板(防御路径:关联组不可解释时仍保证α身份可识别)
+     */
+    private static final String REBALANCE_BUY_ONLY_TITLE_TEMPLATE = "【α换仓｜建仓】%s";
+    /**
+     * 同一桶内多个动作组之间的分隔符
+     */
+    private static final String ACTION_GROUP_SEPARATOR = "---";
     /**
      * 续报标题后缀
      */
@@ -179,8 +198,11 @@ public class StockNoticeComposeService {
         }
 
         if (StockPortfolioService.isAlphaLedger(batch)) {
-            return String.format(SELL_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" + "\n"
-                    + StockAlphaNoticeRenderer.renderSell(batch);
+            return String.format(SELL_TITLE_TEMPLATE, batch.getBatchNo()) + "\n" +
+                    "\n" +
+                    StockAlphaNoticeRenderer.renderRebalanceSell(batch) + "\n" +
+                    "\n" +
+                    StockAlphaNoticeRenderer.REBALANCE_DISCLAIMER;
         }
 
         String strategyChinese = resolveStrategyChinese(batch.getPrimaryStrategy());
@@ -403,13 +425,14 @@ public class StockNoticeComposeService {
     }
 
     /**
-     * 将同类型的一组通知组合为单条消息文本。
+     * 将同类型的一组通知按不可拆分动作组组合为单条消息文本。
      * <p>
-     * 单条通知直接调用对应的消息组合方法;
-     * 多条通知合并为带"（续）"后缀的续报,每个动作独占一段,标题统一加续报标识。
-     * 仅支持 BUY 与 SELL 类型,DAILY_SUMMARY 类型不参与合并(由调用方单独处理)。
+     * 单条通知直接调用对应的消息组合方法;α换仓两腿同组时组合为一条换仓卡片,不作为两条动作拼接。
+     * 桶内动作组多于一个(同类型动作超过 {@value #MAX_ACTIONS_PER_MESSAGE} 个被拆分)时,
+     * 各动作组以分隔符分段并追加续报后缀;单组消息不是续报,不追加后缀。
+     * DAILY_SUMMARY 与 ALPHA_HOLD 类型不参与合并(由调用方单独处理)。
      *
-     * @param bucket      同类型通知三元组列表
+     * @param bucket      当前桶内的通知列表
      * @param currentType 通知类型代码
      * @return 组合后的消息文本
      */
@@ -417,18 +440,86 @@ public class StockNoticeComposeService {
         if (bucket.size() == 1) {
             return composeSingleNotice(bucket.getFirst());
         }
+        List<List<NoticeWithBatch>> groups = groupByRebalanceAssociation(bucket);
+        if (groups.size() == 1) {
+            return composeActionGroup(groups.getFirst());
+        }
         StockNoticeTypeEnum noticeType = StockNoticeTypeEnum.fromCode(currentType);
         StringBuilder sb = new StringBuilder();
-        boolean isFirst = true;
-        for (NoticeWithBatch item : bucket) {
-            if (!isFirst) {
-                sb.append("\n").append("---").append("\n");
+        for (int i = 0; i < groups.size(); i++) {
+            if (i > 0) {
+                sb.append("\n").append(ACTION_GROUP_SEPARATOR).append("\n");
             }
-            isFirst = false;
-            sb.append(composeSingleNotice(item));
+            sb.append(composeActionGroup(groups.get(i)));
         }
         sb.append("\n").append(CONTINUATION_SUFFIX);
         log.debug("股票通知组合-合并{}条{}类型通知", bucket.size(), noticeType.getChineseDisplay());
+        return sb.toString();
+    }
+
+    /**
+     * 组合一个不可拆分的动作组。
+     * <p>
+     * α换仓两腿(同一{@code rebalanceAssociationId})组合为一条卡片,不作为两条独立动作拼接;
+     * 其余动作组只含一条通知,直接渲染该通知。
+     *
+     * @param group 同一动作组内的通知
+     * @return 动作组消息文本
+     */
+    private String composeActionGroup(List<NoticeWithBatch> group) {
+        if (group.size() > 1) {
+            return composeAlphaRebalancePairMessage(group);
+        }
+        return composeSingleNotice(group.getFirst());
+    }
+
+    /**
+     * 组合α换仓两腿合一消息。
+     * <p>
+     * 平仓腿在前、建仓腿在后,标题统一为"【α换仓】原仓标的 → 新仓标的",平仓段与建仓段由
+     * {@link StockAlphaNoticeRenderer} 输出,免责声明整条消息只出现一次。
+     * 两腿结构不可解释(缺腿或重复同类腿)时不生成换仓卡片,退化为逐腿拼接,避免把单腿事实
+     * 误报为完整换仓;该结构在正常发送链已由关联组校验拦截。
+     *
+     * @param group α换仓动作组
+     * @return α换仓消息文本
+     */
+    private String composeAlphaRebalancePairMessage(List<NoticeWithBatch> group) {
+        List<NoticeWithBatch> sellLegs = group.stream()
+                .filter(item -> isAlphaRebalanceSellLeg(item.batch())).toList();
+        List<NoticeWithBatch> buyLegs = group.stream()
+                .filter(item -> !isAlphaRebalanceSellLeg(item.batch())).toList();
+        if (sellLegs.size() != 1 || buyLegs.size() != 1) {
+            log.error("股票通知组合-α换仓动作组两腿结构不可解释,退化为逐腿拼接: groupSize={}", group.size());
+            return composeLegacyGroup(group);
+        }
+        TornStockVirtualBatchDO sellBatch = sellLegs.getFirst().batch();
+        TornStockVirtualBatchDO buyBatch = buyLegs.getFirst().batch();
+        return String.format(REBALANCE_TITLE_TEMPLATE,
+                StockNoticeTextFormat.nullSafeText(sellBatch.getStocksShortname()),
+                StockNoticeTextFormat.nullSafeText(buyBatch.getStocksShortname())) + "\n" +
+                "\n" +
+                StockAlphaNoticeRenderer.renderRebalanceSell(sellBatch) + "\n" +
+                "\n" +
+                StockAlphaNoticeRenderer.renderRebalanceBuy(buyBatch) + "\n" +
+                "\n" +
+                StockAlphaNoticeRenderer.REBALANCE_DISCLAIMER;
+    }
+
+    /**
+     * 逐腿拼接一个结构不可解释的换仓动作组(防御路径)。
+     *
+     * @param group 动作组
+     * @return 逐腿拼接文本
+     */
+    private String composeLegacyGroup(List<NoticeWithBatch> group) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < group.size(); i++) {
+            if (i > 0) {
+                sb.append("\n").append(ACTION_GROUP_SEPARATOR).append("\n");
+            }
+            sb.append(composeSingleNotice(group.get(i)));
+        }
         return sb.toString();
     }
 
@@ -457,9 +548,19 @@ public class StockNoticeComposeService {
      */
     private String composeAlphaRebalanceMessage(TornStockVirtualBatchDO batch) {
         if (StockBatchStatusEnum.CLOSED_ROTATION.getCode().equals(batch.getBatchStatus())) {
-            return "【Stock组合记录｜换仓平仓】" + "\n" + composeSellMessage(batch);
+            return String.format(REBALANCE_SELL_ONLY_TITLE_TEMPLATE,
+                    StockNoticeTextFormat.nullSafeText(batch.getStocksShortname())) + "\n" +
+                    "\n" +
+                    StockAlphaNoticeRenderer.renderRebalanceSell(batch) + "\n" +
+                    "\n" +
+                    StockAlphaNoticeRenderer.REBALANCE_DISCLAIMER;
         }
-        return "【Stock组合记录｜换仓建仓】" + "\n" + composeBuyMessage(batch, 1);
+        return String.format(REBALANCE_BUY_ONLY_TITLE_TEMPLATE,
+                StockNoticeTextFormat.nullSafeText(batch.getStocksShortname())) + "\n" +
+                "\n" +
+                StockAlphaNoticeRenderer.renderRebalanceBuy(batch) + "\n" +
+                "\n" +
+                StockAlphaNoticeRenderer.REBALANCE_DISCLAIMER;
     }
 
     /**

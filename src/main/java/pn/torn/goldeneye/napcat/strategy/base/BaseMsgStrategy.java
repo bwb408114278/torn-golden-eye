@@ -18,7 +18,7 @@ import java.util.List;
  * 基础消息策略
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.7.0
  * @since 2025.07.24
  */
 public abstract class BaseMsgStrategy {
@@ -143,6 +143,27 @@ public abstract class BaseMsgStrategy {
     protected boolean hasAtMarker(String msg) {
         return msg != null && (msg.contains(QqCommandMessage.AT_MARKER_PREFIX)
                 || msg.contains(QqCommandMessage.INVALID_AT_MARKER));
+    }
+
+    /**
+     * 定位策略参数中首个内部 at 标记（含非法 at 标记）的起始下标。
+     *
+     * <p>与 {@link #hasAtMarker(String)} 同一探测口径：标记由解析层生成、以控制字符为边界，
+     * 普通文本无法伪造；非法标记也一并定位，交由既有校验统一拒绝。</p>
+     *
+     * @param msg 策略参数，调用方已保证非空
+     * @return 首个标记起始下标；无标记时为 -1
+     */
+    protected static int indexOfAtMarker(String msg) {
+        int atIndex = msg.indexOf(QqCommandMessage.AT_MARKER_PREFIX);
+        int invalidIndex = msg.indexOf(QqCommandMessage.INVALID_AT_MARKER);
+        if (atIndex < 0) {
+            return invalidIndex;
+        }
+        if (invalidIndex < 0) {
+            return atIndex;
+        }
+        return Math.min(atIndex, invalidIndex);
     }
 
     /**

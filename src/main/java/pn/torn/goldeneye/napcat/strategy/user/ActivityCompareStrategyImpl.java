@@ -8,19 +8,23 @@ import pn.torn.goldeneye.napcat.send.msg.param.QqMsgParam;
 import pn.torn.goldeneye.torn.model.activity.ActivityComparisonHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
-import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
+import pn.torn.goldeneye.torn.service.activity.query.ActivityQueryRangeParser;
+import pn.torn.goldeneye.torn.service.activity.render.HeatmapImageRenderer;
 import pn.torn.goldeneye.utils.NumberUtils;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 活跃度对比指令
  * <p>
  * 帮派 A 为第一个目标帮派，仅给出单个帮派时为发送人绑定 Torn 用户所在帮派，帮派 B 为
- * 其后帮派；参数空判、分段数上限与截止日期尾部参数解析由{@link BaseActivityQueryStrategy}统一处理。
+ * 其后帮派；参数空判、分段数上限与尾部参数解析由{@link BaseActivityQueryStrategy}统一处理，
+ * 本类把尾部形态收窄为“可选的一个截至日期”，不接入口径。
  *
  * @author Bai
- * @version 1.5.2
+ * @version 1.7.0
  * @since 2026.07.08
  */
 @Component
@@ -47,11 +51,24 @@ public class ActivityCompareStrategyImpl extends BaseActivityQueryStrategy {
      * 第二段为纯数字帮派 ID 时业务段为两个帮派，否则仅目标帮派一段
      *
      * @param msgArray 指令分段数组
-     * @return 截止日期尾部参数起始下标
+     * @return 尾部参数起始下标
      */
     @Override
-    protected int dateTailStartIndex(String[] msgArray) {
+    protected int queryTailStartIndex(String[] msgArray) {
         return hasTwoFactions(msgArray) ? 2 : 1;
+    }
+
+    /**
+     * 对比图只有最近 28 天一种视图，用户用截至日期选窗口末端，因此尾部只接受一个可选日期；
+     * 覆写后普通热力图的「日期 + 口径」形态不会把口径引入对比图。
+     *
+     * @param tailSegments 业务段之后的参数段列表
+     * @param today        {@code Asia/Shanghai} 的今天
+     * @return 已解析的查询范围；参数非法时返回空
+     */
+    @Override
+    protected Optional<ActivityQueryRange> resolveRange(List<String> tailSegments, LocalDate today) {
+        return ActivityQueryRangeParser.parseUntilDate(tailSegments, today);
     }
 
     @Override
@@ -88,7 +105,7 @@ public class ActivityCompareStrategyImpl extends BaseActivityQueryStrategy {
     }
 
     /**
-     * 判断是否存在第二个帮派段：第二段为纯数字 ID 时为双帮派形态，否则第二段属于截止日期尾部参数
+     * 判断是否存在第二个帮派段：第二段为纯数字 ID 时为双帮派形态，否则第二段属于尾部参数
      *
      * @param msgArray 指令分段数组
      * @return 存在第二个帮派段时返回 true

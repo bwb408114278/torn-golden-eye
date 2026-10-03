@@ -10,7 +10,7 @@ import pn.torn.goldeneye.torn.model.activity.ActivityQueryRange;
 import pn.torn.goldeneye.torn.model.activity.FactionActivityHeatmapVO;
 import pn.torn.goldeneye.torn.model.activity.PersonalActivityHeatmapVO;
 import pn.torn.goldeneye.torn.service.activity.ActivityHeatmapService;
-import pn.torn.goldeneye.torn.service.activity.HeatmapImageRenderer;
+import pn.torn.goldeneye.torn.service.activity.render.HeatmapImageRenderer;
 import pn.torn.goldeneye.utils.NumberUtils;
 
 import java.util.List;
@@ -18,13 +18,13 @@ import java.util.List;
 /**
  * 活跃度热力图指令
  * <p>
- * 合法形态：{@code [类型]}、{@code [类型, 目标|截止日期]}、{@code [类型, 目标, 截止日期]}；
+ * 合法形态：{@code [类型]}、{@code [类型, 目标|日期|口径]}、{@code [类型, 目标, 日期, 口径]}；
  * 目标缺省时“用户”模式查询发送人绑定用户自己、“帮派”模式查询其所属帮派。
- * 参数空判、分段数上限与截止日期解析由{@link BaseActivityQueryStrategy}统一处理，
+ * 参数空判、分段数上限与尾部参数解析由{@link BaseActivityQueryStrategy}统一处理，
  * 本类只保留目标段解析与查询分发。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.7.0
  * @since 2026.07.07
  */
 @Component
@@ -57,10 +57,10 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
      * 第二段为纯数字 ID 或 at 标记时业务段为类型与目标两段，否则仅类型一段
      *
      * @param msgArray 指令分段数组
-     * @return 截止日期尾部参数起始下标
+     * @return 尾部参数起始下标
      */
     @Override
-    protected int dateTailStartIndex(String[] msgArray) {
+    protected int queryTailStartIndex(String[] msgArray) {
         return resolveTargetText(msgArray) != null ? 2 : 1;
     }
 
@@ -91,7 +91,7 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
     }
 
     /**
-     * 解析目标段：第二段为纯数字 ID 或 at 标记时视为目标；否则视为截止日期段，目标缺省
+     * 解析目标段：第二段为纯数字 ID 或 at 标记时视为目标；否则视为尾部参数段，目标缺省
      *
      * @param msgArray 指令分段数组
      * @return 目标段文本；目标缺省时返回 null
@@ -200,10 +200,12 @@ public class ActivityHeatmapStrategyImpl extends BaseActivityQueryStrategy {
     @Override
     protected String buildFormatIntroMsg() {
         return "查询格式举例如下: " +
-                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户, 查询自己最近28天的热力图" +
-                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派, 查询自己帮派最近28天的热力图" +
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户, 查询自己最近28天（典型周）的热力图" +
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派, 查询自己帮派最近28天（典型周）的热力图" +
                 "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派#12345, 查询12345帮派最近28天的热力图" +
                 "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户#54321, 查询54321玩家最近28天的热力图" +
-                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派#12345#2026-01-01, 查询截至2026-01-01的最近28天热力图";
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#用户#54321#2026-10-01, 查询该日的单日热力图（只给日期即单日）" +
+                "\ng#" + BotCommands.ACTIVITY_HEATMAP + "#帮派#12345#2026-10-01#单周, 查询截至该日的近7天热力图" +
+                "\n口径可选单日/单周/半月/典型周，可与日期任意顺序组合，只给口径时以今天为最后一天";
     }
 }
