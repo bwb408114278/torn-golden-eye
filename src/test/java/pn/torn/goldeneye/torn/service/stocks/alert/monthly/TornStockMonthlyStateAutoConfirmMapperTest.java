@@ -1,12 +1,12 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Rollback;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
@@ -27,16 +27,16 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>
  * 验证 {@code autoConfirmDraftStates} 条件UPDATE对人工覆盖/并发状态变更的读-写竞态守卫:
  * <ul>
- *   <li><b>竞态守卫</b>: 种子DRAFT(manual_override=false)提交后,先在事务A读取并构造过期确认对象,
- *       再在事务B中人工覆盖该行(manual_override=true, confirmed_by=HUMAN)并提交,最后携带过期对象执行
+ *   <li><b>竞态守卫</b>: 先写入DRAFT种子(manual_override=false),读取并构造过期确认对象,
+ *       再人工覆盖该行(manual_override=true, confirmed_by=HUMAN),最后携带过期对象执行
  *       条件UPDATE,数据库谓词看到manual_override=true拒绝更新,返回0且不覆盖人工结果;</li>
  *   <li><b>已确认/已退役/人工覆盖返回0</b>: 三种行提交条件UPDATE均不满足谓词,返回0且不降级/覆盖;</li>
  *   <li><b>普通完整DRAFT确认</b>: 经{@link StockMonthlyStateInitService}全链路确认返回实际受影响行数1,
  *       行变为CONFIRMED且confirmed_by=SYSTEM。</li>
  * </ul>
- * 使用隔离股票ID(2097001..2097005)与隔离未来月份(2099-01-01),{@code @AfterEach}按
- * {@code stocks_id IN (测试股票) AND effective_month = 测试月} 精确物理DELETE,不触碰其他月份/股票。
- * 事务间顺序由{@link TransactionTemplate}控制,无需真实并发线程即可确定性复现该竞态。
+ * 使用隔离股票ID(2097001..2097005)与隔离未来月份(2099-01-01),类级
+ * {@code @Transactional + @Rollback}统一回滚全部测试写入,保证开发库零残留。
+ * 竞态各步骤顺序由{@link TransactionTemplate}控制,无需真实并发线程即可确定性复现。
  *
  * @author Bai
  * @version 1.8.0
@@ -44,6 +44,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @SpringBootTest
 @Tag("shared-db")
+@Transactional
+@Rollback
 @DisplayName("月度状态自动确认条件UPDATE真实PostgreSQL集成测试")
 class TornStockMonthlyStateAutoConfirmMapperTest {
 
@@ -59,23 +61,10 @@ class TornStockMonthlyStateAutoConfirmMapperTest {
      */
     private static final LocalDate TEST_MONTH = LocalDate.of(2099, 1, 1);
 
-    /**
-     * 隔离股票ID集合(远离生产股票1..35)。
-     */
-    private static final List<Integer> TEST_STOCKS = List.of(2097001, 2097002, 2097003, 2097004, 2097005);
-
-    @AfterEach
-    void cleanupTestRows() {
-        // 物理DELETE经生产DAO的MyBatis-Plus wrapper完成,不在Java文件编写SQL文本
-        monthlyStateDao.remove(Wrappers.<TornStockMonthlyStateDO>lambdaQuery()
-                .in(TornStockMonthlyStateDO::getStocksId, TEST_STOCKS)
-                .eq(TornStockMonthlyStateDO::getEffectiveMonth, TEST_MONTH));
-    }
-
     @Test
     @DisplayName("真实PG_读-写竞态_人工覆盖在SELECT与UPDATE之间提交,过期对象被拒绝返回0")
     void autoConfirmDraftStates_readWriteRace_humanOverrideBetweenReadAndWriteWins() {
-        // 事务A: 提交可自动确认的DRAFT种子(manual_override=false, confirmed_by=null)
+        // 步骤A: 写入可自动确认的DRAFT种子(manual_override=false, confirmed_by=null)
         transactionTemplate.executeWithoutResult(status ->
                 monthlyStateDao.insertDraftStatesIgnoreConflict(List.of(buildAutoConfirmableDraft(2097001))));
 
@@ -90,7 +79,7 @@ class TornStockMonthlyStateAutoConfirmMapperTest {
         staleCandidate.setConfirmedAt(LocalDateTime.of(2099, 1, 2, 0, 0));
         staleCandidate.setConfirmedBy("SYSTEM");
 
-        // 事务B: 人工在SELECT与UPDATE之间覆盖该DRAFT并提交
+        // 步骤B: 人工在SELECT与UPDATE之间覆盖该DRAFT
         transactionTemplate.executeWithoutResult(status -> {
             TornStockMonthlyStateDO override = new TornStockMonthlyStateDO();
             override.setId(rowId);
