@@ -64,7 +64,7 @@ public class StockTradeStrategyService {
     /**
      * 分析结果 - 建议列表与顶部告警文案。
      *
-     * @param advices 股票建议(非debug模式已过滤HOLD并按评分降序)
+     * @param advices  股票建议(非debug模式已过滤HOLD并按评分降序)
      * @param warnings 顶部告警文案(月度风格停推/缺失等需成员显式可见的异常)
      */
     public record StockTradeAnalysis(
@@ -482,7 +482,6 @@ public class StockTradeStrategyService {
                 point.stocksId(),
                 point.stocksShortname(),
                 point.basePrice(),
-                point.basePrice().doubleValue(),
                 toDouble(point.ma1d()),
                 toDouble(point.ma7d()),
                 toDouble(point.ma30d()),
@@ -613,7 +612,6 @@ public class StockTradeStrategyService {
             Integer stocksId,
             String stocksShortname,
             BigDecimal basePrice,
-            double basePriceDouble,
             Double ma1d,
             Double ma7d,
             Double ma30d,

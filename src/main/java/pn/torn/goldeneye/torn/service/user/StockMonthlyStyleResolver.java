@@ -8,7 +8,9 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.StockPersonalityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlyStateDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 
 import java.time.LocalDate;
@@ -50,6 +52,7 @@ public class StockMonthlyStyleResolver {
     private static final long MAX_CARRY_OVER_MONTHS = 1L;
 
     private final TornStockMonthlyStateDAO monthlyStateDao;
+    private final TornStocksDAO tornStocksDao;
 
     /**
      * 解析结果 - 单支股票的月度风格消费口径。
@@ -76,10 +79,11 @@ public class StockMonthlyStyleResolver {
      * 批量解析全部股票在目标月的月度风格。
      * <p>
      * 单次查询每股最近一条CONFIRMED行,再在Java侧做选月/沿用/停推判定;
-     * 不推荐的股票逐股记录ERROR告警(月度规范§13.4)。
+     * 有行但不可用的股票由聚合ERROR告警覆盖,无任何CONFIRMED行的股票逐股补ERROR
+     * (月度规范§13.4,使「回复文案+应用日志」两渠道齐全)。
      *
      * @param targetMonth 目标生效月份(当月1日)
-     * @return 股票ID到解析结果的映射;无CONFIRMED行的股票也包含在映射中(styleAvailable=false)
+     * @return 股票ID到解析结果的映射;无CONFIRMED行的股票不进入映射,由消费方按无风格停止推荐
      */
     public Map<Integer, ResolvedMonthlyStyle> resolveAll(LocalDate targetMonth) {
         List<TornStockMonthlyStateDO> latestConfirmed =
@@ -90,6 +94,12 @@ public class StockMonthlyStyleResolver {
                 if (state != null && state.getStocksId() != null) {
                     byStock.put(state.getStocksId(), state);
                 }
+            }
+        }
+        for (TornStocksDO stock : tornStocksDao.list()) {
+            if (stock != null && stock.getId() != null && !byStock.containsKey(stock.getId())) {
+                log.error("月度风格解析-股票[{}]({})无任何CONFIRMED月度状态,本次不推荐",
+                        stock.getStocksShortname(), stock.getId());
             }
         }
 

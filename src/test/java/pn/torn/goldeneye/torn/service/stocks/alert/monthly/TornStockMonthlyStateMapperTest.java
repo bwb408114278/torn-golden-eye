@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
@@ -35,12 +36,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * </ul>
  *
  * @author Bai
- * @version 1.4.8
+ * @version 1.8.0
  * @since 2026.08.06
  */
 @SpringBootTest
 @Tag("shared-db")
 @Transactional
+@Rollback
 @DisplayName("月度状态Mapper真实PostgreSQL集成测试")
 class TornStockMonthlyStateMapperTest {
 

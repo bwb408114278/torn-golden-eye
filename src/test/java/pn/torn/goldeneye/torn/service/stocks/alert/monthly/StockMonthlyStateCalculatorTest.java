@@ -6,12 +6,14 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.DoubleUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -175,6 +177,57 @@ class StockMonthlyStateCalculatorTest {
                 "约7%中幅震荡应判定RANGING");
     }
 
+    @Test
+    @DisplayName("分类_ 温和下行满足WEAK条件但不足DECLINER_WEAK")
+    void classify_mildDecline_weak() {
+        LocalDateTime end = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime start = end.minusDays(365);
+        // 全年-5%: 年化-5%<=-2.5%且趋势约-0.42%<=-0.25%满足WEAK;
+        // 趋势弱于DECLINER的-0.6%阈值且季度收益约-1.3%>-1.5%,不得升级DECLINER
+        List<TornStockMarketBar15mDO> bars = buildBars(start, end, 1.0, 0.95);
+        StockMonthlyStateDraft draft = calculator.calculate(
+                STOCKS_ID, SHORTNAME, MONTH, start, end, bars, null);
+        assertEquals(StockStrategyFitEnum.WEAK, draft.rawPersonality(),
+                "温和下行(-5%)应判定WEAK而非DECLINER");
+    }
+
+    @Test
+    @DisplayName("分类_ 高带宽高年化但后段为负不满足STRONG_STEADY兜底")
+    void classify_highBandNegativeSecondHalf_steadyFallback() {
+        LocalDateTime end = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime start = end.minusDays(365);
+        // 先涨至2.2再跌至1.6再收于1.9: 年化+90%且末段趋势为正,但后半段收益为负
+        // 不满足STRONG(后段非负),带宽120%排除NARROW/RANGING,温和不满足WEAK -> STEADY兜底
+        List<TornStockMarketBar15mDO> bars = buildDailyShapedBars(start, end, day -> {
+            if (day < 200) {
+                return 1.0 + 1.2 * day / 200.0;
+            }
+            if (day < 245) {
+                return 2.2 - 0.6 * (day - 200) / 45.0;
+            }
+            return 1.6 + 0.3 * (day - 245) / 120.0;
+        });
+        StockMonthlyStateDraft draft = calculator.calculate(
+                STOCKS_ID, SHORTNAME, MONTH, start, end, bars, null);
+        assertTrue(draft.complete(), "全覆盖证据应完整");
+        assertEquals(StockStrategyFitEnum.STEADY, draft.rawPersonality(),
+                "高带宽+后段为负不满足STRONG时应兜底STEADY");
+    }
+
+    @Test
+    @DisplayName("分类_ 同时满足WEAK与NARROW_按首次命中顺序取WEAK")
+    void classify_weakAndNarrowBothMatched_firstHitWins() {
+        LocalDateTime end = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime start = end.minusDays(365);
+        // 全年-3.6%: 年化<=-2.5%且趋势约-0.30%<=-0.25%(WEAK),同时带宽3.6%<=4.5%、
+        // |年化|<=5%、|趋势|<=0.4%(NARROW);按DECLINER->WEAK->NARROW->...顺序应取WEAK
+        List<TornStockMarketBar15mDO> bars = buildBars(start, end, 1.0, 0.964);
+        StockMonthlyStateDraft draft = calculator.calculate(
+                STOCKS_ID, SHORTNAME, MONTH, start, end, bars, null);
+        assertEquals(StockStrategyFitEnum.WEAK, draft.rawPersonality(),
+                "同时满足WEAK与NARROW时必须按首次命中顺序取WEAK");
+    }
+
     // ==================== 风险与迟滞 ====================
 
     @Test
@@ -240,6 +293,9 @@ class StockMonthlyStateCalculatorTest {
         assertFalse(draft.confirmable(), "历史缺raw字段不得自动确认");
         assertEquals(StockMonthlyStateCalculator.REASON_PREVIOUS_RAW_MISSING,
                 draft.hysteresisReason());
+        assertFalse(JsonUtils.getNode(draft.metricSnapshot(),
+                        StockMonthlyStateCalculator.SNAPSHOT_KEY_CONFIRMABLE).asBoolean(),
+                "快照confirmable必须同步写false,供确认侧fail-closed校验");
     }
 
     @Test
@@ -291,30 +347,57 @@ class StockMonthlyStateCalculatorTest {
     // ==================== 快照 ====================
 
     @Test
-    @DisplayName("快照_ 完整草稿包含raw值、投票明细与迟滞原因")
-    void snapshot_completeDraft_containsRawAndVotes() {
+    @DisplayName("快照_ 完整草稿解析JSON断言投票数值与confirmable")
+    void snapshot_completeDraft_parsedVoteCountsAndAuditKeys() {
         LocalDateTime end = LocalDateTime.of(2026, 7, 1, 10, 0);
         LocalDateTime start = end.minusDays(365);
-        List<TornStockMarketBar15mDO> bars = buildBars(start, end, 1.0, 2.0);
+        List<TornStockMarketBar15mDO> bars = buildBars(start, end, 2.0, 1.0);
         StockMonthlyStateDraft draft = calculator.calculate(
                 STOCKS_ID, SHORTNAME, MONTH, start, end, bars, null);
-        assertNotNull(draft.metricSnapshot());
-        assertTrue(draft.metricSnapshot().contains("rawPersonality"));
-        assertTrue(draft.metricSnapshot().contains("rawRiskLevel"));
-        assertTrue(draft.metricSnapshot().contains("highVotes"));
-        assertTrue(draft.metricSnapshot().contains("mediumVotes"));
-        assertTrue(draft.metricSnapshot().contains("hysteresisReason"));
-        assertTrue(draft.metricSnapshot().contains("usableBarCoverage"));
-        assertTrue(draft.metricSnapshot().contains("rawUsableBarCoverage"),
-                "V2完整快照必须包含raw覆盖率");
-        assertTrue(draft.metricSnapshot().contains("rawMaxMissingBucketGap"),
-                "V2完整快照必须包含raw最大间隔");
-        assertTrue(draft.metricSnapshot().contains("excludedBucketCount"),
-                "V2完整快照必须包含排除桶数");
-        assertTrue(draft.metricSnapshot().contains("excludedMinutes"),
-                "V2完整快照必须包含排除分钟数");
-        assertTrue(draft.metricSnapshot().contains("appliedExclusionIds"),
-                "V2完整快照必须包含排除ID");
+        String snapshot = draft.metricSnapshot();
+        assertNotNull(snapshot);
+
+        // 全年腰斩下行: H1-H4与M1-M6全部命中(趋势置信上界<-0.3%、后段-29%、季度-16%、连续11负月、回撤-50%)
+        assertEquals(4, JsonUtils.getNode(snapshot, "highVotes").asInt(),
+                "HIGH四票应全部命中");
+        assertEquals(6, JsonUtils.getNode(snapshot, "mediumVotes").asInt(),
+                "MEDIUM六票应全部命中");
+        assertEquals("DECLINER", JsonUtils.getNode(snapshot, "rawPersonality").asText(),
+                "快照应记录原始风格");
+        assertTrue(JsonUtils.getNode(snapshot, "confirmable").asBoolean(),
+                "完整且无迟滞依赖的草稿快照confirmable必须为true");
+        assertNotNull(JsonUtils.getNode(snapshot, "rawUsableBarCoverage"), "快照应包含raw覆盖率审计键");
+        assertNotNull(JsonUtils.getNode(snapshot, "rawMaxMissingBucketGap"), "快照应包含raw最大间隔审计键");
+        assertNotNull(JsonUtils.getNode(snapshot, "excludedBucketCount"), "快照应包含豁免桶数审计键");
+        assertNotNull(JsonUtils.getNode(snapshot, "excludedMinutes"), "快照应包含豁免分钟数审计键");
+        assertNotNull(JsonUtils.getNode(snapshot, "appliedExclusionIds"), "快照应包含豁免ID审计键");
+    }
+
+    @Test
+    @DisplayName("风险_ 仅M6一票(差1票不升级)_风险保持NONE")
+    void risk_singleMediumVote_belowThreshold_staysNone() {
+        LocalDateTime end = LocalDateTime.of(2026, 7, 1, 10, 0);
+        LocalDateTime start = end.minusDays(365);
+        // 前11个月平价1.0,6月内先跌至0.94(回撤-6%触发M6)再收于1.01:
+        // 下跌完全落在最后一个完整月内(5月均值恰为1.0,月变化=0不计负月,连续负月=1),
+        // 后段+1%、季度+1%、负月占比1/10、末段趋势为正 -> 仅M6命中,MEDIUM需>=2票,差1票不得升级
+        List<TornStockMarketBar15mDO> bars = buildDailyShapedBars(start, end, day -> {
+            if (day < 334) {
+                return 1.0;
+            }
+            if (day <= 345) {
+                return 1.0 - 0.06 * (day - 334) / 11.0;
+            }
+            return 0.94 + 0.07 * (day - 345) / 19.0;
+        });
+        StockMonthlyStateDraft draft = calculator.calculate(
+                STOCKS_ID, SHORTNAME, MONTH, start, end, bars, null);
+
+        assertTrue(draft.complete(), "全覆盖证据应完整");
+        assertEquals(1, JsonUtils.getNode(draft.metricSnapshot(), "mediumVotes").asInt(),
+                "应恰好命中1票MEDIUM(M6)");
+        assertEquals(StockRiskLevelEnum.NONE, draft.rawRiskLevel(),
+                "差1票不满足MEDIUM的2票门槛,风险保持NONE");
     }
 
     @Test
@@ -371,16 +454,29 @@ class StockMonthlyStateCalculatorTest {
      */
     private List<TornStockMarketBar15mDO> buildBars(LocalDateTime start, LocalDateTime end,
                                                     double firstPrice, double lastPrice) {
+        long totalDays = Math.max(1, java.time.Duration.between(start, end).toDays());
+        double finalTotalDays = totalDays;
+        return buildDailyShapedBars(start, end,
+                day -> firstPrice + (lastPrice - firstPrice) * day / finalTotalDays);
+    }
+
+    /**
+     * 生成连续15分钟可用bar,价格由日序号函数给定(同日96个桶同价)。
+     *
+     * @param start    起点
+     * @param end      终点
+     * @param dayPrice 日序号(0起)到当日价格的映射
+     * @return 连续bar列表(按时间升序)
+     */
+    private List<TornStockMarketBar15mDO> buildDailyShapedBars(LocalDateTime start, LocalDateTime end,
+                                                               DoubleUnaryOperator dayPrice) {
         long expectedBuckets = java.time.Duration.between(start, end).toMinutes() / 15 + 1;
         if (expectedBuckets <= 0) {
             return List.of();
         }
-        long totalDays = Math.max(1, java.time.Duration.between(start, end).toDays());
         List<TornStockMarketBar15mDO> bars = new ArrayList<>((int) expectedBuckets);
         for (long i = 0; i < expectedBuckets; i++) {
-            double dayRatio = (double) (i / 96) / totalDays;
-            double price = firstPrice + (lastPrice - firstPrice) * dayRatio;
-            bars.add(buildBar(start.plusMinutes(15 * i), price));
+            bars.add(buildBar(start.plusMinutes(15 * i), dayPrice.applyAsDouble(i / 96)));
         }
         return bars;
     }

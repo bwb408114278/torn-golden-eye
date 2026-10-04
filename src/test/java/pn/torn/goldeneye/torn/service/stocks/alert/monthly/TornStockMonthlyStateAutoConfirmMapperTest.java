@@ -195,7 +195,8 @@ class TornStockMonthlyStateAutoConfirmMapperTest {
         state.setPreviousPersonality(null);
         state.setManualOverride(false);
         state.setOverrideReason(null);
-        state.setMetricSnapshot(JsonUtils.objToJson(Map.of("rawPersonality", "STEADY", "stocksId", stocksId)));
+        state.setMetricSnapshot(JsonUtils.objToJson(Map.of(
+                "rawPersonality", "STEADY", "stocksId", stocksId, "confirmable", true)));
         state.setPersonalityRuleVersion(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION);
         state.setRiskRuleVersion(StockMonthlyStateCalculator.RISK_RULE_VERSION);
         state.setEvidenceStartTime(LocalDateTime.of(2025, 1, 1, 0, 0));

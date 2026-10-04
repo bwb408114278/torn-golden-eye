@@ -5,10 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
@@ -25,6 +22,7 @@ import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -39,8 +37,8 @@ import static org.mockito.Mockito.*;
  *   <li>当月已全部有任意有效状态时跳过初始化,返回0(幂等保护)</li>
  *   <li>无有效状态股票通过冻结计算器生成DRAFT草稿,规则版本为冻结字符串</li>
  *   <li>无可用bar证据时保持DRAFT且strategyFitPrior/riskLevel为空(禁止默认STEADY/NONE)</li>
- *   <li>{@code confirmDraftStates} 人工确认拒绝空白与SYSTEM</li>
- *   <li>{@code autoConfirmDraftStates} 仅确认满足自动确认条件的DRAFT</li>
+ *   <li>{@code autoConfirmDraftStates} 仅确认满足自动确认条件(含快照confirmable=true)的DRAFT</li>
+ *   <li>{@code refreshCurrentMonthStates} 编排: 分片载入证据,一次完成初始化/重算/自动确认</li>
  * </ul>
  * 通过 Mockito mock 全部DAO,使用 ArgumentCaptor 验证持久化字段。
  *
@@ -271,6 +269,107 @@ class StockMonthlyStateInitServiceTest {
         verify(monthlyStateDao, never()).autoConfirmDraftStates(any());
     }
 
+    @Test
+    @DisplayName("自动确认_ 完整但快照confirmable=false的DRAFT不自动确认(fail-closed)")
+    void autoConfirmDraftStates_snapshotNotConfirmable_notConfirmed() {
+        LocalDate effectiveMonth = LocalDate.of(2026, 7, 1);
+        TornStockMonthlyStateDO draft = buildAutoConfirmableDraft(1, "TCS", effectiveMonth);
+        draft.setMetricSnapshot("{\"rawPersonality\":\"STEADY\",\"confirmable\":false}");
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(effectiveMonth))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), eq(StockMonthlyStateStatusEnum.DRAFT.getCode()))).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft));
+
+        int result = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
+
+        assertEquals(0, result, "完整但confirmable=false的DRAFT不得自动确认");
+        verify(monthlyStateDao, never()).autoConfirmDraftStates(any());
+    }
+
+    // ==================== refreshCurrentMonthStates ====================
+
+    @Test
+    @DisplayName("月度编排_一次完成初始化插入/重算更新/自动确认且顺序固定")
+    void refreshCurrentMonthStates_insertRecalculateConfirmInOrder() {
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        // 股票1当月已有未确认DRAFT(重算),股票2当月缺失(初始化)
+        TornStockMonthlyStateDO draft = buildDraftState(1, "TCS", currentMonth);
+        draft.setId(99L);
+        draft.setManualOverride(false);
+        when(tornStocksDao.list()).thenReturn(List.of(buildStock(1, "TCS"), buildStock(2, "MSG")));
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth)).thenReturn(List.of(1));
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        // 第一次list为编排内的DRAFT候选查询,第二次为自动确认查询(返回confirmable=true快照)
+        when(monthlyStateQuery.list()).thenReturn(List.of(draft))
+                .thenReturn(List.of(buildAutoConfirmableDraft(1, "TCS", currentMonth)));
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
+        when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
+        when(monthlyStateDao.autoConfirmDraftStates(anyList())).thenReturn(1);
+
+        StockMonthlyStateInitService.MonthlyRefreshResult result =
+                monthlyStateInitService.refreshCurrentMonthStates();
+
+        assertEquals(1, result.insertedCount(), "应为缺失的2号股票初始化插入1条");
+        assertEquals(1, result.recalculatedCount(), "应重算更新1条已有DRAFT");
+        assertEquals(1, result.confirmedCount(), "应自动确认1条");
+        InOrder inOrder = inOrder(monthlyStateDao);
+        inOrder.verify(monthlyStateDao).insertDraftStatesIgnoreConflict(monthlyStatesCaptor.capture());
+        inOrder.verify(monthlyStateDao).recalculateDraftStates(any());
+        inOrder.verify(monthlyStateDao).autoConfirmDraftStates(anyList());
+        assertEquals(Integer.valueOf(2), monthlyStatesCaptor.getValue().getFirst().getStocksId(),
+                "插入候选应只含当月缺失的2号股票");
+    }
+
+    @Test
+    @DisplayName("月度编排_证据按批分片载入且全部草稿共用同一calculatedAt")
+    void refreshCurrentMonthStates_shardsEvidenceAndSharesCalculatedAt() {
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        List<TornStocksDO> stocks = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            stocks.add(buildStock(i, "S" + i));
+        }
+        when(tornStocksDao.list()).thenReturn(stocks);
+        when(monthlyStateDao.selectExistingStockIdsByMonth(currentMonth)).thenReturn(List.of());
+        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
+        when(monthlyStateQuery.list()).thenReturn(List.of());
+        when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of());
+        when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.selectPreviousConfirmedByStocks(any(), any(), any(), any())).thenReturn(List.of());
+        when(monthlyStateDao.insertDraftStatesIgnoreConflict(any())).thenAnswer(inv -> {
+            List<TornStockMonthlyStateDO> states = inv.getArgument(0);
+            return states.size();
+        });
+        LocalDateTime fixedNow = LocalDateTime.of(2026, 10, 1, 8, 0);
+        lenient().when(marketClock.now()).thenReturn(fixedNow);
+
+        StockMonthlyStateInitService.MonthlyRefreshResult result =
+                monthlyStateInitService.refreshCurrentMonthStates();
+
+        assertEquals(10, result.insertedCount(), "10支全部缺失股票应插入10条草稿");
+        // 10支股票按批大小8分2片载入证据(而非整表一次载入)
+        ArgumentCaptor<List<Integer>> shardCaptor = ArgumentCaptor.forClass(List.class);
+        verify(bar15mDao, times(2)).selectUsableEvidenceEdges(shardCaptor.capture(), any(), any());
+        List<List<Integer>> shards = shardCaptor.getAllValues();
+        assertEquals(8, shards.get(0).size(), "第一片应为8支股票");
+        assertEquals(2, shards.get(1).size(), "第二片应为剩余2支股票");
+        verify(bar15mDao, times(2)).selectUsableByStocksAndTimeRange(any(), any(), any(), any());
+        verify(monthlyStateDao, times(2)).selectPreviousConfirmedByStocks(any(), any(), any(), any());
+        // 插入只累积执行一次,且全部草稿共用同一calculatedAt
+        verify(monthlyStateDao, times(1)).insertDraftStatesIgnoreConflict(monthlyStatesCaptor.capture());
+        List<TornStockMonthlyStateDO> inserted = monthlyStatesCaptor.getValue();
+        assertEquals(10, inserted.size(), "应一次批量插入10条草稿");
+        inserted.forEach(state -> assertEquals(fixedNow, state.getCalculatedAt(),
+                "跨批次全部草稿必须共用同一calculatedAt"));
+    }
+
     // ==================== recalculateCurrentMonthDrafts ====================
 
     @Test
@@ -313,20 +412,6 @@ class StockMonthlyStateInitServiceTest {
         assertEquals(99L, updated.getFirst().getId(), "重算必须保留原主键");
         assertEquals(StockMonthlyStateStatusEnum.DRAFT.getCode(), updated.getFirst().getStateStatus(),
                 "重算后仍为DRAFT");
-    }
-
-    @Test
-    @DisplayName("月度重算_人工覆盖DRAFT不进入重算候选")
-    void recalculateCurrentMonthDrafts_manualOverrideDraft_excludedFromCandidates() {
-        when(monthlyStateDao.lambdaQuery()).thenReturn(monthlyStateQuery);
-        when(monthlyStateQuery.eq(any(), any())).thenReturn(monthlyStateQuery);
-        when(monthlyStateQuery.list()).thenReturn(List.of());
-
-        int result = monthlyStateInitService.recalculateCurrentMonthDrafts();
-
-        assertEquals(0, result);
-        verify(monthlyStateDao, never()).recalculateDraftStates(any());
-        // 人工覆盖记录由查询谓词(manualOverride=false)排除,服务不主动构建其重算
     }
 
     @Test
@@ -599,7 +684,7 @@ class StockMonthlyStateInitServiceTest {
     }
 
     /**
-     * 构建满足自动确认条件的DRAFT(冻结版本、完整、无人工覆盖)。
+     * 构建满足自动确认条件的DRAFT(冻结版本、完整、无人工覆盖、快照confirmable=true)。
      *
      * @param stocksId       股票ID
      * @param shortname      股票简称
@@ -611,7 +696,7 @@ class StockMonthlyStateInitServiceTest {
         TornStockMonthlyStateDO state = buildCompleteDraftState(stocksId, shortname, effectiveMonth);
         state.setPersonalityRuleVersion(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION);
         state.setRiskRuleVersion(StockMonthlyStateCalculator.RISK_RULE_VERSION);
-        state.setMetricSnapshot("{\"rawPersonality\":\"STEADY\"}");
+        state.setMetricSnapshot("{\"rawPersonality\":\"STEADY\",\"confirmable\":true}");
         state.setManualOverride(false);
         return state;
     }

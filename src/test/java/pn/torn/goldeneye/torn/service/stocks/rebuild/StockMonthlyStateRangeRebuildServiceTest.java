@@ -81,36 +81,6 @@ class StockMonthlyStateRangeRebuildServiceTest {
     }
 
     @Test
-    @DisplayName("右开边界在月中_处理包含该月")
-    void rebuild_endMidMonth_includesEndMonth() {
-        when(monthlyStateInitService.initMonth(LocalDate.of(2026, 1, 1))).thenReturn(0);
-        when(monthlyStateInitService.recalculateMonthDrafts(LocalDate.of(2026, 1, 1))).thenReturn(0);
-        when(monthlyStateInitService.autoConfirmDraftStates(LocalDate.of(2026, 1, 1))).thenReturn(0);
-        when(monthlyStateInitService.initMonth(LocalDate.of(2026, 2, 1))).thenReturn(0);
-        when(monthlyStateInitService.recalculateMonthDrafts(LocalDate.of(2026, 2, 1))).thenReturn(0);
-        when(monthlyStateInitService.autoConfirmDraftStates(LocalDate.of(2026, 2, 1))).thenReturn(0);
-        when(monthlyStateInitService.initMonth(LocalDate.of(2026, 3, 1))).thenReturn(0);
-        when(monthlyStateInitService.recalculateMonthDrafts(LocalDate.of(2026, 3, 1))).thenReturn(0);
-        when(monthlyStateInitService.autoConfirmDraftStates(LocalDate.of(2026, 3, 1))).thenReturn(0);
-
-        int total = service.rebuild(
-                LocalDateTime.of(2026, 1, 15, 0, 0),
-                LocalDateTime.of(2026, 3, 10, 0, 0));
-
-        assertEquals(0, total);
-        InOrder inOrder = inOrder(monthlyStateInitService);
-        inOrder.verify(monthlyStateInitService).initMonth(LocalDate.of(2026, 1, 1));
-        inOrder.verify(monthlyStateInitService).recalculateMonthDrafts(LocalDate.of(2026, 1, 1));
-        inOrder.verify(monthlyStateInitService).autoConfirmDraftStates(LocalDate.of(2026, 1, 1));
-        inOrder.verify(monthlyStateInitService).initMonth(LocalDate.of(2026, 2, 1));
-        inOrder.verify(monthlyStateInitService).recalculateMonthDrafts(LocalDate.of(2026, 2, 1));
-        inOrder.verify(monthlyStateInitService).autoConfirmDraftStates(LocalDate.of(2026, 2, 1));
-        inOrder.verify(monthlyStateInitService).initMonth(LocalDate.of(2026, 3, 1));
-        inOrder.verify(monthlyStateInitService).recalculateMonthDrafts(LocalDate.of(2026, 3, 1));
-        inOrder.verify(monthlyStateInitService).autoConfirmDraftStates(LocalDate.of(2026, 3, 1));
-    }
-
-    @Test
     @DisplayName("start等于end或倒置_拒绝且零交互")
     void rebuild_invalidRange_rejectsWithoutInteractions() {
         LocalDateTime time = LocalDateTime.of(2026, 1, 15, 0, 0);

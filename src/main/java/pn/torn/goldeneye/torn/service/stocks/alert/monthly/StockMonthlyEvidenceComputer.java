@@ -38,8 +38,11 @@ public final class StockMonthlyEvidenceComputer {
     /**
      * 计算证据指标并判定数据完整性。
      * <p>
-     * 1.8.0 复活精简版不引入任何排除策略(原宕机豁免策略已随旧版链路退场,确认不取回):
-     * raw与adjusted口径恒一致,排除统计恒为零;数据不完整月份一律保持DRAFT不生效。
+     * 1.8.0 复活版仅对已备案停机窗口({@link StockMonthlyOutageWaiver})做日历指标豁免:
+     * 覆盖率与最大间隔披露raw/adjusted双口径,complete判定使用adjusted口径
+     * (期望桶数扣除完整落窗桶数、间隔扣除与窗口的真实重叠分钟);未备案停机不豁免。
+     * 价格、趋势、收益、回撤、日收盘、月均、风险投票、成交一律不参与豁免;
+     * 数据不完整月份一律保持DRAFT不生效。
      *
      * @param evidenceStartTime 证据起点
      * @param evidenceEndTime   证据终点
@@ -53,7 +56,11 @@ public final class StockMonthlyEvidenceComputer {
         double evidenceDays = evidenceDays(evidenceStartTime, evidenceEndTime);
 
         long expectedBuckets = expectedBucketCount(evidenceStartTime, evidenceEndTime);
-        double usableBarCoverage = usableBarCoverage(usableBars.size(), expectedBuckets);
+        StockMonthlyOutageWaiver.Adjustment adjustment =
+                StockMonthlyOutageWaiver.adjust(evidenceStartTime, evidenceEndTime);
+        long adjustedExpectedBuckets = Math.max(0L, expectedBuckets - adjustment.excludedBucketCount());
+        double rawUsableBarCoverage = usableBarCoverage(usableBars.size(), expectedBuckets);
+        double usableBarCoverage = usableBarCoverage(usableBars.size(), adjustedExpectedBuckets);
         MaxGaps maxGaps = maxMissingBucketGaps(usableBars);
         int dailyCloseCount = dailyCloses.size();
 
@@ -71,7 +78,7 @@ public final class StockMonthlyEvidenceComputer {
                 lastQuarterReturn, maxDrawdown);
 
         boolean complete = usableBarCoverage >= MIN_COVERAGE
-                && maxGaps.max() <= MAX_ALLOWED_GAP_MINUTES
+                && maxGaps.adjustedMax() <= MAX_ALLOWED_GAP_MINUTES
                 && dailyCloseCount >= MIN_TREND_DAILY_CLOSE
                 && trend.complete()
                 && evidenceDays > 0;
@@ -94,12 +101,12 @@ public final class StockMonthlyEvidenceComputer {
                 monthStats.negativeMonthStreak(),
                 monthStats.completeMonthCount(),
                 usableBarCoverage,
-                maxGaps.max(),
-                usableBarCoverage,
-                maxGaps.max(),
-                0L,
-                0L,
-                List.of(),
+                maxGaps.adjustedMax(),
+                rawUsableBarCoverage,
+                maxGaps.rawMax(),
+                adjustment.excludedBucketCount(),
+                adjustment.excludedMinutes(),
+                adjustment.appliedExclusionIds(),
                 dailyCloseCount,
                 highVotes.count(),
                 mediumVotes.count(),
@@ -183,13 +190,17 @@ public final class StockMonthlyEvidenceComputer {
     }
 
     /**
-     * 计算相邻可用bar最大间隔(分钟)。
+     * 计算相邻可用bar最大间隔(分钟),披露raw与adjusted双口径。
+     * <p>
+     * adjusted口径逐段扣除间隔与已备案停机窗口({@link StockMonthlyOutageWaiver})
+     * 的真实重叠分钟,下限0;未相交窗口不产生影响。
      *
      * @param usableBars 可用bar列表(按时间升序)
-     * @return 最大间隔;样本不足2个时为0
+     * @return raw/adjusted最大间隔;样本不足2个时均为0
      */
     private static MaxGaps maxMissingBucketGaps(List<TornStockMarketBar15mDO> usableBars) {
-        long maxGap = 0;
+        long rawMax = 0;
+        long adjustedMax = 0;
         for (int i = 1; i < usableBars.size(); i++) {
             LocalDateTime prev = usableBars.get(i - 1).getBarStartTime();
             LocalDateTime next = usableBars.get(i).getBarStartTime();
@@ -197,11 +208,15 @@ public final class StockMonthlyEvidenceComputer {
                 continue;
             }
             long gap = Duration.between(prev, next).toMinutes();
-            if (gap > maxGap) {
-                maxGap = gap;
+            if (gap > rawMax) {
+                rawMax = gap;
+            }
+            long adjusted = Math.max(0L, gap - StockMonthlyOutageWaiver.excludedOverlapMinutes(prev, next));
+            if (adjusted > adjustedMax) {
+                adjustedMax = adjusted;
             }
         }
-        return new MaxGaps(maxGap);
+        return new MaxGaps(rawMax, adjustedMax);
     }
 
     /**
@@ -563,14 +578,14 @@ public final class StockMonthlyEvidenceComputer {
     }
 
     /**
-     * 相邻可用bar最大间隔结果。
-     * <p>
-     * 1.8.0 复活精简版无排除策略,raw与adjusted恒一致,仅保留单一口径。
+     * 相邻可用bar最大间隔结果(raw与adjusted双口径,豁免只作用于adjusted)。
      *
-     * @param max 最大间隔分钟数
+     * @param rawMax      原始最大间隔分钟数(不扣除停机豁免)
+     * @param adjustedMax 豁免后最大间隔分钟数(完整性判定口径)
      */
     private record MaxGaps(
-            long max) {
+            long rawMax,
+            long adjustedMax) {
     }
 
     /**

@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockPersonalityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlyStateDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.torn.service.user.StockMonthlyStyleResolver.ResolvedMonthlyStyle;
@@ -40,6 +41,9 @@ class StockMonthlyStyleResolverTest {
 
     @Mock
     private TornStockMonthlyStateDAO monthlyStateDao;
+
+    @Mock
+    private TornStocksDAO tornStocksDao;
 
     @InjectMocks
     private StockMonthlyStyleResolver resolver;

@@ -20,7 +20,6 @@ import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInit
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,7 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 定时入口的异常上抛语义保持不变。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.8.0
  * @since 2026.07.25
  */
 @Slf4j
@@ -327,6 +326,9 @@ public class VipStockAlertScheduler {
      * 抢占成功后在统一try/finally内按固定顺序执行历史重建、当前结束桶幂等创建与未完成轮次处理,
      * finally释放标记;抢占失败说明已有轮次流程在执行,跳过补偿处理。
      * <p>
+     * 月度状态编排(初始化/重算/自动确认)在finally释放标记之后执行,移出轮次临界区,
+     * 避免全量证据载入阻塞每分钟轮次入口;证据(bar/feature)在临界区内已补建完毕,顺序不变。
+     * <p>
      * 历史重建与最新已结束桶创建是当前结束桶消费的证据前置: 任一失败都必须强制关闭本次新入场
      * (fail-closed),防止"无证据继续下游";存量退出管理(未完成轮次处理)仍可继续。
      * <p>
@@ -346,70 +348,51 @@ public class VipStockAlertScheduler {
             return;
         }
 
+        boolean historyRebuildOk;
+        boolean currentBucketEnsureOk;
         try {
             LocalDateTime currentEndedBucket = marketClock.currentEndedBucket();
-            boolean historyRebuildOk = rebuildStartupHistorySafely(currentEndedBucket);
-            boolean currentBucketEnsureOk = ensureStartupPendingRoundSafely(currentEndedBucket);
+            historyRebuildOk = rebuildStartupHistorySafely(currentEndedBucket);
+            currentBucketEnsureOk = ensureStartupPendingRoundSafely(currentEndedBucket);
             boolean effectiveAllowNewEntry = decision.allowNewEntry()
                     && historyRebuildOk && currentBucketEnsureOk;
             if (!historyRebuildOk || !currentBucketEnsureOk) {
                 log.error("VIP股票策略调度-历史补建或最新已结束桶创建失败,新入场强制关闭, 存量退出管理继续");
             }
             processStartupPendingRoundsSafely(effectiveAllowNewEntry, currentEndedBucket);
-            // 月度状态: 历史补建与最新已结束桶创建是月度证据前置,任一失败阻断同次
-            // 初始化/重算/自动确认(fail-closed),避免"无证据继续下游"的冷启动假象;
-            // 仅SYSTEM自动确认,人工确认入口不恢复(1.8.0月度风格链路复活接线)。
-            if (historyRebuildOk && currentBucketEnsureOk) {
-                initCurrentMonthSafely();
-                recalculateCurrentMonthDraftsSafely();
-                autoConfirmCurrentMonthDraftsSafely();
-            } else {
-                log.error("VIP股票策略调度-历史补建或最新已结束桶创建失败,阻断同次月度状态初始化/重算/自动确认");
-            }
         } finally {
             processing.set(false);
         }
+        // 月度状态: 历史补建与最新已结束桶创建是月度证据前置,任一失败阻断同次
+        // 初始化/重算/自动确认(fail-closed);已移出轮次临界区,月度全量证据载入不再
+        // 阻塞每分钟轮次入口,月度写入全部幂等且与轮次流程无共享可变状态(1.8.0 Review §4.7)。
+        processStartupMonthlyStatesSafely(historyRebuildOk, currentBucketEnsureOk);
     }
 
     /**
-     * 为当月缺失股票的初始化DRAFT草稿,仅应在历史重建补齐证据之后调用。
-     * 失败仅记录日志不阻塞后续步骤。
-     */
-    private void initCurrentMonthSafely() {
-        try {
-            monthlyStateInitService.initCurrentMonth();
-        } catch (Exception e) {
-            LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
-            log.error("VIP股票策略调度-月度状态初始化失败, effectiveMonth={}, 继续后续步骤", effectiveMonth, e);
-        }
-    }
-
-    /**
-     * 重算当月未确认DRAFT月度状态,失败仅记录日志不阻塞后续步骤。
+     * 启动补偿的月度状态编排安全包装: 仅在历史补建与最新已结束桶创建全部成功时执行,
+     * 单次调用 {@code refreshCurrentMonthStates()} 完成当月初始化/重算/自动确认,
+     * 输出 inserted/recalculated/confirmed 计数;任一前置失败记ERROR且不执行月度步骤。
      * <p>
-     * 历史补建失败时,重算结果仍为DRAFT/fail-closed(证据不足不满足自动确认条件),
-     * 不允许把"没有补齐证据"误写为已确认。
+     * 仅SYSTEM自动确认,人工确认入口不恢复(1.8.0月度风格链路复活接线)。
+     *
+     * @param historyRebuildOk      历史补建是否成功
+     * @param currentBucketEnsureOk 最新已结束桶幂等创建是否成功
      */
-    private void recalculateCurrentMonthDraftsSafely() {
-        try {
-            int recalculated = monthlyStateInitService.recalculateCurrentMonthDrafts();
-            log.info("VIP股票策略调度-启动补偿月度状态重算完成, recalculated={}", recalculated);
-        } catch (Exception e) {
-            log.error("VIP股票策略调度-启动补偿月度状态重算失败,继续后续步骤", e);
+    private void processStartupMonthlyStatesSafely(boolean historyRebuildOk, boolean currentBucketEnsureOk) {
+        if (!historyRebuildOk || !currentBucketEnsureOk) {
+            log.error("VIP股票策略调度-历史补建或最新已结束桶创建失败,阻断同次月度状态初始化/重算/自动确认");
+            return;
         }
-    }
-
-    /**
-     * 自动确认当月满足冻结条件的DRAFT月度状态,失败仅记录日志不阻塞后续步骤。
-     */
-    private void autoConfirmCurrentMonthDraftsSafely() {
         try {
-            LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
-            int confirmed = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
-            log.info("VIP股票策略调度-启动补偿月度状态自动确认完成, effectiveMonth={}, confirmed={}",
-                    effectiveMonth, confirmed);
+            StockMonthlyStateInitService.MonthlyRefreshResult result =
+                    monthlyStateInitService.refreshCurrentMonthStates();
+            if (result != null) {
+                log.info("VIP股票策略调度-启动补偿月度状态编排完成, inserted={}, recalculated={}, confirmed={}",
+                        result.insertedCount(), result.recalculatedCount(), result.confirmedCount());
+            }
         } catch (Exception e) {
-            log.error("VIP股票策略调度-启动补偿月度状态自动确认失败,继续后续步骤", e);
+            log.error("VIP股票策略调度-启动补偿月度状态编排失败", e);
         }
     }
 

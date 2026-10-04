@@ -1,5 +1,6 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
+import pn.torn.goldeneye.utils.JsonUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -32,7 +34,10 @@ import java.util.stream.Collectors;
  * 确认语义(1.8.0 复活精简版只保留系统自动确认,人工确认入口不取回):
  * <ul>
  *   <li>{@link #autoConfirmDraftStates(LocalDate)}: 系统确认,仅当数据完整性、规则版本、
- *       无人工覆盖与迟滞结果全部满足时写{@code confirmedBy=SYSTEM},否则保持DRAFT</li>
+ *       无人工覆盖、指标快照{@code confirmable=true}与迟滞结果全部满足时写{@code confirmedBy=SYSTEM},
+ *       否则保持DRAFT;</li>
+ *   <li>{@link #refreshCurrentMonthStates()}: 启动补偿专用编排,单事务内按
+ *       {@value #EVIDENCE_BATCH_SIZE} 支股票分片载入证据,一次完成初始化/重算/自动确认。</li>
  * </ul>
  * 幂等: 当月已存在任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票跳过初始化,
  * 插入使用PostgreSQL {@code ON CONFLICT DO NOTHING},与数据库部分唯一索引
@@ -47,6 +52,11 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class StockMonthlyStateInitService {
+
+    /**
+     * 证据按股票分片的批大小(35支股票约5批,限制单次载入的365天可用bar行数)
+     */
+    static final int EVIDENCE_BATCH_SIZE = 8;
 
     private final TornStocksDAO tornStocksDao;
     private final TornStockMonthlyStateDAO monthlyStateDao;
@@ -285,6 +295,84 @@ public class StockMonthlyStateInitService {
     }
 
     /**
+     * 启动补偿专用月度编排: 单事务内一次完成当月缺失初始化、未确认DRAFT重算与系统自动确认。
+     * <p>
+     * 相对分别调用 {@link #initCurrentMonth()} + {@link #recalculateCurrentMonthDrafts()} +
+     * {@link #autoConfirmDraftStates(LocalDate)} 的改进(1.8.0 Review §4.7):
+     * <ul>
+     *   <li>一次求出「当月缺失股票 ∪ 当月未确认非人工覆盖DRAFT股票」目标集合,
+     *       365天证据bar只按 {@link #EVIDENCE_BATCH_SIZE} 分片载入,峰值内存由整表常驻
+     *       降为单片,大查询由两轮降为按批IN查询;</li>
+     *   <li>全部草稿共用同一 {@code calculatedAt}(单次读取时钟);</li>
+     *   <li>插入与重算各自累积后批量执行一次,最后统一自动确认;</li>
+     *   <li>幂等语义与分步方法完全一致(ON CONFLICT DO NOTHING、DRAFT+无人工覆盖谓词)。</li>
+     * </ul>
+     *
+     * @return 编排结果计数
+     */
+    @Transactional
+    public MonthlyRefreshResult refreshCurrentMonthStates() {
+        LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+        List<TornStocksDO> allStocks = tornStocksDao.list();
+        if (CollectionUtils.isEmpty(allStocks)) {
+            log.warn("月度状态编排-股票列表为空,跳过, effectiveMonth={}", effectiveMonth);
+            return new MonthlyRefreshResult(0, 0, autoConfirmDraftStates(effectiveMonth));
+        }
+
+        Set<Integer> existingStockIds = loadExistingStockIds(effectiveMonth);
+        Map<Integer, TornStocksDO> stockById = allStocks.stream()
+                .filter(stock -> stock.getId() != null)
+                .collect(Collectors.toMap(TornStocksDO::getId, stock -> stock, (left, right) -> left));
+        Map<Integer, TornStockMonthlyStateDO> draftByStock = monthlyStateDao.lambdaQuery()
+                .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
+                .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
+                .eq(TornStockMonthlyStateDO::getManualOverride, false)
+                .list().stream()
+                .filter(draft -> draft != null && draft.getStocksId() != null)
+                .collect(Collectors.toMap(TornStockMonthlyStateDO::getStocksId, draft -> draft,
+                        (left, right) -> left));
+
+        // 目标集合 = 当月缺失股票(初始化) ∪ 当月未确认非人工覆盖DRAFT股票(重算)
+        Set<Integer> targetStockIds = new LinkedHashSet<>(stockById.keySet());
+        targetStockIds.removeAll(existingStockIds);
+        targetStockIds.addAll(draftByStock.keySet());
+
+        LocalDateTime now = marketClock.now();
+        List<TornStockMonthlyStateDO> toInsert = new ArrayList<>();
+        List<TornStockMonthlyStateDO> toRecalculate = new ArrayList<>();
+        List<Integer> targetIds = List.copyOf(targetStockIds);
+        for (int i = 0; i < targetIds.size(); i += EVIDENCE_BATCH_SIZE) {
+            List<Integer> shard = targetIds.subList(i, Math.min(i + EVIDENCE_BATCH_SIZE, targetIds.size()));
+            EvidenceContext evidence = loadEvidenceContext(shard, effectiveMonth, now);
+            for (Integer stocksId : shard) {
+                TornStocksDO stock = stockById.get(stocksId);
+                if (stock == null) {
+                    log.warn("月度状态编排-股票[{}]不存在,跳过", stocksId);
+                    continue;
+                }
+                TornStockMonthlyStateDO updated = buildDraftState(stock, effectiveMonth,
+                        evidence.evidenceEdges().get(stocksId),
+                        evidence.barsByStock().getOrDefault(stocksId, List.of()),
+                        evidence.previousByStock().get(stocksId), now);
+                TornStockMonthlyStateDO existingDraft = draftByStock.get(stocksId);
+                if (existingDraft == null) {
+                    toInsert.add(updated);
+                } else {
+                    updated.setId(existingDraft.getId());
+                    toRecalculate.add(updated);
+                }
+            }
+        }
+
+        int insertedCount = toInsert.isEmpty() ? 0 : monthlyStateDao.insertDraftStatesIgnoreConflict(toInsert);
+        int recalculatedCount = toRecalculate.isEmpty() ? 0 : monthlyStateDao.recalculateDraftStates(toRecalculate);
+        int confirmedCount = autoConfirmDraftStates(effectiveMonth);
+        log.info("月度状态编排-完成, effectiveMonth={}, inserted={}, recalculated={}, confirmed={}",
+                effectiveMonth, insertedCount, recalculatedCount, confirmedCount);
+        return new MonthlyRefreshResult(insertedCount, recalculatedCount, confirmedCount);
+    }
+
+    /**
      * 校验月度状态是否满足CONFIRMED落库完整性要求。
      *
      * @param state 待确认状态
@@ -302,6 +390,10 @@ public class StockMonthlyStateInitService {
 
     /**
      * 校验月度状态是否满足系统自动确认条件。
+     * <p>
+     * 在落库完整性之上额外校验指标快照的 {@code confirmable} 键(设计§4.3条件5/6的
+     * 机器结论):仅当快照存在且值为 {@code true} 才允许确认;键缺失、解析失败或非布尔
+     * 一律视为false(fail-closed),防止"完整但迟滞未就绪"的DRAFT被确认。
      *
      * @param state 待自动确认状态
      * @return 满足自动确认条件返回true
@@ -311,7 +403,26 @@ public class StockMonthlyStateInitService {
                 && !Boolean.TRUE.equals(state.getManualOverride())
                 && StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION.equals(state.getPersonalityRuleVersion())
                 && StockMonthlyStateCalculator.RISK_RULE_VERSION.equals(state.getRiskRuleVersion())
-                && state.getMetricSnapshot() != null && !state.getMetricSnapshot().isBlank();
+                && isSnapshotConfirmable(state.getMetricSnapshot());
+    }
+
+    /**
+     * 解析指标快照的 {@code confirmable} 键(fail-closed)。
+     *
+     * @param metricSnapshot 指标快照JSON文本
+     * @return 仅当键存在且为布尔true时返回true;空/缺失/非法一律false
+     */
+    private boolean isSnapshotConfirmable(String metricSnapshot) {
+        if (metricSnapshot == null || metricSnapshot.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode node = JsonUtils.getNode(metricSnapshot,
+                    StockMonthlyStateCalculator.SNAPSHOT_KEY_CONFIRMABLE);
+            return node != null && node.isBoolean() && node.asBoolean();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // ==================== 私有方法: 草稿构建 ====================
@@ -402,8 +513,24 @@ public class StockMonthlyStateInitService {
      * @return 证据上下文(计算时间+三份证据映射)
      */
     private EvidenceContext loadEvidenceContext(List<Integer> stockIds, LocalDate effectiveMonth) {
+        return loadEvidenceContext(stockIds, effectiveMonth, marketClock.now());
+    }
+
+    /**
+     * 批量加载证据上下文(调用方提供统一计算时间)。
+     * <p>
+     * 供 {@link #refreshCurrentMonthStates()} 分片复用同一 {@code now},
+     * 保证跨批次全部草稿的 {@code calculatedAt} 全局一致。
+     *
+     * @param stockIds       股票ID列表
+     * @param effectiveMonth 生效月份
+     * @param now            本批共用的计算时间戳
+     * @return 证据上下文(计算时间+三份证据映射)
+     */
+    private EvidenceContext loadEvidenceContext(List<Integer> stockIds, LocalDate effectiveMonth,
+                                                LocalDateTime now) {
         return new EvidenceContext(
-                marketClock.now(),
+                now,
                 loadEvidenceEdges(stockIds, effectiveMonth),
                 loadEvidenceBars(stockIds, effectiveMonth),
                 loadPreviousByStocks(stockIds, effectiveMonth));
@@ -528,5 +655,18 @@ public class StockMonthlyStateInitService {
             Map<Integer, List<TornStockMarketBar15mDO>> barsByStock,
             Map<Integer, TornStockMonthlyStateDO> previousByStock
     ) {
+    }
+
+    /**
+     * 月度编排结果 - {@link #refreshCurrentMonthStates()} 的执行计数。
+     *
+     * @param insertedCount     本次实际初始化插入的草稿数
+     * @param recalculatedCount 本次实际重算更新的DRAFT数
+     * @param confirmedCount    本次实际自动确认的记录数
+     */
+    public record MonthlyRefreshResult(
+            int insertedCount,
+            int recalculatedCount,
+            int confirmedCount) {
     }
 }

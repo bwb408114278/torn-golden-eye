@@ -41,15 +41,17 @@ public class TornStockMonthlyStateDO extends BaseDO {
      */
     private LocalDate effectiveMonth;
     /**
-     * 策略契合度分类(如趋势型/震荡型/红利型)
+     * 策略契合度分类(六类编码: DECLINER/WEAK/NARROW/RANGING/STEADY/STRONG;
+     * 证据不完整或迟滞未就绪时为空,禁止默认STEADY)
      */
     private String strategyFitPrior;
     /**
-     * 成熟度等级(反映股票数据与行为的稳定程度)
+     * 成熟度等级(M0_UNMATURE/M1_EARLY/M2_PROVISIONAL/M3_SEASONED/M4_MATURE,
+     * 按证据自然日60/120/240/365分级)
      */
     private String maturity;
     /**
-     * 风险等级(如LOW/MEDIUM/HIGH)
+     * 风险等级(编码: NONE/MEDIUM/HIGH;证据不完整或迟滞未就绪时为空)
      */
     private String riskLevel;
     /**
@@ -74,8 +76,9 @@ public class TornStockMonthlyStateDO extends BaseDO {
      * 包含真实计算字段而非空对象: rawPersonality/rawRiskLevel、suggestedPersonality、
      * annualizedDisplay、trend30/trend30Low/trend30High、secondHalfReturn、lastQuarterReturn、
      * fullBand、maxDrawdown、negativeMonthRatio/negativeMonthStreak、HIGH/MEDIUM投票明细、
-     * usableBarCoverage、maxMissingBucketGap、evidenceDays、completeMonthCount、
-     * quarterWindowTruncated、hysteresisReason、incompleteReason。
+     * usableBarCoverage、maxMissingBucketGap、rawUsableBarCoverage/rawMaxMissingBucketGap、
+     * excludedBucketCount/excludedMinutes/appliedExclusionIds、evidenceDays、completeMonthCount、
+     * quarterWindowTruncated、confirmable、hysteresisReason、incompleteReason。
      */
     @TableField(typeHandler = JsonbTypeHandler.class)
     private String metricSnapshot;
@@ -96,7 +99,7 @@ public class TornStockMonthlyStateDO extends BaseDO {
      */
     private LocalDateTime evidenceEndTime;
     /**
-     * 状态(DRAFT草稿/CONFIRMED已确认/ARCHIVED已归档)
+     * 状态(DRAFT草稿/CONFIRMED已确认/RETIRED已退役)
      */
     private String stateStatus;
     /**
@@ -104,11 +107,11 @@ public class TornStockMonthlyStateDO extends BaseDO {
      */
     private LocalDateTime calculatedAt;
     /**
-     * 确认时间(人工或流程确认状态的时刻,草稿态为空)
+     * 确认时间(状态流转为CONFIRMED的时刻,草稿态为空)
      */
     private LocalDateTime confirmedAt;
     /**
-     * 确认人(执行确认操作的账号标识)
+     * 确认人(本期仅SYSTEM自动确认,人工确认入口不取回)
      */
     private String confirmedBy;
 }

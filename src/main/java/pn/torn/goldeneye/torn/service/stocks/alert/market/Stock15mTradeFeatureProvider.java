@@ -7,7 +7,6 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeaturePoint;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
-import pn.torn.goldeneye.torn.service.user.StockMinuteRsiCalculator;
 
 import java.math.BigDecimal;
 import java.time.Duration;

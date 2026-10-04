@@ -21,8 +21,9 @@ import java.util.Map;
  * 风险投票、迟滞建议与有效风险。
  * <p>
  * 本类只做纯计算与状态判定,不访问数据库、不写业务表、不依赖系统时钟,便于领域测试与回放复用。
- * 证据窗口指标、日级趋势与投票由 {@link StockMonthlyEvidenceComputer} 承担;
- * 1.8.0 复活精简版不引入任何排除策略,数据不完整月份一律保持DRAFT不生效。
+ * 证据窗口指标、日级趋势与投票由 {@link StockMonthlyEvidenceComputer} 承担
+ * (仅对已备案停机窗口做日历指标豁免,见 {@link StockMonthlyOutageWaiver},规则版本不变),
+ * 数据不完整月份一律保持DRAFT不生效。
  * 冻结规则版本:
  * <ul>
  *   <li>风格规则版本: {@value #PERSONALITY_RULE_VERSION}</li>
@@ -87,6 +88,10 @@ public class StockMonthlyStateCalculator {
      * 快照键: 实际相交排除窗口ID列表
      */
     private static final String SNAPSHOT_KEY_APPLIED_EXCLUSION_IDS = "appliedExclusionIds";
+    /**
+     * 快照键: 是否允许系统自动确认(完整性、迟滞与raw字段全部满足才为true)
+     */
+    static final String SNAPSHOT_KEY_CONFIRMABLE = "confirmable";
 
     // ==================== 公开入口 ====================
 
@@ -125,7 +130,7 @@ public class StockMonthlyStateCalculator {
 
         boolean confirmable = personality.confirmable() && risk.confirmable();
         String metricSnapshot = buildMetricSnapshot(metrics, rawPersonality, rawRiskLevel,
-                personality.suggested(), risk.riskLevel(), personality.reason());
+                personality.suggested(), risk.riskLevel(), personality.reason(), confirmable);
 
         return new StockMonthlyStateDraft(
                 stocksId, stocksShortname, effectiveMonth,
@@ -449,6 +454,7 @@ public class StockMonthlyStateCalculator {
      * @param suggestedPersonality 建议风格
      * @param riskLevel            有效风险
      * @param hysteresisReason     迟滞原因
+     * @param confirmable          是否允许系统自动确认(落快照供确认侧fail-closed校验)
      * @return 指标快照JSON文本
      */
     private String buildMetricSnapshot(StockMonthlyEvidenceMetrics metrics,
@@ -456,7 +462,8 @@ public class StockMonthlyStateCalculator {
                                        StockRiskLevelEnum rawRiskLevel,
                                        StockStrategyFitEnum suggestedPersonality,
                                        StockRiskLevelEnum riskLevel,
-                                       String hysteresisReason) {
+                                       String hysteresisReason,
+                                       boolean confirmable) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put(SNAPSHOT_KEY_RAW_PERSONALITY, rawPersonality == null ? null : rawPersonality.getCode());
         snapshot.put(SNAPSHOT_KEY_RAW_RISK_LEVEL, rawRiskLevel == null ? null : rawRiskLevel.getCode());
@@ -488,6 +495,7 @@ public class StockMonthlyStateCalculator {
         snapshot.put("completeMonthCount", metrics.completeMonthCount());
         snapshot.put("quarterWindowTruncated", metrics.quarterWindowTruncated());
         snapshot.put("hysteresisReason", hysteresisReason);
+        snapshot.put(SNAPSHOT_KEY_CONFIRMABLE, confirmable);
         snapshot.put("incompleteReason", metrics.incompleteReason());
         return JsonUtils.objToJson(snapshot);
     }
@@ -538,6 +546,7 @@ public class StockMonthlyStateCalculator {
         putCoverageExclusionFields(snapshot, metrics);
         snapshot.put("incompleteReason", metrics.incompleteReason());
         snapshot.put("hysteresisReason", null);
+        snapshot.put(SNAPSHOT_KEY_CONFIRMABLE, false);
         return new StockMonthlyStateDraft(
                 stocksId, stocksShortname, effectiveMonth,
                 evidenceStartTime, evidenceEndTime,

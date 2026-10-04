@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.user;
+package pn.torn.goldeneye.torn.service.stocks.alert.market;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

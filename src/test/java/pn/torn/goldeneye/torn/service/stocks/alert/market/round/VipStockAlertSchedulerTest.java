@@ -348,6 +348,20 @@ class VipStockAlertSchedulerTest {
     }
 
     @Test
+    @DisplayName("启动补偿_月度编排_历史补建与最新桶创建全部成功时恰好调用一次")
+    void onStartup_monthlyOrchestration_calledOnceWhenPreconditionsOk() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(runtimeGate.evaluate()).thenReturn(decision(true, true, false, false, false));
+        when(marketClock.currentEndedBucket()).thenReturn(java.time.LocalDateTime.now());
+        when(roundDao.selectPendingRoundsUpTo(any())).thenReturn(List.of());
+
+        scheduler.onStartup();
+
+        // 月度三步(初始化/重算/自动确认)收敛为一次编排调用,且在轮次防重入标记释放之后执行
+        verify(monthlyStateInitService, times(1)).refreshCurrentMonthStates();
+    }
+
+    @Test
     @DisplayName("启动补偿_历史补建失败_存量轮次仍进入事务且allowNewEntry=false")
     void onStartup_historyRebuildFails_processesExistingRoundsWithNewEntryClosed() {
         // 历史重建失败必须关闭新入场, 但已存在PENDING轮次仍真实进入bar/特征/轮次事务,
@@ -377,6 +391,8 @@ class VipStockAlertSchedulerTest {
         verify(transactionService).executeRound(any(), any(), allowNewEntryCaptor.capture(), any());
         assertFalse(allowNewEntryCaptor.getValue(),
                 "历史重建失败时存量轮次事务必须收到allowNewEntry=false,关闭本次新入场");
+        // 历史补建失败必须阻断同次月度状态编排(fail-closed)
+        verify(monthlyStateInitService, never()).refreshCurrentMonthStates();
     }
 
     @Test

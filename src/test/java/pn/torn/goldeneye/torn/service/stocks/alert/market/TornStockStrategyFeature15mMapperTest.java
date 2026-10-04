@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 使用远离生产数据的固定未来{@code bar_start_time}与专用{@code stocks_id}作为隔离数据。
  *
  * @author Bai
- * @version 1.2.17
+ * @version 1.8.0
  * @since 2026.08.14
  */
 @SpringBootTest
@@ -112,7 +112,9 @@ class TornStockStrategyFeature15mMapperTest {
         LocalDateTime olderBar = TEST_BAR_START_TIME;
         LocalDateTime newerBar = TEST_BAR_START_TIME.plusMinutes(15);
         LocalDateTime futureBar = TEST_BAR_START_TIME.plusMinutes(30);
+        LocalDateTime newestBar = TEST_BAR_START_TIME.plusMinutes(45);
         feature15mDao.upsertFeature(buildReadyFeature(olderBar, TEST_REFERENCE_PRICE, TEST_FEATURE_VERSION));
+        // 同键(stocks_id+bar_start_time+feature_version)重复写入为DO UPDATE覆盖,最后写入的999生效
         feature15mDao.upsertFeature(buildReadyFeature(newerBar, TEST_REFERENCE_PRICE.add(BigDecimal.ONE),
                 TEST_FEATURE_VERSION));
         feature15mDao.upsertFeature(buildReadyFeature(newerBar, new BigDecimal("999.000000"),
@@ -121,20 +123,30 @@ class TornStockStrategyFeature15mMapperTest {
                 "LEGACY_VERSION"));
         feature15mDao.upsertFeature(buildReadyFeature(futureBar, new BigDecimal("888.000000"),
                 TEST_FEATURE_VERSION));
-
-        // 上界取newerBar:futureBar不入选;同bar_start_time的两行按id DESC取后插入的999;
-        // LEGACY_VERSION行因版本过滤不入选
-        List<TornStockStrategyFeature15mDO> rows = feature15mDao.selectLatestFeatures(
-                newerBar, TEST_FEATURE_VERSION);
-
-        TornStockStrategyFeature15mDO latest = rows.stream()
-                .filter(row -> row.getStocksId() != null && row.getStocksId() == TEST_STOCKS_ID)
+        // 追加同股更晚的一行(newestBar)后逻辑删除(removeById按全局逻辑删除配置置deleted=1):
+        // 逻辑删除行不得入选,最新行应回退到futureBar
+        feature15mDao.upsertFeature(buildReadyFeature(newestBar, new BigDecimal("555.000000"),
+                TEST_FEATURE_VERSION));
+        TornStockStrategyFeature15mDO deletedCandidate = feature15mDao.selectByStocksAndTimeRange(
+                        List.of(TEST_STOCKS_ID), newestBar, newestBar, TEST_FEATURE_VERSION).stream()
                 .findFirst().orElseThrow();
-        assertEquals(newerBar, latest.getBarStartTime(), "应取上界内最新bar时间");
-        assertEquals(0, new BigDecimal("999.000000").compareTo(latest.getReferencePrice()),
-                "同bar时间多行应按id DESC取最新写入");
+        feature15mDao.removeById(deletedCandidate.getId());
+
+        // 上界取newestBar:deleted=1的newestBar行不入选,最新有效行为futureBar(888);
+        // LEGACY_VERSION行因版本过滤不入选;newerBar同键最后写入的999生效
+        List<TornStockStrategyFeature15mDO> rows = feature15mDao.selectLatestFeatures(
+                newestBar, TEST_FEATURE_VERSION);
+
+        List<TornStockStrategyFeature15mDO> isolated = rows.stream()
+                .filter(row -> row.getStocksId() != null && row.getStocksId() == TEST_STOCKS_ID)
+                .toList();
+        assertEquals(1, isolated.size(), "每股必须恰好返回一行(逻辑删除行与版本过滤行不入选)");
+        TornStockStrategyFeature15mDO latest = isolated.getFirst();
+        assertEquals(futureBar, latest.getBarStartTime(), "deleted=1的更晚行不入选,应取futureBar");
+        assertEquals(0, new BigDecimal("888.000000").compareTo(latest.getReferencePrice()),
+                "最新有效行应为futureBar的888");
         assertEquals(TEST_FEATURE_VERSION, latest.getFeatureVersion(), "特征版本应原样回读");
-        assertTrue(rows.stream().allMatch(row -> !row.getBarStartTime().isAfter(newerBar)),
+        assertTrue(rows.stream().allMatch(row -> !row.getBarStartTime().isAfter(newestBar)),
                 "全部返回行bar时间不得晚于analysisTime上界");
     }
 

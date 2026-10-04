@@ -1,4 +1,4 @@
-package pn.torn.goldeneye.torn.service.user;
+package pn.torn.goldeneye.torn.service.stocks.alert.market;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -6,7 +6,6 @@ import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksHistoryDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockPricePoint;
 import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockRollingRsiWindow;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
