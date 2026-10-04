@@ -11,7 +11,7 @@
 
     <groupId>pn.torn</groupId>
     <artifactId>golden-eye</artifactId>
-    <version>1.7.0</version>
+    <version>1.8.0</version>
     <name>golden-eye</name>
     <description>金蝶独家官方认证</description>
 
@@ -171,7 +171,7 @@
         <profile>
             <id>shared-db-test</id>
             <properties>
-                <shared.db.tests>RwContributionSettleReplayItTest,StockAlphaBatchIdentityItTest,StockAlphaRebalanceTransactionItTest,OcBenefitQueryStrategyImplTest,OcBenefitRankStrategyImplTest,OcPlanningRewardStatsMapperTest,TornFactionOcBenefitMapperTest,TornAttackLogMapperTest,TornFactionRwStatWindowMapperTest,TornStocksHistoryMapperTest,TornBaseDataServiceTest,TornOcIncomeServiceTest,OcReassignConfigServiceTest,OcReassignSeedEquivalenceTest,TornStockPortfolioSlotInitMapperTest,TornStockStrategyFeature15mMapperTest,TornStockStrategyFeatureInvestorsMapperTest,ActivityDailyArchiveMapperTest,TornStockAlphaPersistenceMapperTest,TornStockNoticeAuditMapperTest,TornStockPortfolioAnnualSettlementMapperTest,StockAlphaHoldNoticeServiceItTest</shared.db.tests>
+                <shared.db.tests>RwContributionSettleReplayItTest,StockAlphaBatchIdentityItTest,StockAlphaRebalanceTransactionItTest,OcBenefitQueryStrategyImplTest,OcBenefitRankStrategyImplTest,OcPlanningRewardStatsMapperTest,TornFactionOcBenefitMapperTest,TornAttackLogMapperTest,TornFactionRwStatWindowMapperTest,TornStocksHistoryMapperTest,TornBaseDataServiceTest,TornOcIncomeServiceTest,OcReassignConfigServiceTest,OcReassignSeedEquivalenceTest,TornStockPortfolioSlotInitMapperTest,TornStockStrategyFeature15mMapperTest,TornStockStrategyFeatureInvestorsMapperTest,ActivityDailyArchiveMapperTest,TornStockAlphaPersistenceMapperTest,TornStockNoticeAuditMapperTest,TornStockPortfolioAnnualSettlementMapperTest,StockAlphaHoldNoticeServiceItTest,TornStockMonthlyStateMapperTest,TornStockMonthlyStateAutoConfirmMapperTest</shared.db.tests>
             </properties>
             <build>
                 <plugins>

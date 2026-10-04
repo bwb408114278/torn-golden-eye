@@ -4,6 +4,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.StockStrategyTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockTradeActionEnum;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -65,5 +66,12 @@ public record StockTradeAdvice(
 
     public String getStrategyName() {
         return strategyType.getName();
+    }
+
+    /**
+     * 参考价展示文本(2位小数HALF_UP,空值显示"-";仅展示层格式化,不改basePrice本身与评分输入)
+     */
+    public String getBasePriceText() {
+        return basePrice == null ? "-" : basePrice.setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 }

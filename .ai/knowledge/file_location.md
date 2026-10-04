@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.10.03
+- 最后更新：2026.10.04
 - 维护人：Bai
 - 状态：有效
 
@@ -34,6 +34,7 @@
 │       │   ├── stock_personality_monthly_calibration.md                                # 股票滚动一年风格分类、门禁、迟滞与回放规范
 │       │   ├── vip_stock_alert_strategy_background.md                                  # BUY/SELL淘汰结论和动态研究方向
 │       │   ├── vip_stock_alert_technical_design.md                                     # VIP群股票虚拟组合、消息提醒及数据库技术方案
+│       │   ├── vip_stock_private_analysis_upgrade_technical_design.md                  # 私聊Stock分析15m化+月度风格接入技术方案(1.8.0)
 │       │   ├── vip_stock_virtual_portfolio_strategy.md                                 # 系统虚拟组合完整业务设计与开发主依据
 │       │   └── virtual_portfolio_research_evidence.md                                  # 交易参考、冻结策略、组合与风格门禁研究证据
 │       ├── activity_heatmap_design.md                                                  # 活跃度热力图完整设计、数据口径与固定RGB色板
@@ -205,6 +206,14 @@
 │   │   │           │       │   └── notice/                                             # α通知文案与审计写入
 │   │   │           │       │       ├── StockAlphaHoldNoticeService.java                # α决策日继续持有通知审计写入
 │   │   │           │       │       └── StockAlphaNoticeRenderer.java                   # α买卖/换仓/继续持有正文渲染
+│   │   │           │       ├── monthly/                                                # 月度风格状态(1.8.0复活精简版,仅SYSTEM自动确认)
+│   │   │           │       │   ├── StockMonthlyEvidenceComputer.java                   # 月度证据指标纯计算(raw/adjusted双口径)
+│   │   │           │       │   ├── StockMonthlyEvidenceMetrics.java                    # 月度证据指标record
+│   │   │           │       │   ├── StockMonthlyOutageWaiver.java                       # 已备案停机窗口豁免(日历指标adjusted口径)
+│   │   │           │       │   ├── StockMonthlyPrevious.java                           # 上一确认月迟滞参考record
+│   │   │           │       │   ├── StockMonthlyStateCalculator.java                    # 成熟度/六类风格/风险投票与迟滞纯计算
+│   │   │           │       │   ├── StockMonthlyStateDraft.java                         # 月度状态计算结果record
+│   │   │           │       │   └── StockMonthlyStateInitService.java                   # 月度DRAFT初始化/重算/SYSTEM自动确认与启动编排(分片)
 │   │   │           │       ├── StockMarketRoundLoader.java                             # 轮次快照批量加载(事务外)
 │   │   │           │       ├── StockRoundTransactionService.java                       # 轮次12步事务编排
 │   │   │           │       ├── StockBatchPathService.java                              # 持仓路径更新与退出评估
@@ -215,7 +224,9 @@
 │   │   │           │       ├── StockVirtualBatchAssembler.java                         # 批次字段组装器
 │   │   │           │       ├── Stock15mBarBuildService.java                            # 15分钟bar构建
 │   │   │           │       ├── Stock15mFeatureBuildService.java                        # 15分钟策略特征构建
+│   │   │           │       ├── Stock15mTradeFeatureProvider.java                       # 私聊Stock分析15m特征取数与就绪分流(只读)
 │   │   │           │       ├── StockDailySummaryService.java                           # 每日权益摘要
+│   │   │           │       ├── StockMinuteRsiCalculator.java                           # 指令触发时分钟RSI(60)现算(1.8.0自user迁入,消除包依赖环)
 │   │   │           │       ├── notice/                                                 # 通知组装与发送
 │   │   │           │       │   ├── StockNoticeNoGenerator.java                         # 通知编号时间戳唯一实现
 │   │   │           │       │   └── StockNoticeSendService.java                         # NapCat消息投递
@@ -226,7 +237,8 @@
 │   │   │           │           ├── StockAnnualSettlementService.java                   # 年度结算编排(可证窗口/门禁/落库/通知)
 │   │   │           │           └── VipStockAnnualSettlementScheduler.java              # 年度结算调度(00:05主入口与补偿)
 │   │   │           └── user/                                                           # 用户相关功能
-│   │   │               └── StockTradeStrategyService.java                              # 股票交易策略逻辑层
+│   │   │               ├── StockMonthlyStyleResolver.java                              # 私聊Stock分析月度风格选月/沿用/停推解析(只读)
+│   │   │               └── StockTradeStrategyService.java                              # 私聊Stock分析策略逻辑层(15m特征+月度风格)
 │   │   └── resources/                                                                  # 资源文件
 │   │       ├── db/changelog/                                                           # Liquibase的数据库修改日志
 │   │       │   └── 1.0.1-2.0.0/                                                        # 1.0.1到2.0.0版本的改动
@@ -237,8 +249,10 @@
 │   │       │       ├── 1.6.6/                                                          # 1.6.6版本改动
 │   │       │       │   ├── stocks-alpha-hold-notice.yaml                               # α继续持有通知轨道列与幂等索引
 │   │       │       │   └── stocks-annual-settlement.yaml                               # 年度结算台账与年报通知幂等索引
-│   │       │       └── 1.6.7/                                                          # 1.6.7版本改动
-│   │       │           └── oc-delay-cause.yaml                                         # OC延误归因delay_cause加列
+│   │       │       ├── 1.6.7/                                                          # 1.6.7版本改动
+│   │       │       │   └── oc-delay-cause.yaml                                         # OC延误归因delay_cause加列
+│   │       │       └── 1.8.0/                                                          # 1.8.0版本改动
+│   │       │           └── stocks-monthly-state-revive.yaml                            # 月度风格状态表复活(preConditions幂等)
 │   │       └── mapper/                                                                 # Mapper文件
 │   │           ├── faction/                                                            # 帮派相关
 │   │           │   └── oc/                                                             # OC相关
@@ -273,21 +287,26 @@
 │                   │       │   └── TornOcRecommendServiceTest.java                     # OC推荐功能测试
 │                   │       ├── TornFactionOcBenefitServiceTest.java                    # 帮派OC收益功能测试
 │                   │       └── TornOcCompleteNoticeServiceTest.java                    # OC完成通知与延误归因测试
-│                   └── stocks/                                                         # 股票相关功能
-│                       └── alert/                                                      # VIP股票提醒测试
-│                           ├── alpha/                                                  # α相位轨道测试
-│                           │   └── notice/                                             # α通知测试
-│                           │       └── StockAlphaHoldNoticeServiceItTest.java          # α继续持有通知真实数据库集成测试
-│                           ├── StockRoundTransactionServiceTest.java                   # 轮次12步事务编排测试
-│                           ├── StockBatchPathServiceTest.java                          # 持仓路径更新与退出评估测试
-│                           ├── StockBatchExitServiceTest.java                          # 退出规则引擎测试
-│                           ├── StockEntrySettlementServiceTest.java                    # 待买/待卖批次结算测试
-│                           ├── StockRoundExitGuardTest.java                            # 同轮平仓候选过滤测试
-│                           └── settlement/                                             # α年度结算测试
-│                               ├── StockAnnualSettlementCalculatorTest.java            # 年度结算纯计算测试
-│                               ├── StockAnnualSettlementRendererTest.java              # 年度报告正文渲染测试
-│                               ├── StockAnnualSettlementServiceTest.java               # 年度结算编排(幂等/窗口/门禁)测试
-│                               └── TornStockPortfolioAnnualSettlementMapperTest.java   # 年度结算台账真实数据库测试
+│                   ├── stocks/                                                         # 股票相关功能
+│                   │   └── alert/                                                      # VIP股票提醒测试
+│                   │       ├── alpha/                                                  # α相位轨道测试
+│                   │       │   └── notice/                                             # α通知测试
+│                   │       │       └── StockAlphaHoldNoticeServiceItTest.java          # α继续持有通知真实数据库集成测试
+│                   │       ├── market/                                                 # 15m市场数据与私聊取数测试
+│                   │       │   ├── StockMinuteRsiCalculatorTest.java                   # 分钟RSI现算测试(1.8.0自user迁入)
+│                   │       │   └── TornStockStrategyFeature15mMapperTest.java          # 15m特征Mapper真实PostgreSQL集成测试
+│                   │       ├── StockRoundTransactionServiceTest.java                   # 轮次12步事务编排测试
+│                   │       ├── StockBatchPathServiceTest.java                          # 持仓路径更新与退出评估测试
+│                   │       ├── StockBatchExitServiceTest.java                          # 退出规则引擎测试
+│                   │       ├── StockEntrySettlementServiceTest.java                    # 待买/待卖批次结算测试
+│                   │       ├── StockRoundExitGuardTest.java                            # 同轮平仓候选过滤测试
+│                   │       └── settlement/                                             # α年度结算测试
+│                   │           ├── StockAnnualSettlementCalculatorTest.java            # 年度结算纯计算测试
+│                   │           ├── StockAnnualSettlementRendererTest.java              # 年度报告正文渲染测试
+│                   │           ├── StockAnnualSettlementServiceTest.java               # 年度结算编排(幂等/窗口/门禁)测试
+│                   │           └── TornStockPortfolioAnnualSettlementMapperTest.java   # 年度结算台账真实数据库测试
+│                   └── user/                                                           # 用户相关功能测试
+│                       └── Stock15mTradeFeatureProviderTest.java                       # 私聊Stock分析15m特征取数组件测试
 ├── pom.xml                                                                             # Maven构建项目依赖
 └── README.md                                                                           # 项目说明文档
 ```

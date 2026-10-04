@@ -1,12 +1,12 @@
 # VIP 私聊 Stock分析 升级技术设计（15m 特征链 + 月度风格接入）
 
 > **文档类型：** 技术设计（实施依据）  
-> **适用项目：** Golden-Eye；**计划开发版本 2.0.0（已确认）**
+> **适用项目：** Golden-Eye；**计划开发版本 1.8.0（2026-10-04 确认，原 2.0.0 计划变更）**  
 > **状态：** 设计已冻结，未开始编码；本方案只服务 VIP 私聊指令 `Stock分析`，不授权改动 α 决策路径  
 > **风险等级：** 混合 — 私聊指令切换到 15m 属 **L2**（只读输出，无资金/业务状态写入）；`torn_stock_monthly_state` 表复活与一次性历史回补属 **L3**（Schema 迁移、批量派生物重建）  
 > **业务时区：** `Asia/Shanghai`  
 > **消费方：** 单一消费方 — `BotCommands.VIP_STOCK_RECOMMEND = "Stock分析"`（`BotCommands.java:239`）  
-> **最后更新：** 2026-09-24
+> **最后更新：** 2026-10-04
 
 ---
 
@@ -273,11 +273,11 @@ effectiveThreshold = personality.getBuyThreshold()
 | 新增 | `repository/mapper/torn/stocks/portfolio/TornStockStrategyFeature15mMapper.java`（+方法） | `selectLatestFeatures` |
 | 修改 | `src/main/resources/mapper/torn/stocks/portfolio/TornStockStrategyFeature15mMapper.xml` | 上述 LATERAL SQL（只增不改既有语句） |
 | 新增 | `torn/service/stocks/alert/market/Stock15mTradeFeatureProvider.java`（命名待定） | 调 15m DAO，映射为内部特征点，执行 3.3 的 A/B/C/D 分流 |
-| 新增 | `torn/service/user/StockMinuteRsiCalculator.java`（命名待定） | 一次性批量取分钟点 → 每股 RSI(60) |
+| 新增 | `torn/service/stocks/alert/market/StockMinuteRsiCalculator.java` | 一次性批量取分钟点 → 每股 RSI(60)；1.8.0 实现时自 `torn/service/user/` 迁入 `alert/market/`（与该 provider 同包），消除 `service.user ↔ alert.market` 包依赖环，测试同迁 |
 | 新增 | `torn/service/user/StockMonthlyStyleResolver.java`（命名待定） | 读月度状态、选月、留痕、告警，见第二章 |
 | 修改 | `torn/service/user/StockTradeStrategyService.java` | 换数据源、null 安全、门槛叠加、理由文案；删除 `resolvePersonality` 的 `sys_setting` 依赖 |
 | 修改 | `napcat/strategy/vip/VipStocksStrategyImpl.java` | 理由/表格追加月度风险与沿用留痕；**列数保持 6 列**，不改 `TableImageUtils` 合并配置 |
-| 可能修改 | `torn/service/stocks/alert/market/Stock15mBarBuildService.java` | 仅 `dedupByTime` 可见性（见 3.2 选项 a） |
+| 修改 | `torn/service/stocks/alert/market/Stock15mBarBuildService.java` | 已落：`dedupByTime` 改 `public static`（3.2 选项 a），去重逻辑与 `DedupResult` 未变，α 侧零影响 |
 
 `StockTradeAdvice` 为 record（21 个分量，`StockTradeAdvice.java:39-61`）。**若不新增字段**，月度信息全部走 `reasons` 文案，`VipStocksStrategyImpl` 无需改动构造调用；若确需结构化字段，必须同步 `StockTradeStrategyService.toAdvice`（唯一构造点）。**本期按"不加字段、只加理由文案"执行，避免 record 签名扩散。**
 
@@ -333,17 +333,17 @@ effectiveThreshold = personality.getBuyThreshold()
 | 1.4.8 | `1.0.1-2.0.0/1.4.8/monthly-state-rule-version-widen.yaml` → `widen_monthly_state_rule_version_columns` | `personality_rule_version`/`risk_rule_version` → `VARCHAR(64)` |
 | 1.6.5 | `1.0.1-2.0.0/1.6.5/stocks-alpha-dual-basis.yaml` → `drop_retired_stock_monthly_state_table`（:58-63） | `dropTable: torn_stock_monthly_state` |
 
-**关键结论：不能靠"删除 1.6.5 的 drop"来复活。** 1.2.0 的 create changeSet 早已在 `DATABASECHANGELOG` 中标记执行，Liquibase 不会重跑；即使删掉 drop，空库/新库与已部署库的状态也会分叉。**必须新增 changeSet 重建表**（新版本目录 include 追加到 `db.changelog-master.yaml` 末尾，当前位置最后一项为 `1.6.5/stocks-alpha-dual-basis.yaml`，`db.changelog-master.yaml:111-112`）。
+**关键结论：不能靠"删除 1.6.5 的 drop"来复活。** 1.2.0 的 create changeSet 早已在 `DATABASECHANGELOG` 中标记执行，Liquibase 不会重跑；即使删掉 drop，空库/新库与已部署库的状态也会分叉。**必须新增 changeSet 重建表**（新版本目录 include 追加到 `db.changelog-master.yaml` 末尾，当前位置最后一项为 `1.6.7/oc-delay-cause.yaml`；最新发布版本为 1.7.0，最后一次数据库变更为 1.6.7）。
 
 ```text
-新增：src/main/resources/db/changelog/1.0.1-2.0.0/<新版本目录>/stocks-monthly-state-revive.yaml
-修改：src/main/resources/db/changelog/db.changelog-master.yaml   （只追加 include）
+新增：src/main/resources/db/changelog/1.0.1-2.0.0/1.8.0/stocks-monthly-state-revive.yaml
+修改：src/main/resources/db/changelog/db.changelog-master.yaml   （只追加 include，置于 1.6.7 之后）
 ```
 
 - changeSet id：`revive_stock_monthly_state_table`（author: Bai），内容 = 1.2.0 原 DDL（含 `uk_stock_monthly_state_stock_month`、`idx_stock_monthly_state_month_status`、`ck_monthly_effective_month`、`ck_monthly_evidence_window`、`ck_monthly_confirmed_at`、`ck_monthly_confirmed_complete`），列宽直接取 1.4.8 后的 `VARCHAR(64)`；
 - 加 `preConditions: tableExists` 取反保护（或 `onFail: MARK_RAN`），保证"已存在则不动"的幂等语义；
-- **新版本目录名待确认**（当前 `pom.xml` 版本为 `1.6.5`，需按发布版本决定是 `1.6.6` 还是 `1.7.0`）；
-- **待确认：** 生产库当前是否存在 `torn_stock_monthly_state`、`DATABASECHANGELOG` 中 1.6.5 的 drop 是否已执行（本次无库访问权限，未核实）。
+- **新版本目录名已确认（2026-10-04）：`1.8.0`**（开发版本 1.8.0；最新发布版本 1.7.0，最后一次数据库变更为 1.6.7）；
+- **已确认（2026-10-04）：** 生产库 1.6.5 的 drop 已执行、`torn_stock_monthly_state` 不存在；复活 changeSet 按「已部署库 + 空库」双场景验证即可。
 
 **精简项（代码层，不是列层）：** 表结构保持与原 DDL 一致（避免 schema 漂移），但
 
@@ -363,8 +363,8 @@ effectiveThreshold = personality.getBuyThreshold()
 | `.../StockMonthlyStateDraft.java` | **保留** |
 | `.../StockMonthlyPrevious.java` | **保留**，`previous` 改为读"最近一期已生效月份" |
 | `.../StockMonthlyStateInitService.java` | **保留**，删除人工入口 |
-| `.../StockMonthlyEvidenceExclusionPolicy.java` | **默认不取回（待确认）**：它把规则版本绑定到 `PERSONALITY_RULE_V2_OUTAGE_EXCLUSION` / `RISK_RULE_V2_OUTAGE_EXCLUSION`（停机窗口 `TORN_MARKET_OUTAGE_20260214_0801_1515`）。若取回，规范 §1 的 `PERSONALITY_RULE_V1` / `RISK_RULE_V1_SHADOW` 版本口径必须同步明确，否则冻结版本会漂移 |
-| `torn/service/stocks/rebuild/StockMonthlyStateRangeRebuildService.java` | **保留**（`rebuild(startInclusive, endExclusive)`，回补指令复用） |
+| `.../StockMonthlyEvidenceExclusionPolicy.java` | **不取回原类**：其形态把规则版本绑定到 `PERSONALITY_RULE_V2_OUTAGE_EXCLUSION` / `RISK_RULE_V2_OUTAGE_EXCLUSION`，会让冻结版本漂移。1.8.0 以**最小形态**取回豁免能力 —— 新增 `StockMonthlyOutageWaiver`（纯静态领域类），规则版本保持 `PERSONALITY_RULE_V1` / `RISK_RULE_V1`，见 4.2.1 |
+| `torn/service/stocks/rebuild/StockMonthlyStateRangeRebuildService.java` | **已删除**（唯一调用方为一次性回补指令；回补完成并验收通过后按 §4.7 生命周期删除） |
 | `repository/model/torn/stocks/portfolio/TornStockMonthlyStateDO.java` | **保留**（字段与 4.1 表一致） |
 | `repository/dao|mapper/.../TornStockMonthlyStateDAO.java` / `Mapper.java` / `TornStockMonthlyStateMapper.xml` | **保留**（含 `autoConfirmDraftStates` 批量更新） |
 | 测试 `StockMonthly*Test` / `TornStockMonthlyState*MapperTest` | **保留**并随减法更新 |
@@ -375,6 +375,25 @@ effectiveThreshold = personality.getBuyThreshold()
 2. `StockMonthlyStateCalculator` 中删除人工覆盖优先级分支（规范 §8.2 的 `manualOverride = true` 路径），`strategyFitPrior := suggestedPersonality` 恒成立；
 3. 保留 `maturity`、`riskLevel`、迟滞规则、`previous`、规则版本、证据快照、DRAFT 状态与 `autoConfirmDraftStates`；
 4. `StockStrategyFitEnum` / `StockMaturityEnum` / `StockRiskLevelEnum` 三个枚举**已在代码树中**（含 `ALPHA_NOT_EVALUATED`），直接复用，不新增枚举。
+
+#### 4.2.1 已备案停机窗口豁免（1.8.0 最小形态，冻结）
+
+**问题**：2026-02-14 07:45→15:15 的一次性 Torn 停机在 15m 可用 bar 上留下 **450 分钟间隔**（超过规范 §3.7 的 `maxMissingBucketGap <= 2h`）；证据窗口固定 365 天，该间隔因此落在其后的**每一个**窗口中，导致 2026-03 起所有月份 `complete=false`、`strategyFitPrior/riskLevel=null`、无法自动确认，最终私聊指令全量停推。
+
+**冻结口径**（实现载体 `torn/service/stocks/alert/monthly/StockMonthlyOutageWaiver.java`，纯静态领域类，无 Spring/DAO/时钟）：
+
+```text
+EXCLUSION_ID = "TORN_MARKET_OUTAGE_20260214_0801_1515"
+window       = [2026-02-14T08:00, 2026-02-14T15:15)   // 15 分钟对齐，覆盖实际停机 08:01–15:15
+```
+
+1. 豁免**只作用于** `usableBarCoverage` 与 `maxMissingBucketGap` 的 **adjusted** 口径；价格、趋势、收益、回撤、日收盘、月均、风险投票、成交一律不参与；
+2. `expected15mBucketCount` 扣除「完整落在证据区间内的窗口对齐桶」（`excludedBucketCount`）；相邻可用 bar 间隔逐段扣除与窗口的真实重叠分钟（`excludedOverlapMinutes`），下限 0；
+3. 指标快照同时披露 raw 与 adjusted 双口径及 `excludedBucketCount` / `excludedMinutes` / `appliedExclusionIds`；**完整性判定使用 adjusted 口径，raw 全量留痕可审计**；
+4. **未备案的新停机仍然阻断**（fail-closed 不放松）：新增窗口必须显式追加常量并随版本发布，**禁止 DB/配置热更新**；窗口定义在类加载时 fail-fast（非 15 分钟对齐或 `start >= end` 直接抛异常）；
+5. 规则版本仍为 `PERSONALITY_RULE_V1` / `RISK_RULE_V1` —— 分类公式未变，豁免属于**数据质量口径**，不引入 `*_V2_OUTAGE_EXCLUSION`；
+6. 验收门禁见 §6.3 G3：期望 `rawMaxMissingBucketGap=450`、`waived=35`、adjusted ≤ 120 分钟；2026-02 的证据窗口不含该停机 → `waived=0`；
+7. **证据终点口径（登记不改）**：`evidenceEnd` 取桶闭合时间（`edge.barEndTime`，23:45 桶 → 次月 1 日 00:00），而 `loadEvidenceBars` 的查询上界取 23:45，两者相差 15 分钟使期望桶数多计 1 桶，覆盖率被系统性低估约 1/26208 ≈ 0.004%。**不影响任何判定**（实测 adjusted 覆盖率 0.9995~0.9997 ≫ 0.95，adjusted 最大间隔 30~75 分钟 ≪ 120），故本期不改；如需统一上界须单独变更单并重跑回补与验收。
 
 ### 4.3 只保留 SYSTEM 自动确认
 
@@ -390,9 +409,10 @@ effectiveThreshold = personality.getBuyThreshold()
 3. 所有必填指标与状态非空；
 4. 规则版本等于当前冻结版本；
 5. 不存在待人工复核标记；
-6. 已生成 `previous` 状态与迟滞结果。
+6. 已生成 `previous` 状态与迟滞结果；
+7. 指标快照 `metric_snapshot.confirmable = true` —— 条件 5/6 的机器结论。实现把 `personality.confirmable() && risk.confirmable()` 写入快照，确认侧解析该键：**键缺失、解析失败或非布尔一律视为 false（fail-closed）**；不完整草稿的快照固定写 `confirmable=false`。
 
-**DRAFT 的语义冻结：** DRAFT = "上月末数据未补齐就先不生效"的**数据质量闸门**，不是等人确认的工作流。证据补齐后由幂等重算（`recalculateMonthDrafts`）重新计算，再走自动确认；**不允许**"创建不完整 DRAFT 后永久跳过重算"。数据库层 `ck_monthly_confirmed_complete` 约束（`state_status = 'CONFIRMED'` 时风格/成熟度/风险/证据窗口必须非空）作为第二道防线。
+**DRAFT 的语义冻结：** DRAFT = "上月末数据未补齐就先不生效"的**数据质量闸门**，不是等人确认的工作流。证据补齐后由幂等编排（`refreshCurrentMonthStates()`）重新计算，再走自动确认；**不允许**"创建不完整 DRAFT 后永久跳过重算"。数据库层 `ck_monthly_confirmed_complete` 约束（`state_status = 'CONFIRMED'` 时风格/成熟度/风险/证据窗口必须非空）作为第二道防线。
 
 ### 4.4 消费口径（写入 `StockTradeStrategyService`）
 
@@ -408,7 +428,23 @@ effectiveThreshold = personality.getBuyThreshold()
 
 - **风格编码映射是 1:1 的**：`StockStrategyFitEnum` 与 `StockPersonalityEnum` 六类业务编码同名（`DECLINER`/`WEAK`/`NARROW`/`RANGING`/`STEADY`/`STRONG`），`ALPHA_NOT_EVALUATED` 是 α 专用伪值，**私聊解析遇到它必须视为"无可用风格"而不是风格**；
 - `StockPersonalityEnum` 保留为**评分参数表**（不动其数值，阈值校准是另一专题），但其 Javadoc 中"每月初根据数据库分析结果更新 `sys_setting` 表的 `STOCK_PERSONALITY` 配置"（`StockPersonalityEnum.java:8-9`）必须改写为月度状态表来源；
-- **展示落地（不改表格列数）**：在 `reasons` 追加一条月度摘要，例如 `月度：风格=RANGING 成熟度=M3_SEASONED 风险=HIGH（2026-09 生效）`；若 `HIGH` 再追加 `月度风险HIGH：买入门槛+10`；若 `M1_EARLY` 再追加 `成熟度早期：买入门槛+10`。
+- **展示落地（不改表格列数）**：私聊 `Stock分析` 的输出文案与格式化规则冻结在 §4.4.1；在 `reasons` 追加一条月度摘要 `月度：风格=强势 成熟度=成熟 风险=高风险`（**不显示生效月份**），门槛类提示按 §4.4.1 第 4 条合并为一行 `本月买入门槛 +N（… +10、… +10）`。
+
+### 4.4.1 私聊输出文案与格式化（冻结，2026-10-04 定稿）
+
+**规则（长期有效；一次性评审稿实施后以本条为准）：**
+
+1. **零英文 token（`Stock` 例外与敏感词边界）**：用户可见处（表头、标题、依据、告警、指令描述）不得出现英文编码；中文一律取枚举 `chineseDisplay` —— 风格用 `StockStrategyFitEnum`（持续下行 / 弱势 / 窄幅震荡 / 区间震荡 / 稳健 / 强势，α 伪值→α 未评估风格）、成熟度用 `StockMaturityEnum`（未成熟 / 早期 / 暂定 / 较成熟 / 成熟）、风险用 `StockRiskLevelEnum`（暂无明显风险 / 中等风险 / 高风险）。**边界（2026-10-04 用户判定）：**「`股票` 触发敏感词检测并可能封号」这一风险**只对纯文字消息成立**；`Stock分析` 的输出整体是图片（`VipStocksStrategyImpl` → `buildImageMsg`，全表含标题/依据/告警），**图片内文案不受该风险约束**。约定：文案一律沿用 `Stock` 写法（表头首列、标题、指令描述、理由文案），**图片内已存在的「股」字样不回改**（如 `持续下行股…` / `弱势股…` / `非强势股…`）；新增或改写的文案统一写 `Stock`，以便将来复用为文字消息时不触发检测；
+2. **月度摘要不显示生效月份**：`月度：风格=<中文> 成熟度=<中文> 风险=<中文>`；沿用场景仍必须保留留痕 `使用 YYYY-MM 风格（YYYY-MM 未生成）`（月度规范 §13.4）；
+3. **参考价 2 位小数**：`HALF_UP`，仅展示层格式化（不改库、不改评分输入），空值显示 `-`；
+4. **门槛文案（合并为一行）**：命中项输出为 `本月买入门槛 +N（数据不足 +10、成熟度早期 +10、风险高 +10）`，只列命中项、`N` 为合计；窗口不足的项名用短形式 `数据不足` / `数据不连续`（不追加括号说明，避免合并行内嵌套括号）；
+5. **告警与不推荐文案**：`<简称>：月度风格不可用（<中文原因>），已停止推荐`；原因文案不得重复模板词、不得回显英文编码（`ALPHA_NOT_EVALUATED` → `风格编码 α 未评估`）；**未知编码例外**：`风格编码不可识别：<原值>` 保留原值便于排障（`ck_monthly_confirmed_complete` + 只读 `CONFIRMED` ⇒ 正常不可达）；
+6. **依据行**：统一 `· ` 前缀，顺序固定为「信号理由 → 月度摘要 → 沿用留痕 → 门槛调整」；
+7. **其他中文替换**：`RSI` → `相对强弱指标`；`月度成熟度M0` → `月度成熟度不足（未成熟）`；风格口语名（`阴跌型` / `弱势`）统一为枚举中文名（`持续下行` / `弱势`）；`Stock` 保留约定与图片/文字边界见第 1 条；标题 `… Stock模型记录`、表头首列 `Stock`、指令描述 `查看Stock模型分析结果（系统内部研究口径）`；
+8. **表格结构不变**：列数与列顺序保持 6 列（Stock / 参考价 / 系统动作 / 系统评分 / 规则说明 / 依据）；动作配色、依据限长、排序等增强未纳入本版（仅在一次性评审稿中留档）。
+9. **文案测试**：ASCII 字母守卫断言必须**先剔除白名单 `Stock`**（敏感词规避写法）再判定，且注释写明白名单原因 —— 否则未来含 `Stock` 的理由会被误判为「英文残留」，可能被错误改回敏感词。
+
+**已明确的取舍：** 依据行不再出现英文编码后，排障改查应用日志（日志仍打原始编码）；`StockPersonalityEnum.description` 保留为内部参数说明，不再拼进用户文案。
 
 ### 4.5 与日内风险扣分的职责边界（不重复扣分）
 
@@ -447,43 +483,31 @@ latest = max(effectiveMonth) where stocks_id = X and state_status = 'CONFIRMED' 
 
 **告警不新增平台：** 告警走"指令回复文案 + 应用日志"，不接独立消息通道（见第 7 节）。
 
-### 4.7 一次性回补指令
+### 4.7 一次性回补指令（已执行完成，指令与专用逻辑已删除）
 
-**指令：** 新增超管指令（命名待确认）`BotCommands.MONTHLY_STYLE_BACKFILL = "回补Stock月度风格"`，参数 `yyyy-MM#yyyy-MM`（起始月#结束月），参考既有超管指令风格（`StocksFeatureBuildStrategyImpl`、`StockDerivedDataRebuildStrategyImpl`）。
+**状态（2026-10-04 冻结）：** 回补已在正式环境执行完成（范围 `2026-02~2026-10`），§6.3 数据验收 G1~G4 全绿 → 本节「一次性生命周期」生效，指令与回补专用逻辑整体下线；**不再修复**该指令的参数解析缺陷（契约反例留档见 `.ai/knowledge/command-discovery-and-doc-image-technical-design.md` §3.3）。 **删除已于 2026-10-04 由开发执行完成（commit `93c92213`）并经 Review 复核通过：** 策略类、`BotCommands.MONTHLY_STYLE_BACKFILL`、`StockMonthlyStateRangeRebuildService` 与其测试整文件删除；`StockMonthlyStateInitService` 只移除 5 个专用符号（`initMonth`/`initMonthInternal`/`recalculateMonthDrafts`/`recalculateMonthDraftsInternal`/`loadConfirmedStockIds`），`refreshCurrentMonthStates()` 及其全部共享实现保留；3 条关键断言（末桶证据终点、双版本严格过滤×2）已迁移到 `refreshCurrentMonthStates()` 入口。定向单元回归 68 例全绿；shared-db `@SpringBootTest` 因沙箱无法安装 Chromium 报 7 例环境错误（与本次删除无关）。
 
-**执行顺序（强制"先 bar/feature → 再月度状态"，规范 §2.1 冷启动顺序）：**
+**指令（已删除）：** `BotCommands.MONTHLY_STYLE_BACKFILL = "回补Stock月度风格"`，参数 `yyyy-MM#yyyy-MM`（起始月#结束月）。
 
-```text
-for month in [startMonth .. endMonth] 按月正序:
-  1. evidenceEnd   = month 开始前最后一个可用 15m bar 时间（规范 §2）
-     evidenceStart = max(该股首个可用 bar, evidenceEnd - 365 天)
-  2. 派生数据补齐（幂等、按自然日分片、不写业务状态）：
-     StockDerivedDataRebuildService.rebuildRange(bucket(evidenceStart), bucket(evidenceEnd) + 15m)
-     —— 或引导人工先用既有超管指令「重建Stock派生数据」完成，再由回补指令只做第 3 步
-  3. 月度状态：
-     StockMonthlyStateInitService.initMonth(effectiveMonth)               // 生成 DRAFT，ignore conflict
-     StockMonthlyStateInitService.recalculateMonthDrafts(effectiveMonth)  // 证据补齐后的幂等重算
-     StockMonthlyStateInitService.autoConfirmDraftStates(effectiveMonth)  // 仅 SYSTEM，条件不满足保持 DRAFT
-  4. 单月失败只记 ERROR 并继续下一月（不中断、可重跑）
-```
+**一次性生命周期（2026-10-04 用户确认）：** 回补完成并逐支对账通过后，回补指令、策略实现与回补专用编排逻辑必须在后续版本删除，不得作为常驻能力保留。
 
-**幂等与不可覆盖约束：**
+| 删除项 | 依据 |
+|---|---|
+| `napcat/strategy/manage/StockMonthlyStyleBackfillStrategyImpl.java`（整文件） | 一次性指令策略本体（`getCommand()` 唯一引用下述常量） |
+| `BotCommands.MONTHLY_STYLE_BACKFILL`（`constants/bot/BotCommands.java:215-217`） | 全仓仅策略本体引用 |
+| `torn/service/stocks/rebuild/StockMonthlyStateRangeRebuildService.java`（整文件） | 唯一生产调用方为该策略 |
+| `StockMonthlyStateInitService#initMonth(LocalDate)` / `#recalculateMonthDrafts(LocalDate)` 及其内部实现与仅被其调用的 `loadConfirmedStockIds` | 调用方仅为上述范围重算门面；生产入口为 `refreshCurrentMonthStates()` |
+| `StockMonthlyStateRangeRebuildServiceTest`（整文件） + `StockMonthlyStateInitServiceTest` 中 9 个以 `initMonth`/`recalculateMonthDrafts` 为入口的用例 | 入口删除，测试随之收敛 |
 
-- `insertDraftStatesIgnoreConflict` + 唯一键 `uk_stock_monthly_state_stock_month (stocks_id, effective_month) WHERE deleted = 0`；
-- 已 `CONFIRMED` 的月份/股票**不覆盖、不重算**（`selectExistingStockIdsByMonth` / `selectConfirmedByMonth` 先过滤）；
-- `autoConfirmDraftStates` 只处理 `DRAFT`；
-- 回补过程不触碰 `torn_stocks_history`、不调用 `StockRoundTransactionService`、不写 signal_event / virtual_batch / batch_mark / notice_audit / 槽位 / 资金 / 冷却（与 `StockDerivedDataRebuildService` 的既有边界一致，`StockDerivedDataRebuildService.java:36-38`）。
+**断言必须迁移、不得随删除丢失：** `initMonth_2345LastBucket_evidenceEndIsBarEndTime`（对应 §4.2.1 第 7 条证据终点口径）与 `loadPrevious_strictVersionIsolation_*`（SQL 侧严格双版本过滤、首月 `previous=null`）共 3 个用例，入口改为 `refreshCurrentMonthStates()` 后保留同等断言。
 
-**回补完成后对账（一次性，硬门禁）：**
+**禁止一并删除（生产共享）：** `refreshCurrentMonthStates()`、`autoConfirmDraftStates()`、`TornStockMonthlyStateDAO#selectLatestConfirmedUpToMonth`（产品链路 `StockMonthlyStyleResolver:90` 在用），以及被 `refreshCurrentMonthStates()` 复用的证据装载/草稿构造私有实现。
 
-```text
-对账源：sys_setting 中 key = 'STOCK_PERSONALITY'（SettingConstants.KEY_STOCK_PERSONALITY）
-        → SysSettingManager.getStockPersonalities() 解析出的 (shortname → StockPersonalityEnum)
-对账对象：最近一期已生效月份的 strategy_fit_prior（35 支）
-输出：逐支 (stocksShortname, 旧风格, 新风格, 是否一致)；差异逐支人工判定
-```
+**执行记录（已完成）：** 按月正序执行「初始化 DRAFT → 证据补齐后幂等重算 → 仅 SYSTEM 自动确认（条件不满足保持 DRAFT）」，单月失败只记 ERROR 并继续（可同范围幂等重跑）；`insertDraftStatesIgnoreConflict` + 唯一键 `uk_stock_monthly_state_stock_month (stocks_id, effective_month) WHERE deleted = 0` 保证已 CONFIRMED 月份/股票不覆盖、不重算；不触碰 `torn_stocks_history`、不调用 `StockRoundTransactionService`、不写 signal_event / virtual_batch / batch_mark / notice_audit / 槽位 / 资金 / 冷却。
 
-对账结果只落日志与指令回复文本，**不建对账表**。**待确认：** 35 支股票的实际差异清单与旧配置行内容，本次未取数。
+**逐支对账（已完成，§4.8 的唯一例外读取）：** 对账源 `sys_setting.STOCK_PERSONALITY`（382 字符、35 支），对账对象为最近一期已生效月份（`effective_month = 2026-10-01`）的 `strategy_fit_prior`；结论：35 支全部可比，**一致 6 支、不一致 29 支**（差异为口径切换的正常结果，清单与判定见 §6.3）。结果只落日志与指令回执，**不建对账表**；对账代码随本指令一并删除。
+
+**删除后的唯一生成入口：** 月度状态只由应用启动补偿生成（`VipStockAlertScheduler#processStartupMonthlyStatesSafely` → `refreshCurrentMonthStates()`）。若服务跨月持续运行且不重启，新月份不生成行，产品按 §4.6 沿用最近已生效月并在理由列留痕「使用 YYYY-MM 风格（YYYY-MM 未生成）」；当前运维事实为按版本部署即重启，故保持删除，如需月度自动生成另立需求新增调度（§7 第 15 条）。
 
 ### 4.8 `sys_setting.STOCK_PERSONALITY` 退役
 
@@ -493,6 +517,7 @@ for month in [startMonth .. endMonth] 按月正序:
 | 删除常量 | `SettingConstants.KEY_STOCK_PERSONALITY`（`SettingConstants.java:94`） |
 | 删除默认值 | `StockTradeStrategyService.resolvePersonality` 的 `return StockPersonalityEnum.STEADY`（`:384`）改为"无可用风格 → 不推荐 + 告警" |
 | 保留数据行 | `sys_setting` 中 `key = 'STOCK_PERSONALITY'` 的行**本期不删除**，仅停止读取；保留为只读历史，后续是否清理由用户单独决策 |
+| 读取口径（冻结） | **产品链路（私聊指令、α、任何常驻服务、月度状态计算）对 `sys_setting.STOCK_PERSONALITY` 零读取**，**无例外**：一次性回补对账只读这一唯一例外已随指令于 2026-10-04 删除（§4.7），对账结论见 §6.3 |
 
 **修复的三个具体缺陷：** ①唯一事实源、无写入入口（只能手工改库）；②缺失时 `getStockPersonalities` 返回空 Map 且解析失败被静默忽略（`SysSettingManager.java:94-96`）；③`resolvePersonality` 默认 `STEADY`。
 
@@ -513,14 +538,15 @@ for month in [startMonth .. endMonth] 按月正序:
 |---|---|---|---|---|
 | R1 | 15m 特征覆盖率/新鲜度不足，私聊输出骤减 | 指令可用性下降 | 阶段 0 只读巡检门禁；3.3 的 D 分流显式标注陈旧 | 阶段 1~3 期间旧链仍写入，回滚代码即回到旧口径 |
 | R2 | `null` 窗口指标被误当 0 参与评分 | 误判买卖信号 | 3.3 分流 A/B/C/D + 单测覆盖 null 安全 | 回滚 `StockTradeStrategyService` |
-| R3 | 新旧"数据不足"判定集合不完全等价 | 冷启动期信号数量差异 | 阶段 2 逐支差异清单人工确认 | 差异不可接受则暂缓阶段 4 |
+| R3 | 新旧"数据不足"判定集合不完全等价 | 冷启动期信号数量差异 | 阶段 2 逐支差异清单人工确认；月度完整性已按 §4.2.1 用 adjusted 口径处理 2026-02-14 已备案停机 | 差异不可接受则暂缓阶段 4 |
 | R4 | 月度状态表复活与 1.6.5 drop 顺序/幂等冲突 | Liquibase 迁移失败或表缺失 | 新 changeSet + preConditions；空库与已部署库双场景验证 | 手工按实际执行情况处置（不建自动回滚逻辑） |
-| R5 | 自动确认误确认不完整月份 | 错误风格生效一整月 | 规范 §9.2 六条件 + `ck_monthly_confirmed_complete` 约束 | 将误确认月份置回 `DRAFT` 并重算（人工运维动作） |
+| R5 | 自动确认误确认不完整月份 | 错误风格生效一整月 | 规范 §9.2 六条件 + 快照 `confirmable=true` 守卫（§4.3 条件 7，fail-closed） + `ck_monthly_confirmed_complete` 约束 | 将误确认月份置回 `DRAFT` 并重算（人工运维动作） |
 | R6 | 沿用退化为固定死值 | 长期使用过期风格 | `monthsBetween >= 2` 停推 + 告警 + 留痕文案 | 停推即为安全态，无需回退 |
 | R7 | 回补范围过大导致长时间占用 | 数据库/应用压力 | 按月正序、单月失败不中断、幂等可重跑、复用按日分片 | 中断指令，已完成月份保留 |
 | R8 | RSI 现算多一次分钟查询 | 指令延迟 | 单次查询全部股票（≈2,135 行），成本可忽略 | 无需回退；若实测放大再议 |
 | R9 | 去重口径不一致（同采集时间多条） | RSI/bar 口径分歧 | 复用 `dedupByTime` 同口径（3.2 选项 a） | 统一到 bar 构建口径 |
 | R10 | 风格解析被 α 误引用 | 违反冻结边界 | 4.9 的包引用检查 + 验收项 | 移除引用 |
+| R11 | 未备案的新停机按 fail-closed 阻断完整性 → 月度不生效、私聊停推（与 P0 同型） | 指令可用性下降 | 新增停机必须显式追加窗口常量并发版（§4.2.1）；上线后按 §6.3 G3 巡检 `complete=false` 月份 | 追加常量发版（禁止 DB/配置热更新） |
 
 **总回退策略：** 第一章是只读输出改造，回退 = 回滚代码（旧表在阶段 6 之前不 drop）；第二章的回退 = 停止读取月度状态并回到阶段 1 的 `sys_setting` 读取（该行数据在 4.8 中保留，具备回退能力），**但不得长期停留**（退役是目标态）。
 
@@ -542,8 +568,8 @@ for month in [startMonth .. endMonth] 按月正序:
 
 - [ ] 新 changeSet 在空库与"已执行 1.6.5"库上均可成功执行，且重复执行幂等；
 - [ ] 代码中不存在 `confirmDraftStates(LocalDate, String)`；`manual_override` 恒 `false`、`override_reason` 恒 `null`；
-- [ ] `autoConfirmDraftStates` 仅在规范 §9.2 六条件全满足时把 `DRAFT` 置 `CONFIRMED`，`confirmedBy = 'SYSTEM'`；
-- [ ] 不完整证据保持 `DRAFT`（`MONTHLY_EVIDENCE_INCOMPLETE`），补齐后幂等重算并可自动确认；
+- [ ] `autoConfirmDraftStates` 仅在规范 §9.2 六条件全满足时把 `DRAFT` 置 `CONFIRMED`，`confirmedBy = 'SYSTEM'`（含指标快照 `confirmable=true` 守卫，键缺失/非法 fail-closed）；
+- [ ] 不完整证据保持 `DRAFT`（`MONTHLY_EVIDENCE_INCOMPLETE`），补齐后幂等重算并可自动确认；`complete` 用 adjusted 口径（§4.2.1）且 raw 全量留痕；
 - [ ] 成熟度按 60/120/240/365 天（规范 §4），不按 bar 数；
 - [ ] 六类风格按 `DECLINER → WEAK → NARROW → RANGING → STRONG → STEADY` 首次命中（规范 §5）；
 - [ ] 风险投票为 HIGH 4 票（H1~H4）/ MEDIUM 6 票（M1~M6），含迟滞（规范 §7）；
@@ -551,13 +577,40 @@ for month in [startMonth .. endMonth] 按月正序:
 - [ ] 无当月生效行时沿用最近已生效月并留痕 `使用 YYYY-MM 风格（YYYY-MM 未生成）`；
 - [ ] `monthsBetween >= 2` 时停止推荐并告警；
 - [ ] 无可用风格（无行 / `ALPHA_NOT_EVALUATED`）时不默认 `STEADY`；
-- [ ] `sys_setting.STOCK_PERSONALITY` 无任何代码读取；数据行仍存在；
+- [ ] `sys_setting.STOCK_PERSONALITY` 在**全部链路零读取**（一次性回补对账这一唯一例外已随指令删除，§4.7/§4.8；删除执行后以 `grep` 复核零命中）；数据行仍存在；
+- [ ] 已备案停机豁免留痕完整：快照同时含 raw/adjusted 覆盖率与最大间隔、`excludedBucketCount` / `excludedMinutes` / `appliedExclusionIds`（§6.3 G3）；
 - [ ] `torn/service/stocks/alert/alpha/**`、`alert/market/**` 无对月度风格解析组件的引用。
 
 ### 6.3 数据验收（只读 SQL，不建报告表）
 
 ```sql
--- 15m 特征最新行覆盖与新鲜度
+-- G1 月度状态分布（期望：2026-02..2026-10 每月 35 行 CONFIRMED，共 315 行；DRAFT 行数 0）
+SELECT effective_month, state_status, count(*)
+FROM torn_stock_monthly_state
+WHERE deleted = 0
+GROUP BY effective_month, state_status
+ORDER BY effective_month DESC, state_status;
+
+-- G2 最近已生效月份的风格清单（期望：35 行；三列非空；confirmed_by='SYSTEM'；供与旧 sys_setting 逐支对账）
+SELECT stocks_shortname, strategy_fit_prior, maturity, risk_level, confirmed_by, confirmed_at
+FROM torn_stock_monthly_state
+WHERE deleted = 0 AND state_status = 'CONFIRMED'
+  AND effective_month = (SELECT max(effective_month) FROM torn_stock_monthly_state
+                         WHERE deleted = 0 AND state_status = 'CONFIRMED')
+ORDER BY stocks_shortname;
+
+-- G3 已备案停机豁免审计（期望：含 2026-02-14 的窗口月份 waived=35、raw450=35、adjusted_ok=35；
+--      2026-02 的证据窗口不含该停机 → waived=0、raw450=0、adjusted_ok=35）
+SELECT effective_month,
+       count(*) FILTER (WHERE metric_snapshot->>'rawMaxMissingBucketGap' = '450') AS raw450,
+       count(*) FILTER (WHERE (metric_snapshot->>'maxMissingBucketGap')::numeric <= 120) AS adjusted_ok,
+       count(*) FILTER (WHERE metric_snapshot->'appliedExclusionIds'
+                          @> '["TORN_MARKET_OUTAGE_20260214_0801_1515"]') AS waived
+FROM torn_stock_monthly_state
+WHERE deleted = 0 AND state_status = 'CONFIRMED'
+GROUP BY 1 ORDER BY 1;
+
+-- G4 15m 特征最新行覆盖与新鲜度（期望：35/35 支最新桶存在且距验收时点 ≤ 48h，无 NULL latest_bar）
 SELECT s.id, s.stocks_shortname, max(f.bar_start_time) AS latest_bar,
        count(*) FILTER (WHERE f.strategy_ready) AS ready_rows
 FROM torn_stocks s
@@ -566,22 +619,24 @@ LEFT JOIN torn_stock_strategy_feature_15m f
 WHERE s.deleted = 0
 GROUP BY s.id, s.stocks_shortname
 ORDER BY latest_bar NULLS FIRST;
-
--- 月度状态分布
-SELECT effective_month, state_status, count(*)
-FROM torn_stock_monthly_state
-WHERE deleted = 0
-GROUP BY effective_month, state_status
-ORDER BY effective_month DESC, state_status;
-
--- 最近已生效月份的风格清单（供与旧 sys_setting 逐支对账）
-SELECT stocks_shortname, strategy_fit_prior, maturity, risk_level, confirmed_by, confirmed_at
-FROM torn_stock_monthly_state
-WHERE deleted = 0 AND state_status = 'CONFIRMED'
-  AND effective_month = (SELECT max(effective_month) FROM torn_stock_monthly_state
-                         WHERE deleted = 0 AND state_status = 'CONFIRMED')
-ORDER BY stocks_shortname;
 ```
+
+**验收结果（2026-10-04，正式库只读 SQL）：**
+
+| 门禁 | 结果 |
+|---|---|
+| G1 | **通过**：9 个生效月（`effective_month` = 2026-02-01 ~ 2026-10-01）× 35 支 = **315 行全部 CONFIRMED**；DRAFT / RETIRED / `deleted=1` 均 **0** |
+| G2 | **通过**：最新已生效月 35 行；`strategy_fit_prior` / `maturity` / `risk_level` 空值 0；`confirmed_by='SYSTEM'` 35/35；`manual_override` 全 `false`、`override_reason` 全 `NULL` |
+| G3 | **通过**：315 行 `maxMissingBucketGap ≤ 120`（取值 30/45/75，最大 75）；`rawMaxMissingBucketGap=450` 与 `appliedExclusionIds ⊇ ["TORN_MARKET_OUTAGE_20260214_0801_1515"]` 各 **35 支 × 8 个生效月**（2026-03-01 ~ 2026-10-01）；2026-02 生效月 `waived=0`、`raw450=0`（其证据窗 `2026-01-01 ~ 2026-02-01` 不含该停机），与预期完全一致 |
+| G4 | **通过**：35/35 支存在最新桶、无 NULL；最新 `bar_start_time = 2026-10-04 17:45`（上海本地），距验收时点 **17.0 分钟 ≤ 48 小时**；15m 分钟分位仅 `{00,15,30,45}` |
+| 附加一致性 | 各生效月 35 支 `usableBarCoverage ≥ 0.9992`、快照 `confirmable` 全 `true`、`incompleteReason` 全空；`personality_rule_version` / `risk_rule_version` 全非空（`PERSONALITY_RULE_V1` / `RISK_RULE_V1`）；最新月分布：风格 RANGING 15 / STEADY 7 / WEAK 6 / NARROW 3 / DECLINER 2 / STRONG 2，风险 HIGH 3 / MEDIUM 8 / NONE 24，成熟度全 `M3_SEASONED` |
+| 逐支对账（Q9） | 旧 `sys_setting.STOCK_PERSONALITY`（35 支）vs 新表最新月：一致 **6** 支、不一致 **29** 支 → NARROW→RANGING 7、NARROW→STEADY 3、STEADY→RANGING 3、RANGING→WEAK 3、STEADY→DECLINER 2、WEAK→NARROW 2、STRONG→RANGING 2、NARROW→WEAK 1、STEADY→STRONG 1、WEAK→STEADY 1、WEAK→RANGING 1、STRONG→STEADY 1、RANGING→STEADY 1、DECLINER→WEAK 1。差异为口径切换（旧手工配置 → V1 月度规则）的正常结果，需人工判定；产品链路已切到新表，`sys_setting` 行保留为只读历史 |
+
+**执行顺序偏离留痕：** 本节的冻结顺序为「测试环境验收 → 正式部署」；实际执行为「正式部署 → 正式环境回补 → 本节 G1~G4 在**正式库**验收全绿」。未验收先上线的风险已由本次正式库验收消除，后续同类一次性回补仍按冻结顺序执行。
+
+**已闭环观测项：** 私聊 `Stock分析` 实测（2026-10-04）正常返回、各列齐全，数据前提（最新月 35/35 三列非空、不触发沿用分支）成立；输出文案按 §4.4.1 定稿并实施完成（一次性工作单已按生命周期删除，规则长期保留在 §4.4.1）。
+
+**验收顺序（冻结）：** 编译与测试全绿 → 部署测试环境（含 1.8.0 revive changeSet）→ 人工执行一次性回补 `回补Stock月度风格 2026-02#2026-10` → 本节 G1~G4 全绿 + 私聊 `Stock分析` 返回非空推荐且理由列含 `月度：风格=… 成熟度=… 风险=…（YYYY-MM 生效）` → 才允许部署正式环境。 该条文案已于 v1.0.6 按 §4.4.1 修订为 `月度：风格=<中文> 成熟度=<中文> 风险=<中文>`，不再显示生效月份。
 
 ### 6.4 停止条件
 
@@ -605,6 +660,9 @@ ORDER BY stocks_shortname;
 12. 不调整既有评分参数与阈值数值（`BUY_SCORE_THRESHOLD`、`TAKE_PROFIT_SELL_SCORE_THRESHOLD`、`REBOUND_SELL_SCORE_THRESHOLD`、`QUICK_PROFIT_SELL_SCORE_THRESHOLD`、`NARROW_BAND_Z_DISCOUNT`、各 `StockPersonalityEnum` 数值）；
 13. 不为私聊指令引入缓存层、不新增独立调度、不做管理后台 / 编辑 UI；
 14. 不新增消息类型、报表表、对账表、审计表。
+15. **不保留任何手工/指令触发的月度状态生成入口**：一次性回补指令（§4.7）删除后，月度状态仅由启动补偿生成；不为「跨月不重启」新增自动调度（如需，另立需求）。
+16. **不做**窗口质量码中文化映射的去重：`StockTradeStrategyService#windowQualityText` 以字面量判断 `INSUFFICIENT_HISTORY` / `HISTORY_NOT_CONSECUTIVE`（生产者常量 `Stock15mFeatureCalculator:37/41` 为 private）→ 生产者改码后展示会静默回退「数据未就绪」，无编译期保护。**后续建议**：常量提升为 `public static final` 后引用（已验证 `service/stocks/rebuild → service/user` 无反向依赖，不成环）。
+17. **不做**文案 ASCII 守卫断言的白名单化：`StockTradeStrategyServiceTest` 的「依据不得含 ASCII 字母」断言对白名单 `Stock` 会误伤（现有用例恰好不含 `Stock`），未来含 `Stock` 的理由会红灯并被误改回敏感词。**后续建议**：断言前 `replace("Stock", "")` 再判并注释原因（§4.4.1 第 9 条）。
 
 ---
 
@@ -621,6 +679,7 @@ ORDER BY stocks_shortname;
 | `.ai/knowledge/stocks/vip_stock_alert_technical_design.md` §13.4 / §13.5 | A/B/C/D 交付与修复验收结论（原一次性验收文档已按生命周期删除） |
 | `.ai/knowledge/stocks/stock_personality_full_history_2026_07.md` | 风格分类历史依据 |
 | `.ai/prompts/system_prompt.md` | 工作流程与范围控制原则 |
+| `.ai/knowledge/command-discovery-and-doc-image-technical-design.md` §3.3 | 策略参数传递契约（冻结）与两个参数解析反例 |
 
 ---
 
@@ -629,6 +688,14 @@ ORDER BY stocks_shortname;
 | 版本 | 日期 | 变更 | 作者 |
 |---|---|---|---|
 | 1.0.0 | 2026-09-24 | 初稿：冻结"私聊指令 15m 化 + 月度风格接入"两章设计（数据映射、RSI 现算、下线清单与迁移顺序、月度表复活与自动确认、消费口径、回补指令、sys_setting 退役） | Bai |
+| 1.0.1 | 2026-10-04 | 开发版本 2.0.0→1.8.0；§4.1 Liquibase 追加点更新为 1.6.7 之后、新目录 `1.8.0/`；附录 Q2 关闭（drop 已执行）、Q8 关闭（指令命名确认 + 回补指令与专用逻辑的一次性删除生命周期）、Q1/Q7 关闭（不阻塞开发，阶段 0/2 门禁时取数） | Bai |
+| 1.0.2 | 2026-10-04 | 1.8.0 Review 同步：§4.2 改为「不取回原类 + 最小形态取回」（新增 §4.2.1 已备案停机窗口豁免，raw/adjusted 双口径、未备案停机仍 fail-closed、规则版本保持 V1）；§4.3 自动确认补条件 7（快照 `confirmable=true`，fail-closed）；§4.8 冻结 `sys_setting.STOCK_PERSONALITY` 读取口径（产品链路零读取，仅一次性回补对账只读）；§3.4 类位置与 `dedupByTime` 可见性落定；§5 R3/R5 补口径并新增 R11；§6.2 补 confirmable 与豁免留痕验收项；§6.3 增加 G1~G4 期望值与 G3 豁免审计 SQL、冻结「先数据验收后正式部署」顺序；附录 Q4 关闭说明订正 | Bai |
+| 1.0.3 | 2026-10-04 | §4.2.1 补第 7 条「证据终点口径（登记不改，覆盖率低估 ≈0.004%）」；1.8.0 两轮 Review 修复全部闭环（P0 方案 a 真库复算 35/35 `complete=true`；定向回归 252 例全绿），一次性修复方案文档 `vip_stock_private_analysis_upgrade_review_fix_plan.md` 按生命周期删除，结论与验收门禁由本文 §4.2.1/§4.3/§4.8/§5/§6.3/§6.4 与规范 §3.7.1 承载；数据验收（§6.3 G1~G4 + `Stock分析` 指令实测）待测试环境回补后执行 | Bai |
+| 1.0.4 | 2026-10-04 | 数据验收通过并执行一次性指令下线：§6.3 增补 G1~G4 正式库验收结果（315 行 / 9 个生效月全 CONFIRMED、豁免留痕 8 个月、15m 覆盖 35/35 且新鲜度 17.0 分钟）与逐支对账结论（一致 6 / 不一致 29）及执行顺序偏离留痕；§4.7 改写为「已执行完成 + 下线删除清单 + 断言迁移 + 删除后唯一生成入口」；§4.8/§6.2 的「唯一例外读取」改为随指令删除；§3.4 表行改为「已删除」；§7 增第 15 条（不保留手工触发入口）；§8 增参数契约文档；附录 Q8/Q9 关闭 | Bai |
+| 1.0.5 | 2026-10-04 | 一次性指令下线执行完成并复核通过（commit `93c92213`）：§4.7 状态行补「已删除 + 复核证据 + 断言迁移结果」；删除范围与原工作单一致（策略类 / `BotCommands.MONTHLY_STYLE_BACKFILL` / `StockMonthlyStateRangeRebuildService` + 测试 / 5 个 `StockMonthlyStateInitService` 专用符号 / 9 个专用用例），`StockMonthlyStateInitServiceTest` 18→9 例；定向单元回归 68 例全绿，shared-db `@SpringBootTest` 7 例为沙箱 Chromium 环境错误（既有基线，与本次无关）；一次性工作单 `stock_monthly_backfill_command_removal.md` 按生命周期删除 | Bai |
+| 1.0.6 | 2026-10-04 | 私聊输出文案定稿并冻结为长期规则：新增 §4.4.1（零英文 token、月度摘要不显示生效月份、参考价 2 位小数、门槛文案与合并形态、告警文案、依据 `· ` 前缀与顺序、`RSI`→相对强弱指标、表头/标题中文、表格 6 列不变）；§4.4 展示落地示例与 §6.3 观测项/验收文案同步修订；一次性评审稿 `stock_analysis_output_copy_proposal.md` 承担实施细节，实施完成后按生命周期删除 | Bai |
+| 1.0.7 | 2026-10-04 | 输出文案实现复核（commit `d212efb0`）：§4.4.1 修正第 1/7 条 —— **`Stock` 为敏感词规避写法，用户可见文案必须保留，禁止改写为「股票」或「股」**（原第 7 条误写为「去掉或改股」）；第 4 条门槛文案落为合并短形式；第 5 条补未知编码回显例外；第 8 条列名改回 `Stock`；新增第 9 条「ASCII 守卫需白名单 `Stock`」 | Bai |
+| 1.0.8 | 2026-10-04 | 输出文案实施复核结论：**通过**（定向回归 69 例全绿；原 P1 经用户判定撤回 —— 敏感词风险只对纯文字消息成立，`Stock分析` 输出整体为图片，3 处「股」字样不回改）；§4.4.1 第 1/7 条补「文字 vs 图片敏感词边界」并明确图片内「股」不回改；§7 增第 16/17 条（质量码映射去重、ASCII 守卫白名单）列后续建议；一次性工作单 `stock_analysis_output_copy_proposal.md` 按生命周期删除 | Bai |
 
 ---
 
@@ -636,13 +703,13 @@ ORDER BY stocks_shortname;
 
 | 编号 | 待确认内容 | 影响范围 |
 |---|---|---|
-| Q1 | 15m 特征表当前行数（需求方口径约 87 万行）未在库上取数核实 | 3.2 成本论证的量化依据 |
-| Q2 | 生产库是否存在 `torn_stock_monthly_state`，`DATABASECHANGELOG` 中 1.6.5 的 `drop_retired_stock_monthly_state_table` 是否已执行 | 4.1 迁移策略与验证场景 |
-| Q3 | ~~新 Liquibase 版本目录名~~ **已确认：计划开发版本 2.0.0**（目录按发布时版本段确定） | 已确认（2026-09-24） |
-| Q4 | ~~是否取回 `StockMonthlyEvidenceExclusionPolicy`~~ **已确认：不取回**；数据不完整月份一律保持 DRAFT、不生效，靠 §4.6 沿用规则过渡 | 已确认（2026-09-24） |
+| Q1 | ~~15m 特征表当前行数（需求方口径约 87 万行）未在库上取数核实~~ **已确认（2026-10-04）：不阻塞开发**；15m bar 持续增长，行数仅在阶段 0 巡检时取数核实 | 3.2 成本论证的量化依据 |
+| Q2 | ~~生产库是否存在 `torn_stock_monthly_state`，1.6.5 的 drop 是否已执行~~ **已确认（2026-10-04）：drop 已执行、表不存在**；按「已部署库 + 空库」双场景验证 | 4.1 迁移策略与验证场景 |
+| Q3 | ~~新 Liquibase 版本目录名~~ **已确认：开发版本 1.8.0（2026-10-04 修订，原计划 2.0.0）；目录为 `1.8.0/`** | 4.1 |
+| Q4 | ~~是否取回 `StockMonthlyEvidenceExclusionPolicy`~~ **已确认：不取回原类**（其形态把规则版本绑定到 `*_V2_OUTAGE_EXCLUSION`，会污染冻结版本）；1.8.0 以**最小形态**取回停机豁免能力（`StockMonthlyOutageWaiver`，§4.2.1），规则版本保持 V1。数据不完整月份一律保持 DRAFT、不生效，靠 §4.6 沿用规则过渡 | 4.2 / 4.2.1 |
 | Q5 | `torn_stocks_history` 自然分钟重复数据是否已按 `tornsy_stock_history_backfill_technical_design.md` §2.3 处置完毕 | RSI 现算与 bar 构建的去重语义 |
 | Q6 | `torn_stock_strategy_feature` 现存量与保留窗口 | 3.5 阶段 6（drop 表）的独立变更单 |
-| Q7 | 旧口径与 15m 口径在 35 支股票上的逐支差异清单 | 3.5 阶段 2 门禁 |
-| Q8 | 回补指令命名与参数格式（`yyyy-MM#yyyy-MM`） | 4.7 |
-| Q9 | 旧 `sys_setting.STOCK_PERSONALITY` 的 35 支实际内容 | 4.7 逐支对账 |
+| Q7 | ~~旧口径与 15m 口径在 35 支股票上的逐支差异清单~~ **已确认（2026-10-04）：不阻塞开发**；差异清单在阶段 2 门禁时人工确认 | 3.5 阶段 2 门禁 |
+| Q8 | ~~回补指令命名与参数格式（`yyyy-MM#yyyy-MM`）~~ **已关闭（2026-10-04）：命名与参数确认；回补已在正式环境执行完成（因 P1 参数解析缺陷实际采用双 `#` 形态临时绕过），验收全绿后按 §4.7 一次性生命周期删除指令与回补专用逻辑** | 4.7 |
+| Q9 | ~~旧 `sys_setting.STOCK_PERSONALITY` 的 35 支实际内容~~ **已关闭（2026-10-04）：旧配置（382 字符 / 35 支）已取数并与新表最新生效月逐支对账——一致 6 支、不一致 29 支，差异为口径切换的正常结果，详见 §6.3** | 4.7 逐支对账 |
 | Q10 | ~~`SWING_REVERSAL_BUY` 是否纳入月度门槛调整~~ **已确认：不纳入**，固定 50 分；月度 +10 只作用于 `SWING_LOW_BUY` | 已确认（2026-09-24） |

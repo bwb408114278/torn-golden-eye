@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 
 import java.math.BigDecimal;
@@ -32,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 使用远离生产数据的固定未来{@code bar_start_time}与专用{@code stocks_id}作为隔离数据。
  *
  * @author Bai
- * @version 1.2.17
+ * @version 1.8.0
  * @since 2026.08.14
  */
 @SpringBootTest
@@ -44,6 +46,8 @@ class TornStockStrategyFeature15mMapperTest {
 
     @Autowired
     private TornStockStrategyFeature15mDAO feature15mDao;
+    @Autowired
+    private TornStocksDAO tornStocksDao;
 
     /**
      * 隔离测试股票ID(远离生产数据)
@@ -101,6 +105,51 @@ class TornStockStrategyFeature15mMapperTest {
         assertNull(read.getPctBelow30dHigh(), "pctBelow30dHigh空值应原样回读");
     }
 
+    @Test
+    @DisplayName("真实PG_selectLatestFeatures_每股仅返回analysisTime内最新一行且过滤版本")
+    void selectLatestFeatures_perStockLatestRowWithinBound_versionFiltered() {
+        tornStocksDao.saveOrUpdate(buildTestStock());
+        LocalDateTime olderBar = TEST_BAR_START_TIME;
+        LocalDateTime newerBar = TEST_BAR_START_TIME.plusMinutes(15);
+        LocalDateTime futureBar = TEST_BAR_START_TIME.plusMinutes(30);
+        LocalDateTime newestBar = TEST_BAR_START_TIME.plusMinutes(45);
+        feature15mDao.upsertFeature(buildReadyFeature(olderBar, TEST_REFERENCE_PRICE, TEST_FEATURE_VERSION));
+        // 同键(stocks_id+bar_start_time+feature_version)重复写入为DO UPDATE覆盖,最后写入的999生效
+        feature15mDao.upsertFeature(buildReadyFeature(newerBar, TEST_REFERENCE_PRICE.add(BigDecimal.ONE),
+                TEST_FEATURE_VERSION));
+        feature15mDao.upsertFeature(buildReadyFeature(newerBar, new BigDecimal("999.000000"),
+                TEST_FEATURE_VERSION));
+        feature15mDao.upsertFeature(buildReadyFeature(newerBar, new BigDecimal("777.000000"),
+                "LEGACY_VERSION"));
+        feature15mDao.upsertFeature(buildReadyFeature(futureBar, new BigDecimal("888.000000"),
+                TEST_FEATURE_VERSION));
+        // 追加同股更晚的一行(newestBar)后逻辑删除(removeById按全局逻辑删除配置置deleted=1):
+        // 逻辑删除行不得入选,最新行应回退到futureBar
+        feature15mDao.upsertFeature(buildReadyFeature(newestBar, new BigDecimal("555.000000"),
+                TEST_FEATURE_VERSION));
+        TornStockStrategyFeature15mDO deletedCandidate = feature15mDao.selectByStocksAndTimeRange(
+                        List.of(TEST_STOCKS_ID), newestBar, newestBar, TEST_FEATURE_VERSION).stream()
+                .findFirst().orElseThrow();
+        feature15mDao.removeById(deletedCandidate.getId());
+
+        // 上界取newestBar:deleted=1的newestBar行不入选,最新有效行为futureBar(888);
+        // LEGACY_VERSION行因版本过滤不入选;newerBar同键最后写入的999生效
+        List<TornStockStrategyFeature15mDO> rows = feature15mDao.selectLatestFeatures(
+                newestBar, TEST_FEATURE_VERSION);
+
+        List<TornStockStrategyFeature15mDO> isolated = rows.stream()
+                .filter(row -> row.getStocksId() != null && row.getStocksId() == TEST_STOCKS_ID)
+                .toList();
+        assertEquals(1, isolated.size(), "每股必须恰好返回一行(逻辑删除行与版本过滤行不入选)");
+        TornStockStrategyFeature15mDO latest = isolated.getFirst();
+        assertEquals(futureBar, latest.getBarStartTime(), "deleted=1的更晚行不入选,应取futureBar");
+        assertEquals(0, new BigDecimal("888.000000").compareTo(latest.getReferencePrice()),
+                "最新有效行应为futureBar的888");
+        assertEquals(TEST_FEATURE_VERSION, latest.getFeatureVersion(), "特征版本应原样回读");
+        assertTrue(rows.stream().allMatch(row -> !row.getBarStartTime().isAfter(newestBar)),
+                "全部返回行bar时间不得晚于analysisTime上界");
+    }
+
     /**
      * 构造{@code strategyReady=false/INSUFFICIENT_HISTORY}的预热特征对象。
      * <p>
@@ -120,5 +169,47 @@ class TornStockStrategyFeature15mMapperTest {
         feature.setDataQualityReason("INSUFFICIENT_HISTORY");
         feature.setFeatureVersion(TEST_FEATURE_VERSION);
         return feature;
+    }
+
+    /**
+     * 构造{@code strategyReady=true}的普通特征对象。
+     *
+     * @param barStartTime   bar开始时间
+     * @param referencePrice 参考价
+     * @param featureVersion 特征版本
+     * @return 就绪特征DO
+     */
+    private TornStockStrategyFeature15mDO buildReadyFeature(LocalDateTime barStartTime,
+                                                            BigDecimal referencePrice,
+                                                            String featureVersion) {
+        TornStockStrategyFeature15mDO feature = new TornStockStrategyFeature15mDO();
+        feature.setStocksId(TEST_STOCKS_ID);
+        feature.setStocksShortname(TEST_SHORTNAME);
+        feature.setBarStartTime(barStartTime);
+        feature.setReferencePrice(referencePrice);
+        feature.setStrategyReady(true);
+        feature.setFeatureVersion(featureVersion);
+        return feature;
+    }
+
+    /**
+     * 构造隔离测试股票行(selectLatestFeatures内连接torn_stocks,deleted=0)。
+     *
+     * @return 测试股票DO
+     */
+    private TornStocksDO buildTestStock() {
+        TornStocksDO stock = new TornStocksDO();
+        stock.setId(TEST_STOCKS_ID);
+        stock.setStocksName("ITST_TEST");
+        stock.setStocksShortname(TEST_SHORTNAME);
+        stock.setCurrentPrice(new BigDecimal("200.00"));
+        stock.setBenefitType("NONE");
+        stock.setBenefitPeriod(0);
+        stock.setBenefitReq(0L);
+        stock.setBenefitDesc("test");
+        stock.setProfit(0L);
+        stock.setYearProfit(0L);
+        stock.setBaseCost(0L);
+        return stock;
     }
 }

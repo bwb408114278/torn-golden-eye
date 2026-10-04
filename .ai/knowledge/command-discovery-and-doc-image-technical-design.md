@@ -68,6 +68,32 @@
 
 `SmthMsgStrategy` 的注释是「Pn群消息策略」，即需求里说的 **PN 群**；活跃度、活跃度对比、战力增长、师父排队属于该体系。
 
+### 3.3 策略参数传递契约（冻结，2026-10-04 实测复核）
+
+| 事实 | 代码坐标 |
+|---|---|
+| 派发层按 `commandText.split("#", 3)` 拆出 `msgArray`，`msgArray[1]` 是**指令名**，`msgArray[2]` 是**其后全部文本** | `BotMessageDispatcher:57` |
+| 交给策略的参数**只有 `msgArray[2]`**（`msgArray.length > 2 ? msgArray[2] : ""`），**不含指令名** | `BaseMessageHandler#resolveParam` → `GroupMessageHandler#buildReplyMsg` / `PrivateMessageHandler` |
+| 用户输入形态恒为 `g#<指令>#<参数1>#<参数2>…`（群）/私聊同构 | `QqCommandMessageParser`（群要求以 `g#` 开头） |
+
+**契约（写新指令必须遵守）**：
+
+1. 策略 `handle(groupId, sender, msg)` 的 `msg` **只含参数段**；按「含指令名」的整条文本解析必然错；
+2. 参数个数按**参数段数**判定：两参数 = `"<p1>#<p2>".split("#").length == 2`；
+3. Java 语义警示：`split(sep, 正数limit)` 的**最后一段包含剩余全部内容**（不丢弃），与 JavaScript 的 `split(sep, limit)`（超出部分直接丢弃）**不同**，勿跨语言推断；
+4. 新增带参指令必须补「**纯参数形态**」单测（`handle(..., "p1#p2")`），并建议补一个走 `BotMessageDispatcher.dispatch(...)` 的端到端用例；只喂「指令名#参数」的用例测的是错误契约。
+
+**对照组**：正确实现 `BaseStockHistoryRangeStrategy`（2 段）、`AuctionSyncStrategyImpl`（≥2 段）、`StocksFeatureBuildStrategyImpl`（2 段）；派发层断言见 `BotMessageDispatcherTest`（`g#战力增长#12345` → `{"g","战力增长","12345"}`）、端到端见 `OcBenefitAtHistoryMonthEndToEndTest`。
+
+**已发生的反例（2026-10-04）**：
+
+| 指令 | 缺陷 | 后果 |
+|---|---|---|
+| `回补Stock月度风格`（**已下线删除**） | `StockMonthlyStyleBackfillStrategyImpl#resolveMonths` 要求 `split("#").length == 3` 并取 `parts[1]`/`parts[2]` | 生产环境**永远**回「月份参数无效」，一度阻断月度数据验收；该指令为一次性生命周期，2026-10-04 回补完成并验收全绿后**随指令整体删除**，缺陷不再修复（保留为契约反例） |
+| `预填Stockα日线`（**未修复，P3 后续建议**） | `StockAlphaDailyPrefillStrategyImpl#resolveEndDate` 以 `!msg.contains("#")` 判无参 | 显式日期参数被**静默忽略**（退化为最近已结束自然日），非法日期不被拒绝；1.6.x 既有、不属 1.8.0 范围，未纳入本批修复 |
+
+> 说明：`回补Stock月度风格` 的 P1 未修复是用户决策（该指令为一次性生命周期，2026-10-04 直接删除代码而非修复）；其参数解析缺陷仅作契约反例留档，原热修工作单已按生命周期删除。
+
 ---
 
 ## 4. 决策一：检索与纠错框架化

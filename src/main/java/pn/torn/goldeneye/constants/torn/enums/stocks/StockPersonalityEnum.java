@@ -6,10 +6,12 @@ import lombok.RequiredArgsConstructor;
 /**
  * 股票个性分类 — 基于历史数据的波动率和趋势特征
  * <p>
- * 每月初根据数据库分析结果更新 sys_setting 表中的 STOCK_PERSONALITY 配置
+ * 1.8.0起本枚举只作为评分参数表(数值冻结,阈值校准属另一专题);风格事实源为月度状态表
+ * {@code torn_stock_monthly_state}的{@code strategy_fit_prior},经月度风格解析组件
+ * 映射到本枚举的档位参数,{@code sys_setting.STOCK_PERSONALITY}已停止读取(数据行保留为只读历史)
  *
  * @author Bai
- * @version 1.2.8
+ * @version 1.8.0
  * @since 2026.07.01
  */
 @Getter

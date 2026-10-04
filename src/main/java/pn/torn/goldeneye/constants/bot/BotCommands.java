@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.6.4
+ * @version 1.8.0
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)

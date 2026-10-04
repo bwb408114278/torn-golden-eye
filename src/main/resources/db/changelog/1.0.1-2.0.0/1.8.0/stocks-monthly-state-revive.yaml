@@ -1,0 +1,157 @@
+databaseChangeLog:
+  # ========== 月度风格状态表复活(1.8.0) ==========
+  # 历史事实: 1.2.0创建该表, 1.6.5随旧版策略退场drop;
+  # 1.2.0的create changeSet已在DATABASECHANGELOG标记执行, Liquibase不会重跑,
+  # 删除1.6.5的drop会导致空库与已部署库状态分叉, 故必须新增changeSet重建。
+  # 表结构与1.2.0原DDL一致(列宽取1.4.8拓宽后的VARCHAR(64)), 仅服务私聊Stock分析指令的
+  # 成熟度/风险/风格档位, 不进入α任何决策路径。
+  # preConditions: 表已存在则MARK_RAN跳过, 保证幂等; 人工覆盖两列本期恒false/null,
+  # 不提供任何人工确认与覆盖写入入口(代码层精简, 非列层删减)。
+  - changeSet:
+      id: revive_stock_monthly_state_table
+      author: Bai
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: torn_stock_monthly_state
+      changes:
+        - createTable:
+            tableName: torn_stock_monthly_state
+            remarks: "保存每支股票按月冻结的策略风格、成熟度、风险和证据快照"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "股票ID"
+              - column:
+                  name: stocks_shortname
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "股票简称快照"
+              - column:
+                  name: effective_month
+                  type: DATE
+                  constraints:
+                    nullable: false
+                  remarks: "生效月份(当月1日)"
+              - column:
+                  name: strategy_fit_prior
+                  type: VARCHAR(32)
+                  remarks: "最终策略适配风格编码(DRAFT允许空,CONFIRMED必须非空)"
+              - column:
+                  name: maturity
+                  type: VARCHAR(32)
+                  remarks: "成熟度编码(DRAFT允许空,CONFIRMED必须非空)"
+              - column:
+                  name: risk_level
+                  type: VARCHAR(16)
+                  remarks: "风险等级编码(DRAFT允许空,CONFIRMED必须非空)"
+              - column:
+                  name: suggested_personality
+                  type: VARCHAR(32)
+                  remarks: "机器建议风格(DRAFT允许空,CONFIRMED必须非空)"
+              - column:
+                  name: previous_personality
+                  type: VARCHAR(32)
+                  remarks: "上一期最终风格"
+              - column:
+                  name: manual_override
+                  type: BOOLEAN
+                  constraints:
+                    nullable: false
+                  remarks: "是否人工覆盖机器建议(本期恒false,无写入入口)"
+              - column:
+                  name: override_reason
+                  type: VARCHAR(512)
+                  remarks: "人工覆盖原因(本期恒null,无写入入口)"
+              - column:
+                  name: metric_snapshot
+                  type: JSONB
+                  constraints:
+                    nullable: false
+                  remarks: "分类时完整指标快照(JSON文本)"
+              - column:
+                  name: personality_rule_version
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "风格规则版本(当前冻结PERSONALITY_RULE_V1)"
+              - column:
+                  name: risk_rule_version
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "风险规则版本(当前冻结RISK_RULE_V1)"
+              - column:
+                  name: evidence_start_time
+                  type: TIMESTAMP
+                  remarks: "证据窗口开始时间(DRAFT允许空,CONFIRMED必须非空)"
+              - column:
+                  name: evidence_end_time
+                  type: TIMESTAMP
+                  remarks: "证据窗口结束时间(DRAFT允许空,CONFIRMED必须非空)"
+              - column:
+                  name: state_status
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "状态(DRAFT/CONFIRMED/RETIRED)"
+              - column:
+                  name: calculated_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "机器计算时间"
+              - column:
+                  name: confirmed_at
+                  type: TIMESTAMP
+                  remarks: "系统自动确认时间"
+              - column:
+                  name: confirmed_by
+                  type: VARCHAR(64)
+                  remarks: "确认人标识(本期仅SYSTEM自动确认)"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_stock_monthly_state_stock_month ON torn_stock_monthly_state (stocks_id, effective_month) WHERE deleted = 0"
+        - sql:
+            sql: "CREATE INDEX idx_stock_monthly_state_month_status ON torn_stock_monthly_state (effective_month, state_status)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_effective_month CHECK (EXTRACT(DAY FROM effective_month) = 1)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_evidence_window CHECK (evidence_start_time IS NULL OR evidence_end_time IS NULL OR evidence_start_time <= evidence_end_time)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_at CHECK (state_status != 'CONFIRMED' OR confirmed_at IS NOT NULL)"
+        - sql:
+            sql: "ALTER TABLE torn_stock_monthly_state ADD CONSTRAINT ck_monthly_confirmed_complete CHECK (state_status != 'CONFIRMED' OR (strategy_fit_prior IS NOT NULL AND maturity IS NOT NULL AND risk_level IS NOT NULL AND suggested_personality IS NOT NULL AND evidence_start_time IS NOT NULL AND evidence_end_time IS NOT NULL))"
