@@ -262,6 +262,19 @@ public class StockMonthlyStateInitService {
      */
     @Transactional
     public int autoConfirmDraftStates(LocalDate effectiveMonth) {
+        return autoConfirmDraftStatesInternal(effectiveMonth);
+    }
+
+    /**
+     * 系统自动确认指定月份的实际实现。
+     * <p>
+     * 供 {@link #autoConfirmDraftStates(LocalDate)} 与 {@link #refreshCurrentMonthStates()} 共用，
+     * 避免事务方法通过 {@code this} 自调用导致 Spring 代理事务失效。
+     *
+     * @param effectiveMonth 生效月份
+     * @return 本次实际自动确认的记录数量(数据库实际受影响行数,非候选数量)
+     */
+    private int autoConfirmDraftStatesInternal(LocalDate effectiveMonth) {
         List<TornStockMonthlyStateDO> draftStates = monthlyStateDao.lambdaQuery()
                 .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
                 .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
@@ -316,7 +329,7 @@ public class StockMonthlyStateInitService {
         List<TornStocksDO> allStocks = tornStocksDao.list();
         if (CollectionUtils.isEmpty(allStocks)) {
             log.warn("月度状态编排-股票列表为空,跳过, effectiveMonth={}", effectiveMonth);
-            return new MonthlyRefreshResult(0, 0, autoConfirmDraftStates(effectiveMonth));
+            return new MonthlyRefreshResult(0, 0, autoConfirmDraftStatesInternal(effectiveMonth));
         }
 
         Set<Integer> existingStockIds = loadExistingStockIds(effectiveMonth);
@@ -366,7 +379,7 @@ public class StockMonthlyStateInitService {
 
         int insertedCount = toInsert.isEmpty() ? 0 : monthlyStateDao.insertDraftStatesIgnoreConflict(toInsert);
         int recalculatedCount = toRecalculate.isEmpty() ? 0 : monthlyStateDao.recalculateDraftStates(toRecalculate);
-        int confirmedCount = autoConfirmDraftStates(effectiveMonth);
+        int confirmedCount = autoConfirmDraftStatesInternal(effectiveMonth);
         log.info("月度状态编排-完成, effectiveMonth={}, inserted={}, recalculated={}, confirmed={}",
                 effectiveMonth, insertedCount, recalculatedCount, confirmedCount);
         return new MonthlyRefreshResult(insertedCount, recalculatedCount, confirmedCount);
