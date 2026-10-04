@@ -12,7 +12,7 @@ import java.util.List;
  * Torn股票15分钟bar策略特征数据库访问层
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.8.0
  * @since 2026.07.24
  */
 @Mapper
@@ -53,6 +53,21 @@ public interface TornStockStrategyFeature15mMapper extends BaseMapper<TornStockS
     List<TornStockStrategyFeature15mDO> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
                                                           @Param("endTime") LocalDateTime endTime,
                                                           @Param("featureVersion") String featureVersion);
+
+    /**
+     * 查询每支股票 {@code bar_start_time <= analysisTime} 的最新一行特征(只读,不加列不改表)。
+     * <p>
+     * 与旧分钟特征 {@code selectLatestFeatures} 同构: 内连接{@code torn_stocks},
+     * 每股经LATERAL取版本过滤后的最新一行(按{@code bar_start_time DESC, id DESC}),
+     * 依赖既有部分索引{@code idx_stock_strategy_feature_15m_stock_time_desc};
+     * 特征只在已结束桶构建,上界取{@code analysisTime}不会读到进行中桶的半成品。
+     *
+     * @param analysisTime   分析时点(bar开始时间上界,含)
+     * @param featureVersion 特征计算版本(必须等于生产FEATURE_VERSION)
+     * @return 每股至多一行的最新特征列表(按股票ID升序)
+     */
+    List<TornStockStrategyFeature15mDO> selectLatestFeatures(@Param("analysisTime") LocalDateTime analysisTime,
+                                                             @Param("featureVersion") String featureVersion);
 
     /**
      * 按唯一键(stocks_id, bar_start_time, feature_version)执行UPSERT

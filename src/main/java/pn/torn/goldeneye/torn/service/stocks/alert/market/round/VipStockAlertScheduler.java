@@ -16,9 +16,11 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketR
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.execution.StockAlphaExecutionBarPolicy;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
+import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -95,6 +97,7 @@ public class VipStockAlertScheduler {
     private final StockAlertRuntimeGate runtimeGate;
     private final StockAlphaDailyCloseService alphaDailyCloseService;
     private final StockMarketRoundFactory roundFactory;
+    private final StockMonthlyStateInitService monthlyStateInitService;
 
     /**
      * JVM内防重入标记,同一时刻仅允许一个轮次处理流程
@@ -353,8 +356,60 @@ public class VipStockAlertScheduler {
                 log.error("VIP股票策略调度-历史补建或最新已结束桶创建失败,新入场强制关闭, 存量退出管理继续");
             }
             processStartupPendingRoundsSafely(effectiveAllowNewEntry, currentEndedBucket);
+            // 月度状态: 历史补建与最新已结束桶创建是月度证据前置,任一失败阻断同次
+            // 初始化/重算/自动确认(fail-closed),避免"无证据继续下游"的冷启动假象;
+            // 仅SYSTEM自动确认,人工确认入口不恢复(1.8.0月度风格链路复活接线)。
+            if (historyRebuildOk && currentBucketEnsureOk) {
+                initCurrentMonthSafely();
+                recalculateCurrentMonthDraftsSafely();
+                autoConfirmCurrentMonthDraftsSafely();
+            } else {
+                log.error("VIP股票策略调度-历史补建或最新已结束桶创建失败,阻断同次月度状态初始化/重算/自动确认");
+            }
         } finally {
             processing.set(false);
+        }
+    }
+
+    /**
+     * 为当月缺失股票的初始化DRAFT草稿,仅应在历史重建补齐证据之后调用。
+     * 失败仅记录日志不阻塞后续步骤。
+     */
+    private void initCurrentMonthSafely() {
+        try {
+            monthlyStateInitService.initCurrentMonth();
+        } catch (Exception e) {
+            LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+            log.error("VIP股票策略调度-月度状态初始化失败, effectiveMonth={}, 继续后续步骤", effectiveMonth, e);
+        }
+    }
+
+    /**
+     * 重算当月未确认DRAFT月度状态,失败仅记录日志不阻塞后续步骤。
+     * <p>
+     * 历史补建失败时,重算结果仍为DRAFT/fail-closed(证据不足不满足自动确认条件),
+     * 不允许把"没有补齐证据"误写为已确认。
+     */
+    private void recalculateCurrentMonthDraftsSafely() {
+        try {
+            int recalculated = monthlyStateInitService.recalculateCurrentMonthDrafts();
+            log.info("VIP股票策略调度-启动补偿月度状态重算完成, recalculated={}", recalculated);
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿月度状态重算失败,继续后续步骤", e);
+        }
+    }
+
+    /**
+     * 自动确认当月满足冻结条件的DRAFT月度状态,失败仅记录日志不阻塞后续步骤。
+     */
+    private void autoConfirmCurrentMonthDraftsSafely() {
+        try {
+            LocalDate effectiveMonth = marketClock.today().withDayOfMonth(1);
+            int confirmed = monthlyStateInitService.autoConfirmDraftStates(effectiveMonth);
+            log.info("VIP股票策略调度-启动补偿月度状态自动确认完成, effectiveMonth={}, confirmed={}",
+                    effectiveMonth, confirmed);
+        } catch (Exception e) {
+            log.error("VIP股票策略调度-启动补偿月度状态自动确认失败,继续后续步骤", e);
         }
     }
 

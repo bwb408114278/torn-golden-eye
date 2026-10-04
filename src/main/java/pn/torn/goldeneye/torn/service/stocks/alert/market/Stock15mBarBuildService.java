@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * @author Bai
- * @version 1.4.2
+ * @version 1.8.0
  * @since 2026.07.24
  */
 @Slf4j
@@ -251,11 +251,13 @@ public class Stock15mBarBuildService {
      * <p>
      * SQL已按stocks_id, reg_date_time, id排序,同一时间的后续记录ID更大。
      * 使用LinkedHashMap保留插入顺序,同一时间的后续(更大ID)记录覆盖前一条。
+     * <p>
+     * 1.8.0起改为public: 指令触发时RSI现算与bar构建复用同一去重口径,禁止另立第二种口径。
      *
      * @param rawPoints 原始采样列表(已按id升序排序)
      * @return 去重结果(去重后列表 + 重复数量 + 最大历史ID)
      */
-    private static DedupResult dedupByTime(List<StockPricePoint> rawPoints) {
+    public static DedupResult dedupByTime(List<StockPricePoint> rawPoints) {
         int totalCount = rawPoints.size();
         LinkedHashMap<LocalDateTime, StockPricePoint> byTime = new LinkedHashMap<>();
         Long maxHistoryId = null;
@@ -306,12 +308,14 @@ public class Stock15mBarBuildService {
 
     /**
      * 去重结果值对象
+     * <p>
+     * 1.8.0起改为public: 随{@link #dedupByTime(List)}开放给RSI现算复用同一去重口径。
      *
      * @param uniquePoints   去重后的采样列表(按时间升序)
      * @param duplicateCount 被去除的重复记录数量
      * @param maxHistoryId   本桶使用的最大原始历史ID
      */
-    private record DedupResult(
+    public record DedupResult(
             List<StockPricePoint> uniquePoints,
             int duplicateCount,
             Long maxHistoryId) {

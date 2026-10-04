@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
+import pn.torn.goldeneye.repository.dao.torn.stocks.TornStocksDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockStrategyFeature15mDAO;
+import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO;
 
 import java.math.BigDecimal;
@@ -44,6 +46,8 @@ class TornStockStrategyFeature15mMapperTest {
 
     @Autowired
     private TornStockStrategyFeature15mDAO feature15mDao;
+    @Autowired
+    private TornStocksDAO tornStocksDao;
 
     /**
      * 隔离测试股票ID(远离生产数据)
@@ -101,6 +105,39 @@ class TornStockStrategyFeature15mMapperTest {
         assertNull(read.getPctBelow30dHigh(), "pctBelow30dHigh空值应原样回读");
     }
 
+    @Test
+    @DisplayName("真实PG_selectLatestFeatures_每股仅返回analysisTime内最新一行且过滤版本")
+    void selectLatestFeatures_perStockLatestRowWithinBound_versionFiltered() {
+        tornStocksDao.saveOrUpdate(buildTestStock());
+        LocalDateTime olderBar = TEST_BAR_START_TIME;
+        LocalDateTime newerBar = TEST_BAR_START_TIME.plusMinutes(15);
+        LocalDateTime futureBar = TEST_BAR_START_TIME.plusMinutes(30);
+        feature15mDao.upsertFeature(buildReadyFeature(olderBar, TEST_REFERENCE_PRICE, TEST_FEATURE_VERSION));
+        feature15mDao.upsertFeature(buildReadyFeature(newerBar, TEST_REFERENCE_PRICE.add(BigDecimal.ONE),
+                TEST_FEATURE_VERSION));
+        feature15mDao.upsertFeature(buildReadyFeature(newerBar, new BigDecimal("999.000000"),
+                TEST_FEATURE_VERSION));
+        feature15mDao.upsertFeature(buildReadyFeature(newerBar, new BigDecimal("777.000000"),
+                "LEGACY_VERSION"));
+        feature15mDao.upsertFeature(buildReadyFeature(futureBar, new BigDecimal("888.000000"),
+                TEST_FEATURE_VERSION));
+
+        // 上界取newerBar:futureBar不入选;同bar_start_time的两行按id DESC取后插入的999;
+        // LEGACY_VERSION行因版本过滤不入选
+        List<TornStockStrategyFeature15mDO> rows = feature15mDao.selectLatestFeatures(
+                newerBar, TEST_FEATURE_VERSION);
+
+        TornStockStrategyFeature15mDO latest = rows.stream()
+                .filter(row -> row.getStocksId() != null && row.getStocksId() == TEST_STOCKS_ID)
+                .findFirst().orElseThrow();
+        assertEquals(newerBar, latest.getBarStartTime(), "应取上界内最新bar时间");
+        assertEquals(0, new BigDecimal("999.000000").compareTo(latest.getReferencePrice()),
+                "同bar时间多行应按id DESC取最新写入");
+        assertEquals(TEST_FEATURE_VERSION, latest.getFeatureVersion(), "特征版本应原样回读");
+        assertTrue(rows.stream().allMatch(row -> !row.getBarStartTime().isAfter(newerBar)),
+                "全部返回行bar时间不得晚于analysisTime上界");
+    }
+
     /**
      * 构造{@code strategyReady=false/INSUFFICIENT_HISTORY}的预热特征对象。
      * <p>
@@ -120,5 +157,47 @@ class TornStockStrategyFeature15mMapperTest {
         feature.setDataQualityReason("INSUFFICIENT_HISTORY");
         feature.setFeatureVersion(TEST_FEATURE_VERSION);
         return feature;
+    }
+
+    /**
+     * 构造{@code strategyReady=true}的普通特征对象。
+     *
+     * @param barStartTime   bar开始时间
+     * @param referencePrice 参考价
+     * @param featureVersion 特征版本
+     * @return 就绪特征DO
+     */
+    private TornStockStrategyFeature15mDO buildReadyFeature(LocalDateTime barStartTime,
+                                                            BigDecimal referencePrice,
+                                                            String featureVersion) {
+        TornStockStrategyFeature15mDO feature = new TornStockStrategyFeature15mDO();
+        feature.setStocksId(TEST_STOCKS_ID);
+        feature.setStocksShortname(TEST_SHORTNAME);
+        feature.setBarStartTime(barStartTime);
+        feature.setReferencePrice(referencePrice);
+        feature.setStrategyReady(true);
+        feature.setFeatureVersion(featureVersion);
+        return feature;
+    }
+
+    /**
+     * 构造隔离测试股票行(selectLatestFeatures内连接torn_stocks,deleted=0)。
+     *
+     * @return 测试股票DO
+     */
+    private TornStocksDO buildTestStock() {
+        TornStocksDO stock = new TornStocksDO();
+        stock.setId(TEST_STOCKS_ID);
+        stock.setStocksName("ITST_TEST");
+        stock.setStocksShortname(TEST_SHORTNAME);
+        stock.setCurrentPrice(new BigDecimal("200.00"));
+        stock.setBenefitType("NONE");
+        stock.setBenefitPeriod(0);
+        stock.setBenefitReq(0L);
+        stock.setBenefitDesc("test");
+        stock.setProfit(0L);
+        stock.setYearProfit(0L);
+        stock.setBaseCost(0L);
+        return stock;
     }
 }

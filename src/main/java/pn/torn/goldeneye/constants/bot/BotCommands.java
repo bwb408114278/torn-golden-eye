@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.6.4
+ * @version 1.8.0
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -211,6 +211,10 @@ public class BotCommands {
      * 预填Stockα日线
      */
     public static final String ALPHA_STOCK_DAILY_PREFILL = "预填Stockα日线";
+    /**
+     * 回补Stock月度风格(一次性生命周期指令:回补完成并对账通过后,本指令与回补专用逻辑在后续版本删除)
+     */
+    public static final String MONTHLY_STYLE_BACKFILL = "回补Stock月度风格";
     /**
      * 绑Key
      */

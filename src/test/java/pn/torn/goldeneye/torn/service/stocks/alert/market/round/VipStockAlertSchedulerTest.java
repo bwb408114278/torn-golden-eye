@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketB
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketRoundDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.decision.StockAlphaDecisionService;
 import pn.torn.goldeneye.torn.service.stocks.alert.alpha.market.StockAlphaDailyCloseService;
+import pn.torn.goldeneye.torn.service.stocks.alert.monthly.StockMonthlyStateInitService;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.*;
 import pn.torn.goldeneye.torn.service.stocks.alert.notice.StockNoticeSendService;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioInitService;
@@ -35,7 +36,7 @@ import static org.mockito.Mockito.*;
  * 历史PENDING通知独立于轮次总开关投递,以及未进入α决策窗口的轮次桶跳过α日线收盘快照构建。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.8.0
  * @since 2026.08.02
  */
 @DisplayName("股票提醒调度器测试")
@@ -68,6 +69,8 @@ class VipStockAlertSchedulerTest {
     private StockAlphaDecisionService alphaDecisionService;
     @Mock
     private StockAlphaDailyCloseService alphaDailyCloseService;
+    @Mock
+    private StockMonthlyStateInitService monthlyStateInitService;
 
     private VipStockAlertScheduler scheduler;
 
@@ -77,7 +80,7 @@ class VipStockAlertSchedulerTest {
                 barBuildService, featureBuildService, roundDao, historyRebuildService,
                 portfolioInitService, noticeSendService, roundLoader, transactionService,
                 marketClock, projectProperty, runtimeGate, alphaDailyCloseService,
-                new StockMarketRoundFactory());
+                new StockMarketRoundFactory(), monthlyStateInitService);
     }
 
     @Test

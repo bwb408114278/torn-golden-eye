@@ -55,6 +55,36 @@
         ORDER BY stocks_id ASC, bar_start_time ASC, id ASC
     </select>
 
+    <!-- 每股取bar_start_time &lt;= analysisTime的最新一行特征(LATERAL),依赖既有部分索引
+         idx_stock_strategy_feature_15m_stock_time_desc;特征只在已结束桶构建,上界不会读到半成品 -->
+    <select id="selectLatestFeatures" resultType="pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockStrategyFeature15mDO">
+        SELECT latest.id, latest.stocks_id, latest.stocks_shortname, latest.bar_start_time, latest.reference_price,
+               latest.ma1d, latest.ma7d, latest.ma30d, latest.zscore1d, latest.zscore7d, latest.zscore30d,
+               latest.return6h, latest.return1d, latest.return7d, latest.return14d,
+               latest.low30d, latest.high30d, latest.width30d, latest.position30,
+               latest.pct_above_30d_low, latest.pct_below_30d_high,
+               latest.strategy_ready, latest.data_quality_reason, latest.feature_version,
+               latest.deleted, latest.create_time, latest.update_time
+        FROM torn_stocks s
+        JOIN LATERAL (
+            SELECT f.id, f.stocks_id, f.stocks_shortname, f.bar_start_time, f.reference_price,
+                   f.ma1d, f.ma7d, f.ma30d, f.zscore1d, f.zscore7d, f.zscore30d,
+                   f.return6h, f.return1d, f.return7d, f.return14d,
+                   f.low30d, f.high30d, f.width30d, f.position30,
+                   f.pct_above_30d_low, f.pct_below_30d_high,
+                   f.strategy_ready, f.data_quality_reason, f.feature_version,
+                   f.deleted, f.create_time, f.update_time
+            FROM torn_stock_strategy_feature_15m f
+            WHERE f.deleted = 0
+              AND f.stocks_id = s.id
+              AND f.bar_start_time &lt;= #{analysisTime}
+              AND f.feature_version = #{featureVersion}
+            ORDER BY f.bar_start_time DESC, f.id DESC
+            LIMIT 1) latest ON true
+        WHERE s.deleted = 0
+        ORDER BY latest.stocks_id ASC
+    </select>
+
     <!-- 按唯一键(stocks_id, bar_start_time, feature_version)执行UPSERT,支持幂等重试 -->
     <insert id="upsertFeature">
         INSERT INTO torn_stock_strategy_feature_15m

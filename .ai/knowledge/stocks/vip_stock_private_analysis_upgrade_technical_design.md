@@ -1,12 +1,12 @@
 # VIP 私聊 Stock分析 升级技术设计（15m 特征链 + 月度风格接入）
 
 > **文档类型：** 技术设计（实施依据）  
-> **适用项目：** Golden-Eye；**计划开发版本 2.0.0（已确认）**
+> **适用项目：** Golden-Eye；**计划开发版本 1.8.0（2026-10-04 确认，原 2.0.0 计划变更）**  
 > **状态：** 设计已冻结，未开始编码；本方案只服务 VIP 私聊指令 `Stock分析`，不授权改动 α 决策路径  
 > **风险等级：** 混合 — 私聊指令切换到 15m 属 **L2**（只读输出，无资金/业务状态写入）；`torn_stock_monthly_state` 表复活与一次性历史回补属 **L3**（Schema 迁移、批量派生物重建）  
 > **业务时区：** `Asia/Shanghai`  
 > **消费方：** 单一消费方 — `BotCommands.VIP_STOCK_RECOMMEND = "Stock分析"`（`BotCommands.java:239`）  
-> **最后更新：** 2026-09-24
+> **最后更新：** 2026-10-04
 
 ---
 
@@ -333,17 +333,17 @@ effectiveThreshold = personality.getBuyThreshold()
 | 1.4.8 | `1.0.1-2.0.0/1.4.8/monthly-state-rule-version-widen.yaml` → `widen_monthly_state_rule_version_columns` | `personality_rule_version`/`risk_rule_version` → `VARCHAR(64)` |
 | 1.6.5 | `1.0.1-2.0.0/1.6.5/stocks-alpha-dual-basis.yaml` → `drop_retired_stock_monthly_state_table`（:58-63） | `dropTable: torn_stock_monthly_state` |
 
-**关键结论：不能靠"删除 1.6.5 的 drop"来复活。** 1.2.0 的 create changeSet 早已在 `DATABASECHANGELOG` 中标记执行，Liquibase 不会重跑；即使删掉 drop，空库/新库与已部署库的状态也会分叉。**必须新增 changeSet 重建表**（新版本目录 include 追加到 `db.changelog-master.yaml` 末尾，当前位置最后一项为 `1.6.5/stocks-alpha-dual-basis.yaml`，`db.changelog-master.yaml:111-112`）。
+**关键结论：不能靠"删除 1.6.5 的 drop"来复活。** 1.2.0 的 create changeSet 早已在 `DATABASECHANGELOG` 中标记执行，Liquibase 不会重跑；即使删掉 drop，空库/新库与已部署库的状态也会分叉。**必须新增 changeSet 重建表**（新版本目录 include 追加到 `db.changelog-master.yaml` 末尾，当前位置最后一项为 `1.6.7/oc-delay-cause.yaml`；最新发布版本为 1.7.0，最后一次数据库变更为 1.6.7）。
 
 ```text
-新增：src/main/resources/db/changelog/1.0.1-2.0.0/<新版本目录>/stocks-monthly-state-revive.yaml
-修改：src/main/resources/db/changelog/db.changelog-master.yaml   （只追加 include）
+新增：src/main/resources/db/changelog/1.0.1-2.0.0/1.8.0/stocks-monthly-state-revive.yaml
+修改：src/main/resources/db/changelog/db.changelog-master.yaml   （只追加 include，置于 1.6.7 之后）
 ```
 
 - changeSet id：`revive_stock_monthly_state_table`（author: Bai），内容 = 1.2.0 原 DDL（含 `uk_stock_monthly_state_stock_month`、`idx_stock_monthly_state_month_status`、`ck_monthly_effective_month`、`ck_monthly_evidence_window`、`ck_monthly_confirmed_at`、`ck_monthly_confirmed_complete`），列宽直接取 1.4.8 后的 `VARCHAR(64)`；
 - 加 `preConditions: tableExists` 取反保护（或 `onFail: MARK_RAN`），保证"已存在则不动"的幂等语义；
-- **新版本目录名待确认**（当前 `pom.xml` 版本为 `1.6.5`，需按发布版本决定是 `1.6.6` 还是 `1.7.0`）；
-- **待确认：** 生产库当前是否存在 `torn_stock_monthly_state`、`DATABASECHANGELOG` 中 1.6.5 的 drop 是否已执行（本次无库访问权限，未核实）。
+- **新版本目录名已确认（2026-10-04）：`1.8.0`**（开发版本 1.8.0；最新发布版本 1.7.0，最后一次数据库变更为 1.6.7）；
+- **已确认（2026-10-04）：** 生产库 1.6.5 的 drop 已执行、`torn_stock_monthly_state` 不存在；复活 changeSet 按「已部署库 + 空库」双场景验证即可。
 
 **精简项（代码层，不是列层）：** 表结构保持与原 DDL 一致（避免 schema 漂移），但
 
@@ -449,7 +449,9 @@ latest = max(effectiveMonth) where stocks_id = X and state_status = 'CONFIRMED' 
 
 ### 4.7 一次性回补指令
 
-**指令：** 新增超管指令（命名待确认）`BotCommands.MONTHLY_STYLE_BACKFILL = "回补Stock月度风格"`，参数 `yyyy-MM#yyyy-MM`（起始月#结束月），参考既有超管指令风格（`StocksFeatureBuildStrategyImpl`、`StockDerivedDataRebuildStrategyImpl`）。
+**指令：** 新增超管指令（已确认命名）`BotCommands.MONTHLY_STYLE_BACKFILL = "回补Stock月度风格"`，参数 `yyyy-MM#yyyy-MM`（起始月#结束月），参考既有超管指令风格（`StocksFeatureBuildStrategyImpl`、`StockDerivedDataRebuildStrategyImpl`）。
+
+**一次性生命周期（2026-10-04 用户确认）：** 回补完成并逐支对账通过后，回补指令（`BotCommands.MONTHLY_STYLE_BACKFILL`）、策略实现与回补专用编排逻辑必须在后续版本删除，不得作为常驻能力保留。
 
 **执行顺序（强制"先 bar/feature → 再月度状态"，规范 §2.1 冷启动顺序）：**
 
@@ -629,6 +631,7 @@ ORDER BY stocks_shortname;
 | 版本 | 日期 | 变更 | 作者 |
 |---|---|---|---|
 | 1.0.0 | 2026-09-24 | 初稿：冻结"私聊指令 15m 化 + 月度风格接入"两章设计（数据映射、RSI 现算、下线清单与迁移顺序、月度表复活与自动确认、消费口径、回补指令、sys_setting 退役） | Bai |
+| 1.0.1 | 2026-10-04 | 开发版本 2.0.0→1.8.0；§4.1 Liquibase 追加点更新为 1.6.7 之后、新目录 `1.8.0/`；附录 Q2 关闭（drop 已执行）、Q8 关闭（指令命名确认 + 回补指令与专用逻辑的一次性删除生命周期）、Q1/Q7 关闭（不阻塞开发，阶段 0/2 门禁时取数） | Bai |
 
 ---
 
@@ -636,13 +639,13 @@ ORDER BY stocks_shortname;
 
 | 编号 | 待确认内容 | 影响范围 |
 |---|---|---|
-| Q1 | 15m 特征表当前行数（需求方口径约 87 万行）未在库上取数核实 | 3.2 成本论证的量化依据 |
-| Q2 | 生产库是否存在 `torn_stock_monthly_state`，`DATABASECHANGELOG` 中 1.6.5 的 `drop_retired_stock_monthly_state_table` 是否已执行 | 4.1 迁移策略与验证场景 |
-| Q3 | ~~新 Liquibase 版本目录名~~ **已确认：计划开发版本 2.0.0**（目录按发布时版本段确定） | 已确认（2026-09-24） |
-| Q4 | ~~是否取回 `StockMonthlyEvidenceExclusionPolicy`~~ **已确认：不取回**；数据不完整月份一律保持 DRAFT、不生效，靠 §4.6 沿用规则过渡 | 已确认（2026-09-24） |
+| Q1 | ~~15m 特征表当前行数（需求方口径约 87 万行）未在库上取数核实~~ **已确认（2026-10-04）：不阻塞开发**；15m bar 持续增长，行数仅在阶段 0 巡检时取数核实 | 3.2 成本论证的量化依据 |
+| Q2 | ~~生产库是否存在 `torn_stock_monthly_state`，1.6.5 的 drop 是否已执行~~ **已确认（2026-10-04）：drop 已执行、表不存在**；按「已部署库 + 空库」双场景验证 | 4.1 迁移策略与验证场景 |
+| Q3 | ~~新 Liquibase 版本目录名~~ **已确认：开发版本 1.8.0（2026-10-04 修订，原计划 2.0.0）；目录为 `1.8.0/`** | 4.1 |
+| Q4 | ~~是否取回 `StockMonthlyEvidenceExclusionPolicy`~~ **已确认：不取回**；数据不完整月份一律保持 DRAFT、不生效，靠 §4.6 沿用规则过渡 | 4.2 |
 | Q5 | `torn_stocks_history` 自然分钟重复数据是否已按 `tornsy_stock_history_backfill_technical_design.md` §2.3 处置完毕 | RSI 现算与 bar 构建的去重语义 |
 | Q6 | `torn_stock_strategy_feature` 现存量与保留窗口 | 3.5 阶段 6（drop 表）的独立变更单 |
-| Q7 | 旧口径与 15m 口径在 35 支股票上的逐支差异清单 | 3.5 阶段 2 门禁 |
-| Q8 | 回补指令命名与参数格式（`yyyy-MM#yyyy-MM`） | 4.7 |
+| Q7 | ~~旧口径与 15m 口径在 35 支股票上的逐支差异清单~~ **已确认（2026-10-04）：不阻塞开发**；差异清单在阶段 2 门禁时人工确认 | 3.5 阶段 2 门禁 |
+| Q8 | ~~回补指令命名与参数格式（`yyyy-MM#yyyy-MM`）~~ **已确认（2026-10-04）：命名与参数可行；回补完成并对账通过后，回补指令与回补专用逻辑需删除（一次性生命周期，见 §4.7）** | 4.7 |
 | Q9 | 旧 `sys_setting.STOCK_PERSONALITY` 的 35 支实际内容 | 4.7 逐支对账 |
 | Q10 | ~~`SWING_REVERSAL_BUY` 是否纳入月度门槛调整~~ **已确认：不纳入**，固定 50 分；月度 +10 只作用于 `SWING_LOW_BUY` | 已确认（2026-09-24） |
