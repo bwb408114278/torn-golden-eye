@@ -1,12 +1,12 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.monthly;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMonthlyStateStatusEnum;
@@ -52,8 +52,6 @@ class TornStockMonthlyStateAutoConfirmMapperTest {
     @Autowired
     private StockMonthlyStateInitService monthlyStateInitService;
     @Autowired
-    private NamedParameterJdbcTemplate namedJdbcTemplate;
-    @Autowired
     private TransactionTemplate transactionTemplate;
 
     /**
@@ -68,10 +66,10 @@ class TornStockMonthlyStateAutoConfirmMapperTest {
 
     @AfterEach
     void cleanupTestRows() {
-        namedJdbcTemplate.update(
-                "DELETE FROM torn_stock_monthly_state "
-                        + "WHERE stocks_id IN (:stocks) AND effective_month = :month",
-                Map.of("stocks", TEST_STOCKS, "month", TEST_MONTH));
+        // 物理DELETE经生产DAO的MyBatis-Plus wrapper完成,不在Java文件编写SQL文本
+        monthlyStateDao.remove(Wrappers.<TornStockMonthlyStateDO>lambdaQuery()
+                .in(TornStockMonthlyStateDO::getStocksId, TEST_STOCKS)
+                .eq(TornStockMonthlyStateDO::getEffectiveMonth, TEST_MONTH));
     }
 
     @Test

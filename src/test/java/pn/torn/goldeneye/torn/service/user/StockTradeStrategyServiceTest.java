@@ -18,7 +18,6 @@ import pn.torn.goldeneye.torn.service.user.StockMonthlyStyleResolver.ResolvedMon
 import pn.torn.goldeneye.torn.service.user.StockTradeStrategyService.StockTradeAnalysis;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
@@ -45,7 +44,6 @@ class StockTradeStrategyServiceTest {
 
     private static final int STOCKS_ID = 1;
     private static final LocalDateTime ANALYSIS_TIME = LocalDateTime.of(2026, 10, 4, 10, 0);
-    private static final LocalDate TARGET_MONTH = LocalDate.of(2026, 10, 1);
 
     @Mock
     private Stock15mTradeFeatureProvider featureProvider;

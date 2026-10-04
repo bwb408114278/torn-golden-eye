@@ -91,7 +91,7 @@ public class StockMonthlyStyleBackfillStrategyImpl extends BaseGroupMsgStrategy 
     @Override
     public List<? extends QqMsgParam<?>> handle(long groupId, QqRecMsgSender sender, String msg) {
         YearMonth[] months = resolveMonths(msg);
-        if (months == null) {
+        if (months.length != 2) {
             return super.buildTextMsg("月份参数无效,格式必须为" + getCommand() + "#yyyy-MM#yyyy-MM,"
                     + "且结束月不得晚于当前月,例如" + getCommand() + "#2026-01#2026-10");
         }
@@ -226,15 +226,15 @@ public class StockMonthlyStyleBackfillStrategyImpl extends BaseGroupMsgStrategy 
      * 解析指令月份参数。
      *
      * @param msg 指令消息
-     * @return [起始月, 结束月];格式非法、起始晚于结束或结束月晚于当前月时返回null
+     * @return [起始月, 结束月];格式非法、起始晚于结束或结束月晚于当前月时返回空数组
      */
     private YearMonth[] resolveMonths(String msg) {
         if (msg == null) {
-            return null;
+            return new YearMonth[0];
         }
         String[] parts = msg.split(PARAM_SEPARATOR);
         if (parts.length != 3) {
-            return null;
+            return new YearMonth[0];
         }
         YearMonth start;
         YearMonth end;
@@ -242,10 +242,10 @@ public class StockMonthlyStyleBackfillStrategyImpl extends BaseGroupMsgStrategy 
             start = YearMonth.parse(parts[1].trim());
             end = YearMonth.parse(parts[2].trim());
         } catch (DateTimeParseException e) {
-            return null;
+            return new YearMonth[0];
         }
         if (start.isAfter(end) || end.isAfter(YearMonth.from(marketClock.today()))) {
-            return null;
+            return new YearMonth[0];
         }
         return new YearMonth[]{start, end};
     }

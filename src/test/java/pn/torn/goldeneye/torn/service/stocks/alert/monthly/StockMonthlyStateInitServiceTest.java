@@ -19,6 +19,8 @@ import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockMonthlySt
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMonthlyStateDO;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
+import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -28,8 +30,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mBarBuildService;
-import pn.torn.goldeneye.torn.service.stocks.alert.market.StockMarketClock;
 
 /**
  * 股票月度风格状态初始化服务单元测试 - 覆盖当月草稿初始化、冻结公式委托、幂等与人工/系统确认流程
@@ -456,9 +456,9 @@ class StockMonthlyStateInitServiceTest {
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(List.of());
         // 数据库只有2026-02旧版本CONFIRMED: 当前双版本过滤下必须返回空(首月previous=null)
         when(monthlyStateDao.selectPreviousConfirmedByStocks(
-                eq(List.of(1)), eq(targetMonth),
-                eq(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION),
-                eq(StockMonthlyStateCalculator.RISK_RULE_VERSION)))
+                List.of(1), targetMonth,
+                StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION,
+                StockMonthlyStateCalculator.RISK_RULE_VERSION))
                 .thenReturn(List.of());
         when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
 
@@ -501,9 +501,9 @@ class StockMonthlyStateInitServiceTest {
         when(bar15mDao.selectUsableEvidenceEdges(any(), any(), any())).thenReturn(List.of(edge));
         when(bar15mDao.selectUsableByStocksAndTimeRange(any(), any(), any(), any())).thenReturn(denseBars);
         when(monthlyStateDao.selectPreviousConfirmedByStocks(
-                eq(List.of(1)), eq(targetMonth),
-                eq(StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION),
-                eq(StockMonthlyStateCalculator.RISK_RULE_VERSION)))
+                List.of(1), targetMonth,
+                StockMonthlyStateCalculator.PERSONALITY_RULE_VERSION,
+                StockMonthlyStateCalculator.RISK_RULE_VERSION))
                 .thenReturn(List.of(marchConfirmed));
         when(monthlyStateDao.recalculateDraftStates(any())).thenReturn(1);
 

@@ -129,7 +129,6 @@ public class StockTradeStrategyService {
         boolean maturityEarly = style.maturity() == StockMaturityEnum.M1_EARLY;
         boolean riskHigh = style.riskLevel() == StockRiskLevelEnum.HIGH;
         StockPersonalityEnum personality = style.personality();
-        Double adjustedZ30d = adjustZScoreForNarrowBand(point.zScore30d(), personality);
         boolean fallingKnife = isFallingKnife(point.pctAbove30dLow(),
                 point.return1d(), point.zScore30d(), personality);
         boolean persistentDecline = isPersistentDecline(point, personality);
@@ -577,20 +576,6 @@ public class StockTradeStrategyService {
      */
     private static boolean lt(BigDecimal value, double threshold) {
         return value != null && value.doubleValue() < threshold;
-    }
-
-    /**
-     * null安全判定: value > threshold
-     */
-    private static boolean gt(BigDecimal value, double threshold) {
-        return value != null && value.doubleValue() > threshold;
-    }
-
-    /**
-     * null安全判定: value >= threshold
-     */
-    private static boolean ge(BigDecimal value, double threshold) {
-        return value != null && value.doubleValue() >= threshold;
     }
 
     /**

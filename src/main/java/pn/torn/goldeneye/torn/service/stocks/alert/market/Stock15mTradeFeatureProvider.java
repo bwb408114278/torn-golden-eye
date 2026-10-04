@@ -91,18 +91,33 @@ public class Stock15mTradeFeatureProvider {
             if (feature.getReferencePrice() == null) {
                 log.warn("Stock分析特征取数-参考价为空,该股不进入输出: stocksId={}, barStartTime={}",
                         feature.getStocksId(), feature.getBarStartTime());
-                continue;
+            } else {
+                result.add(toProvidedFeature(feature, rsiByStock, analysisTime));
             }
-            boolean windowInsufficient = !Boolean.TRUE.equals(feature.getStrategyReady());
-            boolean stale = feature.getBarStartTime() != null
-                    && feature.getBarStartTime().isBefore(analysisTime.minus(STALE_FEATURE_MAX_AGE));
-            result.add(new ProvidedTradeFeature(
-                    toFeaturePoint(feature, rsiByStock),
-                    windowInsufficient,
-                    feature.getDataQualityReason(),
-                    stale));
         }
         return result;
+    }
+
+    /**
+     * 单支股票的C/D分流组装: 参考价非空才进入输出;
+     * 最新bar距分析时点超过{@link #STALE_FEATURE_MAX_AGE}标记stale(该股不推荐)。
+     *
+     * @param feature      15m特征DO(参考价非空)
+     * @param rsiByStock   现算RSI映射
+     * @param analysisTime 分析时点
+     * @return 分流后的特征结果
+     */
+    private ProvidedTradeFeature toProvidedFeature(TornStockStrategyFeature15mDO feature,
+                                                   Map<Integer, BigDecimal> rsiByStock,
+                                                   LocalDateTime analysisTime) {
+        boolean windowInsufficient = !Boolean.TRUE.equals(feature.getStrategyReady());
+        boolean stale = feature.getBarStartTime() != null
+                && feature.getBarStartTime().isBefore(analysisTime.minus(STALE_FEATURE_MAX_AGE));
+        return new ProvidedTradeFeature(
+                toFeaturePoint(feature, rsiByStock),
+                windowInsufficient,
+                feature.getDataQualityReason(),
+                stale);
     }
 
     /**
@@ -112,7 +127,7 @@ public class Stock15mTradeFeatureProvider {
      * RSI不在15m表持久化,由现算结果注入(无分钟数据时兜底50,与滚动窗口不足60期口径一致);
      * 窗口指标在不可计算时保持null,由评分层null安全分流,不填充伪造值。
      *
-     * @param feature   15m特征DO(参考价非空)
+     * @param feature    15m特征DO(参考价非空)
      * @param rsiByStock 现算RSI映射
      * @return 内部特征点
      */
