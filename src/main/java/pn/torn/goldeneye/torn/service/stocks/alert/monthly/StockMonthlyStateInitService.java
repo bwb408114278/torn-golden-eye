@@ -25,8 +25,10 @@ import java.util.stream.Collectors;
 /**
  * 股票月度风格状态初始化服务 - 按冻结月度公式为全部股票生成风格/成熟度/风险等级草稿记录
  * <p>
- * 每月初(或阶段B冷启动)调用 {@link #initCurrentMonth()} 为缺少当月有效状态的股票构建
- * {@link TornStockMonthlyStateDO} 草稿。计算完全委托给 {@link StockMonthlyStateCalculator},
+ * 生产入口为启动补偿编排 {@link #refreshCurrentMonthStates()}: 单事务内一次完成当月
+ * 缺失初始化、未确认DRAFT重算与系统自动确认; {@link #initMonth(LocalDate)} 与
+ * {@link #recalculateMonthDrafts(LocalDate)} 供历史范围回补指令按月正序调用。
+ * 计算完全委托给 {@link StockMonthlyStateCalculator},
  * 使用冻结版本 {@value StockMonthlyStateCalculator#PERSONALITY_RULE_VERSION} 与
  * {@value StockMonthlyStateCalculator#RISK_RULE_VERSION},不再读取
  * {@code sys_setting.STOCK_PERSONALITY} 配置,也不再统一风险NONE。
@@ -67,33 +69,23 @@ public class StockMonthlyStateInitService {
     // ==================== 对外方法 ====================
 
     /**
-     * 为全部股票初始化当月风格/成熟度/风险快照
+     * 为指定生效月份初始化全部缺失股票的 DRAFT 月度状态。
      * <p>
-     * 以当月1日作为effectiveMonth,执行以下流程:
+     * 执行以下流程:
      * <ol>
      *   <li>获取全部股票列表</li>
-     *   <li>一次查询当月任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票ID集合,
+     *   <li>一次查询该月任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票ID集合,
      *       这些股票全部跳过初始化,避免与数据库部分唯一索引
      *       {@code uk_stock_monthly_state_stock_month} 冲突(幂等保护)</li>
-     *   <li>一次查询当月已CONFIRMED股票ID集合,仅用于可观测日志</li>
+     *   <li>一次查询该月已CONFIRMED股票ID集合,仅用于可观测日志</li>
      *   <li>批量加载缺失股票的证据窗口(首尾可用bar)与窗口内可用bar,避免N+1</li>
      *   <li>批量加载每支缺失股票最近更早CONFIRMED月度状态(迟滞参考)</li>
      *   <li>委托 {@link StockMonthlyStateCalculator} 计算草稿,证据不完整保持DRAFT且风格/风险为空</li>
      *   <li>使用PostgreSQL冲突安全批量插入(ON CONFLICT DO NOTHING),返回实际插入数</li>
      * </ol>
      *
-     * @return 本次初始化实际新建的草稿记录数量;全部股票已有有效状态时返回0
-     */
-    @Transactional
-    public int initCurrentMonth() {
-        return initMonthInternal(marketClock.today().withDayOfMonth(1));
-    }
-
-    /**
-     * 为指定生效月份初始化全部缺失股票的 DRAFT 月度状态。
-     *
      * @param effectiveMonth 目标生效月份（当月 1 日）
-     * @return 本次实际新建的草稿记录数量
+     * @return 本次初始化实际新建的草稿记录数量;全部股票已有有效状态时返回0
      */
     @Transactional
     public int initMonth(LocalDate effectiveMonth) {
@@ -103,8 +95,8 @@ public class StockMonthlyStateInitService {
     /**
      * 初始化指定月份缺失 DRAFT 状态的实际实现。
      * <p>
-     * 供 {@link #initCurrentMonth()} 与 {@link #initMonth(LocalDate)} 共用，
-     * 避免事务方法通过 {@code this} 自调用导致 Spring 代理事务失效。
+     * {@link #initMonth(LocalDate)} 的事务内实现,事务由公开入口的
+     * {@code @Transactional} 经Spring代理提供,私有方法不重复标注。
      *
      * @param effectiveMonth 目标生效月份（当月 1 日）
      * @return 本次实际新建的草稿记录数量
@@ -153,12 +145,13 @@ public class StockMonthlyStateInitService {
     }
 
     /**
-     * 重算当月已存在且未确认的DRAFT月度状态。
+     * 重算指定生效月份中未确认且非人工覆盖的 DRAFT 月度状态。
      * <p>
-     * 与 {@link #initCurrentMonth()} 互补: 后者只负责为缺失股票初始化DRAFT行,
-     * 本方法只重算当月已存在 {@code state_status=DRAFT} 且
+     * 与 {@link #initMonth(LocalDate)} 互补: 后者只负责为缺失股票初始化DRAFT行,
+     * 本方法只重算该月已存在 {@code state_status=DRAFT} 且
      * {@code manual_override=false} 的记录。数据补齐后再次调用即可让空DRAFT升级为
-     * 完整机器建议,不再因{@code initCurrentMonth()}的"已存在即跳过"语义永久阻塞。
+     * 完整机器建议,不再因{@code initMonth(LocalDate)}的"已存在即跳过"语义永久阻塞。
+     * 供历史范围回补按月正序调用。
      * <p>
      * 约束:
      * <ul>
@@ -168,18 +161,6 @@ public class StockMonthlyStateInitService {
      *       不引入每股票N+1;</li>
      *   <li>幂等: 相同证据重复重算结果稳定。</li>
      * </ul>
-     *
-     * @return 本次实际更新的DRAFT记录数量
-     */
-    @Transactional
-    public int recalculateCurrentMonthDrafts() {
-        return recalculateMonthDraftsInternal(marketClock.today().withDayOfMonth(1));
-    }
-
-    /**
-     * 重算指定生效月份中未确认且非人工覆盖的 DRAFT 月度状态。
-     * <p>
-     * 供历史范围重建按月正序调用；仅更新 DRAFT 且 manual_override=false 的记录。
      *
      * @param effectiveMonth 目标生效月份（当月 1 日）
      * @return 本次实际更新的 DRAFT 记录数量
@@ -192,8 +173,8 @@ public class StockMonthlyStateInitService {
     /**
      * 重算指定月份 DRAFT 状态的实际实现。
      * <p>
-     * 供 {@link #recalculateCurrentMonthDrafts()} 与 {@link #recalculateMonthDrafts(LocalDate)} 共用，
-     * 避免事务方法通过 {@code this} 自调用导致 Spring 代理事务失效。
+     * {@link #recalculateMonthDrafts(LocalDate)} 的事务内实现,事务由公开入口的
+     * {@code @Transactional} 经Spring代理提供,私有方法不重复标注。
      *
      * @param effectiveMonth 目标生效月份（当月 1 日）
      * @return 本次实际更新的 DRAFT 记录数量
@@ -310,7 +291,7 @@ public class StockMonthlyStateInitService {
     /**
      * 启动补偿专用月度编排: 单事务内一次完成当月缺失初始化、未确认DRAFT重算与系统自动确认。
      * <p>
-     * 相对分别调用 {@link #initCurrentMonth()} + {@link #recalculateCurrentMonthDrafts()} +
+     * 相对分别调用 {@link #initMonth(LocalDate)} + {@link #recalculateMonthDrafts(LocalDate)} +
      * {@link #autoConfirmDraftStates(LocalDate)} 的改进(1.8.0 Review §4.7):
      * <ul>
      *   <li>一次求出「当月缺失股票 ∪ 当月未确认非人工覆盖DRAFT股票」目标集合,

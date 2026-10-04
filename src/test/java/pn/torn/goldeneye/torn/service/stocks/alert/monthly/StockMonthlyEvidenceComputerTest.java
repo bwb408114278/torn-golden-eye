@@ -141,7 +141,8 @@ class StockMonthlyEvidenceComputerTest {
     void waivedOutageWindow_450MinGap_excludedAndComplete() {
         // 证据区间[02-06 00:00, 02-16 00:00)完整包含备案窗口[02-14 08:00, 15:15):
         // 除窗口29个桶外每15分钟一个bar,唯一raw大间隔为02-14 07:45→15:15(450分钟),
-        // 豁免后adjusted间隔=450-435=15,覆盖率=932/932=1.0,完整性按adjusted口径通过
+        // 豁免后adjusted间隔=450-435=15;expectedBucketCount=961(含终点桶)、excludedBucketCount=29
+        // → adjustedExpected=932,可用bar=931 → adjusted覆盖率931/932≈0.998927(raw 931/961≈0.968783)
         LocalDateTime evidenceStart = LocalDateTime.of(2026, 2, 6, 0, 0);
         LocalDateTime evidenceEnd = LocalDateTime.of(2026, 2, 16, 0, 0);
         LocalDateTime windowStart = LocalDateTime.of(2026, 2, 14, 8, 0);
@@ -161,6 +162,10 @@ class StockMonthlyEvidenceComputerTest {
         assertNull(metrics.incompleteReason(), "完整时无 incompleteReason");
         assertEquals(450L, metrics.rawMaxMissingBucketGap(), "原始最大间隔仍为450分钟(审计留痕)");
         assertEquals(15L, metrics.maxMissingBucketGap(), "豁免后adjusted最大间隔应为450-435=15分钟");
+        assertEquals(931.0 / 932.0, metrics.usableBarCoverage(), 1e-9,
+                "adjusted覆盖率=931个可用bar/932个调整后期望桶");
+        assertEquals(931.0 / 961.0, metrics.rawUsableBarCoverage(), 1e-9,
+                "raw覆盖率=931个可用bar/961个原始期望桶");
         assertEquals(435L, metrics.excludedMinutes(), "与备案窗口重叠435分钟");
         assertEquals(29L, metrics.excludedBucketCount(), "完整落入证据区间的豁免桶数为29");
         assertEquals(List.of(StockMonthlyOutageWaiver.EXCLUSION_ID), metrics.appliedExclusionIds(),

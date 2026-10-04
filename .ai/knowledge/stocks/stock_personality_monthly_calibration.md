@@ -164,6 +164,21 @@ AND dailyCloseCount >= 10
 usableBarCoverage = usableBarCount / expected15mBucketCount
 ```
 
+#### 3.7.1 已备案停机窗口豁免（adjusted 口径，冻结）
+
+2026-02-14 07:45→15:15 的一次性 Torn 停机在 15m 可用 bar 上留下 450 分钟间隔。证据窗口固定 365 天，该间隔会落在其后的**每一个**窗口中，使月度完整性永久不通过（→ 月度不生效 → 私聊全量停推）。故只对**已备案窗口**做最小豁免：
+
+```text
+EXCLUSION_ID = "TORN_MARKET_OUTAGE_20260214_0801_1515"
+window       = [2026-02-14T08:00, 2026-02-14T15:15)
+```
+
+- 只作用于 `usableBarCoverage` 与 `maxMissingBucketGap` 的 **adjusted** 口径：`adjustedExpected15mBucketCount = expected15mBucketCount - excludedBucketCount`（只扣除完整落在证据区间内的窗口 15 分钟对齐桶），`adjustedGap = max(0, gap - 与窗口的真实重叠分钟)`；
+- raw 口径、adjusted 口径与 `excludedBucketCount` / `excludedMinutes` / `appliedExclusionIds` 一并写入指标快照，**完整性判定用 adjusted**，raw 全量留痕（验收门禁见技术设计 §6.3 G3）；
+- 价格、趋势、收益、回撤、日收盘、月均价、风险投票、成交**不参与**豁免；
+- 新增停机**默认仍然 fail-closed**（视为数据不完整）；只有显式追加窗口常量并随版本发布才豁免，**禁止 DB/配置热更新**；
+- 规则版本不变（`PERSONALITY_RULE_V1` / `RISK_RULE_V1`）：豁免是数据质量口径，不是公式变更。
+
 未达到时：
 
 ```text
@@ -469,6 +484,8 @@ confirmedBy = SYSTEM
 - 不存在待人工复核标记；
 - 已生成previous状态和迟滞结果。
 
+上表第 5/6 条以指标快照的 `confirmable` 键承载：只有 `confirmable=true` 才允许确认，**键缺失、解析失败或非布尔一律视为 `false`**（fail-closed）；不完整草稿的快照固定写 `confirmable=false`。
+
 若任一条件不满足，保持DRAFT。禁止一个无参方法把全部DRAFT无条件确认。
 
 ---
@@ -533,8 +550,9 @@ hysteresisReason
 - [ ] NARROW/RANGING连续两次按连续自然月计算；
 - [ ] previous只读取最近CONFIRMED月份；
 - [ ] suggestedPersonality保留机器建议；
-- [ ] 人工覆盖只覆盖最终strategyFitPrior；
-- [ ] 人工confirmedBy由调用方传入；
+- [ ] 人工覆盖路径本期不启用（§8）：`manual_override` 恒 `false`、`override_reason` 恒 `null`；
+- [ ] `confirmed_by` 只允许 `SYSTEM`（本期无人工确认入口，§9.2）；
+- [ ] 已备案停机窗口豁免只作用于 adjusted 口径，raw 全量留痕（§3.7.1）；
 - [ ] SYSTEM仅用于满足条件的自动确认；
 - [ ] 不完整草稿不能确认；
 - [ ] 风格缺失/过期不得默认STEADY；
@@ -594,3 +612,4 @@ NONE    → 无影响
 | 版本 | 日期 | 内容 |
 |---|---|---|
 | 本次 | 2026-09-23 | 复活为“仅系统自动确认”的精简版：新增 §13 消费口径与运行规则；§8／§9.2 人工入口停用；§6 previous 改读最近已生效月份；§7.4 风险改为参与买入门槛；§1 适用功能收敛为私聊 `Stock分析` 指令 |
+| 本次 | 2026-10-04 | 新增 §3.7.1 已备案停机窗口豁免（只作用于 `usableBarCoverage`/`maxMissingBucketGap` 的 adjusted 口径，raw 全量留痕，未备案停机仍 fail-closed，规则版本不变）；§9.2 补 `confirmable` 快照守卫（fail-closed）；§12 清掉人工覆盖/人工 confirmedBy 的过期验收项并补豁免验收项 |
