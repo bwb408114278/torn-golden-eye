@@ -26,8 +26,7 @@ import java.util.stream.Collectors;
  * 股票月度风格状态初始化服务 - 按冻结月度公式为全部股票生成风格/成熟度/风险等级草稿记录
  * <p>
  * 生产入口为启动补偿编排 {@link #refreshCurrentMonthStates()}: 单事务内一次完成当月
- * 缺失初始化、未确认DRAFT重算与系统自动确认; {@link #initMonth(LocalDate)} 与
- * {@link #recalculateMonthDrafts(LocalDate)} 供历史范围回补指令按月正序调用。
+ * 缺失初始化、未确认DRAFT重算与系统自动确认(1.8.0一次性回补指令已按生命周期下线)。
  * 计算完全委托给 {@link StockMonthlyStateCalculator},
  * 使用冻结版本 {@value StockMonthlyStateCalculator#PERSONALITY_RULE_VERSION} 与
  * {@value StockMonthlyStateCalculator#RISK_RULE_VERSION},不再读取
@@ -67,165 +66,6 @@ public class StockMonthlyStateInitService {
     private final StockMarketClock marketClock;
 
     // ==================== 对外方法 ====================
-
-    /**
-     * 为指定生效月份初始化全部缺失股票的 DRAFT 月度状态。
-     * <p>
-     * 执行以下流程:
-     * <ol>
-     *   <li>获取全部股票列表</li>
-     *   <li>一次查询该月任意有效状态(DRAFT/CONFIRMED/RETIRED)的股票ID集合,
-     *       这些股票全部跳过初始化,避免与数据库部分唯一索引
-     *       {@code uk_stock_monthly_state_stock_month} 冲突(幂等保护)</li>
-     *   <li>一次查询该月已CONFIRMED股票ID集合,仅用于可观测日志</li>
-     *   <li>批量加载缺失股票的证据窗口(首尾可用bar)与窗口内可用bar,避免N+1</li>
-     *   <li>批量加载每支缺失股票最近更早CONFIRMED月度状态(迟滞参考)</li>
-     *   <li>委托 {@link StockMonthlyStateCalculator} 计算草稿,证据不完整保持DRAFT且风格/风险为空</li>
-     *   <li>使用PostgreSQL冲突安全批量插入(ON CONFLICT DO NOTHING),返回实际插入数</li>
-     * </ol>
-     *
-     * @param effectiveMonth 目标生效月份（当月 1 日）
-     * @return 本次初始化实际新建的草稿记录数量;全部股票已有有效状态时返回0
-     */
-    @Transactional
-    public int initMonth(LocalDate effectiveMonth) {
-        return initMonthInternal(effectiveMonth);
-    }
-
-    /**
-     * 初始化指定月份缺失 DRAFT 状态的实际实现。
-     * <p>
-     * {@link #initMonth(LocalDate)} 的事务内实现,事务由公开入口的
-     * {@code @Transactional} 经Spring代理提供,私有方法不重复标注。
-     *
-     * @param effectiveMonth 目标生效月份（当月 1 日）
-     * @return 本次实际新建的草稿记录数量
-     */
-    private int initMonthInternal(LocalDate effectiveMonth) {
-        List<TornStocksDO> allStocks = tornStocksDao.list();
-        if (CollectionUtils.isEmpty(allStocks)) {
-            log.warn("月度状态初始化-股票列表为空,跳过, effectiveMonth={}", effectiveMonth);
-            return 0;
-        }
-
-        Set<Integer> existingStockIds = loadExistingStockIds(effectiveMonth);
-        Set<Integer> confirmedStockIds = loadConfirmedStockIds(effectiveMonth);
-        List<TornStocksDO> missingStocks = allStocks.stream()
-                .filter(stock -> !existingStockIds.contains(stock.getId()))
-                .toList();
-        if (missingStocks.isEmpty()) {
-            log.info("月度状态初始化-当月[{}]全部{}支股票已有任意有效状态,无需初始化, existingCount={}, confirmedCount={}",
-                    effectiveMonth, allStocks.size(), existingStockIds.size(), confirmedStockIds.size());
-            return 0;
-        }
-
-        List<Integer> missingStockIds = missingStocks.stream().map(TornStocksDO::getId).toList();
-        EvidenceContext evidence = loadEvidenceContext(missingStockIds, effectiveMonth);
-
-        List<TornStockMonthlyStateDO> draftStates = missingStocks.stream()
-                .map(stock -> buildDraftState(stock, effectiveMonth,
-                        evidence.evidenceEdges().get(stock.getId()),
-                        evidence.barsByStock().getOrDefault(stock.getId(), List.of()),
-                        evidence.previousByStock().get(stock.getId()),
-                        evidence.now()))
-                .toList();
-
-        if (draftStates.isEmpty()) {
-            log.info("月度状态初始化-当月[{}]无待初始化股票", effectiveMonth);
-            return 0;
-        }
-
-        int insertedCount = monthlyStateDao.insertDraftStatesIgnoreConflict(draftStates);
-        int conflictIgnoredCount = draftStates.size() - insertedCount;
-        log.info("月度状态初始化-完成, effectiveMonth={}, existingCount={}, confirmedCount={}, "
-                        + "candidateCount={}, insertedCount={}, conflictIgnoredCount={}",
-                effectiveMonth, existingStockIds.size(), confirmedStockIds.size(),
-                draftStates.size(), insertedCount, conflictIgnoredCount);
-        return insertedCount;
-    }
-
-    /**
-     * 重算指定生效月份中未确认且非人工覆盖的 DRAFT 月度状态。
-     * <p>
-     * 与 {@link #initMonth(LocalDate)} 互补: 后者只负责为缺失股票初始化DRAFT行,
-     * 本方法只重算该月已存在 {@code state_status=DRAFT} 且
-     * {@code manual_override=false} 的记录。数据补齐后再次调用即可让空DRAFT升级为
-     * 完整机器建议,不再因{@code initMonth(LocalDate)}的"已存在即跳过"语义永久阻塞。
-     * 供历史范围回补按月正序调用。
-     * <p>
-     * 约束:
-     * <ul>
-     *   <li>仅更新 {@code state_status=DRAFT AND manual_override=false},数据库UPDATE自带该谓词,
-     *       任何CONFIRMED/RETIRED或人工覆盖记录均不得被覆盖、降级或改写confirmedBy/confirmedAt;</li>
-     *   <li>计算输入复用现有批量证据查询与{@link #loadPreviousByStocks(List, LocalDate)},
-     *       不引入每股票N+1;</li>
-     *   <li>幂等: 相同证据重复重算结果稳定。</li>
-     * </ul>
-     *
-     * @param effectiveMonth 目标生效月份（当月 1 日）
-     * @return 本次实际更新的 DRAFT 记录数量
-     */
-    @Transactional
-    public int recalculateMonthDrafts(LocalDate effectiveMonth) {
-        return recalculateMonthDraftsInternal(effectiveMonth);
-    }
-
-    /**
-     * 重算指定月份 DRAFT 状态的实际实现。
-     * <p>
-     * {@link #recalculateMonthDrafts(LocalDate)} 的事务内实现,事务由公开入口的
-     * {@code @Transactional} 经Spring代理提供,私有方法不重复标注。
-     *
-     * @param effectiveMonth 目标生效月份（当月 1 日）
-     * @return 本次实际更新的 DRAFT 记录数量
-     */
-    private int recalculateMonthDraftsInternal(LocalDate effectiveMonth) {
-        List<TornStockMonthlyStateDO> drafts = monthlyStateDao.lambdaQuery()
-                .eq(TornStockMonthlyStateDO::getEffectiveMonth, effectiveMonth)
-                .eq(TornStockMonthlyStateDO::getStateStatus, StockMonthlyStateStatusEnum.DRAFT.getCode())
-                .eq(TornStockMonthlyStateDO::getManualOverride, false)
-                .list();
-        if (CollectionUtils.isEmpty(drafts)) {
-            log.info("月度状态重算-当月[{}]无未确认非人工覆盖DRAFT,跳过", effectiveMonth);
-            return 0;
-        }
-
-        List<Integer> stockIds = drafts.stream()
-                .map(TornStockMonthlyStateDO::getStocksId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-        List<TornStocksDO> stocks = tornStocksDao.listByIds(stockIds);
-        Map<Integer, TornStocksDO> stockById = stocks.stream()
-                .filter(stock -> stock.getId() != null)
-                .collect(Collectors.toMap(TornStocksDO::getId, stock -> stock, (left, right) -> left));
-
-        EvidenceContext evidence = loadEvidenceContext(stockIds, effectiveMonth);
-        LocalDateTime now = evidence.now();
-        List<TornStockMonthlyStateDO> recalculated = new ArrayList<>();
-        for (TornStockMonthlyStateDO draft : drafts) {
-            TornStocksDO stock = stockById.get(draft.getStocksId());
-            if (stock == null) {
-                log.warn("月度状态重算-股票[{}]不存在,跳过该DRAFT", draft.getStocksId());
-                continue;
-            }
-            TornStockMonthlyStateDO updated = buildDraftState(stock, effectiveMonth,
-                    evidence.evidenceEdges().get(draft.getStocksId()),
-                    evidence.barsByStock().getOrDefault(draft.getStocksId(), List.of()),
-                    evidence.previousByStock().get(draft.getStocksId()), now);
-            updated.setId(draft.getId());
-            recalculated.add(updated);
-        }
-        if (recalculated.isEmpty()) {
-            log.info("月度状态重算-当月[{}]无有效可重算股票,返回0", effectiveMonth);
-            return 0;
-        }
-
-        int updatedCount = monthlyStateDao.recalculateDraftStates(recalculated);
-        log.info("月度状态重算-完成, effectiveMonth={}, 重算候选={}, 实际更新={}",
-                effectiveMonth, recalculated.size(), updatedCount);
-        return updatedCount;
-    }
 
     /**
      * 系统自动确认指定月份满足冻结条件的草稿状态。
@@ -291,8 +131,7 @@ public class StockMonthlyStateInitService {
     /**
      * 启动补偿专用月度编排: 单事务内一次完成当月缺失初始化、未确认DRAFT重算与系统自动确认。
      * <p>
-     * 相对分别调用 {@link #initMonth(LocalDate)} + {@link #recalculateMonthDrafts(LocalDate)} +
-     * {@link #autoConfirmDraftStates(LocalDate)} 的改进(1.8.0 Review §4.7):
+     * 相对「分步初始化缺失股票、重算DRAFT、自动确认」逐月执行的改进(1.8.0 Review §4.7):
      * <ul>
      *   <li>一次求出「当月缺失股票 ∪ 当月未确认非人工覆盖DRAFT股票」目标集合,
      *       365天证据bar只按 {@link #EVIDENCE_BATCH_SIZE} 分片载入,峰值内存由整表常驻
@@ -497,20 +336,6 @@ public class StockMonthlyStateInitService {
     // ==================== 私有方法: 数据加载 ====================
 
     /**
-     * 批量加载证据上下文: 计算时间、证据首尾bar、证据窗口bar与上一确认月度状态。
-     * <p>
-     * 初始化与重算共用同一批证据装载语义,避免重复代码;单次计算时间戳保证
-     * 批量内所有草稿的 {@code calculatedAt} 一致。
-     *
-     * @param stockIds       股票ID列表
-     * @param effectiveMonth 生效月份
-     * @return 证据上下文(计算时间+三份证据映射)
-     */
-    private EvidenceContext loadEvidenceContext(List<Integer> stockIds, LocalDate effectiveMonth) {
-        return loadEvidenceContext(stockIds, effectiveMonth, marketClock.now());
-    }
-
-    /**
      * 批量加载证据上下文(调用方提供统一计算时间)。
      * <p>
      * 供 {@link #refreshCurrentMonthStates()} 分片复用同一 {@code now},
@@ -613,26 +438,6 @@ public class StockMonthlyStateInitService {
             return Set.of();
         }
         return new HashSet<>(existingIds);
-    }
-
-    /**
-     * 加载当月已CONFIRMED状态的股票ID集合
-     * <p>
-     * 仅用于可观测日志,不作为初始化INSERT过滤条件;初始化过滤使用
-     * {@link #loadExistingStockIds(LocalDate)}。
-     *
-     * @param effectiveMonth 生效月份
-     * @return 已确认股票ID集合;无记录时返回空Set
-     */
-    private Set<Integer> loadConfirmedStockIds(LocalDate effectiveMonth) {
-        List<TornStockMonthlyStateDO> confirmed = monthlyStateDao.selectConfirmedByMonth(effectiveMonth);
-        if (CollectionUtils.isEmpty(confirmed)) {
-            return Set.of();
-        }
-        return confirmed.stream()
-                .map(TornStockMonthlyStateDO::getStocksId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
     }
 
     /**

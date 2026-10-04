@@ -212,10 +212,6 @@ public class BotCommands {
      */
     public static final String ALPHA_STOCK_DAILY_PREFILL = "预填Stockα日线";
     /**
-     * 回补Stock月度风格(一次性生命周期指令:回补完成并对账通过后,本指令与回补专用逻辑在后续版本删除)
-     */
-    public static final String MONTHLY_STYLE_BACKFILL = "回补Stock月度风格";
-    /**
      * 绑Key
      */
     public static final String BIND_KEY = "绑Key";
