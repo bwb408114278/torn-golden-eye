@@ -177,7 +177,8 @@ window       = [2026-02-14T08:00, 2026-02-14T15:15)
 - raw 口径、adjusted 口径与 `excludedBucketCount` / `excludedMinutes` / `appliedExclusionIds` 一并写入指标快照，**完整性判定用 adjusted**，raw 全量留痕（验收门禁见技术设计 §6.3 G3）；
 - 价格、趋势、收益、回撤、日收盘、月均价、风险投票、成交**不参与**豁免；
 - 新增停机**默认仍然 fail-closed**（视为数据不完整）；只有显式追加窗口常量并随版本发布才豁免，**禁止 DB/配置热更新**；
-- 规则版本不变（`PERSONALITY_RULE_V1` / `RISK_RULE_V1`）：豁免是数据质量口径，不是公式变更。
+- 规则版本不变（`PERSONALITY_RULE_V1` / `RISK_RULE_V1`）：豁免是数据质量口径，不是公式变更；
+- **证据终点口径（登记不改）**：期望桶数含终点桶（`duration/15+1`），实现上 `evidenceEnd` 取桶闭合时间而 bar 查询上界取桶起点，期望桶数因此多 1 → 覆盖率被系统性低估 ≈0.004%（不影响判定）；统一上界须单独变更并重跑回补与验收。
 
 未达到时：
 
@@ -612,4 +613,4 @@ NONE    → 无影响
 | 版本 | 日期 | 内容 |
 |---|---|---|
 | 本次 | 2026-09-23 | 复活为“仅系统自动确认”的精简版：新增 §13 消费口径与运行规则；§8／§9.2 人工入口停用；§6 previous 改读最近已生效月份；§7.4 风险改为参与买入门槛；§1 适用功能收敛为私聊 `Stock分析` 指令 |
-| 本次 | 2026-10-04 | 新增 §3.7.1 已备案停机窗口豁免（只作用于 `usableBarCoverage`/`maxMissingBucketGap` 的 adjusted 口径，raw 全量留痕，未备案停机仍 fail-closed，规则版本不变）；§9.2 补 `confirmable` 快照守卫（fail-closed）；§12 清掉人工覆盖/人工 confirmedBy 的过期验收项并补豁免验收项 |
+| 本次 | 2026-10-04 | 新增 §3.7.1 已备案停机窗口豁免（只作用于 `usableBarCoverage`/`maxMissingBucketGap` 的 adjusted 口径，raw 全量留痕，未备案停机仍 fail-closed，规则版本不变）；§9.2 补 `confirmable` 快照守卫（fail-closed）；§12 清掉人工覆盖/人工 confirmedBy 的过期验收项并补豁免验收项；登记证据终点口径的 ≈0.004% 覆盖率低估（不改） |

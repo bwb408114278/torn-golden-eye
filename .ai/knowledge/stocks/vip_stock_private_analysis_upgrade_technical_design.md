@@ -392,7 +392,8 @@ window       = [2026-02-14T08:00, 2026-02-14T15:15)   // 15 分钟对齐，覆�
 3. 指标快照同时披露 raw 与 adjusted 双口径及 `excludedBucketCount` / `excludedMinutes` / `appliedExclusionIds`；**完整性判定使用 adjusted 口径，raw 全量留痕可审计**；
 4. **未备案的新停机仍然阻断**（fail-closed 不放松）：新增窗口必须显式追加常量并随版本发布，**禁止 DB/配置热更新**；窗口定义在类加载时 fail-fast（非 15 分钟对齐或 `start >= end` 直接抛异常）；
 5. 规则版本仍为 `PERSONALITY_RULE_V1` / `RISK_RULE_V1` —— 分类公式未变，豁免属于**数据质量口径**，不引入 `*_V2_OUTAGE_EXCLUSION`；
-6. 验收门禁见 §6.3 G3：期望 `rawMaxMissingBucketGap=450`、`waived=35`、adjusted ≤ 120 分钟；2026-02 的证据窗口不含该停机 → `waived=0`。
+6. 验收门禁见 §6.3 G3：期望 `rawMaxMissingBucketGap=450`、`waived=35`、adjusted ≤ 120 分钟；2026-02 的证据窗口不含该停机 → `waived=0`；
+7. **证据终点口径（登记不改）**：`evidenceEnd` 取桶闭合时间（`edge.barEndTime`，23:45 桶 → 次月 1 日 00:00），而 `loadEvidenceBars` 的查询上界取 23:45，两者相差 15 分钟使期望桶数多计 1 桶，覆盖率被系统性低估约 1/26208 ≈ 0.004%。**不影响任何判定**（实测 adjusted 覆盖率 0.9995~0.9997 ≫ 0.95，adjusted 最大间隔 30~75 分钟 ≪ 120），故本期不改；如需统一上界须单独变更单并重跑回补与验收。
 
 ### 4.3 只保留 SYSTEM 自动确认
 
@@ -668,6 +669,7 @@ ORDER BY latest_bar NULLS FIRST;
 | 1.0.0 | 2026-09-24 | 初稿：冻结"私聊指令 15m 化 + 月度风格接入"两章设计（数据映射、RSI 现算、下线清单与迁移顺序、月度表复活与自动确认、消费口径、回补指令、sys_setting 退役） | Bai |
 | 1.0.1 | 2026-10-04 | 开发版本 2.0.0→1.8.0；§4.1 Liquibase 追加点更新为 1.6.7 之后、新目录 `1.8.0/`；附录 Q2 关闭（drop 已执行）、Q8 关闭（指令命名确认 + 回补指令与专用逻辑的一次性删除生命周期）、Q1/Q7 关闭（不阻塞开发，阶段 0/2 门禁时取数） | Bai |
 | 1.0.2 | 2026-10-04 | 1.8.0 Review 同步：§4.2 改为「不取回原类 + 最小形态取回」（新增 §4.2.1 已备案停机窗口豁免，raw/adjusted 双口径、未备案停机仍 fail-closed、规则版本保持 V1）；§4.3 自动确认补条件 7（快照 `confirmable=true`，fail-closed）；§4.8 冻结 `sys_setting.STOCK_PERSONALITY` 读取口径（产品链路零读取，仅一次性回补对账只读）；§3.4 类位置与 `dedupByTime` 可见性落定；§5 R3/R5 补口径并新增 R11；§6.2 补 confirmable 与豁免留痕验收项；§6.3 增加 G1~G4 期望值与 G3 豁免审计 SQL、冻结「先数据验收后正式部署」顺序；附录 Q4 关闭说明订正 | Bai |
+| 1.0.3 | 2026-10-04 | §4.2.1 补第 7 条「证据终点口径（登记不改，覆盖率低估 ≈0.004%）」；1.8.0 两轮 Review 修复全部闭环（P0 方案 a 真库复算 35/35 `complete=true`；定向回归 252 例全绿），一次性修复方案文档 `vip_stock_private_analysis_upgrade_review_fix_plan.md` 按生命周期删除，结论与验收门禁由本文 §4.2.1/§4.3/§4.8/§5/§6.3/§6.4 与规范 §3.7.1 承载；数据验收（§6.3 G1~G4 + `Stock分析` 指令实测）待测试环境回补后执行 | Bai |
 
 ---
 
