@@ -132,23 +132,42 @@ public class StockMonthlyStyleResolver {
         YearMonth effective = YearMonth.from(state.getEffectiveMonth());
         long monthsBetween = ChronoUnit.MONTHS.between(effective, target);
         if (monthsBetween > MAX_CARRY_OVER_MONTHS) {
-            return blocked("月度风格连续" + monthsBetween + "个月未生成(最近" + effective + ")");
+            return blocked("连续 " + monthsBetween + " 个月未生成（最近 " + effective + "）");
         }
 
         StockPersonalityEnum personality = parsePersonality(state.getStrategyFitPrior());
         if (personality == null) {
-            return blocked("月度风格不可用(" + state.getStrategyFitPrior() + ")");
+            return blocked(codeBlockedReason("风格",
+                    StockStrategyFitEnum.ALPHA_NOT_EVALUATED.getCode(), state.getStrategyFitPrior()));
         }
         StockMaturityEnum maturity = parseMaturity(state.getMaturity());
         if (maturity == null) {
-            return blocked("月度成熟度不可用(" + state.getMaturity() + ")");
+            return blocked(codeBlockedReason("成熟度",
+                    StockMaturityEnum.ALPHA_NOT_EVALUATED.getCode(), state.getMaturity()));
         }
         StockRiskLevelEnum riskLevel = parseRisk(state.getRiskLevel());
         if (riskLevel == null) {
-            return blocked("月度风险等级不可用(" + state.getRiskLevel() + ")");
+            return blocked(codeBlockedReason("风险",
+                    StockRiskLevelEnum.ALPHA_NOT_EVALUATED.getCode(), state.getRiskLevel()));
         }
         return new ResolvedMonthlyStyle(true, personality, maturity, riskLevel,
                 effective, monthsBetween > 0, null);
+    }
+
+    /**
+     * 维度编码不可用原因文案:α伪值按维度转中文,未知编码回显原值便于排障,
+     * 不得在用户可见文案回显α英文编码(设计§4.4.1第5条)。
+     *
+     * @param dimension 维度名(风格/成熟度/风险)
+     * @param alphaCode 该维度枚举的α伪值编码
+     * @param code      实际编码
+     * @return 不推荐原因文案
+     */
+    private static String codeBlockedReason(String dimension, String alphaCode, String code) {
+        if (alphaCode.equals(code)) {
+            return dimension + "编码 α 未评估";
+        }
+        return dimension + "编码不可识别：" + code;
     }
 
     /**

@@ -17,6 +17,7 @@ import java.awt.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Stock分析策略实现类
@@ -37,7 +38,7 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
 
     @Override
     public String getCommandDescription() {
-        return "查看 Stock 模型分析结果（系统内部研究口径）";
+        return "查看Stock模型分析结果（系统内部研究口径）";
     }
 
     @Override
@@ -55,7 +56,7 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
         List<List<String>> tableData = new ArrayList<>();
         TableImageUtils.TableConfig tableConfig = new TableImageUtils.TableConfig();
         tableData.add(List.of(DateTimeUtils.convertToString(
-                        analyzeList.isEmpty() ? LocalDateTime.now() : analyzeList.getFirst().analysisTime()) + " Stock 模型记录",
+                        analyzeList.isEmpty() ? LocalDateTime.now() : analyzeList.getFirst().analysisTime()) + " Stock模型记录",
                 "", "", "", "", ""));
         tableConfig.addMerge(0, 0, 1, 6);
         tableConfig.setCellStyle(0, 0, new TableImageUtils.CellStyle()
@@ -83,11 +84,11 @@ public class VipStocksStrategyImpl extends BaseVipMsgStrategy {
         for (StockTradeAdvice analyze : analyzeList) {
             tableData.add(List.of(
                     analyze.stocksShortname(),
-                    analyze.basePrice().toString(),
+                    analyze.getBasePriceText(),
                     analyze.getActionName(),
                     String.format("%.0f", analyze.score()),
                     analyze.getStrategyName(),
-                    String.join("\n", analyze.reasons())));
+                    analyze.reasons().stream().map(r -> "· " + r).collect(Collectors.joining("\n"))));
         }
 
         tableData.add(List.of("以上为系统内部模型记录，不构成投资建议。", "", "", "", "", ""));

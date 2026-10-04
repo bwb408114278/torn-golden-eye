@@ -8,6 +8,7 @@ import pn.torn.goldeneye.constants.torn.enums.stocks.StockStrategyTypeEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.StockTradeActionEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockMaturityEnum;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockRiskLevelEnum;
+import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockStrategyFitEnum;
 import pn.torn.goldeneye.repository.model.torn.stocks.StockStrategyFeaturePoint;
 import pn.torn.goldeneye.torn.model.torn.stocks.trade.StockTradeAdvice;
 import pn.torn.goldeneye.torn.service.stocks.alert.market.Stock15mTradeFeatureProvider;
@@ -123,7 +124,7 @@ public class StockTradeStrategyService {
         }
         if (style.maturity() == StockMaturityEnum.M0_UNMATURE) {
             return toAdvice(newFeature(point, style.personality(), false, false, false),
-                    holdAllSignal("月度成熟度M0：历史不足60天，不推荐"), analysisTime, List.of());
+                    holdAllSignal("月度成熟度不足（未成熟）：历史不足60天，不推荐"), analysisTime, List.of());
         }
 
         boolean maturityEarly = style.maturity() == StockMaturityEnum.M1_EARLY;
@@ -143,25 +144,60 @@ public class StockTradeStrategyService {
                 buildSwingReboundSellSignal(feature)));
 
         List<String> monthlyReasons = new ArrayList<>();
-        if (provided.windowInsufficient()) {
-            String qualityReason = provided.dataQualityReason() == null ? ""
-                    : "(" + provided.dataQualityReason() + ")";
-            monthlyReasons.add("特征未就绪" + qualityReason + "：买入门槛+10");
-        }
-        monthlyReasons.add("月度：风格=" + personality.name()
-                + " 成熟度=" + style.maturity().name()
-                + " 风险=" + style.riskLevel().name()
-                + "（" + style.effectiveMonth() + " 生效）");
+        monthlyReasons.add("月度：风格=" + chineseStyle(personality)
+                + " 成熟度=" + style.maturity().getChineseDisplay()
+                + " 风险=" + style.riskLevel().getChineseDisplay());
         if (style.carriedOver()) {
             monthlyReasons.add("使用 " + style.effectiveMonth() + " 风格（" + YearMonth.from(targetMonth) + " 未生成）");
         }
-        if (riskHigh) {
-            monthlyReasons.add("月度风险HIGH：买入门槛+10");
+        appendThresholdHint(monthlyReasons, provided, maturityEarly, riskHigh);
+        return toAdvice(feature, bestSignal, analysisTime, monthlyReasons);
+    }
+
+    /**
+     * 风格中文展示名(两枚举六类业务编码1:1同名,经适配枚举取chineseDisplay,
+     * 不给{@code StockPersonalityEnum}新增展示字段)
+     */
+    private static String chineseStyle(StockPersonalityEnum personality) {
+        return StockStrategyFitEnum.fromCode(personality.name()).getChineseDisplay();
+    }
+
+    /**
+     * 追加门槛合并行:窗口不足/成熟度早期/风险高只列命中项,合计为+N,
+     * 形如"本月买入门槛 +20（数据不足 +10、风险高 +10）"(设计§4.4.1第4条)
+     */
+    private static void appendThresholdHint(List<String> monthlyReasons, ProvidedTradeFeature provided,
+                                            boolean maturityEarly, boolean riskHigh) {
+        List<String> items = new ArrayList<>();
+        int total = 0;
+        if (provided.windowInsufficient()) {
+            total += (int) WINDOW_INSUFFICIENT_PENALTY;
+            items.add(windowQualityText(provided.dataQualityReason()) + " +" + (int) WINDOW_INSUFFICIENT_PENALTY);
         }
         if (maturityEarly) {
-            monthlyReasons.add("成熟度早期：买入门槛+10");
+            total += (int) MONTHLY_MATURITY_PENALTY;
+            items.add("成熟度早期 +" + (int) MONTHLY_MATURITY_PENALTY);
         }
-        return toAdvice(feature, bestSignal, analysisTime, monthlyReasons);
+        if (riskHigh) {
+            total += (int) MONTHLY_RISK_PENALTY;
+            items.add("风险高 +" + (int) MONTHLY_RISK_PENALTY);
+        }
+        if (!items.isEmpty()) {
+            monthlyReasons.add("本月买入门槛 +" + total + "（" + String.join("、", items) + "）");
+        }
+    }
+
+    /**
+     * 窗口质量码转中文展示名(null/未知编码统一显示数据未就绪)
+     */
+    private static String windowQualityText(String dataQualityReason) {
+        if ("INSUFFICIENT_HISTORY".equals(dataQualityReason)) {
+            return "数据不足";
+        }
+        if ("HISTORY_NOT_CONSECUTIVE".equals(dataQualityReason)) {
+            return "数据不连续";
+        }
+        return "数据未就绪";
     }
 
     /**
@@ -200,7 +236,7 @@ public class StockTradeStrategyService {
 
         if (feature.rsi() <= 35D) {
             score += 8D;
-            reasons.add("RSI偏低，短线卖压释放");
+            reasons.add("相对强弱指标偏低，短线卖压释放");
         }
 
         score = applyLowBuyRiskPenalty(feature, score, reasons);
@@ -246,7 +282,7 @@ public class StockTradeStrategyService {
 
         if (feature.personality() == StockPersonalityEnum.DECLINER) {
             score += 10D;
-            reasons.add("阴跌型Stock已出现确认信号，允许小仓位参与");
+            reasons.add("持续下行股已出现确认信号，允许小仓位参与");
         } else if (feature.personality() != StockPersonalityEnum.STRONG) {
             score += 10D;
             reasons.add("非强势股出现低位反弹确认信号");
@@ -383,7 +419,7 @@ public class StockTradeStrategyService {
 
         if (feature.fallingKnifeRisk()) {
             score += feature.personality().getDeclinePenalty();
-            reasons.add("接近30日低点但仍在走弱，存在接" + feature.personality().getDescription() + "风险");
+            reasons.add("接近30日低点但仍在走弱，存在" + chineseStyle(feature.personality()) + "风险");
         }
 
         if (feature.persistentDecline()) {
@@ -393,10 +429,10 @@ public class StockTradeStrategyService {
 
         if (feature.personality() == StockPersonalityEnum.DECLINER && le(feature.return1d(), 0D)) {
             score -= 22D;
-            reasons.add("阴跌型Stock尚未出现1日反弹确认，容易长时间套牢");
+            reasons.add("持续下行股尚未出现1日反弹确认，容易长时间套牢");
         } else if (feature.personality() == StockPersonalityEnum.WEAK && le(feature.return1d(), 0D)) {
             score -= 14D;
-            reasons.add("弱势Stock尚未出现反弹确认，建议等待");
+            reasons.add("弱势股尚未出现反弹确认，建议等待");
         }
 
         if (le(feature.zScore30d(), -3D) && lt(feature.return1d(), 0D)) {

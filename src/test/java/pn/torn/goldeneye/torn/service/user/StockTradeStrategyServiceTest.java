@@ -100,10 +100,10 @@ class StockTradeStrategyServiceTest {
         StockTradeAdvice first = service.analyze(ANALYSIS_TIME, true).advices().getFirst();
 
         assertEquals(StockTradeActionEnum.HOLD, first.action(), "M1+HIGH叠加门槛70应把65分压为HOLD");
-        assertTrue(String.join("\n", first.reasons()).contains("月度风险HIGH：买入门槛+10"),
-                "HIGH必须输出门槛加成文案");
-        assertTrue(String.join("\n", first.reasons()).contains("成熟度早期：买入门槛+10"),
-                "M1_EARLY必须输出门槛加成文案");
+        String reasons = String.join("\n", first.reasons());
+        assertTrue(reasons.contains("本月买入门槛"), "门槛加成必须合并为一行输出");
+        assertTrue(reasons.contains("风险高 +10"), "HIGH必须在门槛合并行列出");
+        assertTrue(reasons.contains("成熟度早期 +10"), "M1_EARLY必须在门槛合并行列出");
     }
 
     @Test
@@ -123,8 +123,8 @@ class StockTradeStrategyServiceTest {
 
         assertEquals(StockTradeActionEnum.HOLD, first.action(), "null指标不得命中任何买卖分支");
         assertNull(first.ma1d(), "null窗口指标必须原样透传null,不得填充0");
-        assertTrue(String.join("\n", first.reasons()).contains("特征未就绪"),
-                "未就绪必须输出展示文案");
+        assertTrue(String.join("\n", first.reasons()).contains("数据不足"),
+                "窗口不足必须输出数据不足文案");
     }
 
     @Test
@@ -166,7 +166,7 @@ class StockTradeStrategyServiceTest {
         StockTradeAdvice first = service.analyze(ANALYSIS_TIME, true).advices().getFirst();
 
         assertEquals(StockTradeActionEnum.HOLD, first.action(), "M0必须强制HOLD");
-        assertTrue(String.join("\n", first.reasons()).contains("月度成熟度M0"), "必须标注M0原因");
+        assertTrue(String.join("\n", first.reasons()).contains("月度成熟度不足"), "必须标注成熟度不足原因");
     }
 
     @Test
@@ -182,9 +182,12 @@ class StockTradeStrategyServiceTest {
 
         String reasons = String.join("\n", first.reasons());
         assertTrue(reasons.contains("使用 2026-09 风格（2026-10 未生成）"), "沿用必须留痕");
-        assertTrue(reasons.contains("月度：风格=RANGING"), "月度摘要必须包含风格");
-        assertTrue(reasons.contains("风险=MEDIUM"), "月度摘要必须包含风险(仅展示)");
-        assertFalse(reasons.contains("月度风险HIGH"), "MEDIUM不得输出门槛加成文案");
+        assertTrue(reasons.contains("月度：风格=区间震荡"), "月度摘要必须包含中文风格");
+        assertTrue(reasons.contains("风险=中等风险"), "月度摘要必须包含风险(仅展示)");
+        assertFalse(reasons.contains("生效"), "月度摘要不得显示生效月份");
+        assertFalse(reasons.chars().anyMatch(c -> Character.isLetter(c) && c < 128),
+                "依据文案不得包含ASCII字母");
+        assertFalse(reasons.contains("月度风险高"), "MEDIUM不得输出门槛加成文案");
     }
 
     @Test
@@ -197,6 +200,16 @@ class StockTradeStrategyServiceTest {
 
         assertTrue(analysis.advices().isEmpty(), "非debug下强制HOLD行应被过滤");
         assertFalse(analysis.warnings().isEmpty(), "告警在非debug下仍保留");
+    }
+
+    @Test
+    @DisplayName("参考价展示_保留2位小数HALF_UP")
+    void getBasePriceText_twoDecimalHalfUp() {
+        StockTradeAdvice advice = new StockTradeAdvice(STOCKS_ID, "TCS", null, null, null,
+                new BigDecimal("353.2"), null, null, null, null, null, null, null, null,
+                null, null, null, null, null, false, false, List.of());
+
+        assertEquals("353.20", advice.getBasePriceText(), "参考价展示必须保留2位小数");
     }
 
     /**
