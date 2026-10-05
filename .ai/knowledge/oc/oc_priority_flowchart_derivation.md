@@ -21,7 +21,7 @@
 2. 现有数值来自一次性 Liquibase 硬编码：`src/main/resources/db/changelog/0.3.0/oc.yaml:510-616`，changeSet id=change_slot_priority，逐行 UPDATE ... SET priority=...。同批提交 1d9c84b「perf(oc): 修改大锅饭系数，实装计算」（2025-11-14）。
 3. 运行期新增 OC 默认全 0：`TornSettingOcSyncManager.java:45-60`（DEFAULT_SLOT_PRIORITY=0、DEFAULT_BEST_SUCCESS=0），写库在 :273-274。
 4. 口径是**「每个 OC 内部各岗位的占比，合计 100」**：148 行实测中已配置 OC 的 sum(priority) 全为 100，例外只有 Mob Mentality=101、Break the Bank=101（取整误差）。因此改一个岗位必然牵动同 OC 其它岗位。
-5. priority 与 best_success 是两个互不相关的分布（Spearman 平均仅 0.14），best_success 至今没有消费方，本文只讨论 priority。
+5. priority 与 best_success 是两个互不相关的分布（Spearman 平均仅 0.14），best_success 至今没有消费方（其算法已在 `oc_best_success_derivation.md` 溯源：= 对「最佳结局」达成概率的边际贡献占比，与 priority 不是同一口径），本文只讨论 priority。
 6. 消费侧会把连续权重压成 5 档：`TornOcRecommendManager.java:283-295`（>=25→5、>=20→4、>=15→3、>=10→2、else 1）；`OcFlowRosterMatcher.java:125/130/256` 用 max(1,priority)。**权重差 1~2 点在消费侧几乎无感**。
 
 ---
@@ -232,4 +232,24 @@ w_i = ∂S/∂p_i |_(p = 基线向量)   —— 或 ——   S(p_i=100%, 其余=
 - 本轮实验脚本：Node fetch 直连 `https://tornprobability.com:3000/api/CalculateSuccess`（POST 需用 Node 的 fetch，web_fetch 只能 GET；pwsh 不能联网）
 - 全库 priority 向量（只读实测，按 OC 槽位顺序）：
   - Mob Mentality 34/26/18/23；Cash Me if You Can 28/50/22；Gaslight the Way 9/27/41/10/0/13；Market Forces 29/27/16/5/23；Smoke and Wing Mirrors 51/9/13/27；Snow Blind 48/36/8/8；Stage Fright 16/6/20/3/9/46；Counter Offer 28/12/7/17/36；Guardian Angels 42/31/27；Honey Trap 27/31/42；No Reserve 31/31/38；Bidding War 8/18/13/7/22/32；Dish It Out 20/20/20/20/20；Leave No Trace 37/34/29；Sneaky Git Grab 51/18/17/14；Blast from the Past 16/24/12/34/11/3；Window of Opportunity 15/24/26/21/14；Break the Bank 14/10/32/13/3/29；Clinical Precision 16/19/22/43；Stacking the Deck 23/3/26/48；Manifest Cruelty 14/16/24/46；Ace in the Hole 8/28/21/18/25；Gone Fission 25/25/18/17/15；Crane Reaction 41/17/16/10/8/8；Lock Stock 38/23/21/9/9；Hostile Takeover 18/11/16/13/19/23。
-  - 全 0：First Aid and Abet、Pet Project、Best of the Lot、Thou Shalt Not Steal、Plucking the Lotus Petal、Cleared for Takeoff、Ship Happens。
+  - 全 0：First Aid and Abet、Pet Project、Best of the Lot、Thou Shalt Not Steal、Plucking the Lotus Petal、Cleared for Takeoff、Ship Happens（2026-10-05 已回填，见第 9 节）。
+
+---
+
+## 9. 全 0 OC 的回填（2026-10-05）
+
+第 3.2 节把 7 个全 0 的 OC 归入「未配置」；2026-10-05 复核发现：**其中 6 个上游 API 早已有值**，只是库内从未配置过，按第 3.2 节的算法（API 浮点权重 → Hamilton 最大余数取整）即可补出，且每个 OC 合计恰好 100。真正无解的只有 Ship Happens（上游 `GetSupportedScenarios` / `GetRoleWeights` 均无此 OC）。
+
+| OC | 上游权重（浮点原值） | 回填 priority（合计 100） |
+| --- | --- | --- |
+| Cleared for Takeoff | Imitator 24.939008 / Interrogator 25.183916 / Assassin 18.155804 / Pickpocket 12.032038 / Techie 11.316435 / Lookout 8.372799 | Imitator#1=25 · Interrogator#1=25 · Assassin#1=18 · Pickpocket#1=12 · Techie#1=11 · Lookout#1=9 |
+| Best of the Lot | Muscle 43.676574 / Picklock 20.733684 / CarThief 19.532879 / Imitator 16.056863 | Muscle#1=44 · Picklock#1=21 · Car Thief#1=19 · Imitator#1=16 |
+| First Aid and Abet | Pickpocket 43.228969 / Decoy 30.730727 / Picklock 26.040303 | Pickpocket#1=43 · Decoy#1=31 · Picklock#1=26 |
+| Pet Project | Picklock 36.444387 / Muscle 32.628846 / Kidnapper 30.926767 | Picklock#1=36 · Muscle#1=33 · Kidnapper#1=31 |
+| Plucking the Lotus Petal | Muscle 47.896881 / Robber2 23.680943 / Hustler 14.394494 / Robber1 14.027682 | Muscle#1=48 · Robber#2=24 · Hustler#1=14 · Robber#1=14 |
+| Thou Shalt Not Steal | Picklock 49.746527 / Pickpocket 37.856826 / Thief 12.396647 | Picklock#1=50 · Pickpocket#1=38 · Thief#1=12 |
+
+- 上游快照：2026-10-05 01:05:59（`GET https://tornprobability.com:3000/api/GetRoleWeights`，返回 32 个 OC）
+- 产出 SQL：[out/oc-priority/priority_zero_oc_backfill.sql](../out/oc-priority/priority_zero_oc_backfill.sql)（23 条 UPDATE，带 `AND priority = 0` 守卫，幂等）
+- **未动**：Ship Happens（无上游数据，保持 0）；Gaslight the Way.Looter#2（上游权重 -0.000356，取整本就是 0，属正常值，不是漏配）
+- 口径备注：这批值是「按上游当期权重取整」，与第 3.2 节「库内 = API 取整」完全同口径，不含人工调档；日后上游更新，重跑取整即可（差异量级同 6.1 节的 1~2 点）。

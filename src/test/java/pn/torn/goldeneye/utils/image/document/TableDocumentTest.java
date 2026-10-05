@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * 表格文档不可变性和构造约束测试。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.9.0
  * @since 2026.08.31
  */
 @DisplayName("表格文档模型测试")
@@ -53,16 +54,54 @@ class TableDocumentTest {
     @Test
     @DisplayName("受控单元格内容应拒绝null和空白非法值")
     void shouldRejectInvalidTableCellContentValues() {
+        List<TableCellContent.Badge> badges = List.of(
+                new TableCellContent.Badge("已停转", TableCellBadgeToneEnum.DANGER));
+        List<TableCellContent.Badge> noBadges = List.of();
+
         assertThrows(NullPointerException.class, () -> new TableCellContent.PlainText(null));
-        assertThrows(NullPointerException.class, () -> new TableCellContent.BadgeText(null,
-                List.of(new TableCellContent.Badge("已停转", TableCellBadgeToneEnum.DANGER))));
-        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.BadgeText("临床精确", List.of()));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.BadgeText(null, badges));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.BadgeText("临床精确", noBadges));
         assertThrows(IllegalArgumentException.class, () -> new TableCellContent.Badge(" ", TableCellBadgeToneEnum.INFO));
         assertThrows(NullPointerException.class, () -> new TableCellContent.Badge("已停转", null));
         assertThrows(NullPointerException.class,
                 () -> new TableCellContent.ThreePartText("✅", "岗位", null));
         assertThrows(IllegalArgumentException.class,
                 () -> new TableCellContent.ThreePartText("✅", "  ", "76"));
+    }
+
+    @Test
+    @DisplayName("堆叠内容应过滤空白行并组合出可读纯文本")
+    void shouldFilterBlankStackedLines() {
+        TableCellContent.StackedText stackedText = new TableCellContent.StackedText(List.of(
+                new TableCellContent.Line("8级·核心", TableCellContent.LineEmphasis.SUB),
+                new TableCellContent.Line("   ", TableCellContent.LineEmphasis.NOTE),
+                new TableCellContent.Line("Break the Bank", TableCellContent.LineEmphasis.MAIN)));
+        TableCell cell = new TableCell(stackedText, TableCellStyleEnum.OC_GROUP_CORE, 1, 1,
+                TableTextOverflowEnum.ELLIPSIS);
+
+        assertEquals(2, stackedText.lines().size());
+        assertEquals("8级·核心 Break the Bank", cell.text());
+        List<TableCellContent.Line> lines = stackedText.lines();
+        TableCellContent.Line extraLine = new TableCellContent.Line("补充", TableCellContent.LineEmphasis.NOTE);
+        assertThrows(UnsupportedOperationException.class, () -> lines.add(extraLine));
+    }
+
+    @Test
+    @DisplayName("堆叠内容和堆叠行应拒绝null、空列表与非法值")
+    void shouldRejectInvalidStackedTextValues() {
+        List<TableCellContent.Line> linesWithNull = Arrays.asList(
+                new TableCellContent.Line("文本", TableCellContent.LineEmphasis.NOTE), null);
+        List<TableCellContent.Line> noLines = List.of();
+        List<TableCellContent.Line> blankLines = List.of(
+                new TableCellContent.Line(" ", TableCellContent.LineEmphasis.NOTE));
+
+        assertThrows(NullPointerException.class, () -> new TableCellContent.StackedText(null));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.StackedText(linesWithNull));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.StackedText(noLines));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.StackedText(blankLines));
+        assertThrows(NullPointerException.class,
+                () -> new TableCellContent.Line(null, TableCellContent.LineEmphasis.NOTE));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.Line("文本", null));
     }
 
     @Test

@@ -15,7 +15,7 @@ import java.util.Map;
  * 动态文本统一HTML转义，样式只来自受控枚举，不接受调用方传入class、CSS、URL或其他属性。
  *
  * @author Bai
- * @version 1.6.3
+ * @version 1.9.0
  * @since 2026.08.31
  */
 @Component
@@ -101,6 +101,7 @@ public class HtmlTableMarkupRenderer {
             case TableCellContent.PlainText plainText -> appendPlainTextContent(html, plainText);
             case TableCellContent.BadgeText badgeText -> appendBadgeTextContent(html, badgeText);
             case TableCellContent.ThreePartText threePartText -> appendThreePartTextContent(html, threePartText);
+            case TableCellContent.StackedText stackedText -> appendStackedTextContent(html, stackedText);
         }
     }
 
@@ -148,6 +149,39 @@ public class HtmlTableMarkupRenderer {
         html.append("</span><span class=\"slot-part-trailing\">");
         appendEscapedText(html, threePartText.trailingText());
         html.append("</span></span>");
+    }
+
+    /**
+     * 输出固定堆叠容器内的多行内容，每行独立转义并按强调级别映射固定class。
+     *
+     * @param html        HTML文档构建器
+     * @param stackedText 多行堆叠内容
+     */
+    private void appendStackedTextContent(StringBuilder html, TableCellContent.StackedText stackedText) {
+        html.append("<span class=\"cell-stacked\">");
+        for (TableCellContent.Line line : stackedText.lines()) {
+            html.append("<span class=\"stacked-line ")
+                    .append(emphasisClass(line.emphasis()))
+                    .append("\">");
+            appendEscapedText(html, line.text());
+            html.append(SPAN_CLOSE);
+        }
+        html.append(SPAN_CLOSE);
+    }
+
+    /**
+     * 将堆叠行强调级别映射为固定CSS类名。
+     *
+     * @param emphasis 受控行强调级别
+     * @return CSS类名
+     */
+    private String emphasisClass(TableCellContent.LineEmphasis emphasis) {
+        return switch (emphasis) {
+            case SUB -> "stacked-sub";
+            case MAIN -> "stacked-main";
+            case NOTE -> "stacked-note";
+            case EMPHASIS -> "stacked-emphasis";
+        };
     }
 
     /**
@@ -202,6 +236,14 @@ public class HtmlTableMarkupRenderer {
             case RANK_FIRST -> "cell-rank-first";
             case RANK_SECOND -> "cell-rank-second";
             case RANK_THIRD -> "cell-rank-third";
+            case RATE_EXCEED -> "cell-rate-exceed";
+            case RATE_PASS -> "cell-rate-pass";
+            case RATE_FAIL_NEAR -> "cell-rate-fail-near";
+            case RATE_FAIL_FAR -> "cell-rate-fail-far";
+            case RATE_NONE -> "cell-rate-none";
+            case OC_GROUP_ENTRY -> "cell-oc-entry";
+            case OC_GROUP_CORE -> "cell-oc-core";
+            case OC_GROUP_CHAIN -> "cell-oc-chain";
         };
     }
 

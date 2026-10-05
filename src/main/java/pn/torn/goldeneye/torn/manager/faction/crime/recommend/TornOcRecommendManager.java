@@ -13,6 +13,7 @@ import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
+import pn.torn.goldeneye.torn.service.faction.oc.OcSlotTierCalculator;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -25,7 +26,7 @@ import java.util.List;
  * OC队伍推荐公共逻辑层
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.9.0
  * @since 2025.11.24
  */
 @Component
@@ -278,19 +279,9 @@ public class TornOcRecommendManager {
     }
 
     /**
-     * 计算权重得分
+     * 计算权重得分，分档口径由共享计算器统一持有
      */
     private BigDecimal calcPriorityScore(TornSettingOcSlotDO slotSetting) {
-        if (slotSetting.getPriority() >= 25) {
-            return BigDecimal.valueOf(5);
-        } else if (slotSetting.getPriority() >= 20) {
-            return BigDecimal.valueOf(4);
-        } else if (slotSetting.getPriority() >= 15) {
-            return BigDecimal.valueOf(3);
-        } else if (slotSetting.getPriority() >= 10) {
-            return BigDecimal.valueOf(2);
-        } else {
-            return BigDecimal.ONE;
-        }
+        return BigDecimal.valueOf(OcSlotTierCalculator.priorityTier(slotSetting.getPriority()));
     }
 }

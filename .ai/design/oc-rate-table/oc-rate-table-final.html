@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>定稿样张：入门改暖橙</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #ffffff; }
+body { font-family: "Microsoft YaHei", "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", sans-serif; color: #1f2937; }
+.table-image { display: block; padding: 14px; background: #ffffff; }
+table { border-collapse: collapse; table-layout: fixed; width: 1176px; font-size: 16px; }
+td { padding: 7px 10px; border: 1px solid #d1d5db; vertical-align: middle; line-height: 1.3; }
+
+.cell-title { background: #eef2ff; color: #1e1b4b; font-weight: 700; text-align: center; font-size: 30px; padding: 14px 12px; }
+.cell-footer { background: #f9fafb; color: #4b5563; font-size: 13px; text-align: center; word-break: keep-all; line-height: 1.6; }
+
+/* ===== 级别+名称合并格（温和浅底深字） ===== */
+.oc-cell { width: 246px; text-align: center; }
+.g-entry { background: #ffedd5; color: #9a3412; }
+.g-core  { background: #dbeafe; color: #1e40af; }
+.g-chain { background: #ede9fe; color: #5b21b6; }
+.oc-rank { font-size: 13px; opacity: 0.82; }
+.oc-name { font-size: 15px; font-weight: 700; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== 岗位格（自包含：岗位/星级/数值/要求） ===== */
+.slot { text-align: center; }
+.s-name { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imp { font-size: 11px; margin: 1px 0; letter-spacing: 0.2px; white-space: nowrap; }
+.val { font-size: 21px; font-weight: 700; line-height: 1.1; }
+.none-txt { font-size: 15px; line-height: 1.6; }
+.req { font-size: 11px; opacity: 0.8; margin-top: 1px; }
+
+.rate-exceed    { background: #ccfbf1; color: #134e4a; }
+.rate-pass      { background: #dcfce7; color: #14532d; }
+.rate-fail-near { background: #fef3c7; color: #78350f; }
+.rate-fail-far  { background: #fee2e2; color: #991b1b; }
+.rate-none      { background: #f3f4f6; color: #6b7280; }
+.pad { background: #f9fafb; }
+</style>
+</head>
+<body>
+<article class="table-image">
+<table>
+  <tr><td colspan="7" class="cell-title">示例玩家的OC成功率</td></tr>
+
+  <!-- Crane Reaction 10级·连锁 -->
+  <tr>
+    <td class="oc-cell g-chain"><div class="oc-rank">10级·连锁</div><div class="oc-name">Crane Reaction</div></td>
+    <td class="slot rate-pass"><div class="s-name">Bomber#1</div><div class="imp">⚔️★★★ 💰★★</div><div class="val">61</div><div class="req">要求60</div></td>
+    <td class="slot rate-none"><div class="s-name">Engineer#1</div><div class="imp">⚔️★ 💰★</div><div class="none-txt">无记录</div><div class="req">要求60</div></td>
+    <td class="slot rate-pass"><div class="s-name">Lookout#1</div><div class="imp">⚔️★★★ 💰★★★</div><div class="val">68</div><div class="req">要求60</div></td>
+    <td class="slot rate-fail-near"><div class="s-name">Muscle#1</div><div class="imp">⚔️★★ 💰★★★</div><div class="val">55</div><div class="req">要求60</div></td>
+    <td class="slot rate-fail-far"><div class="s-name">Muscle#2</div><div class="imp">⚔️★ 💰★★</div><div class="val">45</div><div class="req">要求60</div></td>
+    <td class="slot rate-pass"><div class="s-name">Sniper#1</div><div class="imp">⚔️★★★★★ 💰★★★★</div><div class="val">76</div><div class="req">要求70</div></td>
+  </tr>
+
+  <!-- Ace in the Hole 9级·连锁 -->
+  <tr>
+    <td class="oc-cell g-chain"><div class="oc-rank">9级·连锁</div><div class="oc-name">Ace in the Hole</div></td>
+    <td class="slot rate-pass"><div class="s-name">Driver#1</div><div class="imp">⚔️★ 💰★</div><div class="val">63</div><div class="req">要求62</div></td>
+    <td class="slot rate-exceed"><div class="s-name">Hacker#1</div><div class="imp">⚔️★★★★★ 💰★★★</div><div class="val">80</div><div class="req">要求69</div></td>
+    <td class="slot rate-fail-near"><div class="s-name">Imitator#1</div><div class="imp">⚔️★★★★ 💰★★★★★</div><div class="val">68</div><div class="req">要求75</div></td>
+    <td class="slot rate-none"><div class="s-name">Muscle#1</div><div class="imp">⚔️★★★ 💰★</div><div class="none-txt">无记录</div><div class="req">要求60</div></td>
+    <td class="slot rate-pass"><div class="s-name">Muscle#2</div><div class="imp">⚔️★★★★★ 💰★</div><div class="val">71</div><div class="req">要求69</div></td>
+    <td class="pad"></td>
+  </tr>
+
+  <!-- Break the Bank 8级·核心 -->
+  <tr>
+    <td class="oc-cell g-core"><div class="oc-rank">8级·核心</div><div class="oc-name">Break the Bank</div></td>
+    <td class="slot rate-exceed"><div class="s-name">Muscle#1</div><div class="imp">⚔️★★ 💰★★★</div><div class="val">78</div><div class="req">要求65</div></td>
+    <td class="slot rate-pass"><div class="s-name">Muscle#2</div><div class="imp">⚔️★★ 💰★</div><div class="val">63</div><div class="req">要求55</div></td>
+    <td class="slot rate-fail-near"><div class="s-name">Muscle#3</div><div class="imp">⚔️★★★★★ 💰★★</div><div class="val">58</div><div class="req">要求65</div></td>
+    <td class="slot rate-fail-far"><div class="s-name">Robber#1</div><div class="imp">⚔️★★ 💰★★★</div><div class="val">51</div><div class="req">要求65</div></td>
+    <td class="slot rate-none"><div class="s-name">Thief#1</div><div class="imp">⚔️★ 💰★★★</div><div class="none-txt">无记录</div><div class="req">要求60</div></td>
+    <td class="slot rate-exceed"><div class="s-name">Thief#2</div><div class="imp">⚔️★★★★★ 💰★</div><div class="val">80</div><div class="req">要求65</div></td>
+  </tr>
+
+  <!-- Stacking the Deck 8级·连锁前置（只看成功，不显示💰） -->
+  <tr>
+    <td class="oc-cell g-chain"><div class="oc-rank">8级·连锁前置</div><div class="oc-name">Stacking the Deck</div></td>
+    <td class="slot rate-exceed"><div class="s-name">Cat Burglar#1</div><div class="imp">⚔️★★★★</div><div class="val">72</div><div class="req">要求60</div></td>
+    <td class="slot rate-fail-near"><div class="s-name">Driver#1</div><div class="imp">⚔️★</div><div class="val">48</div><div class="req">要求55</div></td>
+    <td class="slot rate-none"><div class="s-name">Hacker#1</div><div class="imp">⚔️★★★★★</div><div class="none-txt">无记录</div><div class="req">要求60</div></td>
+    <td class="slot rate-fail-near"><div class="s-name">Imitator#1</div><div class="imp">⚔️★★★★★</div><div class="val">61</div><div class="req">要求65</div></td>
+    <td class="pad"></td>
+    <td class="pad"></td>
+  </tr>
+
+  <!-- Blast from the Past 7级·入门 -->
+  <tr>
+    <td class="oc-cell g-entry"><div class="oc-rank">7级·入门</div><div class="oc-name">Blast from the Past</div></td>
+    <td class="slot rate-pass"><div class="s-name">Bomber#1</div><div class="imp">⚔️★★★ 💰★★★</div><div class="val">72</div><div class="req">要求65</div></td>
+    <td class="slot rate-none"><div class="s-name">Engineer#1</div><div class="imp">⚔️★★★★ 💰★★</div><div class="none-txt">无记录</div><div class="req">要求65</div></td>
+    <td class="slot rate-exceed"><div class="s-name">Hacker#1</div><div class="imp">⚔️★★ 💰★★★</div><div class="val">66</div><div class="req">要求55</div></td>
+    <td class="slot rate-fail-near"><div class="s-name">Muscle#1</div><div class="imp">⚔️★★★★★ 💰★★★</div><div class="val">62</div><div class="req">要求65</div></td>
+    <td class="slot rate-fail-far"><div class="s-name">Picklock#1</div><div class="imp">⚔️★★ 💰★★</div><div class="val">45</div><div class="req">要求55</div></td>
+    <td class="slot rate-pass"><div class="s-name">Picklock#2</div><div class="imp">⚔️★ 💰★★★</div><div class="val">58</div><div class="req">要求55</div></td>
+  </tr>
+
+  <tr><td colspan="7" class="cell-footer">
+    色阶：超出要求≥10 ｜ 达到要求 ｜ 低于要求·差距&lt;10 ｜ 低于要求·差距≥10 ｜ 无记录<br>
+    级别分组：7级·入门 ｜ 8级·核心 ｜ 8级·连锁前置与9~10级·连锁　　⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）<br>
+    要求＝目标成员所在帮派的岗位要求（各帮派不同）
+  </td></tr>
+</table>
+</article>
+</body>
+</html>

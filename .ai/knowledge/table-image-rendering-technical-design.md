@@ -700,7 +700,10 @@ HTML/Chromium 当前 OC 状态表格：
 
 保持 Java2D 的 OC 相关数据展示：
 - OcMemberStrategyImpl（可加入 OC 成员）
-- OcRateQueryStrategyImpl（用户 OC 成功率）
+
+> `OcRateQueryStrategyImpl`（用户 OC 成功率）自 1.9.0 起迁移至 HTML/Chromium 平台，视觉与实施契约见
+> `.ai/knowledge/oc/oc_rate_table_html_migration_technical_design.md`；
+> OC 欧皇榜/非酋榜（`OcSuccessRankTableBuilder`）与 `OcMemberStrategyImpl` 维持 Java2D 排除范围（2026-10-05 修订）。
 ```
 
 后两项不是漏迁移，不得为“全部 OC”解释而新建未接通的 `OcHistoryTableDocumentAssembler`，也不得改动其既有策略、发送协议或测试。
