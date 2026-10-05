@@ -63,19 +63,23 @@ class OcRateTierResolverTest {
     }
 
     @Test
-    @DisplayName("级别分组由级别与链式前置名单共同决定")
+    @DisplayName("级别分组由链式前置名单优先决定，前置判定与级别无关")
     void group_byRankAndChainPrerequisite() {
         assertEquals(OcRateGroup.ENTRY, OcRateTierResolver.group(7, "Blast from the Past"));
         assertEquals(OcRateGroup.CORE, OcRateTierResolver.group(8, "Break the Bank"));
-        assertEquals(OcRateGroup.CHAIN, OcRateTierResolver.group(8, "Stacking the Deck"));
-        assertEquals(OcRateGroup.CHAIN, OcRateTierResolver.group(8, "Lock Stock"));
-        assertEquals(OcRateGroup.CHAIN, OcRateTierResolver.group(8, "Manifest Cruelty"));
+        assertEquals(OcRateGroup.CHAIN_PREREQUISITE, OcRateTierResolver.group(5, "No Reserve"));
+        assertEquals(OcRateGroup.CHAIN_PREREQUISITE, OcRateTierResolver.group(8, "Stacking the Deck"));
+        assertEquals(OcRateGroup.CHAIN_PREREQUISITE, OcRateTierResolver.group(8, "Lock Stock"));
+        assertEquals(OcRateGroup.CHAIN_PREREQUISITE, OcRateTierResolver.group(8, "Manifest Cruelty"));
+        assertEquals(OcRateGroup.CHAIN_PREREQUISITE, OcRateTierResolver.group(9, "Gone Fission"));
         assertEquals(OcRateGroup.CHAIN, OcRateTierResolver.group(9, "Ace in the Hole"));
         assertEquals(OcRateGroup.CHAIN, OcRateTierResolver.group(10, "Crane Reaction"));
 
         assertEquals("7级·入门", OcRateTierResolver.groupLabel(7, OcRateGroup.ENTRY));
         assertEquals("8级·核心", OcRateTierResolver.groupLabel(8, OcRateGroup.CORE));
-        assertEquals("8级·连锁前置", OcRateTierResolver.groupLabel(8, OcRateGroup.CHAIN));
+        assertEquals("5级·连锁前置", OcRateTierResolver.groupLabel(5, OcRateGroup.CHAIN_PREREQUISITE));
+        assertEquals("8级·连锁前置", OcRateTierResolver.groupLabel(8, OcRateGroup.CHAIN_PREREQUISITE));
+        assertEquals("9级·连锁前置", OcRateTierResolver.groupLabel(9, OcRateGroup.CHAIN_PREREQUISITE));
         assertEquals("9级·连锁", OcRateTierResolver.groupLabel(9, OcRateGroup.CHAIN));
         assertEquals("10级·连锁", OcRateTierResolver.groupLabel(10, OcRateGroup.CHAIN));
     }

@@ -1,7 +1,7 @@
 /* 用户OC成功率表专有层；基础排版与色板工具见 table-base.css */
 table {
-    width: 1176px;
-    table-layout: fixed;
+    width: 100%;
+    table-layout: auto;
 }
 
 td {
@@ -20,6 +20,17 @@ td {
 .cell-oc-entry { background: #ffedd5; color: #9a3412; }
 .cell-oc-core  { background: #dbeafe; color: #1e40af; }
 .cell-oc-chain { background: #ede9fe; color: #5b21b6; }
+
+/* OC名称行例外：允许按词换行，超长OC名（如Window of Opportunity）换行展示而非省略；
+   该规则只作用于级别合并格内的主行，岗位编码等其余主行不受影响 */
+.cell-oc-entry .stacked-main,
+.cell-oc-core .stacked-main,
+.cell-oc-chain .stacked-main {
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    text-overflow: clip;
+}
 
 /* 成功率数值档（整格即档位，文字继承档位深色） */
 .cell-rate-exceed    { background: #ccfbf1; color: #134e4a; text-align: center; }

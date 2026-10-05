@@ -110,14 +110,14 @@ pn.torn.goldeneye.napcat.strategy.faction.crime # 既有
 
 5. **级别组配色**（合并格样式）：入门 `OC_GROUP_ENTRY` `#ffedd5`/`#9a3412`；核心 `OC_GROUP_CORE` `#dbeafe`/`#1e40af`；连锁 `OC_GROUP_CHAIN` `#ede9fe`/`#5b21b6`。
 6. **星级行文本**：`⚔️` = `U+2694 U+FE0F`，`💰` = `U+1F4B0`，星 = `U+2605` 重复 n 次，无空心星；两段以单空格连接，如 `⚔️★★★ 💰★`。⚔️ 档位 = `OcSlotTierCalculator.priorityTier(priority)`；💰 档位 = best_success ≥35→5、≥25→4、≥15→3、≥10→2、>0→1。
-7. **分组判定**：`rank <= 7` → 入门；`rank == 8` 且 OC 名 ∈ {`Stacking the Deck`, `Lock Stock`, `Manifest Cruelty`} → 连锁前置（标签 `8级·连锁前置`，岗位星级行仅 ⚔️）；其余 8 级 → 核心；`rank >= 9` → 连锁。Torn 新增链式关系时需人工更新该名单（Javadoc 注明）。
+7. **分组判定**：前置判定与级别无关——前置名单 {`No Reserve`(5级)、`Stacking the Deck`/`Lock Stock`/`Manifest Cruelty`(8级)、`Gone Fission`(9级)} 内的 OC 一律归连锁前置（标签 `N级·连锁前置`、连锁紫、岗位星级行仅 ⚔️）；前置 OC 只决定后继 OC 能否开启，收益星级不展示。名单外 `rank <= 7` → 入门、`rank == 8` → 核心、`rank >= 9` → 连锁。名单来自链式实例统计（依次链向 Bidding War、Ace in the Hole、Hostile Takeover、Gone Fission、Crane Reaction），Torn 新增链式关系时需人工更新该名单（Javadoc 注明）。
 8. **未配置省略**：`priority` 为 null 或 ≤0 时不显示 ⚔️；`bestSuccess` 为 null 或 ≤0 时不显示 💰（即 Ship Happens 全 OC 无星级行）。
-9. **单行约束**：合并格名称、岗位编码、星级行、数值行一律单行（CSS `white-space:nowrap` + `text-overflow:ellipsis` 兜底），实测最长名 `Blast from the Past` 在 246px 合并格内完整显示。
+9. **单行约束**：岗位编码、星级行、数值行一律单行（CSS `white-space:nowrap` + `text-overflow:ellipsis` 兜底）；**OC名称行例外**——级别合并格内的名称主行允许按词换行（`word-break:keep-all` + `overflow-wrap:break-word`），超长 OC 名换行完整展示而非省略，该规则不作用于其他主行。
 10. **页脚图例**（FOOTER 样式，跨全表，固定三行）：
 
 ```text
 色阶：超出要求≥10 ｜ 达到要求 ｜ 低于要求·差距<10 ｜ 低于要求·差距≥10 ｜ 无记录
-级别分组：7级及以下·入门 ｜ 8级·核心 ｜ 8级·连锁前置与9~10级·连锁　　⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）
+级别分组：入门（7级及以下） ｜ 核心（8级） ｜ 连锁前置（各级别）与连锁（9~10级）　　⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）
 要求＝目标成员所在帮派的岗位要求（各帮派不同）
 ```
 
@@ -170,8 +170,8 @@ enum LineEmphasis { SUB, MAIN, NOTE, EMPHASIS }
 ```css
 /* 用户OC成功率表专有层；基础排版与色板工具见 table-base.css */
 table {
-    width: 1176px;
-    table-layout: fixed;
+    width: 100%;
+    table-layout: auto;
 }
 
 td {
@@ -191,6 +191,17 @@ td {
 .cell-oc-core  { background: #dbeafe; color: #1e40af; }
 .cell-oc-chain { background: #ede9fe; color: #5b21b6; }
 
+/* OC名称行例外：允许按词换行，超长OC名（如Window of Opportunity）换行展示而非省略；
+   该规则只作用于级别合并格内的主行，岗位编码等其余主行不受影响 */
+.cell-oc-entry .stacked-main,
+.cell-oc-core .stacked-main,
+.cell-oc-chain .stacked-main {
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    text-overflow: clip;
+}
+
 /* 成功率数值档（整格即档位，文字继承档位深色） */
 .cell-rate-exceed    { background: #ccfbf1; color: #134e4a; text-align: center; }
 .cell-rate-pass      { background: #dcfce7; color: #14532d; text-align: center; }
@@ -198,7 +209,7 @@ td {
 .cell-rate-fail-far  { background: #fee2e2; color: #991b1b; text-align: center; }
 .cell-rate-none      { background: #f3f4f6; color: #6b7280; text-align: center; }
 
-/* 堆叠行：一律单行，超长省略号兜底（最长OC名/星级串实测可完整显示） */
+/* 堆叠行：一律单行，超长省略号兜底（OC名称行由上面的例外规则放开换行） */
 .cell-stacked {
     display: block;
 }
@@ -216,6 +227,8 @@ td {
 .stacked-emphasis { font-size: 21px; font-weight: 700; line-height: 1.1; }
 ```
 
+> 表格必须撑满渲染视口（`width:100%` + `auto` 布局，与平台其他主题一致）。2026-10-05 首版曾误用 `1176px` 固定宽度：真实渲染视口为 1600px，导致表格右侧约 420px 留白；且 `fixed` 布局下列宽由跨全表的标题行平分（约 168px/列），合并格的 246px 声明失效，超长 OC 名被省略。满宽修复后的验证图见 `.ai/design/oc-rate-table/oc-rate-table-fullwidth-verify.png`。
+
 ### 6.2 领域层
 
 #### 新增 `torn/service/faction/oc/OcSlotTierCalculator.java`
@@ -230,8 +243,8 @@ td {
   - `OcRateValueTier valueTier(Integer passRate, int requiredPassRate)`：null→`NONE`，否则按第 5.4 节判定。返回嵌套枚举 `OcRateValueTier { EXCEED, PASS, FAIL_NEAR, FAIL_FAR, NONE }`。
   - `String successStars(Integer priority)`：null 或 ≤0 返回空串；否则 `⚔️` + `★`×`OcSlotTierCalculator.priorityTier(priority)`。
   - `String fortuneStars(BigDecimal bestSuccess)`：null 或 ≤0 返回空串；否则 `💰` + `★`×档位（≥35→5 … >0→1）。
-  - `OcRateGroup group(int rank, String ocName)`：嵌套枚举 `OcRateGroup { ENTRY, CORE, CHAIN }`，判定见第 5.7 节；常量 `Set<String> CHAIN_PREREQUISITE_OCS = Set.of("Stacking the Deck", "Lock Stock", "Manifest Cruelty")`，Javadoc 注明来源（链式实例统计）与"新增链式关系需人工维护"。
-  - `String groupLabel(int rank, OcRateGroup group)`：返回 `N级·入门`/`N级·核心`/`8级·连锁前置`/`N级·连锁`。
+  - `OcRateGroup group(int rank, String ocName)`：嵌套枚举 `OcRateGroup { ENTRY, CORE, CHAIN_PREREQUISITE, CHAIN }`，前置名单优先于级别判定，见第 5.7 节；常量 `Set<String> CHAIN_PREREQUISITE_OCS = Set.of("No Reserve", "Stacking the Deck", "Lock Stock", "Manifest Cruelty", "Gone Fission")`，Javadoc 注明来源（链式实例统计）与"新增链式关系需人工维护"。
+  - `String groupLabel(int rank, OcRateGroup group)`：返回 `N级·入门`/`N级·核心`/`N级·连锁前置`（任意级别前置）/`N级·连锁`。
   - `int requiredPassRate(TornSettingOcSlotDO slot, List<TornSettingFactionOcSlotDO> factionSlots)`：按 `(factionId 由调用方预过滤)`、`rank+ocName+slotCode` 精确匹配帮派覆盖，未命中回退 `slot.getPassRate()`。真实需求：帮派可对各岗位单独设要求，展示与资格判定必须用同一覆盖规则。
 
 #### 新增 `torn/service/faction/oc/image/rate/OcRateTableData.java`
@@ -257,13 +270,13 @@ public record OcRateTableData(TornUserDO user, List<TornSettingOcDO> ocList,
 #### 新增 `torn/service/faction/oc/image/rate/OcRateTableDocumentAssembler.java`
 
 - `@Component`，无注入依赖。单一公共方法 `TableDocument assemble(OcRateTableData data)`。
-- 常量：`DOCUMENT_WIDTH = 1204`（内容 1176 + 内边距）、`DOCUMENT_TYPE = TableThemeEnum.OC_RATE.getDocumentType()`、标题模板 `"%s的OC成功率"`。
+- 常量：`DOCUMENT_WIDTH = 1600`（与平台渲染视口宽度一致，表格撑满视口）、`DOCUMENT_TYPE = TableThemeEnum.OC_RATE.getDocumentType()`、标题模板 `"%s的OC成功率"`。
 - 组装规则：
-  1. 跳过 `ocUserList` 中无记录的 OC（与现行为一致）；列数 = 各展示 OC 岗位数的最大值（含无记录 OC 参与列数计算，与现 `calcMaxColumnSize` 语义一致）。
+  1. 跳过 `ocUserList` 中无记录的 OC（与现行为一致）；列数 = 实际成行 OC 的岗位数最大值（与现 `calcMaxColumnSize` 语义一致，无记录 OC 不参与列数计算）。
   2. 标题行：TITLE 跨全表，`PlainText`。
-  3. 每 OC 一行：合并格 `StackedText(SUB groupLabel, MAIN ocName)` + 组样式；每岗位格 `StackedText` 依序 `MAIN slotCode`、`NOTE 星级行`（success/fortune 星级均为空则整行省略；`CHAIN` 组且为 8 级前置时仅拼 ⚔️ 段）、数值行（有记录 `EMPHASIS rate`，无记录 `SUB "无记录"`）、`NOTE "要求" + requiredPassRate`；样式 = `valueTier` 映射的 5 档之一。岗位与记录的匹配沿用现口径：`ocName` 相等且 `position == slotShortCode`。尾部补齐格 `SLOT_EMPTY` + `PlainText("")`。
+  3. 每 OC 一行：合并格 `StackedText(SUB groupLabel, MAIN ocName)` + 组样式；每岗位格 `StackedText` 依序 `MAIN slotCode`、`NOTE 星级行`（success/fortune 星级均为空则整行省略；`CHAIN_PREREQUISITE` 组仅拼 ⚔️ 段）、数值行（有记录 `EMPHASIS rate`，无记录 `SUB "无记录"`）、`NOTE "要求" + requiredPassRate`；样式 = `valueTier` 映射的 5 档之一。岗位与记录的匹配沿用现口径：`ocName` 相等且 `position == slotShortCode`。尾部补齐格 `SLOT_EMPTY` + `PlainText("")`。
   4. 页脚行：FOOTER 跨全表，`PlainText` 三行以 `\n` 连接（WRAP 溢出策略），文案为第 5.10 节固定文本。
-- 不查 DAO、不排序、不调用渲染器、不拼 HTML。
+- 不查 DAO、不调用渲染器、不拼 HTML；不改变 OC 的业务排序（级别降序、名称升序由输入携带），岗位在 OC 内按编码排序属组装期的布局确定性职责。
 
 ### 6.3 策略层
 

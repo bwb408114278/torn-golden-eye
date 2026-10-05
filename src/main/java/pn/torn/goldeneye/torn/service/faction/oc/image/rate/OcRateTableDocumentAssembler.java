@@ -23,9 +23,9 @@ import java.util.List;
 @Component
 public class OcRateTableDocumentAssembler {
     /**
-     * 文档宽度：表格内容1176px加左右留白
+     * 文档宽度：与平台渲染视口宽度一致，表格撑满视口避免右侧留白
      */
-    private static final int DOCUMENT_WIDTH = 1204;
+    private static final int DOCUMENT_WIDTH = 1600;
     private static final String DOCUMENT_TYPE = TableThemeEnum.OC_RATE.getDocumentType();
     private static final String TITLE_TEMPLATE = "%s的OC成功率";
     private static final String EMPTY_TEXT = "";
@@ -33,13 +33,10 @@ public class OcRateTableDocumentAssembler {
     private static final String REQUIRED_RATE_PREFIX = "要求";
     private static final String STAR_SEPARATOR = " ";
     private static final String LINE_SEPARATOR = "\n";
-    /**
-     * 链式前置OC的级别，该级别的连锁分组内需再区分前置与普通连锁
-     */
-    private static final int CHAIN_PREREQUISITE_RANK = 8;
     private static final String FOOTER_TEXT = "色阶：超出要求≥10 ｜ 达到要求 ｜ 低于要求·差距<10 ｜ 低于要求·差距≥10 ｜ 无记录"
             + LINE_SEPARATOR
-            + "级别分组：7级及以下·入门 ｜ 8级·核心 ｜ 8级·连锁前置与9~10级·连锁\u3000\u3000⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）"
+            + "级别分组：入门（7级及以下） ｜ 核心（8级） ｜ 连锁前置（各级别）与连锁（9~10级）"
+            + "\u3000\u3000⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）"
             + LINE_SEPARATOR
             + "要求＝目标成员所在帮派的岗位要求（各帮派不同）";
 
@@ -99,8 +96,7 @@ public class OcRateTableDocumentAssembler {
                                 List<TornSettingOcSlotDO> slotList,
                                 List<TornSettingFactionOcSlotDO> factionSlots, int columnCount) {
         OcRateTierResolver.OcRateGroup group = OcRateTierResolver.group(oc.getRank(), oc.getOcName());
-        boolean chainPrerequisite = group == OcRateTierResolver.OcRateGroup.CHAIN
-                && oc.getRank() == CHAIN_PREREQUISITE_RANK;
+        boolean chainPrerequisite = group == OcRateTierResolver.OcRateGroup.CHAIN_PREREQUISITE;
         List<TableCell> cells = new ArrayList<>();
         cells.add(buildOcNameCell(oc, group));
         for (TornSettingOcSlotDO slot : slotList) {
@@ -206,7 +202,7 @@ public class OcRateTableDocumentAssembler {
         return switch (group) {
             case ENTRY -> TableCellStyleEnum.OC_GROUP_ENTRY;
             case CORE -> TableCellStyleEnum.OC_GROUP_CORE;
-            case CHAIN -> TableCellStyleEnum.OC_GROUP_CHAIN;
+            case CHAIN_PREREQUISITE, CHAIN -> TableCellStyleEnum.OC_GROUP_CHAIN;
         };
     }
 

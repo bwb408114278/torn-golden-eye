@@ -93,7 +93,7 @@ class HtmlTableMarkupRendererTest {
                         new TableCellContent.Line("⚔️★ 💰★★", TableCellContent.LineEmphasis.NOTE),
                         new TableCellContent.Line("要求60", TableCellContent.LineEmphasis.SUB))),
                         TableCellStyleEnum.RATE_EXCEED, 1, 1, TableTextOverflowEnum.ELLIPSIS)))),
-                1204, TableThemeEnum.OC_RATE.getDocumentType());
+                1600, TableThemeEnum.OC_RATE.getDocumentType());
 
         String html = renderer.render(document);
 
@@ -119,7 +119,7 @@ class HtmlTableMarkupRendererTest {
                 new TableCell("入门", TableCellStyleEnum.OC_GROUP_ENTRY, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("核心", TableCellStyleEnum.OC_GROUP_CORE, 1, 1, TableTextOverflowEnum.WRAP),
                 new TableCell("连锁", TableCellStyleEnum.OC_GROUP_CHAIN, 1, 1, TableTextOverflowEnum.WRAP));
-        String html = renderer.render(new TableDocument("测试", List.of(new TableRow(cells)), 1204,
+        String html = renderer.render(new TableDocument("测试", List.of(new TableRow(cells)), 1600,
                 TableThemeEnum.OC_RATE.getDocumentType()));
 
         assertTrue(html.contains("cell-rate-exceed"));

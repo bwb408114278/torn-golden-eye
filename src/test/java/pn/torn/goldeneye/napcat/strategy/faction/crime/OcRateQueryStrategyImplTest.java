@@ -144,7 +144,7 @@ class OcRateQueryStrategyImplTest {
     private TableDocument document() {
         return new TableDocument("示例玩家的OC成功率", List.of(new TableRow(List.of(
                 new TableCell("示例玩家的OC成功率", TableCellStyleEnum.TITLE, 1, 1,
-                        TableTextOverflowEnum.WRAP)))), 1204, TableThemeEnum.OC_RATE.getDocumentType());
+                        TableTextOverflowEnum.WRAP)))), 1600, TableThemeEnum.OC_RATE.getDocumentType());
     }
 
     private QqRecMsgSender sender() {

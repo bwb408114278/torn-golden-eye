@@ -20,11 +20,15 @@ import java.util.Set;
  */
 public final class OcRateTierResolver {
     /**
-     * 作为链式前置的8级OC名单，来自帮派OC实例中前置OC的真实统计。
-     * <p>库中无静态前置配置字段，Torn新增链式关系时需人工维护该名单。</p>
+     * 作为链式前置的OC名单，来自帮派OC实例中链式关系（previous_oc_id）的真实统计：
+     * No Reserve(5级)→Bidding War、Stacking the Deck(8级)→Ace in the Hole、
+     * Lock Stock(8级)→Hostile Takeover、Manifest Cruelty(8级)→Gone Fission、
+     * Gone Fission(9级)→Crane Reaction。
+     * <p>前置语义与级别无关：前置OC只决定后继OC能否开启，收益星级不展示。
+     * 库中无静态前置配置字段，Torn新增链式关系时需人工维护该名单。</p>
      */
     public static final Set<String> CHAIN_PREREQUISITE_OCS =
-            Set.of("Stacking the Deck", "Lock Stock", "Manifest Cruelty");
+            Set.of("No Reserve", "Stacking the Deck", "Lock Stock", "Manifest Cruelty", "Gone Fission");
 
     private static final String SUCCESS_EMOJI = "⚔️";
     private static final String FORTUNE_EMOJI = "💰";
@@ -94,18 +98,21 @@ public final class OcRateTierResolver {
     }
 
     /**
-     * 解析OC所属级别分组。
+     * 解析OC所属级别分组，前置名单优先于级别判定。
      *
      * @param rank   OC级别
      * @param ocName OC名称
-     * @return 级别分组：7级及以下为入门，非前置的8级为核心，其余为连锁
+     * @return 级别分组：链式前置（任意级别）、非前置的7级及以下为入门、非前置的8级为核心、其余为连锁
      */
     public static OcRateGroup group(int rank, String ocName) {
+        if (CHAIN_PREREQUISITE_OCS.contains(ocName)) {
+            return OcRateGroup.CHAIN_PREREQUISITE;
+        }
         if (rank <= ENTRY_MAX_RANK) {
             return OcRateGroup.ENTRY;
         }
         if (rank == CORE_RANK) {
-            return CHAIN_PREREQUISITE_OCS.contains(ocName) ? OcRateGroup.CHAIN : OcRateGroup.CORE;
+            return OcRateGroup.CORE;
         }
         return OcRateGroup.CHAIN;
     }
@@ -115,13 +122,14 @@ public final class OcRateTierResolver {
      *
      * @param rank  OC级别
      * @param group 级别分组
-     * @return 形如{@code 9级·连锁}的标签，8级连锁前置单独标注
+     * @return 形如{@code 9级·连锁}的标签，链式前置单独标注
      */
     public static String groupLabel(int rank, OcRateGroup group) {
         String groupText = switch (group) {
             case ENTRY -> "入门";
             case CORE -> "核心";
-            case CHAIN -> rank == CORE_RANK ? "连锁前置" : "连锁";
+            case CHAIN_PREREQUISITE -> "连锁前置";
+            case CHAIN -> "连锁";
         };
         return rank + "级·" + groupText;
     }
@@ -196,15 +204,19 @@ public final class OcRateTierResolver {
      */
     public enum OcRateGroup {
         /**
-         * 入门：7级及以下。
+         * 入门：非前置的7级及以下OC。
          */
         ENTRY,
         /**
-         * 核心：非链式前置的8级OC。
+         * 核心：非前置的8级OC。
          */
         CORE,
         /**
-         * 连锁：8级链式前置与9、10级OC。
+         * 连锁前置：作为更高级OC链式前置的OC，任意级别，岗位只展示成功率星级。
+         */
+        CHAIN_PREREQUISITE,
+        /**
+         * 连锁：非前置的9、10级OC。
          */
         CHAIN
     }
