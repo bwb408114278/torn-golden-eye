@@ -1,0 +1,46 @@
+/* 用户OC成功率表专有层；基础排版与色板工具见 table-base.css */
+table {
+    width: 1176px;
+    table-layout: fixed;
+}
+
+td {
+    padding: 7px 10px;
+    line-height: 1.3;
+}
+
+/* 级别+名称合并格：入门橙 / 核心蓝 / 连锁紫（浅底深字） */
+.cell-oc-entry,
+.cell-oc-core,
+.cell-oc-chain {
+    width: 246px;
+    text-align: center;
+}
+
+.cell-oc-entry { background: #ffedd5; color: #9a3412; }
+.cell-oc-core  { background: #dbeafe; color: #1e40af; }
+.cell-oc-chain { background: #ede9fe; color: #5b21b6; }
+
+/* 成功率数值档（整格即档位，文字继承档位深色） */
+.cell-rate-exceed    { background: #ccfbf1; color: #134e4a; text-align: center; }
+.cell-rate-pass      { background: #dcfce7; color: #14532d; text-align: center; }
+.cell-rate-fail-near { background: #fef3c7; color: #78350f; text-align: center; }
+.cell-rate-fail-far  { background: #fee2e2; color: #991b1b; text-align: center; }
+.cell-rate-none      { background: #f3f4f6; color: #6b7280; text-align: center; }
+
+/* 堆叠行：一律单行，超长省略号兜底（最长OC名/星级串实测可完整显示） */
+.cell-stacked {
+    display: block;
+}
+
+.stacked-line {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stacked-sub      { font-size: 13px; opacity: 0.82; }
+.stacked-main     { font-size: 14px; font-weight: 700; }
+.stacked-note     { font-size: 11px; opacity: 0.8; }
+.stacked-emphasis { font-size: 21px; font-weight: 700; line-height: 1.1; }

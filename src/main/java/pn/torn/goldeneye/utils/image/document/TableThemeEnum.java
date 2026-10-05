@@ -12,7 +12,7 @@ import java.util.List;
  * 文档类型到样式的解析只在此处发生。未注册的文档类型快速失败，不静默回退到其他主题。</p>
  *
  * @author Bai
- * @version 1.6.4
+ * @version 1.9.0
  * @since 2026.09.15
  */
 @AllArgsConstructor
@@ -21,6 +21,10 @@ public enum TableThemeEnum {
      * OC主题：通用基础层 + OC专有层
      */
     OC("oc-table", "/table-image/oc-table.css"),
+    /**
+     * OC成功率主题：通用基础层 + 用户OC成功率专有层
+     */
+    OC_RATE("oc-rate-table", "/table-image/oc-rate-table.css"),
     /**
      * PC赛车主题：通用基础层 + PC赛车专有层
      */

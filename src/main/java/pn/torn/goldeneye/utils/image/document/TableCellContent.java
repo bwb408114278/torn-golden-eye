@@ -8,15 +8,15 @@ import java.util.stream.Stream;
 /**
  * 表格单元格的受控内容模型，渲染中立的有限组合。
  * <p>
- * 该层级只表达"纯文本、名称加徽章、三段式"三种受控展示语义，不是HTML模型；
+ * 该层级只表达"纯文本、名称加徽章、三段式、多行堆叠"四种受控展示语义，不是HTML模型；
  * 实现方禁止携带HTML、CSS class、URL、属性或任意标签，标签与样式只能由HTML渲染器按类型映射生成。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.9.0
  * @since 2026.09.01
  */
 public sealed interface TableCellContent permits TableCellContent.PlainText,
-        TableCellContent.BadgeText, TableCellContent.ThreePartText {
+        TableCellContent.BadgeText, TableCellContent.ThreePartText, TableCellContent.StackedText {
 
     /**
      * 按内容类型组合出可读纯文本，仅供兼容断言或日志使用。
@@ -33,6 +33,9 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
                     Stream.of(leadingText, centerText, trailingText)
                             .filter(text -> !text.isEmpty())
                             .collect(Collectors.joining(" "));
+            case StackedText(List<Line> lines) -> lines.stream()
+                    .map(Line::text)
+                    .collect(Collectors.joining(" "));
         };
     }
 
@@ -113,5 +116,69 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
                 throw new IllegalArgumentException("centerText不能为空白");
             }
         }
+    }
+
+    /**
+     * 多行堆叠内容，用同一格内上下堆叠的行表达紧凑表格的行内层级。
+     *
+     * @param lines 堆叠行，不能为null且不能包含null；空白行在构造时被过滤，过滤后至少保留一行
+     */
+    record StackedText(List<Line> lines) implements TableCellContent {
+
+        /**
+         * 创建并校验堆叠内容，过滤空白行并防御性复制。
+         */
+        public StackedText {
+            Objects.requireNonNull(lines, "lines不能为null");
+            if (lines.stream().anyMatch(Objects::isNull)) {
+                throw new NullPointerException("lines不能包含null");
+            }
+            List<Line> presentLines = lines.stream()
+                    .filter(line -> !line.text().isBlank())
+                    .toList();
+            if (presentLines.isEmpty()) {
+                throw new IllegalArgumentException("lines过滤空白行后不能为空");
+            }
+            lines = List.copyOf(presentLines);
+        }
+    }
+
+    /**
+     * 堆叠行：文本加受控强调级别，级别只表达行内层级，不携带颜色、字号或标签。
+     *
+     * @param text     行文本，不能为null，可为空白（由{@link StackedText}统一过滤）
+     * @param emphasis 行强调级别，不能为null
+     */
+    record Line(String text, LineEmphasis emphasis) {
+
+        /**
+         * 创建并校验堆叠行。
+         */
+        public Line {
+            Objects.requireNonNull(text, "text不能为null");
+            Objects.requireNonNull(emphasis, "emphasis不能为null");
+        }
+    }
+
+    /**
+     * 堆叠行的强调级别。
+     */
+    enum LineEmphasis {
+        /**
+         * 次要说明行。
+         */
+        SUB,
+        /**
+         * 主文本行。
+         */
+        MAIN,
+        /**
+         * 附注行。
+         */
+        NOTE,
+        /**
+         * 强调数值行。
+         */
+        EMPHASIS
     }
 }

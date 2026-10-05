@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 固定HTML结构、转义和枚举样式映射测试。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.9.0
  * @since 2026.08.31
  */
 @DisplayName("HTML表格标记渲染测试")
@@ -82,6 +82,55 @@ class HtmlTableMarkupRendererTest {
         assertTrue(html.contains("cell-rank-first"));
         assertTrue(html.contains("cell-rank-second"));
         assertTrue(html.contains("cell-rank-third"));
+    }
+
+    @Test
+    @DisplayName("堆叠内容应逐行转义并输出固定span结构")
+    void shouldRenderStackedTextLinesEscaped() {
+        TableDocument document = new TableDocument("堆叠内容", List.of(new TableRow(List.of(
+                new TableCell(new TableCellContent.StackedText(List.of(
+                        new TableCellContent.Line("<甲>&\"'", TableCellContent.LineEmphasis.MAIN),
+                        new TableCellContent.Line("⚔️★ 💰★★", TableCellContent.LineEmphasis.NOTE),
+                        new TableCellContent.Line("要求60", TableCellContent.LineEmphasis.SUB))),
+                        TableCellStyleEnum.RATE_EXCEED, 1, 1, TableTextOverflowEnum.ELLIPSIS)))),
+                1204, TableThemeEnum.OC_RATE.getDocumentType());
+
+        String html = renderer.render(document);
+
+        assertTrue(html.contains("<span class=\"cell-stacked\">"
+                + "<span class=\"stacked-line stacked-main\">&lt;甲&gt;&amp;&quot;&#39;</span>"
+                + "<span class=\"stacked-line stacked-note\">⚔️★ 💰★★</span>"
+                + "<span class=\"stacked-line stacked-sub\">要求60</span></span>"));
+        assertTrue(html.contains("class=\"cell-rate-exceed overflow-ellipsis\""));
+        assertFalse(html.contains("<script"));
+        assertFalse(html.contains("href="));
+        assertFalse(html.contains("style="));
+    }
+
+    @Test
+    @DisplayName("OC成功率新增样式应映射为固定class")
+    void shouldRenderOcRateClassNames() {
+        List<TableCell> cells = List.of(
+                new TableCell("超出", TableCellStyleEnum.RATE_EXCEED, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("达到", TableCellStyleEnum.RATE_PASS, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("近差", TableCellStyleEnum.RATE_FAIL_NEAR, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("远差", TableCellStyleEnum.RATE_FAIL_FAR, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("无记录", TableCellStyleEnum.RATE_NONE, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("入门", TableCellStyleEnum.OC_GROUP_ENTRY, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("核心", TableCellStyleEnum.OC_GROUP_CORE, 1, 1, TableTextOverflowEnum.WRAP),
+                new TableCell("连锁", TableCellStyleEnum.OC_GROUP_CHAIN, 1, 1, TableTextOverflowEnum.WRAP));
+        String html = renderer.render(new TableDocument("测试", List.of(new TableRow(cells)), 1204,
+                TableThemeEnum.OC_RATE.getDocumentType()));
+
+        assertTrue(html.contains("cell-rate-exceed"));
+        assertTrue(html.contains("cell-rate-pass"));
+        assertTrue(html.contains("cell-rate-fail-near"));
+        assertTrue(html.contains("cell-rate-fail-far"));
+        assertTrue(html.contains("cell-rate-none"));
+        assertTrue(html.contains("cell-oc-entry"));
+        assertTrue(html.contains("cell-oc-core"));
+        assertTrue(html.contains("cell-oc-chain"));
+        assertFalse(html.contains("style="));
     }
 
     @Test

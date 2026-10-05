@@ -188,6 +188,16 @@
 │   │   │           │       │   ├── OcDelayCauseRecorder.java                           # 延误归因编解码与段结算
 │   │   │           │       │   ├── OcDelayCauseService.java                            # 延误归因采样、结算与原因行渲染
 │   │   │           │       │   └── OcDelayReasonResolver.java                          # 单成员延误原因判定
+│   │   │           │       ├── image/                                                  # OC图片展示域
+│   │   │           │       │   ├── OcImageStatusResolver.java                          # 岗位状态Emoji解析
+│   │   │           │       │   ├── OcImageTitleFormatter.java                          # 图片标题时间状态文案格式化
+│   │   │           │       │   ├── OcRecommendBadgeResolver.java                       # 推荐表格副标题徽章解析
+│   │   │           │       │   ├── OcTableDocumentAssembler.java                       # 当前OC与推荐表格文档组装器
+│   │   │           │       │   └── rate/                                               # 用户OC成功率表展示域
+│   │   │           │       │       ├── OcRateTableData.java                            # 用户OC成功率表组装输入
+│   │   │           │       │       ├── OcRateTableDocumentAssembler.java               # 用户OC成功率表文档组装器
+│   │   │           │       │       └── OcRateTierResolver.java                         # 用户OC成功率表展示口径解析
+│   │   │           │       ├── OcSlotTierCalculator.java                               # OC岗位权重五档共享计算器
 │   │   │           │       ├── recommend/                                              # OC推荐功能
 │   │   │           │       │   └── TornOcRecommendService.java                         # OC推荐逻辑层
 │   │   │           │       ├── planning/                                               # OC新队规划（8个子包）
