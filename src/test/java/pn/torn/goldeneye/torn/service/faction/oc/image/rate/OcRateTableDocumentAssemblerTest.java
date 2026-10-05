@@ -4,24 +4,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
-import pn.torn.goldeneye.utils.image.document.TableCell;
-import pn.torn.goldeneye.utils.image.document.TableCellContent;
-import pn.torn.goldeneye.utils.image.document.TableCellStyleEnum;
-import pn.torn.goldeneye.utils.image.document.TableDocument;
-import pn.torn.goldeneye.utils.image.document.TableTextOverflowEnum;
-import pn.torn.goldeneye.utils.image.document.TableThemeEnum;
+import pn.torn.goldeneye.utils.image.document.*;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 用户OC成功率表文档组装测试：行结构、单元格顺序、样式枚举、星级行省略与固定文案。
@@ -59,8 +51,7 @@ class OcRateTableDocumentAssemblerTest {
                 oc("Stacking the Deck", 8),
                 oc("Window of Opportunity", 7));
 
-        OcRateTableData data = new OcRateTableData(user, ocList, allSlotList, ocUserList,
-                List.<TornSettingFactionOcSlotDO>of());
+        OcRateTableData data = new OcRateTableData(user, ocList, allSlotList, ocUserList, List.of());
         document = assembler.assemble(data);
     }
 
@@ -145,11 +136,11 @@ class OcRateTableDocumentAssemblerTest {
         assertEquals(TableCellStyleEnum.FOOTER, footerCell.style());
         assertEquals(EXPECTED_COLUMN_COUNT, footerCell.colSpan());
         assertEquals(TableTextOverflowEnum.WRAP, footerCell.overflow());
-        assertEquals("色阶：超出要求≥10 ｜ 达到要求 ｜ 低于要求·差距<10 ｜ 低于要求·差距≥10 ｜ 无记录\n"
-                        + "级别分组：7级及以下·入门 ｜ 8级·核心 ｜ 8级·连锁前置与9~10级·连锁　　"
-                        + "⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）\n"
-                        + "要求＝目标成员所在帮派的岗位要求（各帮派不同）",
-                footerCell.text());
+        String expectedFooter = """
+                色阶：超出要求≥10 ｜ 达到要求 ｜ 低于要求·差距<10 ｜ 低于要求·差距≥10 ｜ 无记录
+                级别分组：7级及以下·入门 ｜ 8级·核心 ｜ 8级·连锁前置与9~10级·连锁\u3000\u3000⚔️ 影响成功率 ｜ 💰 影响大成功收益（各1~5级，未配置不显示；连锁前置岗位仅展示⚔️）
+                要求＝目标成员所在帮派的岗位要求（各帮派不同）""";
+        assertEquals(expectedFooter, footerCell.text());
 
         boolean containsWindowOfOpportunity = document.rows().stream()
                 .flatMap(row -> row.cells().stream())
@@ -236,11 +227,11 @@ class OcRateTableDocumentAssemblerTest {
     }
 
     private TornFactionOcUserDO userRecord(String ocName, int rank, String position, int passRate) {
-        TornFactionOcUserDO record = new TornFactionOcUserDO();
-        record.setOcName(ocName);
-        record.setRank(rank);
-        record.setPosition(position);
-        record.setPassRate(passRate);
-        return record;
+        TornFactionOcUserDO userRecord = new TornFactionOcUserDO();
+        userRecord.setOcName(ocName);
+        userRecord.setRank(rank);
+        userRecord.setPosition(position);
+        userRecord.setPassRate(passRate);
+        return userRecord;
     }
 }

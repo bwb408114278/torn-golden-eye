@@ -19,6 +19,19 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
         TableCellContent.BadgeText, TableCellContent.ThreePartText, TableCellContent.StackedText {
 
     /**
+     * 内容模型的校验消息常量持有者，避免接口上直接暴露实现细节。
+     */
+    final class ValidationMessage {
+        /**
+         * 文本型组件为null时的统一校验消息。
+         */
+        public static final String TEXT_NOT_NULL = "text不能为null";
+
+        private ValidationMessage() {
+        }
+    }
+
+    /**
      * 按内容类型组合出可读纯文本，仅供兼容断言或日志使用。
      *
      * @return 可读组合文本
@@ -50,7 +63,7 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
          * 创建并校验纯文本内容。
          */
         public PlainText {
-            Objects.requireNonNull(text, "text不能为null");
+            Objects.requireNonNull(text, ValidationMessage.TEXT_NOT_NULL);
         }
     }
 
@@ -58,7 +71,7 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
      * 主文本加一个或多个状态徽章的内容。
      *
      * @param primaryText 主文本，不能为null
-     * @param badges     状态徽章，不能为null且至少一个；无徽章时应使用{@link PlainText}
+     * @param badges      状态徽章，不能为null且至少一个；无徽章时应使用{@link PlainText}
      */
     record BadgeText(String primaryText, List<Badge> badges) implements TableCellContent {
 
@@ -78,7 +91,7 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
     /**
      * 状态徽章的文本与受控色调。
      *
-     * @param text     徽章文本，不能为null且不能为空白
+     * @param text      徽章文本，不能为null且不能为空白
      * @param badgeTone 徽章受控色调，不能为null
      */
     record Badge(String text, TableCellBadgeToneEnum badgeTone) {
@@ -87,7 +100,7 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
          * 创建并校验徽章。
          */
         public Badge {
-            Objects.requireNonNull(text, "text不能为null");
+            Objects.requireNonNull(text, ValidationMessage.TEXT_NOT_NULL);
             Objects.requireNonNull(badgeTone, "badgeTone不能为null");
             if (text.isBlank()) {
                 throw new IllegalArgumentException("text不能为空白");
@@ -155,7 +168,7 @@ public sealed interface TableCellContent permits TableCellContent.PlainText,
          * 创建并校验堆叠行。
          */
         public Line {
-            Objects.requireNonNull(text, "text不能为null");
+            Objects.requireNonNull(text, ValidationMessage.TEXT_NOT_NULL);
             Objects.requireNonNull(emphasis, "emphasis不能为null");
         }
     }

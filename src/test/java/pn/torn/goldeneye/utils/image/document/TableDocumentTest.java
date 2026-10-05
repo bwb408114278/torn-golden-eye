@@ -54,10 +54,13 @@ class TableDocumentTest {
     @Test
     @DisplayName("受控单元格内容应拒绝null和空白非法值")
     void shouldRejectInvalidTableCellContentValues() {
+        List<TableCellContent.Badge> badges = List.of(
+                new TableCellContent.Badge("已停转", TableCellBadgeToneEnum.DANGER));
+        List<TableCellContent.Badge> noBadges = List.of();
+
         assertThrows(NullPointerException.class, () -> new TableCellContent.PlainText(null));
-        assertThrows(NullPointerException.class, () -> new TableCellContent.BadgeText(null,
-                List.of(new TableCellContent.Badge("已停转", TableCellBadgeToneEnum.DANGER))));
-        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.BadgeText("临床精确", List.of()));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.BadgeText(null, badges));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.BadgeText("临床精确", noBadges));
         assertThrows(IllegalArgumentException.class, () -> new TableCellContent.Badge(" ", TableCellBadgeToneEnum.INFO));
         assertThrows(NullPointerException.class, () -> new TableCellContent.Badge("已停转", null));
         assertThrows(NullPointerException.class,
@@ -78,19 +81,24 @@ class TableDocumentTest {
 
         assertEquals(2, stackedText.lines().size());
         assertEquals("8级·核心 Break the Bank", cell.text());
-        assertThrows(UnsupportedOperationException.class, () -> stackedText.lines()
-                .add(new TableCellContent.Line("补充", TableCellContent.LineEmphasis.NOTE)));
+        List<TableCellContent.Line> lines = stackedText.lines();
+        TableCellContent.Line extraLine = new TableCellContent.Line("补充", TableCellContent.LineEmphasis.NOTE);
+        assertThrows(UnsupportedOperationException.class, () -> lines.add(extraLine));
     }
 
     @Test
     @DisplayName("堆叠内容和堆叠行应拒绝null、空列表与非法值")
     void shouldRejectInvalidStackedTextValues() {
+        List<TableCellContent.Line> linesWithNull = Arrays.asList(
+                new TableCellContent.Line("文本", TableCellContent.LineEmphasis.NOTE), null);
+        List<TableCellContent.Line> noLines = List.of();
+        List<TableCellContent.Line> blankLines = List.of(
+                new TableCellContent.Line(" ", TableCellContent.LineEmphasis.NOTE));
+
         assertThrows(NullPointerException.class, () -> new TableCellContent.StackedText(null));
-        assertThrows(NullPointerException.class, () -> new TableCellContent.StackedText(
-                Arrays.asList(new TableCellContent.Line("文本", TableCellContent.LineEmphasis.NOTE), null)));
-        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.StackedText(List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.StackedText(List.of(
-                new TableCellContent.Line(" ", TableCellContent.LineEmphasis.NOTE))));
+        assertThrows(NullPointerException.class, () -> new TableCellContent.StackedText(linesWithNull));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.StackedText(noLines));
+        assertThrows(IllegalArgumentException.class, () -> new TableCellContent.StackedText(blankLines));
         assertThrows(NullPointerException.class,
                 () -> new TableCellContent.Line(null, TableCellContent.LineEmphasis.NOTE));
         assertThrows(NullPointerException.class, () -> new TableCellContent.Line("文本", null));
