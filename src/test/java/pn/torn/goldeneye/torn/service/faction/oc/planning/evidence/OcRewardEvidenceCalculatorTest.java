@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * OC收益证据计算器测试。聚焦第三层业务先验和完整链聚合，不重复数据库Mapper测试。
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.9.2
  * @since 2026.08.15
  */
 @DisplayName("OC收益证据计算")
@@ -50,10 +50,44 @@ class OcRewardEvidenceCalculatorTest {
         OcValueEvidence chain = calculator.aggregateChainEvidence(List.of(root, child));
 
         assertEquals(OcValueEvidence.Level.PRIOR_ONLY, chain.level());
-        assertNull(chain.totalValue(), "链内存在金额缺失节点时聚合金额不得伪装完整");
+        assertEquals(0, chain.totalValue().compareTo(BigDecimal.ZERO),
+                "金额缺失节点应被跳过，链金额保留非空节点的合计");
         assertTrue(chain.usableForAdviceIncrease());
         assertEquals(9, chain.highestRank());
         assertEquals(5, chain.totalRequiredMembers());
+        assertEquals(2, chain.chainNodeCount());
+    }
+
+    @Test
+    @DisplayName("链根节点无直接奖励时应聚合尾端节点金额")
+    void shouldAggregateChainValueSkippingNullRootNode() {
+        OcValueEvidence root = new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY,
+                null, 2, NOW.plusHours(6), true, 9, 3, 1);
+        OcValueEvidence tail = new OcValueEvidence(OcValueEvidence.Level.REWARD_FLOOR,
+                BigDecimal.valueOf(280_005_000L), 3, NOW.plusHours(24), true, 10, 4, 1);
+
+        OcValueEvidence chain = calculator.aggregateChainEvidence(List.of(root, tail));
+
+        assertEquals(OcValueEvidence.Level.PRIOR_ONLY, chain.level());
+        assertEquals(0, chain.totalValue().compareTo(BigDecimal.valueOf(280_005_000L)),
+                "链金额应为有金额节点的合计，缺失根节点不得掩盖尾端收益");
+        assertEquals(7, chain.totalRequiredMembers());
+        assertEquals(2, chain.chainNodeCount());
+    }
+
+    @Test
+    @DisplayName("链内所有节点金额均缺失时链金额仍为空")
+    void shouldReturnNullChainValueWhenAllNodesHaveNullValue() {
+        OcValueEvidence root = new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY,
+                null, 2, NOW.plusHours(6), true, 9, 3, 1);
+        OcValueEvidence tail = new OcValueEvidence(OcValueEvidence.Level.PRIOR_ONLY,
+                null, 3, NOW.plusHours(24), true, 10, 4, 1);
+
+        OcValueEvidence chain = calculator.aggregateChainEvidence(List.of(root, tail));
+
+        assertEquals(OcValueEvidence.Level.PRIOR_ONLY, chain.level());
+        assertNull(chain.totalValue(), "全部节点金额缺失时链金额不得伪造成0");
+        assertEquals(7, chain.totalRequiredMembers());
         assertEquals(2, chain.chainNodeCount());
     }
 
