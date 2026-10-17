@@ -224,7 +224,7 @@ guaranteedEarliestReleaseAt = max(每个组合的最早完整释放时间)
 3. `PRIOR_ONLY`：完整候选的最高等级、完整链总需人数、链节点数、**实际时间线**增量剩余成员人天、保证释放时间；
 4. `INSUFFICIENT`：上述先验仍无法稳定区分或完整链/候选事实缺失。
 
-`PRIOR_ONLY`不是天然无价值：先验元组可稳定区分时，收益模式可以选择严格更优候选；只有第4层才标记经济证据不足并禁止据此提高刷新或主动新增暂停。高阶根始终聚合根及全部后继的等级、人数、节点、人天、完成时间和金额事实，根直接奖励为0不得使完整链失去先验价值。
+`PRIOR_ONLY`不是天然无价值：先验元组可稳定区分时，收益模式可以选择严格更优候选；只有第4层才标记经济证据不足并禁止据此提高刷新或主动新增暂停。高阶根始终聚合根及全部后继的等级、人数、节点、人天、完成时间和金额事实，根直接奖励为0不得使完整链失去先验价值。链式根节点由业务设计上无直接奖励，聚合链证据时跳过金额为null的节点，只要有任一节点金额非null即保留链货币价值，不得因根节点金额缺失而丢弃尾端节点的金额证据。
 
 收益候选的`timelineValue`必须来自已完成的时间线模拟，而不是仅合计本轮刷新根的静态模板。至少纳入既有队/已投入链完成延迟、实际成员占用区间、实际新增暂停、计划内无人OC可避免过期压力、实际增量剩余成员人天和保证释放时间。金额公式未冻结的部分使用上述确定性序数比较，禁止凭经验补造货币成本。
 
@@ -325,7 +325,7 @@ src/main/java/pn/torn/goldeneye/torn/service/faction/oc/planning/OcExistingTimel
 | 已有人且 `readyTime == null` | 不得用`createTime + 7天`或进度猜测释放；作为不可证明占用，并产生原因码。若它属于已启动链或阻塞最后路径，则自动建议停止。 |
 | 计划内无人OC | 生成待启动义务，包含`createTime + 7天`首人期限；不生成当前成员占用。 |
 | 非计划无人OC | 不进入容量、义务与对外输出。 |
-| 非计划有人OC | 不自动补位、不改变岗位；保留已观察到的真实占用。若其完成时间无法证明，不能把成员提前释放。 |
+| 非计划有人OC | 不自动补位、不改变岗位；成员一律标记为不可证明占用，不按 `readyTime` 预测释放后可用。非计划 OC 成员完成后是否回流到计划 OC 无法从数据证明，不得视为未来规划容量。 |
 
 `progress` 仅用于记录当前阶段事实、诊断和一致性校验；`readyTime` 存在时始终以Torn同步的 `readyTime` 为阶段时间权威，不允许根据`progress`覆盖它。`readyTime` 缺失时，不能因为`progress`看起来接近100%就伪造完成时间。
 
@@ -633,19 +633,17 @@ OcNewTeamPlanRenderer.java
 OcCurrentOccupancyCalculator.java
 ```
 
-输出增加但始终匿名：
+输出内容（始终匿名）：
 
-- 当前OC、已有人/无人、已有人未满员数量与实际占用摘要；
-- `configurationStatus`、`proofStatus`；
-- 是否存在确定性被迫拆队风险；
-- 是否存在连续流动性锚点和下一关键释放时间；
+- 当前队伍总数、有人队伍数、无人队伍数；
+- 达标成员总数、已占用达标成员数、空闲达标成员数（三项合一行）；
+- 存在全帮卡死风险时在刷新指令区块顶部单行警告；
 - 普通池/高阶池刷新指令（零数量不展示）；
-- 当前模式是否允许、是否实际选择可恢复停转及其匿名时长；
-- 已证明下界与是否仅为下界；
-- `nextReplanAt`、`latestReplanAt`；
-- 主要匿名原因码对应的中文说明；
-- 价值证据不足时的降级说明；
-- 刷新或随机结果变化后立即重跑同一命令的提示。
+- 有刷新且实际选择停转方案时，在次数行之后输出"本次建议含短时停转方案"；
+- 下次重新评估时间（`nextReplanAt`）；
+- 下一批关键成员释放时间。
+
+不输出：`configurationStatus` 枚举名、`proofStatus` 枚举名、原因码名称、"仅为已证明安全下界"、"已进入操作提前区间"、"当前预算内未证明"等技术性说明；`latestReplanAt` 不单独展示。
 
 禁止输出成员名、ID、岗位、个人加入/释放时间、固定锚点详情、链内部运行明细。
 
@@ -667,7 +665,20 @@ pauseCount/pauseDuration、pendingEmptyCount、reasonCodes、elapsedMillis
 
 > **历史清单说明（第二批第一轮修订）：** 本节原始“新增/修改文件”是第一次时间线重构前的实施清单，部分路径已在实际代码中拆分为`api / chain / evidence / matching / policy / search / snapshot / timeline`子包，且本轮新增的保证值、时间线净价值、只读回放组件不在旧清单中。旧清单仅用于追溯首次重构范围，不得作为当前开发任务清单；第二批第一轮的精确包、文件增删改和测试路径以`.ai/knowledge/oc-new-team-second-batch-first-round-remediation.md`第5至7节为准。
 
-### 11.0 第三批业务Review的现行精确改动清单
+### 11.0 第四批技术整改的现行精确改动清单
+
+第四批整改以一次性实施文档 `.ai/knowledge/oc/oc-new-team-fourth-batch-technical-remediation.md` 为开发步骤、测试场景和验收依据；该文档关闭并删除前，本节是长期方案对其文件范围的持久化索引。除下列文件外，不得借本轮改动扩展到 Schema、Mapper、DAO、Controller、Redis、调度或成员级排程。
+
+| 类型 | 包 | 文件 | 修改职责 |
+|---|---|---|---|
+| 必改生产 | `planning.evidence` | `OcRewardEvidenceCalculator.java` | 链证据聚合跳过null金额节点，保留尾端节点货币价值。 |
+| 必改生产 | `planning.chain` | `OcExistingTimelineReconstructor.java` | 范围外有人OC成员一律不可证明占用，不按readyTime预测释放。 |
+| 必改生产 | `planning.api` | `OcNewTeamPlanRenderer.java` | 队伍行改为有人/无人格式；成员行合并为达标三项；新增卡死警告行和停转提示行；删除技术性说明文。 |
+| 必改测试 | `planning.evidence` | `OcRewardEvidenceCalculatorTest.java` | 验证含null根节点的链聚合和全null链聚合。 |
+| 必改测试 | `planning.chain` | `OcExistingTimelineReconstructorTest.java` | 验证满员范围外OC成员进入unprovable，不进入provableRelease。 |
+| 必改测试 | `planning.api` | `OcNewTeamPlanRendererTest.java` | 更新快照断言；新增停转提示、卡死警告、成员三项格式测试。 |
+
+### 11.0-archive 第三批业务Review的历史改动清单
 
 第三批业务Review的两个未关闭P1，以一次性实施文档
 `.ai/knowledge/oc-new-team-third-batch-technical-remediation.md`为开发步骤、测试场景和验收依据；该文档关闭并删除前，本节是长期方案对其文件范围的持久化索引。除下列文件外，不得借本轮改动扩展到Schema、Mapper、DAO、Controller、Redis、调度、NapCat输出或成员级排程。
