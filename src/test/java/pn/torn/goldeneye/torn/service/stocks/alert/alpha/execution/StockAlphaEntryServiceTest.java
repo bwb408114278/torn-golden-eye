@@ -8,7 +8,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.*;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockAlphaDecisionDAO;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockVirtualBatchDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockAlphaDecisionDO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockMarketBar15mDO;
@@ -35,7 +34,7 @@ import static org.mockito.Mockito.*;
  * α策略初始入场服务测试。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.9.0
  * @since 2026.09.05
  */
 @DisplayName("α策略初始入场服务测试")
@@ -56,8 +55,6 @@ class StockAlphaEntryServiceTest {
     @Mock
     private TornStockVirtualBatchDAO virtualBatchDAO;
     @Mock
-    private TornStockPortfolioSlotDAO slotDAO;
-    @Mock
     private StockAlphaDecisionService decisionService;
 
     @Test
@@ -75,7 +72,7 @@ class StockAlphaEntryServiceTest {
 
         StockAlphaEntryService service = new StockAlphaEntryService(
                 decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
         TornStockVirtualBatchDO result = service.createInitialEntry(TRACK,
                 ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
                 ROUND_TIME.plusMinutes(16));
@@ -109,7 +106,7 @@ class StockAlphaEntryServiceTest {
 
         StockAlphaEntryService service = new StockAlphaEntryService(
                 decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
         RoundSnapshot snapshot = snapshot(slot, bar);
         LocalDate decisionDate = decision.getDecisionBusinessDate();
         int phase = decision.getPhase();
@@ -134,7 +131,7 @@ class StockAlphaEntryServiceTest {
 
         StockAlphaEntryService service = new StockAlphaEntryService(
                 decisionDAO, virtualBatchDAO, new StockPortfolioService(), decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
         TornStockVirtualBatchDO result = service.createInitialEntry(TRACK,
                 ROUND_TIME, snapshot(slot, bar), decision.getDecisionBusinessDate(), decision.getPhase(),
                 ROUND_TIME.plusMinutes(16));

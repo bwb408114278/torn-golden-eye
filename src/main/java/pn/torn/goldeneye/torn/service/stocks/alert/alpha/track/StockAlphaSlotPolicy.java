@@ -1,9 +1,7 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.track;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 
 import java.util.List;
@@ -17,14 +15,11 @@ import java.util.Objects;
  * 由调用方的事务整体回滚,不会只锁部分槽位、不会只扣部分资金。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.9.0
  * @since 2026.09.18
  */
 @Service
-@RequiredArgsConstructor
 public class StockAlphaSlotPolicy {
-
-    private final TornStockPortfolioSlotDAO slotDAO;
 
     /**
      * 选取轨道对应的可用槽位。
@@ -47,17 +42,19 @@ public class StockAlphaSlotPolicy {
     }
 
     /**
-     * 锁定轨道对应的已占用槽位。
+     * 选取轨道对应的已占用槽位。
      * <p>
-     * 换仓必须持有槽位行锁:内部按轨道组合编码查询并加 {@code FOR UPDATE},
-     * 再按轨道槽位序号精确匹配,禁止调用方自行拼装第二套槽位查询。
+     * 换仓的槽位行锁由轮次事务在同一事务内按组合编码 {@code FOR UPDATE} 加载后随快照传入,
+     * 本方法只做轨道匹配与占用状态校验,不再产生额外查询:二次查询会得到与轮次快照不同的Java实例,
+     * 轮次末按快照写回时会把槽位资金与批次绑定覆盖回换仓前的值。
      *
      * @param track 目标轨道
+     * @param slots 已加载并加锁的全部槽位
      * @return 轨道对应的OCCUPIED槽位
      * @throws IllegalStateException 轨道槽位不唯一或状态不可用于换仓时抛出
      */
-    public TornStockPortfolioSlotDO lockOccupied(StockAlphaPhaseTrack track) {
-        List<TornStockPortfolioSlotDO> slots = slotDAO.selectAllByPortfolioCodeForUpdate(track.portfolioCode());
+    public TornStockPortfolioSlotDO requireOccupied(StockAlphaPhaseTrack track,
+                                                    List<TornStockPortfolioSlotDO> slots) {
         TornStockPortfolioSlotDO slot = requireUnique(track, slots);
         if (!StockSlotStatusEnum.OCCUPIED.getCode().equals(slot.getSlotStatus())) {
             throw new IllegalStateException("α轨道槽位不可用于原子换仓: track=" + track.trackCode()

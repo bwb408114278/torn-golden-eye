@@ -1,13 +1,8 @@
 package pn.torn.goldeneye.torn.service.stocks.alert.alpha.track;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.constants.torn.enums.stocks.portfolio.StockSlotStatusEnum;
-import pn.torn.goldeneye.repository.dao.torn.stocks.portfolio.TornStockPortfolioSlotDAO;
 import pn.torn.goldeneye.repository.model.torn.stocks.portfolio.TornStockPortfolioSlotDO;
 import pn.torn.goldeneye.torn.service.stocks.alert.portfolio.StockPortfolioService;
 
@@ -15,7 +10,6 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.when;
 
 /**
  * α槽位选择策略测试。
@@ -24,22 +18,13 @@ import static org.mockito.Mockito.when;
  * 多槽组合下不再用"槽位数量恰好等于1"判错。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.9.0
  * @since 2026.09.18
  */
 @DisplayName("α槽位选择策略测试")
-@ExtendWith(MockitoExtension.class)
 class StockAlphaSlotPolicyTest {
 
-    @Mock
-    private TornStockPortfolioSlotDAO slotDAO;
-
-    private StockAlphaSlotPolicy slotPolicy;
-
-    @BeforeEach
-    void setUp() {
-        slotPolicy = new StockAlphaSlotPolicy(slotDAO);
-    }
+    private final StockAlphaSlotPolicy slotPolicy = new StockAlphaSlotPolicy();
 
     @Test
     @DisplayName("槽位选择_按轨道组合与槽位序号精确匹配_多槽组合下数量不为1不再误判")
@@ -70,15 +55,23 @@ class StockAlphaSlotPolicyTest {
                         StockAlphaTrackRegistry.VIP_ALPHA_SHADOW_FIRST, occupiedFirstSlot),
                 "槽位不可用时不得用于初始入场");
 
-        // 换仓按轨道组合加行锁并校验占用状态
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot(11L, StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, 1,
-                        StockSlotStatusEnum.OCCUPIED)));
-
-        TornStockPortfolioSlotDO locked = slotPolicy.lockOccupied(StockAlphaTrackRegistry.productionTrack());
+        // 换仓只校验调用方已加锁的槽位列表并返回同一实例,不再二次查询
+        TornStockPortfolioSlotDO occupied = slot(11L, StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, 1,
+                StockSlotStatusEnum.OCCUPIED);
+        TornStockPortfolioSlotDO locked = slotPolicy.requireOccupied(
+                StockAlphaTrackRegistry.productionTrack(), List.of(occupied));
 
         assertEquals(11L, locked.getId());
         assertEquals(1, locked.getSlotNo());
+        assertSame(occupied, locked, "必须返回调用方已加锁列表中的同一槽位对象");
+        List<TornStockPortfolioSlotDO> availableSlot = List.of(
+                slot(11L, StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE, 1, StockSlotStatusEnum.AVAILABLE));
+        assertThrows(IllegalStateException.class, () -> slotPolicy.requireOccupied(
+                        StockAlphaTrackRegistry.productionTrack(), availableSlot),
+                "槽位未占用时不得用于原子换仓");
+        assertThrows(IllegalStateException.class, () -> slotPolicy.requireOccupied(
+                        StockAlphaTrackRegistry.productionTrack(), List.of()),
+                "槽位缺失必须fail-closed");
     }
 
     /**

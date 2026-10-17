@@ -38,7 +38,7 @@ import static org.mockito.Mockito.*;
  * α策略原子换仓服务编排契约测试。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.9.0
  * @since 2026.09.05
  */
 @DisplayName("α策略原子换仓服务编排契约测试")
@@ -96,9 +96,6 @@ class StockAlphaRebalanceServiceTest {
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(true);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(current));
         when(batchDAO.insertIgnoreConflict(any())).thenReturn(1);
         when(batchDAO.selectByBatchNoForUpdate(persisted.getBatchNo()))
                 .thenAnswer(invocation -> probeBeforeInsert(persisted))
@@ -109,13 +106,18 @@ class StockAlphaRebalanceServiceTest {
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
         StockAlphaRebalanceService.RebalanceResult result = service.rebalance(TRACK,
-                DECISION_DATE, 0, PROCESSING_TIME, snapshot());
+                DECISION_DATE, 0, PROCESSING_TIME, snapshot(current, slot));
 
         assertEquals(99L, result.boughtBatchId());
         assertReplacementBatchFacts(captureInsertedReplacement(), decision);
         assertOriginalBatchClosedAndRebound(current, slot, decision);
+        // 批次与槽位必须取自轮次快照内已加锁的同一实例:服务内二次查询会让轮次末把原仓已关闭状态写回OPEN
+        verify(batchDAO, never()).selectActiveAlphaBatchesForUpdate(any());
+        verify(slotDAO, never()).selectAllByPortfolioCodeForUpdate(any());
+        assertEquals(StockBatchStatusEnum.CLOSED_ROTATION.getCode(), current.getBatchStatus(),
+                "原仓关闭必须落在轮次快照持有的同一批次实例上");
 
         ArgumentCaptor<TornStockVirtualBatchDO> replacementCaptor =
                 ArgumentCaptor.forClass(TornStockVirtualBatchDO.class);
@@ -134,16 +136,13 @@ class StockAlphaRebalanceServiceTest {
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(true);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot()));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(current));
         when(batchDAO.selectByBatchNoForUpdate("AR-2026-09-05-0-11")).thenReturn(current);
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
 
-        RoundSnapshot snapshot = snapshot();
+        RoundSnapshot snapshot = snapshot(current, slot());
         LocalDateTime processingTime = PROCESSING_TIME;
         assertThrows(IllegalStateException.class, () -> service.rebalance(TRACK,
                 DECISION_DATE, 0, processingTime, snapshot));
@@ -160,8 +159,8 @@ class StockAlphaRebalanceServiceTest {
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
-        RoundSnapshot snapshot = snapshot();
+                new StockAlphaSlotPolicy());
+        RoundSnapshot snapshot = snapshot(currentBatch(), slot());
         LocalDate decisionDate = LocalDate.of(2026, 9, 5);
         LocalDateTime processingTime = LocalDateTime.of(2026, 9, 5, 0, 31);
 
@@ -185,15 +184,12 @@ class StockAlphaRebalanceServiceTest {
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(true);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(current));
         when(batchDAO.insertIgnoreConflict(any())).thenReturn(0);
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
-        RoundSnapshot snapshot = snapshot();
+                new StockAlphaSlotPolicy());
+        RoundSnapshot snapshot = snapshot(current, slot);
         LocalDateTime processingTime = PROCESSING_TIME;
 
         assertThrows(IllegalStateException.class, () -> service.rebalance(TRACK,
@@ -219,15 +215,12 @@ class StockAlphaRebalanceServiceTest {
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(false);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot()));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(current));
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(decisionDAO, slotDAO, batchDAO,
-                portfolioService, noticeWriter, decisionService, new StockAlphaSlotPolicy(slotDAO));
+                portfolioService, noticeWriter, decisionService, new StockAlphaSlotPolicy());
 
         StockAlphaRebalanceService.RebalanceResult result = service.rebalance(TRACK,
-                LocalDate.of(2026, 9, 5), 0, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot());
+                LocalDate.of(2026, 9, 5), 0, LocalDateTime.of(2026, 9, 5, 0, 31), snapshot(current, slot()));
 
         assertNull(result.soldBatchId(), "来源不可复核时不得卖出原仓");
         assertNull(result.boughtBatchId(), "来源不可复核时不得买入新仓");
@@ -248,7 +241,7 @@ class StockAlphaRebalanceServiceTest {
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
         RoundSnapshot snapshot = new RoundSnapshot(List.of(),
                 List.of(),
                 List.of(),
@@ -278,15 +271,12 @@ class StockAlphaRebalanceServiceTest {
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, gapExecutionBar))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(true);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot()));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(currentBatch()));
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
         RoundSnapshot snapshot = snapshotAt(gapExecutionBar,
-                List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))));
+                List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))), currentBatch(), slot());
 
         LocalDateTime processingTime = gapExecutionBar.plusMinutes(16);
         assertThrows(IllegalStateException.class,
@@ -302,15 +292,12 @@ class StockAlphaRebalanceServiceTest {
         decision.setDecisionBarStartTime(null);
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                 .thenReturn(decision);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot()));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(currentBatch()));
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
+                new StockAlphaSlotPolicy());
 
-        RoundSnapshot snapshot = snapshot();
+        RoundSnapshot snapshot = snapshot(currentBatch(), slot());
         LocalDateTime processingTime = PROCESSING_TIME;
         assertThrows(IllegalStateException.class,
                 () -> service.rebalance(TRACK, DECISION_DATE, 0, processingTime, snapshot),
@@ -325,14 +312,11 @@ class StockAlphaRebalanceServiceTest {
         when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                 .thenReturn(decision);
         when(decisionService.isSourceReproducible(decision)).thenReturn(true);
-        when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                .thenReturn(List.of(slot()));
-        when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(currentBatch()));
 
         StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                 decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                new StockAlphaSlotPolicy(slotDAO));
-        RoundSnapshot snapshot = snapshotAt(EXECUTION_TIME, List.of());
+                new StockAlphaSlotPolicy());
+        RoundSnapshot snapshot = snapshotAt(EXECUTION_TIME, List.of(), currentBatch(), slot());
         LocalDateTime processingTime = PROCESSING_TIME;
 
         assertThrows(IllegalStateException.class,
@@ -354,15 +338,12 @@ class StockAlphaRebalanceServiceTest {
             when(decisionDAO.selectByExecutionKeyForUpdate(TRACK.trackCode(), LocalDate.of(2026, 9, 5), 0, EXECUTION_TIME))
                     .thenReturn(decision);
             when(decisionService.isSourceReproducible(decision)).thenReturn(true);
-            when(slotDAO.selectAllByPortfolioCodeForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE))
-                    .thenReturn(List.of(slot()));
-            when(batchDAO.selectActiveAlphaBatchesForUpdate(StockPortfolioService.VIP_ALPHA_PORTFOLIO_CODE)).thenReturn(List.of(currentBatch()));
 
             StockAlphaRebalanceService service = new StockAlphaRebalanceService(
                     decisionDAO, slotDAO, batchDAO, portfolioService, noticeWriter, decisionService,
-                    new StockAlphaSlotPolicy(slotDAO));
+                    new StockAlphaSlotPolicy());
             RoundSnapshot snapshot = snapshotAt(EXECUTION_TIME,
-                    List.of(illegalSellBar, bar(2002, new BigDecimal("10"))));
+                    List.of(illegalSellBar, bar(2002, new BigDecimal("10"))), currentBatch(), slot());
 
             LocalDateTime processingTime = PROCESSING_TIME;
             assertThrows(IllegalStateException.class,
@@ -531,19 +512,30 @@ class StockAlphaRebalanceServiceTest {
         return slot;
     }
 
-    private RoundSnapshot snapshot() {
-        return snapshotAt(EXECUTION_TIME, List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))));
+    /**
+     * 构建携带轮次事务内已加锁批次与槽位实例的轮次快照。
+     *
+     * @param current 事务内已加锁的活跃批次
+     * @param slot    事务内已加锁的α槽位
+     * @return 轮次快照
+     */
+    private RoundSnapshot snapshot(TornStockVirtualBatchDO current, TornStockPortfolioSlotDO slot) {
+        return snapshotAt(EXECUTION_TIME, List.of(bar(1001, new BigDecimal("110")), bar(2002, new BigDecimal("10"))),
+                current, slot);
     }
 
     /**
-     * 按指定轮次时间和bar事实构建轮次快照。
+     * 按指定轮次时间、bar事实与事务内已加锁实例构建轮次快照。
      *
      * @param roundTime 轮次时间(执行桶)
      * @param bars      行情bar
+     * @param current   事务内已加锁的活跃批次
+     * @param slot      事务内已加锁的α槽位
      * @return 轮次快照
      */
-    private RoundSnapshot snapshotAt(LocalDateTime roundTime, List<TornStockMarketBar15mDO> bars) {
-        return new RoundSnapshot(bars, List.of(), List.of(), List.of(), roundTime);
+    private RoundSnapshot snapshotAt(LocalDateTime roundTime, List<TornStockMarketBar15mDO> bars,
+                                     TornStockVirtualBatchDO current, TornStockPortfolioSlotDO slot) {
+        return new RoundSnapshot(bars, List.of(), List.of(current), List.of(slot), roundTime);
     }
 
     private TornStockMarketBar15mDO bar(Integer stocksId, BigDecimal price) {

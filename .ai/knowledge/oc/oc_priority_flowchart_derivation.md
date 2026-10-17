@@ -236,9 +236,9 @@ w_i = ∂S/∂p_i |_(p = 基线向量)   —— 或 ——   S(p_i=100%, 其余=
 
 ---
 
-## 9. 全 0 OC 的回填（2026-10-05）
+## 9. 全 0 OC 的回填（2026-10-05 / 2026-10-14）
 
-第 3.2 节把 7 个全 0 的 OC 归入「未配置」；2026-10-05 复核发现：**其中 6 个上游 API 早已有值**，只是库内从未配置过，按第 3.2 节的算法（API 浮点权重 → Hamilton 最大余数取整）即可补出，且每个 OC 合计恰好 100。真正无解的只有 Ship Happens（上游 `GetSupportedScenarios` / `GetRoleWeights` 均无此 OC）。
+第 3.2 节把 7 个全 0 的 OC 归入「未配置」。2026-10-05 复核：其中 6 个上游 API 早已有值，只是库内从未配置过；2026-10-14 复核：第 7 个 **Ship Happens 的上游数据也已上线**（scenario 与 GetRoleWeights 均已返回）。7 个全部按第 3.2 节的算法（API 浮点权重 → Hamilton 最大余数取整）补出，每个 OC 合计恰好 100。
 
 | OC | 上游权重（浮点原值） | 回填 priority（合计 100） |
 | --- | --- | --- |
@@ -248,8 +248,10 @@ w_i = ∂S/∂p_i |_(p = 基线向量)   —— 或 ——   S(p_i=100%, 其余=
 | Pet Project | Picklock 36.444387 / Muscle 32.628846 / Kidnapper 30.926767 | Picklock#1=36 · Muscle#1=33 · Kidnapper#1=31 |
 | Plucking the Lotus Petal | Muscle 47.896881 / Robber2 23.680943 / Hustler 14.394494 / Robber1 14.027682 | Muscle#1=48 · Robber#2=24 · Hustler#1=14 · Robber#1=14 |
 | Thou Shalt Not Steal | Picklock 49.746527 / Pickpocket 37.856826 / Thief 12.396647 | Picklock#1=50 · Pickpocket#1=38 · Thief#1=12 |
+| Ship Happens（2026-10-14 才有数据） | Interrogator 31.268711 / Spy 25.419779 / Hustler 19.686770 / Engineer 13.345056 / Assassin 10.279683 | Interrogator#1=31 · Spy#1=26 · Hustler#1=20 · Engineer#1=13 · Assassin#1=10 |
 
-- 上游快照：2026-10-05 01:05:59（`GET https://tornprobability.com:3000/api/GetRoleWeights`，返回 32 个 OC）
-- 产出 SQL：[out/oc-priority/priority_zero_oc_backfill.sql](../out/oc-priority/priority_zero_oc_backfill.sql)（23 条 UPDATE，带 `AND priority = 0` 守卫，幂等）
-- **未动**：Ship Happens（无上游数据，保持 0）；Gaslight the Way.Looter#2（上游权重 -0.000356，取整本就是 0，属正常值，不是漏配）
+- 上游快照：2026-10-05 01:05:59（前 6 个）/ 2026-10-14 00:36:46（Ship Happens），`GET https://tornprobability.com:3000/api/GetRoleWeights`
+- 产出 SQL：[priority_zero_oc_backfill.sql](../../../out/oc-priority/priority_zero_oc_backfill.sql)（6 个 OC、23 条 UPDATE）· [ship_happens_backfill.sql](../../../out/oc-backfill/ship_happens_backfill.sql)（Ship Happens，priority + best_success 同时补、5 条 UPDATE）；均带默认值守卫，幂等
+- **未动**：Gaslight the Way.Looter#2（上游权重 -0.000356，取整本就是 0，属正常值，不是漏配）
+- 时间线：Ship Happens 的 scenario 与权重在 2026-10-05 复核时都还不存在，属上游后补；上游现返回 33 个 scenario / 33 个 OC。
 - 口径备注：这批值是「按上游当期权重取整」，与第 3.2 节「库内 = API 取整」完全同口径，不含人工调档；日后上游更新，重跑取整即可（差异量级同 6.1 节的 1~2 点）。

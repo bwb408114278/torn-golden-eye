@@ -64,7 +64,7 @@ import static org.mockito.Mockito.*;
  * 批次、槽位、决策、通知写入与事务回滚全部使用真实Bean与真实DAO。
  *
  * @author Bai
- * @version 1.6.1
+ * @version 1.9.0
  * @since 2026.09.12
  */
 @SpringBootTest
@@ -164,16 +164,17 @@ class StockAlphaRebalanceTransactionItTest {
         assertTrue(TestTransaction.isActive(), "夹具与换仓写入必须处于测试管理的回滚事务中");
         TornStockPortfolioSlotDO alphaSlot = loadAlphaSlot();
         SlotSnapshot slotBefore = SlotSnapshot.of(alphaSlot);
-        Long originalBatchId = persistOriginalBatch(alphaSlot);
-        bindSlotToOriginalBatch(alphaSlot, originalBatchId);
-        Long decisionId = persistRebalanceDecision(originalBatchId);
+        TornStockVirtualBatchDO originalBatch = persistOriginalBatch(alphaSlot);
+        bindSlotToOriginalBatch(alphaSlot, originalBatch.getId());
+        Long decisionId = persistRebalanceDecision(originalBatch.getId());
 
         doReturn(true).when(decisionService).isSourceReproducible(any(TornStockAlphaDecisionDO.class));
         doThrow(new IllegalStateException(AUDIT_FAILURE_MESSAGE))
                 .when(noticeWriter)
                 .writeNoticeAudits(anyList(), anyList(), eq(EXECUTION_BAR), any(NoticeRebalanceAssociation.class));
 
-        IllegalStateException exception = assertThrows(IllegalStateException.class, this::executeRebalance,
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> executeRebalance(originalBatch, alphaSlot),
                 "换仓事务最后阶段的通知审计写入失败必须使整个换仓事务失败");
         assertTrue(exception.getMessage().contains(AUDIT_FAILURE_MESSAGE),
                 "失败必须来自注入的通知审计写入,实际: " + exception.getMessage());
@@ -186,7 +187,7 @@ class StockAlphaRebalanceTransactionItTest {
         NoticeRebalanceAssociation association = associationCaptor.getValue();
 
         // 事务内阶段: 换仓已推进到末端,原仓结算、新仓建立、槽位改绑与决策推进都已写入同一事务
-        assertRebalanceWritesVisible(association, originalBatchId, decisionId, alphaSlot.getId());
+        assertRebalanceWritesVisible(association, originalBatch.getId(), decisionId, alphaSlot.getId());
 
         // 回滚阶段: 真实回滚测试事务后,在独立事务中用真实DAO读回提交态
         TestTransaction.flagForRollback();
@@ -202,8 +203,9 @@ class StockAlphaRebalanceTransactionItTest {
      * 使用独立方法而非lambda,使断言入口只包含一次调用,满足Sonar对lambda内可抛运行时异常
      * 调用数量的约束。
      */
-    private void executeRebalance() {
-        rebalanceService.rebalance(TRACK, DECISION_DATE, PHASE, PROCESSING_TIME, roundSnapshot());
+    private void executeRebalance(TornStockVirtualBatchDO originalBatch, TornStockPortfolioSlotDO alphaSlot) {
+        rebalanceService.rebalance(TRACK, DECISION_DATE, PHASE, PROCESSING_TIME,
+                roundSnapshot(originalBatch, alphaSlot));
     }
 
     /**
@@ -229,14 +231,14 @@ class StockAlphaRebalanceTransactionItTest {
      * @param slot α槽位
      * @return 已持久化原仓批次
      */
-    private Long persistOriginalBatch(TornStockPortfolioSlotDO slot) {
+    private TornStockVirtualBatchDO persistOriginalBatch(TornStockPortfolioSlotDO slot) {
         assertNull(batchDAO.selectByBatchNoForUpdate(ORIGINAL_BATCH_NO), "夹具批次不得与历史数据冲突");
         assertEquals(1, batchDAO.insertIgnoreConflict(
                         openAlphaBatch(ORIGINAL_BATCH_NO, ORIGINAL_STOCKS_ID, slot.getId(), slot.getSlotNo())),
                 "α原仓批次必须真实落库");
         TornStockVirtualBatchDO persisted = batchDAO.selectByBatchNoForUpdate(ORIGINAL_BATCH_NO);
         assertNotNull(persisted, "α原仓批次必须可按批次号读回");
-        return persisted.getId();
+        return persisted;
     }
 
     /**
@@ -406,16 +408,18 @@ class StockAlphaRebalanceTransactionItTest {
     }
 
     /**
-     * 构建仅包含换仓两腿执行bar的轮次快照。
+     * 构建仅包含换仓两腿执行bar、事务内已加锁原仓批次与槽位的轮次快照。
      *
+     * @param originalBatch 事务内已加锁的原仓批次
+     * @param alphaSlot     事务内已加锁的α槽位
      * @return 轮次快照
      */
-    private RoundSnapshot roundSnapshot() {
+    private RoundSnapshot roundSnapshot(TornStockVirtualBatchDO originalBatch, TornStockPortfolioSlotDO alphaSlot) {
         return new RoundSnapshot(List.of(marketBar(ORIGINAL_STOCKS_ID, "ITSELL", SELL_PRICE),
                 marketBar(REPLACEMENT_STOCKS_ID, "ITBUY", BUY_PRICE)),
                 List.of(),
-                List.of(),
-                List.of(),
+                List.of(originalBatch),
+                List.of(alphaSlot),
                 EXECUTION_BAR);
     }
 
