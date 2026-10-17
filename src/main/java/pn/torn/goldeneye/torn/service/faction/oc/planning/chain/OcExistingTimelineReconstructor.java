@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  * 成员真实占用状态和已证明事件，不猜测无法证明的释放时间。
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.9.2
  * @since 2026.08.15
  */
 @Component
@@ -29,7 +29,7 @@ public class OcExistingTimelineReconstructor {
      *
      * @param obligations             快照事实义务
      * @param unprovableMemberIds     占用无法证明释放的成员ID集合
-     * @param provableReleaseByMember 非计划满员OC的可证明成员释放时间
+     * @param provableReleaseByMember 计划内满员已有人OC的可证明成员释放时间
      * @param chainSuccessorsByKey    按义务键索引的已启动链剩余后继模板
      * @param committedChains         真实链根实例去重后的剩余链义务
      * @param chainBlocked            已启动链是否因不可证明占用或映射歧义被阻断
@@ -176,7 +176,7 @@ public class OcExistingTimelineReconstructor {
                                   TimelineAccumulator accumulator) {
         boolean full = isFull(snapshot, key, fixedSlotCodes);
         if (!isInScope(snapshot, key)) {
-            appendOutOfScopeFact(joinedIds, full, oc.getReadyTime(), accumulator);
+            appendOutOfScopeFact(joinedIds, accumulator);
             return;
         }
         accumulator.obligations.add(new OcTimelineObligation(ocKey(oc),
@@ -190,23 +190,15 @@ public class OcExistingTimelineReconstructor {
     }
 
     /**
-     * 记录范围外已有人OC的占用事实：满员可证明释放，否则不可证明。
+     * 记录范围外已有人OC的占用事实：成员占满OC后是否参与后续计划无法从数据中证明，
+     * 一律按不可证明占用处理，不产生可证明释放时间。
      *
      * @param joinedIds   已加入成员ID集合
-     * @param full        是否满员
-     * @param readyTime   可证明的就绪时间
      * @param accumulator 重建累积状态
      */
-    private void appendOutOfScopeFact(Set<Long> joinedIds, boolean full,
-                                      LocalDateTime readyTime,
-                                      TimelineAccumulator accumulator) {
-        if (full) {
-            joinedIds.forEach(userId -> accumulator.provableReleaseByMember
-                    .put(userId, readyTime));
-        } else {
-            accumulator.unprovableMemberIds.addAll(joinedIds);
-            accumulator.reasonCodes.add(OcPlanReasonCodeEnum.UNPROVABLE_OCCUPATION_PRESENT);
-        }
+    private void appendOutOfScopeFact(Set<Long> joinedIds, TimelineAccumulator accumulator) {
+        accumulator.unprovableMemberIds.addAll(joinedIds);
+        accumulator.reasonCodes.add(OcPlanReasonCodeEnum.UNPROVABLE_OCCUPATION_PRESENT);
     }
 
     /**

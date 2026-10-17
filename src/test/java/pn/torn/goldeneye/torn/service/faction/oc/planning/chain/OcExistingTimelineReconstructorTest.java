@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 既有OC时间线重建器测试。
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.9.2
  * @since 2026.08.15
  */
 @DisplayName("既有OC时间线重建")
@@ -75,22 +75,38 @@ class OcExistingTimelineReconstructorTest {
     }
 
     @Test
-    @DisplayName("非计划无人OC不进入义务，非计划满员OC只提供可证明释放")
-    void shouldIgnoreUnplannedEmptyAndTrackUnplannedFullRelease() {
-        OcPlanningSnapshot snapshot = snapshot(List.of(
+    @DisplayName("非计划无人OC不进入义务，也不产生成员占用事实")
+    void shouldIgnoreUnplannedEmptyOc() {
+        OcPlanningSnapshot base = snapshot(List.of(
                 oc(1L, "Unplanned", NOW.plusHours(8), null)), Map.of());
-        Map<String, TornSettingOcPlanProfileDO> profiles = new HashMap<>(snapshot.profiles());
-        profiles.remove("8:Unplanned");
-        OcPlanningSnapshot withSlots = new OcPlanningSnapshot(snapshot.factionId(), NOW,
-                snapshot.policy(), snapshot.activeOcs(),
-                Map.of(1L, List.of(slot(1L, "Worker#1", 10L))), snapshot.members(),
-                profiles, snapshot.chains(), snapshot.slotTemplates(),
-                Set.of(), Map.of(), List.of());
 
-        ReconstructionResult result = reconstructor.reconstruct(withSlots, new OcChainTemplateResult(List.of(), List.of()));
+        ReconstructionResult result = reconstructor.reconstruct(
+                withoutProfile(base, "8:Unplanned"),
+                new OcChainTemplateResult(List.of(), List.of()));
 
         assertEquals(0, result.obligations().size());
-        assertEquals(NOW.plusHours(8), result.provableReleaseByMember().get(10L));
+        assertTrue(result.unprovableMemberIds().isEmpty());
+        assertTrue(result.provableReleaseByMember().isEmpty());
+    }
+
+    @Test
+    @DisplayName("范围外满员OC的成员应按不可证明占用处理")
+    void shouldTreatOutOfScopeFullOcMembersAsUnprovable() {
+        OcPlanningSnapshot base = snapshot(List.of(
+                        oc(1L, "Unplanned", NOW.plusHours(8), null),
+                        oc(2L, "Unplanned", NOW.plusHours(9), null)),
+                Map.of(1L, List.of(slot(1L, "Worker#1", 10L)),
+                        2L, List.of(slot(2L, "Worker#1", 11L))));
+
+        ReconstructionResult result = reconstructor.reconstruct(
+                withoutProfile(base, "8:Unplanned"),
+                new OcChainTemplateResult(List.of(), List.of()));
+
+        assertEquals(0, result.obligations().size());
+        assertEquals(Set.of(10L, 11L), result.unprovableMemberIds());
+        assertTrue(result.provableReleaseByMember().isEmpty(),
+                "范围外成员占满OC后是否参与后续计划无法从数据中证明");
+        assertTrue(result.reasonCodes().contains(OcPlanReasonCodeEnum.UNPROVABLE_OCCUPATION_PRESENT));
     }
 
     @Test
@@ -268,6 +284,15 @@ class OcExistingTimelineReconstructorTest {
                         enabled, List.of()),
                 ocs, slots, members, profiles, List.of(), templates, Set.of(), Map.of(),
                 List.of());
+    }
+
+    private OcPlanningSnapshot withoutProfile(OcPlanningSnapshot base, String key) {
+        Map<String, TornSettingOcPlanProfileDO> profiles = new HashMap<>(base.profiles());
+        profiles.remove(key);
+        return new OcPlanningSnapshot(base.factionId(), base.snapshotTime(), base.policy(),
+                base.activeOcs(), base.slotsByOcId(), base.members(), profiles,
+                base.chains(), base.slotTemplates(), base.invalidOcKeys(),
+                base.rewardStats(), base.warnings());
     }
 
     private String ocKey(TornFactionOcDO oc) {
