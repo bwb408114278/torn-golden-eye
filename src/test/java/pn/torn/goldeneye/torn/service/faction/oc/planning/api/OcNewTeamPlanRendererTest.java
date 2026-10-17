@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 有刷新次数时保持既有立即状态行为。</p>
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.9.2
  * @since 2026.07.17
  */
 @DisplayName("OC刷新指令渲染")
@@ -48,15 +48,15 @@ class OcNewTeamPlanRendererTest {
                 【刷新指令】
                 普通池: 刷新2次
                 高阶池: 刷新1次
+                本次建议含短时停转方案
                 完成后重新运行 OC新队#均衡
                 
                 【下次刷新时间】
                 建议下次刷新时间: 07-16 16:00 - 07-16 17:30
                 
                 【当前OC状态】
-                当前队伍: 3个（含1个无人OC）
-                实际占用成员: 8人
-                空闲达标成员: 5人
+                当前队伍: 3个（有人2个 / 无人1个）
+                达标成员: 12人（占用7人 / 空闲5人）
                 下一批关键成员预计 07-16 16:00 释放
                 """.strip(), text);
     }
@@ -123,6 +123,7 @@ class OcNewTeamPlanRendererTest {
                 .mode(OcPlanMode.CONSERVATIVE)
                 .normal(1)
                 .high(0)
+                .pauseSelected(false)
                 .nextReplanAt(LocalDateTime.of(2026, 7, 16, 16, 0))
                 .latestReplanAt(LocalDateTime.of(2026, 7, 16, 17, 30))
                 .nextCriticalReleaseAt(LocalDateTime.of(2026, 7, 16, 16, 0))
@@ -133,6 +134,50 @@ class OcNewTeamPlanRendererTest {
         assertTrue(text.contains("【OC新队#保守】 执行时间: 07-16 15:04"));
         assertFalse(text.contains("当前模式允许不超过"));
         assertFalse(text.contains("停转"));
+    }
+
+    @Test
+    @DisplayName("选择停转且有刷新次数时在次数行后输出停转提示")
+    void shouldRenderPauseNoteWhenPauseSelected() {
+        OcRefreshInstructionPlan plan = new PlanBuilder()
+                .normal(1)
+                .high(0)
+                .pauseSelected(true)
+                .build();
+
+        String text = renderer.render(plan);
+
+        int pauseIndex = text.indexOf("本次建议含短时停转方案");
+        assertTrue(pauseIndex > 0, text);
+        assertTrue(pauseIndex > text.indexOf("普通池: 刷新1次"), "停转提示应在刷新次数之后: " + text);
+        assertTrue(pauseIndex < text.indexOf("完成后重新运行"), "停转提示应在重跑提示之前: " + text);
+    }
+
+    @Test
+    @DisplayName("卡死风险命中时刷新指令区块顶部输出警告")
+    void shouldRenderDeadlockWarningInRefreshBlock() {
+        OcRefreshInstructionPlan noRefreshPlan = new PlanBuilder()
+                .normal(0)
+                .high(0)
+                .nextReplanAt(SNAPSHOT_TIME)
+                .latestReplanAt(SNAPSHOT_TIME)
+                .riskFlags(Set.of(OcRiskFlagEnum.DEADLOCK_RISK))
+                .build();
+        OcRefreshInstructionPlan refreshPlan = new PlanBuilder()
+                .normal(1)
+                .high(0)
+                .riskFlags(Set.of(OcRiskFlagEnum.DEADLOCK_RISK))
+                .build();
+
+        String noRefreshText = renderer.render(noRefreshPlan);
+        String refreshText = renderer.render(refreshPlan);
+
+        assertTrue(noRefreshText.contains("⚠ 存在全帮卡死风险"), noRefreshText);
+        assertTrue(noRefreshText.indexOf("⚠ 存在全帮卡死风险")
+                < noRefreshText.indexOf("暂不刷新"), "卡死风险警告应在暂不刷新之前: " + noRefreshText);
+        assertTrue(refreshText.contains("⚠ 存在全帮卡死风险"), refreshText);
+        assertTrue(refreshText.indexOf("⚠ 存在全帮卡死风险")
+                > refreshText.indexOf("【刷新指令】"), "卡死风险警告应在刷新指令区块内: " + refreshText);
     }
 
     @Test
@@ -362,6 +407,22 @@ class OcNewTeamPlanRendererTest {
     }
 
     @Test
+    @DisplayName("达标成员摘要按一行占用和空闲输出")
+    void shouldRenderMemberSummaryInNewFormat() {
+        OcRefreshInstructionPlan plan = new PlanBuilder()
+                .normal(1)
+                .high(0)
+                .build();
+
+        String text = renderer.render(plan);
+
+        assertTrue(text.contains("达标成员: "), text);
+        assertTrue(text.contains("（占用"), text);
+        assertFalse(text.contains("实际占用成员"), text);
+        assertFalse(text.contains("空闲达标成员"), text);
+    }
+
+    @Test
     @DisplayName("旧长消息字段不得泄露")
     void shouldNotLeakOldInternalFields() {
         OcRefreshInstructionPlan plan = new PlanBuilder()
@@ -413,6 +474,8 @@ class OcNewTeamPlanRendererTest {
         private Set<OcPlanReasonCodeEnum> windowReasonCodes = Set.of();
         private LocalDateTime nextCriticalReleaseAt = LocalDateTime.of(2026, 7, 16, 16, 0);
         private Set<OcPlanReasonCodeEnum> planReasonCodes = Set.of();
+        private Set<OcRiskFlagEnum> riskFlags = Set.of(OcRiskFlagEnum.ECONOMIC_EVIDENCE_INSUFFICIENT);
+        private boolean pauseSelected = true;
 
         PlanBuilder mode(OcPlanMode mode) {
             this.mode = mode;
@@ -459,13 +522,23 @@ class OcNewTeamPlanRendererTest {
             return this;
         }
 
+        PlanBuilder riskFlags(Set<OcRiskFlagEnum> riskFlags) {
+            this.riskFlags = riskFlags;
+            return this;
+        }
+
+        PlanBuilder pauseSelected(boolean pauseSelected) {
+            this.pauseSelected = pauseSelected;
+            return this;
+        }
+
         OcRefreshInstructionPlan build() {
             return new OcRefreshInstructionPlan(20465L, snapshotTime, mode,
                     Map.of("8:Clinical Precision", 1, "8:Stacking the Deck", 0),
                     normal, high, true, "内部原因不应出现在群消息",
                     OcConfigurationStatusEnum.VALID, OcProofStatusEnum.PROVEN_SAFE,
-                    Set.of(OcRiskFlagEnum.ECONOMIC_EVIDENCE_INSUFFICIENT),
-                    planReasonCodes, nextCriticalReleaseAt, true, true, Duration.ofHours(2),
+                    riskFlags, planReasonCodes, nextCriticalReleaseAt, true, pauseSelected,
+                    Duration.ofHours(2),
                     new OcReplanWindow(nextReplanAt, latestReplanAt, windowReasonCodes),
                     OcValueEvidence.Level.PRIOR_ONLY,
                     new OcCurrentOccupancySummary(3, 2, 1, 8, 12, 7, 5),

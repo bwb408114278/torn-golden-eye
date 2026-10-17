@@ -1,10 +1,7 @@
 package pn.torn.goldeneye.torn.service.faction.oc.planning.api;
 
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcCurrentOccupancySummary;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcPlanReasonCodeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcRefreshInstructionPlan;
-import pn.torn.goldeneye.torn.model.faction.crime.planning.OcReplanWindow;
+import pn.torn.goldeneye.torn.model.faction.crime.planning.*;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -17,7 +14,7 @@ import java.util.Set;
  * 也不输出时间线评估、证明状态、原因码、停转上限或收益证据说明。</p>
  *
  * @author Bai
- * @version 1.4.4
+ * @version 1.9.2
  * @since 2026.07.17
  */
 @Component
@@ -57,13 +54,16 @@ public class OcNewTeamPlanRenderer {
     }
 
     /**
-     * 追加刷新指令区块，只展示非零池次数与完成后重跑提示。
+     * 追加刷新指令区块：卡死风险警告、非零池次数、停转提示和完成后重跑提示。
      *
      * @param result 输出缓冲区
      * @param plan   刷新操作指令
      */
     private void appendRefreshInstruction(StringBuilder result, OcRefreshInstructionPlan plan) {
         result.append("\n\n【刷新指令】");
+        if (plan.riskFlags().contains(OcRiskFlagEnum.DEADLOCK_RISK)) {
+            result.append("\n⚠ 存在全帮卡死风险");
+        }
         if (plan.normalRefreshCount() == 0 && plan.highRefreshCount() == 0) {
             result.append("\n暂不刷新");
             return;
@@ -73,6 +73,9 @@ public class OcNewTeamPlanRenderer {
         }
         if (plan.highRefreshCount() > 0) {
             result.append("\n高阶池: 刷新").append(plan.highRefreshCount()).append("次");
+        }
+        if (plan.pauseSelected()) {
+            result.append("\n本次建议含短时停转方案");
         }
         result.append("\n完成后重新运行 OC新队#").append(plan.mode().getCommand());
     }
@@ -229,7 +232,7 @@ public class OcNewTeamPlanRenderer {
     }
 
     /**
-     * 追加精简的当前OC状态区块。
+     * 追加当前OC状态区块：队伍有人/无人拆分、达标成员占用/空闲拆分和下一批关键释放。
      *
      * @param result 输出缓冲区
      * @param plan   刷新操作指令
@@ -238,9 +241,11 @@ public class OcNewTeamPlanRenderer {
         OcCurrentOccupancySummary summary = plan.occupancySummary();
         result.append("\n\n【当前OC状态】")
                 .append("\n当前队伍: ").append(summary.currentTeamCount())
-                .append("个（含").append(summary.emptyTeamCount()).append("个无人OC）")
-                .append("\n实际占用成员: ").append(summary.occupiedMemberCount()).append("人")
-                .append("\n空闲达标成员: ").append(summary.idleQualifiedMemberCount()).append("人");
+                .append("个（有人").append(summary.joinedTeamCount())
+                .append("个 / 无人").append(summary.emptyTeamCount()).append("个）")
+                .append("\n达标成员: ").append(summary.qualifiedMemberCount())
+                .append("人（占用").append(summary.occupiedQualifiedMemberCount())
+                .append("人 / 空闲").append(summary.idleQualifiedMemberCount()).append("人）");
         if (plan.nextCriticalReleaseAt() != null) {
             result.append("\n下一批关键成员预计 ")
                     .append(plan.nextCriticalReleaseAt().format(TIME_FORMAT)).append(" 释放");
