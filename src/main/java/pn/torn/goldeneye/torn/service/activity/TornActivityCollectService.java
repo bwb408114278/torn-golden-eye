@@ -46,9 +46,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * 按 ID 并集后发布采集名单并存储成员到 Redis；
  * 每 15 分钟轮询帮派成员 last_action 时间戳写入 Redis V3 Bitmap（active/idle互斥三态），
  * 并在同一 Pipeline 写入日终归档索引 Set。不再写 V2 新数据，V2 Key 仅保留查询端兼容读取。
+ * <p>
+ * 采集在专用调度器 activityCollectScheduler 上串行执行：一批帮派的成员请求最坏可能持续到分钟级，
+ * 不允许占用默认调度器线程，否则同窗口的其它定时任务只能排队等待。
  *
  * @author Bai
- * @version 1.5.0
+ * @version 1.9.3
  * @since 2026.07.07
  */
 @Slf4j
@@ -140,9 +143,9 @@ public class TornActivityCollectService {
     }
 
     /**
-     * 每 15 分钟执行一次活跃度采集
+     * 每15分钟执行一次活跃度采集：在专用调度器上串行执行，与默认调度器上的其它定时任务互不阻塞。
      */
-    @Scheduled(cron = "0 */15 * * * *")
+    @Scheduled(cron = "0 */15 * * * *", scheduler = "activityCollectScheduler")
     public void collectActivity() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
             return;
