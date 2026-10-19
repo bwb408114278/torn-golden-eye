@@ -106,7 +106,8 @@
 | --- | --- | --- |
 | 连接超时 | 3s | 本次故障形态是“连不上/连上无响应”，3s 足够区分 TCP 不可达 |
 | 响应读取超时 | 12s | 高于实测最慢成功响应 9.24s，留 30% 余量；同时远小于 60s 采集周期 |
-| 交换超时 | 12s | 兜住“连接成功但请求装配/响应读取整体卡住”的场景 |
+
+不设置交换超时的原因：Spring Framework 6.2 已把 `ReactorClientHttpRequestFactory#setExchangeTimeout` 标记为废弃（7.0 移除），且本次故障形态是“对端接受连接后不再返回任何数据”，读取超时是命中该形态的闸门。代价是对端“先回响应头再逐字节滴流”的场景不受独立总时长约束，属已知边界。
 
 实现方式：在 `CommonConfiguration` 声明一个 `ReactorClientHttpRequestFactory` Bean，显式设置上述三项；`TornApiImpl` 构造时注入该 Bean，v1 与 v2 两个 `RestClient` 共用同一实例。
 
@@ -201,7 +202,6 @@ pn.torn.goldeneye
 | --- | --- | --- |
 | `HTTP_CONNECT_TIMEOUT_MS` | `3_000` | 连接超时 |
 | `HTTP_READ_TIMEOUT_MS` | `12_000` | 响应读取超时 |
-| `HTTP_EXCHANGE_TIMEOUT_MS` | `12_000` | 交换超时 |
 | `HTTP_ATTEMPT_COUNT` | `2` | 单 Key 内 HTTP 尝试次数 |
 | `HTTP_KEY_ROTATION_COUNT` | `2` | 换 Key 次数 |
 | `HTTP_RETRY_BUDGET_MS` | `25_000` | 单次逻辑请求总预算 |
@@ -211,7 +211,7 @@ pn.torn.goldeneye
 
 **2）`configuration/CommonConfiguration.java`（修改，1.3.7 → 1.4.0）**
 
-- 新增 `@Bean` 方法 `tornClientHttpRequestFactory()`，返回 `ClientHttpRequestFactory`：实例化 `ReactorClientHttpRequestFactory`，依次 `setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS)`、`setReadTimeout(HTTP_READ_TIMEOUT_MS)`、`setExchangeTimeout(HTTP_EXCHANGE_TIMEOUT_MS)`。
+- 新增 `@Bean` 方法 `tornHttpRequestFactory()`，返回 `ClientHttpRequestFactory`：实例化 `ReactorClientHttpRequestFactory`，依次 `setConnectTimeout(Duration)`、`setReadTimeout(Duration)`（用 `Duration` 重载，`long` 重载已废弃）。
 - 让容器负责 `SmartLifecycle.start/stop`，不在任何业务类里 `new`。
 
 **3）`configuration/TornApiImpl.java`（修改，1.4.0 → 1.5.0）**
@@ -353,3 +353,4 @@ pn.torn.goldeneye
 | 1.0.0 | 2026.10.19 | 初稿：超时分层、重试预算、失败语义、采集中断告警状态机 |
 | 1.1.0 | 2026.10.19 | 按评审意见调整：删除代码内告警链路（改由 Grafana 邮件承担，仅保留日志契约）；新增活跃度采集迁出默认调度器；确认超时与重试数值；测试收敛为 3 个用例 |
 | 1.2.0 | 2026.10.19 | 代码与基线文档同步落地：HTTP 超时工厂 Bean、预算化重试、空响应显式失败与阶段耗时日志、活跃度采集改绑专用调度器；受影响测试类 15 个用例通过 |
+| 1.3.0 | 2026.10.19 | 按评审意见整改：去掉废弃的交换超时设置（Spring 6.2 已废弃，读取超时覆盖本次故障形态）；`executeWithRetry` 改为单出口循环，消除循环内多处 `break`；一次性文档不登记到 `file_location.md` |

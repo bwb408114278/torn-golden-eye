@@ -35,10 +35,6 @@ public class TornConstants {
      */
     public static final int HTTP_READ_TIMEOUT_MS = 12_000;
     /**
-     * HTTP请求交换超时（毫秒）
-     */
-    public static final int HTTP_EXCHANGE_TIMEOUT_MS = 12_000;
-    /**
      * 单Key内的HTTP尝试次数
      */
     public static final int HTTP_ATTEMPT_COUNT = 2;

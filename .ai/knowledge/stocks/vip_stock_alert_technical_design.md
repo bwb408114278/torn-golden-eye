@@ -797,11 +797,11 @@ UPDATE sys_setting SET setting_value = 'true', update_time = CURRENT_TIMESTAMP
 
 #### 13.7 实时采集中断容错整改（2026-10-19）
 
-2026-10-19 06:56–08:09（Asia/Shanghai）实时分钟采集连续8轮失败，08:10日报因估值窗口内无可用15m bar输出「数据不足（缺失行情：TCT）」。根因：`/torn` V2请求的3次Key轮换与3次HTTP重试没有时间预算，单轮失败耗时540s，远大于60s采集周期；放弃文案把任意失败描述为Key失效；活跃度采集在默认单线程调度器上阻塞63分钟。完整方案见`stock_realtime_collection_resilience_technical_design.md`。
+2026-10-19 06:56–08:09（Asia/Shanghai）实时分钟采集连续8轮失败，08:10日报因估值窗口内无可用15m bar输出「数据不足（缺失行情：TCT）」。根因：`/torn` V2请求的3次Key轮换与3次HTTP重试没有时间预算，单轮失败耗时540s，远大于60s采集周期；放弃文案把任意失败描述为Key失效；活跃度采集在默认单线程调度器上阻塞63分钟。
 
 | 项 | 结论 |
 |---|---|
-| 超时 | 连接3s、读取12s、交换12s，由`ReactorClientHttpRequestFactory` Bean统一声明并共用一份连接池 |
+| 超时 | 连接3s、读取12s，由`ReactorClientHttpRequestFactory` Bean统一声明并共用一份连接池；交换超时已随Spring 6.2废弃不再设置 |
 | 重试 | Key轮换2次、单Key内HTTP尝试2次、退避200ms、总预算25s，单轮最坏约37s < 60s周期 |
 | 失败语义 | 空响应显式抛`IllegalStateException`，ERROR单行携带plannedMinute/elapsedMs/phase |
 | 调度 | 活跃度采集迁出默认调度器，改绑`activityCollectScheduler` |

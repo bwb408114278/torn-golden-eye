@@ -151,10 +151,9 @@ class TornApiImpl implements TornApi {
      */
     private <T> T executeWithRetry(TornApiRequestExecutor executor, String uri, long factionId,
                                    boolean needFactionAccess, Class<T> responseType, RequestBudget budget) {
-        for (int rotation = 0; rotation < TornConstants.HTTP_KEY_ROTATION_COUNT; rotation++) {
-            if (budget.exhausted()) {
-                break;
-            }
+        int rotation = 0;
+        boolean retryable = !budget.exhausted();
+        while (retryable && rotation < TornConstants.HTTP_KEY_ROTATION_COUNT) {
             TornApiKeyDO apiKey = (factionId == 0L)
                     ? apiKeyConfig.getEnableKey()
                     : apiKeyConfig.getFactionKey(factionId, needFactionAccess);
@@ -168,12 +167,11 @@ class TornApiImpl implements TornApi {
             if (!responseResult.shouldRetry()) {
                 return responseResult.result();
             }
+            rotation++;
             budget.recordKeyRotation();
             log.warn("第 {}/{} 轮Key轮换重试, uri={}, elapsedMs={}",
-                    rotation + 1, TornConstants.HTTP_KEY_ROTATION_COUNT, uri, budget.elapsedMillis());
-            if (rotation + 1 >= TornConstants.HTTP_KEY_ROTATION_COUNT || !budget.pause()) {
-                break;
-            }
+                    rotation, TornConstants.HTTP_KEY_ROTATION_COUNT, uri, budget.elapsedMillis());
+            retryable = rotation < TornConstants.HTTP_KEY_ROTATION_COUNT && budget.pause();
         }
         log.error("Torn请求 {} 重试后仍然失败, keyRotationCount={}, httpAttemptCount={}, elapsedMs={}, lastCause={}",
                 uri, budget.keyRotationCount(), budget.httpAttemptCount(), budget.elapsedMillis(),
