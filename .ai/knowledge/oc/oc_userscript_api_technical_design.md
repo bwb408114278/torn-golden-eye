@@ -2,7 +2,7 @@
 
 ## 1. 文档信息
 
-- 目标版本：1.9.4（在 Key 加密方案之后实施）
+- 目标版本：1.9.3（在 Key 加密方案之后实施）
 - 风险等级：L3（新增对外入口、凭据校验、外部写入）
 - 影响范围：新增 `web` 包、观测表、`BindKeyStrategyImpl`（委托改造）、应用配置
 - 配套文档：`api_key_cipher_technical_design.md`、`oc_userscript_client_technical_design.md`
@@ -272,10 +272,10 @@ public record ApiResult<T>(int code, String message, T data) {
 | --- | --- |
 | `napcat/strategy/manage/BindKeyStrategyImpl.java` | 删除内部的 `/key/info` 调用与级别判定，改为委托 `TornKeyCredentialService#validate`；替换语义仍留在本类 |
 | `application.yml` | 新增 `api` 段：cors 白名单、限流阈值、推荐 TTL、最低客户端版本 |
-| `db/changelog/db.changelog-master.yaml` | 追加 1.9.4 的 include |
+| `db/changelog/db.changelog-master.yaml` | 追加 1.9.3 的 include |
 | `pom.xml` | 不新增依赖（webflux、caffeine 已存在） |
 
-### 7.7 数据库变更：`db/changelog/1.0.1-2.0.0/1.9.4/oc-observation.yaml`
+### 7.7 数据库变更：`db/changelog/1.0.1-2.0.0/1.9.3/oc-observation.yaml`
 
 - `createTable` `torn_oc_success_observation`；
 - 唯一约束 `uk_oc_position_user`；

@@ -2,7 +2,7 @@
 
 ## 1. 文档信息
 
-- 目标版本：1.9.4
+- 目标版本：1.9.3
 - 风险等级：L3（凭据安全、存量数据迁移、影响所有 Torn 调用的取 Key 路径）
 - 影响范围：`torn_api_key` 表、Key 读取链路、启动流程
 - 前置依赖：无（独立于对外接口改造，先行实施）
@@ -100,10 +100,10 @@ v1:<Base64( iv(12B) || cipherText || tag(16B) )>
 | `repository/model/setting/TornApiKeyDO.java` | `apiKey` 增加 `typeHandler`；类头版本号同步 |
 | `repository/dao/setting/TornApiKeyDAO.java` | 仅当 4.4 验证失败时，覆写三个写方法 |
 | `src/main/resources/application.yml` | 新增 `security.key-cipher` 段：`secret: ${SECURITY_KEY_CIPHER_SECRET:}`、`migration-enabled: false` |
-| `db/changelog/db.changelog-master.yaml` | 追加 1.9.4 的 include |
+| `db/changelog/db.changelog-master.yaml` | 追加 1.9.3 的 include |
 | `TornApiKeyConfig.java` | 不加解密逻辑；仅在失效分支补一条 decrypt 失败的日志路径（如已被 4.6 覆盖则不新增方法） |
 
-### 5.5 数据库变更：`db/changelog/1.0.1-2.0.0/1.9.4/api-key-cipher.yaml`
+### 5.5 数据库变更：`db/changelog/1.0.1-2.0.0/1.9.3/api-key-cipher.yaml`
 
 - `modifyDataType`：`torn_api_key.api_key` → `VARCHAR(128)`。
 - 不新增列、不改索引；不用 SQL 做密文迁移（应用层密钥不可用于 SQL）。
