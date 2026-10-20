@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.10.05
+- 最后更新：2026.10.20
 - 维护人：Bai
 - 状态：有效
 
@@ -24,7 +24,11 @@
 │       ├── oc/                                                                         # Torn OC相关知识库
 │       │   ├── oc_delay_attribution_technical_design.md                                # OC延误归因（原因/时长/采样与验收基线）技术方案
 │       │   ├── oc_rate_table_html_migration_technical_design.md                        # 用户OC成功率表HTML迁移（五档色阶/双维星级/级别分组）技术方案(1.9.0)
-│       │   └── oc_reassign_income_mode_timeline_technical_design.md                    # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
+│       │   ├── oc_reassign_income_mode_timeline_technical_design.md                    # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
+│       │   ├── oc_userscript_api_technical_design.md                                   # OC推荐插件对外HTTP接口与Torn Key鉴权技术方案(1.9.4)
+│       │   └── oc_userscript_client_technical_design.md                                # OC推荐油猴插件客户端（只读呈现/开关/fail-safe）技术方案
+│       ├── security/                                                                   # 凭据与安全相关知识库
+│       │   └── api_key_cipher_technical_design.md                                      # Torn Api Key密文存储、存量迁移与密钥管理技术方案(1.9.4)
 │       ├── stocks/                                                                     # Torn股票股票相关知识库
 │       │   ├── data/                                                                   # 长期机器可读研究摘要
 │       │   │   ├── stock_personality_2026_07.csv                                       # 35支股票风格指标快照
