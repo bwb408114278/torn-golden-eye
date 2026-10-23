@@ -95,8 +95,8 @@ class StocksDividendBuildStrategyImplTest {
 
         List<String> replies = texts(strategy.handle(GROUP_ID, sender, "屏蔽#hrg"));
 
-        assertThat(replies).anyMatch(reply -> reply.contains("已屏蔽: HRG(Home Retail Group)"));
-        assertThat(replies).anyMatch(reply -> reply.contains("当前屏蔽: HRG(Home Retail Group)"));
+        assertThat(replies).anyMatch(reply -> reply.contains("已屏蔽: HRG(Home Retail Group)"))
+                .anyMatch(reply -> reply.contains("当前屏蔽: HRG(Home Retail Group)"));
         verify(stockBlockDao).saveBlocks(USER_ID, List.of(22));
     }
 

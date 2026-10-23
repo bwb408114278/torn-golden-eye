@@ -3,10 +3,9 @@ package pn.torn.goldeneye.torn.manager.user;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.torn.manager.user.dividend.StockDividendKnapsackSolver;
+import pn.torn.goldeneye.torn.manager.user.dividend.StockDividendOpportunityFactory;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksDetailVO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksVO;
 
@@ -23,16 +22,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @version 1.9.3
  * @since 2026.03.09
  */
-@ExtendWith(MockitoExtension.class)
 @DisplayName("股票分红BB投资策略分析器测试")
 class StocksBonusAnalyzeManagerTest {
-    @InjectMocks
     private StocksBonusAnalyzeManager manager;
     private List<TornStocksDO> allStocks;
 
     @BeforeEach
     void setUp() {
         allStocks = new ArrayList<>();
+        StockDividendOpportunityFactory opportunityFactory = new StockDividendOpportunityFactory();
+        manager = new StocksBonusAnalyzeManager(opportunityFactory,
+                new StockDividendKnapsackSolver(opportunityFactory));
     }
 
     @Test
