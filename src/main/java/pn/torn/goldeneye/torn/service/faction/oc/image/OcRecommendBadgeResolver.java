@@ -15,7 +15,7 @@ import java.util.List;
  * 理由词表与{@code buildRecommendReason}的固定文案精确匹配，未知文案以中性徽章兜底展示。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.9.3
  * @since 2026.09.02
  */
 @Component
@@ -26,8 +26,8 @@ public class OcRecommendBadgeResolver {
     private static final String NEW_TEAM_REASON = "新队";
     private static final String EXCELLENT_RATE_REASON = "超高成功率";
     private static final String HIGH_RATE_REASON = "高成功率";
-    private static final BigDecimal SCORE_GREEN_THRESHOLD = BigDecimal.valueOf(80);
-    private static final BigDecimal SCORE_AMBER_THRESHOLD = BigDecimal.valueOf(60);
+    private static final BigDecimal SCORE_GREEN_THRESHOLD = BigDecimal.valueOf(300);
+    private static final BigDecimal SCORE_AMBER_THRESHOLD = BigDecimal.valueOf(150);
 
     /**
      * 解析推荐评分和推荐理由为副标题徽章：评分徽章在前，理由逐段成徽章。
@@ -63,7 +63,8 @@ public class OcRecommendBadgeResolver {
     }
 
     /**
-     * 按评分分档映射色调：80及以上绿色，60至79琥珀，60以下中性灰。
+     * 按评分分档映射色调：门槛按机会成本量级标定（货币单位，百万量级），
+     * 300及以上绿色，150至299琥珀，150以下中性灰。
      *
      * @param recommendScore 推荐度评分
      * @return 评分徽章色调

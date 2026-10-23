@@ -21,7 +21,7 @@ import java.util.List;
  * OC系数设置公共逻辑层
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.9.3
  * @since 2025.11.03
  */
 @Component
@@ -50,13 +50,26 @@ public class TornSettingOcCoefficientManager implements DataCacheManager {
     }
 
     /**
-     * 获取工时系数
+     * 获取工时系数。
+     *
+     * <p>缺行时按1兜底并打告警：系数为0会让有效工时归零，整个OC的收入静默分不出去；
+     * 兜底为1至少保持「按工分分配」的既有语义，同时把缺配置暴露到日志里。</p>
+     *
+     * @param oc       OC数据
+     * @param position 岗位编码
+     * @param passRate 成员成功率
+     * @return 工时系数；配置缺失时返回1
      */
     public BigDecimal getCoefficient(TornFactionOcDO oc, String position, int passRate) {
         List<TornSettingOcCoefficientDO> list = coefficientManager.getList();
         long scopeFactionId = resolveScopeFactionId(list, oc.getFactionId());
         TornSettingOcCoefficientDO coefficient = getCoefficient(list, scopeFactionId, oc, position, passRate);
-        return coefficient != null ? coefficient.getCoefficient() : BigDecimal.ZERO;
+        if (coefficient == null || coefficient.getCoefficient() == null) {
+            log.warn("OC系数配置缺失, 按1兜底: factionId={}, ocName={}, rank={}, slotCode={}, passRate={}",
+                    oc.getFactionId(), oc.getName(), oc.getRank(), position, passRate);
+            return BigDecimal.ONE;
+        }
+        return coefficient.getCoefficient();
     }
 
     /**

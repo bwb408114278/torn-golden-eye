@@ -2,7 +2,6 @@ package pn.torn.goldeneye.torn.manager.faction.crime.recommend;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.constants.torn.enums.TornOcIncomeModeEnum;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
@@ -10,13 +9,9 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcCoefficientManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
-import pn.torn.goldeneye.torn.service.faction.oc.OcSlotTierCalculator;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -25,16 +20,27 @@ import java.util.List;
 /**
  * OC队伍推荐公共逻辑层
  *
+ * <p>本类只保留配置查询与推荐理由拼装：排序已统一由机会成本排序器承担，
+ * 不再提供任何评分方法，也不得按「是否在大锅饭名单」分叉出第二套公式。</p>
+ *
  * @author Bai
- * @version 1.9.0
+ * @version 1.9.3
  * @since 2025.11.24
  */
 @Component
 @RequiredArgsConstructor
 public class TornOcRecommendManager {
+    /**
+     * 成功率展示分档：达到该值展示「超高成功率」。
+     */
+    private static final int EXCELLENT_PASS_RATE = 75;
+    /**
+     * 成功率展示分档：达到该值展示「高成功率」。
+     */
+    private static final int HIGH_PASS_RATE = 70;
+
     private final TornSettingFactionOcManager settingFactionOcManager;
     private final TornSettingOcSlotManager settingOcSlotManager;
-    private final TornSettingOcCoefficientManager coefficientManager;
     private final TornSettingOcReassignManager reassignManager;
 
     /**
@@ -94,7 +100,7 @@ public class TornOcRecommendManager {
      */
     public TornFactionOcUserDO findUserPassRate(List<TornFactionOcUserDO> userOcData, TornFactionOcDO oc,
                                                 TornSettingOcSlotDO slotSetting) {
-        if (slotSetting == null) {
+        if (slotSetting == null || userOcData == null) {
             return null;
         }
 
@@ -107,9 +113,14 @@ public class TornOcRecommendManager {
     }
 
     /**
-     * 检测是否大锅饭推荐
+     * 判断该帮派是否大锅饭、且该成员是否达到名单内任一岗位要求。
      *
-     * @return true为推荐大锅饭
+     * <p>仅用于展示与分钱口径判断，<b>不参与推荐准入</b>：推荐候选池是该帮派全部空位，
+     * 大锅饭名单只决定收益算哪些OC，不得据此过滤推荐结果。</p>
+     *
+     * @param user       用户
+     * @param userOcData 成员成功率矩阵
+     * @return true表示该帮派走大锅饭且该成员达到名单内任一岗位要求
      */
     public boolean checkIsReassignRecommended(TornUserDO user, List<TornFactionOcUserDO> userOcData) {
         if (!reassignManager.getReassignFactionList().contains(user.getFactionId())) {
@@ -138,59 +149,11 @@ public class TornOcRecommendManager {
     }
 
     /**
-     * 计算推荐度评分
-     */
-    public BigDecimal calcRecommendScore(boolean isReassign, TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
-                                         TornFactionOcUserDO userPassRate) {
-        if (isReassign) {
-            return calcReassignRecommendScore(oc, slotSetting, userPassRate);
-        } else {
-            return calcRecommendScore(oc, slotSetting, userPassRate);
-        }
-    }
-
-    /**
-     * 计算推荐度评分
-     */
-    private BigDecimal calcRecommendScore(TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
-                                          TornFactionOcUserDO userPassRate) {
-        BigDecimal passRateScore = calcPassRateScore(slotSetting, userPassRate);
-        BigDecimal priorityScore = calcPriorityScore(slotSetting);
-        BigDecimal rankScore = BigDecimal.valueOf(10).multiply(BigDecimal.valueOf(oc.getRank()));
-        BigDecimal positionScore = passRateScore.multiply(priorityScore)
-                .multiply(BigDecimal.valueOf(0.1))
-                .add(rankScore);
-
-        BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
-        return positionScore.multiply(BigDecimal.valueOf(0.8))
-                .add(timeScore.multiply(BigDecimal.valueOf(0.2)));
-    }
-
-    /**
-     * 计算大锅饭推荐度评分
-     */
-    private BigDecimal calcReassignRecommendScore(TornFactionOcDO oc, TornSettingOcSlotDO slotSetting,
-                                                  TornFactionOcUserDO userPassRate) {
-        // 1. 停转时间评分
-        BigDecimal timeScore = calculateTimeScore(oc.getReadyTime());
-        // 2. 岗位评分, 根据系数、成功率和岗位权重(平分模式系数固定为1)
-        BigDecimal coefficient = reassignManager.getIncomeMode(oc.getFactionId()) == TornOcIncomeModeEnum.EQUAL
-                ? BigDecimal.ONE
-                : coefficientManager.getCoefficient(oc, slotSetting.getSlotCode(), userPassRate.getPassRate());
-        BigDecimal passRateScore = calcPassRateScore(slotSetting, userPassRate);
-        BigDecimal priorityScore = calcPriorityScore(slotSetting);
-        BigDecimal positionScore = coefficient.multiply(BigDecimal.valueOf(4))
-                .add(passRateScore.multiply(priorityScore).multiply(BigDecimal.valueOf(0.1)))
-                .add(BigDecimal.valueOf(oc.getRank()));
-
-        // 3. 加权计算：时间80% + 成功率20%
-        return timeScore.multiply(BigDecimal.valueOf(0.8))
-                .add(positionScore.multiply(BigDecimal.valueOf(0.2)))
-                .setScale(2, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * 构建推荐理由
+     * 构建推荐理由，文案与排序键无关，逐字保持既有输出。
+     *
+     * @param dateTime 该OC的准备时间，null表示新队
+     * @param passRate 展示用的成功率
+     * @return 以「、」拼接的推荐理由
      */
     public String buildRecommendReason(LocalDateTime dateTime, int passRate) {
         List<String> reasons = new ArrayList<>();
@@ -210,78 +173,14 @@ public class TornOcRecommendManager {
         }
 
         // 成功率
-        if (passRate >= 75) {
+        if (passRate >= EXCELLENT_PASS_RATE) {
             reasons.add("超高成功率");
-        } else if (passRate >= 70) {
+        } else if (passRate >= HIGH_PASS_RATE) {
             reasons.add("高成功率");
         } else {
             reasons.add("成功率达标");
         }
 
         return String.join("、", reasons);
-    }
-
-    /**
-     * 计算时间评分
-     */
-    private BigDecimal calculateTimeScore(LocalDateTime readyTime) {
-        if (readyTime == null) {
-            // 新队99分, 优先级次于2小时后停转队
-            return BigDecimal.valueOf(95);
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        long hoursUntilReady = now.compareTo(readyTime) < 1 ? Duration.between(now, readyTime).toHours() + 1 : 0;
-
-        // 已经停转 - 最高优先级
-        if (hoursUntilReady <= 0) {
-            return BigDecimal.valueOf(100);
-        }
-        // 6小时内 - 极高优先级
-        if (hoursUntilReady <= 6) {
-            return BigDecimal.valueOf(100 - hoursUntilReady * 2)
-                    .max(BigDecimal.valueOf(95));
-        }
-        // 24小时内 - 高优先级，加速递减
-        if (hoursUntilReady <= 24) {
-            // 从95分降到65分
-            return BigDecimal.valueOf(95 - (hoursUntilReady - 6) * 1.67)
-                    .max(BigDecimal.valueOf(65));
-        }
-        // 48小时内 - 中等优先级
-        if (hoursUntilReady <= 48) {
-            // 从65分降到35分
-            return BigDecimal.valueOf(65 - (hoursUntilReady - 24) * 1.25)
-                    .max(BigDecimal.valueOf(35));
-        }
-        // 72小时内 - 低优先级
-        if (hoursUntilReady <= 72) {
-            return BigDecimal.valueOf(35 - (hoursUntilReady - 48) * 0.5)
-                    .max(BigDecimal.valueOf(20));
-        }
-        // 72小时以上 - 极低优先级
-        return BigDecimal.valueOf(20 - (hoursUntilReady - 72) * 0.2)
-                .max(BigDecimal.valueOf(10));
-    }
-
-    /**
-     * 计算成功率得分
-     */
-    private BigDecimal calcPassRateScore(TornSettingOcSlotDO slotSetting, TornFactionOcUserDO userPassRate) {
-        int ability = userPassRate.getPassRate() - slotSetting.getPassRate();
-        if (ability >= 10) {
-            return BigDecimal.valueOf(10);
-        } else if (ability >= 5) {
-            return BigDecimal.valueOf(8);
-        } else {
-            return BigDecimal.ONE;
-        }
-    }
-
-    /**
-     * 计算权重得分，分档口径由共享计算器统一持有
-     */
-    private BigDecimal calcPriorityScore(TornSettingOcSlotDO slotSetting) {
-        return BigDecimal.valueOf(OcSlotTierCalculator.priorityTier(slotSetting.getPriority()));
     }
 }

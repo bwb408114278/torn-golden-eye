@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * 推荐副标题徽章解析测试，聚焦评分分档、理由词表和未知兜底。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.9.3
  * @since 2026.09.02
  */
 @DisplayName("推荐副标题徽章解析测试")
@@ -22,19 +22,19 @@ class OcRecommendBadgeResolverTest {
     private final OcRecommendBadgeResolver resolver = new OcRecommendBadgeResolver();
 
     @Test
-    @DisplayName("评分按80/60分档映射绿/琥珀/灰并去掉尾零")
+    @DisplayName("评分按300/150分档映射绿/琥珀/灰并去掉尾零")
     void buildBadges_shouldMapScoreBands() {
         assertEquals(TableCellBadgeToneEnum.SUCCESS,
-                toneOf(resolver.buildBadges(new BigDecimal("88.60"), null).getFirst()));
-        assertEquals("评分 88.6", resolver.buildBadges(new BigDecimal("88.60"), null).getFirst().text());
+                toneOf(resolver.buildBadges(new BigDecimal("340.50"), null).getFirst()));
+        assertEquals("评分 340.5", resolver.buildBadges(new BigDecimal("340.50"), null).getFirst().text());
         assertEquals(TableCellBadgeToneEnum.SUCCESS,
-                toneOf(resolver.buildBadges(BigDecimal.valueOf(80), null).getFirst()));
+                toneOf(resolver.buildBadges(BigDecimal.valueOf(300), null).getFirst()));
         assertEquals(TableCellBadgeToneEnum.WARNING,
-                toneOf(resolver.buildBadges(new BigDecimal("79.99"), null).getFirst()));
+                toneOf(resolver.buildBadges(new BigDecimal("299.99"), null).getFirst()));
         assertEquals(TableCellBadgeToneEnum.WARNING,
-                toneOf(resolver.buildBadges(BigDecimal.valueOf(60), null).getFirst()));
+                toneOf(resolver.buildBadges(BigDecimal.valueOf(150), null).getFirst()));
         assertEquals(TableCellBadgeToneEnum.NEUTRAL,
-                toneOf(resolver.buildBadges(new BigDecimal("59.99"), null).getFirst()));
+                toneOf(resolver.buildBadges(new BigDecimal("149.99"), null).getFirst()));
     }
 
     @Test

@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * 仅依赖已缓存列表与入参，不查库、不读系统时间。</p>
  *
  * @author Bai
- * @version 1.6.3
+ * @version 1.9.3
  * @since 2026.09.14
  */
 @Component
@@ -47,6 +47,33 @@ public class TornSettingOcReassignManager implements DataCacheManager {
     public void warmUpCache() {
         reassignManager.getFactionList();
         reassignManager.getOcList();
+        checkRosterFactionConsistency();
+    }
+
+    /**
+     * 只读自检：名单表与开关表不一致时打告警。
+     *
+     * <p>名单决定「收益算哪些OC」，开关决定该帮派「是否结算」，两张表不一致时不会报错，
+     * 只会静默地生效一半：开关缺行时该帮派的名单整体失效，名单为空时该帮派收益永远不动。
+     * 本方法不改数据、不阻断启动、不影响既有缓存语义，只把缺口暴露到日志里，
+     * 避免同类缺口再次被当成计算结论。</p>
+     */
+    private void checkRosterFactionConsistency() {
+        Set<Long> enabledFactions = enabledFactionIds();
+        Map<Long, Long> rosterRowsByFaction = reassignManager.getOcList().stream()
+                .filter(row -> Boolean.TRUE.equals(row.getEnabled()) && row.getFactionId() != null)
+                .collect(Collectors.groupingBy(TornSettingOcReassignOcDO::getFactionId, Collectors.counting()));
+        rosterRowsByFaction.forEach((factionId, rows) -> {
+            if (!enabledFactions.contains(factionId)) {
+                log.warn("大锅饭配置不一致: 帮派{}有{}条启用名单行, 但开关行未启用, 该帮派名单不会生效",
+                        factionId, rows);
+            }
+        });
+        for (Long factionId : enabledFactions) {
+            if (!rosterRowsByFaction.containsKey(factionId)) {
+                log.warn("大锅饭配置不一致: 帮派{}开关行已启用, 但名单为空, 该帮派收益永远不会结算", factionId);
+            }
+        }
     }
 
     @Override
@@ -85,6 +112,9 @@ public class TornSettingOcReassignManager implements DataCacheManager {
      * 获取指定帮派的大锅饭OC名单。
      *
      * <p>派生规则：帮派开关启用且范围行启用的oc_name列表；帮派未启用时返回空列表。</p>
+     *
+     * <p>该方法只表达「分钱池包含哪些OC」，<b>推荐准入不得调用</b>：推荐候选池是该帮派全部空位，
+     * 名单只决定收益算哪些OC。</p>
      *
      * @param factionId 帮派ID
      * @return 大锅饭OC名单
