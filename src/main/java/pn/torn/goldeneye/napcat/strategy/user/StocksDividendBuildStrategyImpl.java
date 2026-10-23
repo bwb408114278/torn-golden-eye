@@ -7,7 +7,7 @@ import pn.torn.goldeneye.constants.bot.BotCommands;
  * 股票分红配置实现类
  *
  * @author Bai
- * @version 0.5.0
+ * @version 1.9.3
  * @since 2026.04.22
  */
 @Component
@@ -19,7 +19,8 @@ public class StocksDividendBuildStrategyImpl extends BaseStocksDividendStrategy 
 
     @Override
     public String getCommandDescription() {
-        return "计算分红收益最优的Stock配置方式，g#" + BotCommands.STOCK_DIVIDEND_CALC + "#资金";
+        return "计算分红收益最优的Stock配置方式，g#" + BotCommands.STOCK_DIVIDEND_CALC + "#资金, " +
+                "g#" + BotCommands.STOCK_DIVIDEND_CALC + "#屏蔽#股票简称 屏蔽股票(多个用英文逗号分隔)";
     }
 
     @Override

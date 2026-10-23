@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksDetailVO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksVO;
@@ -18,7 +19,7 @@ import java.util.stream.Stream;
  * 股票分红计算逻辑层
  *
  * @author Bai
- * @version 1.2.1
+ * @version 1.9.3
  * @since 2025.09.27
  */
 @Component
@@ -40,7 +41,7 @@ public class StocksBonusAnalyzeManager {
      * @param availableCash 用户可用现金
      */
     public List<OptimalAction> calculate(long availableCash, List<TornStocksDO> allStocks, TornUserStocksVO userStocks) {
-        return calculate(availableCash, allStocks, userStocks, false);
+        return calculate(availableCash, allStocks, userStocks, false, Collections.emptySet());
     }
 
     /**
@@ -57,7 +58,25 @@ public class StocksBonusAnalyzeManager {
      */
     public List<OptimalAction> calculate(long availableCash, List<TornStocksDO> allStocks, TornUserStocksVO userStocks,
                                          boolean buyOnly) {
-        List<TornStocksDO> safeStocks = Optional.ofNullable(allStocks).orElseGet(Collections::emptyList);
+        return calculate(availableCash, allStocks, userStocks, buyOnly, Collections.emptySet());
+    }
+
+    /**
+     * 计算最佳股票分红购买策略（排除用户屏蔽的股票）
+     *
+     * <p>屏蔽口径：被屏蔽股票既不进入候选池，也不参与当前持仓识别，
+     * 因此既不会给出买入建议也不会给出卖出建议，其已投入成本不计入本次预算。</p>
+     *
+     * @param availableCash    用户可用现金
+     * @param allStocks        待选股票列表
+     * @param userStocks       用户当前持仓
+     * @param buyOnly          是否只买不卖
+     * @param blockedStocksIds 用户屏蔽的股票ID集合, 为空表示不屏蔽
+     * @return 操作建议; 无建议时返回空列表
+     */
+    public List<OptimalAction> calculate(long availableCash, List<TornStocksDO> allStocks, TornUserStocksVO userStocks,
+                                         boolean buyOnly, Set<Integer> blockedStocksIds) {
+        List<TornStocksDO> safeStocks = filterBlockedStocks(allStocks, blockedStocksIds);
         if (safeStocks.isEmpty()) {
             log.info("股票列表为空，直接返回空操作");
             return Collections.emptyList();
@@ -722,6 +741,27 @@ public class StocksBonusAnalyzeManager {
     }
 
     /**
+     * 过滤用户屏蔽的股票
+     *
+     * @param allStocks        待选股票列表
+     * @param blockedStocksIds 用户屏蔽的股票ID集合
+     * @return 过滤后的股票列表; 入参为空时返回空列表
+     */
+    private List<TornStocksDO> filterBlockedStocks(List<TornStocksDO> allStocks, Set<Integer> blockedStocksIds) {
+        List<TornStocksDO> safeStocks = Optional.ofNullable(allStocks).orElseGet(Collections::emptyList);
+        if (CollectionUtils.isEmpty(blockedStocksIds)) {
+            return safeStocks;
+        }
+
+        List<TornStocksDO> availableStocks = safeStocks.stream()
+                .filter(stock -> stock != null && !blockedStocksIds.contains(stock.getId()))
+                .toList();
+        log.info("按屏蔽列表排除 {} 支股票, {} 支可参与计算",
+                safeStocks.size() - availableStocks.size(), availableStocks.size());
+        return availableStocks;
+    }
+
+    /**
      * 校验股票基础数据是否合法
      */
     private boolean isInvalidStock(TornStocksDO stock) {
@@ -747,13 +787,14 @@ public class StocksBonusAnalyzeManager {
      * @param yearProfit              该BB带来的年利润
      * @param roi                     投资回报率
      */
-    private record BBOpportunity(int stockId,
-                                 String stockShortName,
-                                 int bbLevel,
-                                 long cost,
-                                 long sharesRequiredForThisBb,
-                                 long yearProfit,
-                                 double roi) {
+    private record BBOpportunity(
+            int stockId,
+            String stockShortName,
+            int bbLevel,
+            long cost,
+            long sharesRequiredForThisBb,
+            long yearProfit,
+            double roi) {
         public String uniqueId() {
             return stockShortName + "-" + bbLevel;
         }
@@ -767,10 +808,11 @@ public class StocksBonusAnalyzeManager {
      * @param cumulativeCost   累计成本；在buyOnly模式下为相对当前持仓的增量成本
      * @param cumulativeProfit 累计利润；在buyOnly模式下为相对当前持仓的增量利润
      */
-    private record CumulativeBbOption(int stockId,
-                                      int level,
-                                      long cumulativeCost,
-                                      long cumulativeProfit) {
+    private record CumulativeBbOption(
+            int stockId,
+            int level,
+            long cumulativeCost,
+            long cumulativeProfit) {
     }
 
     /**
@@ -780,9 +822,10 @@ public class StocksBonusAnalyzeManager {
      * @param cumulativeCost   累计成本
      * @param cumulativeProfit 累计利润
      */
-    private record NextCumulativeValue(boolean valid,
-                                       long cumulativeCost,
-                                       long cumulativeProfit) {
+    private record NextCumulativeValue(
+            boolean valid,
+            long cumulativeCost,
+            long cumulativeProfit) {
         private static NextCumulativeValue invalid() {
             return new NextCumulativeValue(false, 0L, 0L);
         }
@@ -798,19 +841,21 @@ public class StocksBonusAnalyzeManager {
      * @param optimalLevels 每支股票最终应达到的最优等级
      * @param maxProfit     最大利润
      */
-    private record DpResult(Map<Integer, Integer> optimalLevels,
-                            long maxProfit) {
+    private record DpResult(
+            Map<Integer, Integer> optimalLevels,
+            long maxProfit) {
     }
 
     /**
      * 操作建议
      */
-    public record OptimalAction(ActionType type,
-                                String stockShortName,
-                                int bbLevel,
-                                long cost,
-                                long yearProfit,
-                                double roi) {
+    public record OptimalAction(
+            ActionType type,
+            String stockShortName,
+            int bbLevel,
+            long cost,
+            long yearProfit,
+            double roi) {
         @Getter
         @AllArgsConstructor
         public enum ActionType {

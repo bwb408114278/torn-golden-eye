@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * Bot指令
  *
  * @author Bai
- * @version 1.8.0
+ * @version 1.9.3
  * @since 2025.08.04
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -105,6 +105,14 @@ public class BotCommands {
      * Stock分红追加
      */
     public static final String STOCK_DIVIDEND_BUY = "Stock分红追加";
+    /**
+     * Stock分红-屏蔽股票子指令
+     */
+    public static final String STOCK_DIVIDEND_BLOCK = "屏蔽";
+    /**
+     * Stock分红-取消屏蔽股票子指令
+     */
+    public static final String STOCK_DIVIDEND_UNBLOCK = "取消屏蔽";
     /**
      * 战力提升
      */
