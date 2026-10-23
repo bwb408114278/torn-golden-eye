@@ -21,7 +21,7 @@ import java.util.List;
  * OC系数设置公共逻辑层
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.9.3
  * @since 2025.11.03
  */
 @Component

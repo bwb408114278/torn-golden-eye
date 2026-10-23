@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * OC推荐VO
  *
  * @author Bai
- * @version 0.3.0
+ * @version 1.9.3
  * @since 2025.11.03
  */
 @Data
@@ -33,7 +33,7 @@ public class OcRecommendationVO {
      */
     private String recommendedPosition;
     /**
-     * 推荐度评分
+     * 推荐度评分，口径为本岗位的机会成本（不再是0至100的相对分）
      */
     private BigDecimal recommendScore;
     /**
@@ -44,8 +44,44 @@ public class OcRecommendationVO {
      * 推荐理由
      */
     private String reason;
+    /**
+     * 期望净产出除以期望人天，表示该岗位的单位人力产出
+     */
+    private BigDecimal expectedNetPerMemberDay;
+    /**
+     * 机会成本，排序键本体：不填这个位帮派会损失多少
+     */
+    private BigDecimal opportunityCost;
+    /**
+     * 除本人之外可填该岗位的人数；null表示成功率矩阵无样本、能力未知
+     */
+    private Integer substituteCount;
+    /**
+     * 岗位稀缺度分档，仅用于解释，不参与排序
+     */
+    private OcRecommendOutcomeEnum outcome;
 
     public OcRecommendationVO(TornFactionOcDO oc, TornFactionOcSlotDO slot, BigDecimal recommendScore, String reason) {
+        this(oc, slot, recommendScore, reason, null, null, null);
+    }
+
+    /**
+     * 构造带机会成本口径的推荐结果。
+     *
+     * <p>排序键就是机会成本，因此 recommendScore 与 opportunityCost 同源：入参只保留一个，
+     * 避免调用方传两份可能不一致的值。</p>
+     *
+     * @param oc                      候选OC
+     * @param slot                    候选空位
+     * @param recommendScore          本岗位机会成本（排序键）
+     * @param reason                  推荐理由
+     * @param expectedNetPerMemberDay 期望净产出除以期望人天
+     * @param substituteCount         除本人之外可填该岗位的人数，null表示未知
+     * @param outcome                 岗位稀缺度分档
+     */
+    public OcRecommendationVO(TornFactionOcDO oc, TornFactionOcSlotDO slot, BigDecimal recommendScore, String reason,
+                              BigDecimal expectedNetPerMemberDay, Integer substituteCount,
+                              OcRecommendOutcomeEnum outcome) {
         this.ocId = oc.getId();
         this.ocName = oc.getName();
         this.rank = oc.getRank();
@@ -53,5 +89,9 @@ public class OcRecommendationVO {
         this.readyTime = oc.getReadyTime();
         this.recommendScore = recommendScore;
         this.reason = reason;
+        this.expectedNetPerMemberDay = expectedNetPerMemberDay;
+        this.opportunityCost = recommendScore;
+        this.substituteCount = substituteCount;
+        this.outcome = outcome;
     }
 }

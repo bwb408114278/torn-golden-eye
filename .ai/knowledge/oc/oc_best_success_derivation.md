@@ -179,7 +179,7 @@ keys.forEach((k, i) => console.log(k, (100 * g[i] / sum).toFixed(2)));
 | Cleared for Takeoff | `Imitator#1`=19.85 · `Techie#1`=28.69 · `Pickpocket#1`=13.43 · `Lookout#1`=4.40 · `Assassin#1`=6.83 · `Interrogator#1`=26.81 | 100.01 |
 | First Aid and Abet | `Picklock#1`=39.09 · `Decoy#1`=19.32 · `Pickpocket#1`=41.59 | 100.00 |
 | Thou Shalt Not Steal | `Picklock#1`=41.59 · `Thief#1`=16.78 · `Pickpocket#1`=41.63 | 100.00 |
-| Ship Happens | `Engineer#1`=0.00 · `Assassin#1`=0.00 · `Hustler#1`=0.00 · `Spy#1`=0.00 · `Interrogator#1`=0.00 | 0.00（未回填） |
+| Ship Happens | `Engineer#1`=15.62 · `Interrogator#1`=39.45 · `Hustler#1`=25.98 · `Spy#1`=15.66 · `Assassin#1`=3.29 | 100.00（2026-10-14 上游数据上线后补算） |
 
 
 ### 7.1 遗留事项
@@ -187,5 +187,5 @@ keys.forEach((k, i) => console.log(k, (100 * g[i] / sum).toFixed(2)));
 1. **新建 OC 仍会写 0**：`TornSettingOcSyncManager`（DEFAULT_BEST_SUCCESS=0）对运行期新出现的 OC 只写默认值，不会自动算 best_success。若 best_success 要长期启用，需要二选一：
    - 维护式：新 OC 上线后按本文口径重算并追加一条回填 SQL；
    - 内建式：把「图 + 基线 60% + 对 goodEnding1 求偏导」实装进代码（需要把 32 张图录成配置，成本较高，但可自动覆盖新 OC）。
-2. **Ship Happens**：拿到官方流程图后按第 3 节口径补算，追加一条 UPDATE 即可。
+2. ~~**Ship Happens**：拿到官方流程图后按第 3 节口径补算~~ —— **已解决（2026-10-14）**：上游此前完全没有这个 OC（既无 scenario 也无权重），现已上线（33 个 scenario / 33 个 OC），无需流程图，直接用第 3 节的中心差分算出 `Engineer#1`=15.62 · `Interrogator#1`=39.45 · `Hustler#1`=25.98 · `Spy#1`=15.66 · `Assassin#1`=3.29（合计 100.00）；SQL 见 [ship_happens_backfill.sql](../../../out/oc-backfill/ship_happens_backfill.sql)（同一文件里连 priority 一起补）。全 60% 基线时该 OC 的 GE1 = 0.17497，61/59 差分摆幅 0.0004~0.0053，与其余 32 个 OC 同量级。
 3. 若下游要求"每个 OC 合计严格等于 100.00"，可用最大余数法对 2 位小数做一次配平（当前是自然取整，最大偏差 0.02）。

@@ -83,6 +83,17 @@ class TornOcRecommendManagerTest {
         assertThat(overrideResult.getPassRate()).isNotEqualTo(globalResult.getPassRate());
     }
 
+    @Test
+    @DisplayName("推荐理由文案与改动前逐字一致")
+    void buildRecommendReason_shouldKeepExactWording() {
+        assertThat(recommendManager.buildRecommendReason(null, 80)).isEqualTo("新队、超高成功率");
+        assertThat(recommendManager.buildRecommendReason(null, 70)).isEqualTo("新队、高成功率");
+        assertThat(recommendManager.buildRecommendReason(LocalDateTime.now().minusHours(1), 72))
+                .isEqualTo("已停转，急需加入、高成功率");
+        assertThat(recommendManager.buildRecommendReason(LocalDateTime.now().plusMinutes(90), 65))
+                .isEqualTo("2小时内停转、成功率达标");
+    }
+
     // ── 工具方法 ──────────────────────────────────────────────
     private TornFactionOcDO oc(String name, int rank) {
         TornFactionOcDO oc = new TornFactionOcDO();

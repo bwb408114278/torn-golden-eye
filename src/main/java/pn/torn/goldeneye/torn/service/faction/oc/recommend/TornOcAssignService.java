@@ -11,14 +11,14 @@ import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
-import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCost;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker.OcRankContext;
 
-import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -26,8 +26,12 @@ import java.util.stream.Collectors;
 /**
  * OC队伍分配基础逻辑层
  *
+ * <p>与单人推荐共用同一套度量与排序：候选先折算成期望净产出与期望人天，再按机会成本排序，
+ * 不再按大锅饭名单剪枝，也不再有第二套评分公式。分配过程只把「预期开动时间」放进局部Map，
+ * 不再就地改写共享的OC对象，因此不存在需要回滚的状态。</p>
+ *
  * @author Bai
- * @version 1.6.2
+ * @version 1.9.3
  * @since 2025.11.24
  */
 @Slf4j
@@ -35,7 +39,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TornOcAssignService {
     private final TornOcRecommendManager ocRecommendManager;
-    private final TornSettingOcReassignManager reassignManager;
+    private final OcYieldEstimatorRegistry yieldEstimatorRegistry;
+    private final OcOpportunityCostRanker opportunityCostRanker;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
@@ -94,7 +99,7 @@ public class TornOcAssignService {
         }
 
         // 3. 全局分配
-        return allocateGlobally(vacantSlots, userOcMap);
+        return allocateGlobally(factionId, vacantSlots, userOcMap);
     }
 
     /**
@@ -134,105 +139,129 @@ public class TornOcAssignService {
     }
 
     /**
-     * 全局分配算法：先保证不停转，再保证人选合适
+     * 全局分配算法：按机会成本从高到低为每个空闲成员挑选岗位。
+     *
+     * @param factionId   帮派ID
+     * @param vacantSlots 空闲岗位池
+     * @param userOcMap   Key为用户, Value为该用户的成功率数据
+     * @return Key为用户, Value为分配结果；没有合格岗位时为null
      */
     private Map<TornUserDO, OcRecommendationVO> allocateGlobally(
+            long factionId,
             TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots,
             Map<TornUserDO, List<TornFactionOcUserDO>> userOcMap) {
+        AllocationFacts facts = buildAllocationFacts(factionId, vacantSlots);
         Map<TornUserDO, OcRecommendationVO> result = new HashMap<>();
-        Set<Long> allocatedSlot = new HashSet<>();
-        LocalDateTime now = LocalDateTime.now();
-        Map<Long, LocalDateTime> ocReadyMap = buildOriginTimeMap(vacantSlots, now);
-
         for (Map.Entry<TornUserDO, List<TornFactionOcUserDO>> entry : userOcMap.entrySet()) {
-            List<UserMatchScore> candidates = findCandidatesForUser(entry.getKey(), entry.getValue(),
-                    vacantSlots, allocatedSlot);
-            if (candidates.isEmpty()) {
-                result.put(entry.getKey(), null);
-                continue;
-            }
-
-            UserMatchScore bestMatch = candidates.stream()
-                    .max(buildCandidateComparator(ocReadyMap, now))
-                    .orElseThrow(() -> new IllegalStateException("OC候选不能为空"));
-
-            BigDecimal score = bestMatch.score();
-
-            LocalDateTime originTime = ocReadyMap.get(bestMatch.oc().getId());
-            String reason = ocRecommendManager.buildRecommendReason(originTime, bestMatch.matchData().getPassRate());
-            result.put(bestMatch.user(), new OcRecommendationVO(bestMatch.oc(), bestMatch.slot(), score, reason));
-
-            allocatedSlot.add(bestMatch.slot().getId());
-            bestMatch.oc().setReadyTime(bestMatch.oc().getReadyTime().plusDays(1));
+            result.put(entry.getKey(), allocateOne(entry.getKey(), entry.getValue(), vacantSlots, facts));
         }
-
-        for (TornFactionOcDO oc : vacantSlots.keySet()) {
-            if (ocReadyMap.containsKey(oc.getId())) {
-                oc.setReadyTime(ocReadyMap.get(oc.getId()));
-            }
-        }
-
         return result;
     }
 
     /**
-     * 为指定用户找到所有合格的候选岗位
+     * 加载本次分配共用的只读事实：产出估算、能力矩阵、已占用岗位、空位统计与预期开动时间。
      */
-    private List<UserMatchScore> findCandidatesForUser(TornUserDO user, List<TornFactionOcUserDO> userOcData,
-                                                       Map<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
-                                                       Set<Long> allocatedPosition) {
-        List<UserMatchScore> candidates = new ArrayList<>();
-        boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
-        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
-            TornFactionOcDO oc = entry.getKey();
-            // 大锅饭制度的, 只要成功率够了就只判断大锅饭
-            if (isReassign && !reassignManager.getRotationOcNames(user.getFactionId()).contains(oc.getName())) {
-                continue;
-            }
+    private AllocationFacts buildAllocationFacts(long factionId,
+                                                 TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots) {
+        LocalDateTime now = LocalDateTime.now();
+        List<TornFactionOcDO> ocList = List.copyOf(vacantSlots.keySet());
+        List<TornFactionOcSlotDO> emptySlotList = vacantSlots.values().stream()
+                .flatMap(List::stream)
+                .toList();
+        Map<Long, OcYieldEstimate> estimates = yieldEstimatorRegistry.estimateAll(ocList, now);
+        Map<Long, Integer> emptySlotsByOc = emptySlotList.stream()
+                .collect(Collectors.toMap(TornFactionOcSlotDO::getOcId, slot -> 1, Integer::sum));
+        List<TornFactionOcSlotDO> occupiedSlots = ocSlotDao.queryListByOc(ocList).stream()
+                .filter(slot -> slot.getUserId() != null)
+                .toList();
+        OcRankContext context = new OcRankContext(ocUserDao.queryFactionMatrix(factionId),
+                occupiedSlots, emptySlotsByOc, null, now);
+        return new AllocationFacts(estimates, context, new HashSet<>(), buildOriginReadyMap(vacantSlots));
+    }
 
-            for (TornFactionOcSlotDO slot : entry.getValue()) {
-                TornSettingOcSlotDO setting = ocRecommendManager.findSlotSetting(user.getFactionId(), oc, slot);
-                TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, setting);
-
-                // 跳过已分配的岗位, 检查是否满足最低成功率要求
-                if (allocatedPosition.contains(slot.getId()) ||
-                        setting == null ||
-                        matchedData == null ||
-                        matchedData.getPassRate() < setting.getPassRate()) {
-                    continue;
-                }
-
-                // 计算综合评分
-                BigDecimal score = ocRecommendManager.calcRecommendScore(isReassign, oc, setting, matchedData);
-                candidates.add(new UserMatchScore(user, userOcData, matchedData, oc, slot, score));
-            }
+    /**
+     * 为单个成员挑出机会成本最高的岗位并占用它。
+     */
+    private OcRecommendationVO allocateOne(TornUserDO user, List<TornFactionOcUserDO> userOcData,
+                                           TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots,
+                                           AllocationFacts facts) {
+        List<OcRecommendCandidate> candidates = buildCandidates(user, userOcData, vacantSlots, facts);
+        List<OcRecommendCandidate> ranked = opportunityCostRanker.rank(candidates, null,
+                facts.context().withUserId(user.getId()));
+        if (ranked.isEmpty()) {
+            return null;
         }
 
+        OcRecommendCandidate bestMatch = ranked.getFirst();
+        Integer passRate = bestMatch.passRate() != null
+                ? bestMatch.passRate() : bestMatch.requirement().getPassRate();
+        String reason = ocRecommendManager.buildRecommendReason(
+                facts.plannedReadyMap().get(bestMatch.oc().getId()), passRate);
+        facts.allocatedSlot().add(bestMatch.slot().getId());
+        advancePlannedReady(facts.plannedReadyMap(), bestMatch.oc().getId());
+        return toRecommendation(bestMatch, reason);
+    }
+
+    /**
+     * 为指定用户构建全部合格候选：跳过已分配岗位与不可填岗位，其余按机会成本参与排序。
+     */
+    private List<OcRecommendCandidate> buildCandidates(TornUserDO user, List<TornFactionOcUserDO> userOcData,
+                                                       TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> ocMap,
+                                                       AllocationFacts facts) {
+        List<OcRecommendCandidate> candidates = new ArrayList<>();
+        for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
+            TornFactionOcDO oc = entry.getKey();
+            for (TornFactionOcSlotDO slot : entry.getValue()) {
+                OcSlotEligibility eligibility = facts.allocatedSlot().contains(slot.getId())
+                        ? null
+                        : ocRecommendManager.resolveEligibility(user.getFactionId(), oc, slot, userOcData);
+                if (eligibility == null || !eligibility.eligible()) {
+                    continue;
+                }
+                candidates.add(new OcRecommendCandidate(oc, slot, eligibility.requirement(),
+                        eligibility.passRate(), estimateOf(facts.estimates(), oc), null));
+            }
+        }
         return candidates;
     }
 
     /**
-     * 构建原本时间的Map，因为每次分配是多个人，假设能全部进队的话，同天内的OC应该以岗位优先考虑
+     * 取OC的估算值，缺失时按0产出兜底，避免排序阶段空指针。
+     */
+    private OcYieldEstimate estimateOf(Map<Long, OcYieldEstimate> estimates, TornFactionOcDO oc) {
+        return estimates.getOrDefault(oc.getId(), OcYieldEstimate.zero(OcYieldSourceEnum.MAPPED));
+    }
+
+    /**
+     * 把候选转成对外推荐结果，排序键写入机会成本。
+     */
+    private OcRecommendationVO toRecommendation(OcRecommendCandidate candidate, String reason) {
+        OcOpportunityCost cost = candidate.cost();
+        return new OcRecommendationVO(candidate.oc(), candidate.slot(), cost.opportunityCost(), reason,
+                candidate.estimate().netPerMemberDay(), cost.substituteCount(), cost.outcome());
+    }
+
+    /**
+     * 构建原本时间的Map，仅用于理由文案，不改写共享的OC对象。
      *
+     * @param vacantSlots 空闲岗位池
      * @return Key为OC ID, Value为原本的准备时间
      */
-    private Map<Long, LocalDateTime> buildOriginTimeMap(TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots,
-                                                        LocalDateTime now) {
-        if (CollectionUtils.isEmpty(vacantSlots)) {
-            return Map.of();
-        }
-
+    private Map<Long, LocalDateTime> buildOriginReadyMap(
+            TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots) {
         Map<Long, LocalDateTime> resultMap = HashMap.newHashMap(vacantSlots.size());
         for (TornFactionOcDO oc : vacantSlots.keySet()) {
             resultMap.put(oc.getId(), oc.getReadyTime());
-
-            LocalDateTime originTime = oc.getReadyTime() == null ? now : oc.getReadyTime();
-            long readyHours = Duration.between(now, originTime).toHours();
-            LocalDateTime targetTime = readyHours < 8 ? now : oc.getReadyTime();
-            oc.setReadyTime(targetTime);
         }
-
         return resultMap;
+    }
+
+    /**
+     * 推进该OC的预期开动时间：每为它分配一人，开动时间顺延一天。
+     */
+    private void advancePlannedReady(Map<Long, LocalDateTime> plannedReadyMap, Long ocId) {
+        plannedReadyMap.compute(ocId, (k, plannedReady) ->
+                plannedReady == null ? null : plannedReady.plusDays(1));
     }
 
     /**
@@ -258,41 +287,20 @@ public class TornOcAssignService {
     }
 
     /**
-     * 构建候选岗位比较器，依次按停转状态、综合评分、OC ID和岗位ID排序。
+     * 本次分配共用的只读事实与分配过程状态。
      *
-     * @param originTimeMap OC原始准备时间
-     * @param now           本次分配的时间基准
-     * @return 候选岗位比较器
+     * @param estimates       OC ID到期望产出估算值的映射
+     * @param context         机会成本排序上下文（成员ID逐人替换）
+     * @param allocatedSlot   已被占用的岗位ID集合
+     * @param plannedReadyMap OC ID到预期开动时间的映射，仅在本方法内推进
+     * @author Bai
+     * @version 1.9.3
+     * @since 2026.10.23
      */
-    private Comparator<UserMatchScore> buildCandidateComparator(Map<Long, LocalDateTime> originTimeMap,
-                                                                LocalDateTime now) {
-        return Comparator
-                .comparing((UserMatchScore match) -> isStopped(originTimeMap.get(match.oc().getId()), now))
-                .thenComparing(UserMatchScore::score)
-                .thenComparing(match -> match.oc().getId(), Comparator.nullsFirst(Long::compareTo))
-                .thenComparing(match -> match.slot().getId(), Comparator.nullsFirst(Long::compareTo));
-    }
-
-    /**
-     * 判断原始准备时间是否已经进入停转状态。
-     *
-     * @param readyTime OC原始准备时间
-     * @param now       本次分配的时间基准
-     * @return 已到准备时间时返回true；准备时间为空或仍在未来时返回false
-     */
-    private boolean isStopped(LocalDateTime readyTime, LocalDateTime now) {
-        return readyTime != null && !readyTime.isAfter(now);
-    }
-
-    /**
-     * 用户匹配评分
-     */
-    private record UserMatchScore(
-            TornUserDO user,
-            List<TornFactionOcUserDO> userOcData,
-            TornFactionOcUserDO matchData,
-            TornFactionOcDO oc,
-            TornFactionOcSlotDO slot,
-            BigDecimal score) {
+    private record AllocationFacts(
+            Map<Long, OcYieldEstimate> estimates,
+            OcRankContext context,
+            Set<Long> allocatedSlot,
+            Map<Long, LocalDateTime> plannedReadyMap) {
     }
 }

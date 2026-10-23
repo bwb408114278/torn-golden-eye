@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
  * Torn股票公共逻辑层
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.9.3
  * @since 2025.09.26
  */
 @Slf4j
@@ -78,12 +78,21 @@ public class TornStocksManager {
 
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("\\$(\\d{1,3}(?:,\\d{3})*)");
     private static final Pattern ITEM_PATTERN = Pattern.compile("1x (.+)");
+    private static final String PHASE_API_REQUEST = "API_REQUEST";
+    private static final String PHASE_RESPONSE_INVALID = "RESPONSE_INVALID";
+    private static final String PHASE_PERSIST = "PERSIST";
 
     /**
      * JVM内实时采集防重入标记,同一时刻仅允许一个采集流程
      */
     private final AtomicBoolean realtimeProcessing = new AtomicBoolean(false);
 
+    /**
+     * 实时采集当前分钟股票行情：写入分钟事实后按插入结果决定是否派发下游。
+     * <p>
+     * 失败一律fail-closed：不写半成功结论、不派发下游，并把计划分钟、阶段与耗时写入单条ERROR日志，
+     * 便于按日志定位是外部依赖不可达、响应非法还是落库失败。
+     */
     @Scheduled(cron = "5 * * * * ?", scheduler = "realtimeStockScheduler")
     public void spiderStockData() {
         if (!BotConstants.ENV_PROD.equals(projectProperty.getEnv())) {
@@ -97,9 +106,13 @@ public class TornStocksManager {
 
         LocalDateTime startedAt = marketClock.now();
         LocalDateTime plannedMinute = startedAt.withSecond(0).withNano(0);
+        String phase = PHASE_API_REQUEST;
         try {
             TornStocksVO resp = tornApi.sendRequest(new TornStocksDTO(), TornStocksVO.class);
             LocalDateTime apiCompletedAt = marketClock.now();
+            phase = PHASE_RESPONSE_INVALID;
+            validateStocksResponse(resp, plannedMinute);
+            phase = PHASE_PERSIST;
             upsertStocksSnapshot(resp);
             HistoryInsertResult insertResult = saveStocksHistory(resp, plannedMinute);
             LocalDateTime historyPersistedAt = marketClock.now();
@@ -107,10 +120,26 @@ public class TornStocksManager {
                     insertResult.expectedCount(), insertResult.insertedCount());
             handleInsertResult(insertResult, plannedMinute);
         } catch (Exception e) {
-            log.error("股票实时采集-异常, plannedMinute={}, startedAt={}, 不写半成功结论", plannedMinute, startedAt, e);
+            log.error("股票实时采集-异常, plannedMinute={}, startedAt={}, elapsedMs={}, phase={}, 不写半成功结论",
+                    plannedMinute, startedAt, Duration.between(startedAt, marketClock.now()).toMillis(), phase, e);
             throw e;
         } finally {
             realtimeProcessing.set(false);
+        }
+    }
+
+    /**
+     * 校验采集响应：Torn API在超时、空响应与错误码场景均可能返回null，空响应必须显式失败，
+     * 避免在快照转换处抛出空指针而把外部依赖故障误判为代码缺陷。
+     *
+     * @param resp          Torn股票行情响应
+     * @param plannedMinute 计划自然分钟采样键
+     * @throws IllegalStateException 响应为空或股票列表为空时抛出
+     */
+    private void validateStocksResponse(TornStocksVO resp, LocalDateTime plannedMinute) {
+        if (resp == null || CollectionUtils.isEmpty(resp.getStocks())) {
+            throw new IllegalStateException("股票实时采集-响应为空, plannedMinute=" + plannedMinute
+                    + ", respNull=" + (resp == null));
         }
     }
 

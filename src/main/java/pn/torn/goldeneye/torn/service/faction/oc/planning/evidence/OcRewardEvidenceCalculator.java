@@ -17,7 +17,7 @@ import java.util.OptionalLong;
  * OC收益证据计算器。奖励物品价值拆分和收益口径统一集中在此，SQL、Renderer和各Service不得自行拆分。
  *
  * @author Bai
- * @version 1.3.0
+ * @version 1.9.2
  * @since 2026.08.15
  */
 @Component
@@ -126,9 +126,10 @@ public class OcRewardEvidenceCalculator {
     }
 
     /**
-     * 聚合完整链的价值证据：按最弱节点层级降级，链价值为节点价值合计。
+     * 聚合完整链的价值证据：按最弱节点层级降级，链价值为有金额节点的价值合计。
      *
-     * <p>任一节点金额证据不足时聚合链即金额证据不足，不得用于提高刷新建议；
+     * <p>无直接奖励的节点（如高阶链根节点）金额证据为null，聚合时跳过该节点，
+     * 不用单个缺失节点否定整链金额；全部节点金额均缺失时链金额仍为null。
      * 层级取最弱节点而非最强节点，避免强节点掩盖弱节点的降级事实。</p>
      *
      * @param nodeEvidences 链内全部节点（含根）的价值证据
@@ -143,15 +144,15 @@ public class OcRewardEvidenceCalculator {
                 .map(OcValueEvidence::level)
                 .max(Enum::compareTo)
                 .orElse(OcValueEvidence.Level.INSUFFICIENT);
-        BigDecimal totalValue = null;
-        boolean allValued = nodeEvidences.stream()
-                .allMatch(evidence -> evidence.totalValue() != null);
-        if (allValued) {
-            totalValue = BigDecimal.ZERO;
-            for (OcValueEvidence evidence : nodeEvidences) {
-                totalValue = totalValue.add(evidence.totalValue());
+        BigDecimal partialSum = BigDecimal.ZERO;
+        boolean hasAnyValue = false;
+        for (OcValueEvidence evidence : nodeEvidences) {
+            if (evidence.totalValue() != null) {
+                partialSum = partialSum.add(evidence.totalValue());
+                hasAnyValue = true;
             }
         }
+        BigDecimal totalValue = hasAnyValue ? partialSum : null;
         int memberDays = nodeEvidences.stream()
                 .mapToInt(OcValueEvidence::incrementalMemberDays).sum();
         int highestRank = nodeEvidences.stream()

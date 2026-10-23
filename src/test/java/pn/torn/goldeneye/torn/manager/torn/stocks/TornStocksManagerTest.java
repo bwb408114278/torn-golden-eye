@@ -41,11 +41,12 @@ import static org.mockito.Mockito.*;
  *   <li>全冲突跳过时不发消息、不推进旧特征游标;</li>
  *   <li>部分冲突 fail-closed 抛异常且不发消息;</li>
  *   <li>同 JVM 重入不发 API;</li>
- *   <li>API 异常后释放防重入标记。</li>
+ *   <li>API 异常后释放防重入标记;</li>
+ *   <li>响应为null或股票列表为空时显式失败，不在快照转换处抛空指针。</li>
  * </ul>
  *
  * @author Bai
- * @version 1.4.0
+ * @version 1.9.3
  * @since 2026.08.14
  */
 @ExtendWith(MockitoExtension.class)
@@ -238,5 +239,35 @@ class TornStocksManagerTest {
 
         AtomicBoolean flag = (AtomicBoolean) ReflectionTestUtils.getField(manager, "realtimeProcessing");
         assertFalse(flag.get(), "异常后必须释放防重入标记");
+    }
+
+    @Test
+    @DisplayName("实时采集_响应为null_显式失败且不写历史不派发下游")
+    void spiderStockData_nullResponse_failsExplicitly() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(marketClock.now()).thenReturn(STARTED_AT);
+        when(tornApi.sendRequest(any(TornStocksDTO.class), eq(TornStocksVO.class))).thenReturn(null);
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, manager::spiderStockData,
+                "空响应必须显式失败, 不得在快照转换处抛空指针");
+        assertTrue(exception.getMessage().contains("respNull=true"), "异常信息必须标明响应为null");
+        verify(stocksHistoryDao, never()).insertRealtimeIgnoreConflict(anyList());
+        verify(virtualThreadExecutor, never()).execute(any(Runnable.class));
+    }
+
+    @Test
+    @DisplayName("实时采集_股票列表为空_显式失败且不写历史不派发下游")
+    void spiderStockData_emptyStocks_failsExplicitly() {
+        when(projectProperty.getEnv()).thenReturn(BotConstants.ENV_PROD);
+        when(marketClock.now()).thenReturn(STARTED_AT);
+        TornStocksVO emptyResp = new TornStocksVO();
+        emptyResp.setStocks(List.of());
+        when(tornApi.sendRequest(any(TornStocksDTO.class), eq(TornStocksVO.class))).thenReturn(emptyResp);
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, manager::spiderStockData,
+                "空股票列表必须显式失败");
+        assertTrue(exception.getMessage().contains("respNull=false"), "异常信息必须标明响应非null但股票列表为空");
+        verify(stocksHistoryDao, never()).insertRealtimeIgnoreConflict(anyList());
+        verify(virtualThreadExecutor, never()).execute(any(Runnable.class));
     }
 }

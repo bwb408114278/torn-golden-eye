@@ -14,23 +14,30 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCost;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker.OcRankContext;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendTimeSupport;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
  * OC队伍推荐逻辑层
  *
+ * <p>候选池是该帮派全部招募中OC的空位，不再按大锅饭名单剪枝；每个候选先由度量层折算成
+ * 期望净产出与期望人天，再由机会成本排序器统一排序。是否在大锅饭名单只影响分钱口径，
+ * 不影响推荐结果。已加入队伍时，以当前岗位的机会成本作为基线，只输出严格优于基线的候选。</p>
+ *
  * @author Bai
- * @version 1.6.2
+ * @version 1.9.3
  * @since 2025.11.01
  */
 @Slf4j
@@ -38,14 +45,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TornOcRecommendService {
     private final TornOcRecommendManager ocRecommendManager;
-    private final TornSettingOcReassignManager reassignManager;
+    private final OcYieldEstimatorRegistry yieldEstimatorRegistry;
+    private final OcOpportunityCostRanker opportunityCostRanker;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
 
     /**
-     * 为用户推荐OC队伍和岗位，权重：停转时间 > 成功率；评分相同时缺人少的OC优先，更快凑齐开动释放人力。
-     * 已加入用户同分时候选仅在其OC缺人数少于当前队时推荐，避免同分岗位之间来回切换。
+     * 为用户推荐OC队伍和岗位。
+     *
+     * <p>排序键为机会成本（不填这个位帮派损失多少）。同一OC的多个空位各自独立进入结果，
+     * 允许一个OC占满Top N：抢位失败后同队的第二个岗位仍值得加入，不必再请求一次指令。</p>
      *
      * @param user     用户
      * @param topN     返回Top N个推荐
@@ -53,8 +63,9 @@ public class TornOcRecommendService {
      * @return 可切换的推荐岗位列表
      */
     public List<OcRecommendationVO> recommendOcForUser(TornUserDO user, int topN, OcSlotDictBO joinedOc) {
+        LocalDateTime now = LocalDateTime.now();
         // 1. 查询所有招募中的OC
-        List<TornFactionOcDO> recruitOcList = findRecrutList(user.getFactionId(), joinedOc);
+        List<TornFactionOcDO> recruitOcList = findRecrutList(user.getFactionId(), joinedOc, now);
         if (CollectionUtils.isEmpty(recruitOcList)) {
             return List.of();
         }
@@ -65,41 +76,20 @@ public class TornOcRecommendService {
             return List.of();
         }
 
-        // 3. 查询用户成功率数据
+        // 3. 查询用户成功率数据；矩阵为空不再提前返回，交由度量层退回映射值
         List<TornFactionOcUserDO> userOcData = ocUserDao.queryByUserId(user.getId());
-        if (CollectionUtils.isEmpty(userOcData)) {
-            return List.of();
-        }
+        RankFacts facts = buildRankFacts(user.getFactionId(), recruitOcList, emptySlotList,
+                user.getId(), joinedOc, now);
 
-        // 4. 为每个OC的每个空闲岗位计算推荐度
-        boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
-        CurrentOcStatus currentStatus = buildCurrentOcStatus(user, joinedOc, userOcData, isReassign);
-        List<OcRecommendationVO> recommendations = new ArrayList<>();
-        for (TornFactionOcDO oc : recruitOcList) {
-            if (shouldSkipOc(isReassign, user.getFactionId(), oc, joinedOc)) {
-                continue;
-            }
-            collectSlotsScore(oc, emptySlotList, user.getFactionId(), userOcData, isReassign, recommendations);
-        }
-
-        // 5. 按推荐度排序，评分相同时缺人少的OC优先（缺人数决定OC何时能凑齐开动释放人力）
-        Map<Long, Integer> emptyCountMap = emptySlotList.stream()
-                .collect(Collectors.toMap(TornFactionOcSlotDO::getOcId, s -> 1, Integer::sum));
-        Comparator<OcRecommendationVO> recommendComparator = Comparator
-                .comparing(OcRecommendationVO::getRecommendScore)
-                .reversed()
-                .thenComparing(r -> emptyCountMap.getOrDefault(r.getOcId(), 0));
-        List<OcRecommendationVO> sorted = recommendations.stream()
-                .sorted(recommendComparator)
+        // 4. 构建候选并以当前岗位为基线排序
+        List<OcRecommendCandidate> candidates = buildCandidates(recruitOcList, emptySlotList,
+                user.getFactionId(), userOcData, facts.estimates());
+        OcRecommendCandidate baseline = buildBaseline(user, joinedOc, userOcData, facts);
+        List<OcRecommendCandidate> ranked = opportunityCostRanker.rank(candidates, baseline, facts.context());
+        return ranked.stream()
+                .limit(Math.max(0, topN))
+                .map(this::toRecommendation)
                 .toList();
-
-        // 6. 以当前队（评分, 缺人数）为基线过滤，返回Top N
-        // 当前OC已被禁用时，当前OC不是合法加入目标，其评分不能作为正常候选的过滤基线。
-        BigDecimal baseline = currentStatus.disabled() ? null : currentStatus.currentScore();
-        int baselineEmptyCount = baseline == null || joinedOc == null
-                ? 0 : emptyCountMap.getOrDefault(joinedOc.getOc().getId(), 0);
-        sorted = filterBelowBaseline(sorted, baseline, baselineEmptyCount, emptyCountMap);
-        return sorted.stream().limit(topN).toList();
     }
 
     /**
@@ -114,129 +104,33 @@ public class TornOcRecommendService {
             return CurrentOcStatus.notJoined();
         }
 
+        LocalDateTime now = LocalDateTime.now();
         List<TornFactionOcUserDO> userOcData = ocUserDao.queryByUserId(user.getId());
-        boolean isReassign = ocRecommendManager.checkIsReassignRecommended(user, userOcData);
-        return buildCurrentOcStatus(user, joinedOc, userOcData, isReassign);
-    }
-
-    private CurrentOcStatus buildCurrentOcStatus(TornUserDO user, OcSlotDictBO joinedOc,
-                                                 List<TornFactionOcUserDO> userOcData,
-                                                 boolean isReassign) {
-        if (joinedOc == null) {
-            return CurrentOcStatus.notJoined();
-        }
-
         TornFactionOcDO oc = joinedOc.getOc();
-        TornFactionOcSlotDO slot = joinedOc.getSlot();
         boolean disabled = ocRecommendManager.isOcDisabled(user.getFactionId(), oc);
-        TornSettingOcSlotDO requirement = ocRecommendManager.findSlotRequirement(user.getFactionId(), oc, slot);
+        TornSettingOcSlotDO requirement = ocRecommendManager.findSlotRequirement(user.getFactionId(), oc, joinedOc.getSlot());
         TornFactionOcUserDO passRateData = ocRecommendManager.findUserPassRate(userOcData, oc, requirement);
         Integer actualPassRate = passRateData == null ? null : passRateData.getPassRate();
         Integer requiredPassRate = requirement == null ? null : requirement.getPassRate();
         boolean passRateInsufficient = actualPassRate != null && requiredPassRate != null
                 && actualPassRate < requiredPassRate;
-        BigDecimal currentScore = calculateCurrentScore(isReassign, joinedOc, requirement, passRateData);
+        BigDecimal currentScore = calculateCurrentScore(user, joinedOc, requirement, passRateData, now);
         return new CurrentOcStatus(true, disabled, passRateInsufficient,
                 actualPassRate, requiredPassRate, currentScore);
-    }
-
-    private BigDecimal calculateCurrentScore(boolean isReassign, OcSlotDictBO joinedOc,
-                                             TornSettingOcSlotDO requirement,
-                                             TornFactionOcUserDO passRateData) {
-        if (requirement == null || passRateData == null
-                || passRateData.getPassRate() < requirement.getPassRate()) {
-            return null;
-        }
-        // 空转基线与候选同口径按停转时间减一天计算，避免同队等价岗位以假性高分被反复推荐
-        TornFactionOcDO oc = hasProgress(joinedOc)
-                ? joinedOc.getOc()
-                : copyWithReadyTime(joinedOc.getOc(), joinedOc.getOc().getReadyTime().minusDays(1));
-        return ocRecommendManager.calcRecommendScore(isReassign, oc, requirement, passRateData);
-    }
-
-    /**
-     * 大锅饭模式下，检查是否应跳过该OC（当前队伍永远不跳过）
-     */
-    private boolean shouldSkipOc(boolean isReassign, long factionId, TornFactionOcDO oc, OcSlotDictBO joinedOc) {
-        if (!isReassign) {
-            return false;
-        }
-        if (reassignManager.getRotationOcNames(factionId).contains(oc.getName())) {
-            return false;
-        }
-        return joinedOc == null || !joinedOc.getOc().getId().equals(oc.getId());
-    }
-
-    /**
-     * 评估单个OC的所有空闲槽位，符合条件的加入推荐列表
-     */
-    private void collectSlotsScore(TornFactionOcDO oc, List<TornFactionOcSlotDO> emptySlotList,
-                                   long factionId, List<TornFactionOcUserDO> userOcData,
-                                   boolean isReassign, List<OcRecommendationVO> recommendations) {
-        List<TornFactionOcSlotDO> vacantSlots = emptySlotList.stream()
-                .filter(s -> s.getOcId().equals(oc.getId())).toList();
-        for (TornFactionOcSlotDO slot : vacantSlots) {
-            TornSettingOcSlotDO slotSetting = ocRecommendManager.findSlotSetting(factionId, oc, slot);
-            TornFactionOcUserDO matchedData = ocRecommendManager.findUserPassRate(userOcData, oc, slotSetting);
-            if (slotSetting == null || matchedData == null
-                    || matchedData.getPassRate() < slotSetting.getPassRate()) {
-                continue;
-            }
-            BigDecimal recommendScore = ocRecommendManager.calcRecommendScore(isReassign, oc, slotSetting, matchedData);
-            String recommentReason = ocRecommendManager.buildRecommendReason(oc.getReadyTime(), matchedData.getPassRate());
-            recommendations.add(new OcRecommendationVO(oc, slot, recommendScore, recommentReason));
-        }
-    }
-
-    /**
-     * 已加入队伍时，过滤掉不优于当前队的推荐。
-     *
-     * <p>基线按（评分降序, 缺人数升序）字典序比较：评分更低的候选被过滤；
-     * 评分相同的候选仅当所属OC缺人数严格少于当前队时保留，帮助缺人少的OC更快凑齐开动，且避免同分岗位来回切换。</p>
-     *
-     * @param sorted             已按评分排序的推荐列表
-     * @param baselineScore      当前岗位评分基线，null表示不过滤
-     * @param baselineEmptyCount 当前队缺人数基线
-     * @param emptyCountMap      OC缺人数统计
-     * @return 按字典序优于当前队的推荐列表
-     */
-    private List<OcRecommendationVO> filterBelowBaseline(List<OcRecommendationVO> sorted,
-                                                         BigDecimal baselineScore,
-                                                         int baselineEmptyCount,
-                                                         Map<Long, Integer> emptyCountMap) {
-        if (baselineScore == null) {
-            return sorted;
-        }
-        return sorted.stream()
-                .filter(r -> isBetterThanBaseline(r, baselineScore, baselineEmptyCount, emptyCountMap))
-                .toList();
-    }
-
-    /**
-     * 判断候选是否按（评分降序, 缺人数升序）字典序严格优于当前岗位基线。
-     */
-    private boolean isBetterThanBaseline(OcRecommendationVO recommendation,
-                                         BigDecimal baselineScore,
-                                         int baselineEmptyCount,
-                                         Map<Long, Integer> emptyCountMap) {
-        int byScore = recommendation.getRecommendScore().compareTo(baselineScore);
-        if (byScore != 0) {
-            return byScore > 0;
-        }
-        return emptyCountMap.getOrDefault(recommendation.getOcId(), 0) < baselineEmptyCount;
     }
 
     /**
      * 查找推荐候选OC列表。
      *
-     * <p>当前已加入禁用OC且有进度时，恢复为帮派正常招募OC范围；当前OC未禁用且有进度时仍只返回当前OC，保持原有行为。</p>
+     * <p>当前已加入禁用OC且有进度时，恢复为帮派正常招募OC范围；当前OC未禁用且有进度时仍只返回当前OC，
+     * 保持原有行为。用户未开动的当前OC会把自身准备时间归一化后再放入候选池。</p>
      *
      * @param factionId    帮派ID
      * @param joinedOcSlot 当前占用的OC岗位，未加入时传null
+     * @param now          本次推荐的时间基准
      * @return 推荐候选OC列表
      */
-    public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot) {
-        // 当前已加入禁用OC且有进度时，恢复为帮派正常招募OC范围，禁用OC本身不作为候选。
+    public List<TornFactionOcDO> findRecrutList(long factionId, OcSlotDictBO joinedOcSlot, LocalDateTime now) {
         if (shouldRecommendNormalOcForDisabledCurrentOc(factionId, joinedOcSlot)) {
             return ocDao.queryRecrutList(factionId);
         }
@@ -249,19 +143,175 @@ public class TornOcRecommendService {
         if (joinedOcSlot == null) {
             return recruitOcList;
         }
+        return normalizeJoinedOc(recruitOcList, joinedOcSlot.getOc(), now);
+    }
 
-        // 针对于空转进度的，按照进度跑完时间减一天去计算 如果OC已经进入Planning状态, 手动放到recruit列表中
-        TornFactionOcDO joinedOc = joinedOcSlot.getOc();
-        TornFactionOcDO calcOc = recruitOcList.stream()
-                .filter(o -> o.getId().equals(joinedOc.getId()))
-                .findAny().orElse(null);
-        if (calcOc != null) {
-            calcOc.setReadyTime(calcOc.getReadyTime().minusDays(1));
-        } else {
-            // 共享的当前队对象不得直接扣减口径，复制后减一天，避免上层状态查询二次扣减
-            recruitOcList.add(copyWithReadyTime(joinedOc, joinedOc.getReadyTime().minusDays(1)));
+    /**
+     * 查找招募中的OC空位，当前占用岗位不作为候选。
+     *
+     * @param recruitOcList 招募中的OC列表
+     * @return 空闲岗位列表
+     */
+    public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList) {
+        return ocSlotDao.queryEmptySlotList(recruitOcList);
+    }
+
+    /**
+     * 计算当前岗位的机会成本，作为候选过滤基线；无法评估时返回null表示不做基线过滤。
+     */
+    private BigDecimal calculateCurrentScore(TornUserDO user, OcSlotDictBO joinedOc,
+                                             TornSettingOcSlotDO requirement,
+                                             TornFactionOcUserDO passRateData,
+                                             LocalDateTime now) {
+        if (requirement == null || passRateData == null
+                || passRateData.getPassRate() < requirement.getPassRate()) {
+            return null;
         }
-        return recruitOcList;
+        List<TornFactionOcDO> ocList = List.of(joinedOc.getOc());
+        List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(ocList);
+        RankFacts facts = buildRankFacts(user.getFactionId(), ocList, emptySlotList,
+                user.getId(), joinedOc, now);
+        OcRecommendCandidate current = new OcRecommendCandidate(joinedOc.getOc(), joinedOc.getSlot(),
+                requirement, passRateData.getPassRate(), estimateOf(facts.estimates(), joinedOc.getOc()), null);
+        return opportunityCostRanker.evaluate(current, facts.context()).opportunityCost();
+    }
+
+    /**
+     * 加载本次排序共用的只读事实：产出估算、帮派能力矩阵、已占用岗位与空位统计。
+     *
+     * <p>产出估算只走批量入口，并把当前OC并入估算池：基线取值与候选出自同一次统计查询，
+     * 整个请求不会为任何单个OC再查一次库。</p>
+     */
+    private RankFacts buildRankFacts(long factionId, List<TornFactionOcDO> ocList,
+                                     List<TornFactionOcSlotDO> emptySlotList, Long userId,
+                                     OcSlotDictBO joinedOc, LocalDateTime now) {
+        Map<Long, OcYieldEstimate> estimates = yieldEstimatorRegistry.estimateAll(
+                withJoinedOc(ocList, joinedOc), now);
+        List<TornFactionOcUserDO> factionOcData = ocUserDao.queryFactionMatrix(factionId);
+        List<TornFactionOcSlotDO> occupiedSlots = ocSlotDao.queryListByOc(ocList).stream()
+                .filter(slot -> slot.getUserId() != null)
+                .toList();
+        Map<Long, Integer> emptySlotsByOc = emptySlotList.stream()
+                .collect(Collectors.toMap(TornFactionOcSlotDO::getOcId, slot -> 1, Integer::sum));
+        OcRankContext context = new OcRankContext(factionOcData, occupiedSlots, emptySlotsByOc, userId, now);
+        return new RankFacts(estimates, context);
+    }
+
+    /**
+     * 构建候选：能力门槛仍然生效（成功率低于岗位要求的不进候选），
+     * 但成功率矩阵无记录不再等同于不可推荐，改为按映射值参与排序。
+     */
+    private List<OcRecommendCandidate> buildCandidates(List<TornFactionOcDO> recruitOcList,
+                                                       List<TornFactionOcSlotDO> emptySlotList,
+                                                       long factionId,
+                                                       List<TornFactionOcUserDO> userOcData,
+                                                       Map<Long, OcYieldEstimate> estimates) {
+        Map<Long, List<TornFactionOcSlotDO>> slotsByOc = emptySlotList.stream()
+                .collect(Collectors.groupingBy(TornFactionOcSlotDO::getOcId));
+        List<OcRecommendCandidate> candidates = new ArrayList<>();
+        for (TornFactionOcDO oc : recruitOcList) {
+            for (TornFactionOcSlotDO slot : slotsByOc.getOrDefault(oc.getId(), List.of())) {
+                OcSlotEligibility eligibility = ocRecommendManager.resolveEligibility(factionId, oc, slot, userOcData);
+                if (eligibility == null || !eligibility.eligible()) {
+                    continue;
+                }
+                candidates.add(new OcRecommendCandidate(oc, slot, eligibility.requirement(),
+                        eligibility.passRate(), estimateOf(estimates, oc), null));
+            }
+        }
+        return candidates;
+    }
+
+    /**
+     * 构建当前岗位基线；岗位未配置、被帮派禁用或能力不达标时不设基线。
+     */
+    private OcRecommendCandidate buildBaseline(TornUserDO user, OcSlotDictBO joinedOc,
+                                               List<TornFactionOcUserDO> userOcData, RankFacts facts) {
+        if (joinedOc == null) {
+            return null;
+        }
+        TornFactionOcDO oc = joinedOc.getOc();
+        OcSlotEligibility eligibility = ocRecommendManager.resolveEligibility(
+                user.getFactionId(), oc, joinedOc.getSlot(), userOcData);
+        if (eligibility == null || !eligibility.eligible()) {
+            return null;
+        }
+        OcYieldEstimate estimate = estimateOf(facts.estimates(), oc);
+        return new OcRecommendCandidate(oc, joinedOc.getSlot(), eligibility.requirement(),
+                eligibility.passRate(), estimate, null);
+    }
+
+    /**
+     * 取OC的估算值，缺失时按0产出兜底，避免排序阶段空指针。
+     */
+    private OcYieldEstimate estimateOf(Map<Long, OcYieldEstimate> estimates, TornFactionOcDO oc) {
+        return estimates.getOrDefault(oc.getId(), OcYieldEstimate.zero(OcYieldSourceEnum.MAPPED));
+    }
+
+    /**
+     * 把当前OC并入估算池：推荐范围可能不含当前OC（当前OC被禁用但已有进度时回到常规招募范围），
+     * 基线也必须取到与候选同源的估算值，不得为它单独再查一次统计。
+     */
+    private List<TornFactionOcDO> withJoinedOc(List<TornFactionOcDO> ocList, OcSlotDictBO joinedOc) {
+        if (joinedOc == null || joinedOc.getOc() == null) {
+            return ocList;
+        }
+        TornFactionOcDO joined = joinedOc.getOc();
+        boolean contained = ocList.stream().anyMatch(oc -> Objects.equals(oc.getId(), joined.getId()));
+        if (contained) {
+            return ocList;
+        }
+        List<TornFactionOcDO> pool = new ArrayList<>(ocList.size() + 1);
+        pool.addAll(ocList);
+        pool.add(joined);
+        return pool;
+    }
+
+    /**
+     * 把候选转成对外推荐结果，推荐理由文案与排序前完全一致。
+     */
+    private OcRecommendationVO toRecommendation(OcRecommendCandidate candidate) {
+        OcOpportunityCost cost = candidate.cost();
+        int passRate = candidate.passRate() != null
+                ? candidate.passRate() : candidate.requirement().getPassRate();
+        String reason = ocRecommendManager.buildRecommendReason(candidate.oc().getReadyTime(), passRate);
+        return new OcRecommendationVO(candidate.oc(), candidate.slot(), cost.opportunityCost(), reason,
+                candidate.estimate().netPerMemberDay(), cost.substituteCount(), cost.outcome());
+    }
+
+    /**
+     * 把当前OC按归一化准备时间放回候选池，避免同队等价岗位以虚高的准备时间参与比较。
+     */
+    private List<TornFactionOcDO> normalizeJoinedOc(List<TornFactionOcDO> recruitOcList,
+                                                    TornFactionOcDO joinedOc, LocalDateTime now) {
+        List<TornFactionOcDO> normalized = new ArrayList<>(recruitOcList.size() + 1);
+        boolean joinedInRecruitList = false;
+        for (TornFactionOcDO oc : recruitOcList) {
+            if (oc.getId().equals(joinedOc.getId())) {
+                joinedInRecruitList = true;
+                normalized.add(withNormalizedReadyTime(oc, now));
+            } else {
+                normalized.add(oc);
+            }
+        }
+        if (!joinedInRecruitList) {
+            normalized.add(withNormalizedReadyTime(joinedOc, now));
+        }
+        return normalized;
+    }
+
+    /**
+     * 复制OC并归一化准备时间；新队没有偏移，直接返回原对象。
+     */
+    private TornFactionOcDO withNormalizedReadyTime(TornFactionOcDO oc, LocalDateTime now) {
+        LocalDateTime normalizedReadyTime = OcRecommendTimeSupport.normalizeReadyTime(oc, now);
+        if (normalizedReadyTime == null || normalizedReadyTime.equals(oc.getReadyTime())) {
+            return oc;
+        }
+        TornFactionOcDO copy = new TornFactionOcDO();
+        BeanUtils.copyProperties(oc, copy);
+        copy.setReadyTime(normalizedReadyTime);
+        return copy;
     }
 
     /**
@@ -285,38 +335,36 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 复制OC并替换停转时间，用于按减一天口径评分时避免改动共享DO。
-     */
-    private TornFactionOcDO copyWithReadyTime(TornFactionOcDO oc, LocalDateTime readyTime) {
-        TornFactionOcDO copy = new TornFactionOcDO();
-        BeanUtils.copyProperties(oc, copy);
-        copy.setReadyTime(readyTime);
-        return copy;
-    }
-
-    /**
-     * 查找招募中的OC空位，当前占用岗位不作为候选。
+     * 本次排序共用的只读事实。
      *
-     * @param recruitOcList 招募中的OC列表
-     * @return 空闲岗位列表
+     * @param estimates OC ID到期望产出估算值的映射
+     * @param context   机会成本排序上下文
+     * @author Bai
+     * @version 1.9.3
+     * @since 2026.10.23
      */
-    public List<TornFactionOcSlotDO> findEmptySlotList(List<TornFactionOcDO> recruitOcList) {
-        return ocSlotDao.queryEmptySlotList(recruitOcList);
+    private record RankFacts(
+            Map<Long, OcYieldEstimate> estimates,
+            OcRankContext context) {
     }
 
     /**
-     * 当前OC状态及评分基线。
+     * 当前OC状态及机会成本基线。
      *
      * @param joined               是否已加入OC
      * @param disabled             当前OC是否被禁用
      * @param passRateInsufficient 当前岗位成功率是否低于要求
      * @param actualPassRate       当前实际成功率
      * @param requiredPassRate     岗位要求成功率
-     * @param currentScore         当前岗位评分基线
+     * @param currentScore         当前岗位的机会成本基线
      */
-    public record CurrentOcStatus(boolean joined, boolean disabled, boolean passRateInsufficient,
-                                  Integer actualPassRate, Integer requiredPassRate,
-                                  BigDecimal currentScore) {
+    public record CurrentOcStatus(
+            boolean joined,
+            boolean disabled,
+            boolean passRateInsufficient,
+            Integer actualPassRate,
+            Integer requiredPassRate,
+            BigDecimal currentScore) {
         private static CurrentOcStatus notJoined() {
             return new CurrentOcStatus(false, false, false, null, null, null);
         }

@@ -41,6 +41,7 @@
 18. α账本语义（正式α与α影子）只有一份判定实现：`StockPortfolioService.isAlphaLedger`。凡决定「用哪套策略规则处理批次」的分支（退出评估、成交组装、文案渲染、通知过滤）必须使用它；`isAlphaBatch`只表示正式α组合身份，不得单独用于决定α语义。
 19. 轨道归属（批次是否属于某轨道）只有一份判定实现：`StockAlphaPhaseTrack#owns`，按`(portfolioCode, slotNo)`精确匹配；禁止组合级判定，同一组合的多条轨道必须能同时持有各自槽位的持仓。
 20. 已执行的迁移原则上不得修改；确需追加清理性DDL（如删除已退场链路的表）时，必须取得需求方书面授权并在§7.1与§13.5登记授权、理由与不可逆性。
+21. 采集侧外部请求的最坏耗时必须有上限：HTTP 超时、重试次数与重试总预算以`TornConstants`为唯一来源，单次逻辑请求的最坏耗时必须小于其调度周期（股票分钟采集为60s）；任何新增外部调用不得自带无上限重试，也不得把可能长时间阻塞的采集挂在默认单线程调度器上。
 
 ---
 
@@ -794,6 +795,19 @@ UPDATE sys_setting SET setting_value = 'true', update_time = CURRENT_TIMESTAMP
 
 遗留建议（P3，不阻断）：自包含通知发送编排在日报与年报各有一份实现，建议后续抽取公共组件；`renderHold` 的执行桶文案写死 08:15，影子轨道实际为 14:15，后续按 `executionBarStartTime` 渲染；「决策日已消费相位但审计行缺失」的漏发对账需单独立项。
 
+#### 13.7 实时采集中断容错整改（2026-10-19）
+
+2026-10-19 06:56–08:09（Asia/Shanghai）实时分钟采集连续8轮失败，08:10日报因估值窗口内无可用15m bar输出「数据不足（缺失行情：TCT）」。根因：`/torn` V2请求的3次Key轮换与3次HTTP重试没有时间预算，单轮失败耗时540s，远大于60s采集周期；放弃文案把任意失败描述为Key失效；活跃度采集在默认单线程调度器上阻塞63分钟。
+
+| 项 | 结论 |
+|---|---|
+| 超时 | 连接3s、读取12s，由`ReactorClientHttpRequestFactory` Bean统一声明并共用一份连接池；交换超时已随Spring 6.2废弃不再设置 |
+| 重试 | Key轮换2次、单Key内HTTP尝试2次、退避200ms、总预算25s，单轮最坏约37s < 60s周期 |
+| 失败语义 | 空响应显式抛`IllegalStateException`，ERROR单行携带plannedMinute/elapsedMs/phase |
+| 调度 | 活跃度采集迁出默认调度器，改绑`activityCollectScheduler` |
+| 告警 | 不新增代码链路，继续由Grafana对Loki ERROR邮件通知；只保留文案锚点不变 |
+| 证据 | 8条`股票实时采集-异常`单轮540s；350条`activity-collect-*`失败；人工Tornsy补数后07:00–07:45四根bar重建为35/35可用 |
+
 ---
 
 ## 14. 技术停止条件
@@ -824,6 +838,8 @@ UPDATE sys_setting SET setting_value = 'true', update_time = CURRENT_TIMESTAMP
 - α账本语义只用`StockPortfolioService#isAlphaLedger`判定，α影子不得被旧版固定退出规则或旧版规则版本处理；
 - 轨道归属只用`StockAlphaPhaseTrack#owns`判定，同一组合的多条轨道必须能同时持有各自槽位的持仓；
 - 影子批次的`exit_reason`只允许`ALPHA_REBALANCE`，四个规则版本必须为α值，审计状态只允许`SHADOW_RECORDED`；
+- 一次逻辑请求的最坏耗时必须小于其调度周期（分钟采集60s），超出即视为容错设计失效，不得以增加重试层数的方式绕过；
+- 可能长时间阻塞的定时任务必须绑定独立调度器，禁止挂在默认单线程`taskScheduler`上挤占日报、巡检与VIP通知；
 - 无未解决P0/P1。
 
 技术完成不等于真实BUY/SELL或业务验收完成；真实业务验收按一次性技术方案和业务验收文档单独确认。

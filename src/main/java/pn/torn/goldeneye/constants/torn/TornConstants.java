@@ -10,7 +10,7 @@ import java.util.List;
  * Torn常量
  *
  * @author Bai
- * @version 1.6.4
+ * @version 1.9.3
  * @since 2025.07.22
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -24,6 +24,32 @@ public class TornConstants {
      * 基础路径
      */
     public static final String BASE_URL_V2 = "https://api.torn.com/v2";
+    // ====================HTTP治理相关====================
+    // 一次逻辑请求的最坏耗时必须小于股票分钟采集周期(60s): 25s预算 + 12s在途尝试 = 37s
+    /**
+     * HTTP连接超时（毫秒）
+     */
+    public static final int HTTP_CONNECT_TIMEOUT_MS = 3_000;
+    /**
+     * HTTP响应读取超时（毫秒）
+     */
+    public static final int HTTP_READ_TIMEOUT_MS = 12_000;
+    /**
+     * 单Key内的HTTP尝试次数
+     */
+    public static final int HTTP_ATTEMPT_COUNT = 2;
+    /**
+     * 一次逻辑请求的Key轮换次数
+     */
+    public static final int HTTP_KEY_ROTATION_COUNT = 2;
+    /**
+     * 一次逻辑请求的重试总预算（毫秒），Key轮换与HTTP重试共用
+     */
+    public static final int HTTP_RETRY_BUDGET_MS = 25_000;
+    /**
+     * 重试前的退避时长（毫秒）
+     */
+    public static final long HTTP_RETRY_BACKOFF_MS = 200L;
     /**
      * PN帮派ID
      */

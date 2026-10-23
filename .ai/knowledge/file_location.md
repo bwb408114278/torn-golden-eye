@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.10.05
+- 最后更新：2026.10.23
 - 维护人：Bai
 - 状态：有效
 
@@ -24,7 +24,13 @@
 │       ├── oc/                                                                         # Torn OC相关知识库
 │       │   ├── oc_delay_attribution_technical_design.md                                # OC延误归因（原因/时长/采样与验收基线）技术方案
 │       │   ├── oc_rate_table_html_migration_technical_design.md                        # 用户OC成功率表HTML迁移（五档色阶/双维星级/级别分组）技术方案(1.9.0)
-│       │   └── oc_reassign_income_mode_timeline_technical_design.md                    # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
+│       │   ├── oc_reassign_income_mode_timeline_technical_design.md                    # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
+│       │   ├── oc_recommend_mixing_baseline.md                                         # OC推荐收益混算与机会成本排序长期业务基线(2.3)
+│       │   ├── oc_recommend_mixing_technical_design.md                                 # OC推荐收益混算与机会成本排序技术方案(1.9.3)
+│       │   ├── oc_userscript_api_technical_design.md                                   # OC推荐插件对外HTTP接口与Torn Key鉴权技术方案(1.9.3)
+│       │   └── oc_userscript_client_technical_design.md                                # OC推荐油猴插件客户端（只读呈现/开关/fail-safe）技术方案
+│       ├── security/                                                                   # 凭据与安全相关知识库
+│       │   └── api_key_cipher_technical_design.md                                      # Torn Api Key密文存储、存量迁移与密钥管理技术方案(1.9.3)
 │       ├── stocks/                                                                     # Torn股票股票相关知识库
 │       │   ├── data/                                                                   # 长期机器可读研究摘要
 │       │   │   ├── stock_personality_2026_07.csv                                       # 35支股票风格指标快照
@@ -43,6 +49,9 @@
 │       └── automated_build_deployment_pipeline_design.md                               # 自动流水线构建部署设计方案
 ├── build/                                                                              # 构建项目镜像需要的文件
 │   └── docker-compose.yml                                                              # Docker compose启动文件
+├── db/                                                                                 # 待执行的数据脚本目录
+│   └── pending/                                                                        # 待用户执行的只读SQL(修数/校验)
+│       └── 20261023_oc_expected_reward_fix.sql                                         # 大锅饭映射值口径B修数(Ship Happens/Cleared for Takeoff)
 ├── src/                                                                                # 代码根目录
 │   ├── main/                                                                           # 功能代码
 │   │   ├── java/pn/torn/goldeneye/                                                     # java代码根目录
@@ -99,6 +108,7 @@
 │   │   │   │   ├── mapper/                                                             # Mapper相关
 │   │   │   │   │   ├── faction/                                                        # 帮派相关Mapper
 │   │   │   │   │   │   └── oc/                                                         # OC相关Mapper
+│   │   │   │   │   │       ├── TornFactionOcIncomeMapper.java                          # OC收益记录Mapper(含实测产出聚合)
 │   │   │   │   │   │       ├── TornFactionOcMapper.java                                # OC Mapper
 │   │   │   │   │   │       └── TornFactionOcSlotMapper.java                            # OC岗位相关Mapper
 │   │   │   │   │   └── torn/                                                           # Torn相关Mapper
@@ -123,6 +133,7 @@
 │   │   │   │       │   │   ├── AttackTimeWindowDO.java                                 # 对冲时间窗口
 │   │   │   │       │   │   └── TornFactionRwReviveDO.java                              # RW复活记录
 │   │   │   │       │   └── oc/                                                         # OC相关功能
+│   │   │   │       │       ├── OcIncomeYieldStatsDO.java                               # OC实测产出统计(按名称与等级聚合)
 │   │   │   │       │       ├── OcSuccessRankDO.java                                    # OC成功率排行
 │   │   │   │       │       ├── TornFactionOcDO.java                                    # 帮派OC表
 │   │   │   │       │       ├── TornFactionOcIdleRankDO.java                            # OC空转榜查询结果
@@ -172,6 +183,16 @@
 │   │   │       │   │   │   └── delay/                                                  # OC延误归因模型
 │   │   │       │   │   │       ├── OcDelayCauseEntry.java                              # 单成员延误归因条目
 │   │   │       │   │   │       └── OcDelayReasonEnum.java                              # OC延误原因枚举
+│   │   │       │   │   ├── recommend/                                                  # OC推荐领域模型
+│   │   │       │   │   │   ├── OcPhaseEnum.java                                        # OC准备阶段(新队/未开动/停转)
+│   │   │       │   │   │   ├── OcRecommendCandidate.java                               # 待排序的推荐候选(OC与空位)
+│   │   │       │   │   │   ├── OcRecommendOutcomeEnum.java                             # 岗位稀缺度分档(仅用于解释)
+│   │   │       │   │   │   ├── OcRecommendationVO.java                                 # OC推荐结果(含机会成本与稀缺度)
+│   │   │       │   │   │   ├── OcRecommendTableBO.java                                 # 推荐表格组装参数
+│   │   │       │   │   │   ├── OcSlotDictBO.java                                       # OC与岗位键值对
+│   │   │       │   │   │   ├── OcSlotEligibility.java                                  # 成员对空位的可填性判定
+│   │   │       │   │   │   ├── OcYieldEstimate.java                                    # OC期望产出估算值(净产出与人天)
+│   │   │       │   │   │   └── OcYieldSourceEnum.java                                  # OC产出估算来源(实测/映射/链映射)
 │   │   │       │   │   └── revive/                                                     # 复活相关模型
 │   │   │       │   │       ├── TornFactionReviveVO.java                                # 帮派复活数据响应参数
 │   │   │       │   │       └── TornFactionReviveDTO.java                               # 帮派复活请求参数
@@ -199,6 +220,19 @@
 │   │   │           │       │       └── OcRateTierResolver.java                         # 用户OC成功率表展示口径解析
 │   │   │           │       ├── OcSlotTierCalculator.java                               # OC岗位权重五档共享计算器
 │   │   │           │       ├── recommend/                                              # OC推荐功能
+│   │   │           │       │   ├── metric/                                             # OC产出度量(实测/映射/链归约)
+│   │   │           │       │   │   ├── MappedOcYieldEstimator.java                     # 等级与链映射产出估算器
+│   │   │           │       │   │   ├── MeasuredOcYieldEstimator.java                   # 收益记录实测产出估算器
+│   │   │           │       │   │   ├── OcChainValueReducer.java                        # 链式OC价值归约器
+│   │   │           │       │   │   ├── OcYieldEstimator.java                           # OC产出估算策略接口
+│   │   │           │       │   │   └── OcYieldEstimatorRegistry.java                   # OC产出估算注册表(按来源分派)
+│   │   │           │       │   ├── rank/                                               # 机会成本排序(稀缺度/阶段/调参)
+│   │   │           │       │   │   ├── OcOpportunityCost.java                          # 机会成本快照
+│   │   │           │       │   │   ├── OcOpportunityCostRanker.java                    # 机会成本排序器与基线过滤
+│   │   │           │       │   │   ├── OcRecommendTimeSupport.java                     # OC准备阶段判定与准备时间归一化
+│   │   │           │       │   │   ├── OcRecommendTunings.java                         # 推荐调参常量(人天/等待成本/样本阈值)
+│   │   │           │       │   │   └── OcScarcityEstimator.java                        # 岗位替代概率估算
+│   │   │           │       │   ├── TornOcAssignService.java                            # OC批量分配逻辑层
 │   │   │           │       │   └── TornOcRecommendService.java                         # OC推荐逻辑层
 │   │   │           │       ├── planning/                                               # OC新队规划（8个子包）
 │   │   │           │       │   ├── api/                                                # 门面、指令规划器、渲染（唯一生产入口包）
@@ -267,6 +301,7 @@
 │   │       └── mapper/                                                                 # Mapper文件
 │   │           ├── faction/                                                            # 帮派相关
 │   │           │   └── oc/                                                             # OC相关
+│   │           │       ├── TornFactionOcIncomeMapper.xml                               # OC收益记录Mapper(实测产出聚合SQL)
 │   │           │       ├── TornFactionOcMapper.xml                                     # 帮派OC表Mapper
 │   │           │       └── TornFactionOcSlotMapper.xml                                 # 帮派OC岗位表Mapper
 │   │           └── torn/                                                               # Torn相关
@@ -288,6 +323,9 @@
 │   └── test/                                                                           # 测试功能
 │       └── java/pn/torn/goldeneye/                                                     # 测试代码根目录
 │           └── torn/                                                                   # Torn相关
+│               ├── model/                                                              # 数据模型测试
+│               │   └── faction/crime/recommend/                                        # OC推荐模型测试
+│               │       └── OcSlotEligibilityTest.java                                  # 岗位可填性判定测试
 │               └── service/                                                            # 业务逻辑层
 │                   ├── faction/                                                        # 帮派相关功能
 │                   │   └── oc                                                          # Crime相关功能
@@ -295,6 +333,11 @@
 │                   │       │   ├── OcDelayCauseRecorderTest.java                       # 延误归因编解码与段结算测试
 │                   │       │   └── OcDelayReasonResolverTest.java                      # 单成员延误原因判定测试
 │                   │       ├── recommend/                                              # OC推荐功能
+│                   │       │   ├── metric/                                             # OC产出度量测试
+│                   │       │   │   └── OcYieldEstimatorTest.java                       # 实测/映射/链归约估算测试
+│                   │       │   ├── rank/                                               # 机会成本排序测试
+│                   │       │   │   └── OcOpportunityCostRankerTest.java                # 稀缺度/锁死人天/决胜测试
+│                   │       │   ├── TornOcAssignServiceTest.java                        # OC批量分配测试
 │                   │       │   └── TornOcRecommendServiceTest.java                     # OC推荐功能测试
 │                   │       ├── TornFactionOcBenefitServiceTest.java                    # 帮派OC收益功能测试
 │                   │       └── TornOcCompleteNoticeServiceTest.java                    # OC完成通知与延误归因测试

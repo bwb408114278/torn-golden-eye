@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * 仅依赖已缓存列表与入参，不查库、不读系统时间。</p>
  *
  * @author Bai
- * @version 1.6.3
+ * @version 1.9.3
  * @since 2026.09.14
  */
 @Component
@@ -85,6 +85,9 @@ public class TornSettingOcReassignManager implements DataCacheManager {
      * 获取指定帮派的大锅饭OC名单。
      *
      * <p>派生规则：帮派开关启用且范围行启用的oc_name列表；帮派未启用时返回空列表。</p>
+     *
+     * <p>该方法只表达「分钱池包含哪些OC」，<b>推荐准入不得调用</b>：推荐候选池是该帮派全部空位，
+     * 名单只决定收益算哪些OC。</p>
      *
      * @param factionId 帮派ID
      * @return 大锅饭OC名单

@@ -31,7 +31,7 @@ import java.util.Objects;
  * α策略原子换仓服务。
  *
  * @author Bai
- * @version 1.6.5
+ * @version 1.9.0
  * @since 2026.09.05
  */
 @Slf4j
@@ -65,7 +65,7 @@ public class StockAlphaRebalanceService {
      * @param decisionDate 决策日期
      * @param phase        决策阶段
      * @param now          当前校验时点
-     * @param snapshot     当前轮次行情快照
+     * @param snapshot     当前轮次快照;批次与槽位必须取自其中的事务内已加锁实例
      * @return 换仓结果;未消费到同执行桶决策或来源不可复核时三个分量均为null
      */
     @Transactional(rollbackFor = Exception.class)
@@ -82,9 +82,11 @@ public class StockAlphaRebalanceService {
         if (isExecutedRebalance(decision)) {
             return new RebalanceResult(null, decision.getRebalanceBatchId(), decision.getExecutionBarStartTime());
         }
-        TornStockPortfolioSlotDO slot = slotPolicy.lockOccupied(track);
-        List<TornStockVirtualBatchDO> batches = batchDAO.selectActiveAlphaBatchesForUpdate(track.portfolioCode());
-        TornStockVirtualBatchDO current = findOpenBatch(batches, track);
+        // 批次与槽位只能取自轮次事务内已按FOR UPDATE加载并加锁的快照实例:本服务内二次查询会拿到
+        // 与轮次快照不同的Java实例,而轮次末按快照整批写回原仓,会把已关闭状态覆盖回OPEN,
+        // 与同一事务内新建的换仓新仓争抢(组合,槽位)唯一键,导致整个执行桶轮次回滚。
+        TornStockPortfolioSlotDO slot = slotPolicy.requireOccupied(track, snapshot.slots());
+        TornStockVirtualBatchDO current = findOpenBatch(snapshot.activeBatches(), track);
         validateDecision(decision, decisionDate, phase, current, slot);
         if (!decisionService.isSourceReproducible(decision)) {
             markSourceNotReproducible(decision);
