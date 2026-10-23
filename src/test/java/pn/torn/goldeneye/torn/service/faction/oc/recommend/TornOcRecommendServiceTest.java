@@ -232,6 +232,25 @@ class TornOcRecommendServiceTest {
     }
 
     @Test
+    @DisplayName("当前OC不在推荐范围时基线仍复用同一次批量估算")
+    void recommend_shouldReuseBatchEstimateForBaselineOfJoinedOc() {
+        aceSlot.setProgress(BigDecimal.ONE);
+        stubQuery(List.of(breakBankOc), List.of(breakBankSlot));
+        stubEstimates(Map.of(1L, estimate(500_000_000L, 5), 2L, estimate(100_000_000L, 6)));
+        when(ocRecommendManager.isOcDisabled(FACTION_HP, aceOc)).thenReturn(true);
+        when(ocRecommendManager.resolveEligibility(anyLong(), eq(aceOc), any(), anyList()))
+                .thenReturn(new OcSlotEligibility(buildSetting(OC_ACE, 9, "Engineer#1", 60), 80));
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+
+        // 基线若退化为0产出，候选会通过过滤；结果为空即证明基线取到了批量估算里的真实值
+        assertThat(result).isEmpty();
+        verify(yieldEstimatorRegistry).estimateAll(
+                argThat(pool -> pool.stream().anyMatch(oc -> Long.valueOf(1L).equals(oc.getId()))),
+                any());
+    }
+
+    @Test
     @DisplayName("当前OC的准备时间按减一天归一化且不改动共享对象")
     void recommend_shouldNormalizeJoinedReadyTimeWithoutMutation() {
         LocalDateTime originalReadyTime = aceOc.getReadyTime();
@@ -285,9 +304,6 @@ class TornOcRecommendServiceTest {
 
     private void stubEstimates(Map<Long, OcYieldEstimate> estimates) {
         lenient().when(yieldEstimatorRegistry.estimateAll(anyCollection(), any())).thenReturn(estimates);
-        lenient().when(yieldEstimatorRegistry.estimate(any(), any())).thenAnswer(invocation ->
-                estimates.getOrDefault(((TornFactionOcDO) invocation.getArgument(0)).getId(),
-                        OcYieldEstimate.zero(OcYieldSourceEnum.MAPPED)));
     }
 
     private OcYieldEstimate estimate(long expectedNetReward, int members) {

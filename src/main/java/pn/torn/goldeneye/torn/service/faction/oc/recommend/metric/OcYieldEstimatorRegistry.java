@@ -18,8 +18,9 @@ import java.util.stream.Collectors;
  * 否则走等级映射（链式OC为链映射）。判定只看样本量，不看是否在大锅饭名单内，
  * 因此名单外的新OC也能立即参与排序。以后新增估算来源只需增加实现类，调用方不变。</p>
  *
- * <p>批量估算时按帮派一次性加载实测统计，避免为每个候选单独查库（批量分配场景下用户数乘以候选数
- * 会把单次查询放大成灾难）。</p>
+ * <p>对外只提供批量估算入口：按帮派一次性加载实测统计后在内存中分派，避免为每个候选单独查库
+ * （批量分配场景下用户数乘以候选数会把单次查询放大成灾难）。不提供单OC入口，是为了让
+ * 「一次请求最多查一次收益统计」由接口形状保证，而不是靠调用方自觉。</p>
  *
  * @author Bai
  * @version 1.9.3
@@ -31,19 +32,6 @@ public class OcYieldEstimatorRegistry {
     private final List<OcYieldEstimator> estimators;
     private final MeasuredOcYieldEstimator measuredEstimator;
     private final MappedOcYieldEstimator mappedEstimator;
-
-    /**
-     * 估算单个OC的期望产出。
-     *
-     * @param oc           OC数据
-     * @param snapshotTime 本次推荐的时间基准
-     * @return 期望产出估算值
-     */
-    public OcYieldEstimate estimate(TornFactionOcDO oc, LocalDateTime snapshotTime) {
-        OcIncomeYieldStatsDO stats = measuredEstimator.findStats(
-                oc.getFactionId(), oc.getName(), oc.getRank());
-        return dispatch(oc, stats, snapshotTime);
-    }
 
     /**
      * 批量估算多个OC的期望产出，按帮派一次性加载实测统计后逐个估算。

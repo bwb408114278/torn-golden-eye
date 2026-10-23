@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -46,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 全部读取放在{@link OcPlanningReadOnlyGuard}的REQUIRES_NEW + READ ONLY + REPEATABLE READ
  * 事务内执行，任何写操作都会直接被数据库拒绝，同时两次推荐在同一快照内比较。</p>
  *
- * <p>明细同时写入{@code target/oc-recommend-replay.txt}便于归档。</p>
+ * <p>明细写入{@code target/oc-recommend-replay-<时间戳>.txt}：每次运行各留一份，不复写历史证据。</p>
  *
  * @author Bai
  * @version 1.9.3
@@ -66,7 +67,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OcRecommendReplayTest {
     private static final int TOP_N = 3;
     private static final int MEMBERS_PER_FACTION = 3;
-    private static final Path REPORT = Path.of("target", "oc-recommend-replay.txt");
+    private static final Path REPORT_DIRECTORY = Path.of("target");
+    private static final DateTimeFormatter REPORT_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     @Autowired
     private OcPlanningReadOnlyGuard readOnlyGuard;
@@ -88,7 +90,10 @@ class OcRecommendReplayTest {
     void replayTopThreeForEnabledFactions() throws IOException {
         readOnlyGuard.verifyReadOnlySession();
         List<String> report = readOnlyGuard.inReadOnlyTransaction(status -> collectReport());
-        Files.writeString(REPORT, String.join(System.lineSeparator(), report), StandardCharsets.UTF_8);
+        Path reportPath = REPORT_DIRECTORY.resolve(
+                "oc-recommend-replay-" + REPORT_STAMP.format(LocalDateTime.now()) + ".txt");
+        Files.writeString(reportPath, String.join(System.lineSeparator(), report), StandardCharsets.UTF_8);
+        log.info("回放明细已写入 {}", reportPath.toAbsolutePath());
         report.forEach(log::info);
     }
 

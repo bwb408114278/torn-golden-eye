@@ -323,6 +323,9 @@
 │   └── test/                                                                           # 测试功能
 │       └── java/pn/torn/goldeneye/                                                     # 测试代码根目录
 │           └── torn/                                                                   # Torn相关
+│               ├── model/                                                              # 数据模型测试
+│               │   └── faction/crime/recommend/                                        # OC推荐模型测试
+│               │       └── OcSlotEligibilityTest.java                                  # 岗位可填性判定测试
 │               └── service/                                                            # 业务逻辑层
 │                   ├── faction/                                                        # 帮派相关功能
 │                   │   └── oc                                                          # Crime相关功能

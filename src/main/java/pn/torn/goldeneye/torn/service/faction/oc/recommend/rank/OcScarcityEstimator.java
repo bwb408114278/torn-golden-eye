@@ -20,8 +20,9 @@ import java.util.stream.Collectors;
  * 该(OC名称, 等级, 岗位)在成功率矩阵里一条记录都没有时返回null，由调用方按中性处理，
  * 既不当成0（会被误读成无人可替代）也不套用其它岗位的比例。</p>
  *
- * <p>一次推荐会评估几十个候选，而能力矩阵有数千行，因此支持先按岗位建索引再逐个候选查询，
- * 避免每个候选都全量扫描矩阵。</p>
+ * <p>一次推荐会评估几十个候选，而能力矩阵有数千行，因此岗位索引随排序上下文
+ * （{@link OcOpportunityCostRanker.OcRankContext}）只建一次，每个候选的替代概率查询是O(1)，
+ * 不会随候选数与帮派人数放大。</p>
  *
  * @author Bai
  * @version 1.9.3
@@ -39,16 +40,16 @@ public class OcScarcityEstimator {
     private static final String KEY_SEPARATOR = "|";
 
     /**
-     * 按（OC名称, 等级, 岗位短编码）把能力矩阵建成索引，供批量评估复用。
+     * 按（OC名称, 等级, 岗位短编码）把能力矩阵建成索引；一次请求只建一次，供全部候选复用。
      *
      * @param matrix 帮派成功率矩阵，可为空
      * @return 岗位键到该岗位全部能力行的索引
      */
-    public Map<String, List<TornFactionOcUserDO>> indexBySlot(List<TornFactionOcUserDO> matrix) {
+    public static Map<String, List<TornFactionOcUserDO>> indexBySlot(List<TornFactionOcUserDO> matrix) {
         if (matrix == null || matrix.isEmpty()) {
             return Map.of();
         }
-        return matrix.stream().collect(Collectors.groupingBy(this::slotKey));
+        return matrix.stream().collect(Collectors.groupingBy(OcScarcityEstimator::slotKey));
     }
 
     /**
@@ -88,7 +89,7 @@ public class OcScarcityEstimator {
     /**
      * 构造岗位配置的索引键。
      */
-    private String slotKey(TornSettingOcSlotDO requirement) {
+    private static String slotKey(TornSettingOcSlotDO requirement) {
         return requirement.getOcName() + KEY_SEPARATOR + requirement.getRank()
                 + KEY_SEPARATOR + requirement.getSlotShortCode();
     }
@@ -96,7 +97,7 @@ public class OcScarcityEstimator {
     /**
      * 构造能力行所属岗位的索引键。
      */
-    private String slotKey(TornFactionOcUserDO row) {
+    private static String slotKey(TornFactionOcUserDO row) {
         return row.getOcName() + KEY_SEPARATOR + row.getRank() + KEY_SEPARATOR + row.getPosition();
     }
 

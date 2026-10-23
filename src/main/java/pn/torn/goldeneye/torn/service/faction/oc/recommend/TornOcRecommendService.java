@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -77,7 +78,8 @@ public class TornOcRecommendService {
 
         // 3. 查询用户成功率数据；矩阵为空不再提前返回，交由度量层退回映射值
         List<TornFactionOcUserDO> userOcData = ocUserDao.queryByUserId(user.getId());
-        RankFacts facts = buildRankFacts(user.getFactionId(), recruitOcList, emptySlotList, user.getId(), now);
+        RankFacts facts = buildRankFacts(user.getFactionId(), recruitOcList, emptySlotList,
+                user.getId(), joinedOc, now);
 
         // 4. 构建候选并以当前岗位为基线排序
         List<OcRecommendCandidate> candidates = buildCandidates(recruitOcList, emptySlotList,
@@ -167,7 +169,8 @@ public class TornOcRecommendService {
         }
         List<TornFactionOcDO> ocList = List.of(joinedOc.getOc());
         List<TornFactionOcSlotDO> emptySlotList = ocSlotDao.queryEmptySlotList(ocList);
-        RankFacts facts = buildRankFacts(user.getFactionId(), ocList, emptySlotList, user.getId(), now);
+        RankFacts facts = buildRankFacts(user.getFactionId(), ocList, emptySlotList,
+                user.getId(), joinedOc, now);
         OcRecommendCandidate current = new OcRecommendCandidate(joinedOc.getOc(), joinedOc.getSlot(),
                 requirement, passRateData.getPassRate(), estimateOf(facts.estimates(), joinedOc.getOc()), null);
         return opportunityCostRanker.evaluate(current, facts.context()).opportunityCost();
@@ -175,11 +178,15 @@ public class TornOcRecommendService {
 
     /**
      * 加载本次排序共用的只读事实：产出估算、帮派能力矩阵、已占用岗位与空位统计。
+     *
+     * <p>产出估算只走批量入口，并把当前OC并入估算池：基线取值与候选出自同一次统计查询，
+     * 整个请求不会为任何单个OC再查一次库。</p>
      */
     private RankFacts buildRankFacts(long factionId, List<TornFactionOcDO> ocList,
                                      List<TornFactionOcSlotDO> emptySlotList, Long userId,
-                                     LocalDateTime now) {
-        Map<Long, OcYieldEstimate> estimates = yieldEstimatorRegistry.estimateAll(ocList, now);
+                                     OcSlotDictBO joinedOc, LocalDateTime now) {
+        Map<Long, OcYieldEstimate> estimates = yieldEstimatorRegistry.estimateAll(
+                withJoinedOc(ocList, joinedOc), now);
         List<TornFactionOcUserDO> factionOcData = ocUserDao.queryFactionMatrix(factionId);
         List<TornFactionOcSlotDO> occupiedSlots = ocSlotDao.queryListByOc(ocList).stream()
                 .filter(slot -> slot.getUserId() != null)
@@ -229,9 +236,7 @@ public class TornOcRecommendService {
         if (eligibility == null || !eligibility.eligible()) {
             return null;
         }
-        OcYieldEstimate estimate = facts.estimates().containsKey(oc.getId())
-                ? facts.estimates().get(oc.getId())
-                : yieldEstimatorRegistry.estimate(oc, facts.context().now());
+        OcYieldEstimate estimate = estimateOf(facts.estimates(), oc);
         return new OcRecommendCandidate(oc, joinedOc.getSlot(), eligibility.requirement(),
                 eligibility.passRate(), estimate, null);
     }
@@ -241,6 +246,25 @@ public class TornOcRecommendService {
      */
     private OcYieldEstimate estimateOf(Map<Long, OcYieldEstimate> estimates, TornFactionOcDO oc) {
         return estimates.getOrDefault(oc.getId(), OcYieldEstimate.zero(OcYieldSourceEnum.MAPPED));
+    }
+
+    /**
+     * 把当前OC并入估算池：推荐范围可能不含当前OC（当前OC被禁用但已有进度时回到常规招募范围），
+     * 基线也必须取到与候选同源的估算值，不得为它单独再查一次统计。
+     */
+    private List<TornFactionOcDO> withJoinedOc(List<TornFactionOcDO> ocList, OcSlotDictBO joinedOc) {
+        if (joinedOc == null || joinedOc.getOc() == null) {
+            return ocList;
+        }
+        TornFactionOcDO joined = joinedOc.getOc();
+        boolean contained = ocList.stream().anyMatch(oc -> Objects.equals(oc.getId(), joined.getId()));
+        if (contained) {
+            return ocList;
+        }
+        List<TornFactionOcDO> pool = new ArrayList<>(ocList.size() + 1);
+        pool.addAll(ocList);
+        pool.add(joined);
+        return pool;
     }
 
     /**

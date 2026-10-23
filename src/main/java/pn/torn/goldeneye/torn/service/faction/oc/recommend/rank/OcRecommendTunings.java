@@ -20,26 +20,22 @@ import java.util.Map;
 @NoArgsConstructor(access = AccessLevel.NONE)
 public final class OcRecommendTunings {
     /**
-     * 单岗位期望占用天数（人天）。来源：业务基线4.3实测2026-10已完成岗位占用时长
-     * 中位数4.00天、P90为6.00天，取4.5天作为期望值。
+     * 单岗位期望占用天数（人天），取实测中位数与P90之间。
      */
     public static final BigDecimal MEMBER_DAYS_PER_SLOT = new BigDecimal("4.5");
 
     /**
      * 每日等待成本，即一成员天折算的货币量，等价5.0M/人天。
-     * 来源：业务基线4.9主力OC的期望单位人天产出中位量级（M/人天）。
      */
     public static final BigDecimal DEFAULT_DAILY_WAIT_COST = new BigDecimal("5000000");
 
     /**
      * 占用成本系数，表达「我占用这段时间本可产出的机会」。
-     * 置0即退化为业务基线5.9的原式（只算期望收益与被锁死人天）。
      */
     public static final BigDecimal OCCUPANCY_COST_FACTOR = BigDecimal.ONE;
 
     /**
-     * 判定实测来源所需的最少成功样本数。来源：业务基线4.6，成功案例内部奖励离散
-     * 在样本少于3个时单位人天产出波动可达一倍。
+     * 判定实测来源所需的最少成功样本数。
      */
     public static final int MIN_MEASURED_SAMPLES = 3;
 

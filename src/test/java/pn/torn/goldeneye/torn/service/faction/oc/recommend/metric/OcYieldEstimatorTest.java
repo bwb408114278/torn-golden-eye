@@ -17,6 +17,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -113,13 +114,39 @@ class OcYieldEstimatorTest {
     }
 
     @Test
+    @DisplayName("多步链的叶子奖励按全部前置成功率折减，前置失败即整链减记")
+    void mappedEstimator_shouldDiscountLeafRewardByAllPrefixRates() {
+        when(settingOcManager.getList()).thenReturn(List.of(
+                setting("Manifest Cruelty", 8, 4, 0L),
+                setting("Gone Fission", 9, 5, 0L),
+                setting("Crane Reaction", 10, 4, 0L)));
+        when(planningManager.getChains()).thenReturn(List.of(
+                chainEdge("MANIFEST_CRANE", "Manifest Cruelty", 8, "Gone Fission", 9, 1),
+                chainEdge("MANIFEST_CRANE", "Gone Fission", 9, "Crane Reaction", 10, 2)));
+
+        OcYieldEstimate wholeChain = mappedEstimator.estimate(oc(1L, "Manifest Cruelty", 8), NOW);
+        // 叶子r10自身的期望奖励 = 1B × 100%；前置两步成功率 0.754 × 0.912 = 0.687648
+        BigDecimal leafExpected = new BigDecimal("1000000000");
+        BigDecimal prefixRate = new BigDecimal("0.754").multiply(new BigDecimal("0.912"));
+
+        assertThat(wholeChain.source()).isEqualTo(OcYieldSourceEnum.CHAIN_MAPPED);
+        assertThat(wholeChain.expectedNetReward())
+                .isEqualByComparingTo(leafExpected.multiply(prefixRate));
+        assertThat(wholeChain.expectedNetReward()).isLessThan(leafExpected);
+        // 前置步骤不付钱但真实占用人力：人天累加全部三步
+        assertThat(wholeChain.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("58.5"));
+        assertThat(wholeChain.netPerMemberDay()).isEqualByComparingTo(
+                new BigDecimal("687648000").divide(new BigDecimal("58.5"), 2, RoundingMode.HALF_UP));
+    }
+
+    @Test
     @DisplayName("注册表按成功样本数切换实测与映射来源")
     void registry_shouldSwitchSourceBySampleCount() {
         TornFactionOcDO oc = oc(1L, "Break the Bank", 8);
         when(settingOcManager.getList()).thenReturn(List.of(setting("Break the Bank", 8, 6, 240_000_000L)));
         when(ocIncomeDao.queryYieldStats(FACTION_ID)).thenReturn(List.of(stats("Break the Bank", 8, 2, 2, 400_000_000L)));
 
-        OcYieldEstimate insufficientSamples = registry.estimate(oc, NOW);
+        OcYieldEstimate insufficientSamples = registry.estimateAll(List.of(oc), NOW).get(1L);
 
         assertThat(insufficientSamples.source()).isEqualTo(OcYieldSourceEnum.MAPPED);
         assertThat(insufficientSamples.expectedNetReward())

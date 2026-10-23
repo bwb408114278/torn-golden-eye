@@ -79,6 +79,24 @@ class OcOpportunityCostRankerTest {
     }
 
     @Test
+    @DisplayName("被锁死人天只统计同队内progress大于0的成员")
+    void lockedMemberDays_shouldIgnoreZeroProgressMemberOfSameOc() {
+        OcRecommendCandidate locked = candidate(5L, 51L, "OC5", "A#1", 100_000_000L, 4);
+        OcRecommendCandidate plain = candidate(6L, 61L, "OC6", "A#1", 100_000_000L, 4);
+        TornFactionOcSlotDO lockedSlot = occupiedSlot(5L, 901L, BigDecimal.ONE, now.minusDays(2));
+        TornFactionOcSlotDO idlingSlot = occupiedSlot(5L, 902L, BigDecimal.ZERO, now.minusDays(9));
+        OcRankContext context = context(List.of(), List.of(lockedSlot, idlingSlot),
+                Map.of(5L, 1, 6L, 1));
+
+        List<OcRecommendCandidate> ranked = ranker.rank(List.of(plain, locked), null, context);
+
+        assertThat(ranked.getFirst().oc().getId()).isEqualTo(5L);
+        // 若把progress=0的空转成员也算进来会是11天，实际只算有进度的2天
+        assertThat(ranked.getFirst().cost().lockedMemberDays()).isEqualByComparingTo(new BigDecimal("2"));
+        assertThat(ranked.getLast().cost().lockedMemberDays()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
     @DisplayName("替代概率未知时按中性计入且不高于确认无人可替代")
     void unknownSubstituteProbability_shouldBeNeutral() {
         OcRecommendCandidate known = candidate(1L, 11L, "KNOWN", "Known#1", 200_000_000L, 4);
@@ -126,6 +144,9 @@ class OcOpportunityCostRankerTest {
         assertThat(ranked).hasSize(2);
         assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(71L, 72L);
         assertThat(ranked.getFirst().cost().substituteCount()).isZero();
+        // 同队两行的替代概率不同，机会成本因此形成梯度：更难被替代的岗位排在前
+        assertThat(ranked.getFirst().cost().opportunityCost())
+                .isGreaterThan(ranked.getLast().cost().opportunityCost());
     }
 
     @Test

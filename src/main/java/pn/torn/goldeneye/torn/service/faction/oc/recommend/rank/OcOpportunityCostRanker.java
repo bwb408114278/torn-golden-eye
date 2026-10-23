@@ -50,28 +50,15 @@ public class OcOpportunityCostRanker {
      * 计算单个候选的机会成本。
      *
      * @param candidate 候选，estimate为空时按0产出处理
-     * @param context   排序上下文，提供成功率矩阵、已占用岗位、空位统计与时间基准
+     * @param context   排序上下文，提供岗位索引、已占用岗位、空位统计与时间基准
      * @return 机会成本快照
      */
     public OcOpportunityCost evaluate(OcRecommendCandidate candidate, OcRankContext context) {
-        return evaluate(candidate, context, scarcityEstimator.indexBySlot(context.factionOcData()));
-    }
-
-    /**
-     * 用已建好的岗位索引计算单个候选的机会成本，避免批量排序时重复扫描能力矩阵。
-     *
-     * @param candidate 候选
-     * @param context   排序上下文
-     * @param slotIndex 按岗位建好的能力矩阵索引
-     * @return 机会成本快照
-     */
-    private OcOpportunityCost evaluate(OcRecommendCandidate candidate, OcRankContext context,
-                                       Map<String, List<TornFactionOcUserDO>> slotIndex) {
         OcYieldEstimate estimate = candidate.estimate() == null
                 ? OcYieldEstimate.zero(OcYieldSourceEnum.MAPPED) : candidate.estimate();
         int demand = Math.max(1, emptySlots(context, candidate));
         OcScarcityEstimator.OcSubstituteResult substitute = scarcityEstimator.estimateFromIndex(
-                candidate.requirement(), slotIndex, context.userId(), demand);
+                candidate.requirement(), context.slotIndex(), context.userId(), demand);
 
         BigDecimal substituteProbability = substitute == null ? null : substitute.probability();
         BigDecimal expectedGain = substituteProbability == null
@@ -103,13 +90,11 @@ public class OcOpportunityCostRanker {
     public List<OcRecommendCandidate> rank(List<OcRecommendCandidate> candidates,
                                            OcRecommendCandidate baseline,
                                            OcRankContext context) {
-        Map<String, List<TornFactionOcUserDO>> slotIndex =
-                scarcityEstimator.indexBySlot(context.factionOcData());
         List<OcRecommendCandidate> costed = candidates.stream()
-                .map(candidate -> candidate.withCost(evaluate(candidate, context, slotIndex)))
+                .map(candidate -> candidate.withCost(evaluate(candidate, context)))
                 .toList();
         OcRecommendCandidate costedBaseline = baseline == null
-                ? null : baseline.withCost(evaluate(baseline, context, slotIndex));
+                ? null : baseline.withCost(evaluate(baseline, context));
         return costed.stream()
                 .filter(candidate -> costedBaseline == null
                         || compareEconomy(candidate, costedBaseline, context) < 0)
@@ -213,6 +198,7 @@ public class OcOpportunityCostRanker {
      * @param emptySlotsByOc 每个OC的剩余空位数，作为第四决胜键
      * @param userId         被推荐的成员ID
      * @param now            本次推荐的时间基准
+     * @param slotIndex      按（OC名称, 等级, 岗位短编码）预分组的矩阵索引，随上下文只建一次
      * @author Bai
      * @version 1.9.3
      * @since 2026.10.23
@@ -221,7 +207,8 @@ public class OcOpportunityCostRanker {
                                 List<TornFactionOcSlotDO> occupiedSlots,
                                 Map<Long, Integer> emptySlotsByOc,
                                 Long userId,
-                                LocalDateTime now) {
+                                LocalDateTime now,
+                                Map<String, List<TornFactionOcUserDO>> slotIndex) {
 
         /**
          * 归一化空值，避免排序时做空判断。
@@ -230,17 +217,31 @@ public class OcOpportunityCostRanker {
             factionOcData = factionOcData == null ? List.of() : List.copyOf(factionOcData);
             occupiedSlots = occupiedSlots == null ? List.of() : List.copyOf(occupiedSlots);
             emptySlotsByOc = emptySlotsByOc == null ? Map.of() : Map.copyOf(emptySlotsByOc);
+            slotIndex = slotIndex == null ? Map.of() : Map.copyOf(slotIndex);
         }
 
         /**
-         * 复制上下文并替换被推荐成员，用于批量分配时逐人复用同一份只读事实。
+         * 由原始只读事实构造上下文并顺手建好岗位索引：一次推荐或一批分配只建这一份，
+         * 之后每个候选的替代概率查询都是O(1)。
+         */
+        public OcRankContext(List<TornFactionOcUserDO> factionOcData,
+                             List<TornFactionOcSlotDO> occupiedSlots,
+                             Map<Long, Integer> emptySlotsByOc,
+                             Long userId,
+                             LocalDateTime now) {
+            this(factionOcData, occupiedSlots, emptySlotsByOc, userId, now,
+                    OcScarcityEstimator.indexBySlot(factionOcData));
+        }
+
+        /**
+         * 复制上下文并替换被推荐成员，用于批量分配时逐人复用同一份只读事实与岗位索引。
          *
          * @param newUserId 新的成员ID
          * @return 替换成员后的上下文
          */
         public OcRankContext withUserId(Long newUserId) {
             return new OcRankContext(factionOcData, occupiedSlots, emptySlotsByOc,
-                    newUserId, now);
+                    newUserId, now, slotIndex);
         }
     }
 }
