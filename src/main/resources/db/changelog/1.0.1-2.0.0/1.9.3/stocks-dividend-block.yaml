@@ -1,0 +1,56 @@
+databaseChangeLog:
+  # ========== 股票分红屏蔽名单(1.9.3) ==========
+  # 用户级股票屏蔽: 一行=(用户, 股票)。仅作用于 Stock分红购买/Stock分红追加 两个指令的
+  # 候选池与组合计算(被屏蔽股票不买不卖, 其已投入成本不计入预算);
+  # 不参与任何资金写入, 不影响α正式仓、月度风格与通知链路。
+  - changeSet:
+      id: create_table_user_stock_block
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_user_stock_block
+            remarks: "用户屏蔽的股票名单(股票分红指令计算时排除)"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                  remarks: "Torn用户ID"
+              - column:
+                  name: stocks_id
+                  type: INT
+                  constraints:
+                    nullable: false
+                  remarks: "被屏蔽的股票ID(torn_stocks.id)"
+              - column:
+                  name: deleted
+                  type: TINYINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_user_stock_block_user_stock ON torn_user_stock_block (user_id, stocks_id) WHERE deleted = 0"

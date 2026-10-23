@@ -3,15 +3,15 @@ package pn.torn.goldeneye.torn.manager.user;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.repository.model.torn.stocks.TornStocksDO;
+import pn.torn.goldeneye.torn.manager.user.dividend.StockDividendKnapsackSolver;
+import pn.torn.goldeneye.torn.manager.user.dividend.StockDividendOpportunityFactory;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksDetailVO;
 import pn.torn.goldeneye.torn.model.user.stocks.TornUserStocksVO;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,19 +19,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 股票分红收益计算集成测试
  *
  * @author Bai
- * @version 1.2.1
+ * @version 1.9.3
  * @since 2026.03.09
  */
-@ExtendWith(MockitoExtension.class)
 @DisplayName("股票分红BB投资策略分析器测试")
 class StocksBonusAnalyzeManagerTest {
-    @InjectMocks
     private StocksBonusAnalyzeManager manager;
     private List<TornStocksDO> allStocks;
 
     @BeforeEach
     void setUp() {
         allStocks = new ArrayList<>();
+        StockDividendOpportunityFactory opportunityFactory = new StockDividendOpportunityFactory();
+        manager = new StocksBonusAnalyzeManager(opportunityFactory,
+                new StockDividendKnapsackSolver(opportunityFactory));
     }
 
     @Test
@@ -325,6 +326,45 @@ class StocksBonusAnalyzeManagerTest {
                 .mapToLong(StocksBonusAnalyzeManager.OptimalAction::cost)
                 .sum();
         assertThat(totalCost).isLessThanOrEqualTo(availableCash);
+    }
+
+    @Test
+    @DisplayName("屏蔽股票：只买不卖模式下被屏蔽股票不进入买入候选")
+    void testBlockedStock_excludedFromBuyActions() {
+        allStocks.add(createStock(1, "HRG", 1_000_000L, 100L, 200_000L));
+        allStocks.add(createStock(2, "MUN", 2_000_000L, 200L, 100_000L));
+        TornUserStocksVO userStocks = new TornUserStocksVO();
+        userStocks.setStocks(new ArrayList<>());
+
+        List<StocksBonusAnalyzeManager.OptimalAction> actions = manager.calculate(
+                5_000_000L, allStocks, userStocks, true, Set.of(1));
+
+        assertThat(actions).isNotEmpty()
+                .allMatch(action -> !"HRG".equals(action.stockShortName()));
+    }
+
+    @Test
+    @DisplayName("屏蔽股票：可买可卖模式下已持有的被屏蔽股票不买不卖且成本不计入预算")
+    void testBlockedHeldStock_excludedFromRebalance() {
+        allStocks.add(createStock(1, "HRG", 1_000_000L, 100L, 100_000L));
+        allStocks.add(createStock(2, "MUN", 1_000_000L, 100L, 200_000L));
+        TornUserStocksVO userStocks = new TornUserStocksVO();
+        TornUserStocksDetailVO detail = new TornUserStocksDetailVO();
+        detail.setId(1);
+        // 持有HRG的1~3BB, 已投入成本7M
+        detail.setShares(700L);
+        userStocks.setStocks(List.of(detail));
+
+        // 不屏蔽时: 预算=现金0+HRG成本7M, 会建议卖出HRG改买ROI更高的MUN
+        List<StocksBonusAnalyzeManager.OptimalAction> unblockedActions = manager.calculate(0L, allStocks, userStocks);
+        assertThat(unblockedActions).isNotEmpty()
+                .extracting(StocksBonusAnalyzeManager.OptimalAction::stockShortName)
+                .contains("HRG");
+
+        // 屏蔽HRG后: 既不推荐卖出也不计入预算(现金0), 不产生任何操作
+        List<StocksBonusAnalyzeManager.OptimalAction> blockedActions = manager.calculate(
+                0L, allStocks, userStocks, false, Set.of(1));
+        assertThat(blockedActions).isEmpty();
     }
 
     // 辅助方法

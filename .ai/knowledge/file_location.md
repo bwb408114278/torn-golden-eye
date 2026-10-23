@@ -89,44 +89,48 @@
 │   │   │   │   │   │   └── oc/                                                         # OC相关DAO
 │   │   │   │   │   │       ├── TornFactionOcDAO.java                                   # OC DAO
 │   │   │   │   │   │       └── TornFactionOcSlotDAO.java                               # OC岗位相关DAO
-│   │   │   │   │   └── torn/                                                           # Torn相关DAO
-│   │   │   │   │       ├── stocks/                                                     # 股票相关DAO
-│   │   │   │   │       │   ├── portfolio/                                              # VIP股票组合相关DAO
-│   │   │   │   │       │   │   ├── TornStockVirtualBatchDAO.java                       # 虚拟交易批次DAO(含活跃正式/影子批次行锁查询)
-│   │   │   │   │       │   │   ├── TornStockBatchMarkDAO.java                          # 批次逐轮标记DAO
-│   │   │   │   │       │   │   ├── TornStockPortfolioSlotDAO.java                      # 组合槽位DAO
-│   │   │   │   │       │   │   ├── TornStockMarketRoundDAO.java                        # 轮次记录DAO
-│   │   │   │   │       │   │   ├── TornStockMarketBar15mDAO.java                       # 15分钟bar DAO
-│   │   │   │   │       │   │   ├── TornStockStrategyFeature15mDAO.java                 # 15分钟策略特征DAO
-│   │   │   │   │       │   │   ├── TornStockSignalEventDAO.java                        # 信号事件DAO
-│   │   │   │   │       │   │   ├── TornStockSignalStateDAO.java                        # 信号边沿状态DAO
-│   │   │   │   │       │   │   ├── TornStockMonthlyStateDAO.java                       # 月度风格状态DAO
-│   │   │   │   │       │   │   ├── TornStockNoticeAuditDAO.java                        # 通知审计DAO
-│   │   │   │   │       │   │   └── TornStockPortfolioAnnualSettlementDAO.java          # α正式仓年度结算台账DAO
-│   │   │   │   │       │   └── TornStocksHistoryDAO.java                               # 股票历史DAO
-│   │   │   │   │       └── TornAttackLogDAO.java                                       # 攻击日志DAO
+│   │   │   │   │   ├── torn/                                                           # Torn相关DAO
+│   │   │   │   │   │   ├── stocks/                                                     # 股票相关DAO
+│   │   │   │   │   │   │   ├── portfolio/                                              # VIP股票组合相关DAO
+│   │   │   │   │   │   │   │   ├── TornStockVirtualBatchDAO.java                       # 虚拟交易批次DAO(含活跃正式/影子批次行锁查询)
+│   │   │   │   │   │   │   │   ├── TornStockBatchMarkDAO.java                          # 批次逐轮标记DAO
+│   │   │   │   │   │   │   │   ├── TornStockPortfolioSlotDAO.java                      # 组合槽位DAO
+│   │   │   │   │   │   │   │   ├── TornStockMarketRoundDAO.java                        # 轮次记录DAO
+│   │   │   │   │   │   │   │   ├── TornStockMarketBar15mDAO.java                       # 15分钟bar DAO
+│   │   │   │   │   │   │   │   ├── TornStockStrategyFeature15mDAO.java                 # 15分钟策略特征DAO
+│   │   │   │   │   │   │   │   ├── TornStockSignalEventDAO.java                        # 信号事件DAO
+│   │   │   │   │   │   │   │   ├── TornStockSignalStateDAO.java                        # 信号边沿状态DAO
+│   │   │   │   │   │   │   │   ├── TornStockMonthlyStateDAO.java                       # 月度风格状态DAO
+│   │   │   │   │   │   │   │   ├── TornStockNoticeAuditDAO.java                        # 通知审计DAO
+│   │   │   │   │   │   │   │   └── TornStockPortfolioAnnualSettlementDAO.java          # α正式仓年度结算台账DAO
+│   │   │   │   │   │   │   └── TornStocksHistoryDAO.java                               # 股票历史DAO
+│   │   │   │   │   │   └── TornAttackLogDAO.java                                       # 攻击日志DAO
+│   │   │   │   │   └── user/                                                           # 用户相关DAO
+│   │   │   │   │       └── TornUserStockBlockDAO.java                                  # 用户股票屏蔽DAO
 │   │   │   │   ├── mapper/                                                             # Mapper相关
 │   │   │   │   │   ├── faction/                                                        # 帮派相关Mapper
 │   │   │   │   │   │   └── oc/                                                         # OC相关Mapper
 │   │   │   │   │   │       ├── TornFactionOcIncomeMapper.java                          # OC收益记录Mapper(含实测产出聚合)
 │   │   │   │   │   │       ├── TornFactionOcMapper.java                                # OC Mapper
 │   │   │   │   │   │       └── TornFactionOcSlotMapper.java                            # OC岗位相关Mapper
-│   │   │   │   │   └── torn/                                                           # Torn相关Mapper
-│   │   │   │   │       ├── stocks/                                                     # 股票相关Mapper(Java接口)
-│   │   │   │   │       │   ├── portfolio/                                              # VIP股票组合相关Mapper
-│   │   │   │   │       │   │   ├── TornStockVirtualBatchMapper.java                    # 虚拟批次表Mapper(含UPSERT与行锁查询)
-│   │   │   │   │       │   │   ├── TornStockBatchMarkMapper.java                       # 批次逐轮标记Mapper
-│   │   │   │   │       │   │   ├── TornStockPortfolioSlotMapper.java                   # 组合槽位Mapper
-│   │   │   │   │       │   │   ├── TornStockMarketRoundMapper.java                     # 轮次记录Mapper
-│   │   │   │   │       │   │   ├── TornStockMarketBar15mMapper.java                    # 15分钟bar Mapper
-│   │   │   │   │       │   │   ├── TornStockStrategyFeature15mMapper.java              # 15分钟策略特征Mapper
-│   │   │   │   │       │   │   ├── TornStockSignalEventMapper.java                     # 信号事件Mapper
-│   │   │   │   │       │   │   ├── TornStockSignalStateMapper.java                     # 信号边沿状态Mapper
-│   │   │   │   │       │   │   ├── TornStockMonthlyStateMapper.java                    # 月度风格状态Mapper
-│   │   │   │   │       │   │   ├── TornStockNoticeAuditMapper.java                     # 通知审计Mapper
-│   │   │   │   │       │   │   └── TornStockPortfolioAnnualSettlementMapper.java       # 年度结算台账Mapper
-│   │   │   │   │       │   └── TornStocksHistoryMapper.java                            # 股票历史表Mapper
-│   │   │   │   │       └── TornAttackLogMapper.java                                    # 攻击日志Mapper
+│   │   │   │   │   ├── torn/                                                           # Torn相关Mapper
+│   │   │   │   │   │   ├── stocks/                                                     # 股票相关Mapper(Java接口)
+│   │   │   │   │   │   │   ├── portfolio/                                              # VIP股票组合相关Mapper
+│   │   │   │   │   │   │   │   ├── TornStockVirtualBatchMapper.java                    # 虚拟批次表Mapper(含UPSERT与行锁查询)
+│   │   │   │   │   │   │   │   ├── TornStockBatchMarkMapper.java                       # 批次逐轮标记Mapper
+│   │   │   │   │   │   │   │   ├── TornStockPortfolioSlotMapper.java                   # 组合槽位Mapper
+│   │   │   │   │   │   │   │   ├── TornStockMarketRoundMapper.java                     # 轮次记录Mapper
+│   │   │   │   │   │   │   │   ├── TornStockMarketBar15mMapper.java                    # 15分钟bar Mapper
+│   │   │   │   │   │   │   │   ├── TornStockStrategyFeature15mMapper.java              # 15分钟策略特征Mapper
+│   │   │   │   │   │   │   │   ├── TornStockSignalEventMapper.java                     # 信号事件Mapper
+│   │   │   │   │   │   │   │   ├── TornStockSignalStateMapper.java                     # 信号边沿状态Mapper
+│   │   │   │   │   │   │   │   ├── TornStockMonthlyStateMapper.java                    # 月度风格状态Mapper
+│   │   │   │   │   │   │   │   ├── TornStockNoticeAuditMapper.java                     # 通知审计Mapper
+│   │   │   │   │   │   │   │   └── TornStockPortfolioAnnualSettlementMapper.java       # 年度结算台账Mapper
+│   │   │   │   │   │   │   └── TornStocksHistoryMapper.java                            # 股票历史表Mapper
+│   │   │   │   │   │   └── TornAttackLogMapper.java                                    # 攻击日志Mapper
+│   │   │   │   │   └── user/                                                           # 用户相关Mapper
+│   │   │   │   │       └── TornUserStockBlockMapper.java                               # 用户股票屏蔽Mapper
 │   │   │   │   └── model/                                                              # 数据对应模型
 │   │   │   │       ├── faction/                                                        # 帮派相关功能
 │   │   │   │       │   ├── attack/                                                     # 帮派攻击相关功能
@@ -138,20 +142,22 @@
 │   │   │   │       │       ├── TornFactionOcDO.java                                    # 帮派OC表
 │   │   │   │       │       ├── TornFactionOcIdleRankDO.java                            # OC空转榜查询结果
 │   │   │   │       │       └── TornFactionOcSlotDO.java                                # 帮派OC岗位表
-│   │   │   │       └── torn/                                                           # Torn相关模型
-│   │   │   │           └── stocks/                                                     # 股票相关模型
-│   │   │   │               └── portfolio/                                              # VIP股票组合相关DO
-│   │   │   │                   ├── TornStockVirtualBatchDO.java                        # 虚拟交易批次DO
-│   │   │   │                   ├── TornStockBatchMarkDO.java                           # 批次逐轮标记DO
-│   │   │   │                   ├── TornStockPortfolioSlotDO.java                       # 组合槽位DO
-│   │   │   │                   ├── TornStockMarketRoundDO.java                         # 轮次记录DO
-│   │   │   │                   ├── TornStockMarketBar15mDO.java                        # 15分钟bar DO
-│   │   │   │                   ├── TornStockStrategyFeature15mDO.java                  # 15分钟策略特征DO
-│   │   │   │                   ├── TornStockSignalEventDO.java                         # 信号事件DO
-│   │   │   │                   ├── TornStockSignalStateDO.java                         # 信号边沿状态DO
-│   │   │   │                   ├── TornStockMonthlyStateDO.java                        # 月度风格状态DO
-│   │   │   │                   ├── TornStockNoticeAuditDO.java                         # 通知审计DO
-│   │   │   │                   └── TornStockPortfolioAnnualSettlementDO.java           # α正式仓年度结算台账DO
+│   │   │   │       ├── torn/                                                           # Torn相关模型
+│   │   │   │       │   └── stocks/                                                     # 股票相关模型
+│   │   │   │       │       └── portfolio/                                              # VIP股票组合相关DO
+│   │   │   │       │           ├── TornStockVirtualBatchDO.java                        # 虚拟交易批次DO
+│   │   │   │       │           ├── TornStockBatchMarkDO.java                           # 批次逐轮标记DO
+│   │   │   │       │           ├── TornStockPortfolioSlotDO.java                       # 组合槽位DO
+│   │   │   │       │           ├── TornStockMarketRoundDO.java                         # 轮次记录DO
+│   │   │   │       │           ├── TornStockMarketBar15mDO.java                        # 15分钟bar DO
+│   │   │   │       │           ├── TornStockStrategyFeature15mDO.java                  # 15分钟策略特征DO
+│   │   │   │       │           ├── TornStockSignalEventDO.java                         # 信号事件DO
+│   │   │   │       │           ├── TornStockSignalStateDO.java                         # 信号边沿状态DO
+│   │   │   │       │           ├── TornStockMonthlyStateDO.java                        # 月度风格状态DO
+│   │   │   │       │           ├── TornStockNoticeAuditDO.java                         # 通知审计DO
+│   │   │   │       │           └── TornStockPortfolioAnnualSettlementDO.java           # α正式仓年度结算台账DO
+│   │   │   │       └── user/                                                           # 用户相关模型
+│   │   │   │           └── TornUserStockBlockDO.java                                   # 用户股票屏蔽DO
 │   │   │   └── torn/                                                                   # Torn相关
 │   │   │       ├── manager/                                                            # 公共逻辑层
 │   │   │       │   ├── faction/                                                        # 帮派相关功能
@@ -164,8 +170,13 @@
 │   │   │       │   ├── torn/                                                           # Torn相关功能
 │   │   │       │   │   └── stocks                                                      # 股票相关功能
 │   │   │       │   │       └── StockRollingFeatureEngine.java                          # 股票滚动窗口设置特征值引擎
-│   │   │       │   └── setting/                                                        # 配置相关功能
-│   │   │       │       └── SysSettingManager.java                                      # 系统配置公共逻辑、缓存
+│   │   │       │   ├── setting/                                                        # 配置相关功能
+│   │   │       │   │   └── SysSettingManager.java                                      # 系统配置公共逻辑、缓存
+│   │   │       │   ├── user/                                                           # 用户相关公共逻辑
+│   │   │       │   │   ├── dividend/                                                   # 股票分红计算子包
+│   │   │       │   │   │   ├── StockDividendKnapsackSolver.java                        # 分红BB组合分组背包DP求解
+│   │   │       │   │   │   └── StockDividendOpportunityFactory.java                    # 分红BB机会与成本计算
+│   │   │       │   │   └── StocksBonusAnalyzeManager.java                              # 股票分红BB组合计算编排
 │   │   │       ├── model/                                                              # Torn相关模型
 │   │   │       │   ├── activity/                                                       # 活跃度热力图模型
 │   │   │       │   │   ├── ActivityCaliberEnum.java                                    # 热力图统计口径(单日/单周/半月/典型周)
@@ -296,8 +307,10 @@
 │   │       │       │   └── stocks-annual-settlement.yaml                               # 年度结算台账与年报通知幂等索引
 │   │       │       ├── 1.6.7/                                                          # 1.6.7版本改动
 │   │       │       │   └── oc-delay-cause.yaml                                         # OC延误归因delay_cause加列
-│   │       │       └── 1.8.0/                                                          # 1.8.0版本改动
-│   │       │           └── stocks-monthly-state-revive.yaml                            # 月度风格状态表复活(preConditions幂等)
+│   │       │       ├── 1.8.0/                                                          # 1.8.0版本改动
+│   │       │       │   └── stocks-monthly-state-revive.yaml                            # 月度风格状态表复活(preConditions幂等)
+│   │       │       └── 1.9.3/                                                          # 1.9.3版本改动
+│   │       │           └── stocks-dividend-block.yaml                                  # 股票分红屏蔽名单建表与唯一索引
 │   │       └── mapper/                                                                 # Mapper文件
 │   │           ├── faction/                                                            # 帮派相关
 │   │           │   └── oc/                                                             # OC相关
