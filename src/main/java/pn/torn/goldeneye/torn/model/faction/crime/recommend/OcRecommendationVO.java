@@ -62,12 +62,26 @@ public class OcRecommendationVO {
     private OcRecommendOutcomeEnum outcome;
 
     public OcRecommendationVO(TornFactionOcDO oc, TornFactionOcSlotDO slot, BigDecimal recommendScore, String reason) {
-        this(oc, slot, recommendScore, reason, null, null, null, null);
+        this(oc, slot, recommendScore, reason, null, null, null);
     }
 
+    /**
+     * 构造带机会成本口径的推荐结果。
+     *
+     * <p>排序键就是机会成本，因此 recommendScore 与 opportunityCost 同源：入参只保留一个，
+     * 避免调用方传两份可能不一致的值。</p>
+     *
+     * @param oc                      候选OC
+     * @param slot                    候选空位
+     * @param recommendScore          本岗位机会成本（排序键）
+     * @param reason                  推荐理由
+     * @param expectedNetPerMemberDay 期望净产出除以期望人天
+     * @param substituteCount         除本人之外可填该岗位的人数，null表示未知
+     * @param outcome                 岗位稀缺度分档
+     */
     public OcRecommendationVO(TornFactionOcDO oc, TornFactionOcSlotDO slot, BigDecimal recommendScore, String reason,
-                              BigDecimal expectedNetPerMemberDay, BigDecimal opportunityCost,
-                              Integer substituteCount, OcRecommendOutcomeEnum outcome) {
+                              BigDecimal expectedNetPerMemberDay, Integer substituteCount,
+                              OcRecommendOutcomeEnum outcome) {
         this.ocId = oc.getId();
         this.ocName = oc.getName();
         this.rank = oc.getRank();
@@ -76,7 +90,7 @@ public class OcRecommendationVO {
         this.recommendScore = recommendScore;
         this.reason = reason;
         this.expectedNetPerMemberDay = expectedNetPerMemberDay;
-        this.opportunityCost = opportunityCost;
+        this.opportunityCost = recommendScore;
         this.substituteCount = substituteCount;
         this.outcome = outcome;
     }

@@ -26,7 +26,7 @@
 │       │   ├── oc_rate_table_html_migration_technical_design.md                        # 用户OC成功率表HTML迁移（五档色阶/双维星级/级别分组）技术方案(1.9.0)
 │       │   ├── oc_reassign_income_mode_timeline_technical_design.md                    # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
 │       │   ├── oc_recommend_mixing_baseline.md                                         # OC推荐收益混算与机会成本排序长期业务基线(2.3)
-│       │   ├── oc_recommend_mixing_technical_design.md                                 # OC推荐收益混算与机会成本排序技术方案(1.9.4)
+│       │   ├── oc_recommend_mixing_technical_design.md                                 # OC推荐收益混算与机会成本排序技术方案(1.9.3)
 │       │   ├── oc_userscript_api_technical_design.md                                   # OC推荐插件对外HTTP接口与Torn Key鉴权技术方案(1.9.3)
 │       │   └── oc_userscript_client_technical_design.md                                # OC推荐油猴插件客户端（只读呈现/开关/fail-safe）技术方案
 │       ├── security/                                                                   # 凭据与安全相关知识库
@@ -190,6 +190,7 @@
 │   │   │       │   │   │   ├── OcRecommendationVO.java                                 # OC推荐结果(含机会成本与稀缺度)
 │   │   │       │   │   │   ├── OcRecommendTableBO.java                                 # 推荐表格组装参数
 │   │   │       │   │   │   ├── OcSlotDictBO.java                                       # OC与岗位键值对
+│   │   │       │   │   │   ├── OcSlotEligibility.java                                  # 成员对空位的可填性判定
 │   │   │       │   │   │   ├── OcYieldEstimate.java                                    # OC期望产出估算值(净产出与人天)
 │   │   │       │   │   │   └── OcYieldSourceEnum.java                                  # OC产出估算来源(实测/映射/链映射)
 │   │   │       │   │   └── revive/                                                     # 复活相关模型

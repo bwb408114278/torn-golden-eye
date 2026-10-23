@@ -17,6 +17,7 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotEligibility;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
@@ -88,8 +89,8 @@ class TornOcAssignServiceTest {
 
         lenient().when(ocUserDao.queryFactionMatrix(FACTION_ID)).thenReturn(List.of());
         lenient().when(ocSlotDao.queryListByOc(anyList())).thenReturn(List.of());
-        lenient().when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(setting);
-        lenient().when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(userData);
+        lenient().when(ocRecommendManager.resolveEligibility(anyLong(), any(), any(), anyList()))
+                .thenReturn(new OcSlotEligibility(setting, 80));
         lenient().when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
     }
 
@@ -152,7 +153,7 @@ class TornOcAssignServiceTest {
         when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(List.of(slot));
         lenient().when(yieldEstimatorRegistry.estimateAll(anyCollection(), any()))
                 .thenReturn(Map.of(1L, estimate(300_000_000L, 6)));
-        when(ocRecommendManager.findSlotSetting(FACTION_ID, oc, slot)).thenReturn(null);
+        when(ocRecommendManager.resolveEligibility(FACTION_ID, oc, slot, List.of(userData))).thenReturn(null);
 
         Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
                 FACTION_ID, Map.of(user, List.of(userData)));

@@ -39,20 +39,6 @@ public class OcScarcityEstimator {
     private static final String KEY_SEPARATOR = "|";
 
     /**
-     * 估算指定岗位的替代概率。
-     *
-     * @param requirement 岗位配置（已含帮派覆盖的成功率要求），可为空
-     * @param matrix      帮派成功率矩阵（含全局默认行），可为空
-     * @param userId      被推荐的成员ID，可为空
-     * @param demand      该OC当前剩余空位数（含本候选），小于1时按1处理
-     * @return 替代概率与可填人数；矩阵无该岗位样本时返回null
-     */
-    public OcSubstituteResult estimate(TornSettingOcSlotDO requirement, List<TornFactionOcUserDO> matrix,
-                                       Long userId, int demand) {
-        return estimateFromIndex(requirement, indexBySlot(matrix), userId, demand);
-    }
-
-    /**
      * 按（OC名称, 等级, 岗位短编码）把能力矩阵建成索引，供批量评估复用。
      *
      * @param matrix 帮派成功率矩阵，可为空

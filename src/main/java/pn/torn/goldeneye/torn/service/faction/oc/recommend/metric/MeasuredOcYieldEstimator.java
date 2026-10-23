@@ -55,7 +55,7 @@ public class MeasuredOcYieldEstimator implements OcYieldEstimator {
     @Override
     public OcYieldEstimate estimate(TornFactionOcDO oc, LocalDateTime snapshotTime) {
         OcIncomeYieldStatsDO stats = findStats(oc.getFactionId(), oc.getName(), oc.getRank());
-        return estimate(oc, stats, snapshotTime);
+        return estimate(oc, stats);
     }
 
     /**
@@ -97,12 +97,11 @@ public class MeasuredOcYieldEstimator implements OcYieldEstimator {
     /**
      * 用已加载的实测统计估算期望产出，避免重复查库。
      *
-     * @param oc           OC数据
-     * @param stats        该OC的实测产出统计，可为空
-     * @param snapshotTime 本次推荐的时间基准
+     * @param oc    OC数据
+     * @param stats 该OC的实测产出统计，可为空
      * @return 期望产出估算值；无历史实例时返回0产出
      */
-    public OcYieldEstimate estimate(TornFactionOcDO oc, OcIncomeYieldStatsDO stats, LocalDateTime snapshotTime) {
+    public OcYieldEstimate estimate(TornFactionOcDO oc, OcIncomeYieldStatsDO stats) {
         int attempts = stats == null || stats.getAttemptCount() == null ? 0 : stats.getAttemptCount();
         if (attempts <= 0) {
             return OcYieldEstimate.zero(OcYieldSourceEnum.MEASURED);

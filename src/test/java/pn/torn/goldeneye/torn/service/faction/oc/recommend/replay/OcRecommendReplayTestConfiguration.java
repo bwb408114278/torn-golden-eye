@@ -12,7 +12,10 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingOcReassignFactionDAO;
 import pn.torn.goldeneye.repository.dao.setting.TornSettingOcReassignOcDAO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
-import pn.torn.goldeneye.torn.manager.setting.*;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcPlanningManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.MappedOcYieldEstimator;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.MeasuredOcYieldEstimator;
@@ -61,17 +64,9 @@ public class OcRecommendReplayTestConfiguration {
     }
 
     @Bean
-    TornSettingOcReassignManager tornSettingOcReassignManager(
-            TornSettingOcReassignFactionDAO factionDAO, TornSettingOcReassignOcDAO ocDAO) {
-        return new TornSettingOcReassignManager(factionDAO, ocDAO);
-    }
-
-    @Bean
-    TornOcRecommendManager tornOcRecommendManager(
-            TornSettingFactionOcManager factionOcManager,
-            TornSettingOcSlotManager ocSlotManager,
-            TornSettingOcReassignManager reassignManager) {
-        return new TornOcRecommendManager(factionOcManager, ocSlotManager, reassignManager);
+    TornOcRecommendManager tornOcRecommendManager(TornSettingFactionOcManager factionOcManager,
+                                                  TornSettingOcSlotManager ocSlotManager) {
+        return new TornOcRecommendManager(factionOcManager, ocSlotManager);
     }
 
     @Bean

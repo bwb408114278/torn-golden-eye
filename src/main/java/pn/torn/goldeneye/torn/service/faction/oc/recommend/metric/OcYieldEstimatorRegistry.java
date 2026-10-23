@@ -90,7 +90,7 @@ public class OcYieldEstimatorRegistry {
                                      LocalDateTime snapshotTime) {
         OcYieldSourceEnum source = resolveSource(oc, stats);
         if (source == OcYieldSourceEnum.MEASURED) {
-            return applyChainComposition(measuredEstimator.estimate(oc, stats, snapshotTime), oc);
+            return applyChainComposition(measuredEstimator.estimate(oc, stats), oc);
         }
         return findEstimator(source).estimate(oc, snapshotTime);
     }

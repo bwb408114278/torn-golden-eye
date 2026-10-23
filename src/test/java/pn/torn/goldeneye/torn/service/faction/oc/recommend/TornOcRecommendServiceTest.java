@@ -16,10 +16,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotDictBO;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
@@ -120,7 +117,8 @@ class TornOcRecommendServiceTest {
         stubQuery(List.of(breakBankOc), List.of(breakBankSlot));
         stubEstimates(Map.of(2L, estimate(300_000_000L, 6)));
         when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of());
-        lenient().when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(null);
+        lenient().when(ocRecommendManager.resolveEligibility(anyLong(), any(), any(), anyList()))
+                .thenReturn(new OcSlotEligibility(slotSetting, null));
 
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
 
@@ -194,9 +192,11 @@ class TornOcRecommendServiceTest {
     @Test
     @DisplayName("当前OC被禁用时不使用其机会成本作为基线")
     void recommend_shouldIgnoreBaselineWhenCurrentOcDisabled() {
+        aceSlot.setProgress(BigDecimal.ONE);
         stubQuery(List.of(aceOc, breakBankOc), List.of(buildEmptySlot(11L, 1L, "Engineer#2"), breakBankSlot));
         stubEstimates(Map.of(1L, estimate(500_000_000L, 5), 2L, estimate(100_000_000L, 6)));
         when(ocRecommendManager.isOcDisabled(FACTION_HP, aceOc)).thenReturn(true);
+        when(ocRecommendManager.resolveEligibility(anyLong(), eq(aceOc), any(), anyList())).thenReturn(null);
 
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
 
@@ -223,7 +223,8 @@ class TornOcRecommendServiceTest {
     void recommend_shouldSkipSlotBelowPassRateRequirement() {
         stubQuery(List.of(breakBankOc), List.of(breakBankSlot));
         stubEstimates(Map.of(2L, estimate(300_000_000L, 6)));
-        matched.setPassRate(50);
+        lenient().when(ocRecommendManager.resolveEligibility(anyLong(), any(), any(), anyList()))
+                .thenReturn(new OcSlotEligibility(slotSetting, 50));
 
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
 
@@ -246,14 +247,25 @@ class TornOcRecommendServiceTest {
         assertThat(aceOc.getReadyTime()).isEqualTo(originalReadyTime);
     }
 
+    private void stubQuery(List<TornFactionOcDO> recruitOcList, List<TornFactionOcSlotDO> emptySlotList) {
+        lenient().when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new ArrayList<>(recruitOcList));
+        lenient().when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new ArrayList<>(emptySlotList));
+        lenient().when(ocSlotDao.queryListByOc(anyList())).thenReturn(List.of());
+        lenient().when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(matched));
+        lenient().when(ocUserDao.queryFactionMatrix(FACTION_HP)).thenReturn(List.of());
+        lenient().when(ocRecommendManager.resolveEligibility(anyLong(), any(), any(), anyList()))
+                .thenReturn(new OcSlotEligibility(slotSetting, 80));
+        lenient().when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(false);
+        lenient().when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
+    }
+
     /**
      * 让当前岗位可被他人替代、候选岗位无样本，构造「候选严格优于基线」的场景。
      */
     private void stubSlotRequirementByPosition(String ocName, int rank) {
-        when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenAnswer(invocation ->
-                buildSetting(ocName, rank, ((TornFactionOcSlotDO) invocation.getArgument(2)).getPosition(), 60));
-        when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenAnswer(invocation ->
-                buildSetting(ocName, rank, ((TornFactionOcSlotDO) invocation.getArgument(2)).getPosition(), 60));
+        when(ocRecommendManager.resolveEligibility(anyLong(), any(), any(), anyList())).thenAnswer(invocation ->
+                new OcSlotEligibility(buildSetting(ocName, rank,
+                        ((TornFactionOcSlotDO) invocation.getArgument(2)).getPosition(), 60), 80));
         when(ocUserDao.queryFactionMatrix(FACTION_HP)).thenReturn(List.of(
                 matrixRow(ocName, rank, "Engineer#1", 90, 1L),
                 matrixRow(ocName, rank, "Engineer#1", 88, 2L),
@@ -269,19 +281,6 @@ class TornOcRecommendServiceTest {
         row.setPosition(position);
         row.setPassRate(passRate);
         return row;
-    }
-
-    private void stubQuery(List<TornFactionOcDO> recruitOcList, List<TornFactionOcSlotDO> emptySlotList) {
-        lenient().when(ocDao.queryRecrutList(FACTION_HP)).thenReturn(new ArrayList<>(recruitOcList));
-        lenient().when(ocSlotDao.queryEmptySlotList(anyList())).thenReturn(new ArrayList<>(emptySlotList));
-        lenient().when(ocSlotDao.queryListByOc(anyList())).thenReturn(List.of());
-        lenient().when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of(matched));
-        lenient().when(ocUserDao.queryFactionMatrix(FACTION_HP)).thenReturn(List.of());
-        lenient().when(ocRecommendManager.findSlotSetting(anyLong(), any(), any())).thenReturn(slotSetting);
-        lenient().when(ocRecommendManager.findSlotRequirement(anyLong(), any(), any())).thenReturn(slotSetting);
-        lenient().when(ocRecommendManager.findUserPassRate(anyList(), any(), any())).thenReturn(matched);
-        lenient().when(ocRecommendManager.isOcDisabled(anyLong(), any())).thenReturn(false);
-        lenient().when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
     }
 
     private void stubEstimates(Map<Long, OcYieldEstimate> estimates) {

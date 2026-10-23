@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.ToIntFunction;
 
 /**
  * 链式OC的价值归约器。
@@ -32,8 +33,7 @@ public final class OcChainValueReducer<T> {
      * @return 整条链的估算值：奖励取叶子，人天累加全部步骤
      * @throws IllegalArgumentException 步骤列表为空时抛出
      */
-    public OcYieldEstimate reduce(List<T> steps, Function<T, OcYieldEstimate> valueOf,
-                                  Function<T, Integer> stepIndex) {
+    public OcYieldEstimate reduce(List<T> steps, Function<T, OcYieldEstimate> valueOf, ToIntFunction<T> stepIndex) {
         if (steps == null || steps.isEmpty()) {
             throw new IllegalArgumentException("链步骤不能为空");
         }
@@ -51,8 +51,8 @@ public final class OcChainValueReducer<T> {
             if (estimate.source() != OcYieldSourceEnum.MEASURED) {
                 allMeasured = false;
             }
-            Integer index = stepIndex.apply(step);
-            if (index != null && index > leafIndex) {
+            int index = stepIndex.applyAsInt(step);
+            if (index > leafIndex) {
                 leafIndex = index;
                 leafPosition = position;
             }

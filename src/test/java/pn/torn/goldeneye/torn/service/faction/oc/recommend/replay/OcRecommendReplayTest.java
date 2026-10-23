@@ -22,6 +22,7 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingOcReassignOcDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.replay.OcPlannerReplayTestConfiguration;
+import pn.torn.goldeneye.torn.service.faction.oc.planning.replay.OcPlanningReadOnlyGuard;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
 import java.io.IOException;
@@ -29,21 +30,23 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * OC推荐真实快照只读回放：对全部已开大锅饭的帮派各取3名活跃成员，输出新口径Top-3并校验
- * 结果非空与可复现。使用最小只读上下文，不启动GoldenEyeApplication；默认不执行，
- * 仅在{@code -Doc.recommend.replay.enabled=true}时运行。回放明细同时写入
- * {@code target/oc-recommend-replay.txt}，便于归档对比。
+ * OC推荐真实快照的只读回放取证。
+ *
+ * <p>用途：按技术方案11.4，用当前真实快照对新口径做一次新旧对比取证，回答「名单外OC能否被推荐」
+ * 「停转队是否被挤出Top-3」「单位人天产出与业务基线是否一致」。它不是回归测试，
+ * 只在显式开启{@code -Doc.recommend.replay.enabled=true}时执行，正常构建与CI不会运行。</p>
+ *
+ * <p>数据整洁性：回放只做SELECT，不写任何表，因此不需要{@code @Rollback}；
+ * 全部读取放在{@link OcPlanningReadOnlyGuard}的REQUIRES_NEW + READ ONLY + REPEATABLE READ
+ * 事务内执行，任何写操作都会直接被数据库拒绝，同时两次推荐在同一快照内比较。</p>
+ *
+ * <p>明细同时写入{@code target/oc-recommend-replay.txt}便于归档。</p>
  *
  * @author Bai
  * @version 1.9.3
@@ -66,6 +69,8 @@ class OcRecommendReplayTest {
     private static final Path REPORT = Path.of("target", "oc-recommend-replay.txt");
 
     @Autowired
+    private OcPlanningReadOnlyGuard readOnlyGuard;
+    @Autowired
     private TornOcRecommendService recommendService;
     @Autowired
     private TornFactionOcUserDAO ocUserDao;
@@ -81,13 +86,22 @@ class OcRecommendReplayTest {
     @Test
     @DisplayName("各帮派活跃成员Top-3非空、可复现，并统计名单外与停转队命中")
     void replayTopThreeForEnabledFactions() throws IOException {
+        readOnlyGuard.verifyReadOnlySession();
+        List<String> report = readOnlyGuard.inReadOnlyTransaction(status -> collectReport());
+        Files.writeString(REPORT, String.join(System.lineSeparator(), report), StandardCharsets.UTF_8);
+        report.forEach(log::info);
+    }
+
+    /**
+     * 在只读事务内执行回放并返回明细行。
+     */
+    private List<String> collectReport() {
         List<String> report = new ArrayList<>();
         List<Long> factionIds = enabledFactionIds();
         assertThat(factionIds).isNotEmpty();
 
         int outsideRosterHits = 0;
         int pausedHits = 0;
-        int totalRecommendations = 0;
         Map<Long, Integer> nonRosterCandidates = new HashMap<>();
         LocalDateTime now = LocalDateTime.now();
         long maxElapsedMillis = 0;
@@ -113,7 +127,6 @@ class OcRecommendReplayTest {
                     boolean inRoster = roster.contains(recommendation.getOcName());
                     boolean paused = recommendation.getReadyTime() != null
                             && !recommendation.getReadyTime().isAfter(now);
-                    totalRecommendations++;
                     if (!inRoster) {
                         outsideRosterHits++;
                     }
@@ -135,10 +148,9 @@ class OcRecommendReplayTest {
 
         report.add(String.format("SUMMARY factions=%d recommendations=%d nonRosterCandidates=%s "
                         + "outsideRosterHits=%d pausedHits=%d maxElapsedMs=%d",
-                factionIds.size(), totalRecommendations, nonRosterCandidates,
-                outsideRosterHits, pausedHits, maxElapsedMillis));
-        Files.writeString(REPORT, String.join(System.lineSeparator(), report), StandardCharsets.UTF_8);
-        report.forEach(log::info);
+                factionIds.size(), report.stream().filter(line -> line.contains(" cost=")).count(),
+                nonRosterCandidates, outsideRosterHits, pausedHits, maxElapsedMillis));
+        return report;
     }
 
     private List<String> spots(List<OcRecommendationVO> recommendations) {
@@ -155,7 +167,7 @@ class OcRecommendReplayTest {
                 .eq(TornSettingOcReassignFactionDO::getEnabled, true)
                 .list().stream()
                 .map(TornSettingOcReassignFactionDO::getFactionId)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .sorted()
                 .toList();
     }
