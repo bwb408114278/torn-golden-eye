@@ -14,18 +14,14 @@ import java.util.*;
  * @since 2026.10.24
  */
 public final class OcFlowGraph {
-    private final String ocName;
-    private final Integer rank;
     private final Map<String, OcFlowNode> nodes;
     private final Map<String, Map<OcFlowBranchEnum, String>> transitions;
     private final String startNodeCode;
     private final List<String> topologicalOrder;
 
-    private OcFlowGraph(String ocName, Integer rank, Map<String, OcFlowNode> nodes,
+    private OcFlowGraph(Map<String, OcFlowNode> nodes,
                         Map<String, Map<OcFlowBranchEnum, String>> transitions,
                         String startNodeCode, List<String> topologicalOrder) {
-        this.ocName = ocName;
-        this.rank = rank;
         this.nodes = Collections.unmodifiableMap(nodes);
         this.transitions = transitions;
         this.startNodeCode = startNodeCode;
@@ -51,34 +47,7 @@ public final class OcFlowGraph {
         Map<String, Map<OcFlowBranchEnum, String>> transitions = buildTransitions(nodes, edgeList, prefix);
         String start = findStartNode(nodes, transitions, prefix);
         List<String> topologicalOrder = topologicalOrder(nodes, transitions, start, prefix);
-        return new OcFlowGraph(ocName, rank, nodes, transitions, start, topologicalOrder);
-    }
-
-    /**
-     * OC名称。
-     *
-     * @return OC名称
-     */
-    public String ocName() {
-        return ocName;
-    }
-
-    /**
-     * OC等级。
-     *
-     * @return OC等级
-     */
-    public Integer rank() {
-        return rank;
-    }
-
-    /**
-     * 全部节点。
-     *
-     * @return 节点编码到节点的只读映射
-     */
-    public Map<String, OcFlowNode> nodes() {
-        return nodes;
+        return new OcFlowGraph(nodes, transitions, start, topologicalOrder);
     }
 
     /**
