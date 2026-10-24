@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
  * 缓存常量
  *
  * @author Bai
- * @version 1.6.2
+ * @version 1.9.3
  * @since 2025.09.17
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -118,6 +118,18 @@ public class CacheConstants {
      * OC新队策略KEY
      */
     public static final String KEY_OC_TEAM_PLAN_POLICY = "torn:setting:oc:planning:policy";
+    /**
+     * OC流程图节点Key
+     */
+    public static final String KEY_TORN_SETTING_OC_FLOW_NODE = "torn:setting:oc:flow:node";
+    /**
+     * OC流程图边Key
+     */
+    public static final String KEY_TORN_SETTING_OC_FLOW_EDGE = "torn:setting:oc:flow:edge";
+    /**
+     * OC流程图装配结果Key
+     */
+    public static final String KEY_TORN_SETTING_OC_FLOW_GRAPH = "torn:setting:oc:flow:graph";
 
     /**
      * 师父排队Key

@@ -1,0 +1,160 @@
+databaseChangeLog:
+  # ========== OC流程图DAG配置(1.9.3) ==========
+  # 两张表共同描述一个(OC名称, 等级)的判定流程图: 节点表存判定参与者与结局类型, 边表存PASS/FAIL去向。
+  # 边已在生成期折叠到下一个判定或结局节点, 因此运行期不需要处理叙事节点。
+  # 仅用于收益计算器估算成功率, 不参与任何资金写入。
+  - changeSet:
+      id: create_table_torn_setting_oc_flow_node
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_oc_flow_node
+            remarks: "OC流程图节点(判定参与者与结局类型)"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: SMALLINT
+                  constraints:
+                    nullable: false
+                  remarks: "OC等级"
+              - column:
+                  name: node_code
+                  type: VARCHAR(48)
+                  constraints:
+                    nullable: false
+                  remarks: "节点编码"
+              - column:
+                  name: node_type
+                  type: VARCHAR(16)
+                  constraints:
+                    nullable: false
+                  remarks: "节点类型 CHECK/GOOD_END/BAD_END"
+              - column:
+                  name: participants
+                  type: VARCHAR(160)
+                  remarks: "判定参与者岗位编码, 逗号分隔; 结局节点为空"
+              - column:
+                  name: label
+                  type: VARCHAR(200)
+                  remarks: "站点叙事文本, 仅供维护对照"
+              - column:
+                  name: source_status
+                  type: VARCHAR(16)
+                  defaultValueComputed: "'COMPLETE'"
+                  constraints:
+                    nullable: false
+                  remarks: "上游结构状态 COMPLETE/WIP"
+              - column:
+                  name: verify_max_delta
+                  type: NUMERIC(7,5)
+                  remarks: "与上游成功率计算器的最大偏差(概率)"
+              - column:
+                  name: verified_at
+                  type: TIMESTAMP
+                  remarks: "通过逐位校验的时间; 为空表示近似待复核"
+              - column:
+                  name: deleted
+                  type: SMALLINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_oc_flow_node ON torn_setting_oc_flow_node (oc_name, rank, node_code) WHERE deleted = 0"
+  - changeSet:
+      id: create_table_torn_setting_oc_flow_edge
+      author: Bai
+      changes:
+        - createTable:
+            tableName: torn_setting_oc_flow_edge
+            remarks: "OC流程图边(判定PASS/FAIL去向)"
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                  remarks: "主键ID"
+              - column:
+                  name: oc_name
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+                  remarks: "OC名称"
+              - column:
+                  name: rank
+                  type: SMALLINT
+                  constraints:
+                    nullable: false
+                  remarks: "OC等级"
+              - column:
+                  name: node_code
+                  type: VARCHAR(48)
+                  constraints:
+                    nullable: false
+                  remarks: "起点节点编码(判定节点)"
+              - column:
+                  name: branch
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                  remarks: "分支 PASS/FAIL"
+              - column:
+                  name: target_node_code
+                  type: VARCHAR(48)
+                  constraints:
+                    nullable: false
+                  remarks: "去向节点编码(判定或结局)"
+              - column:
+                  name: deleted
+                  type: SMALLINT
+                  defaultValueComputed: '0'
+                  constraints:
+                    nullable: false
+                  remarks: "删除标识 1为已删除"
+              - column:
+                  name: create_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "创建时间"
+              - column:
+                  name: update_time
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+                  remarks: "更新时间"
+        - sql:
+            sql: "CREATE UNIQUE INDEX uk_oc_flow_edge ON torn_setting_oc_flow_edge (oc_name, rank, node_code, branch) WHERE deleted = 0"

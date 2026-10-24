@@ -1,0 +1,463 @@
+{
+  "ocName": "Break the Bank",
+  "rank": 8,
+  "keyToSlot": [
+    "Robber#1",
+    "Muscle#1",
+    "Muscle#2",
+    "Thief#1",
+    "Muscle#3",
+    "Thief#2"
+  ],
+  "nodes": [
+    {
+      "code": "A1_C1",
+      "type": "CHECK",
+      "participants": [
+        "Robber#1",
+        "Muscle#1"
+      ]
+    },
+    {
+      "code": "A1_C2",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#2"
+      ]
+    },
+    {
+      "code": "A1_C3",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#3"
+      ]
+    },
+    {
+      "code": "A2_C1",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#2",
+        "Thief#1"
+      ]
+    },
+    {
+      "code": "A2_C2",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#2",
+        "Thief#1"
+      ]
+    },
+    {
+      "code": "A3_C1",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#3"
+      ]
+    },
+    {
+      "code": "A3_C2",
+      "type": "CHECK",
+      "participants": [
+        "Thief#2"
+      ]
+    },
+    {
+      "code": "A4_C1",
+      "type": "CHECK",
+      "participants": [
+        "Thief#2"
+      ]
+    },
+    {
+      "code": "A5_C1",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#3"
+      ]
+    },
+    {
+      "code": "A5_C2",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#1",
+        "Muscle#3"
+      ]
+    },
+    {
+      "code": "A6_C1",
+      "type": "CHECK",
+      "participants": [
+        "Robber#1",
+        "Muscle#1"
+      ]
+    },
+    {
+      "code": "A7_C2",
+      "type": "CHECK",
+      "participants": [
+        "Robber#1"
+      ]
+    },
+    {
+      "code": "A4_C2",
+      "type": "CHECK",
+      "participants": [
+        "Robber#1",
+        "Thief#2"
+      ]
+    },
+    {
+      "code": "A7_C1",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#1",
+        "Robber#1"
+      ]
+    },
+    {
+      "code": "A8_C1",
+      "type": "CHECK",
+      "participants": [
+        "Robber#1",
+        "Thief#1"
+      ]
+    },
+    {
+      "code": "B1_C1",
+      "type": "CHECK",
+      "participants": [
+        "Thief#2"
+      ]
+    },
+    {
+      "code": "B2_C1",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#3"
+      ]
+    },
+    {
+      "code": "B2_C2",
+      "type": "CHECK",
+      "participants": [
+        "Muscle#1"
+      ]
+    },
+    {
+      "code": "A1F",
+      "type": "BAD_END"
+    },
+    {
+      "code": "A5F",
+      "type": "BAD_END"
+    },
+    {
+      "code": "A9S",
+      "type": "GOOD_END"
+    },
+    {
+      "code": "A10S",
+      "type": "GOOD_END"
+    },
+    {
+      "code": "A4F",
+      "type": "BAD_END"
+    },
+    {
+      "code": "A8S",
+      "type": "GOOD_END"
+    },
+    {
+      "code": "A8S2",
+      "type": "GOOD_END"
+    },
+    {
+      "code": "B1F",
+      "type": "BAD_END"
+    },
+    {
+      "code": "B3S",
+      "type": "GOOD_END"
+    },
+    {
+      "code": "B2F",
+      "type": "BAD_END"
+    }
+  ],
+  "edges": [
+    {
+      "from": "A1_C1",
+      "branch": "PASS",
+      "to": "A2_C1"
+    },
+    {
+      "from": "A1_C1",
+      "branch": "FAIL",
+      "to": "A1_C2"
+    },
+    {
+      "from": "A1_C2",
+      "branch": "PASS",
+      "to": "A2_C1"
+    },
+    {
+      "from": "A1_C2",
+      "branch": "FAIL",
+      "to": "A1_C3"
+    },
+    {
+      "from": "A1_C3",
+      "branch": "PASS",
+      "to": "A2_C1"
+    },
+    {
+      "from": "A1_C3",
+      "branch": "FAIL",
+      "to": "A1F"
+    },
+    {
+      "from": "A2_C1",
+      "branch": "PASS",
+      "to": "A3_C1"
+    },
+    {
+      "from": "A2_C1",
+      "branch": "FAIL",
+      "to": "A2_C2"
+    },
+    {
+      "from": "A2_C2",
+      "branch": "PASS",
+      "to": "A3_C1"
+    },
+    {
+      "from": "A2_C2",
+      "branch": "FAIL",
+      "to": "B1_C1"
+    },
+    {
+      "from": "A3_C1",
+      "branch": "PASS",
+      "to": "A4_C1"
+    },
+    {
+      "from": "A3_C1",
+      "branch": "FAIL",
+      "to": "A3_C2"
+    },
+    {
+      "from": "A3_C2",
+      "branch": "PASS",
+      "to": "A4_C1"
+    },
+    {
+      "from": "A3_C2",
+      "branch": "FAIL",
+      "to": "A4_C2"
+    },
+    {
+      "from": "A4_C1",
+      "branch": "PASS",
+      "to": "A5_C1"
+    },
+    {
+      "from": "A4_C1",
+      "branch": "FAIL",
+      "to": "A4_C2"
+    },
+    {
+      "from": "A5_C1",
+      "branch": "PASS",
+      "to": "A6_C1"
+    },
+    {
+      "from": "A5_C1",
+      "branch": "FAIL",
+      "to": "A5_C2"
+    },
+    {
+      "from": "A5_C2",
+      "branch": "PASS",
+      "to": "A6_C1"
+    },
+    {
+      "from": "A5_C2",
+      "branch": "FAIL",
+      "to": "A5F"
+    },
+    {
+      "from": "A6_C1",
+      "branch": "PASS",
+      "to": "A7_C1"
+    },
+    {
+      "from": "A6_C1",
+      "branch": "FAIL",
+      "to": "A7_C2"
+    },
+    {
+      "from": "A7_C2",
+      "branch": "PASS",
+      "to": "A9S"
+    },
+    {
+      "from": "A7_C2",
+      "branch": "FAIL",
+      "to": "A10S"
+    },
+    {
+      "from": "A4_C2",
+      "branch": "PASS",
+      "to": "A5_C1"
+    },
+    {
+      "from": "A4_C2",
+      "branch": "FAIL",
+      "to": "A4F"
+    },
+    {
+      "from": "A7_C1",
+      "branch": "PASS",
+      "to": "A8_C1"
+    },
+    {
+      "from": "A7_C1",
+      "branch": "FAIL",
+      "to": "A7_C2"
+    },
+    {
+      "from": "A8_C1",
+      "branch": "PASS",
+      "to": "A8S"
+    },
+    {
+      "from": "A8_C1",
+      "branch": "FAIL",
+      "to": "A8S2"
+    },
+    {
+      "from": "B1_C1",
+      "branch": "PASS",
+      "to": "B2_C1"
+    },
+    {
+      "from": "B1_C1",
+      "branch": "FAIL",
+      "to": "B1F"
+    },
+    {
+      "from": "B2_C1",
+      "branch": "PASS",
+      "to": "B3S"
+    },
+    {
+      "from": "B2_C1",
+      "branch": "FAIL",
+      "to": "B2_C2"
+    },
+    {
+      "from": "B2_C2",
+      "branch": "PASS",
+      "to": "B3S"
+    },
+    {
+      "from": "B2_C2",
+      "branch": "FAIL",
+      "to": "B2F"
+    }
+  ],
+  "probes": [
+    {
+      "vector": "60/60/60/60/60/60",
+      "slotRates": {
+        "Robber#1": 0.6,
+        "Muscle#1": 0.6,
+        "Muscle#2": 0.6,
+        "Thief#1": 0.6,
+        "Muscle#3": 0.6,
+        "Thief#2": 0.6
+      },
+      "selfBuiltRate": 0.60489,
+      "upstreamRate": 0.60489
+    },
+    {
+      "vector": "81/72/68/62/77/85",
+      "slotRates": {
+        "Robber#1": 0.81,
+        "Muscle#1": 0.72,
+        "Muscle#2": 0.68,
+        "Thief#1": 0.62,
+        "Muscle#3": 0.77,
+        "Thief#2": 0.85
+      },
+      "selfBuiltRate": 0.88166,
+      "upstreamRate": 0.88273
+    },
+    {
+      "vector": "48/86/76/68/77/79",
+      "slotRates": {
+        "Robber#1": 0.48,
+        "Muscle#1": 0.86,
+        "Muscle#2": 0.76,
+        "Thief#1": 0.68,
+        "Muscle#3": 0.77,
+        "Thief#2": 0.79
+      },
+      "selfBuiltRate": 0.84612,
+      "upstreamRate": 0.8467
+    },
+    {
+      "vector": "57/66/58/72/86/60",
+      "slotRates": {
+        "Robber#1": 0.57,
+        "Muscle#1": 0.66,
+        "Muscle#2": 0.58,
+        "Thief#1": 0.72,
+        "Muscle#3": 0.86,
+        "Thief#2": 0.6
+      },
+      "selfBuiltRate": 0.75185,
+      "upstreamRate": 0.74809
+    },
+    {
+      "vector": "68/87/65/67/55/86",
+      "slotRates": {
+        "Robber#1": 0.68,
+        "Muscle#1": 0.87,
+        "Muscle#2": 0.65,
+        "Thief#1": 0.67,
+        "Muscle#3": 0.55,
+        "Thief#2": 0.86
+      },
+      "selfBuiltRate": 0.78866,
+      "upstreamRate": 0.79889
+    },
+    {
+      "vector": "60/61/54/54/59/90",
+      "slotRates": {
+        "Robber#1": 0.6,
+        "Muscle#1": 0.61,
+        "Muscle#2": 0.54,
+        "Thief#1": 0.54,
+        "Muscle#3": 0.59,
+        "Thief#2": 0.9
+      },
+      "selfBuiltRate": 0.72847,
+      "upstreamRate": 0.73719
+    },
+    {
+      "vector": "49/70/64/66/63/51",
+      "slotRates": {
+        "Robber#1": 0.49,
+        "Muscle#1": 0.7,
+        "Muscle#2": 0.64,
+        "Thief#1": 0.66,
+        "Muscle#3": 0.63,
+        "Thief#2": 0.51
+      },
+      "selfBuiltRate": 0.57212,
+      "upstreamRate": 0.568
+    }
+  ]
+}
