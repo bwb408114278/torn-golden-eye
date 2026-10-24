@@ -120,3 +120,5 @@ databaseChangeLog:
       file: db/changelog/1.0.1-2.0.0/1.8.0/stocks-monthly-state-revive.yaml
   - include:
       file: db/changelog/1.0.1-2.0.0/1.9.3/stocks-dividend-block.yaml
+  - include:
+      file: db/changelog/1.0.1-2.0.0/1.9.3/oc-flow-dag.yaml
