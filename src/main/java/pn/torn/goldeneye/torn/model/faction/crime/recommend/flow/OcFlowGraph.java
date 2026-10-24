@@ -1,14 +1,6 @@
 package pn.torn.goldeneye.torn.model.faction.crime.recommend.flow;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * OC流程图。
@@ -145,7 +137,7 @@ public final class OcFlowGraph {
         if (nodeList == null || nodeList.isEmpty()) {
             throw new IllegalArgumentException(prefix + "节点为空");
         }
-        Map<String, OcFlowNode> nodes = new LinkedHashMap<>(nodeList.size());
+        Map<String, OcFlowNode> nodes = LinkedHashMap.newLinkedHashMap(nodeList.size());
         for (OcFlowNode node : nodeList) {
             if (node == null || node.nodeCode() == null || node.nodeCode().isBlank()) {
                 throw new IllegalArgumentException(prefix + "存在空节点编码");
@@ -164,42 +156,66 @@ public final class OcFlowGraph {
      * 装配边并校验分支完整：判定恰好PASS与FAIL各一条，结局没有出边。
      */
     private static Map<String, Map<OcFlowBranchEnum, String>> buildTransitions(Map<String, OcFlowNode> nodes,
-                                                                              List<OcFlowEdge> edgeList,
-                                                                              String prefix) {
+                                                                               List<OcFlowEdge> edgeList,
+                                                                               String prefix) {
         Map<String, Map<OcFlowBranchEnum, String>> transitions = new HashMap<>();
         if (edgeList != null) {
             for (OcFlowEdge edge : edgeList) {
-                if (edge == null || edge.branch() == null) {
-                    throw new IllegalArgumentException(prefix + "存在缺少分支的边");
-                }
-                OcFlowNode from = nodes.get(edge.nodeCode());
-                if (from == null) {
-                    throw new IllegalArgumentException(prefix + "边起点不存在: " + edge.nodeCode());
-                }
-                if (!from.isCheck()) {
-                    throw new IllegalArgumentException(prefix + "结局节点不应有出边: " + edge.nodeCode());
-                }
-                if (!nodes.containsKey(edge.targetNodeCode())) {
-                    throw new IllegalArgumentException(prefix + "边终点不存在: " + edge.targetNodeCode());
-                }
-                Map<OcFlowBranchEnum, String> branchMap =
-                        transitions.computeIfAbsent(edge.nodeCode(), key -> new EnumMap<>(OcFlowBranchEnum.class));
-                if (branchMap.putIfAbsent(edge.branch(), edge.targetNodeCode()) != null) {
-                    throw new IllegalArgumentException(prefix + "同一判定的分支重复: "
-                            + edge.nodeCode() + "/" + edge.branch());
-                }
+                addEdge(transitions, nodes, edge, prefix);
             }
         }
         for (OcFlowNode node : nodes.values()) {
-            Map<OcFlowBranchEnum, String> branchMap = transitions.get(node.nodeCode());
-            if (node.isCheck() && (branchMap == null || branchMap.size() != OcFlowBranchEnum.values().length)) {
-                throw new IllegalArgumentException(prefix + "判定缺少PASS或FAIL分支: " + node.nodeCode());
-            }
-            if (!node.isCheck() && branchMap != null) {
-                throw new IllegalArgumentException(prefix + "结局节点不应有出边: " + node.nodeCode());
-            }
+            requireBranches(transitions.get(node.nodeCode()), node, prefix);
         }
         return transitions;
+    }
+
+    /**
+     * 登记单条边并校验起点、终点与重复分支。
+     */
+    private static void addEdge(Map<String, Map<OcFlowBranchEnum, String>> transitions,
+                                Map<String, OcFlowNode> nodes, OcFlowEdge edge, String prefix) {
+        requireEdgeEndpoints(edge, nodes, prefix);
+        Map<OcFlowBranchEnum, String> branchMap =
+                transitions.computeIfAbsent(edge.nodeCode(), key -> new EnumMap<>(OcFlowBranchEnum.class));
+        if (branchMap.putIfAbsent(edge.branch(), edge.targetNodeCode()) != null) {
+            throw new IllegalArgumentException(prefix + "同一判定的分支重复: "
+                    + edge.nodeCode() + "/" + edge.branch());
+        }
+    }
+
+    /**
+     * 校验边的端点：起点必须是已登记的判定节点，终点必须是已登记的节点。
+     */
+    private static void requireEdgeEndpoints(OcFlowEdge edge, Map<String, OcFlowNode> nodes, String prefix) {
+        if (edge == null || edge.branch() == null) {
+            throw new IllegalArgumentException(prefix + "存在缺少分支的边");
+        }
+        OcFlowNode from = nodes.get(edge.nodeCode());
+        if (from == null) {
+            throw new IllegalArgumentException(prefix + "边起点不存在: " + edge.nodeCode());
+        }
+        if (!from.isCheck()) {
+            throw new IllegalArgumentException(prefix + "结局节点不应有出边: " + edge.nodeCode());
+        }
+        if (!nodes.containsKey(edge.targetNodeCode())) {
+            throw new IllegalArgumentException(prefix + "边终点不存在: " + edge.targetNodeCode());
+        }
+    }
+
+    /**
+     * 校验单个节点的出边数量：判定恰好两条，结局没有出边。
+     */
+    private static void requireBranches(Map<OcFlowBranchEnum, String> branchMap, OcFlowNode node, String prefix) {
+        if (!node.isCheck()) {
+            if (branchMap != null) {
+                throw new IllegalArgumentException(prefix + "结局节点不应有出边: " + node.nodeCode());
+            }
+            return;
+        }
+        if (branchMap == null || branchMap.size() != OcFlowBranchEnum.values().length) {
+            throw new IllegalArgumentException(prefix + "判定缺少PASS或FAIL分支: " + node.nodeCode());
+        }
     }
 
     /**
@@ -226,46 +242,75 @@ public final class OcFlowGraph {
     }
 
     /**
-     * 深度优先遍历得到逆后序，同时完成成环与可达性校验。
+     * 拓扑排序：先校验从起点全可达，再按入度逐层出队，队列耗尽时仍有剩余节点即存在环。
      */
     private static List<String> topologicalOrder(Map<String, OcFlowNode> nodes,
                                                  Map<String, Map<OcFlowBranchEnum, String>> transitions,
                                                  String start, String prefix) {
-        Map<String, Boolean> finished = new HashMap<>(nodes.size());
-        List<String> reversePostOrder = new ArrayList<>(nodes.size());
-        visit(start, transitions, finished, reversePostOrder, prefix);
-        if (reversePostOrder.size() != nodes.size()) {
-            Set<String> unreachable = new LinkedHashSet<>(nodes.keySet());
-            unreachable.removeAll(reversePostOrder);
-            throw new IllegalArgumentException(prefix + "存在从起点不可达的节点: " + unreachable);
+        requireAllReachable(nodes, transitions, start, prefix);
+        Map<String, Integer> inDegree = HashMap.newHashMap(nodes.size());
+        nodes.keySet().forEach(nodeCode -> inDegree.put(nodeCode, 0));
+        transitions.values().forEach(branchMap -> branchMap.values()
+                .forEach(target -> inDegree.merge(target, 1, Integer::sum)));
+
+        Deque<String> ready = new ArrayDeque<>();
+        inDegree.forEach((nodeCode, degree) -> {
+            if (degree == 0) {
+                ready.addLast(nodeCode);
+            }
+        });
+        List<String> order = new ArrayList<>(nodes.size());
+        while (!ready.isEmpty()) {
+            String nodeCode = ready.removeFirst();
+            order.add(nodeCode);
+            enqueueTargets(transitions.get(nodeCode), inDegree, ready);
         }
-        Collections.reverse(reversePostOrder);
-        return reversePostOrder;
+        if (order.size() != nodes.size()) {
+            Set<String> looped = new LinkedHashSet<>(nodes.keySet());
+            looped.removeAll(order);
+            throw new IllegalArgumentException(prefix + "存在环: " + looped);
+        }
+        return order;
     }
 
     /**
-     * 单节点深度优先访问：灰色表示仍在递归栈上，命中过灰色节点即存在环。
+     * 出队节点的每条去向入度减一，减到0即进入就绪队列。
      */
-    private static void visit(String nodeCode, Map<String, Map<OcFlowBranchEnum, String>> transitions,
-                              Map<String, Boolean> finished, List<String> reversePostOrder, String prefix) {
-        Boolean state = finished.get(nodeCode);
-        if (Boolean.FALSE.equals(state)) {
-            throw new IllegalArgumentException(prefix + "存在环，回边指向: " + nodeCode);
-        }
-        if (Boolean.TRUE.equals(state)) {
+    private static void enqueueTargets(Map<OcFlowBranchEnum, String> branchMap, Map<String, Integer> inDegree,
+                                       Deque<String> ready) {
+        if (branchMap == null) {
             return;
         }
-        finished.put(nodeCode, Boolean.FALSE);
-        Map<OcFlowBranchEnum, String> branchMap = transitions.get(nodeCode);
-        if (branchMap != null) {
-            for (OcFlowBranchEnum branch : OcFlowBranchEnum.values()) {
-                String target = branchMap.get(branch);
-                if (target != null) {
-                    visit(target, transitions, finished, reversePostOrder, prefix);
-                }
+        for (String target : branchMap.values()) {
+            if (inDegree.merge(target, -1, Integer::sum) == 0) {
+                ready.addLast(target);
             }
         }
-        finished.put(nodeCode, Boolean.TRUE);
-        reversePostOrder.add(nodeCode);
+    }
+
+    /**
+     * 从起点广度遍历，节点数不足说明存在不可达节点。
+     */
+    private static void requireAllReachable(Map<String, OcFlowNode> nodes,
+                                            Map<String, Map<OcFlowBranchEnum, String>> transitions,
+                                            String start, String prefix) {
+        Set<String> visited = new LinkedHashSet<>();
+        Deque<String> pending = new ArrayDeque<>();
+        pending.addLast(start);
+        while (!pending.isEmpty()) {
+            String nodeCode = pending.removeFirst();
+            if (!visited.add(nodeCode)) {
+                continue;
+            }
+            Map<OcFlowBranchEnum, String> branchMap = transitions.get(nodeCode);
+            if (branchMap != null) {
+                pending.addAll(branchMap.values());
+            }
+        }
+        if (visited.size() != nodes.size()) {
+            Set<String> unreachable = new LinkedHashSet<>(nodes.keySet());
+            unreachable.removeAll(visited);
+            throw new IllegalArgumentException(prefix + "存在从起点不可达的节点: " + unreachable);
+        }
     }
 }

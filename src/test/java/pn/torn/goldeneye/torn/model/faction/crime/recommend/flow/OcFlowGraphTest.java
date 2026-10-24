@@ -20,17 +20,20 @@ class OcFlowGraphTest {
     private static final OcFlowNode START = check("S1", "Muscle#1");
     private static final OcFlowNode GOOD = end("G1", OcFlowNodeTypeEnum.GOOD_END);
     private static final OcFlowNode BAD = end("B1", OcFlowNodeTypeEnum.BAD_END);
+    private static final List<OcFlowNode> SIMPLE_NODES = List.of(START, GOOD, BAD);
+    private static final List<OcFlowNode> LOOPED_NODES = List.of(START, check("S2", "Muscle#2"),
+            check("S3", "Muscle#3"), GOOD, BAD);
+    private static final List<OcFlowNode> TWO_START_NODES = List.of(START, check("S2", "Muscle#2"), GOOD, BAD);
 
     @Test
     @DisplayName("合法图装配后起点唯一且拓扑序覆盖全部节点")
     void of_shouldBuildTopologicalOrderForValidGraph() {
-        OcFlowGraph graph = OcFlowGraph.of("Test", 8, List.of(START, GOOD, BAD), List.of(
+        OcFlowGraph graph = OcFlowGraph.of("Test", 8, SIMPLE_NODES, List.of(
                 new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
                 new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1")));
 
         assertThat(graph.startNodeCode()).isEqualTo("S1");
-        assertThat(graph.topologicalOrder()).containsExactlyInAnyOrder("S1", "G1", "B1");
-        assertThat(graph.topologicalOrder().getFirst()).isEqualTo("S1");
+        assertThat(graph.topologicalOrder()).containsExactly("S1", "G1", "B1");
         assertThat(graph.checkCount()).isEqualTo(1);
         assertThat(graph.targetOf("S1", OcFlowBranchEnum.PASS)).isEqualTo("G1");
         assertThat(graph.targetOf("G1", OcFlowBranchEnum.PASS)).isNull();
@@ -39,8 +42,9 @@ class OcFlowGraphTest {
     @Test
     @DisplayName("判定缺少FAIL分支时拒绝装配")
     void of_shouldRejectMissingBranch() {
-        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, List.of(START, GOOD, BAD),
-                List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"))))
+        List<OcFlowEdge> edges = List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"));
+
+        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, SIMPLE_NODES, edges))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("缺少PASS或FAIL分支");
     }
@@ -48,10 +52,11 @@ class OcFlowGraphTest {
     @Test
     @DisplayName("结局节点带出边时拒绝装配")
     void of_shouldRejectEdgeFromEndNode() {
-        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, List.of(START, GOOD, BAD), List.of(
-                new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
+        List<OcFlowEdge> edges = List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
                 new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
-                new OcFlowEdge("G1", OcFlowBranchEnum.PASS, "B1"))))
+                new OcFlowEdge("G1", OcFlowBranchEnum.PASS, "B1"));
+
+        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, SIMPLE_NODES, edges))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("结局节点不应有出边");
     }
@@ -59,9 +64,10 @@ class OcFlowGraphTest {
     @Test
     @DisplayName("边终点不存在时拒绝装配")
     void of_shouldRejectDanglingEdge() {
-        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, List.of(START, GOOD, BAD), List.of(
-                new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
-                new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "NOT_EXIST"))))
+        List<OcFlowEdge> edges = List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
+                new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "NOT_EXIST"));
+
+        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, SIMPLE_NODES, edges))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("边终点不存在");
     }
@@ -69,14 +75,14 @@ class OcFlowGraphTest {
     @Test
     @DisplayName("从起点可达的环在装配期被拒绝")
     void of_shouldRejectCycle() {
-        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8,
-                List.of(START, check("S2", "Muscle#2"), check("S3", "Muscle#3"), GOOD, BAD), List.of(
-                        new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "S2"),
-                        new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
-                        new OcFlowEdge("S2", OcFlowBranchEnum.PASS, "S3"),
-                        new OcFlowEdge("S2", OcFlowBranchEnum.FAIL, "S3"),
-                        new OcFlowEdge("S3", OcFlowBranchEnum.PASS, "S2"),
-                        new OcFlowEdge("S3", OcFlowBranchEnum.FAIL, "G1"))))
+        List<OcFlowEdge> edges = List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "S2"),
+                new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
+                new OcFlowEdge("S2", OcFlowBranchEnum.PASS, "S3"),
+                new OcFlowEdge("S2", OcFlowBranchEnum.FAIL, "S3"),
+                new OcFlowEdge("S3", OcFlowBranchEnum.PASS, "S2"),
+                new OcFlowEdge("S3", OcFlowBranchEnum.FAIL, "G1"));
+
+        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, LOOPED_NODES, edges))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("存在环");
     }
@@ -84,14 +90,14 @@ class OcFlowGraphTest {
     @Test
     @DisplayName("存在起点不可达节点时拒绝装配")
     void of_shouldRejectUnreachableNode() {
-        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8,
-                List.of(START, check("S2", "Muscle#2"), check("S3", "Muscle#3"), GOOD, BAD), List.of(
-                        new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
-                        new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
-                        new OcFlowEdge("S2", OcFlowBranchEnum.PASS, "S3"),
-                        new OcFlowEdge("S2", OcFlowBranchEnum.FAIL, "S3"),
-                        new OcFlowEdge("S3", OcFlowBranchEnum.PASS, "S2"),
-                        new OcFlowEdge("S3", OcFlowBranchEnum.FAIL, "G1"))))
+        List<OcFlowEdge> edges = List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
+                new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
+                new OcFlowEdge("S2", OcFlowBranchEnum.PASS, "S3"),
+                new OcFlowEdge("S2", OcFlowBranchEnum.FAIL, "S3"),
+                new OcFlowEdge("S3", OcFlowBranchEnum.PASS, "S2"),
+                new OcFlowEdge("S3", OcFlowBranchEnum.FAIL, "G1"));
+
+        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, LOOPED_NODES, edges))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("不可达");
     }
@@ -99,12 +105,12 @@ class OcFlowGraphTest {
     @Test
     @DisplayName("起点数量不为1时拒绝装配")
     void of_shouldRejectMultipleStartNodes() {
-        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8,
-                List.of(START, check("S2", "Muscle#2"), GOOD, BAD), List.of(
-                        new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
-                        new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
-                        new OcFlowEdge("S2", OcFlowBranchEnum.PASS, "G1"),
-                        new OcFlowEdge("S2", OcFlowBranchEnum.FAIL, "B1"))))
+        List<OcFlowEdge> edges = List.of(new OcFlowEdge("S1", OcFlowBranchEnum.PASS, "G1"),
+                new OcFlowEdge("S1", OcFlowBranchEnum.FAIL, "B1"),
+                new OcFlowEdge("S2", OcFlowBranchEnum.PASS, "G1"),
+                new OcFlowEdge("S2", OcFlowBranchEnum.FAIL, "B1"));
+
+        assertThatThrownBy(() -> OcFlowGraph.of("Test", 8, TWO_START_NODES, edges))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("起点数量应为1");
     }

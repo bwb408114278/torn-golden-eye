@@ -1,11 +1,7 @@
 package pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow;
 
 import org.springframework.stereotype.Component;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowBranchEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowGraph;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowNode;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowNodeTypeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowOutcome;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.*;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -51,14 +47,11 @@ public class OcFlowEvaluator {
             if (current <= 0.0) {
                 continue;
             }
-            OcFlowNode node = graph.node(nodeCode);
-            if (!node.isCheck()) {
+            if (graph.node(nodeCode).isCheck()) {
+                advanceCheck(graph, nodeCode, current, rates, fallbackPassRate, mass);
+            } else {
                 endingRates.merge(nodeCode, current, Double::sum);
-                continue;
             }
-            double passRate = checkPassRate(node, rates, fallbackPassRate);
-            mass.merge(graph.targetOf(nodeCode, OcFlowBranchEnum.PASS), current * passRate, Double::sum);
-            mass.merge(graph.targetOf(nodeCode, OcFlowBranchEnum.FAIL), current * (1 - passRate), Double::sum);
         }
 
         double successRate = endingRates.entrySet().stream()
@@ -66,6 +59,16 @@ public class OcFlowEvaluator {
                 .mapToDouble(Map.Entry::getValue)
                 .sum();
         return new OcFlowOutcome(successRate, endingRates);
+    }
+
+    /**
+     * 判定节点按成功率把当前质量分到PASS与FAIL两侧。
+     */
+    private void advanceCheck(OcFlowGraph graph, String nodeCode, double current, Map<String, Double> rates,
+                              double fallbackPassRate, Map<String, Double> mass) {
+        double passRate = checkPassRate(graph.node(nodeCode), rates, fallbackPassRate);
+        mass.merge(graph.targetOf(nodeCode, OcFlowBranchEnum.PASS), current * passRate, Double::sum);
+        mass.merge(graph.targetOf(nodeCode, OcFlowBranchEnum.FAIL), current * (1 - passRate), Double::sum);
     }
 
     /**

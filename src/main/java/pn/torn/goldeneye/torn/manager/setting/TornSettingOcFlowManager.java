@@ -109,20 +109,6 @@ public class TornSettingOcFlowManager implements DataCacheManager {
     }
 
     /**
-     * 查询单张流程图。
-     *
-     * @param ocName OC名称
-     * @param rank   OC等级
-     * @return 流程图；未配置或装配失败时返回空
-     */
-    public Optional<OcFlowGraph> findGraph(String ocName, Integer rank) {
-        if (ocName == null || rank == null) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(flowManager.getGraphs().get(OcFlowKey.of(ocName, rank)));
-    }
-
-    /**
      * 装配单张流程图，结构或字段不合法时告警并返回null。
      */
     private OcFlowGraph assemble(OcFlowKey key, List<TornSettingOcFlowNodeDO> nodeRows,

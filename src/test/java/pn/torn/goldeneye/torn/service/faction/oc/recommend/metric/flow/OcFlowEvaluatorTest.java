@@ -4,12 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowBranchEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowEdge;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowGraph;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowNode;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowNodeTypeEnum;
-import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.OcFlowOutcome;
+import pn.torn.goldeneye.torn.model.faction.crime.recommend.flow.*;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -18,9 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.Assertions.*;
 
 /**
  * OC流程图求值测试：合成图覆盖分流、汇流与缺省成功率，真实图用于回归上游计算器口径。
@@ -117,11 +110,13 @@ class OcFlowEvaluatorTest {
     @DisplayName("成功率超出0~1时拒绝求值，避免百分数被当成概率")
     void evaluate_shouldRejectOutOfRangeRate() {
         OcFlowGraph graph = singleCheckGraph(new OcFlowNode("S1", OcFlowNodeTypeEnum.CHECK, List.of("Muscle#1")));
+        Map<String, Double> percentRates = Map.of("Muscle#1", 72.0);
+        Map<String, Double> normalRates = Map.of("Muscle#1", 0.5);
 
-        assertThatThrownBy(() -> evaluator.evaluate(graph, Map.of("Muscle#1", 72.0), 0.5))
+        assertThatThrownBy(() -> evaluator.evaluate(graph, percentRates, 0.5))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("成功率超出0~1范围");
-        assertThatThrownBy(() -> evaluator.evaluate(graph, Map.of("Muscle#1", 0.5), 1.2))
+        assertThatThrownBy(() -> evaluator.evaluate(graph, normalRates, 1.2))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("缺省成功率");
     }
