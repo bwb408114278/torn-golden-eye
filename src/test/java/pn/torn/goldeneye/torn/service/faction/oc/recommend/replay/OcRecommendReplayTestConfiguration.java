@@ -21,7 +21,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.MappedOcYieldE
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.MeasuredOcYieldEstimator;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimator;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
 
 import java.util.List;
@@ -31,7 +31,7 @@ import java.util.List;
  * 只追加推荐链路自身需要的DAO、度量与排序组件，不启动GoldenEyeApplication。
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.10.23
  */
 @TestConfiguration
@@ -83,9 +83,10 @@ public class OcRecommendReplayTestConfiguration {
 
     @Bean
     OcYieldEstimatorRegistry ocYieldEstimatorRegistry(MeasuredOcYieldEstimator measured,
-                                                      MappedOcYieldEstimator mapped) {
+                                                      MappedOcYieldEstimator mapped,
+                                                      TornFactionOcSlotDAO slotDAO) {
         List<OcYieldEstimator> estimators = List.of(measured, mapped);
-        return new OcYieldEstimatorRegistry(estimators, measured, mapped);
+        return new OcYieldEstimatorRegistry(estimators, measured, mapped, slotDAO);
     }
 
     @Bean
@@ -94,14 +95,14 @@ public class OcRecommendReplayTestConfiguration {
     }
 
     @Bean
-    OcOpportunityCostRanker ocOpportunityCostRanker(OcScarcityEstimator scarcityEstimator) {
-        return new OcOpportunityCostRanker(scarcityEstimator);
+    OcRecommendRanker ocRecommendRanker(OcScarcityEstimator scarcityEstimator) {
+        return new OcRecommendRanker(scarcityEstimator);
     }
 
     @Bean
     TornOcRecommendService tornOcRecommendService(TornOcRecommendManager recommendManager,
                                                   OcYieldEstimatorRegistry registry,
-                                                  OcOpportunityCostRanker ranker,
+                                                  OcRecommendRanker ranker,
                                                   TornFactionOcDAO ocDAO,
                                                   TornFactionOcSlotDAO slotDAO,
                                                   TornFactionOcUserDAO ocUserDAO) {

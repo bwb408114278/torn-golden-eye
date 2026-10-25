@@ -16,9 +16,9 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCost;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker.OcRankContext;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker.OcRankContext;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendScore;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendTimeSupport;
 
 import java.math.BigDecimal;
@@ -32,12 +32,13 @@ import java.util.stream.Collectors;
 /**
  * OC队伍推荐逻辑层
  *
- * <p>候选池是该帮派全部招募中OC的空位，不再按大锅饭名单剪枝；每个候选先由度量层折算成
- * 期望净产出与期望人天，再由机会成本排序器统一排序。是否在大锅饭名单只影响分钱口径，
- * 不影响推荐结果。已加入队伍时，以当前岗位的机会成本作为基线，只输出严格优于基线的候选。</p>
+ * <p>候选池是该帮派全部招募中OC的空位，不再按大锅饭名单剪枝；每个候选由度量层折算成
+ * 期望净产出与期望人天，再由排序器统一按「单位人天产出 × 开动紧迫度」排序。
+ * 是否在大锅饭名单只影响分钱口径，不影响推荐结果。已加入队伍时，以当前岗位的评分作为基线，
+ * 只输出严格优于基线的候选（同队换岗不受此限制，换岗不损失进度也不会改变评分）。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2025.11.01
  */
 @Slf4j
@@ -46,7 +47,7 @@ import java.util.stream.Collectors;
 public class TornOcRecommendService {
     private final TornOcRecommendManager ocRecommendManager;
     private final OcYieldEstimatorRegistry yieldEstimatorRegistry;
-    private final OcOpportunityCostRanker opportunityCostRanker;
+    private final OcRecommendRanker ocRecommendRanker;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
@@ -54,8 +55,9 @@ public class TornOcRecommendService {
     /**
      * 为用户推荐OC队伍和岗位。
      *
-     * <p>排序键为机会成本（不填这个位帮派损失多少）。同一OC的多个空位各自独立进入结果，
-     * 允许一个OC占满Top N：抢位失败后同队的第二个岗位仍值得加入，不必再请求一次指令。</p>
+     * <p>排序键为推荐评分（单位人天产出乘以开动紧迫度）。同一OC的多个空位各自独立进入结果，
+     * 允许一个OC占满Top N：抢位失败后同队的第二个岗位仍值得加入，不必再请求一次指令。
+     * 评分恒非负，只要存在可填空位就一定返回候选，不做任何「评分不为正就丢弃」的过滤。</p>
      *
      * @param user     用户
      * @param topN     返回Top N个推荐
@@ -85,7 +87,7 @@ public class TornOcRecommendService {
         List<OcRecommendCandidate> candidates = buildCandidates(recruitOcList, emptySlotList,
                 user.getFactionId(), userOcData, facts.estimates());
         OcRecommendCandidate baseline = buildBaseline(user, joinedOc, userOcData, facts);
-        List<OcRecommendCandidate> ranked = opportunityCostRanker.rank(candidates, baseline, facts.context());
+        List<OcRecommendCandidate> ranked = ocRecommendRanker.rank(candidates, baseline, facts.context());
         return ranked.stream()
                 .limit(Math.max(0, topN))
                 .map(this::toRecommendation)
@@ -157,7 +159,7 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 计算当前岗位的机会成本，作为候选过滤基线；无法评估时返回null表示不做基线过滤。
+     * 计算当前岗位的推荐评分，作为候选过滤基线；无法评估时返回null表示不做基线过滤。
      */
     private BigDecimal calculateCurrentScore(TornUserDO user, OcSlotDictBO joinedOc,
                                              TornSettingOcSlotDO requirement,
@@ -173,11 +175,11 @@ public class TornOcRecommendService {
                 user.getId(), joinedOc, now);
         OcRecommendCandidate current = new OcRecommendCandidate(joinedOc.getOc(), joinedOc.getSlot(),
                 requirement, passRateData.getPassRate(), estimateOf(facts.estimates(), joinedOc.getOc()), null);
-        return opportunityCostRanker.evaluate(current, facts.context()).opportunityCost();
+        return ocRecommendRanker.evaluate(current, facts.context()).score();
     }
 
     /**
-     * 加载本次排序共用的只读事实：产出估算、帮派能力矩阵、已占用岗位与空位统计。
+     * 加载本次排序共用的只读事实：产出估算、帮派能力矩阵与空位统计。
      *
      * <p>产出估算只走批量入口，并把当前OC并入估算池：基线取值与候选出自同一次统计查询，
      * 整个请求不会为任何单个OC再查一次库。</p>
@@ -188,12 +190,9 @@ public class TornOcRecommendService {
         Map<Long, OcYieldEstimate> estimates = yieldEstimatorRegistry.estimateAll(
                 withJoinedOc(ocList, joinedOc), now);
         List<TornFactionOcUserDO> factionOcData = ocUserDao.queryFactionMatrix(factionId);
-        List<TornFactionOcSlotDO> occupiedSlots = ocSlotDao.queryListByOc(ocList).stream()
-                .filter(slot -> slot.getUserId() != null)
-                .toList();
         Map<Long, Integer> emptySlotsByOc = emptySlotList.stream()
                 .collect(Collectors.toMap(TornFactionOcSlotDO::getOcId, slot -> 1, Integer::sum));
-        OcRankContext context = new OcRankContext(factionOcData, occupiedSlots, emptySlotsByOc, userId, now);
+        OcRankContext context = new OcRankContext(factionOcData, emptySlotsByOc, userId, now);
         return new RankFacts(estimates, context);
     }
 
@@ -268,15 +267,17 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 把候选转成对外推荐结果，推荐理由文案与排序前完全一致。
+     * 把候选转成对外推荐结果：对外评分是百分制，货币量纲的单位人天产出只留作内部诊断，
+     * 理由文案只写「还要等多久、成功率如何」，不展示任何金额。
      */
     private OcRecommendationVO toRecommendation(OcRecommendCandidate candidate) {
-        OcOpportunityCost cost = candidate.cost();
+        OcRecommendScore score = candidate.score();
         int passRate = candidate.passRate() != null
                 ? candidate.passRate() : candidate.requirement().getPassRate();
         String reason = ocRecommendManager.buildRecommendReason(candidate.oc().getReadyTime(), passRate);
-        return new OcRecommendationVO(candidate.oc(), candidate.slot(), cost.opportunityCost(), reason,
-                candidate.estimate().netPerMemberDay(), cost.substituteCount(), cost.outcome());
+        return new OcRecommendationVO(candidate.oc(), candidate.slot(),
+                BigDecimal.valueOf(score.rating()), reason,
+                score.unitMemberDayValue(), score.substituteCount(), score.outcome());
     }
 
     /**
@@ -338,10 +339,7 @@ public class TornOcRecommendService {
      * 本次排序共用的只读事实。
      *
      * @param estimates OC ID到期望产出估算值的映射
-     * @param context   机会成本排序上下文
-     * @author Bai
-     * @version 1.9.3
-     * @since 2026.10.23
+     * @param context   排序上下文
      */
     private record RankFacts(
             Map<Long, OcYieldEstimate> estimates,
@@ -349,14 +347,14 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 当前OC状态及机会成本基线。
+     * 当前OC状态及评分基线。
      *
      * @param joined               是否已加入OC
      * @param disabled             当前OC是否被禁用
      * @param passRateInsufficient 当前岗位成功率是否低于要求
      * @param actualPassRate       当前实际成功率
      * @param requiredPassRate     岗位要求成功率
-     * @param currentScore         当前岗位的机会成本基线
+     * @param currentScore         当前岗位的推荐评分基线
      */
     public record CurrentOcStatus(
             boolean joined,

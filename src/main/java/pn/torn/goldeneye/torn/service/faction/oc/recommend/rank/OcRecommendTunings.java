@@ -9,35 +9,55 @@ import java.util.Map;
 /**
  * OC推荐调参常量。
  *
- * <p>集中持有机会成本公式与度量层使用的全部可调数字，避免常数散落在调用方。
- * 当前没有按帮派差异化调整的需求，因此不引入配置管道；每个常量行末注明数据来源，
+ * <p>集中持有度量层使用的可调数字，避免常数散落在调用方。排序口径（单位人天产出 × 开动紧迫度）
+ * 不含货币折算系数，因此2026.10.25起不再保留「每日等待成本」与「占用成本系数」两个常量；
+ * 开动紧迫度的分段阈值由{@link OcRecommendStartUrgency}独占，百分制评分的换算锚点由
+ * {@link OcRecommendRating}独占，也不放在本类，避免口径漂移。</p>
+ *
+ * <p>当前没有按帮派差异化调整的需求，因此不引入配置管道；每个常量行末注明数据来源，
  * 后续维护不得在无实测依据的情况下修改。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.10.23
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
 public final class OcRecommendTunings {
     /**
-     * 单岗位期望占用天数（人天），取实测中位数与P90之间。
+     * 单岗位期望占用天数（人天），用于把「每队人数」折算成期望总人天，是排序键分母的唯一来源。
+     *
+     * <p>取值来源：本帮实测占用天数（create_time到ready_time）的中位数——3级6.56、4级5.57、
+     * 5级5.00、6级5.78、7级6.02、8级5.69、9级6.02、10级6.53，合计取6.0。2026.10.25之前用的是4.5，
+     * 那是按「中位数与P90之间」估的，系统性把每支队的人天低估约25%，进而把单位人天产出整体高估。
+     * 统一常量只做整体缩放，不改变同一紧迫度下的排序；跨等级差异（3级比8级慢约21%）留作后续精度项，
+     * 不在此处按等级分叉，避免用少数等级的样本过拟合。</p>
      */
-    public static final BigDecimal MEMBER_DAYS_PER_SLOT = new BigDecimal("4.5");
+    public static final BigDecimal MEMBER_DAYS_PER_SLOT = new BigDecimal("6.0");
 
     /**
-     * 每日等待成本，即一成员天折算的货币量，等价5.0M/人天。
+     * 实测样本的可信度权重（伪尝试次数）：实测值按「尝试次数÷(尝试次数+本值)」的权重与等级映射值混合。
+     *
+     * <p>把实测与映射做可信度加权而不是设硬门槛，是因为硬门槛会让样本刚好不足的OC
+     * 整段退回等级阶梯——而等级阶梯对个别OC的偏差可达±40%，反而比带噪声的实测更离谱。
+     * 取10次尝试作为先验强度：509次尝试的OC约98%取实测，11次尝试的OC约52%取实测。</p>
      */
-    public static final BigDecimal DEFAULT_DAILY_WAIT_COST = new BigDecimal("5000000");
+    public static final int MEASURED_PRIOR_ATTEMPTS = 10;
 
     /**
-     * 占用成本系数，表达「我占用这段时间本可产出的机会」。
+     * 百分制评分的0分锚点（货币单位/人天）：低于该值一律按1分展示，避免出现0分与负分。
+     *
+     * <p>取值低于全部7级以上OC的实测单位人天产出（最低的Window of Opportunity约2.1M），
+     * 只用来兜住1至3级的小额OC，不让它们被压成0分。</p>
      */
-    public static final BigDecimal OCCUPANCY_COST_FACTOR = BigDecimal.ONE;
+    public static final BigDecimal RATING_BASE_VALUE = new BigDecimal("500000");
 
     /**
-     * 判定实测来源所需的最少成功样本数。
+     * 百分制评分的100分锚点（货币单位/人天）：达到该值即为满分。
+     *
+     * <p>取9级队的实测量级（Ace in the Hole约14M/人天），使7级主力队在常规紧迫度下落在
+     * 50至85分的区间，既能区分强弱，也不至于一律满分。</p>
      */
-    public static final int MIN_MEASURED_SAMPLES = 3;
+    public static final BigDecimal RATING_FULL_VALUE = new BigDecimal("12000000");
 
     /**
      * 等级阶梯：成功时平均奖励（现金加道具价值），货币单位。

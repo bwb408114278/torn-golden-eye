@@ -15,6 +15,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * OC推荐管理器集成测试，验证禁用过滤与岗位要求查询职责分离。
+ *
+ * @author Bai
+ * @version 1.9.4
+ * @since 2026.04.28
  */
 @Slf4j
 @SpringBootTest
@@ -84,14 +88,17 @@ class TornOcRecommendManagerTest {
     }
 
     @Test
-    @DisplayName("推荐理由文案与改动前逐字一致")
-    void buildRecommendReason_shouldKeepExactWording() {
-        assertThat(recommendManager.buildRecommendReason(null, 80)).isEqualTo("新队、超高成功率");
-        assertThat(recommendManager.buildRecommendReason(null, 70)).isEqualTo("新队、高成功率");
+    @DisplayName("推荐理由逐段写明停转时间与成功率，且不出现任何金额")
+    void buildRecommendReason_shouldContainRankingFactors() {
+        assertThat(recommendManager.buildRecommendReason(null, 80))
+                .isEqualTo("新队、超高成功率");
+        assertThat(recommendManager.buildRecommendReason(null, 70))
+                .isEqualTo("新队、高成功率");
         assertThat(recommendManager.buildRecommendReason(LocalDateTime.now().minusHours(1), 72))
                 .isEqualTo("已停转，急需加入、高成功率");
         assertThat(recommendManager.buildRecommendReason(LocalDateTime.now().plusMinutes(90), 65))
                 .isEqualTo("2小时内停转、成功率达标");
+        assertThat(recommendManager.buildRecommendReason(null, 80)).doesNotContain("单位人天", "M");
     }
 
     // ── 工具方法 ──────────────────────────────────────────────

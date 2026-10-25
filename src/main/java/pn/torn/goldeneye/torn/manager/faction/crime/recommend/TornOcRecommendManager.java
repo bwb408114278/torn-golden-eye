@@ -19,11 +19,13 @@ import java.util.List;
 /**
  * OC队伍推荐公共逻辑层
  *
- * <p>本类只保留配置查询、可填性判定与推荐理由拼装：排序已统一由机会成本排序器承担，
- * 不再提供任何评分方法，也不得按「是否在大锅饭名单」分叉出第二套公式。</p>
+ * <p>本类只保留配置查询、可填性判定与推荐理由拼装：排序已统一由推荐评分器承担
+ * （单位人天产出 × 开动紧迫度），不再提供任何评分方法，也不得按「是否在大锅饭名单」分叉出第二套公式。
+ * 推荐理由必须写明排序依据——还要等多久、成功率档位，用户据此能看懂「为什么推这支队」；
+ * 经济性不写金额，统一由百分制评分徽章承载。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2025.11.24
  */
 @Component
@@ -37,7 +39,6 @@ public class TornOcRecommendManager {
      * 成功率展示分档：达到该值展示「高成功率」。
      */
     private static final int HIGH_PASS_RATE = 70;
-
     private final TornSettingFactionOcManager settingFactionOcManager;
     private final TornSettingOcSlotManager settingOcSlotManager;
 
@@ -130,7 +131,10 @@ public class TornOcRecommendManager {
     }
 
     /**
-     * 构建推荐理由，文案与排序键无关，逐字保持既有输出。
+     * 构建推荐理由：停转紧迫度与成功率档位，两段都以「、」拼接。
+     *
+     * <p>经济性不写进理由：排序键是货币量纲的估计值，展示成金额只会让用户把它当成账本。
+     * 经济性统一由百分制评分徽章承载，理由只回答「还要等多久、成功率如何」。</p>
      *
      * @param dateTime 该OC的准备时间，null表示新队
      * @param passRate 展示用的成功率

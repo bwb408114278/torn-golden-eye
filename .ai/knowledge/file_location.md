@@ -25,8 +25,8 @@
 │       │   ├── oc_delay_attribution_technical_design.md                                # OC延误归因（原因/时长/采样与验收基线）技术方案
 │       │   ├── oc_rate_table_html_migration_technical_design.md                        # 用户OC成功率表HTML迁移（五档色阶/双维星级/级别分组）技术方案(1.9.0)
 │       │   ├── oc_reassign_income_mode_timeline_technical_design.md                    # 大锅饭收益模式按月时间线（切换口径/展示/上线）技术方案
-│       │   ├── oc_recommend_mixing_baseline.md                                         # OC推荐收益混算与机会成本排序长期业务基线(2.3)
-│       │   ├── oc_recommend_mixing_technical_design.md                                 # OC推荐收益混算与机会成本排序技术方案(1.9.3)
+│       │   ├── oc_recommend_mixing_baseline.md                                         # OC推荐收益混算与评分排序长期业务基线(2.4)
+│       │   ├── oc_recommend_mixing_technical_design.md                                 # OC推荐收益混算与评分排序技术方案(1.9.4)
 │       │   ├── oc_userscript_api_technical_design.md                                   # OC推荐插件对外HTTP接口与Torn Key鉴权技术方案(1.9.3)
 │       │   └── oc_userscript_client_technical_design.md                                # OC推荐油猴插件客户端（只读呈现/开关/fail-safe）技术方案
 │       ├── security/                                                                   # 凭据与安全相关知识库
@@ -198,7 +198,7 @@
 │   │   │       │   │   │   ├── OcPhaseEnum.java                                        # OC准备阶段(新队/未开动/停转)
 │   │   │       │   │   │   ├── OcRecommendCandidate.java                               # 待排序的推荐候选(OC与空位)
 │   │   │       │   │   │   ├── OcRecommendOutcomeEnum.java                             # 岗位稀缺度分档(仅用于解释)
-│   │   │       │   │   │   ├── OcRecommendationVO.java                                 # OC推荐结果(含机会成本与稀缺度)
+│   │   │       │   │   │   ├── OcRecommendationVO.java                                 # OC推荐结果(含推荐评分与稀缺度)
 │   │   │       │   │   │   ├── OcRecommendTableBO.java                                 # 推荐表格组装参数
 │   │   │       │   │   │   ├── OcSlotDictBO.java                                       # OC与岗位键值对
 │   │   │       │   │   │   ├── OcSlotEligibility.java                                  # 成员对空位的可填性判定
@@ -235,13 +235,16 @@
 │   │   │           │       │   │   ├── MappedOcYieldEstimator.java                     # 等级与链映射产出估算器
 │   │   │           │       │   │   ├── MeasuredOcYieldEstimator.java                   # 收益记录实测产出估算器
 │   │   │           │       │   │   ├── OcChainValueReducer.java                        # 链式OC价值归约器
+│   │   │           │       │   │   ├── OcYieldContext.java                             # 估算上下文(时间基准+每队岗位编制)
 │   │   │           │       │   │   ├── OcYieldEstimator.java                           # OC产出估算策略接口
-│   │   │           │       │   │   └── OcYieldEstimatorRegistry.java                   # OC产出估算注册表(按来源分派)
-│   │   │           │       │   ├── rank/                                               # 机会成本排序(稀缺度/阶段/调参)
-│   │   │           │       │   │   ├── OcOpportunityCost.java                          # 机会成本快照
-│   │   │           │       │   │   ├── OcOpportunityCostRanker.java                    # 机会成本排序器与基线过滤
+│   │   │           │       │   │   └── OcYieldEstimatorRegistry.java                   # OC产出估算注册表(实测/映射可信度加权)
+│   │   │           │       │   ├── rank/                                               # 推荐评分与排序(稀缺度/紧迫度/调参)
+│   │   │           │       │   │   ├── OcRecommendRanker.java                          # 推荐评分与排序器(含基线过滤)
+│   │   │           │       │   │   ├── OcRecommendRating.java                          # 货币量纲评分到百分制评分的换算
+│   │   │           │       │   │   ├── OcRecommendScore.java                            # 推荐评分快照(单位人天产出×紧迫度)
+│   │   │           │       │   │   ├── OcRecommendStartUrgency.java                     # 开动紧迫度评分(停转/新队时间曲线)
 │   │   │           │       │   │   ├── OcRecommendTimeSupport.java                     # OC准备阶段判定与准备时间归一化
-│   │   │           │       │   │   ├── OcRecommendTunings.java                         # 推荐调参常量(人天/等待成本/样本阈值)
+│   │   │           │       │   │   ├── OcRecommendTunings.java                         # 推荐调参常量(人天折算/样本权重/评分锚点)
 │   │   │           │       │   │   └── OcScarcityEstimator.java                        # 岗位替代概率估算
 │   │   │           │       │   ├── TornOcAssignService.java                            # OC批量分配逻辑层
 │   │   │           │       │   └── TornOcRecommendService.java                         # OC推荐逻辑层
@@ -349,7 +352,7 @@
 │                   │       │   ├── metric/                                             # OC产出度量测试
 │                   │       │   │   └── OcYieldEstimatorTest.java                       # 实测/映射/链归约估算测试
 │                   │       │   ├── rank/                                               # 机会成本排序测试
-│                   │       │   │   └── OcOpportunityCostRankerTest.java                # 稀缺度/锁死人天/决胜测试
+│                   │       │   │   └── OcRecommendRankerTest.java                      # 评分/紧迫度/非负/决胜测试
 │                   │       │   ├── TornOcAssignServiceTest.java                        # OC批量分配测试
 │                   │       │   └── TornOcRecommendServiceTest.java                     # OC推荐功能测试
 │                   │       ├── TornFactionOcBenefitServiceTest.java                    # 帮派OC收益功能测试

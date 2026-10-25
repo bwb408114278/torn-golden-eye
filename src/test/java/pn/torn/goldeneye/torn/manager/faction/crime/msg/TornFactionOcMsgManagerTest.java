@@ -128,13 +128,13 @@ class TornFactionOcMsgManagerTest {
                 new ArrayList<>(List.of(recommended, idle, filled)));
         when(userDao.queryUserMap(anyCollection())).thenReturn(Map.of(10L, buildUser(10L)));
         OcRecommendTableBO entry = new OcRecommendTableBO(buildUser(20L),
-                new OcRecommendationVO(oc, recommended, BigDecimal.ONE, "测试"));
+                new OcRecommendationVO(oc, recommended, new BigDecimal("25"), "测试"));
 
         TableDocument document = msgManager.buildRecommendTableData("推荐", FACTION_ID, List.of(entry), NOW);
 
         assertEquals(new TableCellContent.BadgeText(
                         "测试用户 [20]   8级   Clinical Precision   岗位: Kidnap",
-                        List.of(new TableCellContent.Badge("评分 1", TableCellBadgeToneEnum.NEUTRAL),
+                        List.of(new TableCellContent.Badge("评分 25", TableCellBadgeToneEnum.NEUTRAL),
                                 new TableCellContent.Badge("测试", TableCellBadgeToneEnum.NEUTRAL))),
                 document.rows().get(1).cells().getFirst().content());
         List<TableCell> positions = document.rows().get(2).cells();

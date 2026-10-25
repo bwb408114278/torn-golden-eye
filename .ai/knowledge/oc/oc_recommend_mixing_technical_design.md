@@ -17,6 +17,8 @@
 |---|---|---|
 | v1.0 | 2026-10-22 | 初版 |
 | v1.1 | 2026-10-23 | 代码精读后修订：修正 MeasuredOcYieldEstimator 聚合键（oc_id → oc_name+rank+faction_id）及链式人天还原方式；修正被锁死人天范围（progress>0 成员）；补充 findRecrutList 归一化逻辑改造；补充全帮派稀缺度数据加载；从推荐/分配主链路删除 isReassign 传递；修订 OcRecommendBadgeResolver 门槛方案（选方案B）；补充 OcYieldEstimatorRegistry @Order 约束 |
+| v1.3 | 2026-10-25 | **钱只做排序内核、不再对外展示**（业务依据 C-M6~C-M9 / 基线 v2.5）：§6.1 人天常量 4.5→6.0，§6.2 硬门槛改为可信度加权（MEASURED_PRIOR_ATTEMPTS=10）+ 新增 OcYieldContext（时间基准与岗位编制）与岗位数兜底，§7.1 增加百分制换算（OcRecommendRating），§8.6/8.7 徽章与理由改为纯百分制、移除金额 |
+| v1.2 | 2026-10-25 | **排序层改为「单位人天产出 × 开动紧迫度」**（§7 全面改写，业务依据 C-M1~C-M5 / 基线 v2.4）：替代概率与被锁死人天退出评分、占用成本常量删除、评分恒非负且不做正负过滤、理由追加单位人天产出；OcOpportunityCost/Ranker 更名为 OcRecommendScore/Ranker，新增 OcRecommendStartUrgency；徽章门槛按货币量级重标 |
 
 > 本文回答「改哪些文件、改成什么样、怎么验证」。业务口径一律以业务基线为准，本文不重新定义口径；出现冲突时以业务基线为准，并同步修订本文。
 
@@ -135,11 +137,14 @@ torn/service/faction/oc/recommend/
 │   ├── MeasuredOcYieldEstimator.java
 │   ├── MappedOcYieldEstimator.java
 │   ├── OcYieldEstimatorRegistry.java
+│   ├── OcYieldContext.java                 （v1.3：时间基准 + 每队岗位编制）
 │   └── OcChainValueReducer.java
-└── rank/                                   （新增子包：机会成本排序）
-    ├── OcOpportunityCost.java
+└── rank/                                   （子包：推荐评分与排序）
+    ├── OcRecommendScore.java
+    ├── OcRecommendRating.java              （v1.3：货币量纲 → 百分制）
     ├── OcScarcityEstimator.java
-    ├── OcOpportunityCostRanker.java
+    ├── OcRecommendRanker.java
+    ├── OcRecommendStartUrgency.java
     ├── OcRecommendTimeSupport.java
     └── OcRecommendTunings.java
 
@@ -160,8 +165,9 @@ torn/model/faction/crime/recommend/         （已存在，新增模型后 8 个
 | 策略模式 | `OcYieldEstimator` + `Measured` / `Mapped` 两实现 | 名单内有实测、名单外只有映射；用同一接口让上层不再区分「在不在名单」 |
 | 注册表 + Spring 注入 | `OcYieldEstimatorRegistry` 注入 `List<OcYieldEstimator>` | 以后新增估算来源只加实现类，不改调用方 |
 | 泛型归约 | `OcChainValueReducer<T>` | 链聚合对「实测链」与「配置链」两种输入结构是同一算法，用 `Function<T, …>` 抽取差异，避免写两遍 |
-| 组合比较器 | `OcOpportunityCostRanker` | 排序键 + 决胜键按顺序组合，决胜规则集中一处，不再散落在两处 `.reversed()` |
-| 不可变 record | `OcYieldEstimate` / `OcOpportunityCost` / `OcRecommendCandidate` | 排序过程中不再改写 DO（消除 B5 一类副作用） |
+| 组合比较器 | `OcRecommendRanker` | 排序键 + 决胜键按顺序组合，决胜规则集中一处，不再散落在两处 `.reversed()` |
+| 不可变 record | `OcYieldEstimate` / `OcRecommendScore` / `OcYieldContext` / `OcRecommendCandidate` | 排序过程中不再改写 DO（消除 B5 一类副作用）；上下文承载一次请求内的只读事实 |
+| 纯函数换算 | `OcRecommendRating` | 货币量纲只做排序，对外统一换算成百分制，展示口径收敛在一处 |
 
 ---
 
@@ -175,9 +181,10 @@ torn/model/faction/crime/recommend/         （已存在，新增模型后 8 个
 | `OcYieldSourceEnum` | enum | `MEASURED`（实测 UPH）、`MAPPED`（等级映射）、`CHAIN_MAPPED`（链映射，含前置人天） |
 | `OcRecommendOutcomeEnum` | enum | `IRREPLACEABLE`（替代概率≈0）、`SCARCE`、`SUBSTITUTABLE`、`UNKNOWN`，用于对外解释，**不参与排序** |
 | `OcPhaseEnum` | enum | `NEW_TEAM`（无人加入，无 `readyTime`）、`NOT_STARTED`（`readyTime > now`）、`PAUSED`（`readyTime <= now`） |
-| `OcRecommendCandidate` | record | `TornFactionOcDO oc`、`TornFactionOcSlotDO slot`、`TornSettingOcSlotDO requirement`、`Integer passRate`、`OcYieldEstimate estimate`、`OcOpportunityCost cost` |
+| `OcRecommendCandidate` | record | `TornFactionOcDO oc`、`TornFactionOcSlotDO slot`、`TornSettingOcSlotDO requirement`、`Integer passRate`、`OcYieldEstimate estimate`、`OcRecommendScore score` |
 
-`OcOpportunityCost` 与 `OcScarcityEstimator` 属排序层，放 `recommend/rank` 包。
+`OcRecommendScore` / `OcRecommendRating` / `OcScarcityEstimator` 属排序层，放 `recommend/rank` 包；
+`OcYieldContext` 属度量层，放 `recommend/metric` 包。
 
 ---
 
@@ -187,9 +194,15 @@ torn/model/faction/crime/recommend/         （已存在，新增模型后 8 个
 
 ```text
 期望净产出 = (reward_money + Σ按 '#' 拆分的 reward_items_value) × Π(链上各步成功率) − 预期道具成本
-期望人天   = (链上各步 人数 × 单岗位期望占用天数) 之和
-量纲       = 期望净产出 / 期望人天        （M / 人天）
+期望人天   = (链上各步 团队人数 × 6.0 天) 之和
+团队人数   = 目录配置 required_members > 该队实际岗位数 > 1
+量纲       = 期望净产出 / 期望人天        （元 / 人天）
 ```
+
+**v1.3 修正**：单岗位期望占用天数由 4.5 改为 **6.0**（实测中位数，基线 C-M6）；团队人数由
+`max(1, required_members)` 改为 `OcYieldContext.teamSize`，配置缺失时退到 `torn_faction_oc_slot`
+的实际岗位数（基线 C-M7）。旧口径在 1~6 级 OC 上把人数当成 1，使低级队人天低估 3~6 倍。
+`OcRecommendTunings.MEMBER_DAYS_PER_SLOT` 是分母的唯一来源。
 
 - 奖励必须用 `reward_money + Σitems`，`reward_items_value` 是 `#` 分隔串，**空串要当 0**（T6）。
 - 链上各步成功率取自成员在该岗位的成功率不是本层职责；本层使用 **OC 级成功率**：已有实测取实测，无实测取 `torn_setting_oc` 映射。
@@ -201,23 +214,33 @@ torn/model/faction/crime/recommend/         （已存在，新增模型后 8 个
 public interface OcYieldEstimator {
     boolean supports(OcYieldSourceEnum source);
 
-    OcYieldEstimate estimate(TornFactionOcDO oc, LocalDateTime snapshotTime);
+    OcYieldEstimate estimate(TornFactionOcDO oc, OcYieldContext context);
 }
-```
+`
+
+`OcYieldContext`（v1.3 新增）承载一次批量估算内共享的只读事实：`snapshotTime` 与按
+「OC名称+等级」索引的 `teamSizeByOc`。估算器因此保持无状态、不读系统时间、不逐个查库；
+岗位编制在 `estimateAll` 里用 `ocSlotDao.queryListByOcId` 查一次，同名多实例取最大值而不是求和。``
 
 | 实现 | `supports` | 数据来源 |
 |---|---|---|
 | `MeasuredOcYieldEstimator` | `MEASURED` | `torn_faction_oc_income`：按 `(oc_name, rank, faction_id)` 跨历史实例聚合，不按当前活跃 oc_id 查询（同名 OC 每次招募产生新 oc_id，活跃实例无历史记录）；链式 OC 各步独立聚合后由 OcChainValueReducer 归约（单步聚合无法覆盖其他步骤的人天）；`final_income` 是链级净收益快照，不当个人份额 |
 | `MappedOcYieldEstimator` | `MAPPED` / `CHAIN_MAPPED` | `torn_setting_oc.expected_reward` + `torn_setting_oc.required_members` + `torn_setting_oc_chain` |
 
-`OcYieldEstimatorRegistry` 按来源选实现；**判定来源只看有没有可用的实测样本**，不看是否在大锅饭名单。两个实现类加 `@Order`（`MeasuredOcYieldEstimator` 优先），避免注入顺序不确定：
+`OcYieldEstimatorRegistry` 负责把两种来源合成唯一量纲；**判定只看有没有历史实例**，不看是否在大锅饭名单：
 
 ```text
-该 OC (oc_name, rank, faction_id) 在 torn_faction_oc_income 中成功样本数 ≥ N（默认 3）  → MEASURED
-否则                                                                                  → MAPPED / CHAIN_MAPPED
+该 OC (oc_name, rank, faction_id) 在 torn_faction_oc_income 中尝试次数 n = 0  → 直接取 MAPPED / CHAIN_MAPPED
+否则                                                                       → 实测 × n/(n+10) + 映射 × 10/(n+10)
 ```
 
-N 作为 `OcRecommendTunings.MIN_MEASURED_SAMPLES` 常量，默认 3，来源于业务基线 4.6 的样本离散结论：1–2 个样本的单位人天产出波动可达一倍。
+**v1.3 修正**：v1.2 及之前是「成功样本数 ≥ 3 走纯实测，否则整体退回映射」的硬门槛
+（`MIN_MEASURED_SAMPLES`）。它有两个毛病：6 次成功的样本标准误约 ±28% 却被当成真值顶到最前面；
+恰好差一次样本的 OC 又整段退回偏差 −37%~+39% 的等级阶梯。改为可信度加权（基线 C-M8），
+权重常量 `OcRecommendTunings.MEASURED_PRIOR_ATTEMPTS = 10`：509 次尝试约 98% 取实测，
+11 次尝试约 52% 取实测。人天取实测分支的值（含链折算），与映射分支同一量纲。
+
+两个实现类保留 `@Order`（`MeasuredOcYieldEstimator` 优先），`supports` 仍用于映射侧的实现查找。
 
 ### 6.3 链聚合（泛型归约）
 
@@ -245,33 +268,49 @@ public final class OcChainValueReducer<T> {
 | 映射收益 | `torn_setting_oc.expected_reward` | 口径 B（成功时奖励 × 成功率），本轮先修数据（§9.1） |
 | 链结构 | `torn_setting_oc_chain`（`parent_oc_name/rank` → `child_oc_name/rank`，`sequence_no`） | 读取 `enabled = 1 and deleted = 0` |
 | 岗位人数 | `torn_setting_oc.required_members` | |
-| 单岗位期望占用天数 | `OcRecommendTunings.MEMBER_DAYS_PER_SLOT`，默认 4.5 | 业务基线 4.3 实测占用 P50 = 4.00 天 |
+| 单岗位期望占用天数 | `OcRecommendTunings.MEMBER_DAYS_PER_SLOT`，默认 6.0 | 实测占用（create_time→ready_time）中位数 5.0~6.6 天（基线 C-M6） |
+| 每支队的团队人数 | `OcYieldContext.teamSize`：目录配置 > 实际岗位数 > 1 | 1~6 级 `required_members` 整体缺失，必须用岗位数兜底（基线 C-M7） |
 
 ---
 
 ## 7. 排序层实现（`recommend/rank`）
 
-### 7.1 机会成本公式
+### 7.1 推荐评分公式（v1.2 取代机会成本公式）
 
 ```text
-机会成本(我不填这个位) = 期望净产出 × (1 − 替代概率)
-                      + 被锁死人天 × 每日等待成本
-                      − 我的占用人天 × 每日等待成本 × 占用成本系数
+推荐评分 = 单位人天产出 V × 开动紧迫度 f
+
+V = 期望净产出 ÷ 期望人天                        // OcYieldEstimate.netPerMemberDay()，度量层输出
+f = 时间分 ÷ 100                                 // OcRecommendStartUrgency，0.10 ~ 1.00
 ```
 
-| 项 | 含义 | 取值 |
+| 项 | 含义 | 取值/来源 |
 |---|---|---|
-| `期望净产出` | 该 OC/链的帮派口径期望收益 | 度量层输出 |
-| `替代概率` | 除我之外还能填这个人有多少 | §7.2，`null` 表示未知 |
-| `被锁死人天` | 停转队里其他成员已经等待的人天 | §7.3 |
-| `每日等待成本` | 一成员天折算多少钱 | `OcRecommendTunings.DEFAULT_DAILY_WAIT_COST` = 5.0（M/人天），取自业务基线 4.9 的中位量级 |
-| `占用成本系数` | 我占用这段时间本可产出的机会 | `OcRecommendTunings.OCCUPANCY_COST_FACTOR` = 1.0；置 0 即退化为业务基线 5.9 的原式 |
+| `单位人天产出 V` | 占用一名成员一天，帮派期望产出多少 | 度量层 `netPerMemberDay()`（货币单位），等级越高越大；v1.3 起按 6.0 天/岗位与实际岗位数折算，量级为 r4≈0.5M、r7≈2.8M、r8≈7.1M、r9≈14M |
+| `开动紧迫度 f` | 这支队还要等多久才开始走进度 | `OcRecommendStartUrgency`：已停转 1.00、新队 0.95、≤6h 0.95~1.00、24h 0.65、48h 0.35、72h 0.20、更远 0.10~0.20 |
 
-第三项是 C-D4「等待成本 > 占用成本」的直接落地：低级 OC 的 `期望净产出 × (1 − 替代概率)` 很小，若占用人天带来的机会成本高于它，机会成本为负，自然排在最后，不需要额外写「低级 OC 不推荐」的分支。
+**为什么第二项消失了**：机会成本式的第三项（`4.5 人天 × 5M` 常量）与 `ready_time` 无关，
+导致 55 小时队与 8 小时队完全等价；第一项又被恒为 1 的替代概率归零（§7.2），
+整条排序退化为「别人等了多久 − 22.5M」，既能为负，也与等级脱钩。业务依据见基线 C-M1~C-M4 / R27。
 
-**替代概率为 `null`（未知）时**，第二、三项照常计算，第一项按 `期望净产出 × 1.0` 计入——即当作「没有任何人能替代我」。这是中性偏保守的一侧：不会把未知岗位误判为可随意放弃。
+**替代概率、被锁死人天不再进入评分**：前者仅用于稀缺度分档展示（§7.2），后者是沉没时间（§7.3）。
+两条都保留在 `OcRecommendScore` / 上下文里，但排序不读取。
 
-### 7.2 替代概率
+**对外只展示百分制评分（v1.3）**：货币量纲是估计值，只做排序内核；对外按固定锚点换算成 1~100：
+
+```text
+评分(1~100) = 100 × ln(1 + 推荐评分 / 0.5M) ÷ ln(1 + 12M / 0.5M)      // OcRecommendRating.ratingOf()
+```
+
+- 与排序键严格单调，不会出现「评分高但排后面」；结果恒在 1~100，不会负分也不会 0 分。
+- 对数刻度而非线性：OC 产出跨等级差异极大（r7 约 2~3M/人天、r9 约 14M/人天），线性会让真实推荐挤在个位数，或让高等级队一律饱和。
+- 锚点固定（0.5M 折 1 分、12M 折 100 分），不随候选池浮动，同一支队每次推荐得分一致。
+- 徽章与理由**不再出现任何金额**（基线 C-M9 / R33），金额只留在 `expectedNetPerMemberDay` 供回放诊断。
+
+### 7.2 替代概率（v1.2：仅用于稀缺度分档）
+
+> v1.9.x 曾把该值乘进收益项，实测在本帮派恒为 1（rank 7 平均 76.9 人达标 vs 空位 1~6），
+> 把收益整体抹成 0，因此移出评分；下面的口径与实现保持不变，只改用途。
 
 ```text
 eligible = count(torn_faction_oc_user 中 该帮派、该 oc_name、该 position、pass_rate ≥ 岗位要求)
@@ -287,7 +326,11 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 
 替代概率每次推荐实时计算，不存在任何持久化的能力画像。
 
-### 7.3 被锁死人天
+### 7.3 被锁死人天（v1.2：移出评分，仅保留口径说明）
+
+> 该项是「别人已经等了多久」的沉没时间，不封顶、随观察时刻自己变大，且与等级无关；
+> 曾导致等得久的低等级队压过马上开动的高等级队（基线 C-M4 / R27）。**不再参与排序**。
+> 需要表达释放收益时使用稳定量「剩余空位 × 24h」，并在 Q17 全帮流转专题中统一建模。
 
 ```text
 被锁死人天 = Σ（该 OC progress > 0 的成员 max(0, now − join_time) 天）
@@ -303,8 +346,8 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 ### 7.4 比较器与决胜
 
 ```text
-① 机会成本降序
-② 期望净产出/人天 降序
+① 推荐评分降序（单位人天产出 × 开动紧迫度）
+② 单位人天产出 降序
 ③ 期望人天 升序（占用越短越灵活）
 ④ 剩余空位数 升序（更快凑齐开动，业务基线 C-E4 第三键）
 ⑤ ocId 升序，slotId 升序（确定性决胜）
@@ -312,7 +355,12 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 
 排序后只做一件事：
 
-- **基线过滤**：已加入 OC 时，只有严格优于当前岗位的候选才输出。基线值同样用机会成本计算，**不再用旧评分**，否则新旧量纲混比。`CurrentOcStatus.currentScore` 的语义随之变为「当前岗位的机会成本」。
+- **基线过滤**：已加入 OC 时，只有严格优于当前岗位的候选才输出。基线值同样用推荐评分计算，
+  `CurrentOcStatus.currentScore` 的语义随之变为「当前岗位的推荐评分」。
+  **同一支 OC 的其它空位不受该过滤影响**（换岗不损失进度、评分也与岗位无关），
+  否则「已加入且已有进度的成员」永远看不到自己队里的可换岗位。
+- **不做正负过滤**：评分恒非负（V ≥ 0、f ≥ 0.10），候选只要通过可填性判定就必然进入结果；
+  「有空位却返回空结果」属于 P0 缺陷（基线 C-M1 / R28）。
 
 **不做 OC 级去重**（业务基线 C-L1 / 5.11）：同一 OC 的每个空位各占一行，允许一个 OC 占满 Top-N。
 
@@ -385,29 +433,36 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 
 保留现有构造器与全部字段（`reason` 文案不变，指令层无需改动），新增字段并新增一个构造器：
 
-| 新增字段 | 类型 | 含义 |
+| 字段 | 类型 | 含义 |
 |---|---|---|
-| `expectedNetPerMemberDay` | `BigDecimal` | 期望净产出 / 人天，用于展示「这个岗位值多少」 |
-| `opportunityCost` | `BigDecimal` | 机会成本，排序键本体 |
-| `substituteCount` | `Integer` | 除我之外可填人数；`null` 表示未知 |
+| `recommendScore` | `BigDecimal` | **v1.3 起为百分制评分（1~100）**；排序内部仍用货币量纲，两者严格单调 |
+| `expectedNetPerMemberDay` | `BigDecimal` | 单位人天产出 V（货币单位），仅供内部诊断与回放日志，**不对外展示** |
+| `substituteCount` | `Integer` | 除我之外可填人数；`null` 表示未知（仅展示） |
 | `outcome` | `OcRecommendOutcomeEnum` | 稀缺度分档，仅用于解释 |
 
-`recommendScore` 继续写入机会成本（M量级），**并同步更新 `OcRecommendBadgeResolver` 的着色门槛为机会成本量级**：
+v1.2 删除了 `opportunityCost` 字段（与 `recommendScore` 同源，保留会造成两套口径）。
+v1.3 把 `recommendScore` 的语义从货币量纲改为百分制（基线 C-M9 / R33），并保留
+`expectedNetPerMemberDay` 作为内部诊断字段——金额不再出现在任何用户可见文本里。
 
-| 旧门槛（0-100 scale） | 新门槛（M量级） | 色调 |
+`OcRecommendBadgeResolver` 的门槛改为百分制：
+
+| 门槛（百分制） | 展示值 | 色调 |
 |---|---|---|
-| ≥ 80 | ≥ 300 | SUCCESS（绿） |
-| 60~79 | 150~299 | WARNING（琥珀） |
-| < 60 | < 150 | NEUTRAL（灰） |
+| ≥ 60 | `评分 72` | SUCCESS（绿） |
+| 35 ~ 59 | `评分 45` | INFO（蓝） |
+| < 35 | `评分 21` | NEUTRAL（灰） |
 
-理由：机会成本量级是 M（百万货币），根据业务基线 4.9 最低级 OC 机会成本 ≈ 80-100M，链式高价值 OC 可达 300-500M。直接使用旧门槛会导致全部徽章 SUCCESS，失去区分意义。修法成本最小：只改 `OcRecommendBadgeResolver` 一个类，同步更新 Badge 测试断言即可。
+评分徽章文本变为 `评分 72`（整数、无单位）；理由徽章只剩「停转时间」与「成功率档位」，
+`单位人天 3.72M` 一节已删除（基线 C-M5 修订 / R33）。
 
 ### 8.7 `torn/service/faction/oc/image/OcRecommendBadgeResolver.java`（103 行）
 
 | 位置 | 改动 |
 |---|---|
-| L约20-30 评分着色逻辑 | 将门槛从 `80 / 60` 改为 `300 / 150`（三个分支各改一处常量） |
-| 测试 `OcRecommendBadgeResolverTest` | 同步更新评分测试值，保持相对分布不变 |
+| 评分文本 | v1.3：改为 `评分 + 整数`（`SCORE_PREFIX` / `SCORE_SCALE = 0`），不再除以 100 万、不带单位 |
+| 评分着色 | v1.3：门槛改为 `60 / 35`（百分制），60 以上绿、35 至 59 信息蓝、35 以下中性灰 |
+| 理由词表 | v1.3：删除「单位人天 X M」前缀映射（理由不再产出该段） |
+| 测试 `OcRecommendBadgeResolverTest` | 同步更新为百分制文本与色调断言，并断言不出现金额单位 |
 
 ---
 
@@ -434,12 +489,13 @@ update torn_setting_oc set expected_reward = 148600000, update_time = now()
 
 | 常量 | 默认值 | 来源 |
 |---|---|---|
-| `MEMBER_DAYS_PER_SLOT` | `4.5` | 业务基线 4.3：实测占用 P50 = 4.00 天，P90 = 6.00 天 |
-| `DEFAULT_DAILY_WAIT_COST` | `5.0` | 业务基线 4.9：主力 OC 的期望 M/人天中位量级 |
-| `OCCUPANCY_COST_FACTOR` | `1.0` | `0` 时退化为业务基线 5.9 的原式 |
-| `MIN_MEASURED_SAMPLES` | `3` | 业务基线 4.6：样本少于 3 个时单位人天产出波动可达一倍 |
+| `MEMBER_DAYS_PER_SLOT` | `6.0` | v1.3 改为实测占用中位数：3 级 6.56 / 4 级 5.57 / 5 级 5.00 / 6 级 5.78 / 7 级 6.02 / 8 级 5.69 / 9 级 6.02 / 10 级 6.53，合计取 6.0（旧值 4.5 系统性低估约 25%，基线 C-M6） |
+| `MEASURED_PRIOR_ATTEMPTS` | `10` | v1.3 新增：可信度加权权重（伪尝试次数），取代 `MIN_MEASURED_SAMPLES = 3` 的硬门槛（基线 C-M8） |
+| `RATING_BASE_VALUE` / `RATING_FULL_VALUE` | `0.5M / 12M` | v1.3 新增：百分制评分的 1 分与 100 分锚点（基线 C-M9） |
 
-四个值都以 `public static final` 常量集中在一个 `final` 类里，不引入 `@ConfigurationProperties`：当前没有按帮派差异化调整的需求，新增配置管道只会增加装配复杂度。每个常量行末必须注释标注数据来源（实测窗口与口径），避免后续维护时被误改。
+五个值都以 `public static final` 常量集中在一个 `final` 类里，不引入 `@ConfigurationProperties`：当前没有按帮派差异化调整的需求，新增配置管道只会增加装配复杂度。每个常量行末必须注释标注数据来源（实测窗口与口径），避免后续维护时被误改。
+
+v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会成本口径移除）与 `MIN_MEASURED_SAMPLES`（被可信度加权取代）。
 
 ### 9.3 配置一致性校验（D16）
 
@@ -461,7 +517,7 @@ update torn_setting_oc set expected_reward = 148600000, update_time = now()
 |---|---|---|
 | 1 | 新增 `model/.../recommend` 下的 record 与 enum | 编译通过，无调用方 |
 | 2 | 新增 `recommend/metric` 六个文件 + `OcYieldEstimatorTest` | 纯领域测试通过；`Ship Happens` 走映射能算出 > 0 |
-| 3 | 新增 `recommend/rank` 五个文件 + `OcOpportunityCostRankerTest` | 排序、同队多岗位梯度、确定性决胜、`null` 替代概率四条用例通过 |
+| 3 | 新增 `recommend/rank` 六个文件 + `OcRecommendRankerTest` | 排序、同队多岗位梯度、确定性决胜、`null` 替代概率、百分制换算五条用例通过 |
 | 4 | 接入 `TornOcRecommendService` / `TornOcAssignService` / `TornOcRecommendManager` | T1–T6 全部满足；`TornOcRecommendServiceTest` / `TornOcAssignServiceTest` / `TornOcRecommendManagerTest` 通过 |
 | 5 | 更新 `OcRecommendBadgeResolver` 着色门槛 + `OcRecommendBadgeResolverTest` 同步更新 | 低机会成本 OC 徽章 NEUTRAL，高机会成本 OC 徽章 SUCCESS |
 | 6 | 系数兜底 + `expected_reward` 修数 | 缺行告警可观测；映射量级与业务基线 4.9 一致 |
@@ -476,8 +532,8 @@ update torn_setting_oc set expected_reward = 148600000, update_time = now()
 
 | 测试类 | 覆盖 |
 |---|---|
-| `OcYieldEstimatorTest` | ① 实测策略取 `income` 聚合值；② 映射策略在 `expected_reward` 缺失时退回等级表；③ 链归约：奖励只取叶子、人天累加全部步骤；④ 纯道具奖励不为 0 |
-| `OcOpportunityCostRankerTest` | ① 替代概率为 0 的岗位排最前；② 停转队因锁死人天排前；③ 替代概率为 `null` 时按中性处理且不高于「确认无人可替代」；④ 同分按 ocId/slotId 决胜；⑤ 同一 OC 的多个岗位各自成行，按替代概率从低到高排列 |
+| `OcYieldEstimatorTest` | ① 实测策略取 `income` 聚合值；② 映射策略在 `expected_reward` 缺失时退回等级表；③ 链归约：奖励只取叶子、人天累加全部步骤；④ 纯道具奖励不为 0；⑤ 配置缺岗位人数时按实际岗位数折算人天；⑥ 实测与映射按样本量加权（v1.3） |
+| `OcRecommendRankerTest`（v1.2 由 OcOpportunityCostRankerTest 更名） | ① 停转队排在新队之前；② 55 小时队排在 3 小时队之后（时间不能被抹平）；③ 同时间档下高等级高产出队排前；④ **替代概率不再削减收益**（p=1 与无样本同分）；⑤ 评分恒非负且零产出候选不被丢弃；⑥ 同分按 ocId 决胜；⑦ 期望人天/空位数决胜；⑧ 同队多空位各自成行；⑨ 基线过滤保留同队换岗；⑩ 百分制评分恒在 1~100 且与货币量纲单调一致（v1.3） |
 
 两个类的用例总数控制在 15 条以内，全部是纯函数断言，不启动 Spring、不连数据库。
 
@@ -520,7 +576,10 @@ update torn_setting_oc set expected_reward = 148600000, update_time = now()
 2. 仍存在 `getReadyTime().minusDays(...)` 直接调用，或把 `readyTime == null` 当成异常分支而不是「新队」状态处理；
 3. `torn_faction_oc_income.final_income` 被当作个人份额使用；
 4. 系数缺行仍返回 `BigDecimal.ZERO`；
-5. 机会成本里出现按 `isReassign` 分叉的第二套公式。
+5. 出现按 `isReassign` 分叉的第二套公式；
+6. 出现「评分不为正就不推荐」的过滤，或出现负分展示（v1.2 新增，基线 C-M1 / R28）；
+7. 用户可见文本（理由、徽章、指令回复）里出现金额或「M/人天」等单位（v1.3 新增，基线 C-M9 / R33）；
+8. 期望人天在 `required_members` 缺失时按 1 人计算，或使用 4.5 天/岗位之外的常量而未注明实测来源（v1.3 新增，基线 C-M6 / C-M7）。
 
 ### P1（默认阻断）
 

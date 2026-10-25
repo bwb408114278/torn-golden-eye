@@ -18,7 +18,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
 
 import java.math.BigDecimal;
@@ -32,10 +32,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * OC推荐服务测试：覆盖准入放宽、矩阵缺失兜底、新队空准备时间与机会成本基线过滤。
+ * OC推荐服务测试：覆盖准入放宽、矩阵缺失兜底、新队空准备时间与推荐评分基线过滤。
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.06.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -57,7 +57,7 @@ class TornOcRecommendServiceTest {
     @Mock
     private TornFactionOcUserDAO ocUserDao;
 
-    private final OcOpportunityCostRanker ranker = new OcOpportunityCostRanker(new OcScarcityEstimator());
+    private final OcRecommendRanker ranker = new OcRecommendRanker(new OcScarcityEstimator());
 
     private TornOcRecommendService recommendService;
     private TornUserDO user;
@@ -106,9 +106,8 @@ class TornOcRecommendServiceTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().getOcName()).isEqualTo(OC_BREAK_BANK);
-        assertThat(result.getFirst().getOpportunityCost()).isNotNull();
-        assertThat(result.getFirst().getRecommendScore()).isEqualByComparingTo(
-                result.getFirst().getOpportunityCost());
+        assertThat(result.getFirst().getRecommendScore()).isNotNull();
+        assertThat(result.getFirst().getRecommendScore().signum()).isNotNegative();
     }
 
     @Test
@@ -141,22 +140,15 @@ class TornOcRecommendServiceTest {
     }
 
     @Test
-    @DisplayName("停转队因被锁死人天排在同等产出的新队之前")
-    void recommend_shouldRankOcWithLockedMembersFirst() {
+    @DisplayName("停转队排在同等产出的新队之前")
+    void recommend_shouldRankPausedOcBeforeNewTeam() {
         TornFactionOcDO newTeamOc = buildOc(2L, OC_BREAK_BANK, 8, null);
         TornFactionOcDO pausedOc = buildOc(3L, "Blast from the Past", 7, LocalDateTime.now().minusDays(1));
         TornFactionOcSlotDO newTeamSlot = buildEmptySlot(21L, 2L, "Engineer#1");
         TornFactionOcSlotDO pausedSlot = buildEmptySlot(31L, 3L, "Engineer#1");
-        TornFactionOcSlotDO lockedSlot = new TornFactionOcSlotDO();
-        lockedSlot.setId(32L);
-        lockedSlot.setOcId(3L);
-        lockedSlot.setUserId(999L);
-        lockedSlot.setProgress(BigDecimal.ONE);
-        lockedSlot.setJoinTime(LocalDateTime.now().minusDays(2));
 
         stubQuery(List.of(newTeamOc, pausedOc), List.of(newTeamSlot, pausedSlot));
         stubEstimates(Map.of(2L, estimate(300_000_000L, 6), 3L, estimate(300_000_000L, 6)));
-        when(ocSlotDao.queryListByOc(anyList())).thenReturn(List.of(lockedSlot));
 
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
 
@@ -178,10 +170,10 @@ class TornOcRecommendServiceTest {
     }
 
     @Test
-    @DisplayName("低于当前岗位机会成本的候选被过滤")
+    @DisplayName("低于当前岗位推荐评分的候选被过滤")
     void recommend_shouldFilterCandidatesBelowCurrentBaseline() {
-        TornFactionOcSlotDO aceEmptySlot = buildEmptySlot(11L, 1L, "Engineer#2");
-        stubQuery(List.of(aceOc, breakBankOc), List.of(aceEmptySlot, breakBankSlot));
+        // 同队换岗不参与基线过滤，因此本用例只留其他OC的空位来验证「低于基线即过滤」
+        stubQuery(List.of(aceOc, breakBankOc), List.of(breakBankSlot));
         stubEstimates(Map.of(1L, estimate(500_000_000L, 5), 2L, estimate(100_000_000L, 6)));
 
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);

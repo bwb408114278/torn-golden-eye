@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>明细写入{@code target/oc-recommend-replay-<时间戳>.txt}：每次运行各留一份，不复写历史证据。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.10.23
  */
 @Slf4j
@@ -140,10 +140,10 @@ class OcRecommendReplayTest {
                     }
                     report.add(String.format(
                             "faction=%d member=%d oc=%s rank=%d pos=%s inRoster=%s paused=%s "
-                                    + "cost=%s netPerMemberDay=%s substitute=%s outcome=%s",
+                                    + "rating=%s netPerMemberDay=%s substitute=%s outcome=%s",
                             factionId, memberId, recommendation.getOcName(), recommendation.getRank(),
                             recommendation.getRecommendedPosition(), inRoster, paused,
-                            recommendation.getOpportunityCost(), recommendation.getExpectedNetPerMemberDay(),
+                            recommendation.getRecommendScore(), recommendation.getExpectedNetPerMemberDay(),
                             recommendation.getSubstituteCount(), recommendation.getOutcome()));
                 }
                 report.add(String.format("faction=%d member=%d elapsedMs=%d top=%s",
@@ -153,7 +153,7 @@ class OcRecommendReplayTest {
 
         report.add(String.format("SUMMARY factions=%d recommendations=%d nonRosterCandidates=%s "
                         + "outsideRosterHits=%d pausedHits=%d maxElapsedMs=%d",
-                factionIds.size(), report.stream().filter(line -> line.contains(" cost=")).count(),
+                factionIds.size(), report.stream().filter(line -> line.contains(" rating=")).count(),
                 nonRosterCandidates, outsideRosterHits, pausedHits, maxElapsedMillis));
         return report;
     }
