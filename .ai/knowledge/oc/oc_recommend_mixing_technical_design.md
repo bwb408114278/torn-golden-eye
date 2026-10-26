@@ -18,6 +18,7 @@
 | v1.0 | 2026-10-22 | 初版 |
 | v1.1 | 2026-10-23 | 代码精读后修订：修正 MeasuredOcYieldEstimator 聚合键（oc_id → oc_name+rank+faction_id）及链式人天还原方式；修正被锁死人天范围（progress>0 成员）；补充 findRecrutList 归一化逻辑改造；补充全帮派稀缺度数据加载；从推荐/分配主链路删除 isReassign 传递；修订 OcRecommendBadgeResolver 门槛方案（选方案B）；补充 OcYieldEstimatorRegistry @Order 约束 |
 | v1.3 | 2026-10-25 | **钱只做排序内核、不再对外展示**（业务依据 C-M6~C-M9 / 基线 v2.5）：§6.1 人天常量 4.5→6.0，§6.2 硬门槛改为可信度加权（MEASURED_PRIOR_ATTEMPTS=10）+ 新增 OcYieldContext（时间基准与岗位编制）与岗位数兜底，§7.1 增加百分制换算（OcRecommendRating），§8.6/8.7 徽章与理由改为纯百分制、移除金额 |
+| v1.4 | 2026-10-26 | **成功率准入口径收紧**（业务依据基线 v2.6 / C-D7）：撤销「矩阵无记录按能力未知可填」，改为「岗位有要求时必须有实测记录且达标」，口径收敛到 `OcSlotEligibility#eligible`；§8.1 候选构建说明同步更新 |
 | v1.2 | 2026-10-25 | **排序层改为「单位人天产出 × 开动紧迫度」**（§7 全面改写，业务依据 C-M1~C-M5 / 基线 v2.4）：替代概率与被锁死人天退出评分、占用成本常量删除、评分恒非负且不做正负过滤、理由追加单位人天产出；OcOpportunityCost/Ranker 更名为 OcRecommendScore/Ranker，新增 OcRecommendStartUrgency；徽章门槛按货币量级重标 |
 
 > 本文回答「改哪些文件、改成什么样、怎么验证」。业务口径一律以业务基线为准，本文不重新定义口径；出现冲突时以业务基线为准，并同步修订本文。
@@ -381,7 +382,7 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 | L53-57 入口 | 新增一次性加载：`List<TornFactionOcUserDO> factionOcData = ocUserDao.queryByFactionId(user.getFactionId())`，向后传入排序器 |
 | L69-72 | 删除「成员无成功率记录即 `return List.of()`」早退。`userOcData` 允许为空列表，交由度量层退回映射值 |
 | L79-81 + L160-168 | 删除 `shouldSkipOc` 方法与其调用，连同 `isReassign` 的生成（`checkIsReassignRecommended` 调用）与传递（`collectSlotsScore` 参数）一并删除。大锅饭名单不再参与候选过滤；`isReassign` 在推荐主链路中无活跃用途 |
-| L173-189 `collectSlotsScore` | 删除 L181-183 中的 `matchedData == null` 跳过；保留 `matchedData != null && passRate < requirement` 的跳过（能力门槛属于业务规则）；`matchedData == null` 时 `passRate` 传 `null` |
+| 候选构建（原 L173-189 `collectSlotsScore`） | **v1.4 修订**：口径收敛到 `OcSlotEligibility#eligible`——岗位有成功率要求时，成员必须有同一（OC、等级、岗位）的实测成功率且 ≥ 要求；矩阵无记录即不可填（撤销「能力未知按可填」）。候选构建处只保留 `eligibility == null \|\| !eligibility.eligible()` 的跳过 |
 | L85-101 排序段 | 改为构造 `List<OcRecommendCandidate>` 交给 `OcOpportunityCostRanker.rank(candidates, currentBaseline, emptyCountMap, factionOcData, now)`；本地拼接的 `recommendComparator` 删除，`emptyCountMap` 保留并作为第 ④ 决胜键传入 |
 | L143-155 `calculateCurrentScore` | 用新方法计算当前岗位的机会成本作为基线；`readyTime` 判空后再决定是否做「减一天」口径 |
 | `findRecrutList` 内两处 `getReadyTime().minusDays(1)` | 这两处是**候选池归一化**——用户已在该 OC 时，其加入行为已将 readyTime 推出 +1 天，放入候选池前需归一化扣除，使比较公平。改法与评分调用点一致：先用 `OcRecommendTimeSupport.resolvePhase(oc, now)` 判断阶段，`NOT_STARTED`/`PAUSED` 时做 `-1 day`，`NEW_TEAM` 不减（新队 readyTime 为 null，也不存在用户已加入的情形，防御性保护） |

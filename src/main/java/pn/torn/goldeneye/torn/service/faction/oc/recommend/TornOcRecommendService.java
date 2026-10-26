@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  * 只输出严格优于基线的候选（同队换岗不受此限制，换岗不损失进度也不会改变评分）。</p>
  *
  * @author Bai
- * @version 1.9.4
+ * @version 1.9.5
  * @since 2025.11.01
  */
 @Slf4j
@@ -197,8 +197,7 @@ public class TornOcRecommendService {
     }
 
     /**
-     * 构建候选：能力门槛仍然生效（成功率低于岗位要求的不进候选），
-     * 但成功率矩阵无记录不再等同于不可推荐，改为按映射值参与排序。
+     * 构建候选：能力门槛生效，成功率矩阵无记录或低于岗位要求都不进候选（口径见{@code OcSlotEligibility}）。
      */
     private List<OcRecommendCandidate> buildCandidates(List<TornFactionOcDO> recruitOcList,
                                                        List<TornFactionOcSlotDO> emptySlotList,

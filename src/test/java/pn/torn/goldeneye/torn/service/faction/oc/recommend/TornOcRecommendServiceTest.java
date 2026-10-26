@@ -35,7 +35,7 @@ import static org.mockito.Mockito.*;
  * OC推荐服务测试：覆盖准入放宽、矩阵缺失兜底、新队空准备时间与推荐评分基线过滤。
  *
  * @author Bai
- * @version 1.9.4
+ * @version 1.9.5
  * @since 2026.06.29
  */
 @ExtendWith(MockitoExtension.class)
@@ -111,8 +111,8 @@ class TornOcRecommendServiceTest {
     }
 
     @Test
-    @DisplayName("成功率矩阵为空时仍返回候选而不是空结果")
-    void recommend_shouldNotReturnEmptyWhenMatrixMissing() {
+    @DisplayName("成功率矩阵无该岗位记录时不返回候选")
+    void recommend_shouldReturnEmptyWhenPassRateMissing() {
         stubQuery(List.of(breakBankOc), List.of(breakBankSlot));
         stubEstimates(Map.of(2L, estimate(300_000_000L, 6)));
         when(ocUserDao.queryByUserId(USER_ID)).thenReturn(List.of());
@@ -121,8 +121,7 @@ class TornOcRecommendServiceTest {
 
         List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.getFirst().getOcName()).isEqualTo(OC_BREAK_BANK);
+        assertThat(result).isEmpty();
     }
 
     @Test

@@ -36,10 +36,10 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * OC分配服务测试：覆盖准入放宽、停转队优先与共享OC对象不被改写。
+ * OC分配服务测试：覆盖准入判定、停转队优先与共享OC对象不被改写。
  *
  * @author Bai
- * @version 1.9.4
+ * @version 1.9.5
  * @since 2026.08.20
  */
 @ExtendWith(MockitoExtension.class)
@@ -146,6 +146,21 @@ class TornOcAssignServiceTest {
         lenient().when(yieldEstimatorRegistry.estimateAll(anyCollection(), any()))
                 .thenReturn(Map.of(1L, estimate(300_000_000L, 6)));
         when(ocRecommendManager.resolveEligibility(FACTION_ID, oc, slot, List.of(userData))).thenReturn(null);
+
+        Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
+                FACTION_ID, Map.of(user, List.of(userData)));
+
+        assertThat(result).containsEntry(user, null);
+    }
+
+    @Test
+    @DisplayName("成员在该OC等级没有成功率记录时不参与分配")
+    void assign_shouldSkipSlotWhenPassRateMissing() {
+        TornFactionOcDO oc = buildOc(1L, LocalDateTime.now().plusDays(1));
+        TornFactionOcSlotDO slot = buildSlot(11L, oc.getId());
+        stubCandidates(List.of(oc), List.of(slot), Map.of(1L, estimate(300_000_000L, 6)));
+        when(ocRecommendManager.resolveEligibility(FACTION_ID, oc, slot, List.of(userData)))
+                .thenReturn(new OcSlotEligibility(setting, null));
 
         Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
                 FACTION_ID, Map.of(user, List.of(userData)));
