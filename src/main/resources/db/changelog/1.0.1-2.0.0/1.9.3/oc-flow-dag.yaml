@@ -158,3 +158,11 @@ databaseChangeLog:
                   remarks: "更新时间"
         - sql:
             sql: "CREATE UNIQUE INDEX uk_oc_flow_edge ON torn_setting_oc_flow_edge (oc_name, rank, node_code, branch) WHERE deleted = 0"
+  - changeSet:
+      id: add_reward_value_to_oc_flow_node
+      author: Bai
+      changes:
+        - sql:
+            sql: "ALTER TABLE torn_setting_oc_flow_node ADD COLUMN IF NOT EXISTS reward_value BIGINT"
+        - sql:
+            sql: "COMMENT ON COLUMN torn_setting_oc_flow_node.reward_value IS 'GOOD_END成功时的奖励(现金+道具折算); BAD_END为0; 空表示未灌数,回退OC级平均'"

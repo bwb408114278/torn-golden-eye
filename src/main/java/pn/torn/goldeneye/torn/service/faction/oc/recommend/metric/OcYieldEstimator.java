@@ -4,14 +4,12 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 
-import java.time.LocalDateTime;
-
 /**
  * OC产出估算策略。
  *
- * <p>把「一个OC」折算成期望净产出与期望人天。上层不再区分名单内与名单外：名单内有实测就走实测，
- * 名单外没有历史就走等级映射，两种来源产出同一量纲，因此不需要加权融合，也不需要第二套评分公式。
- * 实现类必须只做估算，不写库、不读系统时间（时间由调用方传入）。</p>
+ * <p>把「一个OC」折算成期望净产出与期望人天。两种来源（实测与等级映射）产出同一量纲，
+ * 由注册表按样本量做可信度加权，调用方只看到唯一一套评分公式。
+ * 实现类必须只做估算，不写库、不读系统时间（时间与团队人数都由{@link OcYieldContext}传入）。</p>
  *
  * @author Bai
  * @version 1.9.3
@@ -29,9 +27,9 @@ public interface OcYieldEstimator {
     /**
      * 估算指定OC（或其所属整条链）的期望产出。
      *
-     * @param oc           OC数据
-     * @param snapshotTime 本次推荐的时间基准
+     * @param oc      OC数据
+     * @param context 本次估算的只读上下文，提供时间基准与每支队的实际岗位数
      * @return 期望产出估算值
      */
-    OcYieldEstimate estimate(TornFactionOcDO oc, LocalDateTime snapshotTime);
+    OcYieldEstimate estimate(TornFactionOcDO oc, OcYieldContext context);
 }

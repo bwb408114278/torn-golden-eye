@@ -391,3 +391,19 @@ databaseChangeLog:
             sql: CREATE INDEX idx_faction_oc_rank_name_completed
                  ON torn_faction_oc ("rank", name)
                  WHERE deleted = 0 AND status IN ('Successful', 'Failure')
+
+  - changeSet:
+      id: add_lock_hostile_chain_if_missing
+      author: Bai
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              INSERT INTO torn_setting_oc_chain
+                (id, chain_code, parent_oc_name, parent_rank, child_oc_name, child_rank, sequence_no)
+              SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM torn_setting_oc_chain),
+                     'LOCK_HOSTILE', 'Lock Stock', 8, 'Hostile Takeover', 9, 1
+              WHERE NOT EXISTS (
+                  SELECT 1 FROM torn_setting_oc_chain
+                  WHERE chain_code = 'LOCK_HOSTILE' AND sequence_no = 1
+              )

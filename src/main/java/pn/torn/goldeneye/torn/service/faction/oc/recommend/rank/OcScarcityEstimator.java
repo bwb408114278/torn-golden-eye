@@ -13,19 +13,23 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 岗位替代概率估算器。
+ * 岗位稀缺度估算器。
  *
  * <p>替代概率 = 除本人之外还能达标的成员数 / 该OC当前剩余空位数，每次推荐实时计算，
  * 不落库、不做平滑、不缓存成成员能力画像：能力会涨、门槛会调，任何持久化的画像第二天就过期。
  * 该(OC名称, 等级, 岗位)在成功率矩阵里一条记录都没有时返回null，由调用方按中性处理，
  * 既不当成0（会被误读成无人可替代）也不套用其它岗位的比例。</p>
  *
+ * <p><b>本估算器只服务于稀缺度分档展示</b>（「这个位有多少人能填」），不进入推荐评分：
+ * 本帮派绝大多数岗位的可填人数远多于空位数，该值恒为1，乘进评分只会把收益项整体抹成0。
+ * 排序键是{@link OcRecommendScore}的「单位人天产出 × 开动紧迫度」。</p>
+ *
  * <p>一次推荐会评估几十个候选，而能力矩阵有数千行，因此岗位索引随排序上下文
- * （{@link OcOpportunityCostRanker.OcRankContext}）只建一次，每个候选的替代概率查询是O(1)，
+ * （{@link OcRecommendRanker.OcRankContext}）只建一次，每个候选的稀缺度查询是O(1)，
  * 不会随候选数与帮派人数放大。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.10.23
  */
 @Component
@@ -53,7 +57,7 @@ public class OcScarcityEstimator {
     }
 
     /**
-     * 用已建好的索引估算指定岗位的替代概率。
+     * 用已建好的索引估算指定岗位的稀缺度。
      *
      * @param requirement 岗位配置，可为空
      * @param slotIndex   岗位键索引，可为空
@@ -102,12 +106,12 @@ public class OcScarcityEstimator {
     }
 
     /**
-     * 岗位替代性估算结果。
+     * 岗位稀缺度估算结果。
      *
-     * @param probability     替代概率，取值0到1
+     * @param probability     替代概率，取值0到1，仅用于稀缺度分档
      * @param substituteCount 除本人之外可填该岗位的人数
      * @author Bai
-     * @version 1.9.3
+     * @version 1.9.4
      * @since 2026.10.23
      */
     public record OcSubstituteResult(

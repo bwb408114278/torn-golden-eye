@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 当前OC表格文档组装测试，聚焦展示模式、空缺语义、三段岗位和图例页脚。
  *
  * @author Bai
- * @version 1.6.0
+ * @version 1.9.4
  * @since 2026.08.31
  */
 @DisplayName("OC表格文档组装测试")
@@ -74,10 +74,10 @@ class OcTableDocumentAssemblerTest {
 
         TableDocument document = assembler.assemble("推荐", List.of(new OcTableDocumentAssembler.Block(
                 oc, List.of(idle, recommended), "推荐用户 [4]   8级   Clinical Precision   岗位: Kidnap",
-                "Kidnap", new BigDecimal("88.60"), "12小时内停转、超高成功率")), Map.of(), NOW);
+                "Kidnap", new BigDecimal("72"), "12小时内停转、超高成功率")), Map.of(), NOW);
 
         assertEquals(new TableCellContent.BadgeText("推荐用户 [4]   8级   Clinical Precision   岗位: Kidnap",
-                        List.of(new TableCellContent.Badge("评分 88.6", TableCellBadgeToneEnum.SUCCESS),
+                        List.of(new TableCellContent.Badge("评分 72", TableCellBadgeToneEnum.SUCCESS),
                                 new TableCellContent.Badge("12小时内停转", TableCellBadgeToneEnum.WARNING),
                                 new TableCellContent.Badge("超高成功率", TableCellBadgeToneEnum.SUCCESS))),
                 document.rows().get(1).cells().getFirst().content());

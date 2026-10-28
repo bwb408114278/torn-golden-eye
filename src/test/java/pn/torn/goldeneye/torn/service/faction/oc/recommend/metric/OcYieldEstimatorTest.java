@@ -7,8 +7,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
+import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.model.faction.oc.OcIncomeYieldStatsDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcDO;
+import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcChainDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcDO;
 import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
@@ -23,14 +25,15 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * OC产出估算测试：覆盖实测聚合、映射回退、纯道具奖励与链归约。
+ * OC产出估算测试：覆盖实测聚合、映射回退、链归约、人天口径与可信度加权。
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.10.23
  */
 @ExtendWith(MockitoExtension.class)
@@ -45,6 +48,8 @@ class OcYieldEstimatorTest {
     private TornSettingOcManager settingOcManager;
     @Mock
     private TornSettingOcPlanningManager planningManager;
+    @Mock
+    private TornFactionOcSlotDAO ocSlotDao;
 
     private MeasuredOcYieldEstimator measuredEstimator;
     private MappedOcYieldEstimator mappedEstimator;
@@ -55,8 +60,9 @@ class OcYieldEstimatorTest {
         measuredEstimator = new MeasuredOcYieldEstimator(ocIncomeDao, settingOcManager);
         mappedEstimator = new MappedOcYieldEstimator(settingOcManager, planningManager);
         registry = new OcYieldEstimatorRegistry(
-                List.of(measuredEstimator, mappedEstimator), measuredEstimator, mappedEstimator);
+                List.of(measuredEstimator, mappedEstimator), measuredEstimator, mappedEstimator, ocSlotDao);
         lenient().when(planningManager.getChains()).thenReturn(List.of());
+        lenient().when(ocSlotDao.queryListByOcId(anyCollection())).thenReturn(List.of());
     }
 
     @Test
@@ -65,12 +71,12 @@ class OcYieldEstimatorTest {
         when(settingOcManager.getList()).thenReturn(List.of(setting("Break the Bank", 8, 6, 240_000_000L)));
         when(ocIncomeDao.queryYieldStats(FACTION_ID)).thenReturn(List.of(stats("Break the Bank", 8, 4, 3, 1_000_000_000L)));
 
-        OcYieldEstimate estimate = measuredEstimator.estimate(oc(1L, "Break the Bank", 8), NOW);
+        OcYieldEstimate estimate = measuredEstimator.estimate(oc(1L, "Break the Bank", 8), context());
 
         assertThat(estimate.source()).isEqualTo(OcYieldSourceEnum.MEASURED);
         assertThat(estimate.expectedNetReward()).isEqualByComparingTo(new BigDecimal("250000000"));
-        assertThat(estimate.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("27"));
-        assertThat(estimate.netPerMemberDay()).isEqualByComparingTo(new BigDecimal("9259259.26"));
+        assertThat(estimate.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("36"));
+        assertThat(estimate.netPerMemberDay()).isEqualByComparingTo(new BigDecimal("6944444.44"));
     }
 
     @Test
@@ -80,16 +86,33 @@ class OcYieldEstimatorTest {
                 setting("Manifest Cruelty", 8, 4, 0L),
                 setting("Ship Happens", 8, 5, 128_100_000L)));
 
-        OcYieldEstimate ladderMapped = mappedEstimator.estimate(oc(1L, "Manifest Cruelty", 8), NOW);
-        OcYieldEstimate itemOnly = mappedEstimator.estimate(oc(2L, "Ship Happens", 8), NOW);
+        OcYieldEstimate ladderMapped = mappedEstimator.estimate(oc(1L, "Manifest Cruelty", 8), context());
+        OcYieldEstimate itemOnly = mappedEstimator.estimate(oc(2L, "Ship Happens", 8), context());
 
         assertThat(ladderMapped.source()).isEqualTo(OcYieldSourceEnum.MAPPED);
         assertThat(ladderMapped.expectedNetReward()).isEqualByComparingTo(
                 new BigDecimal("191300000").multiply(new BigDecimal("0.754")));
-        assertThat(ladderMapped.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("18"));
+        assertThat(ladderMapped.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("24"));
         assertThat(itemOnly.expectedNetReward()).isEqualByComparingTo(new BigDecimal("128100000"));
         assertThat(itemOnly.expectedNetReward()).isPositive();
         assertThat(itemOnly.netPerMemberDay()).isPositive();
+    }
+
+    @Test
+    @DisplayName("目录配置缺岗位人数时用人天按该队实际岗位数，而不是按1人")
+    void mappedEstimator_shouldFallBackToActualSlotCountWhenConfigMissing() {
+        when(settingOcManager.getList()).thenReturn(List.of(setting("Snow Blind", 4, 0, 0L)));
+        when(ocIncomeDao.queryYieldStats(FACTION_ID)).thenReturn(List.of());
+        when(ocSlotDao.queryListByOcId(anyCollection()))
+                .thenReturn(List.of(slot(1L), slot(1L), slot(1L), slot(1L)));
+
+        OcYieldEstimate fromSlots = registry.estimateAll(List.of(oc(1L, "Snow Blind", 4)),
+                NOW).get(1L);
+        OcYieldEstimate withoutSlots = mappedEstimator.estimate(oc(1L, "Snow Blind", 4), context());
+
+        assertThat(fromSlots.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("24"));
+        assertThat(withoutSlots.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("6"));
+        assertThat(fromSlots.netPerMemberDay()).isLessThan(withoutSlots.netPerMemberDay());
     }
 
     @Test
@@ -101,14 +124,14 @@ class OcYieldEstimatorTest {
         when(planningManager.getChains()).thenReturn(List.of(
                 chainEdge("LOCK_HOSTILE", "Lock Stock", 8, "Hostile Takeover", 9, 1)));
 
-        OcYieldEstimate fromRoot = mappedEstimator.estimate(oc(1L, "Lock Stock", 8), NOW);
-        OcYieldEstimate fromLeaf = mappedEstimator.estimate(oc(2L, "Hostile Takeover", 9), NOW);
+        OcYieldEstimate fromRoot = mappedEstimator.estimate(oc(1L, "Lock Stock", 8), context());
+        OcYieldEstimate fromLeaf = mappedEstimator.estimate(oc(2L, "Hostile Takeover", 9), context());
         BigDecimal leafExpected = new BigDecimal("641400000").multiply(new BigDecimal("0.912"));
 
         assertThat(fromRoot.source()).isEqualTo(OcYieldSourceEnum.CHAIN_MAPPED);
         assertThat(fromRoot.expectedNetReward()).isEqualByComparingTo(
                 leafExpected.multiply(new BigDecimal("0.754")));
-        assertThat(fromRoot.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("49.5"));
+        assertThat(fromRoot.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("66"));
         assertThat(fromLeaf.expectedNetReward()).isEqualByComparingTo(fromRoot.expectedNetReward());
         assertThat(fromLeaf.expectedMemberDays()).isEqualByComparingTo(fromRoot.expectedMemberDays());
     }
@@ -124,7 +147,7 @@ class OcYieldEstimatorTest {
                 chainEdge("MANIFEST_CRANE", "Manifest Cruelty", 8, "Gone Fission", 9, 1),
                 chainEdge("MANIFEST_CRANE", "Gone Fission", 9, "Crane Reaction", 10, 2)));
 
-        OcYieldEstimate wholeChain = mappedEstimator.estimate(oc(1L, "Manifest Cruelty", 8), NOW);
+        OcYieldEstimate wholeChain = mappedEstimator.estimate(oc(1L, "Manifest Cruelty", 8), context());
         // 叶子r10自身的期望奖励 = 1B × 100%；前置两步成功率 0.754 × 0.912 = 0.687648
         BigDecimal leafExpected = new BigDecimal("1000000000");
         BigDecimal prefixRate = new BigDecimal("0.754").multiply(new BigDecimal("0.912"));
@@ -134,27 +157,28 @@ class OcYieldEstimatorTest {
                 .isEqualByComparingTo(leafExpected.multiply(prefixRate));
         assertThat(wholeChain.expectedNetReward()).isLessThan(leafExpected);
         // 前置步骤不付钱但真实占用人力：人天累加全部三步
-        assertThat(wholeChain.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("58.5"));
+        assertThat(wholeChain.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("78"));
         assertThat(wholeChain.netPerMemberDay()).isEqualByComparingTo(
-                new BigDecimal("687648000").divide(new BigDecimal("58.5"), 2, RoundingMode.HALF_UP));
+                new BigDecimal("687648000").divide(new BigDecimal("78"), 2, RoundingMode.HALF_UP));
     }
 
     @Test
-    @DisplayName("注册表按成功样本数切换实测与映射来源")
-    void registry_shouldSwitchSourceBySampleCount() {
+    @DisplayName("实测与等级映射按样本量加权：样本越少越向映射值收缩")
+    void registry_shouldShrinkMeasuredValueBySampleCount() {
         TornFactionOcDO oc = oc(1L, "Break the Bank", 8);
         when(settingOcManager.getList()).thenReturn(List.of(setting("Break the Bank", 8, 6, 240_000_000L)));
         when(ocIncomeDao.queryYieldStats(FACTION_ID)).thenReturn(List.of(stats("Break the Bank", 8, 2, 2, 400_000_000L)));
 
-        OcYieldEstimate insufficientSamples = registry.estimateAll(List.of(oc), NOW).get(1L);
+        OcYieldEstimate shrunk = registry.estimateAll(List.of(oc), NOW).get(1L);
 
-        assertThat(insufficientSamples.source()).isEqualTo(OcYieldSourceEnum.MAPPED);
-        assertThat(insufficientSamples.expectedNetReward())
-                .isEqualByComparingTo(new BigDecimal("240000000"));
+        // 实测每次200M，权重2；映射240M，权重10 → (2×200 + 10×240) ÷ 12 = 233.33M
+        assertThat(shrunk.source()).isEqualTo(OcYieldSourceEnum.MEASURED);
+        assertThat(shrunk.expectedNetReward()).isEqualByComparingTo(new BigDecimal("233333333.33"));
+        assertThat(shrunk.expectedMemberDays()).isEqualByComparingTo(new BigDecimal("36"));
     }
 
     @Test
-    @DisplayName("批量估算复用同一次实测统计")
+    @DisplayName("批量估算复用同一次实测统计与岗位编制")
     void registry_shouldEstimateAllInBatch() {
         TornFactionOcDO first = oc(1L, "Break the Bank", 8);
         TornFactionOcDO second = oc(2L, "Clinical Precision", 8);
@@ -169,8 +193,13 @@ class OcYieldEstimatorTest {
 
         assertThat(estimates).hasSize(2);
         assertThat(estimates.get(1L).source()).isEqualTo(OcYieldSourceEnum.MEASURED);
-        assertThat(estimates.get(1L).expectedNetReward()).isEqualByComparingTo(new BigDecimal("300000000"));
-        assertThat(estimates.get(2L).expectedNetReward()).isEqualByComparingTo(new BigDecimal("60000000"));
+        // (5×300 + 10×240) ÷ 15 = 260M；(5×60 + 10×80) ÷ 15 = 73.33M
+        assertThat(estimates.get(1L).expectedNetReward()).isEqualByComparingTo(new BigDecimal("260000000"));
+        assertThat(estimates.get(2L).expectedNetReward()).isEqualByComparingTo(new BigDecimal("73333333.33"));
+    }
+
+    private OcYieldContext context() {
+        return new OcYieldContext(NOW, Map.of());
     }
 
     private TornFactionOcDO oc(long id, String name, int rank) {
@@ -180,6 +209,12 @@ class OcYieldEstimatorTest {
         oc.setName(name);
         oc.setRank(rank);
         return oc;
+    }
+
+    private TornFactionOcSlotDO slot(long ocId) {
+        TornFactionOcSlotDO slot = new TornFactionOcSlotDO();
+        slot.setOcId(ocId);
+        return slot;
     }
 
     private TornSettingOcDO setting(String ocName, int rank, int members, Long expectedReward) {

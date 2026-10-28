@@ -13,7 +13,6 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendTunings;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -31,7 +30,7 @@ import java.util.Objects;
  * 等价于「奖励只在叶子成功时结算」，避免把多步链的产出高估。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.4
  * @since 2026.10.23
  */
 @Component
@@ -48,14 +47,14 @@ public class MappedOcYieldEstimator implements OcYieldEstimator {
     }
 
     @Override
-    public OcYieldEstimate estimate(TornFactionOcDO oc, LocalDateTime snapshotTime) {
+    public OcYieldEstimate estimate(TornFactionOcDO oc, OcYieldContext context) {
         List<OcChainStep> steps = resolveChainSteps(oc);
         int leafPosition = steps.size() - 1;
         BigDecimal prefixRate = steps.size() > 1 ? prefixSuccessRate(steps) : BigDecimal.ONE;
         OcYieldSourceEnum source = steps.size() > 1
                 ? OcYieldSourceEnum.CHAIN_MAPPED : OcYieldSourceEnum.MAPPED;
         return chainValueReducer.reduce(steps,
-                step -> stepEstimate(step, step.index() == leafPosition, prefixRate, source),
+                step -> stepEstimate(step, step.index() == leafPosition, prefixRate, source, context),
                 OcChainStep::index);
     }
 
@@ -75,16 +74,17 @@ public class MappedOcYieldEstimator implements OcYieldEstimator {
      * <p>实测来源只能聚合出单个步骤的净收益，前置步骤虽然不付钱却真实占用人力，
      * 因此整链口径必须由本方法补齐，否则链式OC的单位人天产出会被高估一倍以上。</p>
      *
-     * @param oc OC数据
+     * @param oc      OC数据
+     * @param context 本次估算的只读上下文
      * @return 链折算信息；非链式OC返回不折算的单步信息
      */
-    public OcChainSummary summarizeChain(TornFactionOcDO oc) {
+    public OcChainSummary summarizeChain(TornFactionOcDO oc, OcYieldContext context) {
         List<OcChainStep> steps = resolveChainSteps(oc);
         if (steps.size() <= 1) {
-            return new OcChainSummary(false, BigDecimal.ONE, stepMemberDays(steps.getFirst()));
+            return new OcChainSummary(false, BigDecimal.ONE, stepMemberDays(steps.getFirst(), context));
         }
         BigDecimal memberDays = steps.stream()
-                .map(this::stepMemberDays)
+                .map(step -> stepMemberDays(step, context))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return new OcChainSummary(true, prefixSuccessRate(steps), memberDays);
     }
@@ -133,9 +133,9 @@ public class MappedOcYieldEstimator implements OcYieldEstimator {
      * 估算单个链步骤：只有叶子携带奖励，每个步骤都携带自身的人天。
      */
     private OcYieldEstimate stepEstimate(OcChainStep step, boolean leaf, BigDecimal prefixRate,
-                                         OcYieldSourceEnum source) {
+                                         OcYieldSourceEnum source, OcYieldContext context) {
         BigDecimal reward = leaf ? expectedLeafReward(step).multiply(prefixRate) : BigDecimal.ZERO;
-        return new OcYieldEstimate(reward, stepMemberDays(step), source);
+        return new OcYieldEstimate(reward, stepMemberDays(step, context), source);
     }
 
     /**
@@ -151,13 +151,17 @@ public class MappedOcYieldEstimator implements OcYieldEstimator {
     }
 
     /**
-     * 计算单个步骤的期望占用人天：单岗位期望占用天数乘以岗位人数。
+     * 计算单个步骤的期望占用人天：单岗位期望占用天数乘以团队人数。
+     *
+     * <p>人数优先取目录配置，配置缺失时退到该队实际岗位数；1至6级OC的required_members整体缺失，
+     * 按1人处理会把低级队的人天低估数倍。</p>
      */
-    private BigDecimal stepMemberDays(OcChainStep step) {
+    private BigDecimal stepMemberDays(OcChainStep step, OcYieldContext context) {
         TornSettingOcDO setting = findSetting(step.ocName(), step.rank());
-        int members = setting == null || setting.getRequiredMembers() == null
+        int configuredMembers = setting == null || setting.getRequiredMembers() == null
                 ? 0 : setting.getRequiredMembers();
-        return OcRecommendTunings.MEMBER_DAYS_PER_SLOT.multiply(BigDecimal.valueOf(Math.max(1, members)));
+        int members = context.teamSize(step.ocName(), step.rank(), configuredMembers);
+        return OcRecommendTunings.MEMBER_DAYS_PER_SLOT.multiply(BigDecimal.valueOf(members));
     }
 
     /**

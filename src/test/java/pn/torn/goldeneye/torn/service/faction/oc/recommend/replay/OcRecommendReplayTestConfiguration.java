@@ -9,19 +9,20 @@ import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcIncomeDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcSlotDAO;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcUserDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingOcReassignFactionDAO;
-import pn.torn.goldeneye.repository.dao.setting.TornSettingOcReassignOcDAO;
+import pn.torn.goldeneye.repository.dao.setting.*;
+import pn.torn.goldeneye.repository.dao.user.TornUserDAO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingFactionOcManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcPlanningManager;
-import pn.torn.goldeneye.torn.manager.setting.TornSettingOcSlotManager;
+import pn.torn.goldeneye.torn.manager.setting.*;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.MappedOcYieldEstimator;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.MeasuredOcYieldEstimator;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimator;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowEvaluator;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowValuator;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
 
 import java.util.List;
@@ -31,7 +32,7 @@ import java.util.List;
  * 只追加推荐链路自身需要的DAO、度量与排序组件，不启动GoldenEyeApplication。
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.10.23
  */
 @TestConfiguration
@@ -83,9 +84,10 @@ public class OcRecommendReplayTestConfiguration {
 
     @Bean
     OcYieldEstimatorRegistry ocYieldEstimatorRegistry(MeasuredOcYieldEstimator measured,
-                                                      MappedOcYieldEstimator mapped) {
+                                                      MappedOcYieldEstimator mapped,
+                                                      TornFactionOcSlotDAO slotDAO) {
         List<OcYieldEstimator> estimators = List.of(measured, mapped);
-        return new OcYieldEstimatorRegistry(estimators, measured, mapped);
+        return new OcYieldEstimatorRegistry(estimators, measured, mapped, slotDAO);
     }
 
     @Bean
@@ -94,17 +96,72 @@ public class OcRecommendReplayTestConfiguration {
     }
 
     @Bean
-    OcOpportunityCostRanker ocOpportunityCostRanker(OcScarcityEstimator scarcityEstimator) {
-        return new OcOpportunityCostRanker(scarcityEstimator);
+    OcRecommendRanker ocRecommendRanker(OcScarcityEstimator scarcityEstimator) {
+        return new OcRecommendRanker(scarcityEstimator);
+    }
+
+    @Bean
+    TornSettingOcFlowNodeDAO tornSettingOcFlowNodeDAO() {
+        return new TornSettingOcFlowNodeDAO();
+    }
+
+    @Bean
+    TornSettingOcFlowEdgeDAO tornSettingOcFlowEdgeDAO() {
+        return new TornSettingOcFlowEdgeDAO();
+    }
+
+    @Bean
+    TornSettingOcChainDAO tornSettingOcChainDAO() {
+        return new TornSettingOcChainDAO();
+    }
+
+    @Bean
+    TornSettingOcFlowManager tornSettingOcFlowManager(TornSettingOcFlowNodeDAO nodeDAO,
+                                                      TornSettingOcFlowEdgeDAO edgeDAO) {
+        return new TornSettingOcFlowManager(nodeDAO, edgeDAO);
+    }
+
+    @Bean
+    OcFlowEvaluator ocFlowEvaluator() {
+        return new OcFlowEvaluator();
+    }
+
+    @Bean
+    OcFlowValuator ocFlowValuator(OcFlowEvaluator evaluator) {
+        return new OcFlowValuator(evaluator);
+    }
+
+    @Bean
+    OcFlowMarginService ocFlowMarginService(TornSettingOcFlowManager flowManager,
+                                            TornSettingOcSlotManager slotManager,
+                                            TornSettingOcChainDAO chainDAO,
+                                            TornOcRecommendManager recommendManager,
+                                            OcFlowValuator valuator) {
+        return new OcFlowMarginService(flowManager, slotManager, chainDAO, recommendManager, valuator);
     }
 
     @Bean
     TornOcRecommendService tornOcRecommendService(TornOcRecommendManager recommendManager,
                                                   OcYieldEstimatorRegistry registry,
-                                                  OcOpportunityCostRanker ranker,
+                                                  OcFlowMarginService flowMarginService,
+                                                  OcRecommendRanker ranker,
                                                   TornFactionOcDAO ocDAO,
                                                   TornFactionOcSlotDAO slotDAO,
                                                   TornFactionOcUserDAO ocUserDAO) {
-        return new TornOcRecommendService(recommendManager, registry, ranker, ocDAO, slotDAO, ocUserDAO);
+        return new TornOcRecommendService(recommendManager, registry, flowMarginService,
+                ranker, ocDAO, slotDAO, ocUserDAO);
+    }
+
+    @Bean
+    TornOcAssignService tornOcAssignService(TornOcRecommendManager recommendManager,
+                                            OcYieldEstimatorRegistry registry,
+                                            OcFlowMarginService flowMarginService,
+                                            OcRecommendRanker ranker,
+                                            TornFactionOcDAO ocDAO,
+                                            TornFactionOcSlotDAO slotDAO,
+                                            TornFactionOcUserDAO ocUserDAO,
+                                            TornUserDAO userDAO) {
+        return new TornOcAssignService(recommendManager, registry, flowMarginService,
+                ranker, ocDAO, slotDAO, ocUserDAO, userDAO);
     }
 }

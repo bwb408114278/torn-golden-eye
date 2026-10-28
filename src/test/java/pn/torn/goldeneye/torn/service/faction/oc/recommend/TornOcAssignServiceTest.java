@@ -21,7 +21,8 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotEligibility;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
-import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcOpportunityCostRanker;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
 
 import java.math.BigDecimal;
@@ -33,13 +34,14 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * OC分配服务测试：覆盖准入放宽、被锁死人天优先与共享OC对象不被改写。
+ * OC分配服务测试：覆盖准入判定、停转队优先与共享OC对象不被改写。
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.08.20
  */
 @ExtendWith(MockitoExtension.class)
@@ -61,7 +63,9 @@ class TornOcAssignServiceTest {
     @Mock
     private TornUserDAO userDao;
 
-    private final OcOpportunityCostRanker ranker = new OcOpportunityCostRanker(new OcScarcityEstimator());
+    private final OcRecommendRanker ranker = new OcRecommendRanker(new OcScarcityEstimator());
+    private final OcFlowMarginService flowMarginService = mock(OcFlowMarginService.class,
+            invocation -> invocation.getArgument(0));
 
     private TornOcAssignService assignService;
     private TornUserDO user;
@@ -70,7 +74,7 @@ class TornOcAssignServiceTest {
 
     @BeforeEach
     void setUp() {
-        assignService = new TornOcAssignService(ocRecommendManager, yieldEstimatorRegistry, ranker,
+        assignService = new TornOcAssignService(ocRecommendManager, yieldEstimatorRegistry, flowMarginService, ranker,
                 ocDao, ocSlotDao, ocUserDao, userDao);
 
         user = new TornUserDO();
@@ -88,7 +92,6 @@ class TornOcAssignServiceTest {
         setting.setRank(8);
 
         lenient().when(ocUserDao.queryFactionMatrix(FACTION_ID)).thenReturn(List.of());
-        lenient().when(ocSlotDao.queryListByOc(anyList())).thenReturn(List.of());
         lenient().when(ocRecommendManager.resolveEligibility(anyLong(), any(), any(), anyList()))
                 .thenReturn(new OcSlotEligibility(setting, 80));
         lenient().when(ocRecommendManager.buildRecommendReason(any(), anyInt())).thenReturn("高成功率");
@@ -109,21 +112,14 @@ class TornOcAssignServiceTest {
     }
 
     @Test
-    @DisplayName("同等产出下已有进度成员被锁死的停转队优先分配")
-    void assign_shouldPreferOcWithLockedMembers() {
+    @DisplayName("同等产出下停转队优先于新队分配")
+    void assign_shouldPreferPausedOc() {
         TornFactionOcDO newTeamOc = buildOc(1L, null);
         TornFactionOcDO pausedOc = buildOc(2L, LocalDateTime.now().minusDays(1));
         TornFactionOcSlotDO newTeamSlot = buildSlot(11L, newTeamOc.getId());
         TornFactionOcSlotDO pausedSlot = buildSlot(21L, pausedOc.getId());
-        TornFactionOcSlotDO lockedSlot = new TornFactionOcSlotDO();
-        lockedSlot.setId(22L);
-        lockedSlot.setOcId(pausedOc.getId());
-        lockedSlot.setUserId(999L);
-        lockedSlot.setProgress(BigDecimal.ONE);
-        lockedSlot.setJoinTime(LocalDateTime.now().minusDays(3));
         stubCandidates(List.of(newTeamOc, pausedOc), List.of(newTeamSlot, pausedSlot),
                 Map.of(1L, estimate(300_000_000L, 6), 2L, estimate(300_000_000L, 6)));
-        when(ocSlotDao.queryListByOc(anyList())).thenReturn(List.of(lockedSlot));
 
         Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
                 FACTION_ID, Map.of(user, List.of(userData)));
@@ -154,6 +150,21 @@ class TornOcAssignServiceTest {
         lenient().when(yieldEstimatorRegistry.estimateAll(anyCollection(), any()))
                 .thenReturn(Map.of(1L, estimate(300_000_000L, 6)));
         when(ocRecommendManager.resolveEligibility(FACTION_ID, oc, slot, List.of(userData))).thenReturn(null);
+
+        Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
+                FACTION_ID, Map.of(user, List.of(userData)));
+
+        assertThat(result).containsEntry(user, null);
+    }
+
+    @Test
+    @DisplayName("成员在该OC等级没有成功率记录时不参与分配")
+    void assign_shouldSkipSlotWhenPassRateMissing() {
+        TornFactionOcDO oc = buildOc(1L, LocalDateTime.now().plusDays(1));
+        TornFactionOcSlotDO slot = buildSlot(11L, oc.getId());
+        stubCandidates(List.of(oc), List.of(slot), Map.of(1L, estimate(300_000_000L, 6)));
+        when(ocRecommendManager.resolveEligibility(FACTION_ID, oc, slot, List.of(userData)))
+                .thenReturn(new OcSlotEligibility(setting, null));
 
         Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
                 FACTION_ID, Map.of(user, List.of(userData)));

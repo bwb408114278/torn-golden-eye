@@ -7,13 +7,13 @@ import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 岗位可填性判定测试：口径为「只有明确记录的成功率低于岗位要求才算不达标」。
+ * 岗位可填性判定测试：口径为「有要求就必须有实测记录且不低于要求」。
  *
- * <p>成功率矩阵无记录（null）不等于不可推荐，岗位未配置成功率要求时一律可填；
- * 这两条是推荐与分配两个入口共用的准入口径，因此单独断言，不依赖服务层打桩。</p>
+ * <p>成功率矩阵无记录（null）表示该岗位从未实测，按不可填处理；只有岗位未配置成功率要求时
+ * 才一律可填。这两条是推荐与分配两个入口共用的准入口径，因此单独断言，不依赖服务层打桩。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.10.23
  */
 @DisplayName("岗位可填性判定测试")
@@ -34,9 +34,10 @@ class OcSlotEligibilityTest {
     }
 
     @Test
-    @DisplayName("成功率矩阵无记录时按能力未知处理，仍可填")
-    void missingPassRate_shouldBeEligible() {
-        assertThat(new OcSlotEligibility(setting(75), null).eligible()).isTrue();
+    @DisplayName("成功率矩阵无记录时不可填，不得按能力未知放行")
+    void missingPassRate_shouldBeIneligible() {
+        assertThat(new OcSlotEligibility(setting(60), null).eligible()).isFalse();
+        assertThat(new OcSlotEligibility(setting(75), null).eligible()).isFalse();
     }
 
     @Test

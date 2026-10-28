@@ -23,6 +23,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.replay.OcPlannerReplayTestConfiguration;
 import pn.torn.goldeneye.torn.service.faction.oc.planning.replay.OcPlanningReadOnlyGuard;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcAssignService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.TornOcRecommendService;
 
 import java.io.IOException;
@@ -40,7 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * OC推荐真实快照的只读回放取证。
  *
  * <p>用途：按技术方案11.4，用当前真实快照对新口径做一次新旧对比取证，回答「名单外OC能否被推荐」
- * 「停转队是否被挤出Top-3」「单位人天产出与业务基线是否一致」。它不是回归测试，
+ * 「停转队是否被挤出Top-3」「单位人天产出与业务基线是否一致」。严格成功率准入允许无候选成员返回空，
+ * 回放只要求同一快照重复推荐可复现并单独统计空结果。它不是回归测试，
  * 只在显式开启{@code -Doc.recommend.replay.enabled=true}时执行，正常构建与CI不会运行。</p>
  *
  * <p>数据整洁性：回放只做SELECT，不写任何表，因此不需要{@code @Rollback}；
@@ -50,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>明细写入{@code target/oc-recommend-replay-<时间戳>.txt}：每次运行各留一份，不复写历史证据。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.10.23
  */
 @Slf4j
@@ -75,6 +77,8 @@ class OcRecommendReplayTest {
     @Autowired
     private TornOcRecommendService recommendService;
     @Autowired
+    private TornOcAssignService assignService;
+    @Autowired
     private TornFactionOcUserDAO ocUserDao;
     @Autowired
     private TornFactionOcDAO ocDao;
@@ -86,7 +90,7 @@ class OcRecommendReplayTest {
     private TornSettingOcReassignOcDAO reassignOcDao;
 
     @Test
-    @DisplayName("各帮派活跃成员Top-3非空、可复现，并统计名单外与停转队命中")
+    @DisplayName("各帮派活跃成员Top-3可复现，并统计严格准入空结果、名单外与停转队命中")
     void replayTopThreeForEnabledFactions() throws IOException {
         readOnlyGuard.verifyReadOnlySession();
         List<String> report = readOnlyGuard.inReadOnlyTransaction(status -> collectReport());
@@ -95,6 +99,39 @@ class OcRecommendReplayTest {
         Files.writeString(reportPath, String.join(System.lineSeparator(), report), StandardCharsets.UTF_8);
         log.info("回放明细已写入 {}", reportPath.toAbsolutePath());
         report.forEach(log::info);
+    }
+
+    @Test
+    @DisplayName("真实分配逐人重算且同一空位不重复分配")
+    void replayAllocationForEnabledFactions() {
+        readOnlyGuard.verifyReadOnlySession();
+        readOnlyGuard.inReadOnlyTransaction(status -> {
+            int allocated = 0;
+            for (Long factionId : enabledFactionIds()) {
+                Map<TornUserDO, List<TornFactionOcUserDO>> users = new LinkedHashMap<>();
+                List<Long> memberIds = activeMemberIds(factionId);
+                for (Long memberId : memberIds.subList(0, Math.min(2, memberIds.size()))) {
+                    TornUserDO user = new TornUserDO();
+                    user.setId(memberId);
+                    user.setFactionId(factionId);
+                    users.put(user, ocUserDao.queryByUserId(memberId));
+                }
+                Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(factionId, users);
+                assertThat(result.keySet()).isEqualTo(users.keySet());
+                Set<String> occupied = new HashSet<>();
+                for (OcRecommendationVO recommendation : result.values()) {
+                    if (recommendation == null) {
+                        continue;
+                    }
+                    allocated++;
+                    assertThat(occupied.add(recommendation.getOcId() + "/" + recommendation.getRecommendedPosition()))
+                            .as("帮派%s同一空位不得重复分配", factionId).isTrue();
+                }
+            }
+            assertThat(allocated).isPositive();
+            log.info("真实分配回放完成, 有效分配数={}", allocated);
+            return null;
+        });
     }
 
     /**
@@ -107,6 +144,7 @@ class OcRecommendReplayTest {
 
         int outsideRosterHits = 0;
         int pausedHits = 0;
+        int noEligibleMembers = 0;
         Map<Long, Integer> nonRosterCandidates = new HashMap<>();
         LocalDateTime now = LocalDateTime.now();
         long maxElapsedMillis = 0;
@@ -126,7 +164,10 @@ class OcRecommendReplayTest {
                 List<OcRecommendationVO> second = recommendService.recommendOcForUser(user, TOP_N, null);
 
                 assertThat(spots(first)).isEqualTo(spots(second));
-                assertThat(first).as("帮派%s成员%s的推荐结果不应为空", factionId, memberId).isNotEmpty();
+                if (first.isEmpty()) {
+                    noEligibleMembers++;
+                    report.add(String.format("faction=%d member=%d eligible=0（严格成功率准入）", factionId, memberId));
+                }
 
                 for (OcRecommendationVO recommendation : first) {
                     boolean inRoster = roster.contains(recommendation.getOcName());
@@ -140,10 +181,10 @@ class OcRecommendReplayTest {
                     }
                     report.add(String.format(
                             "faction=%d member=%d oc=%s rank=%d pos=%s inRoster=%s paused=%s "
-                                    + "cost=%s netPerMemberDay=%s substitute=%s outcome=%s",
+                                    + "rating=%s netPerMemberDay=%s substitute=%s outcome=%s",
                             factionId, memberId, recommendation.getOcName(), recommendation.getRank(),
                             recommendation.getRecommendedPosition(), inRoster, paused,
-                            recommendation.getOpportunityCost(), recommendation.getExpectedNetPerMemberDay(),
+                            recommendation.getRecommendScore(), recommendation.getExpectedNetPerMemberDay(),
                             recommendation.getSubstituteCount(), recommendation.getOutcome()));
                 }
                 report.add(String.format("faction=%d member=%d elapsedMs=%d top=%s",
@@ -152,9 +193,9 @@ class OcRecommendReplayTest {
         }
 
         report.add(String.format("SUMMARY factions=%d recommendations=%d nonRosterCandidates=%s "
-                        + "outsideRosterHits=%d pausedHits=%d maxElapsedMs=%d",
-                factionIds.size(), report.stream().filter(line -> line.contains(" cost=")).count(),
-                nonRosterCandidates, outsideRosterHits, pausedHits, maxElapsedMillis));
+                        + "outsideRosterHits=%d pausedHits=%d noEligibleMembers=%d maxElapsedMs=%d",
+                factionIds.size(), report.stream().filter(line -> line.contains(" rating=")).count(),
+                nonRosterCandidates, outsideRosterHits, pausedHits, noEligibleMembers, maxElapsedMillis));
         return report;
     }
 
