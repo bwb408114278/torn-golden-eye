@@ -26,7 +26,7 @@ import java.util.*;
  * 不会因为个别OC配置写错而阻塞整个推荐。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.10.24
  */
 @Slf4j
@@ -117,7 +117,7 @@ public class TornSettingOcFlowManager implements DataCacheManager {
             List<OcFlowNode> nodes = new ArrayList<>(nodeRows.size());
             for (TornSettingOcFlowNodeDO row : nodeRows) {
                 nodes.add(new OcFlowNode(row.getNodeCode(), OcFlowNodeTypeEnum.fromCode(row.getNodeType()),
-                        splitParticipants(row.getParticipants())));
+                        splitParticipants(row.getParticipants()), row.getRewardValue()));
             }
             List<OcFlowEdge> edges = new ArrayList<>(edgeRows.size());
             for (TornSettingOcFlowEdgeDO row : edgeRows) {

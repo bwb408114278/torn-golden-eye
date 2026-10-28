@@ -16,6 +16,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker.OcRankContext;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendScore;
@@ -32,8 +33,8 @@ import java.util.stream.Collectors;
 /**
  * OC队伍推荐逻辑层
  *
- * <p>候选池是该帮派全部招募中OC的空位，不再按大锅饭名单剪枝；每个候选由度量层折算成
- * 期望净产出与期望人天，再由排序器统一按「单位人天产出 × 开动紧迫度」排序。
+ * <p>候选池是该帮派全部招募中OC的空位，不再按大锅饭名单剪枝；每个候选由度量层折算成R6产出，
+ * 由DAG计算个人相对标尺替补的期望收益增量，再由排序器按最高胜任等级与R6统一排序。
  * 是否在大锅饭名单只影响分钱口径，不影响推荐结果。已加入队伍时，以当前岗位的评分作为基线，
  * 只输出严格优于基线的候选（同队换岗不受此限制，换岗不损失进度也不会改变评分）。</p>
  *
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
 public class TornOcRecommendService {
     private final TornOcRecommendManager ocRecommendManager;
     private final OcYieldEstimatorRegistry yieldEstimatorRegistry;
+    private final OcFlowMarginService ocFlowMarginService;
     private final OcRecommendRanker ocRecommendRanker;
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
@@ -83,10 +85,21 @@ public class TornOcRecommendService {
         RankFacts facts = buildRankFacts(user.getFactionId(), recruitOcList, emptySlotList,
                 user.getId(), joinedOc, now);
 
-        // 4. 构建候选并以当前岗位为基线排序
+        // 4. 构建候选和当前基线，共用同一批DAG边际结果排序
         List<OcRecommendCandidate> candidates = buildCandidates(recruitOcList, emptySlotList,
                 user.getFactionId(), userOcData, facts.estimates());
         OcRecommendCandidate baseline = buildBaseline(user, joinedOc, userOcData, facts);
+        List<TornFactionOcDO> marginOcList = withJoinedOc(recruitOcList, joinedOc);
+        List<OcRecommendCandidate> marginInput = new ArrayList<>(candidates);
+        if (baseline != null) {
+            marginInput.add(baseline);
+        }
+        List<OcRecommendCandidate> marginOutput = ocFlowMarginService.apply(marginInput, user.getFactionId(),
+                marginOcList, ocSlotDao.queryListByOc(marginOcList), Map.of());
+        candidates = marginOutput.subList(0, candidates.size());
+        if (baseline != null) {
+            baseline = marginOutput.getLast();
+        }
         List<OcRecommendCandidate> ranked = ocRecommendRanker.rank(candidates, baseline, facts.context());
         return ranked.stream()
                 .limit(Math.max(0, topN))

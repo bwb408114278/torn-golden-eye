@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * <p>存放OC每个判定节点的参与者与结局节点类型，是收益计算器的图结构来源。</p>
  *
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.10.24
  */
 @Data
@@ -61,4 +61,8 @@ public class TornSettingOcFlowNodeDO extends BaseDO {
      * 通过逐位校验的时间；为空表示近似可用、仍待人工复核
      */
     private LocalDateTime verifiedAt;
+    /**
+     * 好结局奖励（现金与道具折算）；坏结局为0，空表示未配置
+     */
+    private Long rewardValue;
 }

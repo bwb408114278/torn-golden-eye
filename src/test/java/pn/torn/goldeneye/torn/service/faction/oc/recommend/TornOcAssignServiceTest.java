@@ -21,6 +21,7 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotEligibility;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
 
@@ -33,6 +34,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -62,6 +64,8 @@ class TornOcAssignServiceTest {
     private TornUserDAO userDao;
 
     private final OcRecommendRanker ranker = new OcRecommendRanker(new OcScarcityEstimator());
+    private final OcFlowMarginService flowMarginService = mock(OcFlowMarginService.class,
+            invocation -> invocation.getArgument(0));
 
     private TornOcAssignService assignService;
     private TornUserDO user;
@@ -70,7 +74,7 @@ class TornOcAssignServiceTest {
 
     @BeforeEach
     void setUp() {
-        assignService = new TornOcAssignService(ocRecommendManager, yieldEstimatorRegistry, ranker,
+        assignService = new TornOcAssignService(ocRecommendManager, yieldEstimatorRegistry, flowMarginService, ranker,
                 ocDao, ocSlotDao, ocUserDao, userDao);
 
         user = new TornUserDO();

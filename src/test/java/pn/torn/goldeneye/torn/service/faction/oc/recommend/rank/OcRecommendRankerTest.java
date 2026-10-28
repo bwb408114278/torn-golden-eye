@@ -15,6 +15,7 @@ import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanke
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -24,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 推荐评分排序器测试：覆盖开动紧迫度、单位人天产出、非负评分、稀缺度不参与评分与确定性决胜。
  *
  * @author Bai
- * @version 1.9.4
+ * @version 1.9.5
  * @since 2026.10.25
  */
 @DisplayName("推荐评分排序器测试")
@@ -187,6 +188,79 @@ class OcRecommendRankerTest {
 
         // 21为更高评分的其他队，32为同队换岗：基线岗位本身不在候选里，因此不会出现31
         assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(21L, 32L);
+    }
+
+    @Test
+    @DisplayName("核心胜任等级锚定主推荐并保留负边际与高等级后置")
+    void marginalAnchor_shouldGroupWithoutDroppingCandidates() {
+        OcRecommendCandidate r9Public = marginal(candidate(4L, 41L, "Hostile", 9, "H#1",
+                900_000_000L, 6, now.plusHours(3)), "7", 60);
+        OcRecommendCandidate r8Core = marginal(candidate(1L, 11L, "BTB", 8, "T#2",
+                300_000_000L, 6, now.plusHours(3)), "0", 65);
+        OcRecommendCandidate r8Negative = marginal(candidate(2L, 21L, "BTB", 8, "M#1",
+                300_000_000L, 6, now.plusHours(3)), "-1", 65);
+        OcRecommendCandidate r7Positive = marginal(candidate(3L, 31L, "BftP", 7, "P#1",
+                200_000_000L, 6, now.plusHours(3)), "5", 55);
+
+        List<OcRecommendCandidate> ranked = ranker.rank(
+                List.of(r9Public, r8Negative, r7Positive, r8Core), null,
+                context(List.of(), Map.of(1L, 1, 2L, 1, 3L, 1, 4L, 1)));
+
+        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(11L, 31L, 21L, 41L);
+        assertThat(ranked).extracting(row -> row.score().rating())
+                .isSortedAccordingTo(Comparator.reverseOrder());
+    }
+
+    @Test
+    @DisplayName("没有核心胜任时非负大众岗先于负边际核心岗")
+    void noCoreAnchor_shouldFallBackToPositivePublicPosition() {
+        OcRecommendCandidate negativeCore = marginal(candidate(1L, 11L, "WoO", 7, "L#2",
+                200_000_000L, 5, now.plusHours(3)), "-1.5", 65);
+        OcRecommendCandidate zeroPublic = marginal(candidate(2L, 21L, "BftP", 7, "P#1",
+                200_000_000L, 6, now.plusHours(3)), "0", 55);
+
+        List<OcRecommendCandidate> ranked = ranker.rank(List.of(negativeCore, zeroPublic), null,
+                context(List.of(), Map.of(1L, 1, 2L, 1)));
+
+        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(21L, 11L);
+    }
+
+    @Test
+    @DisplayName("ΔV只在同OC内选坑而不跨OC比金额")
+    void marginal_shouldOnlyBreakTieInsideSameOc() {
+        OcRecommendCandidate low = marginal(candidate(1L, 11L, "BTB", 8, "T#1",
+                300_000_000L, 6, now.plusHours(3)), "1", 60);
+        OcRecommendCandidate high = marginal(candidate(1L, 12L, "BTB", 8, "T#2",
+                300_000_000L, 6, now.plusHours(3)), "2", 60);
+        OcRecommendCandidate otherOc = marginal(candidate(2L, 21L, "CP", 8, "I#1",
+                300_000_000L, 6, now.plusHours(3)), "999", 60);
+
+        List<OcRecommendCandidate> ranked = ranker.rank(List.of(low, otherOc, high), null,
+                context(List.of(), Map.of(1L, 1, 2L, 1)));
+
+        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(12L, 11L, 21L);
+    }
+
+    @Test
+    @DisplayName("DAG不可用不等于合法零边际且仍参与R6推荐")
+    void missingMarginal_shouldRemainFallbackInsteadOfZero() {
+        OcRecommendCandidate fallback = candidate(3L, 31L, "Ship", 9, "S#1",
+                300_000_000L, 5, now.plusHours(3));
+        OcRecommendCandidate zeroCore = marginal(candidate(1L, 11L, "BTB", 8, "T#2",
+                300_000_000L, 6, now.plusHours(3)), "0", 65);
+        OcRecommendCandidate negativeCore = marginal(candidate(2L, 21L, "BTB", 8, "M#1",
+                300_000_000L, 6, now.plusHours(3)), "-1", 65);
+
+        List<OcRecommendCandidate> ranked = ranker.rank(List.of(negativeCore, fallback, zeroCore), null,
+                context(List.of(), Map.of(1L, 1, 2L, 1, 3L, 1)));
+
+        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(31L, 11L, 21L);
+        assertThat(ranked.getFirst().marginalValue()).isNull();
+    }
+
+    private OcRecommendCandidate marginal(OcRecommendCandidate candidate, String value, int threshold) {
+        candidate.requirement().setPassRate(threshold);
+        return candidate.withMarginalValue(new BigDecimal(value));
     }
 
     private OcRecommendCandidate candidate(long ocId, long slotId, String ocName, int rank, String position,

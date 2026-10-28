@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * OC推荐VO
  *
  * @author Bai
- * @version 1.9.4
+ * @version 1.9.5
  * @since 2025.11.03
  */
 @Data
@@ -33,7 +33,7 @@ public class OcRecommendationVO {
      */
     private String recommendedPosition;
     /**
-     * 对外展示的百分制推荐评分，取值1至100；排序内部仍用货币量纲，两者严格单调
+     * 对外展示的百分制推荐评分，取值1至100；与完整排序单调不减，整数四舍五入允许同分
      */
     private BigDecimal recommendScore;
     /**

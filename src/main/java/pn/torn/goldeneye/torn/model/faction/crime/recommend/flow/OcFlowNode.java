@@ -11,14 +11,23 @@ import java.util.List;
  * @param nodeCode     节点编码
  * @param nodeType     节点类型
  * @param participants 判定参与者岗位编码；结局节点为空列表
+ * @param rewardValue  好结局奖励（现金与道具折算）；坏结局为0，未配置时为null
  * @author Bai
- * @version 1.9.3
+ * @version 1.9.5
  * @since 2026.10.24
  */
 public record OcFlowNode(
         String nodeCode,
         OcFlowNodeTypeEnum nodeType,
-        List<String> participants) {
+        List<String> participants,
+        Long rewardValue) {
+    /**
+     * 兼容不需要结局奖励的图装配与测试。
+     */
+    public OcFlowNode(String nodeCode, OcFlowNodeTypeEnum nodeType, List<String> participants) {
+        this(nodeCode, nodeType, participants, null);
+    }
+
     /**
      * 归一化参与者列表，避免调用方传入null。
      */

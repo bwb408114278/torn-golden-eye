@@ -18,6 +18,7 @@ import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
+import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcRecommendRanker;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstimator;
 
@@ -32,7 +33,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * OC推荐服务测试：覆盖准入放宽、矩阵缺失兜底、新队空准备时间与推荐评分基线过滤。
+ * OC推荐服务测试：覆盖严格准入、新队准备时间、同OC多空位与推荐基线过滤。
  *
  * @author Bai
  * @version 1.9.5
@@ -58,6 +59,8 @@ class TornOcRecommendServiceTest {
     private TornFactionOcUserDAO ocUserDao;
 
     private final OcRecommendRanker ranker = new OcRecommendRanker(new OcScarcityEstimator());
+    private final OcFlowMarginService flowMarginService = mock(OcFlowMarginService.class,
+            invocation -> invocation.getArgument(0));
 
     private TornOcRecommendService recommendService;
     private TornUserDO user;
@@ -72,7 +75,7 @@ class TornOcRecommendServiceTest {
     @BeforeEach
     void setUp() {
         recommendService = new TornOcRecommendService(ocRecommendManager, yieldEstimatorRegistry,
-                ranker, ocDao, ocSlotDao, ocUserDao);
+                flowMarginService, ranker, ocDao, ocSlotDao, ocUserDao);
 
         user = new TornUserDO();
         user.setId(USER_ID);
@@ -139,10 +142,10 @@ class TornOcRecommendServiceTest {
     }
 
     @Test
-    @DisplayName("停转队排在同等产出的新队之前")
+    @DisplayName("同等级同等产出下停转队排在新队之前")
     void recommend_shouldRankPausedOcBeforeNewTeam() {
         TornFactionOcDO newTeamOc = buildOc(2L, OC_BREAK_BANK, 8, null);
-        TornFactionOcDO pausedOc = buildOc(3L, "Blast from the Past", 7, LocalDateTime.now().minusDays(1));
+        TornFactionOcDO pausedOc = buildOc(3L, "Clinical Precision", 8, LocalDateTime.now().minusDays(1));
         TornFactionOcSlotDO newTeamSlot = buildEmptySlot(21L, 2L, "Engineer#1");
         TornFactionOcSlotDO pausedSlot = buildEmptySlot(31L, 3L, "Engineer#1");
 
