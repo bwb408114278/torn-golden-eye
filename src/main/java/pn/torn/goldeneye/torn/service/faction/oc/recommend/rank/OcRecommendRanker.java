@@ -40,6 +40,10 @@ public class OcRecommendRanker {
 
     /**
      * 计算单个候选的R6推荐评分。
+     *
+     * @param candidate 候选岗位
+     * @param context   排序上下文
+     * @return R6推荐评分快照
      */
     public OcRecommendScore evaluate(OcRecommendCandidate candidate, OcRankContext context) {
         OcYieldEstimate estimate = candidate.estimate() == null
@@ -58,6 +62,11 @@ public class OcRecommendRanker {
 
     /**
      * 计算评分、最高胜任等级和展示分，并按同一比较器完成基线过滤与排序。
+     *
+     * @param candidates 候选岗位列表
+     * @param baseline   成员当前岗位；未加入OC时为null
+     * @param context    排序上下文
+     * @return 完成基线过滤并按完整业务键排序的候选列表
      */
     public List<OcRecommendCandidate> rank(List<OcRecommendCandidate> candidates,
                                            OcRecommendCandidate baseline,
@@ -86,6 +95,10 @@ public class OcRecommendRanker {
 
     /**
      * 最高核心胜任等级；没有核心胜任时退到最高非负岗位等级。
+     *
+     * @param candidates 候选岗位列表
+     * @param baseline   成员当前岗位；未加入OC时为null
+     * @return 最高胜任等级；没有可用DAG边际时返回Integer.MAX_VALUE
      */
     private int resolveAnchor(List<OcRecommendCandidate> candidates, OcRecommendCandidate baseline) {
         List<OcRecommendCandidate> all = new ArrayList<>(candidates);
@@ -121,6 +134,10 @@ public class OcRecommendRanker {
 
     /**
      * null边际表示回退，不等同于合法ΔV=0，也不限制锚点。
+     *
+     * @param candidate 候选岗位
+     * @param anchor    最高胜任等级
+     * @return 主推荐、负边际后置或高等级后置的分组编号
      */
     private int groupOf(OcRecommendCandidate candidate, int anchor) {
         if (candidate.marginalValue() == null) {
@@ -132,6 +149,13 @@ public class OcRecommendRanker {
         return candidate.marginalValue().signum() >= 0 ? MAIN_GROUP : NEGATIVE_GROUP;
     }
 
+    /**
+     * 按候选所在分组、等级、岗位类型和R6评分生成展示分。
+     *
+     * @param candidate 已计算R6评分的候选
+     * @param anchor    最高胜任等级
+     * @return 写入展示分的候选副本
+     */
     private OcRecommendCandidate withDisplayRating(OcRecommendCandidate candidate, int anchor) {
         int group = groupOf(candidate, anchor);
         int rating = OcRecommendRating.ratingOf(group, candidate.oc().getRank(), isCore(candidate),
@@ -139,6 +163,13 @@ public class OcRecommendRanker {
         return candidate.withScore(candidate.score().withDisplayRating(rating));
     }
 
+    /**
+     * 构建包含确定性决胜键的完整排序比较器。
+     *
+     * @param context 排序上下文
+     * @param anchor  最高胜任等级
+     * @return 完整排序比较器
+     */
     private Comparator<OcRecommendCandidate> buildComparator(OcRankContext context, int anchor) {
         return buildSharedPrefix(context, anchor)
                 .thenComparing(candidate -> candidate.oc().getId(),
@@ -150,12 +181,23 @@ public class OcRecommendRanker {
 
     /**
      * baseline与最终排序共用的业务键，不含会诱发反复换岗的ID决胜。
+     *
+     * @param context 排序上下文
+     * @param anchor  最高胜任等级
+     * @return 用于当前岗位基线比较的业务比较器
      */
     private Comparator<OcRecommendCandidate> buildEconomicComparator(OcRankContext context, int anchor) {
         return buildSharedPrefix(context, anchor)
                 .thenComparing(this::compareSameOcMarginal);
     }
 
+    /**
+     * 构建分组、等级、岗位类型与R6经济键组成的共用比较前缀。
+     *
+     * @param context 排序上下文
+     * @param anchor  最高胜任等级
+     * @return 完整排序与基线比较共用的比较器前缀
+     */
     private Comparator<OcRecommendCandidate> buildSharedPrefix(OcRankContext context, int anchor) {
         return Comparator
                 .comparingInt((OcRecommendCandidate candidate) -> groupOf(candidate, anchor))
@@ -170,6 +212,10 @@ public class OcRecommendRanker {
 
     /**
      * ΔV只在同一OC名称与等级内选坑，绝不直接跨OC比较金额。
+     *
+     * @param left  左侧候选
+     * @param right 右侧候选
+     * @return 同一OC内按ΔV降序的比较结果；不同OC返回0
      */
     private int compareSameOcMarginal(OcRecommendCandidate left, OcRecommendCandidate right) {
         if (!sameOcType(left, right)) {
@@ -179,21 +225,48 @@ public class OcRecommendRanker {
                 .compare(left.marginalValue(), right.marginalValue());
     }
 
+    /**
+     * 按岗位门槛判断候选是否为核心岗。
+     *
+     * @param candidate 候选岗位
+     * @return 门槛不低于65时返回true
+     */
     private boolean isCore(OcRecommendCandidate candidate) {
         return candidate.requirement().getPassRate() != null
                 && candidate.requirement().getPassRate() >= CORE_THRESHOLD;
     }
 
+    /**
+     * 判断两个候选是否属于相同名称和等级的OC。
+     *
+     * @param left  左侧候选
+     * @param right 右侧候选
+     * @return OC名称与等级均相同时返回true
+     */
     private boolean sameOcType(OcRecommendCandidate left, OcRecommendCandidate right) {
         return Objects.equals(left.oc().getName(), right.oc().getName())
                 && Objects.equals(left.oc().getRank(), right.oc().getRank());
     }
 
+    /**
+     * 判断两个候选是否属于同一支OC队伍。
+     *
+     * @param left  左侧候选
+     * @param right 右侧候选
+     * @return 两边OC ID均非空且相同时返回true
+     */
     private boolean sameOc(OcRecommendCandidate left, OcRecommendCandidate right) {
         return left.oc() != null && right.oc() != null
                 && left.oc().getId() != null && left.oc().getId().equals(right.oc().getId());
     }
 
+    /**
+     * 查询候选队伍的剩余空位数。
+     *
+     * @param context   排序上下文
+     * @param candidate 候选岗位
+     * @return 剩余空位数；上下文或OC缺失时返回0
+     */
     private int emptySlots(OcRankContext context, OcRecommendCandidate candidate) {
         if (context.emptySlotsByOc() == null || candidate.oc() == null) {
             return 0;
@@ -203,6 +276,11 @@ public class OcRecommendRanker {
 
     /**
      * 排序上下文：一次推荐请求内共享的只读事实，避免为每个候选单独查库。
+     *
+     * @param emptySlotsByOc OC ID到剩余空位数的映射
+     * @param userId         当前成员ID
+     * @param now            本次排序使用的当前时间
+     * @param slotIndex      归一化岗位编码到全帮派成员能力记录的索引
      */
     public record OcRankContext(
             Map<Long, Integer> emptySlotsByOc,
@@ -210,11 +288,27 @@ public class OcRecommendRanker {
             LocalDateTime now,
             Map<String, List<TornFactionOcUserDO>> slotIndex) {
 
+        /**
+         * 构造排序上下文并复制集合，防止调用方后续修改共享事实。
+         *
+         * @param emptySlotsByOc OC ID到剩余空位数的映射
+         * @param userId         当前成员ID
+         * @param now            本次排序使用的当前时间
+         * @param slotIndex      归一化岗位编码到全帮派成员能力记录的索引
+         */
         public OcRankContext {
             emptySlotsByOc = emptySlotsByOc == null ? Map.of() : Map.copyOf(emptySlotsByOc);
             slotIndex = slotIndex == null ? Map.of() : Map.copyOf(slotIndex);
         }
 
+        /**
+         * 根据全帮派能力记录构造排序上下文。
+         *
+         * @param factionOcData  全帮派成员能力记录
+         * @param emptySlotsByOc OC ID到剩余空位数的映射
+         * @param userId         当前成员ID
+         * @param now            本次排序使用的当前时间
+         */
         public OcRankContext(List<TornFactionOcUserDO> factionOcData,
                              Map<Long, Integer> emptySlotsByOc,
                              Long userId,
@@ -222,6 +316,12 @@ public class OcRecommendRanker {
             this(emptySlotsByOc, userId, now, OcScarcityEstimator.indexBySlot(factionOcData));
         }
 
+        /**
+         * 复制排序上下文并替换当前成员，供批量分配逐人使用。
+         *
+         * @param newUserId 新的当前成员ID
+         * @return 替换成员后的排序上下文
+         */
         public OcRankContext withUserId(Long newUserId) {
             return new OcRankContext(emptySlotsByOc, newUserId, now, slotIndex);
         }

@@ -72,6 +72,12 @@ public class OcFlowMarginService {
 
     /**
      * 先装配全图标尺，再用当前真实成员和本次已分配成员覆盖对应坑位。
+     *
+     * @param factionId          帮派ID
+     * @param ocList             本次候选及当前基线涉及的OC
+     * @param allSlots           这些OC的全部岗位，包含有人的岗位
+     * @param allocatedPassRates 本次分配已占岗位及其成员成功率
+     * @return 按OC图键索引的基准队伍
      */
     private Map<OcFlowKey, Team> buildTeams(long factionId, List<TornFactionOcDO> ocList,
                                             List<TornFactionOcSlotDO> allSlots,
@@ -115,6 +121,10 @@ public class OcFlowMarginService {
 
     /**
      * 已分配岗位优先取本次成员，已有人岗位取其实测值，空位仍取标尺。
+     *
+     * @param slot               岗位
+     * @param allocatedPassRates 本次分配已占岗位及其成员成功率
+     * @return 已占岗位的成员实测成功率；空位返回null
      */
     private Integer actualRate(TornFactionOcSlotDO slot, Map<Long, Integer> allocatedPassRates) {
         if (allocatedPassRates.containsKey(slot.getId())) {
@@ -123,6 +133,12 @@ public class OcFlowMarginService {
         return slot.getUserId() == null ? null : slot.getPassRate();
     }
 
+    /**
+     * 为一张图的全部岗位生成固定标尺成功率。
+     *
+     * @param requirements 岗位配置列表
+     * @return 归一化岗位编码到标尺成功率的映射
+     */
     private Map<String, Double> baseRates(List<TornSettingOcSlotDO> requirements) {
         Map<String, Double> rates = new HashMap<>();
         for (TornSettingOcSlotDO requirement : requirements) {
@@ -134,11 +150,22 @@ public class OcFlowMarginService {
         return rates;
     }
 
+    /**
+     * 按归一化岗位编码索引岗位配置。
+     *
+     * @param requirements 岗位配置列表
+     * @return 归一化岗位编码到岗位配置的映射
+     */
     private Map<String, TornSettingOcSlotDO> requirementMap(List<TornSettingOcSlotDO> requirements) {
         return requirements.stream().collect(Collectors.toMap(
                 requirement -> OcFlowSlotCodes.normalize(requirement.getSlotCode()), requirement -> requirement));
     }
 
+    /**
+     * 加载启用的OC链，并以前置图键索引直接后置图键。
+     *
+     * @return 前置OC图键到直接后置OC图键的映射
+     */
     private Map<OcFlowKey, OcFlowKey> loadChildByParent() {
         List<TornSettingOcChainDO> chains = chainDao.lambdaQuery()
                 .eq(TornSettingOcChainDO::getEnabled, true)
@@ -154,6 +181,13 @@ public class OcFlowMarginService {
 
     /**
      * 独立OC优先使用分结局奖励；奖励为空的前置OC递归取后置链值。
+     *
+     * @param key           当前OC图键
+     * @param teams         按图键索引的基准队伍
+     * @param childByParent 前置图键到直接后置图键的映射
+     * @param resolved      已完成估值的队伍缓存
+     * @param visiting      当前递归路径，用于阻断链环
+     * @return 已完成估值的队伍；图、奖励或链值不完整时返回empty
      */
     private Optional<ResolvedTeam> resolve(OcFlowKey key, Map<OcFlowKey, Team> teams,
                                            Map<OcFlowKey, OcFlowKey> childByParent,
@@ -185,6 +219,10 @@ public class OcFlowMarginService {
 
     /**
      * 同一候选分别计算标尺替补与本人，避免把当前已有人岗位误当作基准。
+     *
+     * @param candidate 候选岗位及成员能力
+     * @param resolved  已完成估值的基准队伍
+     * @return 本人相对标尺替补的期望收益增量；无法计算时返回null
      */
     private BigDecimal marginalOf(OcRecommendCandidate candidate, ResolvedTeam resolved) {
         Double substitute = OcFlowSubstitutePolicy.substituteRate(candidate.requirement());
@@ -207,10 +245,35 @@ public class OcFlowMarginService {
         return current.get().expectedValue().subtract(baseline.get().expectedValue());
     }
 
-    private record Team(OcFlowGraph graph, Map<String, Double> rates,
-                        Map<String, TornSettingOcSlotDO> requirements) {
+    /**
+     * 一张OC图及其基准队伍。
+     *
+     * @param graph        OC流程图
+     * @param rates        归一化岗位编码到成员或标尺成功率的映射
+     * @param requirements 归一化岗位编码到岗位配置的映射
+     * @author Bai
+     * @version 1.9.5
+     * @since 2026.10.27
+     */
+    private record Team(
+            OcFlowGraph graph,
+            Map<String, Double> rates,
+            Map<String, TornSettingOcSlotDO> requirements) {
     }
 
-    private record ResolvedTeam(Team team, OcFlowValuation baseline, BigDecimal chainValue) {
+    /**
+     * 已成功估值的基准队伍。
+     *
+     * @param team       基准队伍
+     * @param baseline   基准队伍的估值结果
+     * @param chainValue 前置OC使用的后置链值；独立OC为null
+     * @author Bai
+     * @version 1.9.5
+     * @since 2026.10.27
+     */
+    private record ResolvedTeam(
+            Team team,
+            OcFlowValuation baseline,
+            BigDecimal chainValue) {
     }
 }
