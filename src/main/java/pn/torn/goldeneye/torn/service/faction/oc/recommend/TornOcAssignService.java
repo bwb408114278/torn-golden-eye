@@ -2,6 +2,7 @@ package pn.torn.goldeneye.torn.service.faction.oc.recommend;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import pn.torn.goldeneye.repository.dao.faction.oc.TornFactionOcDAO;
@@ -29,12 +30,12 @@ import java.util.stream.Collectors;
  * OC队伍分配基础逻辑层
  *
  * <p>与单人推荐共用同一套DAG边际与排序：候选先计算个人相对标尺替补的期望收益增量，
- * 再按最高胜任等级、核心/大众和R6排序，不再按大锅饭名单剪枝，也不再有第二套评分公式。
+ * 再按最高胜任等级、实际停转时间和岗位层级排序，不再按大锅饭名单剪枝，也不再有第二套评分公式。
  * 评分恒非负，不做「评分不为正就不分配」的过滤；没有可填空位时该成员结果为null。
  * 分配过程只把「预期开动时间」放进局部Map，不再就地改写共享的OC对象，因此不存在需要回滚的状态。</p>
  *
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2025.11.24
  */
 @Slf4j
@@ -173,11 +174,11 @@ public class TornOcAssignService {
                 .flatMap(List::stream)
                 .toList();
         Map<Long, OcYieldEstimate> estimates = yieldEstimatorRegistry.estimateAll(ocList, now);
-        Map<Long, Integer> emptySlotsByOc = emptySlotList.stream()
-                .collect(Collectors.toMap(TornFactionOcSlotDO::getOcId, slot -> 1, Integer::sum));
+        Map<Long, Integer> emptySlotsByOc = new HashMap<>();
+        emptySlotList.forEach(slot -> emptySlotsByOc.merge(slot.getOcId(), 1, Integer::sum));
         OcRankContext context = new OcRankContext(ocUserDao.queryFactionMatrix(factionId),
                 emptySlotsByOc, null, now);
-        return new AllocationFacts(estimates, context, ocList, ocSlotDao.queryListByOc(ocList),
+        return new AllocationFacts(estimates, context, emptySlotsByOc, ocList, ocSlotDao.queryListByOc(ocList),
                 new HashMap<>(), buildOriginReadyMap(vacantSlots));
     }
 
@@ -190,8 +191,9 @@ public class TornOcAssignService {
         List<OcRecommendCandidate> candidates = buildCandidates(user, userOcData, vacantSlots, facts);
         candidates = ocFlowMarginService.apply(candidates, user.getFactionId(), facts.ocList(), facts.allSlots(),
                 facts.allocatedPassRates());
-        List<OcRecommendCandidate> ranked = ocRecommendRanker.rank(candidates, null,
-                facts.context().withUserId(user.getId()));
+        OcRankContext context = new OcRankContext(facts.emptySlotsByOc(), user.getId(),
+                facts.context().now(), facts.context().slotIndex());
+        List<OcRecommendCandidate> ranked = ocRecommendRanker.rank(candidates, null, context);
         if (ranked.isEmpty()) {
             return null;
         }
@@ -199,6 +201,7 @@ public class TornOcAssignService {
         OcRecommendCandidate bestMatch = ranked.getFirst();
         OcRecommendationVO recommendation = toRecommendation(bestMatch, facts.plannedReadyMap());
         facts.allocatedPassRates().put(bestMatch.slot().getId(), bestMatch.passRate());
+        facts.emptySlotsByOc().merge(bestMatch.oc().getId(), -1, Integer::sum);
         advancePlannedReady(facts.plannedReadyMap(), bestMatch.oc().getId());
         return recommendation;
     }
@@ -212,18 +215,38 @@ public class TornOcAssignService {
         List<OcRecommendCandidate> candidates = new ArrayList<>();
         for (Map.Entry<TornFactionOcDO, List<TornFactionOcSlotDO>> entry : ocMap.entrySet()) {
             TornFactionOcDO oc = entry.getKey();
+            TornFactionOcDO rankedOc = withPlannedReadyTime(oc, facts.plannedReadyMap());
             for (TornFactionOcSlotDO slot : entry.getValue()) {
                 OcSlotEligibility eligibility = facts.allocatedPassRates().containsKey(slot.getId())
                         ? null
-                        : ocRecommendManager.resolveEligibility(user.getFactionId(), oc, slot, userOcData);
+                        : ocRecommendManager.resolveEligibility(user.getFactionId(), rankedOc, slot, userOcData);
                 if (eligibility == null || !eligibility.eligible()) {
                     continue;
                 }
-                candidates.add(new OcRecommendCandidate(oc, slot, eligibility.requirement(),
+                candidates.add(new OcRecommendCandidate(rankedOc, slot, eligibility.requirement(),
                         eligibility.passRate(), estimateOf(facts.estimates(), oc), null));
             }
         }
         return candidates;
+    }
+
+    /**
+     * 为当前成员复制使用推进后停转时间的OC，避免前序分配只改理由、不影响下一人排序。
+     *
+     * @param oc              原OC
+     * @param plannedReadyMap OC ID到推进后停转时间的映射
+     * @return 时间不同的OC副本；无需推进时返回原对象
+     */
+    private TornFactionOcDO withPlannedReadyTime(TornFactionOcDO oc,
+                                                  Map<Long, LocalDateTime> plannedReadyMap) {
+        LocalDateTime plannedReadyTime = plannedReadyMap.get(oc.getId());
+        if (Objects.equals(plannedReadyTime, oc.getReadyTime())) {
+            return oc;
+        }
+        TornFactionOcDO copy = new TornFactionOcDO();
+        BeanUtils.copyProperties(oc, copy);
+        copy.setReadyTime(plannedReadyTime);
+        return copy;
     }
 
     /**
@@ -253,7 +276,7 @@ public class TornOcAssignService {
     }
 
     /**
-     * 构建原本时间的Map，仅用于理由文案，不改写共享的OC对象。
+     * 构建原本时间的Map，供候选排序与理由文案使用，不改写共享的OC对象。
      *
      * @param vacantSlots 空闲岗位池
      * @return Key为OC ID, Value为原本的准备时间
@@ -302,17 +325,16 @@ public class TornOcAssignService {
      *
      * @param estimates          OC ID到期望产出估算值的映射
      * @param context            排序上下文（成员ID逐人替换）
+     * @param emptySlotsByOc     OC ID到最新剩余空位数的映射，每分配一人递减
      * @param ocList             本次分配涉及的OC
      * @param allSlots           全部岗位，用于构造DAG基准队伍
      * @param allocatedPassRates 已被占用的岗位及分配成员成功率
      * @param plannedReadyMap    OC ID到预期开动时间的映射，仅在本方法内推进
-     * @author Bai
-     * @version 1.9.4
-     * @since 2026.10.23
      */
     private record AllocationFacts(
             Map<Long, OcYieldEstimate> estimates,
             OcRankContext context,
+            Map<Long, Integer> emptySlotsByOc,
             List<TornFactionOcDO> ocList,
             List<TornFactionOcSlotDO> allSlots,
             Map<Long, Integer> allocatedPassRates,

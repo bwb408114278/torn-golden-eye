@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 推荐评分排序器测试：覆盖开动紧迫度、单位人天产出、非负评分、稀缺度不参与评分与确定性决胜。
  *
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.10.25
  */
 @DisplayName("推荐评分排序器测试")
@@ -178,8 +178,8 @@ class OcRecommendRankerTest {
     @Test
     @DisplayName("已加入队伍时只保留严格优于当前岗位的候选，同队换岗保留")
     void baselineFilter_shouldKeepBetterAndSameOc() {
-        OcRecommendCandidate worse = candidate(1L, 11L, "OC1", 8, "A#1", 100_000_000L, 6, now.plusHours(3));
-        OcRecommendCandidate better = candidate(2L, 21L, "OC2", 8, "A#1", 400_000_000L, 6, now.plusHours(3));
+        OcRecommendCandidate worse = candidate(1L, 11L, "OC1", 8, "A#1", 100_000_000L, 6, now.plusHours(4));
+        OcRecommendCandidate better = candidate(2L, 21L, "OC2", 8, "A#1", 400_000_000L, 6, now.plusHours(2));
         OcRecommendCandidate baseline = candidate(3L, 31L, "OC3", 8, "A#1", 300_000_000L, 6, now.plusHours(3));
         OcRecommendCandidate sameOc = candidate(3L, 32L, "OC3", 8, "B#1", 300_000_000L, 6, now.plusHours(3));
         OcRankContext context = context(List.of(), Map.of(1L, 1, 2L, 1, 3L, 2));
@@ -193,7 +193,7 @@ class OcRecommendRankerTest {
     @Test
     @DisplayName("核心胜任等级锚定主推荐并保留负边际与高等级后置")
     void marginalAnchor_shouldGroupWithoutDroppingCandidates() {
-        OcRecommendCandidate r9Public = marginal(candidate(4L, 41L, "Hostile", 9, "H#1",
+        OcRecommendCandidate r9Public = marginal(candidate(4L, 41L, "Hostile", 10, "H#1",
                 900_000_000L, 6, now.plusHours(3)), "7", 60);
         OcRecommendCandidate r8Core = marginal(candidate(1L, 11L, "BTB", 8, "T#2",
                 300_000_000L, 6, now.plusHours(3)), "0", 65);
@@ -226,8 +226,8 @@ class OcRecommendRankerTest {
     }
 
     @Test
-    @DisplayName("ΔV只在同OC内选坑而不跨OC比金额")
-    void marginal_shouldOnlyBreakTieInsideSameOc() {
+    @DisplayName("同时间同层级跨OC与同OC都按ΔV决胜")
+    void marginal_shouldBreakTieAcrossOcAndInsideSameOc() {
         OcRecommendCandidate low = marginal(candidate(1L, 11L, "BTB", 8, "T#1",
                 300_000_000L, 6, now.plusHours(3)), "1", 60);
         OcRecommendCandidate high = marginal(candidate(1L, 12L, "BTB", 8, "T#2",
@@ -238,14 +238,14 @@ class OcRecommendRankerTest {
         List<OcRecommendCandidate> ranked = ranker.rank(List.of(low, otherOc, high), null,
                 context(List.of(), Map.of(1L, 1, 2L, 1)));
 
-        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(12L, 11L, 21L);
+        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(21L, 12L, 11L);
     }
 
     @Test
     @DisplayName("DAG不可用不等于合法零边际且仍参与R6推荐")
     void missingMarginal_shouldRemainFallbackInsteadOfZero() {
         OcRecommendCandidate fallback = candidate(3L, 31L, "Ship", 9, "S#1",
-                300_000_000L, 5, now.plusHours(3));
+                300_000_000L, 5, now.plusHours(1));
         OcRecommendCandidate zeroCore = marginal(candidate(1L, 11L, "BTB", 8, "T#2",
                 300_000_000L, 6, now.plusHours(3)), "0", 65);
         OcRecommendCandidate negativeCore = marginal(candidate(2L, 21L, "BTB", 8, "M#1",
@@ -256,6 +256,217 @@ class OcRecommendRankerTest {
 
         assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(31L, 11L, 21L);
         assertThat(ranked.getFirst().marginalValue()).isNull();
+    }
+
+    @Test
+    @DisplayName("同rank同核心先比时间再以跨OC ΔV决胜")
+    void sameRankCore_shouldUseTimeThenMarginal() {
+        OcRecommendCandidate btb = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                266_935_000L, 6, now.plusHours(2)), "0", 65);
+        OcRecommendCandidate ship = marginal(candidate(2L, 21L, "Ship", 8, "Hustler#1",
+                130_671_000L, 5, now.plusHours(1)), "3520702", 65);
+        assertFirst(2L, Map.of(1L, 1, 2L, 1), "Ship等1小时应先于BTB等2小时", btb, ship);
+
+        btb.oc().setReadyTime(now.plusHours(1));
+        assertFirst(2L, Map.of(1L, 1, 2L, 1), "同1小时时Ship的ΔV更高", btb, ship);
+
+        OcRecommendCandidate stacking = marginal(candidate(3L, 31L, "StD", 8, "Imitator#1",
+                239_669_000L, 4, now.plusHours(1)), "6283616", 65);
+        assertFirst(3L, Map.of(1L, 1, 3L, 1), "StD当前时间相同且ΔV更高，后续链等待不扣减", btb, stacking);
+    }
+
+    @Test
+    @DisplayName("同rank跨OC核心岗容差覆盖全部已确认边界")
+    void coreTolerance_shouldMatchConfirmedScenarios() {
+        int[][] cases = {
+                {1, 1, 1}, {3, 1, 1}, {4, 1, 1}, {6, 1, 1},
+                {12, 1, 2}, {24, 1, 2}, {8, 6, 1}, {14, 12, 1}};
+        for (int[] scenario : cases) {
+            OcRecommendCandidate core = marginal(candidate(1L, 11L, "Core", 8, "Muscle#1",
+                    266_935_000L, 6, now.plusHours(scenario[0])), "0", 65);
+            OcRecommendCandidate publicSlot = marginal(candidate(2L, 21L, "Public", 8, "Muscle#2",
+                    266_935_000L, 6, now.plusHours(scenario[1])), "0", 60);
+            assertFirst(scenario[2], Map.of(1L, 1, 2L, 1),
+                    "核心" + scenario[0] + "小时/大众" + scenario[1] + "小时", core, publicSlot);
+        }
+    }
+
+    @Test
+    @DisplayName("同核心跨rank只有同时间由高rank优先")
+    void sameCoreAcrossRank_shouldMatchConfirmedScenarios() {
+        int[][] cases = {{1, 1, 1}, {3, 1, 2}, {2, 1, 2}, {4, 2, 2}};
+        for (int[] scenario : cases) {
+            OcRecommendCandidate rank8 = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                    266_935_000L, 6, now.plusHours(scenario[0])), "0", 65);
+            OcRecommendCandidate rank7 = marginal(candidate(2L, 21L, "BftP", 7, "Muscle#1",
+                    114_781_000L, 6, now.plusHours(scenario[1])), "11836831", 65);
+            assertFirst(scenario[2], Map.of(1L, 1, 2L, 1),
+                    "8级" + scenario[0] + "小时/7级" + scenario[1] + "小时", rank8, rank7);
+        }
+    }
+
+    @Test
+    @DisplayName("7级核心与8级大众同层且时间早者优先")
+    void crossRankAndCore_shouldUseEffectiveTierAndTime() {
+        OcRecommendCandidate rank8Public = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#2",
+                266_935_000L, 6, now.plusHours(1)), "0", 60);
+        OcRecommendCandidate rank7Core = marginal(candidate(2L, 21L, "BftP", 7, "Muscle#1",
+                114_781_000L, 6, now.plusHours(1)), "11836831", 65);
+        List<OcRecommendCandidate> tied = ranker.rank(List.of(rank8Public, rank7Core), null,
+                context(List.of(), Map.of(1L, 1, 2L, 1)));
+        assertThat(tied).extracting(row -> row.score().rating()).containsOnly(tied.getFirst().score().rating());
+
+        rank8Public.oc().setReadyTime(now.plusHours(3));
+        assertFirst(2L, Map.of(1L, 1, 2L, 1), "8级大众晚2小时，7级核心优先", rank8Public, rank7Core);
+
+        rank8Public.oc().setReadyTime(now.plusHours(1));
+        rank7Core.oc().setReadyTime(now.plusHours(3));
+        assertFirst(1L, Map.of(1L, 1, 2L, 1), "8级大众早2小时，8级大众优先", rank8Public, rank7Core);
+    }
+
+    @Test
+    @DisplayName("同ocId按ΔV选坑且相同边际并列")
+    void sameOc_shouldUseMarginalWithoutCoreOverride() {
+        OcRecommendCandidate muscle = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                266_935_000L, 6, now.plusHours(1)), "0", 65);
+        OcRecommendCandidate thief = marginal(candidate(1L, 12L, "BTB", 8, "Thief#1",
+                267_833_000L, 6, now.plusHours(1)), "898481", 60);
+        List<OcRecommendCandidate> thiefFirst = ranker.rank(List.of(muscle, thief), null,
+                context(List.of(), Map.of(1L, 2)));
+        assertThat(thiefFirst.getFirst().slot().getId()).as("大众Thief凭更高ΔV反超核心Muscle").isEqualTo(12L);
+
+        OcRecommendCandidate best = marginal(candidate(2L, 21L, "BftP", 7, "Muscle#1",
+                114_781_000L, 6, now.plusHours(1)), "11836831", 65);
+        OcRecommendCandidate middle = marginal(candidate(2L, 22L, "BftP", 7, "Bomber#1",
+                112_676_000L, 6, now.plusHours(1)), "9732475", 65);
+        OcRecommendCandidate last = marginal(candidate(2L, 23L, "BftP", 7, "Engineer#1",
+                111_583_000L, 6, now.plusHours(1)), "8639585", 65);
+        List<OcRecommendCandidate> ranked = ranker.rank(List.of(last, best, middle), null,
+                context(List.of(), Map.of(2L, 3)));
+        assertThat(ranked).extracting(row -> row.slot().getId()).containsExactly(21L, 22L, 23L);
+
+        OcRecommendCandidate equalPublic = marginal(candidate(3L, 32L, "BTB", 8, "Muscle#2",
+                266_935_000L, 6, now.plusHours(1)), "0", 60);
+        OcRecommendCandidate equalCore = marginal(candidate(3L, 31L, "BTB", 8, "Muscle#1",
+                266_935_000L, 6, now.plusHours(1)), "0", 65);
+        List<OcRecommendCandidate> equal = ranker.rank(List.of(equalPublic, equalCore), null,
+                context(List.of(), Map.of(3L, 2)));
+        assertThat(equal).extracting(row -> row.score().rating()).containsOnly(equal.getFirst().score().rating());
+    }
+
+    @Test
+    @DisplayName("空位数只在时间相同时决胜")
+    void emptySlots_shouldOnlyBreakTimeTie() {
+        OcRecommendCandidate full = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                266_935_000L, 6, now.plusHours(1)), "0", 65);
+        OcRecommendCandidate notFull = marginal(candidate(2L, 21L, "Ship", 8, "Hustler#1",
+                130_671_000L, 5, now.plusHours(1)), "0", 65);
+        assertFirst(1L, Map.of(1L, 1, 2L, 3), "同时间加入即满员优先", full, notFull);
+
+        full.oc().setReadyTime(now.plusHours(3));
+        assertFirst(2L, Map.of(1L, 1, 2L, 3), "满员优势不能抵消更晚时间", full, notFull);
+        full.oc().setReadyTime(now.plusHours(24));
+        assertFirst(2L, Map.of(1L, 1, 2L, 3), "满员等24小时仍由早停转队优先", full, notFull);
+
+        full.oc().setReadyTime(now.plusHours(1));
+        assertFirst(1L, Map.of(1L, 2, 2L, 3), "非末位同时间剩余一人优先", full, notFull);
+        full.oc().setReadyTime(now.plusHours(3));
+        assertFirst(2L, Map.of(1L, 2, 2L, 3), "非末位晚停转由早停转优先", full, notFull);
+        full.oc().setReadyTime(now.plusHours(1));
+        notFull.oc().setReadyTime(now.plusHours(3));
+        assertFirst(1L, Map.of(1L, 2, 2L, 3), "非末位早停转优先", full, notFull);
+    }
+
+    @Test
+    @DisplayName("新队位于明确等待2小时与3小时之间")
+    void newTeam_shouldMatchConfirmedTimeBoundary() {
+        int[] existingHours = {1, 2, 3, 4, 6, 24};
+        for (int hours : existingHours) {
+            OcRecommendCandidate newTeam = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                    266_935_000L, 6, null), "0", 65);
+            OcRecommendCandidate existing = marginal(candidate(2L, 21L, "Ship", 8, "Hustler#1",
+                    130_671_000L, 5, now.plusHours(hours)), "0", 65);
+            long expected = hours <= 2 ? 2L : 1L;
+            assertFirst(expected, Map.of(1L, 1, 2L, 1), "新队对比现有队" + hours + "小时", newTeam, existing);
+        }
+    }
+
+    @Test
+    @DisplayName("分钟级时间与已停转先后均按真实readyTime")
+    void actualReadyTime_shouldCoverMinutesAndStoppedTeams() {
+        LocalDateTime[][] cases = {
+                {now.plusMinutes(70), now.plusMinutes(80)},
+                {now.plusMinutes(70), now.plusMinutes(110)},
+                {now.plusMinutes(115), now.plusMinutes(125)},
+                {now.minusHours(5), now.minusHours(1)}};
+        for (LocalDateTime[] scenario : cases) {
+            OcRecommendCandidate earlier = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                    266_935_000L, 6, scenario[0]), "0", 65);
+            OcRecommendCandidate later = marginal(candidate(2L, 21L, "Ship", 8, "Hustler#1",
+                    130_671_000L, 5, scenario[1]), "0", 65);
+            assertFirst(1L, Map.of(1L, 1, 2L, 1), "真实时间早者优先", earlier, later);
+        }
+    }
+
+    @Test
+    @DisplayName("同名不同ocId按不同队伍比较时间与ΔV")
+    void sameNameDifferentOcId_shouldNotUseSingleTeamSlotRule() {
+        OcRecommendCandidate firstTeam = marginal(candidate(1L, 11L, "BTB", 8, "Muscle#1",
+                266_935_000L, 6, now.plusHours(2)), "0", 65);
+        OcRecommendCandidate secondTeam = marginal(candidate(2L, 21L, "BTB", 8, "Muscle#1",
+                266_935_000L, 6, now.plusHours(1)), "0", 65);
+        assertFirst(2L, Map.of(1L, 1, 2L, 1), "同名第二队更早停转", firstTeam, secondTeam);
+
+        secondTeam.oc().setReadyTime(firstTeam.oc().getReadyTime());
+        secondTeam = secondTeam.withMarginalValue(BigDecimal.ONE);
+        assertFirst(2L, Map.of(1L, 1, 2L, 1), "同名不同队同时间仍可按ΔV比较", firstTeam, secondTeam);
+    }
+
+    @Nested
+    @DisplayName("百分制评分换算")
+    class Rating {
+        @Test
+        @DisplayName("评分恒在1至100之间，且对货币量单调不减")
+        void rating_shouldStayInRangeAndBeMonotonic() {
+            assertThat(OcRecommendRating.ratingOf(null)).isEqualTo(1);
+            assertThat(OcRecommendRating.ratingOf(BigDecimal.ZERO)).isEqualTo(1);
+            assertThat(OcRecommendRating.ratingOf(new BigDecimal("-1000000"))).isEqualTo(1);
+            assertThat(OcRecommendRating.ratingOf(new BigDecimal("12000000"))).isEqualTo(100);
+            assertThat(OcRecommendRating.ratingOf(new BigDecimal("90000000"))).isEqualTo(100);
+
+            int previous = 0;
+            for (long value = 100_000L; value <= 20_000_000L; value += 250_000L) {
+                int rating = OcRecommendRating.ratingOf(BigDecimal.valueOf(value));
+                assertThat(rating).isBetween(1, 100).isGreaterThanOrEqualTo(previous);
+                previous = rating;
+            }
+        }
+
+        @Test
+        @DisplayName("主力队落在可区分的分数段，既不饱和也不贴底")
+        void rating_shouldSpreadWorkhorseTeams() {
+            // 3.53M/人天：7级 Blast from the Past 在3小时紧迫度下的评分
+            assertThat(OcRecommendRating.ratingOf(new BigDecimal("3529298"))).isBetween(60, 70);
+            // 8.20M/人天：8级 Break the Bank 在18小时紧迫度下的评分
+            assertThat(OcRecommendRating.ratingOf(new BigDecimal("8204482"))).isBetween(80, 90);
+            // 0.50M/人天：修正人天口径后的4级队
+            assertThat(OcRecommendRating.ratingOf(new BigDecimal("500000"))).isLessThan(30);
+        }
+    }
+
+    /**
+     * 断言一组候选的首选OC ID。
+     *
+     * @param expectedOcId 预期首选OC ID
+     * @param emptySlots   各OC剩余空位
+     * @param scenario     场景说明
+     * @param candidates   候选列表
+     */
+    private void assertFirst(long expectedOcId, Map<Long, Integer> emptySlots, String scenario,
+                             OcRecommendCandidate... candidates) {
+        List<OcRecommendCandidate> ranked = ranker.rank(List.of(candidates), null,
+                context(List.of(), emptySlots));
+        assertThat(ranked.getFirst().oc().getId()).as(scenario).isEqualTo(expectedOcId);
     }
 
     private OcRecommendCandidate marginal(OcRecommendCandidate candidate, String value, int threshold) {
@@ -299,37 +510,5 @@ class OcRecommendRankerTest {
 
     private OcRankContext context(List<TornFactionOcUserDO> matrix, Map<Long, Integer> emptySlotsByOc) {
         return new OcRankContext(matrix, emptySlotsByOc, USER_ID, now);
-    }
-
-    @Nested
-    @DisplayName("百分制评分换算")
-    class Rating {
-        @Test
-        @DisplayName("评分恒在1至100之间，且对货币量单调不减")
-        void rating_shouldStayInRangeAndBeMonotonic() {
-            assertThat(OcRecommendRating.ratingOf(null)).isEqualTo(1);
-            assertThat(OcRecommendRating.ratingOf(BigDecimal.ZERO)).isEqualTo(1);
-            assertThat(OcRecommendRating.ratingOf(new BigDecimal("-1000000"))).isEqualTo(1);
-            assertThat(OcRecommendRating.ratingOf(new BigDecimal("12000000"))).isEqualTo(100);
-            assertThat(OcRecommendRating.ratingOf(new BigDecimal("90000000"))).isEqualTo(100);
-
-            int previous = 0;
-            for (long value = 100_000L; value <= 20_000_000L; value += 250_000L) {
-                int rating = OcRecommendRating.ratingOf(BigDecimal.valueOf(value));
-                assertThat(rating).isBetween(1, 100).isGreaterThanOrEqualTo(previous);
-                previous = rating;
-            }
-        }
-
-        @Test
-        @DisplayName("主力队落在可区分的分数段，既不饱和也不贴底")
-        void rating_shouldSpreadWorkhorseTeams() {
-            // 3.53M/人天：7级 Blast from the Past 在3小时紧迫度下的评分
-            assertThat(OcRecommendRating.ratingOf(new BigDecimal("3529298"))).isBetween(60, 70);
-            // 8.20M/人天：8级 Break the Bank 在18小时紧迫度下的评分
-            assertThat(OcRecommendRating.ratingOf(new BigDecimal("8204482"))).isBetween(80, 90);
-            // 0.50M/人天：修正人天口径后的4级队
-            assertThat(OcRecommendRating.ratingOf(new BigDecimal("500000"))).isLessThan(30);
-        }
     }
 }

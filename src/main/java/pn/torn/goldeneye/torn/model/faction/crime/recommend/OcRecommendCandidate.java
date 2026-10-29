@@ -20,9 +20,9 @@ import java.math.BigDecimal;
  * @param passRate      成员在该岗位的实测成功率；配置了门槛时null表示无实测记录、不可填
  * @param estimate      该OC（或整条链）的期望产出估算值
  * @param score         推荐评分，排序键本体；尚未计算时为null
- * @param marginalValue 成员相对标尺替补的DAG期望收益增量；无图或奖励不全时为null并回退R6
+ * @param marginalValue 成员相对标尺替补的DAG期望收益增量；无图或奖励不全时为null，不参与ΔV决胜
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.10.23
  */
 public record OcRecommendCandidate(
@@ -56,7 +56,7 @@ public record OcRecommendCandidate(
     /**
      * 复制候选并写入DAG边际收益。
      *
-     * @param newMarginalValue 边际收益；null表示回退R6
+     * @param newMarginalValue 边际收益；null表示不参与ΔV决胜
      * @return 写入边际后的候选
      */
     public OcRecommendCandidate withMarginalValue(BigDecimal newMarginalValue) {

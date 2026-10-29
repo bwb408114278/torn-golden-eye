@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
  * 计算成员相对逐坑标尺替补的DAG期望收益增量。
  *
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.10.27
  */
 @Service
@@ -38,7 +38,7 @@ public class OcFlowMarginService {
     private final OcFlowValuator valuator;
 
     /**
-     * 为候选写入DAG边际收益；无图、参与者缺失或结局/链值不全时保留null并回退R6。
+     * 为候选写入DAG边际收益；无图、参与者缺失或结局/链值不全时保留null，不参与锚点和ΔV决胜。
      *
      * @param candidates         候选列表
      * @param factionId          帮派ID
@@ -251,9 +251,6 @@ public class OcFlowMarginService {
      * @param graph        OC流程图
      * @param rates        归一化岗位编码到成员或标尺成功率的映射
      * @param requirements 归一化岗位编码到岗位配置的映射
-     * @author Bai
-     * @version 1.9.5
-     * @since 2026.10.27
      */
     private record Team(
             OcFlowGraph graph,
@@ -267,9 +264,6 @@ public class OcFlowMarginService {
      * @param team       基准队伍
      * @param baseline   基准队伍的估值结果
      * @param chainValue 前置OC使用的后置链值；独立OC为null
-     * @author Bai
-     * @version 1.9.5
-     * @since 2026.10.27
      */
     private record ResolvedTeam(
             Team team,

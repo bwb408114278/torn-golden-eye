@@ -7,7 +7,7 @@
 - **适用版本：** 1.9.x（分支 `feat-oc`）
 - **关联业务文档：** `.ai/knowledge/oc/oc_recommend_mixing_baseline.md`（长期业务基线；结论编号 C-A..C-L，撤销清单 R1–R26）
 - **适用功能：** `OC推荐`（`OcRecommendStrategyImpl`）、`OC分配`（`TornOcAssignService`）
-- **设计状态：** v1.6 DAG评分层已实施并完成聚焦验证；待技术专家 Review
+- **设计状态：** v1.7 真实时间与DAG补位排序已实施并完成聚焦验证；待技术专家 Review
 - **风险等级：** L3（收益与金额口径、成员资源占用、共享 DO 被就地改写、配置缺省回退）
 - **维护职责：** AI 技术专家维护本文；开发人员只按本文改代码、数据与测试，不自行调整口径
 
@@ -22,8 +22,9 @@
 | v1.2 | 2026-10-25 | **排序层改为「单位人天产出 × 开动紧迫度」**（§7 全面改写，业务依据 C-M1~C-M5 / 基线 v2.4）：替代概率与被锁死人天退出评分、占用成本常量删除、评分恒非负且不做正负过滤、理由追加单位人天产出；OcOpportunityCost/Ranker 更名为 OcRecommendScore/Ranker，新增 OcRecommendStartUrgency；徽章门槛按货币量级重标 |
 | v1.5 | 2026-10-26 | **评分层拆分为独立方案**：个人 × 岗位的边际价值（ΔV）改用 DAG 求值并按帮派增量排序，队级「单位人天产出」降为无图 OC 的回退口径。口径、替补标尺、结局奖励表与验收用例见 `.ai/knowledge/oc/oc_position_marginal_value_design.md`（v0.1）。本文 §7 的排序键在接入后由新方案取代 |
 | v1.6 | 2026-10-27 | **DAG个人×岗位方案实施**：§7改为最高胜任等级分组、R6跨OC、同OC ΔV；展示分与完整顺序单调不减；补rewardValue、缺奖励回退、分配后基准队伍与Lock Stock链初始化。业务基线v2.8、评分方案v0.7同步 |
+| v1.7 | 2026-10-29 | **真实时间与DAG补位排序实施**：§7改为有效层级锚点、真实readyTime、核心8h容差、新队2.5h、同时间ΔV和同ocId选坑；展示分按业务优先级且允许并列；分配推进时间进入下一人候选OC；原三用户与6帮真实回放同步。业务基线v2.9、评分方案v0.8同步 |
 
-> 本文回答「改哪些文件、改成什么样、怎么验证」。业务口径一律以业务基线为准，本文不重新定义口径；出现冲突时以业务基线为准，并同步修订本文。v1.6 起，§7、§8.6、§9.2 与 §11 按已实施的 DAG 锚点排序描述；此前实施步骤只作历史记录。
+> 本文回答「改哪些文件、改成什么样、怎么验证」。业务口径一律以业务基线为准，本文不重新定义口径；出现冲突时以业务基线为准，并同步修订本文。v1.7 起，§7、§8.6、§9.2 与 §11 按真实时间和DAG补位排序描述；此前实施步骤只作历史记录。
 
 ---
 
@@ -35,8 +36,8 @@
 |---|---|---|
 | T1 | 大锅饭名单外的 OC 能进入候选池并被推荐 | 构造一个不在 `torn_setting_oc_reassign_oc` 里、但成员成功率达标且有空位的 OC，`OC推荐` 结果包含它 |
 | T2 | 成功率矩阵无记录或实测不足的成员不再被错误放行 | 构造有门槛岗位但成员无记录/低于门槛，推荐结果不包含该岗位；全部无合格岗位时按C-D7返回空 |
-| T3 | 排序键统一为「机会成本」，两种分钱模式共用同一套评分 | 同一份快照下 `EQUAL` 与 `COEFFICIENT` 帮派的候选相对顺序仅因系数进入度量，不因评分公式分叉 |
-| T4 | 把「`ready_time` 为空」识别为 **新队** 这一正常状态（无人加入时 Torn 不返回预计开动时间），而不是当异常兜底 | 对 `readyTime == null` 的招募中 OC 执行推荐：正常返回，且该 OC 的机会成本里「被锁死人天」为 0，不会因新队身份被误判为停转 |
+| T3 | 现有队伍排序统一为「真实readyTime + 有效层级 + DAG ΔV」，两种分钱模式共用同一套规则 | 同一份快照下 `EQUAL` 与 `COEFFICIENT` 帮派的候选相对顺序不因评分公式分叉；长期人天只作诊断 |
+| T4 | 把「`ready_time` 为空」识别为 **新队** 这一正常状态，而不是异常或已停转 | 对 `readyTime == null` 的招募中OC执行推荐：正常返回，新队位于明确等待2小时与3小时之间；已停转队优先于新队 |
 | T5 | 同分结果可复现 | 同一快照连续两次推荐得到完全相同的顺序 |
 | T6 | 纯道具奖励的 OC 不被判为 0 产出 | `Ship Happens` / `Window of Opportunity` 的度量值 > 0 |
 
@@ -184,7 +185,7 @@ torn/model/faction/crime/recommend/         （已存在，新增模型后 8 个
 | `OcYieldSourceEnum` | enum | `MEASURED`（实测 UPH）、`MAPPED`（等级映射）、`CHAIN_MAPPED`（链映射，含前置人天） |
 | `OcRecommendOutcomeEnum` | enum | `IRREPLACEABLE`（替代概率≈0）、`SCARCE`、`SUBSTITUTABLE`、`UNKNOWN`，用于对外解释，**不参与排序** |
 | `OcPhaseEnum` | enum | `NEW_TEAM`（无人加入，无 `readyTime`）、`NOT_STARTED`（`readyTime > now`）、`PAUSED`（`readyTime <= now`） |
-| `OcRecommendCandidate` | record | `TornFactionOcDO oc`、`TornFactionOcSlotDO slot`、`TornSettingOcSlotDO requirement`、`Integer passRate`、`OcYieldEstimate estimate`、`OcRecommendScore score`、`BigDecimal marginalValue`（可空；null表示回退R6） |
+| `OcRecommendCandidate` | record | `TornFactionOcDO oc`、`TornFactionOcSlotDO slot`、`TornSettingOcSlotDO requirement`、`Integer passRate`、`OcYieldEstimate estimate`、`OcRecommendScore score`、`BigDecimal marginalValue`（可空；null表示不参与锚点和ΔV决胜，按时间/层级/空位推荐） |
 
 `OcRecommendScore` / `OcRecommendRating` / `OcScarcityEstimator` 属排序层，放 `recommend/rank` 包；
 `OcYieldContext` 属度量层，放 `recommend/metric` 包。
@@ -278,55 +279,44 @@ public final class OcChainValueReducer<T> {
 
 ## 7. 排序层实现（`recommend/rank`）
 
-### 7.1 最高胜任等级与R6评分（v1.6）
+### 7.1 有效层级、真实时间与DAG排序（v1.7）
 
 ```text
-Rcore     = 存在至少一个“核心岗且 DAG ΔV >= 0”候选的最高 rank
-Rpositive = 存在至少一个“任意岗位且 DAG ΔV >= 0”候选的最高 rank
-锚点 R    = Rcore；不存在则 Rpositive；仍不存在则最高可填 rank
+tier(c)   = rank(c) + (核心岗 ? 1 : 0)
+Rcore     = 存在“核心岗且 ΔV >= 0”候选的最高 tier
+Rpositive = 存在“任意岗位且 ΔV >= 0”候选的最高 tier
+锚点 R    = Rcore；不存在则 Rpositive；仍不存在则最高可填 tier
 
 候选分组：
-  主推荐 = rank <= R 且 ΔV >= 0
-  后置   = rank <= R 且 ΔV < 0
-  高等级后置 = rank > R
-  无图/缺奖励/缺链值 = ΔV null，不参与锚点，回退R6并保留在主推荐
+  主推荐 = tier <= R 且 ΔV >= 0
+  后置   = tier <= R 且 ΔV < 0
+  高层级后置 = tier > R
+  无图/缺奖励/缺链值 = ΔV null，不参与锚点和ΔV决胜，仍按时间/层级/空位推荐
 ```
 
-- 固定标尺按具体 `slot_code`：r7/8核心门槛+5、大众+10，r9原门槛，上限85；r10未定义时回退。
-- `ΔV = 本人替换标尺后的分结局期望收益 − 标尺替补期望收益`，只用正负确定锚点，用数值在同OC选坑。
-- 无图、奖励不全或链值不全不能与合法ΔV=0混淆，必须为null。
-- 停转紧迫度仍由 `OcRecommendStartUrgency` 独占，曲线不改。
+- 固定标尺仍按具体 `slot_code`：r7/8核心+5、大众+10，r9原门槛，上限85；r10未定义时为null。
+- `ΔV = 本人替换标尺后的分结局期望收益 − 标尺替补期望收益`，用于锚点、同时间同rank同岗位类型的跨OC决胜和同ocId选坑。
+- 同一ocId只按ΔV选坑，ΔV相同则业务并列；同名不同ocId不混用队内规则。
+- R6 `单位人天产出 × 开动紧迫度` 只保留在 `OcRecommendScore` 作为诊断，不再参与现有队伍跨OC比较。
 
-#### 7.1.1 R6经济评分与展示分
+#### 7.1.1 成对比较与展示分
 
 ```text
-R6经济评分 = 单位人天产出 V × 开动紧迫度 f
-
-V = 期望净产出 ÷ 期望人天                        // OcYieldEstimate.netPerMemberDay()，度量层输出
-f = 时间分 ÷ 100                                 // OcRecommendStartUrgency，0.10 ~ 1.00
+不同ocId：
+  同rank核心/大众不同 → 核心readyTime减8h后比较
+  其他候选 → 真实readyTime升序；已停转按实际停转先后，停得久者优先
+  新队null → now + 150分钟（位于明确2h与3h之间）
+  时间相同 → tier降序
+  tier相同且rank/核心类型相同 → ΔV降序
+  仍相同 → 剩余空位数升序
+  最后 → ocId / slotId稳定输出
 ```
 
-| 项 | 含义 | 取值/来源 |
-|---|---|---|
-| `单位人天产出 V` | 占用一名成员一天，帮派期望产出多少 | 度量层 `netPerMemberDay()`（货币单位），等级越高越大；v1.3 起按 6.0 天/岗位与实际岗位数折算，量级为 r4≈0.5M、r7≈2.8M、r8≈7.1M、r9≈14M |
-| `开动紧迫度 f` | 这支队还要等多久才开始走进度 | `OcRecommendStartUrgency`：已停转 1.00、新队 0.95、≤6h 0.95~1.00、24h 0.65、48h 0.35、72h 0.20、更远 0.10~0.20 |
-
-**为什么第二项消失了**：机会成本式的第三项（`4.5 人天 × 5M` 常量）与 `ready_time` 无关，
-导致 55 小时队与 8 小时队完全等价；第一项又被恒为 1 的替代概率归零（§7.2），
-整条排序退化为「别人等了多久 − 22.5M」，既能为负，也与等级脱钩。业务依据见基线 C-M1~C-M4 / R27。
-
-**替代概率、被锁死人天不再进入评分**：前者仅用于稀缺度分档展示（§7.2），后者是沉没时间（§7.3）。
-两条都保留在 `OcRecommendScore` / 上下文里，但排序不读取。
-
-**对外只展示百分制评分（v1.6 修订）**：货币量纲只做排序内核；R6经济分仍按固定锚点换算：
-
-```text
-经济分(1~100) = 100 × ln(1 + R6经济评分 / 0.5M) ÷ ln(1 + 12M / 0.5M)
-```
-
-- 完整展示分再按「分组 → rank → 核心/大众 → R6经济分」的固定带宽合成，与最终顺序单调不减；整数四舍五入允许同分。
-- ΔV只在同OC内决胜，不新增ΔV金额展示锚点；展示分不反向参与比较。
-- 徽章与理由**不出现任何金额**（基线 C-M9 / R33），金额只留在 `expectedNetPerMemberDay` 供回放诊断。
+- 使用稳定选择排序执行成对规则，避免把条件规则直接交给依赖传递性的 `Comparator`；候选规模为真实回放最大88ms/次。
+- baseline与最终列表共用同一成对比较；有进度只看当前队、无进度可跨队、同队空位不受baseline过滤。
+- 批量分配使用OC副本携带推进后的readyTime，并在每次分配后递减剩余空位，下一个人的时间与空位决胜都使用最新状态。
+- 展示分使用 `OcRecommendRating.ratingOfOrder(priority)`：`max(1,100-priority)`，priority从0开始；业务并列同分。
+- R6对数分仅作诊断。徽章与理由仍不出现金额，`expectedNetPerMemberDay` 只供回放诊断。
 
 ### 7.2 替代概率（v1.2：仅用于稀缺度分档）
 
@@ -367,13 +357,13 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 ### 7.4 比较器与决胜
 
 ```text
-① 锚点分组：主推荐 → 负ΔV后置 → 高等级后置
-② rank 降序
-③ 核心岗优先于大众岗
-④ R6评分降序（单位人天产出 × 开动紧迫度）
-⑤ 单位人天产出、期望人天、剩余空位数等既有经济决胜键
-⑥ ocId 确定不同队伍后，同OC按ΔV降序选坑
-⑦ slotId 升序
+① 锚点分组：主推荐 → 负ΔV后置 → 高层级后置
+② 同ocId：ΔV降序，相同则业务并列
+③ 不同ocId：真实readyTime（同rank核心先减8h容差；新队取2.5h）
+④ 时间相同：有效层级tier降序
+⑤ tier相同且rank/核心类型相同：ΔV降序，V1不直接跨OC决胜
+⑥ 剩余空位数升序
+⑦ ocId / slotId仅作稳定输出
 ```
 
 排序后只做一件事：
@@ -507,7 +497,7 @@ update torn_setting_oc set expected_reward = 148600000, update_time = now()
 |---|---|---|
 | `MEMBER_DAYS_PER_SLOT` | `6.0` | v1.3 改为实测占用中位数：3 级 6.56 / 4 级 5.57 / 5 级 5.00 / 6 级 5.78 / 7 级 6.02 / 8 级 5.69 / 9 级 6.02 / 10 级 6.53，合计取 6.0（旧值 4.5 系统性低估约 25%，基线 C-M6） |
 | `MEASURED_PRIOR_ATTEMPTS` | `10` | v1.3 新增：可信度加权权重（伪尝试次数），取代 `MIN_MEASURED_SAMPLES = 3` 的硬门槛（基线 C-M8） |
-| `RATING_BASE_VALUE` / `RATING_FULL_VALUE` | `0.5M / 12M` | R6经济分的固定锚点（基线 C-M9）；完整展示分另按分组/rank/核心大众带宽合成，不新增ΔV金额锚点 |
+| `RATING_BASE_VALUE` / `RATING_FULL_VALUE` | `0.5M / 12M` | 仅用于R6诊断分；最终展示分由 `ratingOfOrder` 按业务优先级生成，业务并列同分 |
 
 五个值都以 `public static final` 常量集中在一个 `final` 类里，不引入 `@ConfigurationProperties`：当前没有按帮派差异化调整的需求，新增配置管道只会增加装配复杂度。每个常量行末必须注释标注数据来源（实测窗口与口径），避免后续维护时被误改。
 
@@ -521,9 +511,9 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
 
 同一次校验顺带覆盖反向情况：开关已启用但名单为空——此时 `TornOcBatchIncomeService` 会在入口直接跳过，该帮派收益永远不动。
 
-### 9.4 Schema 边界（v1.6）
+### 9.4 Schema 边界（v1.7）
 
-初版R6无DDL。v1.6仅新增 `torn_setting_oc_flow_node.reward_value`（`IF NOT EXISTS`）和 `LOCK_HOSTILE` 缺失链配置；固定标尺复用 `torn_setting_oc_slot`，不建替补表。生产已手工加列，迁移必须兼容两种执行顺序。
+本轮真实时间排序不新增DDL。既有 `reward_value`（`IF NOT EXISTS`）和 `LOCK_HOSTILE` 缺失链配置保持不变；固定标尺复用 `torn_setting_oc_slot`，不建替补表。生产已手工加列，迁移必须兼容两种执行顺序。
 
 ---
 
@@ -544,14 +534,16 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
 
 ## 11. 测试方案（收敛）
 
-### 11.1 聚焦测试（v1.6）
+### 11.1 聚焦测试（v1.7）
 
 | 测试类 | 覆盖 |
 |---|---|
 | `OcYieldEstimatorTest` | ① 实测策略取 `income` 聚合值；② 映射策略在 `expected_reward` 缺失时退回等级表；③ 链归约：奖励只取叶子、人天累加全部步骤；④ 纯道具奖励不为 0；⑤ 配置缺岗位人数时按实际岗位数折算人天；⑥ 实测与映射按样本量加权（v1.3） |
-| `OcRecommendRankerTest` | R6与紧迫度回归；核心胜任锚点；无核心时非负大众兜底；负ΔV与高等级后置；ΔV只在同OC选坑；缺数据不等于ΔV=0；baseline同口径；展示分与最终顺序单调不减 |
+| `OcRecommendRankerTest` | 全部控制变量场景：同rank/core时间、核心8h容差、跨rank、7核心=8大众、跨OC与同ocId ΔV、ΔV相同并列、末位/非末位空位、新队2~3h、分钟级与已停转、同名不同ocId；负ΔV/缺数据/baseline/展示分回归 |
 | `OcFlowValuatorTest` | 分结局加权、FAIL→GOOD_END、前置链值、缺奖励不可用、参与者归一化、固定标尺与85上限 |
 | `OcFlowMarginServiceTest`（显式开关） | 真实DO/Graph/Mapper读取，通用岗位表下3359579的33个候选及BTB/CP/StD/Hostile数值 |
+| `OcOriginalUserReplayTest`（显式开关） | 原三名用户全类型OC、全空场景；记录v1.7新首选及其ΔV依据，不把旧R6顺序当验收目标 |
+| `OcKingdeeReplayTest`（显式开关） | 加入前真实阵容、真实估算器和DAG；验证Ship `Hustler#1`因更早停转且ΔV为正而排前 |
 
 聚焦测试不使用 Spring；真实数据库验证只在显式开关下运行，避免能力上涨导致普通CI误失败。
 
@@ -562,7 +554,7 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
 | 测试类 | 追加的回归 |
 |---|---|
 | `TornOcRecommendServiceTest` | 名单外 OC 出现在结果里；严格准入无记录/不达标返回空；`readyTime == null` 不抛异常；同等级同等产出时停转优先 |
-| `TornOcAssignServiceTest` | 名单外 OC 参与批量分配；分配后共享 `TornFactionOcDO.readyTime` 未被修改（B5） |
+| `TornOcAssignServiceTest` | 名单外OC参与批量分配；共享DO不被改写；前序分配推进24h后下一人使用推进时间改选更早队伍；无合格岗位返回null |
 | `TornOcRecommendManagerTest` | 理由文案与改动前逐字一致（保护 `OcRecommendBadgeResolver`） |
 
 ### 11.3 明确不做的测试
@@ -582,7 +574,7 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
   记录：推荐集合差异数、命中的 OC 是否在名单内、机会成本 Top-1 的替代概率
 ```
 
-判据：同一快照重复推荐必须可复现，停转队不能被挤出 Top-3；严格成功率准入导致的空结果单独统计，不误判为评分缺陷；真实分配逐人重算且同一空位不重复。v1.6 另运行 `OcFlowMarginServiceTest` 验证真实DAG边际。
+判据：同一快照重复推荐必须可复现，停转队不能被挤出 Top-3；严格成功率准入导致的空结果单独统计；真实分配逐人重算且同一空位不重复、推进时间进入下一人排序。v1.7 另运行 `OcOriginalUserReplayTest` 核对原全空场景的变化，并保留Kingdee时间场景单测。
 
 ---
 
@@ -622,11 +614,11 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
 2. §11.1、§11.2 的聚焦测试通过，且全量测试无新增失败；
 3. `OcFlowBacktestTest`、`OcFlowMarginServiceTest` 与 §11.4 的真实只读回放通过并归档；
 4. `reward_value` 与 `LOCK_HOSTILE` 迁移在“已存在/缺失”两种状态下均幂等；
-5. 缺图、缺奖励、缺链值均回退R6且不误当ΔV=0，baseline与最终排序使用同一业务键。
+5. 缺图、缺奖励、缺链值均为null且不误当ΔV=0；候选仍按时间/层级/空位推荐，baseline与最终排序使用同一业务键。
 
 **停止条件**（遇到即停并上报，不自行绕过）：
 
 1. 回放把停转队挤出 Top-3，或出现无法解释的错配；
 2. 映射值与业务基线 4.9 的实测值差异超过 20%；
 3. 需要新增替补表、改分钱系数、巡检或OC新队规划器才能完成本次评分；
-4. 为通过验收而合并短码坑位、按单OC单独调标尺、跨OC直接比较ΔV或删除负ΔV候选。
+4. 为通过验收而合并短码坑位、按单OC单独调标尺、全池直接按ΔV排序或删除负ΔV候选。

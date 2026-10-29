@@ -10,21 +10,17 @@ import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldSourceEnum;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * 推荐评分与排序器。
  *
  * <p>先用核心岗非负ΔV确定最高胜任等级，再按主推荐、负边际后置、高等级后置分组。
- * 组内依次按等级、核心/大众、R6单位人天产出×紧迫度排序；只有同一OC的R6并列时才用ΔV选坑。
- * 无图或奖励不全的候选边际为null，不参与锚点计算，但仍保留并按R6推荐。</p>
+ * 现有队伍不再按长期单位人天收益排序，而是先比较真实停转时间；同时间再比较等级、
+ * 核心/大众、个人DAG边际和剩余空位。同一ocId内只按ΔV选坑，同名不同队伍不得混用。</p>
  *
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.10.23
  */
 @Component
@@ -35,11 +31,13 @@ public class OcRecommendRanker {
     private static final int MAIN_GROUP = 0;
     private static final int NEGATIVE_GROUP = 1;
     private static final int ABOVE_ANCHOR_GROUP = 2;
+    private static final int CORE_TIME_TOLERANCE_HOURS = 8;
+    private static final int NEW_TEAM_WAIT_MINUTES = 150;
 
     private final OcScarcityEstimator scarcityEstimator;
 
     /**
-     * 计算单个候选的R6推荐评分。
+     * 计算单个候选的R6诊断评分；该评分不再决定现有队伍的跨OC顺序。
      *
      * @param candidate 候选岗位
      * @param context   排序上下文
@@ -61,12 +59,12 @@ public class OcRecommendRanker {
     }
 
     /**
-     * 计算评分、最高胜任等级和展示分，并按同一比较器完成基线过滤与排序。
+     * 计算最高胜任等级，按真实停转时间与DAG边际排序，并生成允许并列的展示分。
      *
      * @param candidates 候选岗位列表
      * @param baseline   成员当前岗位；未加入OC时为null
      * @param context    排序上下文
-     * @return 完成基线过滤并按完整业务键排序的候选列表
+     * @return 完成基线过滤并按完整业务规则排序的候选列表
      */
     public List<OcRecommendCandidate> rank(List<OcRecommendCandidate> candidates,
                                            OcRecommendCandidate baseline,
@@ -78,23 +76,17 @@ public class OcRecommendRanker {
                 ? null : baseline.withScore(evaluate(baseline, context));
         int anchor = resolveAnchor(evaluated, evaluatedBaseline);
 
-        List<OcRecommendCandidate> scored = evaluated.stream()
-                .map(candidate -> withDisplayRating(candidate, anchor))
+        List<OcRecommendCandidate> filtered = evaluated.stream()
+                .filter(candidate -> evaluatedBaseline == null
+                        || sameOc(candidate, evaluatedBaseline)
+                        || compareBusinessPriority(candidate, evaluatedBaseline, context, anchor) < 0)
                 .toList();
-        OcRecommendCandidate scoredBaseline = evaluatedBaseline == null
-                ? null : withDisplayRating(evaluatedBaseline, anchor);
-        Comparator<OcRecommendCandidate> comparator = buildComparator(context, anchor);
-        Comparator<OcRecommendCandidate> economicComparator = buildEconomicComparator(context, anchor);
-        return scored.stream()
-                .filter(candidate -> scoredBaseline == null
-                        || sameOc(candidate, scoredBaseline)
-                        || economicComparator.compare(candidate, scoredBaseline) < 0)
-                .sorted(comparator)
-                .toList();
+        List<OcRecommendCandidate> sorted = sortCandidates(filtered, context, anchor);
+        return withDisplayRatings(sorted, context, anchor);
     }
 
     /**
-     * 最高核心胜任等级；没有核心胜任时退到最高非负岗位等级。
+     * 最高核心胜任层级；没有核心胜任时退到最高非负岗位层级。
      *
      * @param candidates 候选岗位列表
      * @param baseline   成员当前岗位；未加入OC时为null
@@ -108,8 +100,7 @@ public class OcRecommendRanker {
         Integer coreAnchor = all.stream()
                 .filter(candidate -> candidate.marginalValue() != null
                         && candidate.marginalValue().signum() >= 0 && isCore(candidate))
-                .map(candidate -> candidate.oc().getRank())
-                .filter(Objects::nonNull)
+                .map(this::effectiveTier)
                 .max(Integer::compareTo)
                 .orElse(null);
         if (coreAnchor != null) {
@@ -117,8 +108,7 @@ public class OcRecommendRanker {
         }
         Integer positiveAnchor = all.stream()
                 .filter(candidate -> candidate.marginalValue() != null && candidate.marginalValue().signum() >= 0)
-                .map(candidate -> candidate.oc().getRank())
-                .filter(Objects::nonNull)
+                .map(this::effectiveTier)
                 .max(Integer::compareTo)
                 .orElse(null);
         if (positiveAnchor != null) {
@@ -126,8 +116,7 @@ public class OcRecommendRanker {
         }
         return all.stream()
                 .filter(candidate -> candidate.marginalValue() != null)
-                .map(candidate -> candidate.oc().getRank())
-                .filter(Objects::nonNull)
+                .map(this::effectiveTier)
                 .max(Integer::compareTo)
                 .orElse(Integer.MAX_VALUE);
     }
@@ -143,86 +132,178 @@ public class OcRecommendRanker {
         if (candidate.marginalValue() == null) {
             return MAIN_GROUP;
         }
-        if (candidate.oc().getRank() > anchor) {
+        if (effectiveTier(candidate) > anchor) {
             return ABOVE_ANCHOR_GROUP;
         }
         return candidate.marginalValue().signum() >= 0 ? MAIN_GROUP : NEGATIVE_GROUP;
     }
 
     /**
-     * 按候选所在分组、等级、岗位类型和R6评分生成展示分。
+     * 使用稳定选择排序执行成对业务规则，避免核心时间容差等条件规则破坏比较器传递性。
      *
-     * @param candidate 已计算R6评分的候选
-     * @param anchor    最高胜任等级
-     * @return 写入展示分的候选副本
+     * @param candidates 待排序候选
+     * @param context    排序上下文
+     * @param anchor     最高胜任等级
+     * @return 按业务优先级排序的新列表
      */
-    private OcRecommendCandidate withDisplayRating(OcRecommendCandidate candidate, int anchor) {
-        int group = groupOf(candidate, anchor);
-        int rating = OcRecommendRating.ratingOf(group, candidate.oc().getRank(), isCore(candidate),
-                candidate.score().score());
-        return candidate.withScore(candidate.score().withDisplayRating(rating));
+    private List<OcRecommendCandidate> sortCandidates(List<OcRecommendCandidate> candidates,
+                                                      OcRankContext context, int anchor) {
+        List<OcRecommendCandidate> remaining = new ArrayList<>(candidates);
+        remaining.sort(this::compareStableIds);
+        List<OcRecommendCandidate> result = new ArrayList<>(remaining.size());
+        while (!remaining.isEmpty()) {
+            int bestIndex = 0;
+            for (int index = 1; index < remaining.size(); index++) {
+                if (compareBusinessPriority(remaining.get(index), remaining.get(bestIndex), context, anchor) < 0) {
+                    bestIndex = index;
+                }
+            }
+            result.add(remaining.remove(bestIndex));
+        }
+        return result;
     }
 
     /**
-     * 构建包含确定性决胜键的完整排序比较器。
+     * 比较两个候选的业务优先级；返回值小于0表示左侧应排在前面。
      *
+     * @param left    左侧候选
+     * @param right   右侧候选
      * @param context 排序上下文
      * @param anchor  最高胜任等级
-     * @return 完整排序比较器
+     * @return 业务优先级比较结果，0表示业务并列
      */
-    private Comparator<OcRecommendCandidate> buildComparator(OcRankContext context, int anchor) {
-        return buildSharedPrefix(context, anchor)
-                .thenComparing(candidate -> candidate.oc().getId(),
-                        Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(this::compareSameOcMarginal)
-                .thenComparing(candidate -> candidate.slot().getId(),
-                        Comparator.nullsLast(Comparator.naturalOrder()));
+    private int compareBusinessPriority(OcRecommendCandidate left, OcRecommendCandidate right,
+                                        OcRankContext context, int anchor) {
+        int groupCompare = Integer.compare(groupOf(left, anchor), groupOf(right, anchor));
+        if (groupCompare != 0) {
+            return groupCompare;
+        }
+        if (sameOc(left, right)) {
+            return compareMarginal(left, right);
+        }
+
+        int timeCompare = compareReadyTime(left, right, context);
+        if (timeCompare != 0) {
+            return timeCompare;
+        }
+        int tierCompare = Integer.compare(effectiveTier(right), effectiveTier(left));
+        if (tierCompare != 0) {
+            return tierCompare;
+        }
+        if (sameRankAndCoreType(left, right)) {
+            int marginalCompare = compareMarginal(left, right);
+            if (marginalCompare != 0) {
+                return marginalCompare;
+            }
+        }
+        return Integer.compare(emptySlots(context, left), emptySlots(context, right));
     }
 
     /**
-     * baseline与最终排序共用的业务键，不含会诱发反复换岗的ID决胜。
+     * 比较真实停转时间；同rank跨OC的核心岗对大众岗享有8小时时间容差。
      *
+     * @param left    左侧候选
+     * @param right   右侧候选
      * @param context 排序上下文
-     * @param anchor  最高胜任等级
-     * @return 用于当前岗位基线比较的业务比较器
+     * @return 较早者排在前面；已停转按实际停转先后比较
      */
-    private Comparator<OcRecommendCandidate> buildEconomicComparator(OcRankContext context, int anchor) {
-        return buildSharedPrefix(context, anchor)
-                .thenComparing(this::compareSameOcMarginal);
+    private int compareReadyTime(OcRecommendCandidate left, OcRecommendCandidate right, OcRankContext context) {
+        boolean coreTolerance = Objects.equals(left.oc().getRank(), right.oc().getRank())
+                && isCore(left) != isCore(right);
+        LocalDateTime leftTime = readyTimeOf(left, context);
+        LocalDateTime rightTime = readyTimeOf(right, context);
+        if (coreTolerance) {
+            leftTime = leftTime.minusHours(isCore(left) ? CORE_TIME_TOLERANCE_HOURS : 0);
+            rightTime = rightTime.minusHours(isCore(right) ? CORE_TIME_TOLERANCE_HOURS : 0);
+        }
+        return leftTime.compareTo(rightTime);
     }
 
     /**
-     * 构建分组、等级、岗位类型与R6经济键组成的共用比较前缀。
+     * 获取候选用于排序的时间；新队位于明确等待2小时与3小时之间。
      *
-     * @param context 排序上下文
-     * @param anchor  最高胜任等级
-     * @return 完整排序与基线比较共用的比较器前缀
+     * @param candidate 候选岗位
+     * @param context   排序上下文
+     * @return 实际readyTime，或新队的2.5小时虚拟时间层
      */
-    private Comparator<OcRecommendCandidate> buildSharedPrefix(OcRankContext context, int anchor) {
-        return Comparator
-                .comparingInt((OcRecommendCandidate candidate) -> groupOf(candidate, anchor))
-                .thenComparing(candidate -> candidate.oc().getRank(),
-                        Comparator.nullsLast(Comparator.reverseOrder()))
-                .thenComparing(this::isCore, Comparator.reverseOrder())
-                .thenComparing(candidate -> candidate.score().score(), Comparator.reverseOrder())
-                .thenComparing(candidate -> candidate.score().unitMemberDayValue(), Comparator.reverseOrder())
-                .thenComparing(candidate -> candidate.estimate().expectedMemberDays())
-                .thenComparing(candidate -> emptySlots(context, candidate));
+    private LocalDateTime readyTimeOf(OcRecommendCandidate candidate, OcRankContext context) {
+        LocalDateTime readyTime = candidate.oc().getReadyTime();
+        return readyTime == null ? context.now().plusMinutes(NEW_TEAM_WAIT_MINUTES) : readyTime;
     }
 
     /**
-     * ΔV只在同一OC名称与等级内选坑，绝不直接跨OC比较金额。
+     * 计算同时间使用的等级层级：核心岗相当于提高一级，7级核心与8级大众并列。
+     *
+     * @param candidate 候选岗位
+     * @return 等级与岗位类型合成的层级
+     */
+    private int effectiveTier(OcRecommendCandidate candidate) {
+        int rank = candidate.oc().getRank() == null ? 0 : candidate.oc().getRank();
+        return rank + (isCore(candidate) ? 1 : 0);
+    }
+
+    /**
+     * 判断两个候选是否属于同rank且同为核心或大众岗。
      *
      * @param left  左侧候选
      * @param right 右侧候选
-     * @return 同一OC内按ΔV降序的比较结果；不同OC返回0
+     * @return 同rank且岗位类型一致时返回true
      */
-    private int compareSameOcMarginal(OcRecommendCandidate left, OcRecommendCandidate right) {
-        if (!sameOcType(left, right)) {
-            return 0;
-        }
+    private boolean sameRankAndCoreType(OcRecommendCandidate left, OcRecommendCandidate right) {
+        return Objects.equals(left.oc().getRank(), right.oc().getRank()) && isCore(left) == isCore(right);
+    }
+
+    /**
+     * 按个人DAG边际降序比较；缺图或缺奖励的null排在真实边际之后。
+     *
+     * @param left  左侧候选
+     * @param right 右侧候选
+     * @return ΔV高者排前，双方相同或均为null时返回0
+     */
+    private int compareMarginal(OcRecommendCandidate left, OcRecommendCandidate right) {
         return Comparator.nullsLast(Comparator.<BigDecimal>reverseOrder())
                 .compare(left.marginalValue(), right.marginalValue());
+    }
+
+    /**
+     * 为排序结果生成单调不减的展示分，业务并列候选使用相同分数。
+     *
+     * @param sorted  已排序候选
+     * @param context 排序上下文
+     * @param anchor  最高胜任等级
+     * @return 写入展示分的候选列表
+     */
+    private List<OcRecommendCandidate> withDisplayRatings(List<OcRecommendCandidate> sorted,
+                                                          OcRankContext context, int anchor) {
+        List<OcRecommendCandidate> result = new ArrayList<>(sorted.size());
+        OcRecommendCandidate previous = null;
+        int priority = 0;
+        for (OcRecommendCandidate candidate : sorted) {
+            if (previous != null && compareBusinessPriority(previous, candidate, context, anchor) != 0) {
+                priority++;
+            }
+            int rating = OcRecommendRating.ratingOfOrder(priority);
+            result.add(candidate.withScore(candidate.score().withDisplayRating(rating)));
+            previous = candidate;
+        }
+        return result;
+    }
+
+    /**
+     * 比较确定性ID决胜键，不参与业务并列判断。
+     *
+     * @param left  左侧候选
+     * @param right 右侧候选
+     * @return ocId与slotId升序比较结果
+     */
+    private int compareStableIds(OcRecommendCandidate left, OcRecommendCandidate right) {
+        int ocCompare = Comparator.nullsLast(Comparator.<Long>naturalOrder())
+                .compare(left.oc().getId(), right.oc().getId());
+        if (ocCompare != 0) {
+            return ocCompare;
+        }
+        return Comparator.nullsLast(Comparator.<Long>naturalOrder())
+                .compare(left.slot().getId(), right.slot().getId());
     }
 
     /**
@@ -234,18 +315,6 @@ public class OcRecommendRanker {
     private boolean isCore(OcRecommendCandidate candidate) {
         return candidate.requirement().getPassRate() != null
                 && candidate.requirement().getPassRate() >= CORE_THRESHOLD;
-    }
-
-    /**
-     * 判断两个候选是否属于相同名称和等级的OC。
-     *
-     * @param left  左侧候选
-     * @param right 右侧候选
-     * @return OC名称与等级均相同时返回true
-     */
-    private boolean sameOcType(OcRecommendCandidate left, OcRecommendCandidate right) {
-        return Objects.equals(left.oc().getName(), right.oc().getName())
-                && Objects.equals(left.oc().getRank(), right.oc().getRank());
     }
 
     /**
@@ -316,14 +385,5 @@ public class OcRecommendRanker {
             this(emptySlotsByOc, userId, now, OcScarcityEstimator.indexBySlot(factionOcData));
         }
 
-        /**
-         * 复制排序上下文并替换当前成员，供批量分配逐人使用。
-         *
-         * @param newUserId 新的当前成员ID
-         * @return 替换成员后的排序上下文
-         */
-        public OcRankContext withUserId(Long newUserId) {
-            return new OcRankContext(emptySlotsByOc, newUserId, now, slotIndex);
-        }
     }
 }

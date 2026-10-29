@@ -8,20 +8,14 @@ import java.math.BigDecimal;
 /**
  * 推荐评分到百分制的换算。
  *
- * <p>排序内核是货币量纲的「单位人天产出 × 开动紧迫度」，但货币不适合直接展示：它是估计值，
- * 展示成精确金额会被当成账本，任何估算误差都会变成对公式的质疑。因此对外只展示0至100的评分，
- * 完整排序再叠加锚点分组、OC等级和核心/大众带宽，展示分与最终顺序单调不减，整数四舍五入允许同分。</p>
+ * <p>R6货币分只用于诊断。最终展示分由完整业务排序生成，业务并列候选同分，
+ * 不再把长期单位人天收益、等级或核心标签换算成会反超真实停转时间的固定带宽。</p>
  *
- * <p>换算用对数而不是线性：OC产出跨等级差异极大（7级约2至3M/人天，9级约14M/人天），
- * 线性换算会让绝大多数真实推荐挤在个位数分，或者让9级队一律顶到100分饱和。
- * 对数把「高一倍」映射成固定的分数增量，10分以内的小差距仍可见，极端值也不饱和。</p>
- *
- * <p>锚点固定，不随候选池浮动：{@link OcRecommendTunings#RATING_BASE_VALUE}折0分，
- * {@link OcRecommendTunings#RATING_FULL_VALUE}折100分。固定锚点保证同一支队在任何一次推荐里
- * 拿到同一个分数，不会因为「这一批候选里谁最强」而变脸。</p>
+ * <p>只有R6诊断分使用0.5M/12M固定锚点和对数刻度。最终展示分不承诺跨请求固定，
+ * 因为补位优先级取决于当时候选池、真实readyTime和成员DAG边际。</p>
  *
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.10.25
  */
 @NoArgsConstructor(access = AccessLevel.NONE)
@@ -38,13 +32,6 @@ public final class OcRecommendRating {
      * 百分制满分的分子。
      */
     private static final double FULL_PERCENT = 100.0;
-    /**
-     * 每个排序层级的展示间隔，只用于百分制，不反向参与排序。
-     */
-    private static final long DISPLAY_BAND = 1000L;
-    private static final int RANK_SPAN = 11;
-    private static final int MAX_OC_RANK = 10;
-
     /**
      * 把货币量纲的推荐评分换算成百分制评分。
      *
@@ -64,26 +51,12 @@ public final class OcRecommendRating {
     }
 
     /**
-     * 把完整排序的前三级与R6经济分合成单调不减的百分制展示分。
+     * 把业务优先级序号换算成展示分；同一序号的业务并列候选同分。
      *
-     * <p>分组、等级和核心/大众只决定展示带宽，实际顺序仍由Ranker的比较器决定；
-     * 同OC内R6相同，ΔV只改变顺序而不会造成展示分逆序。整数四舍五入允许同分。</p>
-     *
-     * @param recommendationGroup 0主推荐、1锚点及以下负边际后置、2高等级后置
-     * @param ocRank              OC等级
-     * @param core                是否核心岗
-     * @param economicScore       R6单位人天产出乘开动紧迫度
+     * @param priority 从0开始的业务优先级序号，越小越优先
      * @return 1~100的展示分
      */
-    public static int ratingOf(int recommendationGroup, int ocRank, boolean core, BigDecimal economicScore) {
-        int group = Math.clamp(recommendationGroup, 0, 2);
-        int groupPriority = 2 - group;
-        int rank = Math.clamp(ocRank, 1, MAX_OC_RANK);
-        int coreFlag = core ? 1 : 0;
-        long ordinal = ((long) (groupPriority * RANK_SPAN + rank) * 2 + coreFlag) * DISPLAY_BAND
-                + ratingOf(economicScore);
-        long maxOrdinal = ((long) (2 * RANK_SPAN + MAX_OC_RANK) * 2 + 1) * DISPLAY_BAND + MAX_RATING;
-        int rating = (int) Math.round(1 + (FULL_PERCENT - 1) * ordinal / maxOrdinal);
-        return Math.clamp(rating, MIN_RATING, MAX_RATING);
+    public static int ratingOfOrder(int priority) {
+        return Math.clamp(MAX_RATING - Math.max(0, priority), MIN_RATING, MAX_RATING);
     }
 }

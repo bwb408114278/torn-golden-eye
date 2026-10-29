@@ -28,20 +28,19 @@ import pn.torn.goldeneye.torn.service.faction.oc.recommend.rank.OcScarcityEstima
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * OC分配服务测试：覆盖准入判定、停转队优先与共享OC对象不被改写。
  *
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.08.20
  */
 @ExtendWith(MockitoExtension.class)
@@ -188,6 +187,35 @@ class TornOcAssignServiceTest {
 
         assertThat(result.get(user)).isNotNull();
         assertThat(result.get(user).getOcId()).isIn(firstOc.getId(), secondOc.getId());
+    }
+
+    @Test
+    @DisplayName("前序分配推进24小时后下一人改选更早队伍")
+    void assign_shouldUseAdvancedReadyTimeForNextUser() {
+        LocalDateTime now = LocalDateTime.now();
+        TornFactionOcDO firstOc = buildOc(1L, now.plusHours(1));
+        TornFactionOcDO secondOc = buildOc(2L, now.plusHours(2));
+        TornFactionOcSlotDO firstChoice = buildSlot(11L, firstOc.getId());
+        TornFactionOcSlotDO remainingFirstOc = buildSlot(12L, firstOc.getId());
+        TornFactionOcSlotDO secondChoice = buildSlot(21L, secondOc.getId());
+        stubCandidates(List.of(firstOc, secondOc), List.of(firstChoice, remainingFirstOc, secondChoice),
+                Map.of(1L, estimate(300_000_000L, 6), 2L, estimate(300_000_000L, 6)));
+
+        TornUserDO secondUser = new TornUserDO();
+        secondUser.setId(101L);
+        secondUser.setFactionId(FACTION_ID);
+        TornFactionOcUserDO secondUserData = new TornFactionOcUserDO();
+        secondUserData.setUserId(101L);
+        secondUserData.setFactionId(FACTION_ID);
+        secondUserData.setPassRate(80);
+        Map<TornUserDO, List<TornFactionOcUserDO>> users = new LinkedHashMap<>();
+        users.put(user, List.of(userData));
+        users.put(secondUser, List.of(secondUserData));
+
+        Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(FACTION_ID, users);
+
+        assertThat(result.get(user).getOcId()).isEqualTo(1L);
+        assertThat(result.get(secondUser).getOcId()).isEqualTo(2L);
     }
 
     private void stubCandidates(List<TornFactionOcDO> ocs, List<TornFactionOcSlotDO> slots,

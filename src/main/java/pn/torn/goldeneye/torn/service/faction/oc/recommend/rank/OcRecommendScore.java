@@ -7,9 +7,9 @@ import java.math.BigDecimal;
 /**
  * 一个候选岗位的推荐评分快照。
  *
- * <p>一个候选岗位的推荐评分快照。R6评分 = 单位人天产出 × 开动紧迫度，负责跨OC经济比较；
- * 完整推荐还由OcRecommendRanker按最高胜任等级、核心/大众和同OC ΔV排序。
- * displayRating只在完整排序后生成，与最终顺序单调不减。</p>
+ * <p>R6评分 = 单位人天产出 × 开动紧迫度，仅保留为长期效率诊断。
+ * 完整推荐由OcRecommendRanker按最高胜任等级、真实停转时间、岗位层级和DAG ΔV排序；
+ * displayRating在完整排序后生成，与最终顺序单调不减，业务并列候选同分。</p>
  *
  * <p>两个R6因子都恒为非负，DAG负ΔV也不会导致候选被过滤。替代概率只用于稀缺度展示。</p>
  *
@@ -21,12 +21,12 @@ import java.math.BigDecimal;
  *
  * @param unitMemberDayValue    单位人天产出，期望净产出除以期望人天，货币单位（元/人天）
  * @param startUrgency          开动紧迫度，取值0.10至1.00
- * @param score                 推荐评分，单位人天产出乘以开动紧迫度，排序键
+ * @param score                 R6诊断评分，单位人天产出乘以开动紧迫度，不参与现有队伍跨OC排序
  * @param substituteProbability 替代概率，null表示未知，仅用于稀缺度分档
  * @param substituteCount       除本人之外可填该岗位的人数，null表示未知
  * @param displayRating         完整排序后的百分制展示分；未计算时回退R6货币分换算
  * @author Bai
- * @version 1.9.5
+ * @version 1.9.6
  * @since 2026.10.25
  */
 public record OcRecommendScore(
@@ -55,9 +55,9 @@ public record OcRecommendScore(
     }
 
     /**
-     * 把货币量纲的排序键换算成对外展示的百分制评分。
+     * 获取完整业务排序对应的百分制展示分。
      *
-     * <p>完整排序的分组、等级、核心/大众和R6共同保证展示分与最终顺序单调不减，整数四舍五入允许同分。</p>
+     * <p>展示分与最终顺序单调不减，业务并列候选同分；未排序时回退R6诊断分换算。</p>
      *
      * @return 百分制评分，取值1至100
      */
