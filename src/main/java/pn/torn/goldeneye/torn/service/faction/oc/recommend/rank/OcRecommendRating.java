@@ -57,6 +57,6 @@ public final class OcRecommendRating {
      * @return 1~100的展示分
      */
     public static int ratingOfOrder(int priority) {
-        return Math.clamp(MAX_RATING - Math.max(0, priority), MIN_RATING, MAX_RATING);
+        return Math.clamp((long) MAX_RATING - Math.max(0, priority), MIN_RATING, MAX_RATING);
     }
 }
