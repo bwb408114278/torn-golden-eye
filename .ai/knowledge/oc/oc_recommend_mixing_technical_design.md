@@ -7,7 +7,7 @@
 - **适用版本：** 1.9.x（分支 `feat-oc`）
 - **关联业务文档：** `.ai/knowledge/oc/oc_recommend_mixing_baseline.md`（长期业务基线；结论编号 C-A..C-L，撤销清单 R1–R26）
 - **适用功能：** `OC推荐`（`OcRecommendStrategyImpl`）、`OC分配`（`TornOcAssignService`）
-- **设计状态：** v1.7 真实时间与DAG补位排序已实施并完成聚焦验证；待技术专家 Review
+- **设计状态：** v1.8 大锅饭候选分层已实施并完成聚焦与shimri真实回放验证；待技术专家 Review
 - **风险等级：** L3（收益与金额口径、成员资源占用、共享 DO 被就地改写、配置缺省回退）
 - **维护职责：** AI 技术专家维护本文；开发人员只按本文改代码、数据与测试，不自行调整口径
 
@@ -23,8 +23,9 @@
 | v1.5 | 2026-10-26 | **评分层拆分为独立方案**：个人 × 岗位的边际价值（ΔV）改用 DAG 求值并按帮派增量排序，队级「单位人天产出」降为无图 OC 的回退口径。口径、替补标尺、结局奖励表与验收用例见 `.ai/knowledge/oc/oc_position_marginal_value_design.md`（v0.1）。本文 §7 的排序键在接入后由新方案取代 |
 | v1.6 | 2026-10-27 | **DAG个人×岗位方案实施**：§7改为最高胜任等级分组、R6跨OC、同OC ΔV；展示分与完整顺序单调不减；补rewardValue、缺奖励回退、分配后基准队伍与Lock Stock链初始化。业务基线v2.8、评分方案v0.7同步 |
 | v1.7 | 2026-10-29 | **真实时间与DAG补位排序实施**：§7改为有效层级锚点、真实readyTime、核心8h容差、新队2.5h、同时间ΔV和同ocId选坑；展示分按业务优先级且允许并列；分配推进时间进入下一人候选OC；原三用户与6帮真实回放同步。业务基线v2.9、评分方案v0.8同步 |
+| v1.8 | 2026-10-31 | **大锅饭候选分层实施**：推荐与分配在严格准入后、DAG计算前调用 `getRotationOcNames`；有可填大锅饭候选时排除其他OC，无候选才下探。推荐遇非大锅饭baseline且存在大锅饭候选时清除baseline；当前大锅饭及下探保留baseline。shimri回放转为7级WoO/BftP。业务基线v2.10、评分方案v0.9同步 |
 
-> 本文回答「改哪些文件、改成什么样、怎么验证」。业务口径一律以业务基线为准，本文不重新定义口径；出现冲突时以业务基线为准，并同步修订本文。v1.7 起，§7、§8.6、§9.2 与 §11 按真实时间和DAG补位排序描述；此前实施步骤只作历史记录。
+> 本文回答「改哪些文件、改成什么样、怎么验证」。业务口径一律以业务基线为准，本文不重新定义口径；出现冲突时以业务基线为准，并同步修订本文。v1.8 起，候选池先执行大锅饭分层，再按真实时间和DAG补位排序；此前实施步骤只作历史记录。
 
 ---
 
@@ -34,7 +35,7 @@
 
 | 编号 | 目标 | 验收方式 |
 |---|---|---|
-| T1 | 大锅饭名单外的 OC 能进入候选池并被推荐 | 构造一个不在 `torn_setting_oc_reassign_oc` 里、但成员成功率达标且有空位的 OC，`OC推荐` 结果包含它 |
+| T1 | 有可填大锅饭岗位时只看大锅饭，没有才下探 | 大锅饭与已停转低级队同时可填时仅返回大锅饭；大锅饭无OC/无空位/能力不足时允许名单外OC进入推荐与分配 |
 | T2 | 成功率矩阵无记录或实测不足的成员不再被错误放行 | 构造有门槛岗位但成员无记录/低于门槛，推荐结果不包含该岗位；全部无合格岗位时按C-D7返回空 |
 | T3 | 现有队伍排序统一为「真实readyTime + 有效层级 + DAG ΔV」，两种分钱模式共用同一套规则 | 同一份快照下 `EQUAL` 与 `COEFFICIENT` 帮派的候选相对顺序不因评分公式分叉；长期人天只作诊断 |
 | T4 | 把「`ready_time` 为空」识别为 **新队** 这一正常状态，而不是异常或已停转 | 对 `readyTime == null` 的招募中OC执行推荐：正常返回，新队位于明确等待2小时与3小时之间；已停转队优先于新队 |
@@ -368,8 +369,9 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 
 排序后只做一件事：
 
+- **大锅饭候选分层（v1.8）**：严格成功率准入后、DAG计算前调用 `getRotationOcNames`。存在可填大锅饭候选时只保留这些候选；为空时才保留全部下探候选，推荐与分配一致。
 - **基线过滤**：已加入 OC 时，只有严格优于当前岗位的候选才输出；baseline 与最终列表使用同一套业务键。
-  **同一支 OC 的其它空位不受该过滤影响**（换岗不损失进度）。
+  **同一支 OC 的其它空位不受该过滤影响**（换岗不损失进度）。存在大锅饭候选且baseline为非大锅饭时清除baseline，允许未开动成员直接跳入大锅饭；当前大锅饭及下探场景仍保留baseline。
 - **不做正负过滤**：DAG负ΔV与高等级不胜任候选仍输出；只有严格成功率准入没有任何可填岗位时才为空。
 
 **不做 OC 级去重**（业务基线 C-L1 / 5.11）：同一 OC 的每个空位各占一行，允许一个 OC 占满 Top-N。同队多岗位是抢位失败后的备选梯度，`emptyCountMap` 保留为经济决胜键。
@@ -386,7 +388,7 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 |---|---|
 | L53-57 入口 | 新增一次性加载：`List<TornFactionOcUserDO> factionOcData = ocUserDao.queryByFactionId(user.getFactionId())`，向后传入排序器 |
 | L69-72 | 删除「成员无成功率记录即 `return List.of()`」早退。`userOcData` 允许为空列表，交由度量层退回映射值 |
-| L79-81 + L160-168 | 删除 `shouldSkipOc` 方法与其调用，连同 `isReassign` 的生成（`checkIsReassignRecommended` 调用）与传递（`collectSlotsScore` 参数）一并删除。大锅饭名单不再参与候选过滤；`isReassign` 在推荐主链路中无活跃用途 |
+| 历史名单过滤 | 早期曾删除 `shouldSkipOc` 与 `isReassign` 传递；v1.8按C-N6在严格准入后重新引入大锅饭候选分层，但不恢复旧 `isReassign` 评分分叉 |
 | 候选构建（原 L173-189 `collectSlotsScore`） | **v1.4 修订**：口径收敛到 `OcSlotEligibility#eligible`——岗位有成功率要求时，成员必须有同一（OC、等级、岗位）的实测成功率且 ≥ 要求；矩阵无记录即不可填（撤销「能力未知按可填」）。候选构建处只保留 `eligibility == null \|\| !eligibility.eligible()` 的跳过 |
 | L85-101 排序段 | 改为构造 `List<OcRecommendCandidate>` 交给 `OcOpportunityCostRanker.rank(candidates, currentBaseline, emptyCountMap, factionOcData, now)`；本地拼接的 `recommendComparator` 删除，`emptyCountMap` 保留并作为第 ④ 决胜键传入 |
 | L143-155 `calculateCurrentScore` | 用新方法计算当前岗位的机会成本作为基线；`readyTime` 判空后再决定是否做「减一天」口径 |
@@ -401,7 +403,7 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 
 | 位置 | 改动 |
 |---|---|
-| L188-191 | 删除名单过滤分支（`isReassign && !getRotationOcNames().contains(...)` 的 `continue`），连同 `findCandidatesForUser` 内 `isReassign` 的生成（`checkIsReassignRecommended` 调用）与传递一并删除 |
+| 历史名单过滤 | 早期曾删除名单过滤及 `isReassign` 传递；v1.8在每人严格准入后重新按大锅饭候选分层，无候选才下探 |
 | L198-203 | 保留 `setting == null`、成功率不达标、已分配的跳过；`matchedData == null` 不再跳过，改由映射值承接 |
 | L206 | 评分改为机会成本口径，复用 `OcOpportunityCostRanker` 的候选构建与比较器；入口处一次性加载全帮派 `torn_faction_oc_user` 传入排序器，与推荐路径保持一致 |
 | L166 | 删除就地的 `bestMatch.oc().setReadyTime(...plusDays(1))`。分配过程中把「预期开动时间」放进局部 `Map<Long, LocalDateTime> plannedReadyMap`，只在该方法内使用，不改共享 DO（B5） |
@@ -423,7 +425,7 @@ demand   = 该 OC 当前剩余空位数（含本 slot）
 
 | 位置 | 改动 |
 |---|---|
-| L92-101 `getRotationOcNames` | 实现不变。Javadoc 增加一句：该方法只表达「分钱池包含哪些 OC」，**推荐准入不得调用** |
+| `getRotationOcNames` | 名单派生实现不变。v1.8起推荐与分配在严格准入后调用：存在可填大锅饭候选时只保留这些候选，无候选才下探；不改变DAG与排序公式 |
 
 删除或改动该方法会牵连 `TornOcIncomeService` L339、`TornOcBatchIncomeService` L95、`TornOcIncomeTransactionWorker` L215 与 `OcBenefitRankStrategyImpl`，属于分钱口径，本轮不动。
 
@@ -553,8 +555,8 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
 
 | 测试类 | 追加的回归 |
 |---|---|
-| `TornOcRecommendServiceTest` | 名单外 OC 出现在结果里；严格准入无记录/不达标返回空；`readyTime == null` 不抛异常；同等级同等产出时停转优先 |
-| `TornOcAssignServiceTest` | 名单外OC参与批量分配；共享DO不被改写；前序分配推进24h后下一人使用推进时间改选更早队伍；无合格岗位返回null |
+| `TornOcRecommendServiceTest` | 有大锅饭候选时排除已停转低级队；能力不足时下探；非大锅饭当前队允许跳入大锅饭；严格准入、新队、停转与既有baseline回归 |
+| `TornOcAssignServiceTest` | 有大锅饭候选时排除名单外OC、能力不足时下探；共享DO不被改写；推进24h进入下一人排序；无合格岗位返回null |
 | `TornOcRecommendManagerTest` | 理由文案与改动前逐字一致（保护 `OcRecommendBadgeResolver`） |
 
 ### 11.3 明确不做的测试
@@ -582,7 +584,7 @@ v1.3 已删除 `DEFAULT_DAILY_WAIT_COST`、`OCCUPANCY_COST_FACTOR`（随机会�
 
 ### P0（阻断）
 
-1. 仍存在以 `getRotationOcNames` 过滤推荐候选的代码路径；
+1. 存在可填大锅饭候选时，推荐或分配仍输出非大锅饭候选；或无大锅饭候选时无法向下探索；
 2. 仍存在 `getReadyTime().minusDays(...)` 直接调用，或把 `readyTime == null` 当成异常分支而不是「新队」状态处理；
 3. `torn_faction_oc_income.final_income` 被当作个人份额使用；
 4. 系数缺行仍返回 `BigDecimal.ZERO`；

@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
@@ -28,14 +29,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * OC队伍推荐逻辑层
  *
- * <p>候选池是该帮派全部招募中OC的空位，不再按大锅饭名单剪枝；每个候选由度量层折算长期效率，
- * 由DAG计算个人相对标尺替补的期望收益增量，再由排序器按最高胜任层级、真实停转时间与ΔV统一排序。
- * 是否在大锅饭名单只影响分钱口径，不影响推荐结果。已加入队伍时，以当前岗位的评分作为基线，
+ * <p>严格准入后优先保留大锅饭候选；没有可填的大锅饭岗位时才向下探索其他OC。
+ * 每个候选由度量层折算长期效率，由DAG计算个人相对标尺替补的期望收益增量，
+ * 再由排序器按最高胜任层级、真实停转时间与ΔV统一排序。已加入队伍时，以当前岗位的评分作为基线，
  * 只输出严格优于基线的候选（同队换岗不受此限制，换岗不损失进度也不会改变评分）。</p>
  *
  * @author Bai
@@ -53,6 +55,7 @@ public class TornOcRecommendService {
     private final TornFactionOcDAO ocDao;
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
+    private final TornSettingOcReassignManager ocReassignManager;
 
     /**
      * 为用户推荐OC队伍和岗位。
@@ -60,7 +63,8 @@ public class TornOcRecommendService {
      * <p>排序按最高胜任层级、真实停转时间、核心/大众层级和个人DAG边际执行。
      * 长期单位人天收益只保留诊断，不再决定现有队伍的跨OC顺序。同一OC的多个空位各自独立进入结果，
      * 允许一个OC占满Top N：抢位失败后同队的第二个岗位仍值得加入，不必再请求一次指令。
-     * 候选不因负ΔV被删除，只有严格准入后没有任何可填空位时才返回空。</p>
+     * 候选不因负ΔV被删除，只有严格准入后没有任何可填空位时才返回空。
+     * 存在大锅饭候选且当前岗位不属于大锅饭时忽略baseline，允许未开动成员直接跳入大锅饭。</p>
      *
      * @param user     用户
      * @param topN     返回Top N个推荐
@@ -90,6 +94,17 @@ public class TornOcRecommendService {
         List<OcRecommendCandidate> candidates = buildCandidates(recruitOcList, emptySlotList,
                 user.getFactionId(), userOcData, facts.estimates());
         OcRecommendCandidate baseline = buildBaseline(user, joinedOc, userOcData, facts);
+        // 有可填大锅饭岗位时不再下探；非大锅饭baseline不得阻挡成员进入大锅饭
+        Set<String> rotationOcNames = Set.copyOf(ocReassignManager.getRotationOcNames(user.getFactionId()));
+        List<OcRecommendCandidate> reassignCandidates = candidates.stream()
+                .filter(candidate -> rotationOcNames.contains(candidate.oc().getName()))
+                .toList();
+        if (!reassignCandidates.isEmpty()) {
+            candidates = reassignCandidates;
+            if (baseline != null && !rotationOcNames.contains(baseline.oc().getName())) {
+                baseline = null;
+            }
+        }
         List<TornFactionOcDO> marginOcList = withJoinedOc(recruitOcList, joinedOc);
         List<OcRecommendCandidate> marginInput = new ArrayList<>(candidates);
         if (baseline != null) {

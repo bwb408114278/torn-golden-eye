@@ -16,6 +16,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
@@ -57,6 +58,8 @@ class TornOcRecommendServiceTest {
     private TornFactionOcSlotDAO ocSlotDao;
     @Mock
     private TornFactionOcUserDAO ocUserDao;
+    @Mock
+    private TornSettingOcReassignManager ocReassignManager;
 
     private final OcRecommendRanker ranker = new OcRecommendRanker(new OcScarcityEstimator());
     private final OcFlowMarginService flowMarginService = mock(OcFlowMarginService.class,
@@ -75,7 +78,7 @@ class TornOcRecommendServiceTest {
     @BeforeEach
     void setUp() {
         recommendService = new TornOcRecommendService(ocRecommendManager, yieldEstimatorRegistry,
-                flowMarginService, ranker, ocDao, ocSlotDao, ocUserDao);
+                flowMarginService, ranker, ocDao, ocSlotDao, ocUserDao, ocReassignManager);
 
         user = new TornUserDO();
         user.setId(USER_ID);
@@ -100,7 +103,7 @@ class TornOcRecommendServiceTest {
     }
 
     @Test
-    @DisplayName("大锅饭名单外的OC也能进入推荐结果")
+    @DisplayName("没有大锅饭候选时名单外OC也能进入推荐结果")
     void recommend_shouldIncludeOcOutsideReassignRoster() {
         stubQuery(List.of(breakBankOc), List.of(breakBankSlot));
         stubEstimates(Map.of(2L, estimate(300_000_000L, 6)));
@@ -111,6 +114,48 @@ class TornOcRecommendServiceTest {
         assertThat(result.getFirst().getOcName()).isEqualTo(OC_BREAK_BANK);
         assertThat(result.getFirst().getRecommendScore()).isNotNull();
         assertThat(result.getFirst().getRecommendScore().signum()).isNotNegative();
+    }
+
+    @Test
+    @DisplayName("存在大锅饭候选时已停转低等级OC也不进入推荐")
+    void recommend_shouldOnlyUseReassignCandidatesWhenAvailable() {
+        TornFactionOcDO lowRankOc = buildOc(3L, "Smoke and Wing Mirrors", 3, LocalDateTime.now().minusDays(1));
+        TornFactionOcSlotDO lowRankSlot = buildEmptySlot(31L, 3L, "Car Thief#1");
+        stubQuery(List.of(lowRankOc, breakBankOc), List.of(lowRankSlot, breakBankSlot));
+        stubEstimates(Map.of(2L, estimate(300_000_000L, 6), 3L, estimate(30_000_000L, 4)));
+        when(ocReassignManager.getRotationOcNames(FACTION_HP)).thenReturn(List.of(OC_BREAK_BANK));
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
+
+        assertThat(result).extracting(OcRecommendationVO::getOcId).containsOnly(2L);
+    }
+
+    @Test
+    @DisplayName("大锅饭岗位能力不足时向下探索其他OC")
+    void recommend_shouldFallbackWhenReassignCandidateIsIneligible() {
+        TornFactionOcDO lowRankOc = buildOc(3L, "Smoke and Wing Mirrors", 3, LocalDateTime.now().minusDays(1));
+        TornFactionOcSlotDO lowRankSlot = buildEmptySlot(31L, 3L, "Car Thief#1");
+        stubQuery(List.of(lowRankOc, breakBankOc), List.of(lowRankSlot, breakBankSlot));
+        stubEstimates(Map.of(2L, estimate(300_000_000L, 6), 3L, estimate(30_000_000L, 4)));
+        when(ocReassignManager.getRotationOcNames(FACTION_HP)).thenReturn(List.of(OC_BREAK_BANK));
+        when(ocRecommendManager.resolveEligibility(anyLong(), eq(breakBankOc), any(), anyList()))
+                .thenReturn(new OcSlotEligibility(slotSetting, null));
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, null);
+
+        assertThat(result).extracting(OcRecommendationVO::getOcId).containsOnly(3L);
+    }
+
+    @Test
+    @DisplayName("未开动非大锅饭当前队不阻挡跳到大锅饭岗位")
+    void recommend_shouldIgnoreNonReassignBaselineWhenReassignCandidateExists() {
+        stubQuery(List.of(aceOc, breakBankOc), List.of(breakBankSlot));
+        stubEstimates(Map.of(1L, estimate(500_000_000L, 5), 2L, estimate(100_000_000L, 6)));
+        when(ocReassignManager.getRotationOcNames(FACTION_HP)).thenReturn(List.of(OC_BREAK_BANK));
+
+        List<OcRecommendationVO> result = recommendService.recommendOcForUser(user, 3, joinedOc);
+
+        assertThat(result).extracting(OcRecommendationVO::getOcId).containsOnly(2L);
     }
 
     @Test

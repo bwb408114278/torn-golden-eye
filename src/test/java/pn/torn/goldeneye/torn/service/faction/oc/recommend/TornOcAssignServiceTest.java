@@ -16,6 +16,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.setting.TornSettingOcSlotDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcRecommendationVO;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcSlotEligibility;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.OcYieldEstimate;
@@ -61,6 +62,8 @@ class TornOcAssignServiceTest {
     private TornFactionOcUserDAO ocUserDao;
     @Mock
     private TornUserDAO userDao;
+    @Mock
+    private TornSettingOcReassignManager ocReassignManager;
 
     private final OcRecommendRanker ranker = new OcRecommendRanker(new OcScarcityEstimator());
     private final OcFlowMarginService flowMarginService = mock(OcFlowMarginService.class,
@@ -74,7 +77,7 @@ class TornOcAssignServiceTest {
     @BeforeEach
     void setUp() {
         assignService = new TornOcAssignService(ocRecommendManager, yieldEstimatorRegistry, flowMarginService, ranker,
-                ocDao, ocSlotDao, ocUserDao, userDao);
+                ocDao, ocSlotDao, ocUserDao, userDao, ocReassignManager);
 
         user = new TornUserDO();
         user.setId(USER_ID);
@@ -97,7 +100,7 @@ class TornOcAssignServiceTest {
     }
 
     @Test
-    @DisplayName("大锅饭名单外的OC也能参与批量分配")
+    @DisplayName("没有大锅饭候选时名单外OC也能参与批量分配")
     void assign_shouldIncludeOcOutsideReassignRoster() {
         TornFactionOcDO oc = buildOc(1L, LocalDateTime.now().plusDays(1));
         TornFactionOcSlotDO slot = buildSlot(11L, oc.getId());
@@ -107,6 +110,41 @@ class TornOcAssignServiceTest {
                 FACTION_ID, Map.of(user, List.of(userData)));
 
         assertThat(result.get(user)).isNotNull();
+        assertThat(result.get(user).getOcId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("存在大锅饭候选时已停转名单外OC也不参与分配")
+    void assign_shouldOnlyUseReassignCandidatesWhenAvailable() {
+        TornFactionOcDO pausedOc = buildOc(1L, LocalDateTime.now().minusDays(1));
+        TornFactionOcDO reassignOc = buildOc(2L, LocalDateTime.now().plusDays(1));
+        stubCandidates(List.of(pausedOc, reassignOc),
+                List.of(buildSlot(11L, 1L), buildSlot(21L, 2L)),
+                Map.of(1L, estimate(100_000_000L, 6), 2L, estimate(300_000_000L, 6)));
+        when(ocReassignManager.getRotationOcNames(FACTION_ID)).thenReturn(List.of("OC2"));
+
+        Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
+                FACTION_ID, Map.of(user, List.of(userData)));
+
+        assertThat(result.get(user).getOcId()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("大锅饭岗位能力不足时分配向下探索其他OC")
+    void assign_shouldFallbackWhenReassignCandidateIsIneligible() {
+        TornFactionOcDO pausedOc = buildOc(1L, LocalDateTime.now().minusDays(1));
+        TornFactionOcDO reassignOc = buildOc(2L, LocalDateTime.now().plusDays(1));
+        TornFactionOcSlotDO pausedSlot = buildSlot(11L, 1L);
+        TornFactionOcSlotDO reassignSlot = buildSlot(21L, 2L);
+        stubCandidates(List.of(pausedOc, reassignOc), List.of(pausedSlot, reassignSlot),
+                Map.of(1L, estimate(100_000_000L, 6), 2L, estimate(300_000_000L, 6)));
+        when(ocReassignManager.getRotationOcNames(FACTION_ID)).thenReturn(List.of("OC2"));
+        when(ocRecommendManager.resolveEligibility(FACTION_ID, reassignOc, reassignSlot, List.of(userData)))
+                .thenReturn(new OcSlotEligibility(setting, null));
+
+        Map<TornUserDO, OcRecommendationVO> result = assignService.assignUserList(
+                FACTION_ID, Map.of(user, List.of(userData)));
+
         assertThat(result.get(user).getOcId()).isEqualTo(1L);
     }
 

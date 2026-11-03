@@ -14,6 +14,7 @@ import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcSlotDO;
 import pn.torn.goldeneye.repository.model.faction.oc.TornFactionOcUserDO;
 import pn.torn.goldeneye.repository.model.user.TornUserDO;
 import pn.torn.goldeneye.torn.manager.faction.crime.recommend.TornOcRecommendManager;
+import pn.torn.goldeneye.torn.manager.setting.TornSettingOcReassignManager;
 import pn.torn.goldeneye.torn.model.faction.crime.recommend.*;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.OcYieldEstimatorRegistry;
 import pn.torn.goldeneye.torn.service.faction.oc.recommend.metric.flow.OcFlowMarginService;
@@ -30,7 +31,7 @@ import java.util.stream.Collectors;
  * OC队伍分配基础逻辑层
  *
  * <p>与单人推荐共用同一套DAG边际与排序：候选先计算个人相对标尺替补的期望收益增量，
- * 再按最高胜任等级、实际停转时间和岗位层级排序，不再按大锅饭名单剪枝，也不再有第二套评分公式。
+ * 严格准入后优先保留大锅饭候选，没有可填的大锅饭岗位时才向下探索，再按现有排序规则分配。
  * 评分恒非负，不做「评分不为正就不分配」的过滤；没有可填空位时该成员结果为null。
  * 分配过程只把「预期开动时间」放进局部Map，不再就地改写共享的OC对象，因此不存在需要回滚的状态。</p>
  *
@@ -50,6 +51,7 @@ public class TornOcAssignService {
     private final TornFactionOcSlotDAO ocSlotDao;
     private final TornFactionOcUserDAO ocUserDao;
     private final TornUserDAO userDao;
+    private final TornSettingOcReassignManager ocReassignManager;
 
     /**
      * 为空闲人员推荐队伍和岗位
@@ -189,6 +191,14 @@ public class TornOcAssignService {
                                            TreeMap<TornFactionOcDO, List<TornFactionOcSlotDO>> vacantSlots,
                                            AllocationFacts facts) {
         List<OcRecommendCandidate> candidates = buildCandidates(user, userOcData, vacantSlots, facts);
+        // 严格准入后优先大锅饭，没有可填的大锅饭岗位时才向下探索
+        Set<String> rotationOcNames = Set.copyOf(ocReassignManager.getRotationOcNames(user.getFactionId()));
+        List<OcRecommendCandidate> reassignCandidates = candidates.stream()
+                .filter(candidate -> rotationOcNames.contains(candidate.oc().getName()))
+                .toList();
+        if (!reassignCandidates.isEmpty()) {
+            candidates = reassignCandidates;
+        }
         candidates = ocFlowMarginService.apply(candidates, user.getFactionId(), facts.ocList(), facts.allSlots(),
                 facts.allocatedPassRates());
         OcRankContext context = new OcRankContext(facts.emptySlotsByOc(), user.getId(),

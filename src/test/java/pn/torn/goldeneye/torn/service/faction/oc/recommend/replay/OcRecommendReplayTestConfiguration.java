@@ -141,15 +141,22 @@ public class OcRecommendReplayTestConfiguration {
     }
 
     @Bean
+    TornSettingOcReassignManager tornSettingOcReassignManager(
+            TornSettingOcReassignFactionDAO reassignFactionDAO, TornSettingOcReassignOcDAO reassignOcDAO) {
+        return new TornSettingOcReassignManager(reassignFactionDAO, reassignOcDAO);
+    }
+
+    @Bean
     TornOcRecommendService tornOcRecommendService(TornOcRecommendManager recommendManager,
                                                   OcYieldEstimatorRegistry registry,
                                                   OcFlowMarginService flowMarginService,
                                                   OcRecommendRanker ranker,
                                                   TornFactionOcDAO ocDAO,
                                                   TornFactionOcSlotDAO slotDAO,
-                                                  TornFactionOcUserDAO ocUserDAO) {
+                                                  TornFactionOcUserDAO ocUserDAO,
+                                                  TornSettingOcReassignManager reassignManager) {
         return new TornOcRecommendService(recommendManager, registry, flowMarginService,
-                ranker, ocDAO, slotDAO, ocUserDAO);
+                ranker, ocDAO, slotDAO, ocUserDAO, reassignManager);
     }
 
     @Bean
@@ -160,8 +167,9 @@ public class OcRecommendReplayTestConfiguration {
                                             TornFactionOcDAO ocDAO,
                                             TornFactionOcSlotDAO slotDAO,
                                             TornFactionOcUserDAO ocUserDAO,
-                                            TornUserDAO userDAO) {
+                                            TornUserDAO userDAO,
+                                            TornSettingOcReassignManager reassignManager) {
         return new TornOcAssignService(recommendManager, registry, flowMarginService,
-                ranker, ocDAO, slotDAO, ocUserDAO, userDAO);
+                ranker, ocDAO, slotDAO, ocUserDAO, userDAO, reassignManager);
     }
 }

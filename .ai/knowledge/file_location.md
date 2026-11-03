@@ -4,7 +4,7 @@
 - 文档类型：项目文件位置 知识库
 - 适用项目：Golden-Eye
 - 适用版本：1.2.0及以上
-- 最后更新：2026.10.23
+- 最后更新：2026.11.02
 - 维护人：Bai
 - 状态：有效
 
@@ -21,6 +21,11 @@
 ```text
 ├── .ai/                                                                                # AI协作知识库与任务规范
 │   └── knowledge/                                                                      # AI知识库
+│       ├── items/                                                                      # Torn物品价格与交易提醒知识库
+│       │   ├── item_price_festival_research.md                                         # 物品节日周期、净供给与异动研究证据
+│       │   ├── item_price_festival_item_candidates.md                                  # 八节日单物品正式候选/观察/排除完整研究清单(1.0)
+│       │   ├── item_price_alert_business_baseline.md                                   # VIP物品短窗/跨季节囤货/清货/异常提醒业务基线(1.2)
+│       │   └── item_price_alert_technical_design.md                                    # 物品双轨交易提醒逐文件技术方案与Review标准(1.2)
 │       ├── oc/                                                                         # Torn OC相关知识库
 │       │   ├── oc_delay_attribution_technical_design.md                                # OC延误归因（原因/时长/采样与验收基线）技术方案
 │       │   ├── oc_rate_table_html_migration_technical_design.md                        # 用户OC成功率表HTML迁移（五档色阶/双维星级/级别分组）技术方案(1.9.0)
@@ -49,9 +54,6 @@
 │       └── automated_build_deployment_pipeline_design.md                               # 自动流水线构建部署设计方案
 ├── build/                                                                              # 构建项目镜像需要的文件
 │   └── docker-compose.yml                                                              # Docker compose启动文件
-├── db/                                                                                 # 待执行的数据脚本目录
-│   └── pending/                                                                        # 待用户执行的只读SQL(修数/校验)
-│       └── 20261023_oc_expected_reward_fix.sql                                         # 大锅饭映射值口径B修数(Ship Happens/Cleared for Takeoff)
 ├── src/                                                                                # 代码根目录
 │   ├── main/                                                                           # 功能代码
 │   │   ├── java/pn/torn/goldeneye/                                                     # java代码根目录

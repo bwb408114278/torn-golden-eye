@@ -86,8 +86,8 @@ public class TornSettingOcReassignManager implements DataCacheManager {
      *
      * <p>派生规则：帮派开关启用且范围行启用的oc_name列表；帮派未启用时返回空列表。</p>
      *
-     * <p>该方法只表达「分钱池包含哪些OC」，<b>推荐准入不得调用</b>：推荐候选池是该帮派全部空位，
-     * 名单只决定收益算哪些OC。</p>
+     * <p>推荐与分配在严格成功率准入后调用本方法：存在可填的大锅饭候选时只保留这些候选，
+     * 没有可填的大锅饭岗位时才向下探索其他OC；名单不改变后续DAG与排序公式。</p>
      *
      * @param factionId 帮派ID
      * @return 大锅饭OC名单
